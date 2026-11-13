@@ -1,6 +1,6 @@
 //! Single-use password reset credentials, stored only as digests, outside any organization.
 
-use crate::db::{Dialect, Id};
+use crate::db::{Dialect, Id, Scope};
 use crate::sessions;
 use crate::{Store, StoreError};
 
@@ -42,6 +42,7 @@ impl Store {
     }
 
     /// Consumes a live credential, changes its user's password and ends all sessions atomically.
+    /// Every other credential of the user goes with it: they were issued for the old password.
     /// Returns the user whose sessions ended, or none for an unavailable credential.
     ///
     /// # Errors
@@ -79,6 +80,7 @@ impl Store {
             if scope.execute(take).await? == 0 {
                 return Ok(None);
             }
+            delete_password_resets_of_user(scope, &user_id).await?;
             let mut change = scope.sql("UPDATE users SET password_hash = ");
             change
                 .bind(password_hash)
@@ -90,4 +92,16 @@ impl Store {
         })
         .await
     }
+}
+
+/// Removes every reset credential of a user, whose password was just set: a link
+/// issued before then must not set it again.
+pub(crate) async fn delete_password_resets_of_user(
+    scope: &mut Scope<'_>,
+    user_id: &str,
+) -> Result<(), StoreError> {
+    let mut sql = scope.sql("DELETE FROM password_resets WHERE user_id = ");
+    sql.bind(Id(user_id));
+    scope.execute(sql).await?;
+    Ok(())
 }

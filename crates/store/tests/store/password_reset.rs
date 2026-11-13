@@ -148,3 +148,82 @@ async fn accounts_without_passwords_never_get_reset_credentials() {
     );
     test.teardown().await;
 }
+
+#[tokio::test]
+async fn setting_a_password_any_way_revokes_every_earlier_reset_credential() {
+    let test = common::setup().await;
+    let account = user(&test, "old").await;
+    for digest in ["used", "sibling"] {
+        assert!(
+            test.create_password_reset(&account.id, digest, 100)
+                .await
+                .expect("reset stored")
+        );
+    }
+    let ended = test
+        .consume_password_reset("used", "reset", 101)
+        .await
+        .expect("consumed");
+    assert_eq!(ended.as_deref(), Some(account.id.as_str()));
+    assert!(
+        test.consume_password_reset("sibling", "again", 102)
+            .await
+            .expect("refused")
+            .is_none(),
+        "a link sent before the reset does not set the password again"
+    );
+
+    let kept = Session {
+        id: new_id(),
+        user_id: account.id.clone(),
+        created_at: 10,
+        expires_at: i64::MAX,
+        ..Session::default()
+    };
+    assert!(
+        test.create_session(&kept, "kept", "reset")
+            .await
+            .expect("session created")
+    );
+    assert!(
+        test.create_password_reset(&account.id, "before-change", 200)
+            .await
+            .expect("reset stored")
+    );
+    assert!(
+        test.change_user_password(&account.id, "reset", "changed", &kept.id, "kept-anew")
+            .await
+            .expect("changed")
+    );
+    assert!(
+        test.consume_password_reset("before-change", "again", 201)
+            .await
+            .expect("refused")
+            .is_none(),
+        "changing the password revokes the links"
+    );
+
+    assert!(
+        test.create_password_reset(&account.id, "before-operator", 300)
+            .await
+            .expect("reset stored")
+    );
+    test.reset_user_password(&account.username, "operator")
+        .await
+        .expect("set by the operator");
+    assert!(
+        test.consume_password_reset("before-operator", "again", 301)
+            .await
+            .expect("refused")
+            .is_none(),
+        "a password the operator sets revokes the links"
+    );
+    assert_eq!(
+        test.get_user_by_id(&account.id)
+            .await
+            .expect("user")
+            .password_hash,
+        "operator"
+    );
+    test.teardown().await;
+}

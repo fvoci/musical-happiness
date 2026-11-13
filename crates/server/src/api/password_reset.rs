@@ -34,7 +34,8 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 /// Finish resetting a password
 ///
 /// Consumes a reset token before its one-hour expiry and sets the new password.
-/// All of the account's sessions and WebSocket connections end. A missing, expired
+/// All of the account's sessions and WebSocket connections end, and so do its other
+/// reset links, as they do when the password is changed or set by an operator. A missing, expired
 /// or already used token answers the same 400, naming `token` in `errors`.
 #[utoipa::path(
     post, path = "/password-reset/complete", operation_id = "completePasswordReset",

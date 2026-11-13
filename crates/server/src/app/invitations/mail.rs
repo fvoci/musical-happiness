@@ -78,12 +78,13 @@ impl App {
         let workspace_id = workspace_id.to_owned();
         let sender = sender.to_owned();
         self.spawn_background(async move {
-            if app
+            // The cause is the store's, a refusal, or a fixed text: SMTP replies never
+            // reach it.
+            if let Err(error) = app
                 .deliver_invitation(&workspace_id, &sender, request, queued)
                 .await
-                .is_err()
             {
-                tracing::warn!("invitation mail delivery failed");
+                tracing::warn!(%error, "invitation mail delivery failed");
             }
         });
         Ok(())

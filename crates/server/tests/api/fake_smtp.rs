@@ -71,7 +71,7 @@ impl FakeSmtp {
         fvoci_server::config::smtp::SmtpSettings {
             smtp_host: "127.0.0.1".to_owned(),
             smtp_port: self.port,
-            smtp_tls: "none".to_owned(),
+            smtp_tls: fvoci_server::config::smtp::SmtpTls::Unencrypted,
             smtp_from: "sender@example.test".to_owned(),
             ..Default::default()
         }

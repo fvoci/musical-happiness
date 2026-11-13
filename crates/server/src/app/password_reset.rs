@@ -68,8 +68,9 @@ impl App {
         let app = self.clone();
         let language = Language::of(language);
         Ok(async move {
-            if app.mail_password_reset(&email, language).await.is_err() {
-                tracing::warn!("password recovery delivery failed");
+            // The cause is the store's or a fixed text: SMTP replies never reach it.
+            if let Err(error) = app.mail_password_reset(&email, language).await {
+                tracing::warn!(%error, "password recovery delivery failed");
             }
         })
     }

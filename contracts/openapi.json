@@ -4850,7 +4850,7 @@
     },
     "/api/v1/password-reset/complete": {
       "post": {
-        "description": "Consumes a reset token before its one-hour expiry and sets the new password.\nAll of the account's sessions and WebSocket connections end. A missing, expired\nor already used token answers the same 400, naming `token` in `errors`.",
+        "description": "Consumes a reset token before its one-hour expiry and sets the new password.\nAll of the account's sessions and WebSocket connections end, and so do its other\nreset links, as they do when the password is changed or set by an operator. A missing, expired\nor already used token answers the same 400, naming `token` in `errors`.",
         "operationId": "completePasswordReset",
         "requestBody": {
           "content": {

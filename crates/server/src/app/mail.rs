@@ -14,7 +14,7 @@ use mail_builder::MessageBuilder;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use crate::auth::limiter::RetryAfter;
-use crate::config::smtp::SmtpSettings;
+use crate::config::smtp::{SmtpSettings, SmtpTls};
 
 pub(super) use content::{Content, Language};
 
@@ -25,7 +25,11 @@ const INVITATION_CONNECTIONS: usize = CONNECTIONS - 1;
 /// A whole SMTP attempt, including connection and all commands, gets ten seconds.
 const ATTEMPT_TIMEOUT: Duration = Duration::from_secs(10);
 /// The first attempt plus two retries, after one and four seconds, bounds delivery work.
-const RETRY_DELAYS: [u64; 3] = [0, 1, 4];
+const RETRY_DELAYS: [Duration; 3] = [
+    Duration::ZERO,
+    Duration::from_secs(1),
+    Duration::from_secs(4),
+];
 
 struct Transport {
     smtp: AsyncSmtpTransport<Tokio1Executor>,
@@ -68,15 +72,25 @@ impl std::fmt::Debug for Mailer {
 }
 
 impl Mailer {
-    pub(super) fn new(settings: &SmtpSettings) -> anyhow::Result<Self> {
+    /// `server_root` is where the links of the mail lead.
+    pub(super) fn new(settings: &SmtpSettings, server_root: &str) -> anyhow::Result<Self> {
         settings.check()?;
+        if settings.enabled() && is_loopback_root(server_root) {
+            tracing::warn!(
+                server_root,
+                "mail is sent, but serverroot is a loopback address: its links lead nowhere \
+                 for their recipients"
+            );
+        }
         let transport = if settings.enabled() {
-            let mut builder = match settings.smtp_tls.as_str() {
-                "tls" => AsyncSmtpTransport::<Tokio1Executor>::relay(&settings.smtp_host)?,
-                "starttls" => {
+            let mut builder = match settings.smtp_tls {
+                SmtpTls::Tls => AsyncSmtpTransport::<Tokio1Executor>::relay(&settings.smtp_host)?,
+                SmtpTls::Starttls => {
                     AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&settings.smtp_host)?
                 }
-                _ => AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(&settings.smtp_host),
+                SmtpTls::Unencrypted => {
+                    AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(&settings.smtp_host)
+                }
             }
             .port(settings.smtp_port)
             .timeout(Some(ATTEMPT_TIMEOUT));
@@ -150,6 +164,22 @@ impl Mailer {
     }
 }
 
+/// Whether `server_root` names this machine only, as the default does.
+fn is_loopback_root(server_root: &str) -> bool {
+    let authority = server_root
+        .split_once("://")
+        .map_or(server_root, |(_, rest)| rest)
+        .split('/')
+        .next()
+        .unwrap_or_default();
+    let host = match authority.strip_prefix('[') {
+        Some(bracketed) => bracketed.split(']').next(),
+        None => authority.split(':').next(),
+    }
+    .unwrap_or_default();
+    host.eq_ignore_ascii_case("localhost") || host.starts_with("127.") || host == "::1"
+}
+
 /// One message's place in its queue, held until the message was delivered or given up.
 #[derive(Debug)]
 pub(super) struct Queued {
@@ -220,7 +250,7 @@ impl Delivery {
             .html_body(content.html)
             .write_to_vec()?;
         for (attempt, delay) in RETRY_DELAYS.into_iter().enumerate() {
-            tokio::time::sleep(Duration::from_secs(delay)).await;
+            tokio::time::sleep(delay).await;
             if matches!(
                 tokio::time::timeout(
                     ATTEMPT_TIMEOUT,
@@ -235,5 +265,29 @@ impl Delivery {
             tracing::warn!(attempt = attempt + 1, "SMTP delivery attempt failed");
         }
         anyhow::bail!("SMTP delivery failed after three attempts")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_root_on_this_machine_only_is_told_apart() {
+        for root in [
+            "http://localhost:8000",
+            "http://127.0.0.1/boards",
+            "https://[::1]:8443",
+            "http://LOCALHOST",
+        ] {
+            assert!(is_loopback_root(root), "{root}");
+        }
+        for root in [
+            "https://boards.example.test",
+            "http://10.0.0.5:8000",
+            "https://[2001:db8::1]",
+        ] {
+            assert!(!is_loopback_root(root), "{root}");
+        }
     }
 }

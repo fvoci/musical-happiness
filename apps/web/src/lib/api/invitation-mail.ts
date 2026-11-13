@@ -14,7 +14,12 @@ export class ServerInvitationMail implements InvitationMail {
   available(): Promise<boolean> {
     return (this.#available ??= this.#http
       .request<Schemas['LoginOptions']>('/api/v1/login-options', {})
-      .then((options) => options.mailEnabled));
+      .then((options) => options.mailEnabled)
+      .catch((error: unknown) => {
+        // A failed read is asked again next time, rather than hiding mail for good.
+        this.#available = undefined;
+        throw error;
+      }));
   }
 
   async send(

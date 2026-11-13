@@ -17,6 +17,22 @@ pub(super) const ENV_KEYS: [(&str, super::EnvKind); 10] = [
     ("invitation_mail_per_hour", super::EnvKind::Number),
 ];
 
+/// How the connection to the SMTP server is protected; a value that is none of these
+/// is refused when the configuration is read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[cfg_attr(test, derive(serde::Serialize))]
+#[serde(rename_all = "lowercase")]
+pub enum SmtpTls {
+    /// A plain connection that must be upgraded with STARTTLS.
+    #[default]
+    Starttls,
+    /// TLS from the first byte.
+    Tls,
+    /// No encryption at all, chosen explicitly.
+    #[serde(rename = "none")]
+    Unencrypted,
+}
+
 /// The SMTP settings, flattened into the main configuration file.
 #[derive(Clone, Deserialize)]
 #[cfg_attr(test, derive(serde::Serialize))]
@@ -27,7 +43,7 @@ pub struct SmtpSettings {
     /// TCP port of the SMTP server.
     pub smtp_port: u16,
     /// Required TLS mode: `starttls`, `tls`, or explicitly unencrypted `none`.
-    pub smtp_tls: String,
+    pub smtp_tls: SmtpTls,
     /// SMTP authentication user; empty for no authentication.
     pub smtp_user: String,
     /// SMTP authentication password; omitted from debug output.
@@ -49,7 +65,7 @@ impl Default for SmtpSettings {
         Self {
             smtp_host: String::new(),
             smtp_port: 587,
-            smtp_tls: "starttls".to_owned(),
+            smtp_tls: SmtpTls::Starttls,
             smtp_user: String::new(),
             smtp_password: String::new(),
             smtp_from: String::new(),
@@ -97,9 +113,6 @@ impl SmtpSettings {
     /// # Errors
     /// Returns an error naming invalid or incomplete settings, without credentials.
     pub fn check(&self) -> anyhow::Result<()> {
-        if !["starttls", "tls", "none"].contains(&self.smtp_tls.as_str()) {
-            bail!("smtp_tls must be starttls, tls or none");
-        }
         if self.smtp_port == 0 {
             bail!("smtp_port must be 1 to 65535");
         }
@@ -146,8 +159,12 @@ mod tests {
     fn mail_is_optional_and_incomplete_or_injected_settings_are_refused() {
         assert!(!SmtpSettings::default().enabled());
         SmtpSettings::default().check().expect("disabled mail");
+        let json = serde_json::json!({"smtp_host":"smtp.example.test","smtp_tls":"optional"});
+        assert!(
+            Configuration::parse(&json.to_string(), |_| None).is_err(),
+            "an unknown TLS mode is never taken for an unencrypted one"
+        );
         for (key, value) in [
-            ("smtp_tls", "optional"),
             ("smtp_from", "sender@example.test\r\nBcc:other@example.test"),
             ("smtp_host", "smtp.example.test\nEHLO evil"),
         ] {

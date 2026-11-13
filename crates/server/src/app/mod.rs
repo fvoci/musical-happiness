@@ -254,7 +254,7 @@ impl App {
             workspace: None,
             inner: Arc::new(Inner {
                 reset_limiter: LoginLimiter::new(Limits::from_config(&config)),
-                mail: mail::Mailer::new(&config.smtp)?,
+                mail: mail::Mailer::new(&config.smtp, &config.server_root)?,
                 config,
                 auth,
                 login_limiter,

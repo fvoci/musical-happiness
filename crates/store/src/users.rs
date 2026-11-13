@@ -17,6 +17,7 @@ use crate::Store;
 use crate::db::{Dialect, Id, Row, Scope, Sql, now_millis};
 use crate::error::{StoreError, Taken};
 use crate::members;
+use crate::password_reset;
 use crate::sessions;
 
 /// The columns of a user, in the order [`user_from_row`] reads them.
@@ -274,6 +275,7 @@ impl Store {
                 .ok_or_else(|| StoreError::UserNotFound(username.to_owned()))?;
             let user_id = row.id(0)?;
             sessions::delete_sessions_of_user(scope, &user_id).await?;
+            password_reset::delete_password_resets_of_user(scope, &user_id).await?;
             Ok(user_id)
         })
         .await
@@ -315,6 +317,7 @@ impl Store {
             sessions::delete_other_sessions_of_user(scope, user_id, kept_session_id).await?;
             sessions::replace_token_digest(scope, kept_session_id, kept_session_token_digest)
                 .await?;
+            password_reset::delete_password_resets_of_user(scope, user_id).await?;
             Ok(true)
         })
         .await

@@ -578,7 +578,8 @@ export interface paths {
         /**
          * Finish resetting a password
          * @description Consumes a reset token before its one-hour expiry and sets the new password.
-         *     All of the account's sessions and WebSocket connections end. A missing, expired
+         *     All of the account's sessions and WebSocket connections end, and so do its other
+         *     reset links, as they do when the password is changed or set by an operator. A missing, expired
          *     or already used token answers the same 400, naming `token` in `errors`.
          */
         post: operations["completePasswordReset"];
