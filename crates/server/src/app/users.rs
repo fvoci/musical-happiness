@@ -1,6 +1,8 @@
 //! Users and their preferences.
 
-use fvoci_model::{User, UserPreferencesPatch, UserSettings, UserSettingsPatch, WorkspaceRole};
+use fvoci_model::{
+    BoardMember, User, UserPreferencesPatch, UserSettings, UserSettingsPatch, WorkspaceRole,
+};
 use fvoci_store::{AdminChange, InstanceRole, Looking, Preference, Sight};
 
 use super::App;
@@ -8,6 +10,15 @@ use crate::error::{AppError, Reason};
 use crate::permissions;
 
 impl App {
+    /// The user's board memberships in their live workspaces, across organizations.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if the memberships cannot be read.
+    pub async fn board_memberships(&self, user_id: &str) -> Result<Vec<BoardMember>, AppError> {
+        Ok(self.store().board_memberships_of_user(user_id).await?)
+    }
+
     /// Sets the name the user is shown by; empty for none. Returns the user as stored.
     ///
     /// # Errors

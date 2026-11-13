@@ -20,13 +20,20 @@ impl Audience {
         Self { store }
     }
 
-    /// The identifier of the board the block belongs to.
+    /// The board of a block in the named workspace, if its public read token opens it.
     ///
     /// # Errors
     ///
-    /// Returns the store's error if there is no such block, or the query fails.
-    pub async fn board_of_block(&self, block_id: &str) -> Result<String, StoreError> {
-        Ok(self.store.get_block(block_id).await?.board_id)
+    /// Returns the store's error if either lookup fails.
+    pub async fn board_of_shared_block(
+        &self,
+        workspace_id: &str,
+        block_id: &str,
+        read_token: &str,
+    ) -> Result<Option<String>, StoreError> {
+        self.store
+            .board_of_shared_block(workspace_id, block_id, read_token)
+            .await
     }
 
     /// Whether the user is a member of the workspace, a guest too (`App::actor`). What

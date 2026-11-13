@@ -135,7 +135,7 @@ async fn handle_get_my_memberships(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
 ) -> ApiResult {
-    let members = app.store().get_members_for_user(&session.user_id).await?;
+    let members = app.board_memberships(&session.user_id).await?;
     Ok(json_response(&members))
 }
 

@@ -505,7 +505,11 @@ impl Hub {
         }
         let mut board_id = String::new();
         for block_id in &command.block_ids {
-            let of_block = self.audience.board_of_block(block_id).await.ok()?;
+            let of_block = self
+                .audience
+                .board_of_shared_block(&command.workspace_id, block_id, &command.read_token)
+                .await
+                .ok()??;
             if board_id.is_empty() {
                 board_id = of_block;
             } else if board_id != of_block {

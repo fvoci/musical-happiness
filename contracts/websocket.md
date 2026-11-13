@@ -33,7 +33,7 @@
 |---|---|---|---|
 | `SUBSCRIBE_WORKSPACE` | 필요 | `workspaceId` | 그 워크스페이스의 변경을 받는다(3절). 같은 워크스페이스를 다시 구독해도 한 번이다 |
 | `UNSUBSCRIBE_WORKSPACE` | 필요 | `workspaceId` | 그만 받는다 |
-| `SUBSCRIBE_BLOCKS` | 없어도 된다 | `workspaceId`, `readToken`, `blockIds` | 공유 보드의 블록들을 읽기 토큰으로 따라간다. `blockIds`가 모두 한 보드의 것이고 `readToken`이 그 보드의 공유 토큰이며 `workspaceId`가 비어 있지 않아야 한다. 하나라도 어긋나면 명령 전체를 무시한다 |
+| `SUBSCRIBE_BLOCKS` | 없어도 된다 | `workspaceId`, `readToken`, `blockIds` | 공유 보드의 블록들을 읽기 토큰으로 따라간다. `blockIds`가 모두 한 보드의 것이고 `readToken`이 그 보드의 공유 토큰이며 `workspaceId`가 그 보드의 워크스페이스여야 한다. 하나라도 어긋나면 명령 전체를 무시한다 |
 | `UNSUBSCRIBE_BLOCKS` | 없어도 된다 | 같다 | 그 블록들을 그만 따라간다. 같은 검사를 한다 |
 | `JOIN_DOC` | 필요 | `workspaceId`, `cardId` | 카드 본문을 함께 고치는 방에 들어간다(6절). 답은 `DOC_JOINED`나 `DOC_REFUSED` |
 | `LEAVE_DOC` | 필요 | `doc` | `DOC_JOINED`가 알려 준 번호의 방에서 나온다. 답이 없다 |

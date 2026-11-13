@@ -122,6 +122,18 @@ async fn exercise_workspace(client: &Client, workspace: &str, name: &str) {
         .ok_json();
     assert_eq!(found.len(), 1, "search finds this founder's board");
     assert_eq!(found[0].id, board, "search returns the copied board");
+    let memberships = client.get("/users/me/memberships").await;
+    memberships.check_ok();
+    assert_eq!(
+        memberships.value().as_array().expect("memberships").len(),
+        1,
+        "only the founder's copied board is listed"
+    );
+    assert_eq!(
+        memberships.value()[0]["boardId"],
+        board,
+        "the global membership lookup reaches the right organization"
+    );
     exercise_people_and_trash(client, &path, &user.id, &board).await;
     client
         .post(&format!("{path}/onboard"), &json!({}))
@@ -159,4 +171,82 @@ async fn exercise_people_and_trash(client: &Client, path: &str, user_id: &str, b
         .post(&format!("{path}/boards/{board}/undelete"), &json!({}))
         .await
         .check_ok();
+}
+
+/// Starting an empty server makes no customer organization. Competing first signups
+/// create exactly one organization and one administrator in a closed instance.
+#[tokio::test]
+async fn the_first_signup_creates_the_organization_atomically() {
+    let server = Setup::native().on_an_empty_database().start().await;
+    assert!(
+        server
+            .app
+            .store()
+            .instance_organization()
+            .await
+            .expect("the directory is read")
+            .is_none(),
+        "startup creates no customer organization"
+    );
+    let first = server.anonymous();
+    let second = server.anonymous();
+    let registration = |name: &str| {
+        json!({
+            "username": name, "email": format!("{name}@example.test"),
+            "password": PASSWORD, "organizationName": name,
+        })
+    };
+    let (alpha, beta) = (registration("alpha"), registration("beta"));
+    let (a, b) = tokio::join!(
+        first.post("/register", &alpha),
+        second.post("/register", &beta)
+    );
+    let successes = [&a, &b]
+        .into_iter()
+        .filter(|answer| answer.status == reqwest::StatusCode::CREATED)
+        .count();
+    assert_eq!(
+        successes,
+        1,
+        "one first signup succeeds: {} / {}",
+        a.text(),
+        b.text()
+    );
+    for answer in [&a, &b] {
+        if answer.status == reqwest::StatusCode::CREATED {
+            assert_eq!(
+                answer.value()["isAdmin"],
+                true,
+                "the first user is the administrator"
+            );
+        } else {
+            assert_eq!(
+                answer.status,
+                reqwest::StatusCode::FORBIDDEN,
+                "the late signup needs an invitation"
+            );
+        }
+    }
+    assert_eq!(
+        server
+            .app
+            .store()
+            .system()
+            .count_rows("organizations")
+            .await
+            .expect("organizations are counted"),
+        2,
+        "only the system and the first user's organization exist"
+    );
+    assert_eq!(
+        server
+            .app
+            .store()
+            .get_registered_user_count()
+            .await
+            .expect("accounts are counted"),
+        1,
+        "the rejected signup creates no account"
+    );
+    server.teardown().await;
 }

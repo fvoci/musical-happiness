@@ -24,7 +24,6 @@ crates/server/src/api/sharing.rs     fvoci_store::SharingChange                 
 crates/server/src/api/sharing.rs     fvoci_store::SharingChange::Off                      1
 crates/server/src/api/sharing.rs     fvoci_store::SharingChange::On                       1
 crates/server/src/api/sharing.rs     fvoci_store::SharingChange::OnWithNewToken           1
-crates/server/src/api/users.rs       .store().get_members_for_user                        1
 crates/server/src/api/users.rs       fvoci_store::InstanceRole                            1
 crates/server/src/api/users.rs       fvoci_store::InstanceRole::Administrator             1
 crates/server/src/api/users.rs       fvoci_store::InstanceRole::User                      1

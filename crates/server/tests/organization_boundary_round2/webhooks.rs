@@ -93,7 +93,6 @@ async fn a_global_webhook_receives_each_scoped_background_change_with_its_own_bo
 }
 
 #[tokio::test]
-#[ignore = "O5c: a second organization's read token gets no card update over the WebSocket"]
 async fn a_second_orgs_read_token_can_subscribe_to_its_card_updates() {
     if db_type_of_the_tests() != DbType::Postgres {
         return;

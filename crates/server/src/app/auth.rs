@@ -260,7 +260,7 @@ impl App {
     /// Makes the account of somebody who signs up, and the organization they start by
     /// it, and returns the account: the user administers the organization and its
     /// first workspace, which both have the name of the request. The first user of the
-    /// instance takes the organization the server started with, and administers the instance;
+    /// instance creates its first organization and administers the instance;
     /// everybody after starts a new organization, where the server takes several. The
     /// caller has tidied and checked the request (`RegisterRequest::tidied`,
     /// `RegisterRequest::validate`).

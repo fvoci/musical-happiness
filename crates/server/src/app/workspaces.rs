@@ -1,5 +1,4 @@
-//! Workspaces: which a user is a member of, the way into one, and the workspaces of the
-//! organization the routes that name no workspace in their path work in. And the way
+//! Workspaces: which a user is a member of and the way into one. And the way
 //! into an organization: for its administrators, and for a sign-in through its
 //! provider.
 

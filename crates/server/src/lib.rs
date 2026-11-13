@@ -134,9 +134,6 @@ impl Server {
             Some(address) => Some(metrics_listener::bind(&address).await?),
             None => None,
         };
-        app.root_workspace()
-            .await
-            .context("unable to get root workspace")?;
         let server_lock = app.hold_server_lock(server_lock);
         // Before any request: what is left over from a run that stopped is nobody's.
         clean_up_uploads(&app).await;

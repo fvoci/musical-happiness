@@ -218,9 +218,10 @@ async fn a_first_start_makes_the_organization_and_its_workspace() {
     let again = ts
         .app
         .store()
-        .only_organization(&fvoci_model::Workspace::default())
+        .instance_organization()
         .await
-        .expect("the organization");
+        .expect("the organization")
+        .expect("an existing organization");
     assert_eq!(again, workspaces[0].org_id);
     ts.teardown().await;
 }

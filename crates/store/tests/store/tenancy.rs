@@ -833,9 +833,10 @@ async fn the_schema_makes_the_system_organization_and_its_workspace() {
     // It is not the organization the server works in, old as it is.
     let found = test
         .scoped(Tenant::Unset)
-        .only_organization(&Workspace::default())
+        .instance_organization()
         .await
-        .expect("the organization");
+        .expect("the organization")
+        .expect("an existing organization");
     assert_eq!(found, test.org_id);
 
     test.teardown().await;
@@ -951,10 +952,9 @@ fn the_systems_reach_is_asked_for_in_few_places() {
 /// says, past the extractor, would open the wall from the inside.
 #[test]
 fn the_server_names_an_organization_for_a_handle_in_few_places() {
-    const ALLOWED: [&str; 6] = [
+    const ALLOWED: [&str; 5] = [
         "app/housekeeping.rs",
         "app/mod.rs",
-        "app/startup.rs",
         "app/templates.rs",
         "app/workspaces.rs",
         "collab/mod.rs",
@@ -1342,9 +1342,10 @@ async fn a_database_from_before_organizations_becomes_one_organization() {
         .expect("the store migrates the database");
     // The one organization: found, not made.
     let org_id = unset
-        .only_organization(&Workspace::default())
+        .instance_organization()
         .await
-        .expect("the organization");
+        .expect("the organization")
+        .expect("an existing organization");
     assert!(is_id(&org_id), "{org_id}");
     assert_eq!(org_id.as_bytes()[14], b'7', "a version 7 UUID: {org_id}");
     assert!(
@@ -1622,9 +1623,10 @@ async fn a_database_with_one_workspace_becomes_one_organization_with_one_workspa
         "the organization and the system's"
     );
     let org_id = unset
-        .only_organization(&Workspace::default())
+        .instance_organization()
         .await
-        .expect("the organization");
+        .expect("the organization")
+        .expect("an existing organization");
     let ours = unset.for_org(&org_id).expect("an identifier");
     // One workspace: the one of the old database.
     let workspaces = ours.get_workspaces().await.expect("the workspaces");
