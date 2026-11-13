@@ -128,14 +128,14 @@ impl App {
             Err(error) => return Err(error.into()),
         };
         if !organization.public_links {
-            self.close_shared_readers(None).await?;
+            self.end_shared_readers(None).await?;
         }
         Ok(organization)
     }
 
-    /// Closes the connections that follow a board of the organization, or of one of
-    /// its workspaces, by its read token: its links open nothing now.
-    async fn close_shared_readers(&self, workspace_id: Option<&str>) -> Result<(), AppError> {
+    /// Ends what connections follow of a board of the organization, or of one of its
+    /// workspaces, by its read token, and tells them: its links open nothing now.
+    async fn end_shared_readers(&self, workspace_id: Option<&str>) -> Result<(), AppError> {
         for board_id in self.store().shared_board_ids(workspace_id).await? {
             self.ws().end_readers_of_board(&board_id);
         }
@@ -288,7 +288,7 @@ impl App {
             Ok(WorkspaceTrashing::Done) => {
                 self.ws().stop_following_workspace(workspace_id);
                 // The rooms ask again even if its links cannot be read now.
-                let readers = self.close_shared_readers(Some(workspace_id)).await;
+                let readers = self.end_shared_readers(Some(workspace_id)).await;
                 self.collab()
                     .recheck_access(self, AccessScope::workspace(workspace_id))
                     .await;

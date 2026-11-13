@@ -1,9 +1,9 @@
 //! Authorization at dispatch, backed by the store's committed visibility revision.
 
-use fvoci_model::{Block, BoardMember};
+use fvoci_model::{Block, BoardMember, WorkspaceRole};
 
 use super::ending::{Ended, Of};
-use super::{CHECKED_AT_MOST, Hub, ListenerId, Outgoing, UpdateBlockMessage, text_of};
+use super::{CHECKED_AT_MOST, Hub, ListenerId, Outgoing, ReadPermit, UpdateBlockMessage, text_of};
 use crate::metrics::Disconnect;
 use crate::permissions::{role_of, session_opens};
 
@@ -241,7 +241,7 @@ impl Hub {
         access: Access<'_>,
         members: &[BoardMember],
     ) -> bool {
-        let identity = {
+        let following = {
             let listeners = self.listeners();
             let Some(listener) = listeners.by_id.get(&id) else {
                 return false;
@@ -252,45 +252,83 @@ impl Hub {
                     .shared_boards
                     .iter()
                     .find(|permit| permit.board == board)
-                    .map(|permit| (String::new(), None, Some(permit.clone()), None)),
-                Access::Workspace(workspace) | Access::Members { workspace, .. } => {
-                    listener.workspace_roles.get(workspace).map(|role| {
-                        let login = listener.login_provider.clone();
-                        (listener.user_id.clone(), Some(*role), None, login)
-                    })
-                }
+                    .map(|permit| Following::Link(permit.clone())),
+                Access::Workspace(workspace) | Access::Members { workspace, .. } => listener
+                    .workspace_roles
+                    .get(workspace)
+                    .map(|role| Following::Workspace {
+                        user: listener.user_id.clone(),
+                        role: *role,
+                        login_provider: listener.login_provider.clone(),
+                    }),
             }
         };
-        let Some((user, subscribed_role, permit, login_provider)) = identity else {
-            return false;
-        };
-        if let Some(permit) = permit {
-            return match self
-                .audience
-                .shared_board(&permit.board, &permit.token)
-                .await
-            {
-                Ok(true) => true,
-                Ok(false) => {
-                    self.end_board(id, &permit.board);
-                    false
+        match following {
+            None => false,
+            Some(Following::Link(permit)) => self.link_opens(id, &permit).await,
+            Some(Following::Workspace {
+                user,
+                role,
+                login_provider,
+            }) => {
+                let (Access::Workspace(workspace) | Access::Members { workspace, .. }) = access
+                else {
+                    return false;
+                };
+                if !self
+                    .still_in_workspace(id, workspace, (&user, role), login_provider.as_deref())
+                    .await
+                {
+                    return false;
                 }
-                // The link may still open: not "ended", but not to miss the change.
-                Err(error) => {
-                    tracing::error!(%error, board_id = %permit.board, "websocket: reading a board's sharing failed");
-                    self.close_unread(&[id]);
-                    false
+                match access {
+                    Access::Members { also, .. } => {
+                        also == Some(user.as_str())
+                            || members
+                                .iter()
+                                .any(|member| member.user_id == user && role_of(member).is_some())
+                    }
+                    _ => true,
                 }
-            };
+            }
         }
-        let workspace = match access {
-            Access::Workspace(workspace) | Access::Members { workspace, .. } => workspace,
-            Access::All | Access::Public(_) => return false,
-        };
-        // What it followed when this was read: a subscription made since is not ended
-        // for what this finds.
-        let checked = subscribed_role.map_or(Of::Any, Of::Role);
-        let current = match self.audience.workspace_access(&user, workspace).await {
+    }
+
+    /// Whether the board's read token still opens it for the connection; one whose
+    /// link opens nothing now is ended and told.
+    async fn link_opens(&self, id: ListenerId, permit: &ReadPermit) -> bool {
+        match self
+            .audience
+            .shared_board(&permit.board, &permit.token)
+            .await
+        {
+            Ok(true) => true,
+            Ok(false) => {
+                self.end_board(id, &permit.board);
+                false
+            }
+            // The link may still open: not "ended", but not to miss the change.
+            Err(error) => {
+                tracing::error!(%error, board_id = %permit.board, "websocket: reading a board's sharing failed");
+                self.close_unread(&[id]);
+                false
+            }
+        }
+    }
+
+    /// Whether `user` is still in the workspace with the role the connection follows
+    /// it with, by a session that opens its organization. What ended is ended only if
+    /// the connection still follows it with that role (a subscription made since is
+    /// not), and told; what cannot be read closes the connection as retryable.
+    async fn still_in_workspace(
+        &self,
+        id: ListenerId,
+        workspace: &str,
+        (user, role): (&str, WorkspaceRole),
+        login_provider: Option<&str>,
+    ) -> bool {
+        let checked = Of::Role(role);
+        let current = match self.audience.workspace_access(user, workspace).await {
             Ok(Some(current)) => current,
             Ok(None) => {
                 self.end_workspace(id, workspace, Ended::Access, checked);
@@ -304,25 +342,26 @@ impl Hub {
                 return false;
             }
         };
-        if Some(current.workspace_role) != subscribed_role {
+        if current.workspace_role != role {
             self.end_workspace(id, workspace, Ended::Access, checked);
             return false;
         }
-        if !session_opens(
-            current.required_provider.as_deref(),
-            login_provider.as_deref(),
-        ) {
+        if !session_opens(current.required_provider.as_deref(), login_provider) {
             self.end_workspace(id, workspace, Ended::Sso, checked);
             return false;
         }
-        match access {
-            Access::Members { also, .. } => {
-                also == Some(user.as_str())
-                    || members
-                        .iter()
-                        .any(|member| member.user_id == user && role_of(member).is_some())
-            }
-            _ => true,
-        }
+        true
     }
+}
+
+/// What a connection follows that a change is checked against.
+enum Following {
+    /// The board, by its read token.
+    Link(ReadPermit),
+    /// The workspace, as `user` with `role`, by a session made through `login_provider`.
+    Workspace {
+        user: String,
+        role: WorkspaceRole,
+        login_provider: Option<String>,
+    },
 }

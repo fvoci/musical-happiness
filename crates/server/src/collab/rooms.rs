@@ -124,24 +124,19 @@ pub(super) struct Connection {
     /// and for a connection without a session.
     pub(super) made_through: Option<String>,
     pub(super) queue: Queue,
-    joined: Arc<Mutex<Joined>>,
+    joined: Mutex<Joined>,
 }
 
 /// The rooms a connection is in.
 #[derive(Debug, Default)]
-pub(super) struct Joined {
+struct Joined {
     /// By the number each is known under on this connection.
     rooms: HashMap<u32, Arc<Room>>,
-    pub(super) watched: HashMap<u32, super::participation::Watch>,
     /// The connection ended: it comes into no room any more.
     ended: bool,
 }
 
 impl Connection {
-    pub(super) fn participation(&self) -> super::Participation {
-        super::Participation::new(Arc::clone(&self.joined))
-    }
-
     /// Whose the connection is, for what is asked of an organization for it.
     pub(super) fn asker(&self) -> Asker<'_> {
         Asker {
@@ -158,7 +153,6 @@ impl Connection {
     /// Takes the room the connection knows as `doc` from those it is in.
     pub(super) fn forget(&self, doc: u32) -> Option<Arc<Room>> {
         let mut joined = self.joined();
-        joined.watched.remove(&doc);
         joined.rooms.remove(&doc)
     }
 
@@ -174,7 +168,6 @@ impl Connection {
     pub(super) fn end(&self) -> Vec<(u32, Arc<Room>)> {
         let mut joined = self.joined();
         joined.ended = true;
-        joined.watched.clear();
         joined.rooms.drain().collect()
     }
 
@@ -362,7 +355,7 @@ impl Collab {
                     .unwrap_or(usize::MAX)
                     .saturating_mul(QUEUE_DOCUMENTS),
             }),
-            joined: Arc::default(),
+            joined: Mutex::default(),
         })
     }
 
@@ -658,7 +651,6 @@ impl Collab {
         if connection.is_full_without(limits.per_connection, card_id) {
             return Err(refusals::too_many_joined(limits.per_connection));
         }
-        let mut watching = connection.participation().admitting(doc, workspace_id);
         #[cfg(feature = "test-util")]
         self.paused_admission(super::AdmissionStage::BeforeCheck)
             .await;
@@ -667,7 +659,6 @@ impl Collab {
             home.store(),
             connection.asker(),
             (workspace_id, card_id),
-            &mut watching,
         )
         .await?;
         #[cfg(feature = "test-util")]
@@ -699,7 +690,6 @@ impl Collab {
                         room.app.store(),
                         connection.asker(),
                         (workspace_id, card_id),
-                        &mut watching,
                     )
                     .await?;
                     if self.refresh_visibility(&room, &mut turn).await != revision {
@@ -719,7 +709,6 @@ impl Collab {
                 self.shut_if_empty(&room, &mut turn).await;
             }
             registered?;
-            watching.finish();
             return Ok(());
         }
     }

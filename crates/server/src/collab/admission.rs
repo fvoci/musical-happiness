@@ -12,12 +12,11 @@ pub(super) struct Admitted {
     pub(super) app: App,
     /// How the user is in the room.
     pub(super) mode: DocMode,
-    pub(super) workspace_role: fvoci_model::WorkspaceRole,
 }
 
-/// Admits the connection ([`admit`]) and publishes the admitted role atomically with
-/// respect to permission writes, at the revision of `versions` (the store of the
-/// organization the answer is used in, or of everything), which it returns.
+/// Admits the connection ([`admit`]) at a revision of `versions` (the store of the
+/// organization the answer is used in, or of everything) that no permission write
+/// overtook while it was asked, and returns that revision.
 ///
 /// # Errors
 ///
@@ -27,7 +26,6 @@ pub(super) async fn admit_tracked(
     versions: &fvoci_store::Store,
     asker: Asker<'_>,
     place: (&str, &str),
-    watching: &mut super::participation::Admission,
 ) -> Result<(Admitted, fvoci_store::VisibilityVersion), AppError> {
     let (workspace_id, card_id) = place;
     loop {
@@ -35,9 +33,7 @@ pub(super) async fn admit_tracked(
         let admitted = admit(home, asker, workspace_id, card_id)
             .await?
             .ok_or_else(|| AppError::not_found("card"))?;
-        if versions.if_visibility_current(revision, || {
-            watching.set_role(admitted.workspace_role);
-        }) {
+        if versions.if_visibility_current(revision, || {}) {
             return Ok((admitted, revision));
         }
     }
@@ -83,7 +79,6 @@ pub(super) async fn admit(
     };
     // For the workspace the connection named: a board of another is not there for it
     // (`App::reaches_board`), as for a request that names the workspace in its path.
-    let workspace_role = entered.role;
     let app = entered.app.in_workspace(workspace_id);
     // The card's board and nothing else of the card: its body is read once the user
     // is let in, so that a refusal costs the same whatever the body is.
@@ -97,9 +92,5 @@ pub(super) async fn admit(
         // to edit: it has no room.
         .filter(|access| !access.board.is_builtin)
         .and_then(|access| doc_mode(access.grant));
-    Ok(board_id.zip(mode).map(|(_, mode)| Admitted {
-        app,
-        mode,
-        workspace_role,
-    }))
+    Ok(board_id.zip(mode).map(|(_, mode)| Admitted { app, mode }))
 }

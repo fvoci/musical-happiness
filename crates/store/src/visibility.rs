@@ -582,6 +582,13 @@ mod tests {
             visibility.version(org(2)).await.cacheable(),
             "another organization keeps its cache"
         );
+        let writing = visibility.writing(Tenant::Unset);
+        writing.statement("UPDATE organizations SET delete_at = 1");
+        drop(writing);
+        assert!(
+            !visibility.version(org(2)).await.cacheable(),
+            "an abandoned write of every organization unsettles each"
+        );
     }
 
     #[test]

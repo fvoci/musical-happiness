@@ -26,12 +26,13 @@
 //! ([`Collab::recover`]).
 
 mod admission;
+#[cfg(feature = "test-util")]
+mod admission_pause;
 #[cfg(unix)]
 mod child;
 mod frame;
 mod messages;
 mod open;
-mod participation;
 mod place;
 mod queue;
 mod refusals;
@@ -42,8 +43,7 @@ mod whole;
 pub mod worker;
 
 #[cfg(feature = "test-util")]
-pub use participation::AdmissionStage;
-pub use participation::Participation;
+pub use admission_pause::AdmissionStage;
 pub use queue::Outgoing;
 pub(crate) use rooms::AccessScope;
 pub use seat::{Outbox, Seat};
@@ -117,7 +117,7 @@ struct Inner {
     #[cfg(feature = "test-util")]
     projection_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
     #[cfg(feature = "test-util")]
-    admission_pause: Mutex<Option<participation::AdmissionPause>>,
+    admission_pause: Mutex<Option<admission_pause::AdmissionPause>>,
     #[cfg(feature = "test-util")]
     room_dispatch_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
     #[cfg(feature = "test-util")]

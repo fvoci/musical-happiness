@@ -4,15 +4,23 @@
 
 use std::collections::HashMap;
 
+/// How many things taken back are kept by name before they are forgotten together.
+const KEPT: usize = 4096;
+
 /// When each thing a revocation concerns was last taken back, numbered in one
 /// sequence: a check notes the number before it reads the store ([`Self::now`]), and
 /// asks as it registers whether what concerns it was taken back after that. One
 /// sequence, so that a check that learns its board or its organization only as it
 /// reads can still be measured against it.
+///
+/// What is kept by name is bounded ([`KEPT`]): past it, it is forgotten, and a check
+/// that began before it was is checked again, whatever it concerns.
 #[derive(Debug, Default)]
 pub(super) struct Revocations {
     /// The number of the latest revocation.
     now: u64,
+    /// The number at which what was kept by name was last forgotten.
+    forgotten: u64,
     /// What may end anybody's access in any workspace: an organization whose
     /// workspaces could not be read beginning to take no password.
     everyone: u64,
@@ -47,7 +55,7 @@ impl Revocations {
 
     /// Whether what concerns the subscription was taken back after `since`.
     pub(super) fn of_workspace_since(&self, followed: Followed<'_>, since: u64) -> bool {
-        self.everyone > since
+        self.unknown_since(since)
             || after(&self.users, followed.user, since)
             || after_of(
                 &self.users_in_workspaces,
@@ -62,7 +70,7 @@ impl Revocations {
     /// Whether what concerns a connection of `user_id` (empty without a session)
     /// following blocks of `board_id` by its read token was taken back after `since`.
     pub(super) fn of_board_since(&self, user_id: &str, board_id: &str, since: u64) -> bool {
-        self.everyone > since
+        self.unknown_since(since)
             || after(&self.users, user_id, since)
             || after(&self.boards, board_id, since)
     }
@@ -104,7 +112,32 @@ impl Revocations {
         self.boards.insert(board_id.to_owned(), now);
     }
 
+    /// Whether everything may have been taken back after `since`, or what was may
+    /// have been forgotten.
+    fn unknown_since(&self, since: u64) -> bool {
+        self.everyone > since || self.forgotten > since
+    }
+
+    /// The number of a new revocation, after forgetting what is kept by name if it
+    /// is as much as may be kept.
     fn next(&mut self) -> u64 {
+        let kept = self.users.len()
+            + self
+                .users_in_workspaces
+                .values()
+                .map(HashMap::len)
+                .sum::<usize>()
+            + self.users_in_orgs.values().map(HashMap::len).sum::<usize>()
+            + self.workspaces.len()
+            + self.boards.len();
+        if kept >= KEPT {
+            self.users.clear();
+            self.users_in_workspaces.clear();
+            self.users_in_orgs.clear();
+            self.workspaces.clear();
+            self.boards.clear();
+            self.forgotten = self.now;
+        }
         self.now += 1;
         self.now
     }
@@ -165,5 +198,27 @@ mod tests {
         revoked.everyone();
         assert!(revoked.of_workspace_since(followed("four", "w4", "o4"), after));
         assert!(revoked.of_board_since("", "b2", after));
+    }
+
+    /// What is kept by name is bounded; a check that began before it was forgotten is
+    /// checked again, and one that began after is measured as before.
+    #[test]
+    fn what_is_forgotten_checks_older_subscriptions_again() {
+        let mut revoked = Revocations::default();
+        let before = revoked.now();
+        for board in 0..=KEPT {
+            revoked.board(&format!("b{board}"));
+        }
+        let kept = revoked.users.len() + revoked.workspaces.len() + revoked.boards.len();
+        assert!(kept <= KEPT, "{kept} kept by name");
+        assert!(
+            revoked.of_workspace_since(followed("one", "w1", "o1"), before),
+            "begun before it was forgotten"
+        );
+        let after = revoked.now();
+        assert!(!revoked.of_workspace_since(followed("one", "w1", "o1"), after));
+        revoked.board("b-late");
+        assert!(revoked.of_board_since("", "b-late", after));
+        assert!(!revoked.of_board_since("", "b0", after));
     }
 }

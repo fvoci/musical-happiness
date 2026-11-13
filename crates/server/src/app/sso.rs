@@ -43,9 +43,7 @@ impl SsoChange {
 /// place it is recorded. `user_id` is the administrator who did it, `None` for who
 /// runs the server.
 ///
-/// A line of the log (target `audit`), not an organization's record (`audit_log`):
-/// a record names a user as its actor, who runs the server is none, and the three
-/// changes are kept in one place.
+/// A log line (`audit`), not an `audit_log` record: who runs the server is no user.
 fn record(provider: &StoredProvider, change: SsoChange, user_id: Option<&str>) {
     tracing::info!(
         target: "audit",
