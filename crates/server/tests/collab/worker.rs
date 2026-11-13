@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use fvoci_collab::testing::Editor;
 use fvoci_server::collab::worker::{CallError, Death, Worker, WorkerCommand, WorkerSettings};
-use fvoci_server::collab_worker::wire::{Answer, Limits, Refusal, Request, Source};
+use fvoci_server::collab_worker::wire::{Answer, Limits, Refusal, Request, Share, Source};
 use serde_json::{Value, json};
 
 const STATE_BYTES: u64 = 8 * 1024 * 1024;
@@ -45,6 +45,7 @@ fn open_body(doc: u64, body: &Value) -> Request {
     Request::Open {
         doc,
         source: Source::Body(Some(serde_json::to_vec(body).expect("JSON"))),
+        share: Share::Kept,
     }
 }
 
@@ -266,6 +267,7 @@ async fn a_request_larger_than_a_frame_is_refused_without_harm_to_the_worker() {
             &Request::Open {
                 doc: 2,
                 source: Source::State(vec![0; past_a_frame]),
+                share: Share::Kept,
             },
         )
         .await;
@@ -328,6 +330,7 @@ async fn what_is_past_the_limits_is_refused() {
             &Request::Open {
                 doc: 1,
                 source: Source::Body(None),
+                share: Share::Kept,
             },
         )
         .await
@@ -338,6 +341,7 @@ async fn what_is_past_the_limits_is_refused() {
             &Request::Open {
                 doc: 2,
                 source: Source::Body(None),
+                share: Share::Kept,
             },
         )
         .await;
