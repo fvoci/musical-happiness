@@ -143,11 +143,11 @@ async fn handle_get_oidc_provider(org: OrgAdmin) -> ApiResult {
 ///
 /// `ssoRequired` true makes the organization take no password: from the next request
 /// on, what is the organization's (the routes under `/w/{workspaceId}` and
-/// `/org/{orgId}`, and `getMyMemberships` and `setUserAdmin` where the organization is
-/// the one the server stands in) answers 401 with the reason `sso_required` to every
-/// session that was not made through this provider, and the websocket follows none of
-/// its workspaces for one. The
-/// sessions stay, and open what is of other organizations. It is switched on by a
+/// `/org/{orgId}`, and `setUserAdmin` where the organization is the instance's own, the
+/// oldest) answers 401 with the reason `sso_required` to every session that was not
+/// made through this provider, `getMyMemberships` leaves its boards out for one, and
+/// the websocket follows none of its workspaces for one. The sessions stay, and open
+/// what is of other organizations. It is switched on by a
 /// session that was itself made through this provider, switched on, as it is stored
 /// (`canRequireSso`), by a request that does not change its issuer, client, secret or
 /// `enabled`, or the request is 409 with the reason `sso_unproven`: who asks has then

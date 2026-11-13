@@ -376,7 +376,7 @@ async fn websocket_connections_messages_and_disconnections_are_counted() {
     };
     let mut received = 0_u32;
     for _ in 0..50 {
-        server.app.ws().broadcast_category_change(&probe);
+        server.app.ws().broadcast_category_change(&probe).await;
         if next_text(&mut socket, Duration::from_millis(100))
             .await
             .is_some()

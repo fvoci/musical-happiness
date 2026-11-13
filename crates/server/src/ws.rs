@@ -9,7 +9,15 @@
 //! The commands and the binary frames of the bodies edited together are handed to the
 //! connection's seat among their rooms (`crate::collab::Seat`).
 
+mod delivery;
+mod subscriptions;
+
+use delivery::Access;
+#[cfg(feature = "test-util")]
+mod testing;
 mod writer;
+#[cfg(feature = "test-util")]
+pub use testing::SubscriptionPause;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -19,7 +27,7 @@ use axum::extract::ws::{Message, Utf8Bytes, WebSocket};
 use futures_util::StreamExt as _;
 use fvoci_model::{
     Block, Board, BoardCategoryWebsocketData, BoardMember, Category, ClientConfig, LoginOrigin,
-    PersonProperties, Session,
+    Session,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
@@ -133,6 +141,25 @@ struct CategoryBoardsReorderMessage<'a> {
     workspace_id: &'a str,
 }
 
+/// The server stopped what a connection followed of a workspace (`ending.rs`).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UnsubscribedWorkspaceMessage<'a> {
+    action: &'static str,
+    workspace_id: &'a str,
+    reason: &'static str,
+}
+
+/// The server stopped what a connection followed of a shared board's blocks.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UnsubscribedBlocksMessage<'a> {
+    action: &'static str,
+    workspace_id: &'a str,
+    block_ids: &'a [String],
+    reason: &'static str,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct UpdateClientConfigMessage<'a> {
@@ -163,9 +190,17 @@ outgoing!(
     CategoryReorderMessage,
     CategoryBoardsReorderMessage,
     UpdateClientConfigMessage,
+    UnsubscribedWorkspaceMessage,
+    UnsubscribedBlocksMessage,
 );
 
 type ListenerId = u64;
+
+/// How many times a subscription or a change is checked again because access was
+/// taken back meanwhile, before it is given up and its connection told to read anew
+/// (1013): a check is a few reads of the store, and revocations elsewhere can keep
+/// overtaking it.
+const CHECKED_AT_MOST: usize = 8;
 
 #[derive(Debug)]
 struct Listener {
@@ -183,18 +218,38 @@ struct Listener {
     /// Why the hub gave the connection up, set before `closed` is cancelled.
     closed_because: Arc<OnceLock<Disconnect>>,
     workspaces: Vec<String>,
+    workspace_roles: HashMap<String, fvoci_model::WorkspaceRole>,
     blocks: Vec<String>,
     /// The shared boards whose read token this connection subscribed to blocks with.
-    /// When such a board stops being shared under that token, the connection goes.
-    shared_boards: Vec<String>,
+    /// When such a board stops being shared under that token, they stop being followed.
+    shared_boards: Vec<ReadPermit>,
+}
+
+/// A shared board followed by its read token: the workspace and the blocks the
+/// connection named, which it is told of when the token stops opening the board.
+#[derive(Clone)]
+struct ReadPermit {
+    board: String,
+    token: String,
+    workspace: String,
+    blocks: Vec<String>,
+}
+
+impl std::fmt::Debug for ReadPermit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ReadPermit")
+            .field("board", &self.board)
+            .field("workspace", &self.workspace)
+            .field("blocks", &self.blocks)
+            .finish_non_exhaustive()
+    }
 }
 
 #[derive(Debug, Default)]
 struct Listeners {
     next_id: ListenerId,
-    /// How often an organization began to take only its provider's sessions
-    /// (`subscribe.rs`).
-    walls_raised: u64,
+    /// What was taken back, for the subscriptions being checked (`revocations.rs`).
+    revoked: revocations::Revocations,
     by_id: HashMap<ListenerId, Listener>,
     by_workspace: HashMap<String, Vec<ListenerId>>,
     by_block: HashMap<String, Vec<ListenerId>>,
@@ -266,6 +321,10 @@ struct HubInner {
     auth: Authenticator,
     ping_interval: Option<Duration>,
     metrics: Metrics,
+    #[cfg(feature = "test-util")]
+    subscription_pause: Mutex<Option<SubscriptionPause>>,
+    #[cfg(feature = "test-util")]
+    dispatch_pause: Mutex<Option<SubscriptionPause>>,
 }
 
 impl Hub {
@@ -283,6 +342,10 @@ impl Hub {
                 auth,
                 ping_interval,
                 metrics,
+                #[cfg(feature = "test-util")]
+                subscription_pause: Mutex::default(),
+                #[cfg(feature = "test-util")]
+                dispatch_pause: Mutex::default(),
             }),
             audience,
         }
@@ -322,6 +385,7 @@ impl Hub {
                     closed: closed.clone(),
                     closed_because: Arc::clone(&closed_because),
                     workspaces: Vec::new(),
+                    workspace_roles: HashMap::new(),
                     blocks: Vec::new(),
                     shared_boards: Vec::new(),
                 },
@@ -338,24 +402,36 @@ impl Hub {
         if let Some(token) = &token
             && let Err(error) = self.inner.auth.find_session(token).await
         {
-            if error.kind() != ErrorKind::Unauthorized {
-                tracing::warn!(%error, "a websocket connection ends: its session could not be read");
-            }
             self.listeners().remove(id);
-            metrics.websocket_closed(Disconnect::SessionEnded);
+            if error.kind() == ErrorKind::Unauthorized {
+                metrics.websocket_closed(Disconnect::SessionEnded);
+            } else {
+                // Not ended, unread: the page is told to connect again, and does with
+                // its spread wait.
+                tracing::warn!(%error, "a websocket connection ends: its session could not be read");
+                metrics.websocket_closed(Disconnect::StoreUnavailable);
+                writer::close(sink, Some(Disconnect::StoreUnavailable)).await;
+            }
             return;
         }
 
         let ping_interval = self.inner.ping_interval;
         let session_check = ping_interval.unwrap_or(SESSION_CHECK_WITHOUT_PING);
-        let mut writer = writer::spawn(sink, inbox, docs_outbox, ping_interval);
+        let mut writer = writer::spawn(
+            sink,
+            inbox,
+            docs_outbox,
+            ping_interval,
+            closed.clone(),
+            Arc::clone(&closed_because),
+        );
 
         let reason = tokio::select! {
             // First: when the hub gave the connection up, its reason is the one counted,
             // also if the client closed it at the same moment.
             biased;
-            // The hub gave the connection up: it does not keep up, or its session or its
-            // read token ended.
+            // The hub gave the connection up: it does not keep up, its session ended, or
+            // what it may be told could not be read.
             () = closed.cancelled() => {
                 closed_because.get().copied().unwrap_or(Disconnect::Shutdown)
             }
@@ -366,11 +442,13 @@ impl Hub {
             // the sessions that ended so are deleted only by the hourly clean-up.
             () = self.session_ends(token.as_deref(), session_check) => Disconnect::SessionEnded,
         };
+        let _ = closed_because.set(reason);
+        closed.cancel();
         metrics.websocket_closed(reason);
         docs.leave_all().await;
 
-        // Removing the listener drops its outbox, which ends the writer once it has sent
-        // what was queued. A peer that does not read would hold the writer forever.
+        // The cancelled writer discards queued changes. A peer that does not read
+        // must not hold its closing handshake forever.
         self.listeners().remove(id);
         if tokio::time::timeout(WRITER_GRACE, &mut writer)
             .await
@@ -445,149 +523,37 @@ impl Hub {
         self.close_where(Disconnect::Shutdown, |_| true);
     }
 
-    /// Handles one command. Returns `false` if the connection must be closed.
-    async fn handle(&self, id: ListenerId, command: Command) -> bool {
-        match command.action.as_str() {
-            "SUBSCRIBE_BLOCKS" | "UNSUBSCRIBE_BLOCKS" => {
-                self.follow_blocks(id, &command).await;
-                return true;
-            }
-            _ => {}
-        }
-
-        let user_id = self
-            .listeners()
-            .by_id
-            .get(&id)
-            .map(|listener| listener.user_id.clone())
-            .unwrap_or_default();
-        if user_id.is_empty() {
-            tracing::error!(action = %command.action, "websocket: rejected an unauthenticated message");
-            return true;
-        }
-
-        match command.action.as_str() {
-            "SUBSCRIBE_WORKSPACE" => {
-                self.follow_workspace(id, &user_id, &command.workspace_id)
-                    .await;
-            }
-            "UNSUBSCRIBE_WORKSPACE" => {
-                let mut listeners = self.listeners();
-                if let Some(listener) = listeners.by_id.get_mut(&id) {
-                    listener
-                        .workspaces
-                        .retain(|workspace| *workspace != command.workspace_id);
-                }
-                remove_from(&mut listeners.by_workspace, &command.workspace_id, id);
-            }
-            other => tracing::error!(action = other, "websocket: invalid action"),
-        }
-        true
-    }
-
-    /// A block subscription needs a workspace, blocks that all belong to one board, and that
-    /// board's read token. Returns the board, or `None` if the subscription is refused.
-    async fn board_of_read_token(&self, command: &Command) -> Option<String> {
-        if command.workspace_id.is_empty() {
-            return None;
-        }
-        let mut board_id = String::new();
-        for block_id in &command.block_ids {
-            let of_block = self.audience.board_of_block(block_id).await.ok()?;
-            if board_id.is_empty() {
-                board_id = of_block;
-            } else if board_id != of_block {
-                return None;
-            }
-        }
-        match self
-            .inner
-            .auth
-            .is_valid_read_token(&board_id, &command.read_token)
-            .await
-        {
-            Ok(true) => Some(board_id),
-            Ok(false) => None,
-            Err(error) => {
-                tracing::error!(%error, workspace_id = %command.workspace_id, "websocket: checking a read token failed");
-                None
-            }
-        }
-    }
-
     // -- broadcasts -------------------------------------------------------------------
 
     /// Tells the board's members in the workspace, and the listeners of the block and of its
     /// parent, that a block changed.
     ///
-    /// A listener of the block whose connection has no session, or whose user is no
-    /// member of the board who may read it, or whose session does not open the
-    /// workspace's organization, follows it by the read token alone and is told no
-    /// user's identifier ([`Block::hide_people`]), as over HTTP (`getBlocks`).
+    /// A read-token subscription receives no user identifiers ([`Block::hide_people`]),
+    /// as over public HTTP, unless its connection's user sees the board as its member.
     pub async fn broadcast_block_change(&self, workspace_id: &str, block: &Block) {
         let followers = self.block_followers(block);
         // Most changes happen with nobody listening; do not ask the store then.
         if followers.is_empty() && !self.listeners().by_workspace.contains_key(workspace_id) {
             return;
         }
-        let members = match self.audience.members(&block.board_id).await {
-            Ok(members) => members,
-            Err(error) => {
-                tracing::error!(%error, workspace_id, board_id = %block.board_id, "websocket: reading the board's members failed");
-                return;
-            }
-        };
-        let mut recipients = self.listeners_among(workspace_id, &members, None);
-        let mut by_token = Vec::new();
-        // A connection that listens both as a board member and to the block itself
-        // gets the message once per subscription.
-        for (id, user_id) in followers {
-            // As a member of the board only while its session opens the organization.
-            let reader = !user_id.is_empty()
-                && members
-                    .iter()
-                    .any(|member| member.user_id == user_id && role_of(member).is_some())
-                && self
-                    .session_opens_workspace(id, &user_id, workspace_id)
-                    .await;
-            if reader {
-                recipients.push(id);
-            } else {
-                by_token.push(id);
-            }
-        }
+        let recipients = self.workspace_listeners(workspace_id);
         let message = UpdateBlockMessage {
             action: "UPDATE_BLOCK",
             workspace_id,
             block,
         };
-        self.send(&recipients, &message);
-        if by_token.is_empty() {
-            return;
-        }
-        // A block without fields names nobody there, such as the block of a deletion.
-        let people = if block.fields.is_empty() {
-            Ok(PersonProperties::default())
-        } else {
-            self.audience.person_properties(&block.board_id).await
-        };
-        let people = match people {
-            Ok(people) => people,
-            Err(error) => {
-                // Without the board's person properties the block cannot be told
-                // without its people: it is not told.
-                tracing::error!(%error, workspace_id, board_id = %block.board_id, "websocket: reading the board of a followed block failed");
-                return;
-            }
-        };
-        let mut without_people = block.clone();
-        without_people.hide_people(&people);
-        let message = UpdateBlockMessage {
-            action: "UPDATE_BLOCK",
-            workspace_id,
-            block: &without_people,
-        };
-        self.send(&by_token, &message);
+        self.send(
+            &recipients,
+            &message,
+            Access::Members {
+                workspace: workspace_id,
+                board: &block.board_id,
+                also: None,
+            },
+        )
+        .await;
+        let by_token: Vec<_> = followers.into_iter().map(|(id, _)| id).collect();
+        self.send_public_block(&by_token, workspace_id, block).await;
     }
 
     /// The connections that follow the block or its parent by `SUBSCRIBE_BLOCKS`, with
@@ -624,7 +590,7 @@ impl Hub {
     /// its blocks was deleted, with the message of [`Self::broadcast_block_delete`].
     ///
     /// The memberships went with the board, so the caller says who the members were.
-    pub fn broadcast_block_delete_with_board(
+    pub async fn broadcast_block_delete_with_board(
         &self,
         workspace_id: &str,
         block_id: &str,
@@ -645,7 +611,8 @@ impl Hub {
             block: &block,
         };
         let recipients = self.listeners_among(workspace_id, former_members, None);
-        self.send(&recipients, &message);
+        self.send(&recipients, &message, Access::Workspace(workspace_id))
+            .await;
     }
 
     /// Tells the board's members in the workspace that the board changed.
@@ -655,17 +622,24 @@ impl Hub {
             workspace_id,
             board,
         };
-        let recipients = self
-            .listeners_for_workspace_and_board(workspace_id, &board.id, None)
-            .await;
-        self.send(&recipients, &message);
+        let recipients = self.workspace_listeners(workspace_id);
+        self.send(
+            &recipients,
+            &message,
+            Access::Members {
+                workspace: workspace_id,
+                board: &board.id,
+                also: None,
+            },
+        )
+        .await;
     }
 
     /// Tells those who were the board's members that the board was deleted. The message
     /// is a board change whose board has only its identifiers and the deletion time.
     ///
     /// The memberships went with the board, so the caller says who the members were.
-    pub fn broadcast_board_delete(
+    pub async fn broadcast_board_delete(
         &self,
         workspace_id: &str,
         board_id: &str,
@@ -685,7 +659,8 @@ impl Hub {
             board: &board,
         };
         let recipients = self.listeners_among(workspace_id, former_members, None);
-        self.send(&recipients, &message);
+        self.send(&recipients, &message, Access::Workspace(workspace_id))
+            .await;
     }
 
     /// Tells the board's members in the workspace that a membership changed.
@@ -700,10 +675,17 @@ impl Hub {
             workspace_id,
             member,
         };
-        let recipients = self
-            .listeners_for_workspace_and_board(workspace_id, board_id, None)
-            .await;
-        self.send(&recipients, &message);
+        let recipients = self.workspace_listeners(workspace_id);
+        self.send(
+            &recipients,
+            &message,
+            Access::Members {
+                workspace: workspace_id,
+                board: board_id,
+                also: None,
+            },
+        )
+        .await;
     }
 
     /// Tells the board's members in the workspace, and the removed user, that a membership
@@ -719,35 +701,43 @@ impl Hub {
             workspace_id,
             member: &member,
         };
-        let recipients = self
-            .listeners_for_workspace_and_board(workspace_id, board_id, Some(user_id))
-            .await;
-        self.send(&recipients, &message);
+        let recipients = self.workspace_listeners(workspace_id);
+        self.send(
+            &recipients,
+            &message,
+            Access::Members {
+                workspace: workspace_id,
+                board: board_id,
+                also: Some(user_id),
+            },
+        )
+        .await;
     }
 
     /// Tells every connection that the client configuration changed.
-    pub fn broadcast_config_change(&self, client_config: &ClientConfig) {
+    pub async fn broadcast_config_change(&self, client_config: &ClientConfig) {
         let message = UpdateClientConfigMessage {
             action: "UPDATE_CLIENT_CONFIG",
             client_config,
         };
         let recipients: Vec<ListenerId> = self.listeners().by_id.keys().copied().collect();
-        self.send(&recipients, &message);
+        self.send(&recipients, &message, Access::All).await;
     }
 
     /// Tells the category's owner that it changed.
-    pub fn broadcast_category_change(&self, category: &Category) {
+    pub async fn broadcast_category_change(&self, category: &Category) {
         let message = UpdateCategoryMessage {
             action: "UPDATE_CATEGORY",
             workspace_id: &category.workspace_id,
             category: Some(category),
             board_categories: &[],
         };
-        self.send_to_user(&category.workspace_id, &category.user_id, &message);
+        self.send_to_user(&category.workspace_id, &category.user_id, &message)
+            .await;
     }
 
     /// Tells a user that boards moved between their categories or were hidden.
-    pub fn broadcast_category_board_change(
+    pub async fn broadcast_category_board_change(
         &self,
         workspace_id: &str,
         user_id: &str,
@@ -759,11 +749,11 @@ impl Hub {
             category: None,
             board_categories,
         };
-        self.send_to_user(workspace_id, user_id, &message);
+        self.send_to_user(workspace_id, user_id, &message).await;
     }
 
     /// Tells a user the new order of their categories.
-    pub fn broadcast_category_reorder(
+    pub async fn broadcast_category_reorder(
         &self,
         workspace_id: &str,
         user_id: &str,
@@ -774,11 +764,11 @@ impl Hub {
             category_order,
             workspace_id,
         };
-        self.send_to_user(workspace_id, user_id, &message);
+        self.send_to_user(workspace_id, user_id, &message).await;
     }
 
     /// Tells a user the new order of the boards in one of their categories.
-    pub fn broadcast_category_boards_reorder(
+    pub async fn broadcast_category_boards_reorder(
         &self,
         workspace_id: &str,
         user_id: &str,
@@ -791,28 +781,15 @@ impl Hub {
             board_order,
             workspace_id,
         };
-        self.send_to_user(workspace_id, user_id, &message);
+        self.send_to_user(workspace_id, user_id, &message).await;
     }
 
-    /// The workspace's listeners whose user is a member of the board, or is `also_user`.
-    async fn listeners_for_workspace_and_board(
-        &self,
-        workspace_id: &str,
-        board_id: &str,
-        also_user: Option<&str>,
-    ) -> Vec<ListenerId> {
-        // Most changes happen with nobody listening; do not ask the store then.
-        if !self.listeners().by_workspace.contains_key(workspace_id) {
-            return Vec::new();
-        }
-        let members = match self.audience.members(board_id).await {
-            Ok(members) => members,
-            Err(error) => {
-                tracing::error!(%error, workspace_id, board_id, "websocket: reading the board's members failed");
-                return Vec::new();
-            }
-        };
-        self.listeners_among(workspace_id, &members, also_user)
+    fn workspace_listeners(&self, workspace_id: &str) -> Vec<ListenerId> {
+        self.listeners()
+            .by_workspace
+            .get(workspace_id)
+            .cloned()
+            .unwrap_or_default()
     }
 
     /// The workspace's listeners whose user is one of `members` with a role, or `also_user`.
@@ -842,25 +819,19 @@ impl Hub {
 
     /// Sends a message to every connection of the user that is subscribed to the workspace:
     /// every tab of the user is told. (The original tells the first one only.)
-    fn send_to_user(&self, workspace_id: &str, user_id: &str, message: &impl Outgoing) {
+    async fn send_to_user(&self, workspace_id: &str, user_id: &str, message: &impl Outgoing) {
         let recipients = self.listeners().of_user(workspace_id, user_id);
-        self.send(&recipients, message);
+        self.send(&recipients, message, Access::Workspace(workspace_id))
+            .await;
     }
 
-    /// Queues a message for the given listeners. A listener whose queue is full is
-    /// dropped and its connection closed.
-    fn send(&self, recipients: &[ListenerId], message: &impl Outgoing) {
+    /// Queues the text of a message whose action is `action` for the given listeners.
+    /// A listener whose queue is full is dropped and its connection closed. Cloning the
+    /// text copies none of it.
+    fn queue_text(&self, recipients: &[ListenerId], text: &Utf8Bytes, action: &'static str) {
         if recipients.is_empty() {
             return;
         }
-        // Shared by all recipients: cloning it copies no text.
-        let text: Utf8Bytes = match serde_json::to_string(message) {
-            Ok(text) => text.into(),
-            Err(error) => {
-                tracing::error!(%error, "websocket: a message could not be serialized");
-                return;
-            }
-        };
         let mut listeners = self.listeners();
         let mut queued = 0;
         for id in recipients {
@@ -879,9 +850,18 @@ impl Hub {
             }
         }
         drop(listeners);
-        self.inner
-            .metrics
-            .websocket_queued(message.action(), queued);
+        self.inner.metrics.websocket_queued(action, queued);
+    }
+}
+
+/// A message as the text frame it is sent in; `None`, logged, if it cannot be written.
+fn text_of(message: &impl Outgoing) -> Option<Utf8Bytes> {
+    match serde_json::to_string(message) {
+        Ok(text) => Some(text.into()),
+        Err(error) => {
+            tracing::error!(%error, action = message.action(), "websocket: a message could not be serialized");
+            None
+        }
     }
 }
 
@@ -924,6 +904,13 @@ fn subscribe_to_blocks(listeners: &mut Listeners, id: ListenerId, block_ids: &[S
 fn unsubscribe_from_blocks(listeners: &mut Listeners, id: ListenerId, block_ids: &[String]) {
     if let Some(listener) = listeners.by_id.get_mut(&id) {
         listener.blocks.retain(|block| !block_ids.contains(block));
+        for permit in &mut listener.shared_boards {
+            permit.blocks.retain(|block| !block_ids.contains(block));
+        }
+        // A board none of whose blocks is followed is not followed.
+        listener
+            .shared_boards
+            .retain(|permit| !permit.blocks.is_empty());
     }
     for block_id in block_ids {
         remove_from(&mut listeners.by_block, block_id, id);
@@ -931,6 +918,8 @@ fn unsubscribe_from_blocks(listeners: &mut Listeners, id: ListenerId, block_ids:
 }
 
 mod closing;
+mod ending;
+mod revocations;
 mod subscribe;
 
 /// Ports of `server/ws/server_test.go`, on the listener table.

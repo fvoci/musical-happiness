@@ -97,7 +97,7 @@ impl App {
             if provider.id != before.id {
                 self.collab().put_out_shut_out(self, &provider.id).await;
             }
-            self.close_connections_shut_out(provider).await;
+            self.end_subscriptions_shut_out(provider).await;
         }
     }
 }

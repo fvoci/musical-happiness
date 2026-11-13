@@ -128,16 +128,16 @@ impl App {
             Err(error) => return Err(error.into()),
         };
         if !organization.public_links {
-            self.close_shared_readers(None).await?;
+            self.end_shared_readers(None).await?;
         }
         Ok(organization)
     }
 
-    /// Closes the connections that follow a board of the organization, or of one of
-    /// its workspaces, by its read token: its links open nothing now.
-    async fn close_shared_readers(&self, workspace_id: Option<&str>) -> Result<(), AppError> {
+    /// Ends what connections follow of a board of the organization, or of one of its
+    /// workspaces, by its read token, and tells them: its links open nothing now.
+    async fn end_shared_readers(&self, workspace_id: Option<&str>) -> Result<(), AppError> {
         for board_id in self.store().shared_board_ids(workspace_id).await? {
-            self.ws().close_readers_of_board(&board_id);
+            self.ws().end_readers_of_board(&board_id);
         }
         Ok(())
     }
@@ -172,13 +172,13 @@ impl App {
         }
         match self.store().set_org_role(user_id, role, actor_id).await {
             Ok(OrgRoleChange::Done) => {
-                self.collab()
-                    .recheck_access(self, AccessScope::organization().of_user(user_id))
-                    .await;
                 if role == OrgRole::Member {
                     // What they joined is theirs no more, and what happens there neither.
                     self.ws().follow_only_own_workspaces(user_id).await;
                 }
+                self.collab()
+                    .recheck_access(self, AccessScope::organization().of_user(user_id))
+                    .await;
                 Ok(())
             }
             Ok(OrgRoleChange::NotAMember) => Err(AppError::not_found("member")),
@@ -286,11 +286,13 @@ impl App {
         known_workspace(workspace_id)?;
         match self.store().trash_workspace(workspace_id, actor_id).await {
             Ok(WorkspaceTrashing::Done) => {
+                self.ws().stop_following_workspace(workspace_id);
+                // The rooms ask again even if its links cannot be read now.
+                let readers = self.end_shared_readers(Some(workspace_id)).await;
                 self.collab()
                     .recheck_access(self, AccessScope::workspace(workspace_id))
                     .await;
-                self.ws().stop_following_workspace(workspace_id);
-                self.close_shared_readers(Some(workspace_id)).await?;
+                readers?;
                 Ok(())
             }
             Ok(WorkspaceTrashing::NotFound) => Err(workspace_not_found()),
@@ -344,7 +346,14 @@ impl App {
             .join_workspace_as_org_admin(workspace_id, user_id)
             .await?
         {
-            Joining::Joined | Joining::Already => {
+            Joining::Joined => {
+                self.ws().workspace_role_changed(workspace_id, user_id);
+                self.collab()
+                    .recheck_access(self, AccessScope::workspace(workspace_id).of_user(user_id))
+                    .await;
+                self.org_workspace(user_id, workspace_id).await
+            }
+            Joining::Already => {
                 self.collab()
                     .recheck_access(self, AccessScope::workspace(workspace_id).of_user(user_id))
                     .await;
@@ -373,10 +382,10 @@ impl App {
             .leave_workspace_as_org_admin(workspace_id, user_id)
             .await?
         {
+            self.ws().follow_only_own_workspaces(user_id).await;
             self.collab()
                 .recheck_access(self, AccessScope::workspace(workspace_id).of_user(user_id))
                 .await;
-            self.ws().follow_only_own_workspaces(user_id).await;
         }
         self.org_workspace(user_id, workspace_id).await
     }

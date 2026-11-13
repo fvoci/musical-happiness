@@ -1,0 +1,392 @@
+//! Authorization at dispatch, backed by the store's committed visibility revision.
+
+use fvoci_model::{Block, BoardMember, WorkspaceRole};
+
+use super::ending::{Ended, Of};
+use super::{CHECKED_AT_MOST, Hub, ListenerId, Outgoing, ReadPermit, UpdateBlockMessage, text_of};
+use crate::metrics::Disconnect;
+use crate::permissions::{role_of, session_opens};
+
+#[derive(Clone, Copy)]
+pub(super) enum Access<'a> {
+    Workspace(&'a str),
+    Members {
+        workspace: &'a str,
+        board: &'a str,
+        also: Option<&'a str>,
+    },
+    Public(&'a str),
+    All,
+}
+
+impl Hub {
+    pub(super) async fn send(
+        &self,
+        ids: &[ListenerId],
+        message: &impl Outgoing,
+        access: Access<'_>,
+    ) {
+        if ids.is_empty() {
+            return;
+        }
+        // Made once, before any revision is held: queueing under it only hands it on.
+        let Some(text) = text_of(message) else {
+            return;
+        };
+        let action = message.action();
+        // What every connection is told depends on no one's access.
+        if matches!(access, Access::All) {
+            self.queue_text(ids, &text, action);
+            return;
+        }
+        let mut authorized = Vec::new();
+        for _ in 0..CHECKED_AT_MOST {
+            // Not cacheable for a while after an abandoned write: the checks below
+            // then read the store anew.
+            let revision = self.audience.version().await;
+            authorized = self.authorized(ids, access).await;
+            #[cfg(feature = "test-util")]
+            self.pause_dispatch().await;
+            if self.audience.if_current(revision, || {
+                self.queue_text(&authorized, &text, action);
+            }) {
+                return;
+            }
+        }
+        // Who was to be told at the last check: not who could never see it.
+        self.give_up(&authorized, action);
+    }
+
+    /// Tells who follows the block's board by its read token of the block: who sees
+    /// the board as its member does ([`Self::split_by_sight`]) as a member is told it,
+    /// whoever reads it by the link alone without the users it names.
+    pub(super) async fn send_public_block(
+        &self,
+        ids: &[ListenerId],
+        workspace_id: &str,
+        block: &Block,
+    ) {
+        if ids.is_empty() {
+            return;
+        }
+        let Some(whole) = text_of(&UpdateBlockMessage {
+            action: "UPDATE_BLOCK",
+            workspace_id,
+            block,
+        }) else {
+            return;
+        };
+        let mut authorized = Vec::new();
+        for _ in 0..CHECKED_AT_MOST {
+            // Not cacheable for a while after an abandoned write: the checks below
+            // then read the store anew.
+            let revision = self.audience.version().await;
+            authorized = self.authorized(ids, Access::Public(&block.board_id)).await;
+            if authorized.is_empty() {
+                return;
+            }
+            let (members, mut readers) = self
+                .split_by_sight(&authorized, workspace_id, &block.board_id)
+                .await;
+            let hidden = if readers.is_empty() {
+                None
+            } else {
+                match self.audience.person_properties(&block.board_id).await {
+                    Ok(people) => {
+                        let mut public = block.clone();
+                        public.hide_people(&people);
+                        text_of(&UpdateBlockMessage {
+                            action: "UPDATE_BLOCK",
+                            workspace_id,
+                            block: &public,
+                        })
+                    }
+                    Err(error) => {
+                        tracing::error!(%error, board_id = %block.board_id, "websocket: cannot redact public block");
+                        self.close_unread(&readers);
+                        readers.clear();
+                        None
+                    }
+                }
+            };
+            #[cfg(feature = "test-util")]
+            self.pause_dispatch().await;
+            if self.audience.if_current(revision, || {
+                self.queue_text(&members, &whole, "UPDATE_BLOCK");
+                if let Some(hidden) = &hidden {
+                    self.queue_text(&readers, hidden, "UPDATE_BLOCK");
+                }
+            }) {
+                return;
+            }
+        }
+        self.give_up(&authorized, "UPDATE_BLOCK");
+    }
+
+    /// Splits who follows the board by its read token into who sees it as its member
+    /// does, and who reads it by the link alone. A member is a connection of a user who
+    /// holds a role on the board, is in its workspace, and whose session opens the
+    /// workspace's organization; anybody else, and a connection without a session,
+    /// reads by the link. A connection with a session whose standing cannot be read now
+    /// is closed as retryable: it reads anew rather than be told less than it may.
+    async fn split_by_sight(
+        &self,
+        ids: &[ListenerId],
+        workspace_id: &str,
+        board_id: &str,
+    ) -> (Vec<ListenerId>, Vec<ListenerId>) {
+        let identities: Vec<(ListenerId, String, Option<String>)> = {
+            let listeners = self.listeners();
+            ids.iter()
+                .filter_map(|id| {
+                    let listener = listeners.by_id.get(id)?;
+                    Some((
+                        *id,
+                        listener.user_id.clone(),
+                        listener.login_provider().map(str::to_owned),
+                    ))
+                })
+                .collect()
+        };
+        let (mut members, mut readers) = (Vec::new(), Vec::new());
+        let (signed_in, anonymous): (Vec<_>, Vec<_>) = identities
+            .into_iter()
+            .partition(|(_, user, _)| !user.is_empty());
+        readers.extend(anonymous.into_iter().map(|(id, _, _)| id));
+        if signed_in.is_empty() {
+            return (members, readers);
+        }
+        let board_members = match self.audience.members(board_id).await {
+            Ok(board_members) => board_members,
+            Err(error) => {
+                tracing::error!(%error, board_id, "websocket: reading the members of a shared board failed");
+                let unread: Vec<ListenerId> = signed_in.iter().map(|(id, _, _)| *id).collect();
+                self.close_unread(&unread);
+                return (members, readers);
+            }
+        };
+        for (id, user, login_provider) in signed_in {
+            let on_board = board_members
+                .iter()
+                .any(|member| member.user_id == user && role_of(member).is_some());
+            if !on_board {
+                readers.push(id);
+                continue;
+            }
+            match self.audience.workspace_access(&user, workspace_id).await {
+                Ok(Some(access))
+                    if session_opens(
+                        access.required_provider.as_deref(),
+                        login_provider.as_deref(),
+                    ) =>
+                {
+                    members.push(id);
+                }
+                Ok(_) => readers.push(id),
+                Err(error) => {
+                    tracing::error!(%error, workspace_id, "websocket: reading a workspace's membership failed");
+                    self.close_unread(&[id]);
+                }
+            }
+        }
+        (members, readers)
+    }
+
+    /// Closes the recipients of a change whose check was overtaken by permission
+    /// writes every time, as retryable: they read anew rather than miss it.
+    fn give_up(&self, ids: &[ListenerId], action: &str) {
+        tracing::warn!(
+            action,
+            recipients = ids.len(),
+            "websocket: a change was given up, checked again too often"
+        );
+        for id in ids {
+            self.close_listener(*id, Disconnect::ChecksOvertaken);
+        }
+    }
+
+    /// Closes connections that a change could not be checked for, as retryable
+    /// (`StoreUnavailable`): a page connects again and reads anew, rather than miss
+    /// the change unknowingly. Their access did not end.
+    pub(super) fn close_unread(&self, ids: &[ListenerId]) {
+        for id in ids {
+            self.close_listener(*id, Disconnect::StoreUnavailable);
+        }
+    }
+
+    async fn authorized(&self, ids: &[ListenerId], access: Access<'_>) -> Vec<ListenerId> {
+        let members = match access {
+            Access::Members { board, .. } => match self.audience.members(board).await {
+                Ok(members) => members,
+                Err(error) => {
+                    tracing::error!(%error, board_id = board, "websocket: cannot read dispatch membership");
+                    self.close_unread(ids);
+                    return Vec::new();
+                }
+            },
+            _ => Vec::new(),
+        };
+        let mut authorized = Vec::new();
+        for id in ids {
+            if self.authorizes(*id, access, &members).await {
+                authorized.push(*id);
+            }
+        }
+        authorized
+    }
+
+    async fn authorizes(
+        &self,
+        id: ListenerId,
+        access: Access<'_>,
+        members: &[BoardMember],
+    ) -> bool {
+        let following = {
+            let listeners = self.listeners();
+            let Some(listener) = listeners.by_id.get(&id) else {
+                return false;
+            };
+            match access {
+                Access::All => return true,
+                Access::Public(board) => listener
+                    .shared_boards
+                    .iter()
+                    .find(|permit| permit.board == board)
+                    .map(|permit| Following::Link(permit.clone())),
+                Access::Workspace(workspace) => {
+                    following_workspace(listener, workspace, BoardOnly::No)
+                }
+                Access::Members {
+                    workspace, also, ..
+                } => following_workspace(listener, workspace, BoardOnly::Members { also }),
+            }
+        };
+        match following {
+            None => false,
+            Some(Following::Link(permit)) => self.link_opens(id, &permit).await,
+            Some(Following::Workspace {
+                workspace,
+                user,
+                role,
+                login_provider,
+                board_only,
+            }) => {
+                if !self
+                    .still_in_workspace(id, workspace, &user, role, login_provider.as_deref())
+                    .await
+                {
+                    return false;
+                }
+                match board_only {
+                    BoardOnly::No => true,
+                    BoardOnly::Members { also } => {
+                        also == Some(user.as_str())
+                            || members
+                                .iter()
+                                .any(|member| member.user_id == user && role_of(member).is_some())
+                    }
+                }
+            }
+        }
+    }
+
+    /// Whether the board's read token still opens it for the connection; one whose
+    /// link opens nothing now is ended and told.
+    async fn link_opens(&self, id: ListenerId, permit: &ReadPermit) -> bool {
+        match self
+            .audience
+            .shared_board(&permit.board, &permit.token)
+            .await
+        {
+            Ok(true) => true,
+            Ok(false) => {
+                self.end_board(id, &permit.board);
+                false
+            }
+            // The link may still open: not "ended", but not to miss the change.
+            Err(error) => {
+                tracing::error!(%error, board_id = %permit.board, "websocket: reading a board's sharing failed");
+                self.close_unread(&[id]);
+                false
+            }
+        }
+    }
+
+    /// Whether `user` is still in the workspace with the role the connection follows
+    /// it with, by a session that opens its organization. What ended is ended only if
+    /// the connection still follows it with that role (a subscription made since is
+    /// not), and told; what cannot be read closes the connection as retryable.
+    async fn still_in_workspace(
+        &self,
+        id: ListenerId,
+        workspace: &str,
+        user: &str,
+        role: WorkspaceRole,
+        login_provider: Option<&str>,
+    ) -> bool {
+        let checked = Of::Role(role);
+        let current = match self.audience.workspace_access(user, workspace).await {
+            Ok(Some(current)) => current,
+            Ok(None) => {
+                self.end_workspace(id, workspace, Ended::Access, checked);
+                return false;
+            }
+            // Access that cannot be read has not ended, but the change is not to be
+            // missed either.
+            Err(error) => {
+                tracing::error!(%error, workspace_id = workspace, "websocket: reading a workspace's membership failed");
+                self.close_unread(&[id]);
+                return false;
+            }
+        };
+        if current.workspace_role != role {
+            self.end_workspace(id, workspace, Ended::Access, checked);
+            return false;
+        }
+        if !session_opens(current.required_provider.as_deref(), login_provider) {
+            self.end_workspace(id, workspace, Ended::Sso, checked);
+            return false;
+        }
+        true
+    }
+}
+
+/// What a connection follows that a change is checked against.
+enum Following<'a> {
+    /// The board, by its read token.
+    Link(ReadPermit),
+    /// The workspace, as `user` with `role`, by a session made through `login_provider`.
+    Workspace {
+        workspace: &'a str,
+        user: String,
+        role: WorkspaceRole,
+        login_provider: Option<String>,
+        board_only: BoardOnly<'a>,
+    },
+}
+
+/// Whether a change of a workspace is told only to the members of its board.
+#[derive(Clone, Copy)]
+enum BoardOnly<'a> {
+    No,
+    /// Only to the board's members, and to `also` (who made it).
+    Members {
+        also: Option<&'a str>,
+    },
+}
+
+/// What `listener` follows of `workspace`, if it does.
+fn following_workspace<'a>(
+    listener: &super::Listener,
+    workspace: &'a str,
+    board_only: BoardOnly<'a>,
+) -> Option<Following<'a>> {
+    let role = listener.workspace_roles.get(workspace)?;
+    Some(Following::Workspace {
+        workspace,
+        user: listener.user_id.clone(),
+        role: *role,
+        login_provider: listener.login_provider().map(str::to_owned),
+        board_only,
+    })
+}

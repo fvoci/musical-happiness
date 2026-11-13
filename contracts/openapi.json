@@ -4469,7 +4469,7 @@
         ]
       },
       "put": {
-        "description": "Sets the organization's `OpenID Connect` provider, in place of the one it has. The\ndiscovery document of an issuer that is not the organization's already is read\nfirst: it must name the issuer exactly and have\n`https` endpoints, or the request is 400 with the reason `oidc_issuer_unverified`\nand `errors` naming `/issuer`. The server reaches only `https` addresses, follows no\nredirect, and reaches only public addresses unless its configuration lets it\n(`oidc_allow_private_addresses`).\n\n`clientSecret` left out keeps the stored secret while the issuer and the client stay\nthe same; with another issuer or client it is required when a secret is stored (400,\n`required` at `/clientSecret`), as the secret is the old client's. The empty string\nstores none. The secret is stored sealed with the server's key and never answered:\nwithout the key the request is 409 with the reason `secret_key_required`. `autoJoin`\nand `enabled` left out stay as they are, also for another issuer or client, and are\non when the organization has no provider.\n\nWhile the organization takes no password and the request keeps it so, another\nissuer, client or secret is not taken at once: it is saved aside as the provider's\n`pending` settings (in place of pending ones there are), and people go on signing\nin through the provider as it is. A sign-in through the pending settings\n(`startOidcTrial`) that ends well makes them the provider's; `deleteOidcPending`\nthrows them away. The secret of the pending settings is never answered either. What\nelse the request changes (`autoJoin`) is taken at once; `enabled` false is refused\n(`sso_enforced`). While the organization takes a password a change is taken at\nonce, and a change of what signing in takes throws pending settings away.\n\n`ssoRequired` true makes the organization take no password: from the next request\non, what is the organization's (the routes under `/w/{workspaceId}` and\n`/org/{orgId}`, and `getMyMemberships` and `setUserAdmin` where the organization is\nthe one the server stands in) answers 401 with the reason `sso_required` to every\nsession that was not made through this provider, and the websocket follows none of\nits workspaces for one. The\nsessions stay, and open what is of other organizations. It is switched on by a\nsession that was itself made through this provider, switched on, as it is stored\n(`canRequireSso`), by a request that does not change its issuer, client, secret or\n`enabled`, or the request is 409 with the reason `sso_unproven`: who asks has then\nshown that it lets them in. A `clientSecret` sent as it is stored is no change.\nWhile it is on, the provider is not switched off (`enabled` false) and not removed:\n409 with the reason `sso_enforced`, unless the same request switches `ssoRequired`\noff. Left out it stays as it is,\nand is off when the organization has no provider. A provider changed by another request\nsince this one read it is 409, to be read and sent again. The answer's `redirectUri`\nis the address to register with the provider, exactly: the organization's own,\n`…/api/v1/auth/oidc/callback/{orgId}`, the same before the provider is set and after\nit is changed.",
+        "description": "Sets the organization's `OpenID Connect` provider, in place of the one it has. The\ndiscovery document of an issuer that is not the organization's already is read\nfirst: it must name the issuer exactly and have\n`https` endpoints, or the request is 400 with the reason `oidc_issuer_unverified`\nand `errors` naming `/issuer`. The server reaches only `https` addresses, follows no\nredirect, and reaches only public addresses unless its configuration lets it\n(`oidc_allow_private_addresses`).\n\n`clientSecret` left out keeps the stored secret while the issuer and the client stay\nthe same; with another issuer or client it is required when a secret is stored (400,\n`required` at `/clientSecret`), as the secret is the old client's. The empty string\nstores none. The secret is stored sealed with the server's key and never answered:\nwithout the key the request is 409 with the reason `secret_key_required`. `autoJoin`\nand `enabled` left out stay as they are, also for another issuer or client, and are\non when the organization has no provider.\n\nWhile the organization takes no password and the request keeps it so, another\nissuer, client or secret is not taken at once: it is saved aside as the provider's\n`pending` settings (in place of pending ones there are), and people go on signing\nin through the provider as it is. A sign-in through the pending settings\n(`startOidcTrial`) that ends well makes them the provider's; `deleteOidcPending`\nthrows them away. The secret of the pending settings is never answered either. What\nelse the request changes (`autoJoin`) is taken at once; `enabled` false is refused\n(`sso_enforced`). While the organization takes a password a change is taken at\nonce, and a change of what signing in takes throws pending settings away.\n\n`ssoRequired` true makes the organization take no password: from the next request\non, what is the organization's (the routes under `/w/{workspaceId}` and\n`/org/{orgId}`, and `setUserAdmin` where the organization is the instance's own, the\noldest) answers 401 with the reason `sso_required` to every session that was not\nmade through this provider, `getMyMemberships` leaves its boards out for one, and\nthe websocket follows none of its workspaces for one. The sessions stay, and open\nwhat is of other organizations. It is switched on by a\nsession that was itself made through this provider, switched on, as it is stored\n(`canRequireSso`), by a request that does not change its issuer, client, secret or\n`enabled`, or the request is 409 with the reason `sso_unproven`: who asks has then\nshown that it lets them in. A `clientSecret` sent as it is stored is no change.\nWhile it is on, the provider is not switched off (`enabled` false) and not removed:\n409 with the reason `sso_enforced`, unless the same request switches `ssoRequired`\noff. Left out it stays as it is,\nand is off when the organization has no provider. A provider changed by another request\nsince this one read it is 409, to be read and sent again. The answer's `redirectUri`\nis the address to register with the provider, exactly: the organization's own,\n`…/api/v1/auth/oidc/callback/{orgId}`, the same before the provider is set and after\nit is changed.",
         "operationId": "putOidcProvider",
         "parameters": [
           {
@@ -5763,7 +5763,7 @@
     },
     "/api/v1/users/me/memberships": {
       "get": {
-        "description": "The user's memberships, with the roles of each, of the boards of the workspaces the\nuser is a member of. By the identifier of the board.",
+        "description": "The user's memberships, with the roles of each, of the boards of the workspaces the\nuser is a member of, in every organization the session opens: one that takes only\nsessions made through its provider leaves its boards out of another session's list.\nBy the identifier of the board.",
         "operationId": "getMyMemberships",
         "responses": {
           "200": {
@@ -6025,7 +6025,7 @@
         "operationId": "getWorkspace",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
@@ -6129,7 +6129,7 @@
         "operationId": "importArchive",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
@@ -6182,7 +6182,7 @@
         "operationId": "createImportUpload",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
@@ -6546,7 +6546,7 @@
         "operationId": "searchWorkspaceBoards",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
@@ -6831,7 +6831,7 @@
     },
     "/api/v1/w/{workspaceId}/boards/{boardId}/blocks": {
       "get": {
-        "description": "For the board's members, and for an open template everyone in its workspace.\n\n`all` asks for every block and `blockId` for one, which is 404 if the board has no\nsuch block. Otherwise `parentId` and `type` narrow the list, and without either the\nlist is every block of the board. A parameter with an empty value counts as left\nout. Oldest first; the blocks that one request made come in the order that request\nhad them in.",
+        "description": "For the board's members, and for an open template everyone who works in its workspace.\nA guest of the path's workspace reads a template's blocks only as a member of that\ntemplate (403 otherwise).\n\n`all` asks for every block and `blockId` for one, which is 404 if the board has no\nsuch block. Otherwise `parentId` and `type` narrow the list, and without either the\nlist is every block of the board. A parameter with an empty value counts as left\nout. Oldest first; the blocks that one request made come in the order that request\nhad them in.",
         "operationId": "getBlocks",
         "parameters": [
           {
@@ -8673,7 +8673,7 @@
         "operationId": "getCategories",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
@@ -8717,7 +8717,7 @@
         "operationId": "createCategory",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
@@ -8770,7 +8770,7 @@
         "operationId": "deleteCategory",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
@@ -8813,7 +8813,7 @@
         "operationId": "updateCategory",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
@@ -8875,7 +8875,7 @@
         "operationId": "reorderCategoryBoards",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
@@ -8943,7 +8943,7 @@
         "operationId": "setBoardCategory",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
@@ -8997,7 +8997,7 @@
         "operationId": "hideBoard",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
@@ -9051,7 +9051,7 @@
         "operationId": "unhideBoard",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
@@ -9105,7 +9105,7 @@
         "operationId": "reorderCategories",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
@@ -9510,7 +9510,7 @@
         "operationId": "onboard",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
@@ -9715,7 +9715,7 @@
         "operationId": "getTemplates",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
@@ -9761,7 +9761,7 @@
         "operationId": "getDeletedBoards",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
@@ -10050,7 +10050,7 @@
         "operationId": "getWorkspaceUsers",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
@@ -10103,7 +10103,7 @@
         "operationId": "getWorkspaceUsersById",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
@@ -10159,7 +10159,7 @@
         "operationId": "getWorkspaceUser",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
             "in": "path",
             "name": "workspaceId",
             "required": true,

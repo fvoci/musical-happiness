@@ -80,6 +80,7 @@ impl App {
                 continue;
             }
             let taken_over = self.settle(workspace_id, by, change)?;
+            self.ws().workspace_role_changed(workspace_id, user_id);
             self.recheck_member(workspace_id, user_id, by, &taken_over)
                 .await;
             tracing::info!(
@@ -122,6 +123,7 @@ impl App {
             .remove_workspace_member(workspace_id, user_id, by)
             .await?;
         let taken_over = self.settle(workspace_id, by, change)?;
+        self.ws().workspace_role_changed(workspace_id, user_id);
         self.recheck_member(workspace_id, user_id, by, &taken_over)
             .await;
         tracing::info!(

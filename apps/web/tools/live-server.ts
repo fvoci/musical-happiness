@@ -6,11 +6,11 @@
  *
  * The server is the one built in this checkout (`cargo build -p
  * fvoci-server`, `target/debug/fvoci-server`; `FVOCI_SERVER_BIN` names
- * another). It runs on SQLite in a new folder under `target/web-live/`, on
+ * another). It runs on SQLite (or PostgreSQL with `--organizations`) in a new folder under `target/web-live/`, on
  * 127.0.0.1 only, and serves this app's build (`dist/`), so that the page and
  * the API have one origin. It prints `live: <address>` once it answers.
  *
- * Beside it runs the fake OpenID Connect provider of the server's tests
+ * Beside the SQLite server runs the fake OpenID Connect provider of the server's tests
  * (`cargo build -p fvoci-server --bins --examples`), on the next port, and
  * the server is started to reach it: with a key to seal its client secret,
  * private addresses allowed, and its certificate as the one it trusts.
@@ -27,7 +27,7 @@
  * without being asked ends this process with a failure.
  */
 import { spawn } from 'node:child_process';
-import { createWriteStream, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
@@ -36,6 +36,7 @@ const WEB_ROOT = path.resolve(import.meta.dirname, '..');
 const REPO_ROOT = path.resolve(WEB_ROOT, '../..');
 
 const port = Number(process.argv[2] ?? 18510);
+const organizations = process.argv.includes('--organizations');
 const binary = process.env.FVOCI_SERVER_BIN ?? path.join(REPO_ROOT, 'target/debug/fvoci-server');
 const dist = path.join(WEB_ROOT, 'dist');
 const fakeOidc =
@@ -54,7 +55,7 @@ function stop(message: string): never {
 
 if (!existsSync(binary)) stop(`no server at ${binary}: run \`cargo build -p fvoci-server\``);
 if (!existsSync(path.join(dist, 'index.html'))) stop('no build in dist/: run `pnpm run build`');
-if (!existsSync(fakeOidc)) {
+if (!organizations && !existsSync(fakeOidc)) {
   stop(`no fake provider at ${fakeOidc}: run \`cargo build -p fvoci-server --bins --examples\``);
 }
 
@@ -66,6 +67,43 @@ writeFileSync(
   path.join(REPO_ROOT, 'target/web-live', `server-${port}.json`),
   JSON.stringify({ data, socket }),
 );
+// Holding the helper's stdin keeps its schema alive. EOF removes only that schema.
+let databaseEnded: Promise<number | null> = Promise.resolve(0);
+let databaseClosing = false;
+const database = organizations
+  ? spawn(path.join(REPO_ROOT, 'target/debug/examples/live_database'), [data], {
+      // Playwright terminates the server process group; stdin owns this helper instead.
+      detached: true,
+      stdio: ['pipe', 'pipe', 'inherit'],
+      env: { ...process.env, FVOCI_STORE_TEST_DB_TYPE: 'postgres' },
+    })
+  : undefined;
+if (database) {
+  databaseEnded = new Promise((resolve) => {
+    database.on('exit', (code) => {
+      resolve(code);
+    });
+  });
+  await new Promise<void>((resolve, reject) => {
+    const lines = createInterface({ input: database.stdout });
+    lines.on('line', (line) => {
+      if (line === 'database: ready') resolve();
+    });
+    database.on('error', reject);
+    database.on('exit', (code) => {
+      reject(new Error(`database helper ended (${code})`));
+    });
+  });
+}
+const storage = organizations
+  ? {
+      dbtype: 'postgres',
+      ...(JSON.parse(readFileSync(path.join(data, 'database.json'), 'utf8')) as {
+        dbconfig: string;
+      }),
+      org_creation: 'open',
+    }
+  : { dbtype: 'sqlite3', dbconfig: path.join(data, 'fvoci.db') };
 const origin = `http://127.0.0.1:${port}`;
 writeFileSync(
   path.join(data, 'config.json'),
@@ -74,8 +112,7 @@ writeFileSync(
       serverRoot: origin,
       port,
       localOnly: true,
-      dbtype: 'sqlite3',
-      dbconfig: path.join(data, 'fvoci.db'),
+      ...storage,
       webpath: dist,
       filespath: path.join(data, 'files'),
       // Every test signs in and registers from one address, several at a time
@@ -107,20 +144,23 @@ const log = createWriteStream(path.join(data, 'server.log'));
 /** Whether this process is stopping, and its server and provider with it. */
 let stopping = false;
 const certificate = path.join(data, 'fake-oidc.pem');
-const provider = spawn(fakeOidc, [String(oidcPort), certificate], {
-  cwd: data,
-  stdio: ['ignore', 'pipe', 'inherit'],
-});
-await new Promise<void>((started) => {
-  const said = createInterface({ input: provider.stdout });
-  said.on('line', (line) => {
-    log.write(`${line}\n`);
-    if (line.startsWith('fake-oidc:')) started();
+const provider = organizations
+  ? undefined
+  : spawn(fakeOidc, [String(oidcPort), certificate], {
+      cwd: data,
+      stdio: ['ignore', 'pipe', 'inherit'],
+    });
+if (provider)
+  await new Promise<void>((started) => {
+    const said = createInterface({ input: provider.stdout });
+    said.on('line', (line) => {
+      log.write(`${line}\n`);
+      if (line.startsWith('fake-oidc:')) started();
+    });
+    provider.on('exit', (code) => {
+      if (!stopping) stop(`the fake provider ended (${code})`);
+    });
   });
-  provider.on('exit', (code) => {
-    if (!stopping) stop(`the fake provider ended (${code})`);
-  });
-});
 
 const server = spawn(binary, ['--config', path.join(data, 'config.json')], {
   cwd: data,
@@ -129,10 +169,14 @@ const server = spawn(binary, ['--config', path.join(data, 'config.json')], {
     ...environment,
     FVOCI_LOG_FORMAT: 'json',
     NO_COLOR: '1',
-    FVOCI_SECRET_KEY: SECRET_KEY,
-    FVOCI_OIDC_ALLOW_PRIVATE_ADDRESSES: 'true',
-    // The fake provider's certificate is the one the server trusts.
-    SSL_CERT_FILE: certificate,
+    ...(!organizations
+      ? {
+          FVOCI_SECRET_KEY: SECRET_KEY,
+          FVOCI_OIDC_ALLOW_PRIVATE_ADDRESSES: 'true',
+          // The fake provider's certificate is the one the server trusts.
+          SSL_CERT_FILE: certificate,
+        }
+      : {}),
   },
 });
 
@@ -148,18 +192,28 @@ const watch = (line: string): void => {
 };
 lines.on('line', watch);
 errorLines.on('line', watch);
-server.on('exit', (code, signal) => {
+async function finished(code: number | null, signal: NodeJS.Signals | null): Promise<void> {
+  databaseClosing = true;
+  database?.stdin.end();
+  const databaseCode = await databaseEnded;
+  if (databaseCode !== 0) stop(`database cleanup failed (${databaseCode})`);
   log.end();
   // On stdout too: the test runner shows this process's stdout.
   const said = `live-server: the server ended (${signal ?? code})`;
   if (stopping) console.log(said);
   else stop(`${said} unasked; its log is in ${path.relative(REPO_ROOT, data)}/server.log`);
   process.exit(0);
+}
+server.on('exit', (code, signal) => {
+  void finished(code, signal);
+});
+database?.on('exit', (code) => {
+  if (!databaseClosing) stop(`database helper ended unexpectedly (${code})`);
 });
 
 const end = (): void => {
   stopping = true;
-  provider.kill('SIGTERM');
+  provider?.kill('SIGTERM');
   server.kill('SIGTERM');
   // A server that does not stop within the time it gives its own requests is ended.
   setTimeout(() => server.kill('SIGKILL'), 12_000).unref();
@@ -168,5 +222,5 @@ process.on('SIGTERM', end);
 process.on('SIGINT', end);
 process.on('exit', () => {
   server.kill('SIGKILL');
-  provider.kill('SIGKILL');
+  provider?.kill('SIGKILL');
 });

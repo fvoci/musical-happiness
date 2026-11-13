@@ -15,7 +15,8 @@
 use std::collections::BTreeSet;
 
 use fvoci_model::{
-    BoardType, LoginOrganization, OrgRole, User, UserWorkspace, Workspace, WorkspaceRole, new_id,
+    BoardMember, BoardType, LoginOrganization, OrgRole, User, UserWorkspace, Workspace,
+    WorkspaceRole, new_id,
 };
 use subtle::ConstantTimeEq as _;
 
@@ -26,7 +27,7 @@ use crate::file_info;
 use crate::loose_objects::LooseState;
 use crate::oidc::{FLOW_COLUMNS, LoginFlow, flow_from_row};
 use crate::uploads::{OpenUploads, UploadUsage};
-use crate::{invitations, users, workspaces};
+use crate::{boards, invitations, users, workspaces};
 
 /// The organization that holds what the server ships with and is nobody's: the
 /// built-in templates. The schema makes it, under this identifier.
@@ -304,35 +305,25 @@ impl Store {
             .await
     }
 
-    /// The organization that the routes which name no workspace work in: the oldest
-    /// one, made now with `workspace` as its first if there is none.
-    ///
-    /// TEMPORARY. It stands in for the workspace a request will name, and goes with
-    /// the last route that names none.
+    /// The instance's own organization: the oldest non-system organization in use.
+    /// This identifies the organization whose administrators follow instance roles;
+    /// it does not select an organization for requests or create one.
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::Database`] if a statement fails.
-    pub async fn only_organization(&self, workspace: &Workspace) -> Result<String, StoreError> {
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn instance_organization(&self) -> Result<Option<String>, StoreError> {
         self.system()
-            .transaction(async |scope| {
-                // One at a time: of two servers that start on an empty database, the
-                // second waits here and then finds the organization of the first. On
-                // SQLite a transaction that writes holds the whole database.
-                let mut sql = scope.sql("SELECT id FROM instance WHERE id = 1");
-                if scope.dialect() == Dialect::Postgres {
-                    sql.push(" FOR UPDATE");
-                }
-                scope.fetch_optional(sql).await?;
-
-                let mut sql = scope.sql("SELECT id FROM organizations WHERE is_system = ");
-                sql.bind(false)
-                    .push_bind(" AND delete_at = ", 0_i64)
-                    .push(" ORDER BY create_at, id LIMIT 1");
-                match scope.fetch_optional(sql).await? {
-                    Some(row) => row.id(0),
-                    None => create_organization(scope, "", workspace).await,
-                }
+            .with_conn(async |scope| {
+                let sql = scope.sql(
+                    "SELECT id FROM organizations WHERE is_system = false AND delete_at = 0 \
+                 ORDER BY create_at, id LIMIT 1",
+                );
+                scope
+                    .fetch_optional(sql)
+                    .await?
+                    .map(|row| row.id(0))
+                    .transpose()
             })
             .await
     }
@@ -629,6 +620,85 @@ impl Store {
                 Ok(held)
             })
             .await
+    }
+
+    /// The user's board memberships in live workspaces of every organization, ordered
+    /// by board identifier. Only the named user's memberships are returned, and only of
+    /// the organizations a session made through `login_provider` (`None` for a
+    /// password) opens: one that takes only sessions of another provider is left out.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn board_memberships_of_user(
+        &self,
+        user_id: &str,
+        login_provider: Option<&str>,
+    ) -> Result<Vec<BoardMember>, StoreError> {
+        self.system()
+            .with_conn(async |scope| {
+                let mut sql = boards::select_members(scope);
+                sql.push(
+                    " JOIN boards AS b ON b.id = bm.board_id \
+                JOIN workspaces AS t ON t.id = b.workspace_id \
+                JOIN organizations AS o ON o.id = t.org_id \
+                JOIN workspace_members AS wm ON wm.workspace_id = t.id AND wm.user_id = bm.user_id \
+                WHERE bm.user_id = ",
+                )
+                .bind(Id(user_id))
+                .push(IN_USE)
+                .push(&scope.same_organization(&[("bm", "b"), ("b", "t"), ("wm", "t")]))
+                .push(
+                    " AND NOT EXISTS (SELECT 1 FROM oidc_providers AS p \
+                     WHERE p.org_id = t.org_id AND p.sso_required = ",
+                )
+                .bind(true);
+                if let Some(provider) = login_provider {
+                    sql.push_bind(" AND p.id <> ", Id(provider));
+                }
+                sql.push(") ORDER BY bm.board_id");
+                boards::fetch_members(scope, sql).await
+            })
+            .await
+    }
+
+    /// The board of a live block in the named workspace, for the holder of its read
+    /// token. The lookup reaches across organizations but returns nothing without a
+    /// valid public link to that board.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if either lookup fails.
+    pub async fn board_of_shared_block(
+        &self,
+        workspace_id: &str,
+        block_id: &str,
+        read_token: &str,
+    ) -> Result<Option<String>, StoreError> {
+        let board_id = self
+            .system()
+            .with_conn(async |scope| {
+                let mut sql = scope.sql(
+                    "SELECT bl.board_id FROM blocks AS bl JOIN boards AS b ON b.id = bl.board_id \
+                 WHERE bl.id = ",
+                );
+                sql.bind(Id(block_id))
+                    .push_bind(" AND b.workspace_id = ", Id(workspace_id))
+                    .push(&scope.same_organization(&[("bl", "b")]));
+                scope
+                    .fetch_optional(sql)
+                    .await?
+                    .map(|row| row.id(0))
+                    .transpose()
+            })
+            .await?;
+        let Some(board_id) = board_id else {
+            return Ok(None);
+        };
+        Ok(self
+            .org_of_shared_board(&board_id, read_token)
+            .await?
+            .map(|_| board_id))
     }
 
     /// The organization of a board that is shared, for whoever holds its read token;

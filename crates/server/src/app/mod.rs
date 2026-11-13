@@ -162,6 +162,9 @@ struct Inner {
     server_lock: server_lock::Holder,
     /// The limit on reads of shared boards whose token opens nothing.
     shared_reads: SharedReads,
+    /// Sign-ups held until as many as it counts reach the store (`App::meet_next_signups`).
+    #[cfg(feature = "test-util")]
+    signups_meet: std::sync::Mutex<Option<Arc<tokio::sync::Barrier>>>,
 }
 
 /// What `ping` reports about the server.
@@ -273,6 +276,8 @@ impl App {
                 collab,
                 server_lock: server_lock::Holder::default(),
                 shared_reads: SharedReads::default(),
+                #[cfg(feature = "test-util")]
+                signups_meet: std::sync::Mutex::default(),
             }),
         })
     }
@@ -301,7 +306,7 @@ impl App {
         // The hub is the same, with the same connections; what it asks about the
         // boards, to know whom a change is told to, it asks as this handle reaches them.
         let mut ws = self.ws.clone();
-        ws.audience = Audience::new(store.clone());
+        ws.audience = self.ws.audience.with_store(store.clone());
         Self {
             inner: Arc::clone(&self.inner),
             ws,

@@ -540,3 +540,52 @@ async fn templates_stored_again_remove_the_old_files() {
     );
     ts.teardown().await;
 }
+
+/// A guest role follows the workspace, not the account shared by its memberships.
+#[tokio::test]
+async fn a_guest_uses_templates_in_the_workspace_where_they_are_a_member() {
+    use crate::common::TEST_WORKSPACE_ID;
+
+    let ts = Setup::native()
+        .with_templates()
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let user = ts.client2.me().await;
+    ts.client
+        .put(
+            &format!("{ROOT_WS}/members/{}", user.id),
+            &json!({"role": "guest"}),
+        )
+        .await
+        .check_ok();
+    ts.client2
+        .get(&format!("{ROOT_WS}/templates"))
+        .await
+        .check_not_found();
+    let elsewhere = format!("/w/{TEST_WORKSPACE_ID}");
+    let templates: Vec<Board> = ts
+        .client2
+        .get(&format!("{elsewhere}/templates"))
+        .await
+        .ok_json();
+    assert!(
+        !templates.is_empty(),
+        "a member can still use templates elsewhere"
+    );
+    let board = &templates[0].id;
+    ts.client2
+        .get(&format!("{ROOT_WS}/boards/{board}/blocks"))
+        .await
+        .check_forbidden();
+    ts.client2
+        .get(&format!("{elsewhere}/boards/{board}/blocks"))
+        .await
+        .check_ok();
+    ts.client2
+        .post(&format!("{elsewhere}/boards/{board}/duplicate"), &json!({}))
+        .await
+        .check_created();
+    ts.teardown().await;
+}

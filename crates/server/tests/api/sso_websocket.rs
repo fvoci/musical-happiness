@@ -41,7 +41,7 @@ async fn follows(
         .await;
     let probe = category(workspace_id, user_id, &format!("probe {}", new_id()));
     for _ in 0..tries {
-        th.app.ws().broadcast_category_change(&probe);
+        th.app.ws().broadcast_category_change(&probe).await;
         while let Some(message) = socket.next_json(Duration::from_millis(100)).await {
             if message["category"]["name"] == probe.name.as_str() {
                 while socket.next_json(Duration::from_millis(150)).await.is_some() {}
@@ -52,15 +52,15 @@ async fn follows(
     false
 }
 
-/// Whether the server closes the connection, after what was on its way to it.
-async fn ends(socket: &mut Socket) -> bool {
-    loop {
-        match socket.next(PATIENCE).await {
-            Event::Closed => return true,
-            Event::Nothing => return false,
-            Event::Json(_) | Event::Ping => {}
-        }
-    }
+/// The reason the server gives as it stops what the connection followed of a workspace
+/// (`UNSUBSCRIBED_WORKSPACE`), after what was on its way to it; `None` if it does not.
+async fn unsubscribed(socket: &mut Socket) -> Option<String> {
+    let message = socket.unsubscribed_message(PATIENCE).await?;
+    assert_eq!(
+        message["action"], "UNSUBSCRIBED_WORKSPACE",
+        "a workspace's subscription ends: {message}"
+    );
+    message["reason"].as_str().map(str::to_owned)
 }
 
 /// A server that reaches the fake provider, shares boards by link and keeps metrics,
@@ -81,9 +81,9 @@ async fn server(fake: &FakeProvider) -> (TestServer, String, Client) {
     (ts, org_id, admin)
 }
 
-/// The connections that follow a workspace with a session its organization shuts out
-/// end when it begins to take no password, counted as that, and do not follow the
-/// workspace again; the connection of the provider's session goes on, and hears what
+/// What the connections follow of a workspace with a session its organization shuts
+/// out ends when it begins to take no password, and they are told so, and they do not
+/// follow the workspace again; the connection of the provider's session goes on, and hears what
 /// the others no longer do. Released, the organization is followed with a password
 /// again.
 #[tokio::test]
@@ -106,17 +106,25 @@ async fn a_connection_follows_a_workspace_only_with_a_session_that_opens_it() {
         .await
         .check_ok();
 
-    assert!(ends(&mut with_password).await, "the password's is closed");
-    assert!(ends(&mut of_user2).await, "and another member's");
-    let closed = |body: &str| {
+    assert_eq!(
+        unsubscribed(&mut with_password).await.as_deref(),
+        Some("sso required"),
+        "the password's ends, saying why"
+    );
+    assert_eq!(
+        unsubscribed(&mut of_user2).await.as_deref(),
+        Some("sso required"),
+        "and another member's"
+    );
+    let told = |body: &str| {
         sample(
             body,
-            "fvoci_websocket_disconnections_total",
-            &[("reason", "sso_required")],
+            "fvoci_websocket_messages_queued_total",
+            &[("action", "UNSUBSCRIBED_WORKSPACE")],
         )
     };
-    let body = scrape_until(&ts, |body| closed(body) == Some(2.0)).await;
-    assert_eq!(closed(&body), Some(2.0), "the two, and for that: {body}");
+    let body = scrape_until(&ts, |body| told(body) == Some(2.0)).await;
+    assert_eq!(told(&body), Some(2.0), "the two are told: {body}");
     // The one that followed nothing of the organization stays, and follows none now.
     assert!(
         !follows(
@@ -167,10 +175,10 @@ async fn told_of(th: &TestServer, socket: &mut Socket, block: &Block) -> Value {
 }
 
 /// A board's public link is followed as before when its organization takes no
-/// password: by anybody, as a reader, who is told nobody's identifier. A member of the
-/// board who follows it so is told what a member is told only with a session that
-/// opens the organization; with another, also one that followed before, what a reader
-/// is. No such connection is closed: it follows no workspace.
+/// password: by anybody. A reader by the link alone is told nobody's identifier, and
+/// so is a member of the board whose session the organization does not take; one whose
+/// session it takes is told the block as a member is. No such connection ends: it
+/// follows no workspace.
 #[tokio::test]
 async fn a_public_link_is_followed_as_a_reader_by_a_session_that_opens_nothing() {
     let fake = FakeProvider::start().await;
@@ -197,7 +205,7 @@ async fn a_public_link_is_followed_as_a_reader_by_a_session_that_opens_nothing()
     assert_eq!(
         wrote(told_of(&ts, &mut with_password, &block).await),
         json!(""),
-        "the member's password session, which followed before, reads as anybody now"
+        "the member's password session, which followed before, now reads as anybody"
     );
     let mut again = Socket::connect_as(&ts.client).await;
     again.send(subscription.clone()).await;
@@ -211,7 +219,7 @@ async fn a_public_link_is_followed_as_a_reader_by_a_session_that_opens_nothing()
     assert_eq!(
         wrote(told_of(&ts, &mut through, &block).await),
         json!(user1),
-        "the provider's session is told what a member is"
+        "the member's session through the provider is told as a member"
     );
 
     require_sso(&admin, &org_id, &fake, Passwords::Taken)
@@ -220,7 +228,35 @@ async fn a_public_link_is_followed_as_a_reader_by_a_session_that_opens_nothing()
     assert_eq!(
         wrote(told_of(&ts, &mut with_password, &block).await),
         json!(user1),
-        "released, the same connection is a member's again"
+        "released, the password session is told as a member again"
+    );
+    ts.teardown().await;
+    fake.stop();
+}
+
+/// A subscription that passed its check before the organization began to take no
+/// password, and registers after what it shuts out ended, is checked again and not
+/// made: the connection is told it ended.
+#[tokio::test]
+async fn a_subscription_checked_before_the_wall_is_not_made_after_it() {
+    let fake = FakeProvider::start().await;
+    let (ts, org_id, admin) = server(&fake).await;
+    let mut with_password = Socket::connect_as(&ts.client).await;
+    let pause = ts.app.ws().pause_next_subscription();
+    with_password
+        .send(json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": ROOT_WORKSPACE_ID}))
+        .await;
+    pause.reached().await;
+
+    require_sso(&admin, &org_id, &fake, Passwords::Refused)
+        .await
+        .check_ok();
+    pause.resume();
+
+    assert_eq!(
+        unsubscribed(&mut with_password).await.as_deref(),
+        Some("sso required"),
+        "the subscription checked before the wall ends, saying why"
     );
     ts.teardown().await;
     fake.stop();
@@ -255,7 +291,11 @@ async fn the_session_of_another_organizations_provider_follows_nothing() {
         .await
         .check_ok();
 
-    assert!(ends(&mut theirs_before).await, "the connection is closed");
+    assert_eq!(
+        unsubscribed(&mut theirs_before).await.as_deref(),
+        Some("sso required"),
+        "what it followed of ours ends"
+    );
     let mut of_theirs = Socket::connect_as(&through_theirs).await;
     assert!(
         !follows(&ts, &mut of_theirs, ROOT_WORKSPACE_ID, &user1, DOUBT).await,

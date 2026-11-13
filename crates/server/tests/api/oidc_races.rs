@@ -289,25 +289,53 @@ async fn changed_provider_refuses_pending_callback(change: Change, who: Who) {
 
 #[tokio::test]
 async fn disabling_a_provider_during_token_exchange_prevents_a_new_session() {
-    changed_provider_refuses_pending_callback(Change::Disable, Who::Newcomer).await;
-    changed_provider_refuses_pending_callback(Change::Disable, Who::Member).await;
+    Box::pin(changed_provider_refuses_pending_callback(
+        Change::Disable,
+        Who::Newcomer,
+    ))
+    .await;
+    Box::pin(changed_provider_refuses_pending_callback(
+        Change::Disable,
+        Who::Member,
+    ))
+    .await;
 }
 
 #[tokio::test]
 async fn deleting_a_provider_during_token_exchange_prevents_a_new_session() {
-    changed_provider_refuses_pending_callback(Change::Delete, Who::Newcomer).await;
+    Box::pin(changed_provider_refuses_pending_callback(
+        Change::Delete,
+        Who::Newcomer,
+    ))
+    .await;
 }
 
 #[tokio::test]
 async fn replacing_a_provider_during_token_exchange_prevents_a_new_session() {
-    changed_provider_refuses_pending_callback(Change::Replace, Who::Newcomer).await;
-    changed_provider_refuses_pending_callback(Change::Replace, Who::Member).await;
+    Box::pin(changed_provider_refuses_pending_callback(
+        Change::Replace,
+        Who::Newcomer,
+    ))
+    .await;
+    Box::pin(changed_provider_refuses_pending_callback(
+        Change::Replace,
+        Who::Member,
+    ))
+    .await;
 }
 
 #[tokio::test]
 async fn closing_auto_join_during_token_exchange_prevents_a_new_member() {
-    changed_provider_refuses_pending_callback(Change::CloseJoining, Who::Newcomer).await;
-    changed_provider_refuses_pending_callback(Change::CloseJoining, Who::FormerMember).await;
+    Box::pin(changed_provider_refuses_pending_callback(
+        Change::CloseJoining,
+        Who::Newcomer,
+    ))
+    .await;
+    Box::pin(changed_provider_refuses_pending_callback(
+        Change::CloseJoining,
+        Who::FormerMember,
+    ))
+    .await;
 }
 
 #[tokio::test]

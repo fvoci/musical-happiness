@@ -36,6 +36,9 @@ e2e/sidebar.spec.ts | in Team.
 # decision, 2026-11-12). The tests find the screens by those texts, and the test of the
 # first use is about them from end to end.
 e2e-live/first-use.spec.ts
+e2e-live/organizations.support.ts | New here? Start a team
+e2e-live/organizations.support.ts | team name
+e2e-live/organizations.support.ts | Start team
 tests/ui/account/sign-in-provider.test.ts | your team's administrator
 tests/ui/account/sign-in-provider.test.ts | This team does not let
 tests/ui/account/invite-page.test.ts | Start a team

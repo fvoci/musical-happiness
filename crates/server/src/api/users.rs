@@ -126,7 +126,9 @@ async fn handle_patch_me(
 /// The boards the user is a member of
 ///
 /// The user's memberships, with the roles of each, of the boards of the workspaces the
-/// user is a member of. By the identifier of the board.
+/// user is a member of, in every organization the session opens: one that takes only
+/// sessions made through its provider leaves its boards out of another session's list.
+/// By the identifier of the board.
 #[utoipa::path(
     get,
     path = "/users/me/memberships",
@@ -138,9 +140,7 @@ async fn handle_get_my_memberships(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
 ) -> ApiResult {
-    // The boards are of the organization the server stands in, and name no workspace.
-    app.require_session_opens_here(&session).await?;
-    let members = app.store().get_members_for_user(&session.user_id).await?;
+    let members = app.board_memberships(&session).await?;
     Ok(json_response(&members))
 }
 
@@ -236,8 +236,8 @@ async fn handle_set_user_admin(
     Path(user_id): Path<String>,
     body: Bytes,
 ) -> ApiResult {
-    // What is changed is the organization's the server stands in, which no path names.
-    app.require_session_opens_here(&session).await?;
+    // Who administers the instance administers its own organization too.
+    app.require_session_opens_instance(&session).await?;
     require_admin(&app, &session.user_id).await?;
     let flag: AdminFlag = decode_object(&body)?;
     let role = match flag.is_admin {

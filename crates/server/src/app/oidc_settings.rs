@@ -133,7 +133,7 @@ impl App {
                 // before the request answers. A connection in one may follow no workspace.
                 self.collab().put_out_shut_out(self, &stored.id).await;
             }
-            self.close_connections_shut_out(&stored).await;
+            self.end_subscriptions_shut_out(&stored).await;
         }
         // Pending settings go with a change of what signing in takes.
         let pending = self.store().oidc_pending_provider().await?;
