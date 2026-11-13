@@ -16,6 +16,8 @@ pub(super) enum Pause {
     AfterRecheck,
     /// A connection coming into a room was admitted, and the room is not held yet.
     AfterAdmission,
+    /// An immediate check holds its members, and is about to read the store.
+    BeforeAccessRead,
 }
 
 /// A pause: told when the step gets there, and waited for to go on.
@@ -77,6 +79,14 @@ impl Collab {
         self.pause_next(Pause::AfterAdmission)
     }
 
+    /// Pauses the next immediate permission read, once its check holds its members:
+    /// the first is told when it gets there, and it goes on when the second is.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn pause_next_access_read(&self) -> (Arc<Notify>, Arc<Notify>) {
+        self.pause_next(Pause::BeforeAccessRead)
+    }
+
     /// Takes away the pauses set and not got to, so that nothing waits at them.
     #[doc(hidden)]
     pub fn unpause(&self) {
@@ -117,9 +127,10 @@ impl Collab {
         }
     }
 
-    /// Before an immediate permission read: never answers if a test stalled the next
-    /// one, and waits as long as a test slowed every one.
+    /// Before an immediate permission read: waits if a test paused the next one, never
+    /// answers if a test stalled it, and waits as long as a test slowed every one.
     pub(super) async fn before_access_read(&self) {
+        self.paused(Pause::BeforeAccessRead).await;
         let pauses = &self.inner.rooms.pauses;
         let delay = *pauses
             .access_delay

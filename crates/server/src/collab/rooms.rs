@@ -364,6 +364,24 @@ impl Turn {
         self.miss(&held::Missed::Whole);
         self.push_anew(loaded, |member| !member.is_held());
     }
+
+    /// Sends the members `to` picks the document anew, in place of the sync messages
+    /// that waited for them of the room.
+    fn push_anew(&mut self, loaded: &Loaded, to: impl Fn(&Member) -> bool) {
+        let epoch = loaded.epoch;
+        let whole = frame::message(Sync::Missing, &loaded.state);
+        self.queue_for_each(|member| {
+            if !to(member) {
+                return Ok(());
+            }
+            let doc = member.doc;
+            let anew = [
+                Queued::text(doc, messages::reset(doc, epoch)),
+                Queued::sync(doc, epoch, &whole),
+            ];
+            member.connection.queue.push_anew(doc, anew)
+        });
+    }
 }
 
 impl Collab {
@@ -769,7 +787,7 @@ impl Collab {
             Some(reason_of(&refusals::out_of_step()))
         };
         // The state the held are left at, if this is the first thing they miss.
-        let before = if refusal.is_none() && turn.holds_one_missing_nothing() {
+        let before = if refusal.is_none() && turn.awaits_first_miss() {
             let state_vector = self
                 .state_vector_while(&room.app, &room.card_id, Some(room.gone.clone()))
                 .await;

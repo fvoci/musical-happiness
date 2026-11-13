@@ -2,10 +2,10 @@
 //! them once the check keeps them: nothing written after a change reaches somebody
 //! the change may have shut out before the store said so.
 
+use super::super::Collab;
 use super::super::frame::{self, Sync};
-use super::super::messages::{self, reason_of};
+use super::super::messages::reason_of;
 use super::super::queue::Queued;
-use super::super::{Collab, Loaded};
 use super::{Asked, Member, Room, Turn};
 
 /// What the room did not send a member while it held them.
@@ -30,7 +30,7 @@ impl Member {
 impl Turn {
     /// Whether a held member missed nothing yet: what the room sends next is the first
     /// thing they miss, and the state of the document before it is to be kept for them.
-    pub(super) fn holds_one_missing_nothing(&self) -> bool {
+    pub(super) fn awaits_first_miss(&self) -> bool {
         self.members
             .iter()
             .any(|member| member.is_held() && member.missed.is_none())
@@ -41,28 +41,10 @@ impl Turn {
     /// keeps the earlier one a member missed since.
     pub(super) fn miss(&mut self, missed: &Missed) {
         for member in self.members.iter_mut().filter(|member| member.is_held()) {
-            if *missed == Missed::Whole || member.missed.is_none() {
+            if matches!(missed, Missed::Whole) || member.missed.is_none() {
                 member.missed = Some(missed.clone());
             }
         }
-    }
-
-    /// Sends the members whom no check holds the document anew, in place of the sync
-    /// messages that waited for them of the room.
-    pub(super) fn push_anew(&mut self, loaded: &Loaded, to: impl Fn(&Member) -> bool) {
-        let epoch = loaded.epoch;
-        let whole = frame::message(Sync::Missing, &loaded.state);
-        self.queue_for_each(|member| {
-            if !to(member) {
-                return Ok(());
-            }
-            let doc = member.doc;
-            let anew = [
-                Queued::text(doc, messages::reset(doc, epoch)),
-                Queued::sync(doc, epoch, &whole),
-            ];
-            member.connection.queue.push_anew(doc, anew)
-        });
     }
 }
 
@@ -86,6 +68,7 @@ impl Collab {
                 .diff_while(&room.app, &room.card_id, epoch, &state_vector, gone.clone())
                 .await;
             match diff {
+                Ok(_) if room.gone.is_cancelled() => return,
                 Ok(diff) => {
                     let diff = frame::message(Sync::Update, &diff);
                     turn.send(
@@ -162,9 +145,9 @@ mod tests {
             members: vec![member(1, None), member(2, Some(7))],
             ..Turn::default()
         };
-        assert!(turn.holds_one_missing_nothing());
+        assert!(turn.awaits_first_miss());
         turn.miss(&Missed::Since(vec![1]));
-        assert!(!turn.holds_one_missing_nothing());
+        assert!(!turn.awaits_first_miss());
         turn.miss(&Missed::Since(vec![2]));
         assert_eq!(missed(&turn), [None, Some(Missed::Since(vec![1]))]);
         turn.miss(&Missed::Whole);
