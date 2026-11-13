@@ -275,3 +275,64 @@ async fn one_organizations_dispatch_does_not_hold_anothers_writes() {
     );
     ts.teardown().await;
 }
+
+/// Whether a subscription being checked while the housekeeping runs once is checked
+/// again; the subscription is registered either way.
+async fn rechecked_by_housekeeping(ts: &TestServer) -> bool {
+    let mut socket = ts.client.connect_websocket().await;
+    let pause = ts.app.ws().pause_next_subscription();
+    socket
+        .send(Message::Text(
+            json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": ROOT_WORKSPACE_ID})
+                .to_string()
+                .into(),
+        ))
+        .await
+        .expect("subscription sent");
+    tokio::time::timeout(Duration::from_secs(5), pause.reached())
+        .await
+        .expect("the subscription is checked");
+    let again = ts.app.ws().pause_next_subscription();
+    fvoci_server::keep_house(&ts.app).await;
+    pause.resume();
+    let checked_again = tokio::time::timeout(Duration::from_secs(1), again.reached())
+        .await
+        .is_ok();
+    drop(again);
+    still_open(&mut socket, "after the housekeeping").await;
+    checked_again
+}
+
+/// The housekeeping's clean-up of ended sessions closes what each still has open, one
+/// session at a time (`lib.rs`, `clean_up_sessions`), and each closing moves the one
+/// listeners' revision of every organization on, whether or not it closed anything.
+/// So another user's session that ended, which no connection holds, makes a
+/// subscription being checked meanwhile be checked again. Without an ended session
+/// the same housekeeping checks nothing again.
+#[tokio::test]
+async fn cleaning_up_another_users_ended_session_does_not_recheck_a_subscription() {
+    use crate::common::{PASSWORD, USER2_USERNAME};
+
+    let control = Setup::local_mode().start().await.init_basic().await;
+    assert!(
+        !rechecked_by_housekeeping(&control).await,
+        "with no ended session the housekeeping checks nothing again"
+    );
+    control.teardown().await;
+
+    let ts = Setup::local_mode().start().await.init_basic().await;
+    drop(ts.login(USER2_USERNAME, PASSWORD).await);
+    let user2 = ts.client2.me().await.id;
+    ts.app
+        .store()
+        .execute_unchecked(&format!(
+            "UPDATE sessions SET expires_at = 1 WHERE CAST(user_id AS TEXT) = '{user2}'"
+        ))
+        .await
+        .expect("the other user's sessions end");
+    assert!(
+        !rechecked_by_housekeeping(&ts).await,
+        "ending a session no connection holds made this subscription be checked again"
+    );
+    ts.teardown().await;
+}
