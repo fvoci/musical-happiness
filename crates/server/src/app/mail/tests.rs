@@ -93,10 +93,10 @@ fn send(mailer: &Mailer, queued: Queued, to: &str) -> tokio::task::JoinHandle<()
     tokio::spawn(async move {
         let written = queued
             .deliver(&mailer, || async {
-                Ok::<_, ()>(Some(Letter {
+                Ok::<_, ()>(Letter {
                     to,
                     content: Content::reset("https://example.test/reset", Language::English),
-                }))
+                })
             })
             .await;
         assert!(written.is_ok());
@@ -419,4 +419,42 @@ async fn invitations_never_take_the_last_sending_and_one_organization_takes_two(
         task.await.expect("sent");
     }
     assert_eq!(fake.attempts().len(), 6);
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_invitation_waiting_for_a_sending_takes_no_turn_it_could_use_in_a_pause() {
+    let fake = Fake::new(&[LATER]);
+    fake.held.send_replace(true);
+    let mailer = mailer_of(&fake, Metrics::none());
+    let mut sending = Vec::new();
+    let mut waiting = Vec::new();
+    for org in ["a", "b", "c"] {
+        let mut queued = mailer
+            .queue_invitations(org, org, 300, 2)
+            .expect("places")
+            .into_iter();
+        let first = queued.next().expect("one");
+        sending.push(send(&mailer, first, &format!("{org}0@held.test")));
+        waiting.push((org, queued.next().expect("two")));
+    }
+    for (org, queued) in waiting {
+        sending.push(send(&mailer, queued, &format!("{org}1@example.test")));
+    }
+    tokio::time::sleep(Duration::from_secs(6)).await;
+    for _ in 0..3 {
+        mailer.pace.observe(LATER);
+    }
+    fake.held.send_replace(false);
+    for task in sending {
+        task.await.expect("given up");
+    }
+    let attempts = fake.attempts();
+    let early: Vec<_> = attempts
+        .iter()
+        .filter(|(at, to)| to.ends_with("1@example.test") && *at < 66)
+        .collect();
+    assert!(
+        early.is_empty(),
+        "the invitations that waited for a sending went after the pause: {attempts:?}"
+    );
 }

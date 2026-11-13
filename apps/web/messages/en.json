@@ -1037,6 +1037,6 @@
   "mail_send": "Send invitation email",
   "mail_too_many_recipients": "Too many addresses for one sending. Nothing was sent; send to fewer at a time.",
   "mail_too_many_recipients_limit": "Send to at most {limit} addresses at a time. Nothing was sent.",
-  "mail_hourly_limit": "This workspace has sent as many invitation emails as it may this hour. Nothing was sent; try again in {minutes} min.",
+  "mail_hourly_limit": "As many invitation emails as may be sent this hour have been sent. Nothing was sent; try again in {minutes} min.",
   "mail_queue_full": "Too much mail is waiting to be sent. Nothing was sent; try again later."
 }

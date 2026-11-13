@@ -17,8 +17,9 @@
 //! what is counted or answered, and nothing here is asked after the account was looked
 //! up: a limit that knew the account from the name would tell, by who has to wait,
 //! which names are accounts. (The one exception ends a lock: after a reset link proved
-//! the account, `LoginLimiter::forget_account`; its token tells as much already.) The price is that an account that is tried by its name and
-//! by its email address has the failures of each for itself.
+//! the account, `LoginLimiter::forget_account`; its token tells as much already.) The
+//! price is that an account that is tried by its name and by its email address has the
+//! failures of each for itself.
 //!
 //! The records are forgotten when the process ends, and the oldest go when there are
 //! too many.

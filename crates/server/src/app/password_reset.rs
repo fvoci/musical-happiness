@@ -118,10 +118,10 @@ impl App {
         queued
             .deliver(&self.inner.mail, || async {
                 let link = self.reset_link_for(&user.id).await?;
-                Ok::<_, AppError>(Some(Letter {
+                Ok::<_, AppError>(Letter {
                     to: user.email.clone(),
                     content: Content::reset(&link, language),
-                }))
+                })
             })
             .await?;
         Ok(())

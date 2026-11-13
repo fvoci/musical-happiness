@@ -183,26 +183,41 @@ impl App {
                         WorkspaceRole::Guest => {
                             let link = self.guest_link_like(&invitation, sender).await?;
                             made = Some(link.id);
-                            link.token.unwrap_or_default()
+                            link.token
+                                .ok_or_else(|| AppError::internal("a new link without its token"))?
                         }
                         // Members share the one link.
                         _ => request.token.clone(),
                     };
                     let link = format!("{root}/invite/{token}");
-                    Ok(Some(Letter {
+                    Ok(Letter {
                         content: Content::invitation(&link, language, invitation.role),
                         to: recipient,
-                    }))
+                    })
                 })
                 .await?;
-            // Nobody holds the link of a message refused for good: it goes with it.
+            // Nobody holds the link of a message refused for good: it goes with it. A
+            // failure here is logged; the other recipients are still sent theirs.
             if delivered == Delivered::Refused
                 && let Some(id) = made
             {
-                self.store()
+                match self
+                    .store()
                     .revoke_invitation(workspace_id, &id, Some(sender), now_millis())
-                    .await?;
-                tracing::info!(invitation_id = %id, workspace_id, "a link nobody received was revoked");
+                    .await
+                {
+                    Ok(true) => tracing::info!(
+                        invitation_id = %id,
+                        workspace_id,
+                        "a link nobody received was revoked"
+                    ),
+                    Ok(false) => {}
+                    Err(error) => tracing::warn!(
+                        %error,
+                        invitation_id = %id,
+                        "a link nobody received could not be revoked"
+                    ),
+                }
             }
         }
         Ok(())

@@ -126,7 +126,12 @@ impl Pace {
                             "mail keeps being deferred: invitations wait, recovery goes on"
                         );
                     }
-                    state.invitations_paused_until = Some(until);
+                    // A longer pause the way asked for stays.
+                    state.invitations_paused_until = Some(
+                        state
+                            .invitations_paused_until
+                            .map_or(until, |paused| paused.max(until)),
+                    );
                 }
             }
             // One message refused says nothing of the way's limits.

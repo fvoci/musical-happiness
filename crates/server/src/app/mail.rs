@@ -253,10 +253,11 @@ pub(super) struct Letter {
 
 impl Queued {
     /// Delivers the message `write` makes, keeping the place until it was delivered or
-    /// given up. Each attempt waits for its turn of the pace and then for a sending its
-    /// kind may use, holding nothing while it waits for the turn or for the next
-    /// attempt; the first one only then asks `write` for the message, so that what
-    /// `write` creates (a reset token) is as young as can be. `None` sends nothing.
+    /// given up. Each attempt waits for its turn of the pace and then for a connection;
+    /// an invitation holds its organization's sending and one of the invitations' while
+    /// it waits for the turn, and a recovery message nothing; between attempts nothing
+    /// is held. The first attempt only then asks `write` for the message, so that what
+    /// `write` creates (a reset token) is as young as can be.
     /// Attempts follow the way's [`Outcome`]: up to three while it asks for later, one
     /// when it refuses. What became of the message is logged and counted here, without
     /// a reply text, an address or a token.
@@ -269,7 +270,7 @@ impl Queued {
         write: impl FnOnce() -> Writing,
     ) -> Result<Delivered, E>
     where
-        Writing: Future<Output = Result<Option<Letter>, E>>,
+        Writing: Future<Output = Result<Letter, E>>,
     {
         let Some(outbound) = mailer.outbound.as_ref() else {
             tracing::warn!("a message was queued while outgoing mail is disabled");
@@ -281,27 +282,19 @@ impl Queued {
         let mut message = None;
         let mut waits = RETRY_DELAYS.into_iter();
         for attempt in 1.. {
-            // The organization's own sending first: it keeps waiting only that
-            // organization's messages, and a message that has its turn has its sending.
-            let org_sending = match &self.org {
-                Some(org) => Some(
-                    Arc::clone(&org.sending)
-                        .acquire_owned()
-                        .await
-                        .expect(CLOSED),
-                ),
-                None => None,
-            };
+            // An invitation's sendings first, its organization's and the invitations':
+            // they keep waiting only invitations, and an invitation that has its turn
+            // has them, so it neither spends a turn waiting nor uses one after a pause.
+            let held = mailer.invitation_sendings(self.org.as_ref()).await;
             mailer.pace.turn(kind).await;
-            let sending = mailer.sending(kind, org_sending).await;
-            if let Some(write) = write.take() {
-                let Some(letter) = write().await? else {
-                    return Ok(Delivered::Unwritten);
-                };
-                message = Some(mailer.outgoing(letter));
-            }
-            let Some(message) = message.as_ref() else {
-                break;
+            let sending = mailer.sending(held).await;
+            let message: &Outgoing = if let Some(ref message) = message {
+                message
+            } else {
+                let write = write
+                    .take()
+                    .expect("the message is written once, at the first attempt");
+                message.insert(mailer.outgoing(write().await?))
             };
             let outcome = tokio::time::timeout(ATTEMPT_TIMEOUT, outbound.send(message))
                 .await
@@ -359,40 +352,58 @@ pub(super) enum Delivered {
     Refused,
     /// The way asked for later at every attempt, or for longer than it may wait.
     GivenUp,
-    /// Nothing was sent: no message was written, or mail is off.
+    /// Nothing was sent: mail is off.
     Unwritten,
 }
 
-/// The sendings one attempt holds while it is made; given back in the order of the
-/// fields, so the connection is free before the share that let an invitation take it,
-/// and that before its organization's: invitations never hold all four at once, nor one
-/// organization all three of theirs.
-struct Sending {
-    _connection: OwnedSemaphorePermit,
+/// What an invitation holds of the sending before its turn: its organization's sending
+/// and one of the invitations'; nothing for a recovery message. Given back in the order
+/// of the fields, after the connection.
+struct Held {
     _invitations: Option<OwnedSemaphorePermit>,
     _org: Option<OwnedSemaphorePermit>,
 }
 
+/// The sendings one attempt holds while it is made; the connection is given back first,
+/// before the shares that let an invitation take it, so invitations never hold all four
+/// at once, nor one organization all three of theirs.
+struct Sending {
+    _connection: OwnedSemaphorePermit,
+    _held: Held,
+}
+
 impl Mailer {
-    /// Waits for a sending a message of `kind` may use, beside its organization's `org`
-    /// that an invitation already holds.
-    async fn sending(&self, kind: MailKind, org: Option<OwnedSemaphorePermit>) -> Sending {
-        let invitations = match kind {
-            MailKind::PasswordReset => None,
-            MailKind::Invitation => Some(
-                Arc::clone(&self.invitation_connections)
-                    .acquire_owned()
-                    .await
-                    .expect(CLOSED),
-            ),
+    /// Waits for what an invitation of the organization's share `org` holds before its
+    /// turn; a recovery message (no `org`) waits for nothing.
+    async fn invitation_sendings(&self, org: Option<&share::OrgPlace>) -> Held {
+        let Some(org) = org else {
+            return Held {
+                _invitations: None,
+                _org: None,
+            };
         };
+        let org = Arc::clone(&org.sending)
+            .acquire_owned()
+            .await
+            .expect(CLOSED);
+        let invitations = Arc::clone(&self.invitation_connections)
+            .acquire_owned()
+            .await
+            .expect(CLOSED);
+        Held {
+            _invitations: Some(invitations),
+            _org: Some(org),
+        }
+    }
+
+    /// Waits for a connection, beside what the message `held` already.
+    async fn sending(&self, held: Held) -> Sending {
         Sending {
             _connection: Arc::clone(&self.connections)
                 .acquire_owned()
                 .await
                 .expect(CLOSED),
-            _invitations: invitations,
-            _org: org,
+            _held: held,
         }
     }
 
