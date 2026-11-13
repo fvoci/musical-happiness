@@ -1,7 +1,15 @@
 use super::*;
 
 fn add_listener(listeners: &mut Listeners, user_id: &str) -> ListenerId {
-    let (outbox, _inbox) = mpsc::channel(1);
+    add_listener_reading(listeners, user_id).0
+}
+
+/// A listener, and what it is sent.
+fn add_listener_reading(
+    listeners: &mut Listeners,
+    user_id: &str,
+) -> (ListenerId, mpsc::Receiver<Utf8Bytes>) {
+    let (outbox, inbox) = mpsc::channel(8);
     listeners.next_id += 1;
     let id = listeners.next_id;
     listeners.by_id.insert(
@@ -14,11 +22,12 @@ fn add_listener(listeners: &mut Listeners, user_id: &str) -> ListenerId {
             closed: CancellationToken::new(),
             closed_because: Arc::default(),
             workspaces: Vec::new(),
+            workspace_roles: HashMap::new(),
             blocks: Vec::new(),
             shared_boards: Vec::new(),
         },
     );
-    id
+    (id, inbox)
 }
 
 fn unsubscribe_from_workspace(listeners: &mut Listeners, id: ListenerId, workspace_id: &str) {
@@ -132,32 +141,41 @@ fn workspace_subscription() {
 }
 
 /// A workspace that goes to the trash is followed by nobody: each of its listeners stops
-/// following it, and what else they follow stays.
+/// following it and is told so, and keeps its connection and what else it follows.
 #[test]
 fn a_workspace_in_the_trash_is_followed_by_nobody() {
     let mut listeners = Listeners::default();
-    let one = add_listener(&mut listeners, "a");
-    let other = add_listener(&mut listeners, "b");
+    let (one, mut one_hears) = add_listener_reading(&mut listeners, "a");
+    let (other, mut other_hears) = add_listener_reading(&mut listeners, "b");
     for id in [one, other] {
         subscribe_to_workspace(&mut listeners, id, "trashed");
     }
     subscribe_to_workspace(&mut listeners, one, "kept");
 
-    listeners.stop_following_workspace("trashed");
+    assert_eq!(
+        listeners.stop_following_workspace("trashed"),
+        2,
+        "both are told"
+    );
     assert!(
         !listeners.by_workspace.contains_key("trashed"),
         "nobody follows it"
     );
-    assert_eq!(
-        workspaces_of(&listeners, one),
-        ["kept"],
-        "the other one stays"
-    );
-    assert!(
-        workspaces_of(&listeners, other).is_empty(),
-        "nothing else was followed"
-    );
+    assert_eq!(listeners.by_id.len(), 2, "no connection is closed");
+    assert_eq!(workspaces_of(&listeners, one), ["kept"], "the other stays");
     assert_eq!(workspace_listeners(&listeners, "kept"), [one]);
+    for hears in [&mut one_hears, &mut other_hears] {
+        let told: serde_json::Value =
+            serde_json::from_str(&hears.try_recv().expect("told")).expect("JSON");
+        assert_eq!(
+            told,
+            serde_json::json!({
+                "action": "UNSUBSCRIBED_WORKSPACE",
+                "workspaceId": "trashed",
+                "reason": "workspace access ended",
+            })
+        );
+    }
 }
 
 /// `TestTeamSubscription/"Subscribe users to team retrieve by user"`: the listeners of
@@ -302,7 +320,13 @@ fn a_wall_shuts_out_who_follows_the_organization_with_another_session() {
     let elsewhere = follows(&mut listeners, None, Some("theirs-1"));
     let following_nothing = follows(&mut listeners, None, None);
 
-    let shut_out = |id: ListenerId| subscribe::shuts_out(&listeners.by_id[&id], &ours, "ours");
+    let shut_out = |id: ListenerId| {
+        let listener = &listeners.by_id[&id];
+        listener
+            .workspaces
+            .iter()
+            .any(|workspace| ending::shuts_out(listener, workspace, &ours, "ours"))
+    };
     assert!(shut_out(with_password), "a password");
     assert!(shut_out(through_another), "another provider");
     assert!(!shut_out(through_ours), "the organization's provider");
@@ -310,30 +334,36 @@ fn a_wall_shuts_out_who_follows_the_organization_with_another_session() {
     assert!(!shut_out(following_nothing), "follows nothing of it");
 }
 
-/// A subscription that was admitted before a wall was raised is not made after it: the
-/// answer is asked again.
+/// An ending found by a check of what the connection followed with one role ends only
+/// that: a subscription made since under another role stays, and is told nothing.
 #[test]
-fn a_subscription_admitted_before_a_wall_is_not_made_after_it() {
-    let mut listeners = Listeners::default();
-    let id = add_listener(&mut listeners, "user");
-    let asked_at = listeners.walls_raised;
+fn an_ending_checked_against_one_role_leaves_a_later_subscription() {
+    use ending::{Ended, Of};
+    use fvoci_model::WorkspaceRole;
 
-    listeners.walls_raised += 1;
+    let mut listeners = Listeners::default();
+    let (id, mut hears) = add_listener_reading(&mut listeners, "u");
+    subscribe_to_workspace(&mut listeners, id, "w");
+    listeners
+        .by_id
+        .get_mut(&id)
+        .expect("the listener")
+        .workspace_roles
+        .insert("w".to_owned(), WorkspaceRole::Member);
     assert!(
-        !subscribe::subscribe_unless_walled(&mut listeners, id, "workspace", asked_at),
-        "a wall was raised since"
+        !listeners.end_workspace(id, "w", Ended::Access, Of::Role(WorkspaceRole::Admin)),
+        "checked against the role it followed with before"
+    );
+    assert_eq!(workspaces_of(&listeners, id), ["w"], "it still follows it");
+    assert!(hears.try_recv().is_err(), "and is told nothing");
+    assert!(
+        listeners.end_workspace(id, "w", Ended::Access, Of::Role(WorkspaceRole::Member)),
+        "checked against the role it follows with"
     );
     assert_eq!(
-        workspace_listeners(&listeners, "workspace"),
-        Vec::<ListenerId>::new()
+        workspaces_of(&listeners, id).len(),
+        0,
+        "it follows it no more"
     );
-
-    let asked_at = listeners.walls_raised;
-    assert!(subscribe::subscribe_unless_walled(
-        &mut listeners,
-        id,
-        "workspace",
-        asked_at
-    ));
-    assert_eq!(workspace_listeners(&listeners, "workspace"), [id]);
+    assert!(hears.try_recv().is_ok(), "told it ended");
 }

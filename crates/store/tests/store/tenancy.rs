@@ -836,9 +836,10 @@ async fn the_schema_makes_the_system_organization_and_its_workspace() {
     // It is not the organization the server works in, old as it is.
     let found = test
         .scoped(Tenant::Unset)
-        .only_organization(&Workspace::default())
+        .instance_organization()
         .await
-        .expect("the organization");
+        .expect("the organization")
+        .expect("an existing organization");
     assert_eq!(found, test.org_id);
 
     test.teardown().await;
@@ -897,15 +898,17 @@ fn rust_sources(directory: &Path, found: &mut Vec<std::path::PathBuf>) {
 /// The files that may ask for the system's reach, by which a handle reaches the rows of
 /// every organization: the store itself, the directory, the changes of the data after
 /// a migration, and the one function of the server that its housekeeping works
-/// through. Anywhere else, a request would be let past the wall it is there to be held
-/// by. (The system organization, which holds the built-in templates, is an
+/// through; and the revisions of the cached checks, which name it to tell what its
+/// writes move. Anywhere else, a request would be let past the wall it is there to be
+/// held by. (The system organization, which holds the built-in templates, is an
 /// organization like another to the wall: `Tenant::org(SYSTEM_ORG_ID)` is not this.)
 #[test]
 fn the_systems_reach_is_asked_for_in_few_places() {
-    const ALLOWED: [&str; 4] = [
+    const ALLOWED: [&str; 5] = [
         "store/src/lib.rs",
         "store/src/directory.rs",
         "store/src/data_steps.rs",
+        "store/src/visibility.rs",
         "server/src/app/housekeeping.rs",
     ];
     let crates = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -954,10 +957,9 @@ fn the_systems_reach_is_asked_for_in_few_places() {
 /// says, past the extractor, would open the wall from the inside.
 #[test]
 fn the_server_names_an_organization_for_a_handle_in_few_places() {
-    const ALLOWED: [&str; 6] = [
+    const ALLOWED: [&str; 5] = [
         "app/housekeeping.rs",
         "app/mod.rs",
-        "app/startup.rs",
         "app/templates.rs",
         "app/workspaces.rs",
         "collab/mod.rs",
@@ -1345,9 +1347,10 @@ async fn a_database_from_before_organizations_becomes_one_organization() {
         .expect("the store migrates the database");
     // The one organization: found, not made.
     let org_id = unset
-        .only_organization(&Workspace::default())
+        .instance_organization()
         .await
-        .expect("the organization");
+        .expect("the organization")
+        .expect("an existing organization");
     assert!(is_id(&org_id), "{org_id}");
     assert_eq!(org_id.as_bytes()[14], b'7', "a version 7 UUID: {org_id}");
     assert!(
@@ -1625,9 +1628,10 @@ async fn a_database_with_one_workspace_becomes_one_organization_with_one_workspa
         "the organization and the system's"
     );
     let org_id = unset
-        .only_organization(&Workspace::default())
+        .instance_organization()
         .await
-        .expect("the organization");
+        .expect("the organization")
+        .expect("an existing organization");
     let ours = unset.for_org(&org_id).expect("an identifier");
     // One workspace: the one of the old database.
     let workspaces = ours.get_workspaces().await.expect("the workspaces");

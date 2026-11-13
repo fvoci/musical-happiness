@@ -17,7 +17,6 @@ use super::workspace::Ws;
 use super::{ApiResult, created, decode_json, json_response, no_content, query_param};
 use super::{
     duplicate_as, json_object, require_board_permission, require_granted, require_workspace_access,
-    user_is_guest,
 };
 use crate::app::{App, as_managed};
 use crate::error::AppError;
@@ -126,8 +125,7 @@ fn decode_board_patch(body: &[u8]) -> Result<BoardPatch, AppError> {
 async fn handle_create_board(ws: Ws, body: Bytes) -> ApiResult {
     let user_id = &ws.session.user_id;
     // Whoever works in the workspace makes boards in it, open ones and private ones.
-    ws.require_board_maker("access denied to create board")
-        .await?;
+    ws.require_board_maker("access denied to create board")?;
     let mut requested = json_object(decode_json(&body)?)?;
     let invalid = take_invalid_board_members(&mut requested);
     let mut board: Board =
@@ -347,9 +345,6 @@ async fn handle_duplicate_board(
         to_workspace.clone_from(&ws.workspace_id);
     }
     require_workspace_access(&ws.app, user_id, &to_workspace).await?;
-    if user_is_guest(&ws.app, user_id).await? {
-        return Err(AppError::forbidden("access denied to create board"));
-    }
 
     let (boards_and_blocks, _members) = ws
         .app

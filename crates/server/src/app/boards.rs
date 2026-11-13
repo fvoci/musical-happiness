@@ -317,9 +317,10 @@ impl App {
             .await;
 
         self.ws()
-            .broadcast_board_delete(&board.workspace_id, &board.id, &members);
+            .broadcast_board_delete(&board.workspace_id, &board.id, &members)
+            .await;
         // The board's sharing went with it; so does whoever followed it by its link.
-        self.ws().close_readers_of_board(&board.id);
+        self.ws().end_readers_of_board(&board.id);
         Ok(())
     }
 
@@ -395,11 +396,13 @@ impl App {
                 category_id: place.category_id.clone(),
                 hidden: place.hidden,
             };
-            self.ws().broadcast_category_board_change(
-                &board.workspace_id,
-                &place.user_id,
-                std::slice::from_ref(&filed),
-            );
+            self.ws()
+                .broadcast_category_board_change(
+                    &board.workspace_id,
+                    &place.user_id,
+                    std::slice::from_ref(&filed),
+                )
+                .await;
             let categories = self
                 .store()
                 .get_user_category_boards(&place.user_id, &board.workspace_id)
@@ -417,12 +420,14 @@ impl App {
                     })
             });
             if let Some(order) = order {
-                self.ws().broadcast_category_boards_reorder(
-                    &board.workspace_id,
-                    &place.user_id,
-                    &place.category_id,
-                    &order,
-                );
+                self.ws()
+                    .broadcast_category_boards_reorder(
+                        &board.workspace_id,
+                        &place.user_id,
+                        &place.category_id,
+                        &order,
+                    )
+                    .await;
             }
         }
     }

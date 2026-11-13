@@ -1,5 +1,5 @@
 //! The store a server starts with: opened, looked at, brought up to date, and reaching
-//! the rows of the one organization the routes that name no workspace work in.
+//! no organization until a request identifies one.
 
 use std::time::Duration;
 
@@ -24,8 +24,7 @@ pub(crate) async fn open_store(config: &Configuration) -> anyhow::Result<Store> 
 }
 
 /// Makes the opened database ready for the server, once it holds the lock of the
-/// server: brings the schema up to date, and gives the handle that reaches the rows
-/// of the one organization the routes that name no workspace work in.
+/// server: brings the schema up to date without choosing or creating an organization.
 ///
 /// # Errors
 ///
@@ -36,7 +35,7 @@ pub(crate) async fn prepare_store(store: Store) -> anyhow::Result<Store> {
         .migrate()
         .await
         .context("bringing the database's schema up to date")?;
-    only_organization_scope(store).await
+    Ok(store)
 }
 
 /// Connects to the database, trying up to `dbpingattempts` times a second apart, so that
@@ -91,31 +90,4 @@ async fn check_the_wall_holds(store: &Store, config: &Configuration) -> anyhow::
          safety net below its own checks is off"
     );
     Ok(())
-}
-
-/// A handle to the store that reaches the rows of the one organization the server
-/// works in: the oldest, made now, with its first workspace, if the database has none.
-///
-/// TEMPORARY. Every route that names no workspace works in this organization, as do
-/// the websocket connections. A route that names its workspace gets its organization
-/// from there; when all do, this function and its one call go. On PostgreSQL what is
-/// left without an organization then shows by reaching nothing; SQLite has no wall, and
-/// shows only the statements that name the organization themselves (the workspaces and the
-/// members), so that run tells less. The first organization of an empty database is
-/// made here too, and needs another place then.
-async fn only_organization_scope(store: Store) -> anyhow::Result<Store> {
-    // The first workspace of an organization that is made now: the root workspace. It
-    // and its organization are nobody's, and unnamed, until the first user signs up
-    // with the name of their organization (`App::sign_up`).
-    let workspace = fvoci_model::Workspace {
-        id: fvoci_model::new_id(),
-        ..fvoci_model::Workspace::default()
-    };
-    let org_id = store
-        .only_organization(&workspace)
-        .await
-        .context("unable to get the organization")?;
-    store
-        .for_org(&org_id)
-        .context("the organization's identifier")
 }

@@ -56,6 +56,8 @@ pub(crate) struct SqliteSettings {
     pub(crate) options: SqliteConnectOptions,
     /// The database lives in memory and disappears with its last connection.
     pub(crate) in_memory: bool,
+    /// How long a statement waits for another writer before it fails.
+    pub(crate) busy_timeout: Duration,
 }
 
 /// Parses a SQLite `dbconfig`: `[file:]<path>[?<param>=<value>&...]`.
@@ -123,7 +125,11 @@ pub(crate) fn sqlite_settings(dbconfig: &str) -> Result<SqliteSettings, StoreErr
     if let Some(journal_mode) = journal_mode {
         options = options.journal_mode(journal_mode);
     }
-    Ok(SqliteSettings { options, in_memory })
+    Ok(SqliteSettings {
+        options,
+        in_memory,
+        busy_timeout,
+    })
 }
 
 /// Connection settings for PostgreSQL derived from a `dbconfig` string.

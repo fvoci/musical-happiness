@@ -38,7 +38,7 @@ pub const SYSTEM_WORKSPACE_ID: &str = "00000000-0000-7000-8000-00000000a001";
 
 /// The condition every lookup here ends with: the workspace `t` and its organization
 /// `o` are in use, and are not the system's, which is nobody's to work in.
-const IN_USE: &str = " AND t.delete_at = 0 AND o.delete_at = 0 AND o.is_system = false \
+pub(crate) const IN_USE: &str = " AND t.delete_at = 0 AND o.delete_at = 0 AND o.is_system = false \
                       AND t.is_system = false";
 
 /// What a user is in a workspace, and whose the workspace is.
@@ -309,35 +309,25 @@ impl Store {
             .await
     }
 
-    /// The organization that the routes which name no workspace work in: the oldest
-    /// one, made now with `workspace` as its first if there is none.
-    ///
-    /// TEMPORARY. It stands in for the workspace a request will name, and goes with
-    /// the last route that names none.
+    /// The instance's own organization: the oldest non-system organization in use.
+    /// This identifies the organization whose administrators follow instance roles;
+    /// it does not select an organization for requests or create one.
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::Database`] if a statement fails.
-    pub async fn only_organization(&self, workspace: &Workspace) -> Result<String, StoreError> {
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn instance_organization(&self) -> Result<Option<String>, StoreError> {
         self.system()
-            .transaction(async |scope| {
-                // One at a time: of two servers that start on an empty database, the
-                // second waits here and then finds the organization of the first. On
-                // SQLite a transaction that writes holds the whole database.
-                let mut sql = scope.sql("SELECT id FROM instance WHERE id = 1");
-                if scope.dialect() == Dialect::Postgres {
-                    sql.push(" FOR UPDATE");
-                }
-                scope.fetch_optional(sql).await?;
-
-                let mut sql = scope.sql("SELECT id FROM organizations WHERE is_system = ");
-                sql.bind(false)
-                    .push_bind(" AND delete_at = ", 0_i64)
-                    .push(" ORDER BY create_at, id LIMIT 1");
-                match scope.fetch_optional(sql).await? {
-                    Some(row) => row.id(0),
-                    None => create_organization(scope, "", workspace).await,
-                }
+            .with_conn(async |scope| {
+                let sql = scope.sql(
+                    "SELECT id FROM organizations WHERE is_system = false AND delete_at = 0 \
+                 ORDER BY create_at, id LIMIT 1",
+                );
+                scope
+                    .fetch_optional(sql)
+                    .await?
+                    .map(|row| row.id(0))
+                    .transpose()
             })
             .await
     }
@@ -636,6 +626,45 @@ impl Store {
             .await
     }
 
+    /// The board of a live block in the named workspace, for the holder of its read
+    /// token. The lookup reaches across organizations but returns nothing without a
+    /// valid public link to that board.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if either lookup fails.
+    pub async fn board_of_shared_block(
+        &self,
+        workspace_id: &str,
+        block_id: &str,
+        read_token: &str,
+    ) -> Result<Option<String>, StoreError> {
+        let board_id = self
+            .system()
+            .with_conn(async |scope| {
+                let mut sql = scope.sql(
+                    "SELECT bl.board_id FROM blocks AS bl JOIN boards AS b ON b.id = bl.board_id \
+                 WHERE bl.id = ",
+                );
+                sql.bind(Id(block_id))
+                    .push_bind(" AND b.workspace_id = ", Id(workspace_id))
+                    .push(&scope.same_organization(&[("bl", "b")]));
+                scope
+                    .fetch_optional(sql)
+                    .await?
+                    .map(|row| row.id(0))
+                    .transpose()
+            })
+            .await?;
+        let Some(board_id) = board_id else {
+            return Ok(None);
+        };
+        Ok(self
+            .org_of_shared_board(&board_id, read_token)
+            .await?
+            .map(|_| board_id))
+    }
+
     /// The organization of a board that is shared, for whoever holds its read token;
     /// `None` if the board is not shared, is not there, or the token is not its own.
     /// Nothing of the system organization is shared, nothing of a workspace or an
@@ -839,7 +868,6 @@ impl Store {
     }
 
     /// Whether the handle's organization is the instance's own: the oldest one in use,
-    /// which the routes that name no workspace work in ([`Store::only_organization`]) and
     /// whose administrators are the instance's (`members::follow_instance_role`). Asked
     /// with the system's reach, as the organization's wall hides the others.
     pub(crate) async fn is_the_instances_organization(&self) -> Result<bool, StoreError> {

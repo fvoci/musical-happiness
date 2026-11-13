@@ -3,7 +3,7 @@
 use fvoci_model::{BoardMember, BoardRole, MinimumRole};
 
 use crate::db::{Id, Scope, Sql};
-use crate::{Store, StoreError, boards};
+use crate::{Store, StoreError, boards, directory, memberships_everywhere};
 
 impl Store {
     /// The highest team role of a current nonguest member on this board.
@@ -19,7 +19,10 @@ impl Store {
             .await
     }
 
-    /// Current board members, with inherited roles separate from their direct flags.
+    /// Current board members, with inherited roles separate from their direct flags:
+    /// the direct members who are in the board's workspace now and the people of its
+    /// teams, as `Store::get_present_members_for_board` lists the direct ones, of a
+    /// workspace and an organization that are not deleted.
     ///
     /// # Errors
     /// Returns the database error if either membership source cannot be read.
@@ -29,15 +32,26 @@ impl Store {
     ) -> Result<Vec<BoardMember>, StoreError> {
         self.with_conn(async |scope| {
             let mut sql = boards::select_members(scope);
-            sql.push(" JOIN boards b ON b.id = bm.board_id JOIN workspace_members wm ON wm.workspace_id = b.workspace_id AND wm.user_id = bm.user_id")
-                .push_bind(" WHERE bm.board_id = ", Id(board_id));
+            sql.push(
+                " JOIN boards b ON b.id = bm.board_id JOIN workspace_members wm \
+                 ON wm.workspace_id = b.workspace_id AND wm.user_id = bm.user_id \
+                 JOIN workspaces w ON w.id = b.workspace_id \
+                 JOIN organizations o ON o.id = w.org_id",
+            )
+            .push_bind(" WHERE bm.board_id = ", Id(board_id))
+            .push(" AND w.delete_at = 0 AND o.delete_at = 0")
+            .push(&scope.same_organization(&[("bm", "b"), ("wm", "b"), ("w", "b")]));
             let mut members = boards::fetch_members(scope, sql).await?;
             let mut sql = inherited(scope)?;
-            sql.push_bind(" AND bt.board_id = ", Id(board_id));
+            sql.push_bind(" AND bt.board_id = ", Id(board_id)).push(
+                " AND EXISTS (SELECT 1 FROM organizations o \
+                 WHERE o.id = bt.org_id AND o.delete_at = 0)",
+            );
             extend(scope, sql, &mut members).await?;
             members.sort_by(|a, b| a.user_id.cmp(&b.user_id));
             Ok(members)
-        }).await
+        })
+        .await
     }
 }
 
@@ -79,6 +93,34 @@ async fn extend_for_user(
 ) -> Result<(), StoreError> {
     let mut sql = inherited(scope)?;
     sql.push_bind(" AND tm.user_id = ", Id(user_id));
+    extend(scope, sql, members).await?;
+    members.sort_by(|a, b| a.board_id.cmp(&b.board_id));
+    Ok(())
+}
+
+/// Adds to `members` the boards `user_id` has a role on through a team, of every
+/// organization, as `Store::board_memberships_of_user` lists the direct ones: of a
+/// workspace and an organization in use, that the session made through
+/// `login_provider` opens. Sorted by board.
+pub(crate) async fn extend_across_organizations(
+    scope: &mut Scope<'_>,
+    user_id: &str,
+    login_provider: Option<&str>,
+    members: &mut Vec<BoardMember>,
+) -> Result<(), StoreError> {
+    let mut sql = scope.sql(&format!(
+        "SELECT bt.board_id, tm.user_id, bt.role FROM board_teams AS bt \
+         JOIN {} tm ON tm.team_id = bt.team_id AND tm.org_id = bt.org_id \
+         AND tm.workspace_id = bt.workspace_id \
+         JOIN boards AS b ON b.id = bt.board_id \
+         JOIN workspaces AS t ON t.id = b.workspace_id \
+         JOIN organizations AS o ON o.id = t.org_id WHERE tm.user_id = ",
+        crate::teams::present_members(scope)
+    ));
+    sql.bind(Id(user_id))
+        .push(directory::IN_USE)
+        .push(&scope.same_organization(&[("bt", "b"), ("b", "t")]));
+    memberships_everywhere::push_opened_by(&mut sql, login_provider);
     extend(scope, sql, members).await?;
     members.sort_by(|a, b| a.board_id.cmp(&b.board_id));
     Ok(())

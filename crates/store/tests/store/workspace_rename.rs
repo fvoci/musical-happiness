@@ -4,7 +4,7 @@
 
 use std::collections::BTreeMap;
 
-use fvoci_model::{Upload, UploadPurpose, Workspace, new_id};
+use fvoci_model::{Upload, UploadPurpose, new_id};
 use fvoci_store::{DbType, Store};
 use serde_json::Value;
 use sqlx::Connection as _;
@@ -320,9 +320,10 @@ async fn the_keys_and_the_check_of_an_upload_find_the_workspaces(
         }
         DbType::Postgres => {
             let org_id = store
-                .only_organization(&Workspace::default())
+                .instance_organization()
                 .await
-                .expect("the organization");
+                .expect("the organization")
+                .expect("an existing organization");
             let ours = store.for_org(&org_id).expect("an identifier");
             let upload = |target: &str| Upload {
                 id: new_id(),

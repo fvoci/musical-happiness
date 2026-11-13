@@ -1,10 +1,13 @@
 //! A change of a team reaches the rooms of its boards' cards without waiting for the
 //! periodic check: whoever reads a board only through a team is put out, or reads
-//! only, as soon as the change is answered.
+//! only, as soon as the change is answered. What the workspace's subscription is told
+//! of the board follows the change too.
 
 use serde_json::{Value, json};
 use tokio::time::Instant;
 
+use crate::board_broadcasts::WorkspaceSocket;
+use crate::boards::patch_board;
 use crate::common::{TEST_WORKSPACE_ID, TestServer};
 use crate::rooms::{Peer, Table, give, paragraphs, table};
 use crate::rooms_changes::{seldom, soon, workspace_admin};
@@ -193,5 +196,41 @@ async fn deleting_a_team_reaches_every_board_it_was_on_and_only_its_people() {
             owner.unread()
         );
     }
+    th.teardown().await;
+}
+
+#[tokio::test]
+async fn a_board_is_told_to_whoever_reads_it_through_a_team_until_they_leave_it() {
+    let th = seldom().start().await.init_basic().await;
+    workspace_admin(&th).await;
+    let table = table(&th, &paragraphs(&["first"])).await;
+    let team_id = team_of_the_second(&th, "Listeners").await;
+    assign(&th, &table, &team_id, "viewer").await;
+    let user = th.client2.me().await.id;
+    let mut socket = WorkspaceSocket::subscribe(&th, &th.client2, TEST_WORKSPACE_ID, &user).await;
+
+    patch_board(&th.client, &table.board_id, &json!({"title": "Told"}))
+        .await
+        .check_ok();
+    socket
+        .expect("UPDATE_BOARD", "/board/id", &table.board_id)
+        .await;
+    th.client
+        .delete(&team_path(&team_id, &format!("/members/{user}")))
+        .await
+        .check_no_content();
+    socket
+        .expect("DELETE_MEMBER", "/member/boardId", &table.board_id)
+        .await;
+    patch_board(&th.client, &table.board_id, &json!({"title": "Not told"}))
+        .await
+        .check_ok();
+    let heard = socket.drain().await;
+    assert!(
+        heard
+            .iter()
+            .all(|message| message["action"] != json!("UPDATE_BOARD")),
+        "who left the team hears no more of the board: {heard:?}"
+    );
     th.teardown().await;
 }

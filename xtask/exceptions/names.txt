@@ -67,7 +67,6 @@ crates/server/tests/api/search.rs | `SearchBoardsForTeam`
 crates/server/tests/api/sidebar.rs | "trying to update some other team's category"
 crates/server/tests/api/users.rs | `TestTeamUploadFile`
 crates/server/tests/api/users.rs | `TestGetRootTeam` in `server/app/teams_test.go`
-crates/store/src/users.rs | "the users of a team"
 crates/store/tests/store/boards.rs | "should return only the boards of the team that the user is a member of"
 crates/store/tests/store/boards.rs | for team 1"
 crates/store/tests/store/boards.rs | for team 2"
@@ -259,3 +258,14 @@ crates/server/src/app/boards.rs | its surviving teams
 crates/server/src/collab/rooms/access.rs | team): the others
 crates/server/tests/api/rooms_access.rs | leaving the team
 crates/server/tests/api/rooms_teams.rs
+
+# A write of a team's people or roles moves the visibility revision, as a write of the
+# board members does: the websocket audience caches the board's members, teams' too.
+crates/store/src/visibility.rs | "teams",
+crates/store/src/visibility.rs | "team_members",
+crates/store/src/visibility.rs | "board_teams",
+crates/store/src/visibility.rs | a team's people
+
+# A user's board memberships in every organization count the roles of their teams too.
+crates/store/src/memberships_everywhere.rs | through a team
+crates/store/src/memberships_everywhere.rs | board_team_access
