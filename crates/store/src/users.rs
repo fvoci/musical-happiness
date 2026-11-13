@@ -208,8 +208,9 @@ impl Store {
             Asker::Operator => AuditActor::ServerOperator,
         };
         // The instance's organization as it is now, whose administrators are the
-        // instance's; asked again in the transaction, after the instance's row is held,
-        // so that what follows holds for the organization it is then.
+        // instance's; asked again in the transaction, after the instance's row is held:
+        // were it another by then, nothing is followed into this one. (It cannot be
+        // another today: no organization is deleted, and a new one is the youngest.)
         let store = match self.instance_organization().await? {
             Some(org_id) => self.for_org(&org_id)?,
             None => self.scoped(crate::Tenant::Unset),

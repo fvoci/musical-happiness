@@ -314,17 +314,7 @@ impl Store {
     /// Returns [`StoreError::Database`] if the query fails.
     pub async fn instance_organization(&self) -> Result<Option<String>, StoreError> {
         self.system()
-            .with_conn(async |scope| {
-                let sql = scope.sql(
-                    "SELECT id FROM organizations WHERE is_system = false AND delete_at = 0 \
-                 ORDER BY create_at, id LIMIT 1",
-                );
-                scope
-                    .fetch_optional(sql)
-                    .await?
-                    .map(|row| row.id(0))
-                    .transpose()
-            })
+            .with_conn(async |scope| oldest_organization(scope).await)
             .await
     }
 
@@ -966,8 +956,21 @@ fn role<R: std::str::FromStr<Err = fvoci_model::UnknownRole>>(
         })
 }
 
+/// The instance's own organization as `scope` reaches the organizations: the oldest
+/// non-system one in use ([`Store::instance_organization`]).
+async fn oldest_organization(scope: &mut Scope<'_>) -> Result<Option<String>, StoreError> {
+    let mut sql = scope.sql("SELECT id FROM organizations WHERE is_system = ");
+    sql.bind(false)
+        .push_bind(" AND delete_at = ", 0_i64)
+        .push(" ORDER BY create_at, id LIMIT 1");
+    scope
+        .fetch_optional(sql)
+        .await?
+        .map(|row| row.id(0))
+        .transpose()
+}
+
 /// Whether the organization of `scope` is the instance's own: the oldest one in use,
-/// which the routes that name no workspace work in ([`Store::only_organization`]) and
 /// whose administrators are the instance's (`members::follow_instance_role`). Asked in
 /// the caller's transaction, so that the answer holds for what it does; on PostgreSQL
 /// the wall is opened for this one statement, as the organization's wall hides the
@@ -984,17 +987,10 @@ pub(crate) async fn is_the_instances_organization(
         let sql = scope.sql(&reach("on"));
         scope.fetch_optional(sql).await?;
     }
-    let mut sql = scope.sql("SELECT id FROM organizations WHERE is_system = ");
-    sql.bind(false)
-        .push_bind(" AND delete_at = ", 0_i64)
-        .push(" ORDER BY create_at, id LIMIT 1");
-    let oldest = scope.fetch_optional(sql).await?;
+    let oldest = oldest_organization(scope).await?;
     if postgres {
         let sql = scope.sql(&reach("off"));
         scope.fetch_optional(sql).await?;
     }
-    Ok(oldest
-        .map(|row| row.id(0))
-        .transpose()?
-        .is_some_and(|id| id == org))
+    Ok(oldest.is_some_and(|id| id == org))
 }

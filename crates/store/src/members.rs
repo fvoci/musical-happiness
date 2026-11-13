@@ -150,7 +150,7 @@ const fn org_role_of_instance(role: InstanceRole) -> OrgRole {
 /// Gives a member of the organization the role in it that goes with being, or no
 /// longer being, an administrator of the instance, as the organization's route does
 /// (`org_admin::change_org_role`): recorded, and who stops being one is taken out of
-/// what they joined as its administrator, on behalf of `actor_id`. No role in a
+/// what they joined as its administrator, by `actor`. No role in a
 /// workspace changes. Somebody who is no member stays none.
 ///
 /// Instance administrators stay coupled to the oldest organization by product policy.
