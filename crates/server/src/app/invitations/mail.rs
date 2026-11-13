@@ -8,7 +8,6 @@ use super::super::mail::{Content, Delivered, InvitationRefusal, Language, Letter
 use super::{App, Inviting};
 use crate::auth::{now_millis, secret::token_digest};
 use crate::error::{AppError, Reason};
-use fvoci_store::Tenant;
 
 impl App {
     /// Queues individual messages carrying this workspace's existing invitation.
@@ -62,12 +61,11 @@ impl App {
         let count = u32::try_from(recipients.len()).unwrap_or(limit);
         // The handle is the organization's the workspace is in: what it holds of the
         // mail is counted under it, at its own limit.
-        let Tenant::Org(org) = self.store().tenant() else {
+        let Some(org) = self.store().tenant().org_id() else {
             return Err(AppError::internal(
                 "invitation mail outside an organization",
             ));
         };
-        let org = org.to_string();
         let queued = self
             .inner
             .mail
