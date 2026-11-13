@@ -177,7 +177,7 @@ fn a_change_flags_the_rosters_of_the_people_it_concerns_and_nothing_else() {
         ),
         (
             Some(AccessScope::board("board")),
-            Wall::other_for_tests(),
+            crate::collab::another_wall_for_tests(),
             vec![],
             "another organization's change reaches nobody here",
         ),
@@ -211,7 +211,10 @@ fn an_admission_read_before_a_change_that_reaches_it_is_asked_again() {
     assert!(!changed_meanwhile(&mut changes, &here), "nothing changed");
     for (scope, wall) in [
         (AccessScope::board("other-board"), Wall::for_tests()),
-        (AccessScope::board("board"), Wall::other_for_tests()),
+        (
+            AccessScope::board("board"),
+            crate::collab::another_wall_for_tests(),
+        ),
     ] {
         sender
             .send(AccessChange::for_tests(scope, wall))

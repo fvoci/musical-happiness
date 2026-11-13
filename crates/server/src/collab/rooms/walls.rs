@@ -63,10 +63,10 @@ impl Wall {
         Self(Tenant::default())
     }
 
-    /// Another organization than [`Wall::for_tests`].
+    /// The wall of `tenant`, for the tests ([`super::super::another_wall_for_tests`]).
     #[cfg(test)]
-    pub(crate) fn other_for_tests() -> Self {
-        Self(Tenant::org("01930000-0000-7000-8000-0000000000aa").expect("an identifier"))
+    pub(crate) fn of_tenant(tenant: Tenant) -> Self {
+        Self(tenant)
     }
 }
 

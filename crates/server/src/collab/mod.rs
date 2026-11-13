@@ -752,3 +752,10 @@ fn taken_from(load: &AtomicUsize) {
         count.checked_sub(1)
     });
 }
+
+/// Another organization's wall than [`Wall::for_tests`]: an organization is named here
+/// rather than beside the walls, among the few places that name one for a handle.
+#[cfg(test)]
+pub(crate) fn another_wall_for_tests() -> Wall {
+    Wall::of_tenant(Tenant::org("01930000-0000-7000-8000-0000000000aa").expect("an identifier"))
+}
