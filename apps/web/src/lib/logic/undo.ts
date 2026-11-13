@@ -71,12 +71,8 @@ export class UndoManager {
   /** Times the history was cleared. */
   #history = 0;
 
-  #requested(asks: readonly Asked[] = this.#asks): Map<Entry, boolean> {
-    return requested(this.#entries, asks);
-  }
-
-  #target(wanted: Map<Entry, boolean>, action: Action): Entry | undefined {
-    return targetOf(this.#entries, wanted, action);
+  #requested(): Map<Entry, boolean> {
+    return requested(this.#entries, this.#asks);
   }
 
   get #index(): number {
@@ -88,7 +84,7 @@ export class UndoManager {
   }
 
   get #redoEntry(): Entry | undefined {
-    return this.#target(this.#requested(), 'redo');
+    return targetOf(this.#entries, this.#requested(), 'redo');
   }
 
   /** When the change that would be undone next was made; 0 without one. */
@@ -288,7 +284,9 @@ export class UndoManager {
 
   /**
    * A new step after the last one in force. Undos and redos that wait are
-   * dropped; what could be redone is gone (kept in `cut`).
+   * dropped; what could be redone is gone (kept in `cut`). A reservation
+   * (`reserve`) is placed last and drops and cuts nothing until its first
+   * change (`#commitReservation`); meanwhile what could be redone is hidden.
    */
   #push(groupId: string | undefined, isDiscardable: boolean, reserve = false): Entry {
     this.#placed += 1;

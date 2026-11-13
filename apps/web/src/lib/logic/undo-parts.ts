@@ -9,7 +9,7 @@ export interface Step {
 export interface Entry {
   /** What has actually begun, independently of queued requests. */
   inForce: boolean;
-  /** The requests preceding a reservation; undefined once it changes something. */
+  /** Of a reservation: the number of the last ask before it; undefined once it changes something. */
   reservedAt: number | undefined;
   /** Redo entries hidden provisionally while a reservation may still change nothing. */
   hidden: Entry[];

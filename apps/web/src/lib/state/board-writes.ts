@@ -1,6 +1,7 @@
 /**
- * The writes of a board, its cards and its views. A refused board write
- * restores only its own optimistic values.
+ * The writes of a board, its cards and its views. A refused write restores
+ * only its own optimistic values: what was changed over it stays. What is
+ * sent is a copy (inverses are corrected while requests wait).
  *
  * A write whose answer was lost (no answer came: status 0) may have been
  * stored all the same. Before it is taken for refused (its step leaves the
@@ -21,11 +22,14 @@ import { Inverses } from './inverses.ts';
 import { applyBoardPatch } from './patches.ts';
 import { PendingWrites } from './write.ts';
 
+/** The values of a board's or a card's patch: properties by key, definitions by identifier. */
+const propertyValues = new InverseValues('updatedProperties', 'deletedProperties');
+const viewValues = new InverseValues('updatedFields', 'deletedFields');
+
 export class BoardWrites {
   readonly #host: BoardStore;
   readonly #pending = new PendingWrites<Board>();
   readonly #inverses = new Inverses<BoardPatch>('updatedProperties', 'deletedProperties');
-  readonly #values = new InverseValues('updatedProperties', 'deletedProperties');
 
   constructor(host: BoardStore) {
     this.#host = host;
@@ -41,6 +45,8 @@ export class BoardWrites {
 
   async write(patch: BoardPatch, reverse: BoardPatch): Promise<void> {
     const host = this.#host;
+    const under = this.#inverses.ready(patch);
+    if (under) await under;
     if (!host.board) return;
     // Inverses can be corrected while requests wait. A request already sent has fixed values.
     const written = structuredClone(patch);
@@ -68,17 +74,80 @@ export class BoardWrites {
 
   #restore(shown: Board, written: BoardPatch, restore: BoardPatch): Board {
     // Changes outside this writer may have replaced a field too: keep those values.
-    const current = this.#values.read({
+    const current = propertyValues.read({
       ...shown,
       updatedProperties: shown.properties,
       updatedCardProperties: shown.cardProperties,
     });
-    const failed = this.#values.read(written as Record<string, unknown>);
+    const failed = propertyValues.read(written as Record<string, unknown>);
     const own: Record<string, unknown> = {};
-    for (const [key, value] of this.#values.read(restore as Record<string, unknown>)) {
-      if (sameValue(current.get(key), failed.get(key))) this.#values.put(own, key, value);
+    for (const [key, value] of propertyValues.read(restore as Record<string, unknown>)) {
+      if (sameValue(current.get(key), failed.get(key))) propertyValues.put(own, key, value);
     }
     return applyBoardPatch(shown, own);
+  }
+}
+
+/** How the store shows and sends the writes of its cards, or of its views. */
+interface BlockWays<T, P extends object> {
+  inverses: Inverses<P>;
+  /** The block as shown, if it is. */
+  shown: (id: string) => T | undefined;
+  apply: (block: T, patch: P) => T;
+  /** Shows a block as it is to be, at once. */
+  show: (block: T) => void;
+  /** Shows what the backend says of a block (unless what is shown is newer). */
+  answered: (block: T) => void;
+  send: (id: string, patch: P, own: (key: string) => boolean) => Promise<T>;
+}
+
+/** The writes of a board's cards, or of its views: by identifier, as `BoardWrites` for the board. */
+export class BlockWrites<T extends { id: string; updateAt: number }, P extends object> {
+  readonly #pending = new PendingWrites<T>();
+  readonly #ways: BlockWays<T, P>;
+
+  constructor(ways: BlockWays<T, P>) {
+    this.#ways = ways;
+  }
+
+  /** A version from the backend: true to show it now, false while writes of it are under way. */
+  receive(block: T): boolean {
+    return this.#pending.receive(block);
+  }
+
+  keep(id: string, reverse: P): void {
+    this.#ways.inverses.keep(id, reverse);
+  }
+
+  /** Shows `patch` on the block and sends it; on refusal takes back what is still its own. */
+  async write(id: string, patch: P, reverse: P): Promise<void> {
+    const ways = this.#ways;
+    const under = ways.inverses.ready(patch);
+    if (under) await under;
+    const current = ways.shown(id);
+    if (!current) return;
+    const written = structuredClone(patch);
+    ways.show(ways.apply(current, written));
+    this.#pending.begin(id);
+    let restore: P | undefined;
+    try {
+      const answer = await ways.inverses.write(
+        id,
+        written,
+        reverse,
+        (own) => ways.send(id, written, own),
+        (refused) => {
+          restore = refused;
+        },
+      );
+      const latest = this.#pending.end(id, answer);
+      if (latest) ways.answered(latest);
+    } catch (error) {
+      const latest = this.#pending.end(id);
+      const shown = latest ?? ways.shown(id);
+      if (shown) ways.show(latest ?? ways.apply(shown, restore ?? reverse));
+      throw error;
+    }
   }
 }
 
@@ -118,9 +187,6 @@ async function answeredOrStored<T>(
   }
 }
 
-const boardValues = new InverseValues('updatedProperties', 'deletedProperties');
-const viewValues = new InverseValues('updatedFields', 'deletedFields');
-
 export function patchBoardOrStored(
   store: BoardStore,
   patch: BoardPatch,
@@ -129,7 +195,7 @@ export function patchBoardOrStored(
   const { backend } = store.workspace;
   return answeredOrStored(
     patch,
-    boardValues,
+    propertyValues,
     (board: Board) => ({
       ...board,
       updatedProperties: board.properties,
@@ -152,7 +218,7 @@ export function patchCardOrStored(
   const { backend } = store.workspace;
   return answeredOrStored(
     patch,
-    boardValues,
+    propertyValues,
     (card: CardSummary) => ({
       title: card.title,
       icon: card.fields.icon,

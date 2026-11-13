@@ -3,6 +3,11 @@
  * corrects dependent values: an equal value written successfully later has
  * its own origin. Definitions in a board's list are tracked by identifier;
  * a definition remains one value (its type and options belong together).
+ *
+ * An inverse that takes back to the value of a write still under way waits
+ * for that write before it is shown and sent (`ready`): it is then sent
+ * corrected when that write is refused, never with the value the server
+ * refused.
  */
 import { InverseValues, sameValue } from './inverse-values.ts';
 
@@ -13,6 +18,9 @@ interface Origin {
   beforeValue: unknown;
   before: Origin | undefined;
   state: 'pending' | 'stored' | 'refused';
+  /** Settles when its write has answered. */
+  over: Promise<void>;
+  end: () => void;
 }
 
 interface Kept {
@@ -37,6 +45,26 @@ export class Inverses<P extends object> {
 
   constructor(updated: string, deleted: string) {
     this.#values = new InverseValues(updated, deleted);
+  }
+
+  /**
+   * What to wait for until no value of `patch` (an inverse kept) comes from a
+   * write under way; undefined when nothing is (the change is shown at once).
+   */
+  ready(patch: P): Promise<void> | undefined {
+    const under = this.#under(patch);
+    if (under.length === 0) return undefined;
+    return (async () => {
+      // A refusal may hand the value on to an earlier write still under way.
+      for (let left = under; left.length > 0; left = this.#under(patch)) {
+        await Promise.all(left.map((origin) => origin.over));
+      }
+    })();
+  }
+
+  #under(patch: P): Origin[] {
+    const kept = [...this.#kept].find((one) => one.patch === patch);
+    return [...(kept?.origins.values() ?? [])].filter((origin) => origin.state === 'pending');
   }
 
   /** Keeps only the values whose currently shown source can still fail. */
@@ -87,6 +115,7 @@ export class Inverses<P extends object> {
       refused?.(restore as P);
       throw error;
     } finally {
+      for (const origin of origins.values()) origin.end();
       this.#release(id);
     }
   }
@@ -98,11 +127,17 @@ export class Inverses<P extends object> {
     for (const [key, value] of this.#values.read(patch as Patch)) {
       const beforeValue = before.get(key);
       const previous = shown.get(key);
+      let end = (): void => undefined;
+      const over = new Promise<void>((resolve) => {
+        end = resolve;
+      });
       const origin: Origin = {
         value,
         beforeValue,
         before: previous && sameValue(previous.value, beforeValue) ? previous : undefined,
         state: 'pending',
+        over,
+        end,
       };
       origins.set(key, origin);
       shown.set(key, origin);
