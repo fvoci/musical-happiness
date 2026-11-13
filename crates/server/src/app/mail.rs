@@ -15,6 +15,7 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use crate::auth::limiter::RetryAfter;
 use crate::config::smtp::{SmtpSettings, SmtpTls};
+use crate::metrics::ResetMailDrop;
 
 pub(super) use content::{Content, Language};
 
@@ -62,15 +63,6 @@ pub(super) struct Mailer {
     invitation_queue: Arc<Semaphore>,
     invitation_quota: Arc<quota::HourlyQuota>,
     reset_quota: Arc<quota::HourlyQuota>,
-}
-
-/// Why a recovery message was not queued. Its request was answered as any other.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum ResetDrop {
-    /// The account was sent `mail_reset_per_account_hour` messages within the hour.
-    AccountLimit,
-    /// The recovery queue holds as many messages as it may.
-    QueueFull,
 }
 
 impl std::fmt::Debug for Mailer {
@@ -141,7 +133,7 @@ impl Mailer {
     /// # Errors
     /// Returns why the message is dropped: the account's hourly limit, asked first, or
     /// a full queue.
-    pub(super) fn queue_reset(&self, user_id: &str) -> Result<Queued, ResetDrop> {
+    pub(super) fn queue_reset(&self, user_id: &str) -> Result<Queued, ResetMailDrop> {
         self.reset_quota
             .take(user_id, 1, Instant::now(), || {
                 Arc::clone(&self.reset_queue).try_acquire_owned().ok()
@@ -151,8 +143,8 @@ impl Mailer {
                 place,
             })
             .map_err(|refusal| match refusal {
-                quota::Refusal::Limit(_) => ResetDrop::AccountLimit,
-                quota::Refusal::Unplaced => ResetDrop::QueueFull,
+                quota::Refusal::Limit(_) => ResetMailDrop::AccountLimit,
+                quota::Refusal::Unplaced => ResetMailDrop::QueueFull,
             })
     }
 

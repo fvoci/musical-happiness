@@ -88,8 +88,8 @@ impl HourlyQuota {
 mod tests {
     use super::*;
 
-    fn take(quota: &HourlyQuota, workspace: &str, messages: u32, at: Instant) -> Option<Duration> {
-        match quota.take(workspace, messages, at, || Some(())) {
+    fn take(quota: &HourlyQuota, key: &str, messages: u32, at: Instant) -> Option<Duration> {
+        match quota.take(key, messages, at, || Some(())) {
             Ok(()) => None,
             Err(Refusal::Limit(RetryAfter(wait))) => Some(wait),
             Err(Refusal::Unplaced) => panic!("placing always succeeds here"),
@@ -97,7 +97,7 @@ mod tests {
     }
 
     #[test]
-    fn a_workspace_waits_until_its_oldest_messages_leave_the_hour() {
+    fn a_key_waits_until_its_oldest_messages_leave_the_hour() {
         let quota = HourlyQuota::new(5);
         let start = Instant::now();
         assert_eq!(take(&quota, "w1", 3, start), None);
@@ -110,7 +110,7 @@ mod tests {
         assert_eq!(
             take(&quota, "w2", 5, start + Duration::from_mins(15)),
             None,
-            "another workspace counts on its own"
+            "another key counts on its own"
         );
         assert_eq!(
             take(&quota, "w1", 4, start + Duration::from_mins(15)),

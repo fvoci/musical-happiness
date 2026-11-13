@@ -3,7 +3,7 @@
 use std::net::IpAddr;
 use std::time::Instant;
 
-use super::mail::{Content, Language, ResetDrop};
+use super::mail::{Content, Language};
 use crate::auth::limiter::RetryAfter;
 
 use super::App;
@@ -94,16 +94,18 @@ impl App {
         // The answer was the same either way; a dropped message is told only here.
         let queued = match self.inner.mail.queue_reset(&user.id) {
             Ok(queued) => queued,
-            Err(ResetDrop::AccountLimit) => {
-                tracing::info!("password recovery mail dropped: the account's hourly limit");
-                self.metrics()
-                    .password_reset_mail_dropped(ResetMailDrop::AccountLimit);
-                return Ok(());
-            }
-            Err(ResetDrop::QueueFull) => {
-                tracing::warn!("password recovery mail dropped: its queue is full");
-                self.metrics()
-                    .password_reset_mail_dropped(ResetMailDrop::QueueFull);
+            Err(reason) => {
+                match reason {
+                    ResetMailDrop::AccountLimit => {
+                        tracing::info!(
+                            "password recovery mail dropped: the account's hourly limit"
+                        );
+                    }
+                    ResetMailDrop::QueueFull => {
+                        tracing::warn!("password recovery mail dropped: its queue is full");
+                    }
+                }
+                self.metrics().password_reset_mail_dropped(reason);
                 return Ok(());
             }
         };
@@ -119,8 +121,9 @@ impl App {
     }
 
     /// Sets the password proved by a reset token and closes every session and live
-    /// connection. Who reset it proved the mailbox, so the sign-in lock that others'
-    /// guesses at the old password left on the account ends too.
+    /// connection. Who holds the token proved the mailbox, or was given the link by an
+    /// operator, so the sign-in lock that others' guesses at the old password left on
+    /// the account ends too, with the wait of this address at it.
     ///
     /// # Errors
     /// Returns 400 for an invalid password or unavailable token, 429 for too many
@@ -145,7 +148,7 @@ impl App {
         match self.store().get_user_by_id(&user_id).await {
             Ok(user) => self
                 .login_limiter()
-                .forget_account(&[&user.username, &user.email]),
+                .forget_account(&[&user.username, &user.email], address),
             // The password is set; an account deleted meanwhile has nothing to unlock.
             Err(error) if error.is_not_found() => {}
             // The password is set: what is left of the lock ends on its own.

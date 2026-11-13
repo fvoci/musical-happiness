@@ -579,8 +579,10 @@ export interface paths {
          * Finish resetting a password
          * @description Consumes a reset token before its one-hour expiry and sets the new password.
          *     All of the account's sessions and WebSocket connections end, and so do its other
-         *     reset links, as they do when the password is changed or set by an operator. A missing, expired
-         *     or already used token answers the same 400, naming `token` in `errors`.
+         *     reset links, as they do when the password is changed or set by an operator. The sign-in
+         *     lock of the account, at its user name and its email, ends, and so does the wait of the
+         *     address that finished the reset. A missing, expired or already used token answers the
+         *     same 400, naming `token` in `errors`.
          */
         post: operations["completePasswordReset"];
         delete?: never;
@@ -603,8 +605,10 @@ export interface paths {
          * @description Answers 204 with an empty body for an existing account, an absent account and
          *     an account without a password. Lookup and SMTP delivery run in the background;
          *     the request never waits for either. Accounts without passwords receive no mail.
-         *     Requests are limited by address and normalized email using the login limit settings,
-         *     with separate counters. Without SMTP this route answers 404.
+         *     Requests are limited by address only, with the login setting of attempts per minute
+         *     and a separate counter (429); never by email. An account is sent at most
+         *     `mail_reset_per_account_hour` messages an hour: more requests are answered the same
+         *     and send nothing. Without SMTP this route answers 404.
          */
         post: operations["requestPasswordReset"];
         delete?: never;

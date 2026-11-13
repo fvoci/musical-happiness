@@ -78,6 +78,14 @@ impl ResetMailDrop {
             Self::AccountLimit => "account_limit",
         }
     }
+
+    /// The reason's place in [`ResetMailDrop::ALL`].
+    fn index(self) -> usize {
+        match self {
+            Self::QueueFull => 0,
+            Self::AccountLimit => 1,
+        }
+    }
 }
 
 /// The metrics of the accounts.
@@ -188,11 +196,7 @@ impl Metrics {
     /// Counts a password recovery message that was not sent, for `reason`.
     pub(crate) fn password_reset_mail_dropped(&self, reason: ResetMailDrop) {
         if let Some(kept) = &self.kept {
-            let index = match reason {
-                ResetMailDrop::QueueFull => 0,
-                ResetMailDrop::AccountLimit => 1,
-            };
-            kept.accounts.reset_mail_dropped[index].inc();
+            kept.accounts.reset_mail_dropped[reason.index()].inc();
         }
     }
 
@@ -223,6 +227,13 @@ mod tests {
     fn every_outcome_has_its_own_counter() {
         for (place, outcome) in LoginOutcome::ALL.into_iter().enumerate() {
             assert_eq!(outcome.index(), place, "{outcome:?}");
+        }
+    }
+
+    #[test]
+    fn every_reason_a_recovery_message_is_dropped_has_its_own_counter() {
+        for (place, reason) in ResetMailDrop::ALL.into_iter().enumerate() {
+            assert_eq!(reason.index(), place, "{reason:?}");
         }
     }
 }
