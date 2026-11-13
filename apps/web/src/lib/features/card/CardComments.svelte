@@ -19,7 +19,7 @@
 
   import Avatar from '$lib/components/avatar/Avatar.svelte';
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
-  import { isComposing } from '$lib/components/keys.ts';
+  import { isComposing, primaryModifier, shortcutKeys } from '$lib/keys.ts';
   import BodyView from '$lib/editor/BodyView.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { displayDateTime, relativeTime } from '$lib/logic/format.ts';
@@ -113,7 +113,7 @@
 
   function onkeydown(event: KeyboardEvent): void {
     if (isComposing(event)) return;
-    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+    if (event.key === 'Enter' && primaryModifier(event)) {
       event.preventDefault();
       void save();
     } else if (event.key === 'Escape' && editing) {
@@ -215,7 +215,7 @@
                 rows="1"
                 autofocus
                 aria-label={m.card_comment_edit_field()}
-                aria-keyshortcuts="Control+Enter Meta+Enter"
+                aria-keyshortcuts={shortcutKeys('Enter')}
                 class="field-sizing-content max-h-60 min-h-8 resize-none rounded-lg border border-input-border bg-transparent px-2.5 py-1 text-base outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
                 {onkeydown}
                 {@attach autosize(() => editing?.text ?? '')}></textarea>

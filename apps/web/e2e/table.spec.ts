@@ -9,6 +9,7 @@
  */
 import { scrollTo } from './scroll.support.ts';
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { primaryKey, primaryName } from './keyboard.support.ts';
 import { boardPath } from './address.ts';
 import { screensDir } from './screens.ts';
 
@@ -214,7 +215,7 @@ async function undo(page: Page): Promise<void> {
   // A change can be undone once the backend has answered it; the in-memory one takes 40 ms.
   await page.waitForTimeout(150);
   await table(page).locator('[data-cell][tabindex="0"]').first().focus();
-  await page.keyboard.press('Control+z');
+  await page.keyboard.press(await primaryKey(page, 'z'));
 }
 
 async function scrollPlace(page: Page): Promise<{ x: number; y: number }> {
@@ -404,7 +405,7 @@ test.describe('editing a cell', () => {
       .poll(async () => (await storedCards(page, opened)).find((card) => card.id === id)?.fields)
       .toMatchObject({ properties: { [await columnId(page, 'Company')]: 'Northwind' } });
 
-    await page.keyboard.press('Control+z');
+    await page.keyboard.press(await primaryKey(page, 'z'));
     await expect(company).toHaveText('Afformance Ltd.');
   });
 
@@ -474,7 +475,7 @@ test.describe('editing a cell', () => {
     await expect
       .poll(async () => (await storedCards(page, opened)).find((card) => card.id === id)?.title)
       .toBe('Define the scope');
-    await page.keyboard.press('Control+z');
+    await page.keyboard.press(await primaryKey(page, 'z'));
     await expect(titleCell(page, id).locator('[data-slot="row-title"]')).toHaveText(
       'Define project scope',
     );
@@ -1364,7 +1365,7 @@ test.describe('with the keyboard alone', () => {
     expect(before).not.toContain('(typed)');
 
     await page.keyboard.press('Enter');
-    await page.keyboard.press('ControlOrMeta+a');
+    await page.keyboard.press(await primaryKey(page, 'a'));
     await page.keyboard.type('Keyboard Co.');
     await page.keyboard.press('Enter');
     await expect(cell).toHaveText('Keyboard Co.');
@@ -1380,10 +1381,16 @@ test.describe('with the keyboard alone', () => {
     await expect(titleCell(page, ids[1] ?? '').locator('input')).toBeFocused();
     await page.keyboard.press('Escape');
     await expect(titleCell(page, ids[1] ?? '')).toBeFocused();
+    // The other platform's modifier cannot move the grid focus to its ends.
+    const other = (await primaryName(page)) === 'Meta' ? 'Control' : 'Meta';
+    await page.keyboard.press(`${other}+End`);
+    await expect(titleCell(page, ids[1] ?? '')).toBeFocused();
+    await page.keyboard.press(`${other}+Home`);
+    await expect(titleCell(page, ids[1] ?? '')).toBeFocused();
     // The column is remembered across the rows.
-    await page.keyboard.press('Control+End');
+    await page.keyboard.press(await primaryKey(page, 'End'));
     await expect(table(page).locator('[data-row="calculations"] [data-cell]').last()).toBeFocused();
-    await page.keyboard.press('Control+Home');
+    await page.keyboard.press(await primaryKey(page, 'Home'));
     await expect(header(page, 'Name')).toBeFocused();
     // Enter on a heading opens its menu; Escape closes it and the focus is back.
     await page.keyboard.press('Enter');

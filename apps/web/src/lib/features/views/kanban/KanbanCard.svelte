@@ -14,6 +14,7 @@
   screen reader.
 -->
 <script lang="ts">
+  import { primaryModifier } from '$lib/keys.ts';
   import CardFace from '$lib/components/card-face/CardFace.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type { Card } from '$lib/logic/wire.ts';
@@ -62,7 +63,7 @@
   const badges = $derived(badgesOf(card));
 
   function activate(event: MouseEvent | KeyboardEvent): void {
-    if (event.ctrlKey || event.metaKey) onActivate(card.id, 'toggle');
+    if (primaryModifier(event)) onActivate(card.id, 'toggle');
     else if (event.shiftKey) onActivate(card.id, 'range');
     else onActivate(card.id, 'open');
   }

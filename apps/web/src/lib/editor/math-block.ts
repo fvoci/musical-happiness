@@ -19,6 +19,7 @@ import type { Editor } from '@tiptap/core';
 import type { Node as DocumentNode } from '@tiptap/pm/model';
 import type { Decoration, NodeView } from '@tiptap/pm/view';
 
+import { shortcutLabel } from '$lib/keys.ts';
 import { m } from '$lib/i18n/paraglide/messages.js';
 
 import { mathSlotAttributes } from './drawing.ts';
@@ -103,7 +104,7 @@ function placeBox(page: Document, editor: Editor, field: HTMLTextAreaElement) {
       () => {
         closePlace(editor.view, true);
       },
-      m.editor_math_hint_block(),
+      m.editor_math_hint_block({ shortcut: shortcutLabel('Enter') }),
     ),
   );
   // The keys that close the place work anywhere in it: the editor does not hear them here.

@@ -8,6 +8,7 @@
  */
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
+import { primaryKey } from './keyboard.support.ts';
 import { diagramBody, drawnDiagram, openCardWithBody } from './embeds.support.ts';
 
 const FLOW = 'flowchart LR\n  A[Start] --> B{Choice}\n  B -->|yes| C[End]';
@@ -91,12 +92,12 @@ test('with the keys alone: arrows reach the diagram, Enter opens, Escape closes'
   await expect(body.locator('.doc-announce')).toContainText('Escape closes');
   await page.keyboard.type('\n  C --> K[Keys]');
   await expect(pictureOf(body).locator('svg')).toContainText('Keys', { timeout: 30_000 });
-  await page.keyboard.press('ControlOrMeta+Enter');
+  await page.keyboard.press(await primaryKey(page, 'Enter'));
   await expect(blockOf(body)).not.toHaveAttribute('data-open');
   await selectedWithFocus(page, body);
 
   // Closed again, an undo takes the typing back, and the picture follows.
-  await page.keyboard.press('ControlOrMeta+z');
+  await page.keyboard.press(await primaryKey(page, 'z'));
   await expect(pictureOf(body).locator('svg')).not.toContainText('Keys', { timeout: 30_000 });
   await expect(blockOf(body)).not.toHaveAttribute('data-open');
 });

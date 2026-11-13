@@ -18,7 +18,7 @@
   import { untrack } from 'svelte';
 
   import Avatar from '$lib/components/avatar/Avatar.svelte';
-  import { isComposing } from '$lib/components/keys.ts';
+  import { isComposing, primaryModifier, shortcutKeys, shortcutLabel } from '$lib/keys.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type { BoardStore, CardStore } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
@@ -67,7 +67,7 @@
 
   function onkeydown(event: KeyboardEvent): void {
     if (isComposing(event)) return;
-    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+    if (event.key === 'Enter' && primaryModifier(event)) {
       event.preventDefault();
       void send();
     } else if (event.key === 'Escape' && draft.trim() !== '') {
@@ -100,8 +100,8 @@
     bind:value={draft}
     rows="1"
     aria-label={m['CardDetail.new-comment-placeholder']()}
-    aria-keyshortcuts="Control+Enter Meta+Enter"
-    title={m.card_comment_send_hint()}
+    aria-keyshortcuts={shortcutKeys('Enter')}
+    title={m.card_comment_send_hint({ shortcut: shortcutLabel('Enter') })}
     placeholder={m['CardDetail.new-comment-placeholder']()}
     data-testid="comment-field"
     class="field-sizing-content max-h-40 min-h-8 min-w-0 flex-1 resize-none rounded-lg border border-input-border bg-transparent px-2.5 py-1 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30 roomy:min-h-touch roomy:py-2 roomy:text-base"

@@ -9,6 +9,7 @@
  */
 import { expect, test } from '@playwright/test';
 
+import { primaryKey } from '../e2e/keyboard.support.ts';
 import {
   boardPath,
   makeBoard,
@@ -202,7 +203,7 @@ test('on the server: a card made on a day, undone; a timed card moved keeps its 
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('card-dialog')).toBeHidden();
   // One undo takes it away on the server too.
-  await page.keyboard.press('Control+z');
+  await page.keyboard.press(await primaryKey(page, 'z'));
   await expect.poll(async () => (await cardsOf()).length).toBe(2);
 
   // The timed card to the 19th: 08:00 there, on the reader's clock.

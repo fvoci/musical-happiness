@@ -32,7 +32,7 @@
   import { tick } from 'svelte';
 
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
-  import { isComposing } from '$lib/components/keys.ts';
+  import { isComposing } from '$lib/keys.ts';
   import type { MenuAction } from '$lib/components/menu/actions.ts';
   import { PickerPresentation } from '$lib/components/picker-surface/default-presentation.svelte.ts';
   import PickerSurface from '$lib/components/picker-surface/PickerSurface.svelte';

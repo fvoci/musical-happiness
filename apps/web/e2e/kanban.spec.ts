@@ -10,6 +10,7 @@
  */
 import { expect, test, type Page } from '@playwright/test';
 
+import { primaryName } from './keyboard.support.ts';
 import { ON_A_CARD, placeOf, viewIdOf } from './address.ts';
 import {
   announcer,
@@ -194,7 +195,7 @@ test.describe('dragging cards with a mouse', () => {
     page,
   }, info) => {
     await openView(page, info, ...TASKS);
-    const modifier = 'ControlOrMeta';
+    const modifier = await primaryName(page);
     await card(page, 'Project budget approval').click({ modifiers: [modifier] });
     await card(page, 'Identify dependencies').click({ modifiers: ['Shift'] });
     await expect(page.getByTestId('selection-bar')).toContainText('3 selected');
@@ -915,7 +916,7 @@ test.describe('a board the reader may only look at', () => {
       await expect(overlay(page)).toHaveCount(0);
       await page.mouse.up();
     }
-    await first.click({ modifiers: ['ControlOrMeta'] });
+    await first.click({ modifiers: [await primaryName(page)] });
     await expect(dialog(page)).toBeVisible();
     await expect(page.getByTestId('selection-bar')).toHaveCount(0);
   });

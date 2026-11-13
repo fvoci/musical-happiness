@@ -1,6 +1,17 @@
 /** Native caret navigation: macOS uses Command and an arrow for the document's ends. */
 import { expect, type Locator, type Page } from '@playwright/test';
 
+import { isApplePlatform } from '../src/lib/keys.ts';
+
+/** Uses the browser's platform, including an Apple device emulated on Linux. */
+export async function primaryKey(page: Page, key: string): Promise<string> {
+  return `${await primaryName(page)}+${key}`;
+}
+
+export async function primaryName(page: Page): Promise<'Meta' | 'Control'> {
+  return isApplePlatform(await page.evaluate(() => navigator.platform)) ? 'Meta' : 'Control';
+}
+
 export async function documentBoundary(page: Page, edge: 'start' | 'end'): Promise<void> {
   const key =
     process.platform === 'darwin'

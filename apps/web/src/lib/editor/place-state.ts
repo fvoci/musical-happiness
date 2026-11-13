@@ -16,6 +16,8 @@ import {
 } from '@tiptap/pm/state';
 import type { Decoration, EditorView } from '@tiptap/pm/view';
 
+import { isComposing, primaryModifier } from '$lib/keys.ts';
+
 import { DIAGRAM_LANGUAGE } from './schema.ts';
 
 /** A diagram, a block formula, or a block formula that is still being written. */
@@ -268,8 +270,8 @@ export function openNewFormula(tr: Transaction, pos: number, panel: NewFormulaPa
 
 /** Whether a key closes the place: Escape, or Ctrl+Enter or Cmd+Enter. Never one an input method is composing with. */
 export const closesPlace = (event: KeyboardEvent): boolean =>
-  !event.isComposing &&
-  (event.key === 'Escape' || (event.key === 'Enter' && (event.ctrlKey || event.metaKey)));
+  !isComposing(event) &&
+  (event.key === 'Escape' || (event.key === 'Enter' && primaryModifier(event)));
 
 /** The open place a node view's decorations carry, if they carry one. */
 export function placeIn(decorations: readonly Decoration[]): Place | undefined {

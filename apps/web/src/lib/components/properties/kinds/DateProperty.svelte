@@ -18,7 +18,7 @@
   import type { DateRange as PickedRange } from 'bits-ui';
   import { onDestroy, untrack } from 'svelte';
 
-  import { isComposing } from '$lib/components/keys.ts';
+  import { isComposing } from '$lib/keys.ts';
   import PickerSurface from '$lib/components/picker-surface/PickerSurface.svelte';
   import type { Presentation } from '$lib/components/picker-surface/presentation.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';

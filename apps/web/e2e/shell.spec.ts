@@ -8,6 +8,7 @@ import path from 'node:path';
 
 import { expect, test, type Page } from '@playwright/test';
 
+import { primaryKey, primaryName } from './keyboard.support.ts';
 import { boardPath } from './address.ts';
 import {
   boardLink,
@@ -173,22 +174,32 @@ test.describe('the top bar', () => {
 
     // The keys, pressed outside of any field.
     await undo.focus();
-    await page.keyboard.press('Control+z');
+    await page.keyboard.press(await primaryKey(page, 'z'));
     await expect(title).toHaveValue(FIRST_BOARD);
-    await page.keyboard.press('Control+Shift+z');
+    await page.keyboard.press(await primaryKey(page, 'Shift+z'));
     await expect(title).toHaveValue('One');
+    // The other platform's modifier never changes the board.
+    const modifier = await primaryName(page);
     await undo.focus();
-    await page.keyboard.press('Meta+z');
-    await expect(title).toHaveValue(FIRST_BOARD);
-    await page.keyboard.press('Meta+Shift+z');
+    await page.keyboard.press(`${modifier === 'Meta' ? 'Control' : 'Meta'}+z`);
     await expect(title).toHaveValue('One');
+    await expect(redo).toBeDisabled();
+    await expect(undo).toHaveAttribute(
+      'title',
+      modifier === 'Meta' ? 'Undo (⌘Z)' : 'Undo (Ctrl+Z)',
+    );
+    await expect(redo).toHaveAttribute(
+      'title',
+      modifier === 'Meta' ? 'Redo (⇧⌘Z)' : 'Redo (Ctrl+Shift+Z)',
+    );
+    await expect(undo).toHaveAttribute('aria-keyshortcuts', `${modifier}+Z`);
 
     // In a field they are the field's: what was typed is undone, not the board.
     await title.focus();
     await page.keyboard.press('End');
     await page.keyboard.type('x');
     await expect(title).toHaveValue('Onex');
-    await page.keyboard.press('Control+z');
+    await page.keyboard.press(await primaryKey(page, 'z'));
     await expect(redo).toBeDisabled();
     await title.press('Escape');
     await expect(title).toHaveValue('One');

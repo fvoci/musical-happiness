@@ -22,6 +22,7 @@
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
   import Undo2Icon from '@lucide/svelte/icons/undo-2';
 
+  import { shortcutKeys, shortcutLabel } from '$lib/keys.ts';
   import Avatar from '$lib/components/avatar/Avatar.svelte';
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
@@ -191,6 +192,8 @@
   <IconButton
     label={m['UndoRedoHotKeys.canUndo']()}
     data-testid="undo"
+    title={m['UndoRedoHotKeys.canUndo']() + ' (' + shortcutLabel('Z') + ')'}
+    aria-keyshortcuts={shortcutKeys('Z')}
     disabled={!workspace.canUndo}
     aria-busy={workspace.undoBusy}
     class="aria-busy:motion-safe:animate-pulse aria-busy:motion-reduce:opacity-60"
@@ -201,6 +204,8 @@
   <IconButton
     label={m['UndoRedoHotKeys.canRedo']()}
     data-testid="redo"
+    title={m['UndoRedoHotKeys.canRedo']() + ' (' + shortcutLabel('Z', { shift: true }) + ')'}
+    aria-keyshortcuts={shortcutKeys('Z', { shift: true })}
     disabled={!workspace.canRedo}
     aria-busy={workspace.undoBusy}
     class="aria-busy:motion-safe:animate-pulse aria-busy:motion-reduce:opacity-60"

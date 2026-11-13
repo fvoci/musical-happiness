@@ -37,15 +37,22 @@ function element(html: string): Element {
 }
 
 describe('the keys for undo and redo', () => {
-  it('Ctrl+Z and ⌘Z undo', () => {
-    expect(undoKey(press({ key: 'z', ctrlKey: true }))).toBe('undo');
-    expect(undoKey(press({ key: 'z', metaKey: true }))).toBe('undo');
-  });
-
-  it('with Shift they redo; the key then arrives as a capital', () => {
-    expect(undoKey(press({ key: 'Z', ctrlKey: true, shiftKey: true }))).toBe('redo');
-    expect(undoKey(press({ key: 'Z', metaKey: true, shiftKey: true }))).toBe('redo');
-  });
+  for (const platform of ['MacIntel', 'iPhone', 'iPad', 'Win32', 'Linux x86_64']) {
+    const apple = ['MacIntel', 'iPhone', 'iPad'].includes(platform);
+    it(`${platform} uses only its primary modifier, with Shift for redo`, () => {
+      const modifier = apple ? { metaKey: true } : { ctrlKey: true };
+      const other = apple ? { ctrlKey: true } : { metaKey: true };
+      expect(undoKey(press({ key: 'z', ...modifier }), platform)).toBe('undo');
+      expect(undoKey(press({ key: 'Z', ...modifier, shiftKey: true }), platform)).toBe('redo');
+      expect(undoKey(press({ key: 'z', ...other }), platform)).toBeUndefined();
+      expect(undoKey(press({ key: 'z', ctrlKey: true, metaKey: true }), platform)).toBeUndefined();
+      expect(
+        undoKey(press({ key: 'z', ...modifier, isComposing: true }), platform),
+      ).toBeUndefined();
+      // eslint-disable-next-line @typescript-eslint/no-deprecated -- Safari's composition confirmation uses 229
+      expect(undoKey(press({ key: 'z', ...modifier, keyCode: 229 }), platform)).toBeUndefined();
+    });
+  }
 
   it('a plain z, another letter, or Alt with it is not asked for', () => {
     expect(undoKey(press({ key: 'z' }))).toBeUndefined();

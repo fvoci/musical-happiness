@@ -6,7 +6,7 @@
  *
  * The same welcome board, moment and projects as e2e/calendar.spec.ts.
  */
-import { menuTo } from './keyboard.support.ts';
+import { primaryKey, menuTo } from './keyboard.support.ts';
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
 
 import {
@@ -74,7 +74,7 @@ test('a card moves to another day with the keys alone, and one undo brings it ba
   await expect(focused(page)).toHaveAccessibleName(/^Thursday, November 19, 2 cards/);
   await expect(dayButton(page, '2026-11-12')).toHaveAccessibleName(/November 12, 1 card$/);
 
-  await page.keyboard.press('Control+z');
+  await page.keyboard.press(await primaryKey(page, 'z'));
   await expect.poll(() => dueOf(page, 'Drag cards')).toEqual({ from: '2026-11-12' });
   await expect(dayButton(page, '2026-11-12')).toHaveAccessibleName(/November 12, 2 cards/);
   await expect(dayButton(page, '2026-11-19')).toHaveAccessibleName(/November 19, 1 card$/);

@@ -6,7 +6,7 @@
  *
  * The same welcome board, moment and projects as e2e/calendar.spec.ts.
  */
-import { menuTo } from './keyboard.support.ts';
+import { primaryKey, menuTo } from './keyboard.support.ts';
 import { expect, test } from '@playwright/test';
 
 import {
@@ -54,7 +54,7 @@ test('a card without a date is given one from "No date" with the keys alone, and
   await expect(button).toHaveAccessibleName('No date: 5');
   await expect(focused(page)).toHaveAccessibleName(/^Tuesday, November 17, 2 cards/);
 
-  await page.keyboard.press('Control+z');
+  await page.keyboard.press(await primaryKey(page, 'z'));
   await expect.poll(() => dueOf(page, 'Add new properties')).toBeNull();
   await expect(button).toHaveAccessibleName('No date: 6');
   // "Share a board" stays: the 12th to the 24th.

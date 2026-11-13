@@ -16,7 +16,7 @@ import path from 'node:path';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { ON_A_CARD, boardPath, viewAddress } from './address.ts';
 import { screensDir } from './screens.ts';
-import { documentBoundary } from './keyboard.support.ts';
+import { primaryKey, primaryName, documentBoundary } from './keyboard.support.ts';
 
 // The longer tests here take a dozen steps each. On a machine that is busy with
 // other work they have run past the default of thirty seconds without anything
@@ -861,8 +861,18 @@ test('comments: written with the button and with Ctrl+Enter, lines become paragr
     ],
   });
 
+  const modifier = await primaryName(page);
+  await expect(commentField(page)).toHaveAttribute(
+    'title',
+    modifier === 'Meta' ? '⌘Enter sends' : 'Ctrl+Enter sends',
+  );
+  await expect(commentField(page)).toHaveAttribute('aria-keyshortcuts', `${modifier}+Enter`);
+  await commentField(page).fill('The other modifier does not send');
+  await commentField(page).press(`${modifier === 'Meta' ? 'Control' : 'Meta'}+Enter`);
+  await expect(list).toHaveCount(count + 1);
+  await expect(commentField(page)).not.toHaveValue('');
   await commentField(page).fill('With the keyboard');
-  await commentField(page).press('Control+Enter');
+  await commentField(page).press(await primaryKey(page, 'Enter'));
   await expect(list).toHaveCount(count + 2);
   await expect(list.last()).toContainText('With the keyboard');
   // The newest comment is in sight.

@@ -10,7 +10,7 @@
   (`field-sizing`), and about as wide where it cannot (`size`).
 -->
 <script lang="ts">
-  import { isComposing } from '$lib/components/keys.ts';
+  import { isComposing } from '$lib/keys.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
 
   interface Props {

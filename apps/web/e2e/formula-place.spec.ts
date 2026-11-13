@@ -6,6 +6,7 @@
  */
 import { expect, test, type Locator } from '@playwright/test';
 
+import { primaryKey } from './keyboard.support.ts';
 import { openCardWithBody } from './embeds.support.ts';
 
 const formulaBody = (latex: string): object => ({
@@ -80,7 +81,7 @@ test('with the keys alone: an arrow selects it, Enter opens, Ctrl+Enter closes',
   await expect(fieldOf(body)).toBeFocused();
   await page.keyboard.press('End');
   await page.keyboard.type('+c');
-  await page.keyboard.press('Control+Enter');
+  await page.keyboard.press(await primaryKey(page, 'Enter'));
   await expect(fieldOf(body)).toHaveCount(0);
   await expect(blockOf(body)).toHaveClass(/ProseMirror-selectednode/);
   await expect(drawingOf(body)).toHaveAttribute('aria-label', 'a+b+c');
