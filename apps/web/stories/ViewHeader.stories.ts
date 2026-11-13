@@ -7,8 +7,13 @@ const meta = {
   title: 'Views/Header and tools',
   component: ViewSample,
   args: { kind: 'table', headerOnly: true },
-  play: async ({ canvasElement }) => {
+  play: async ({ canvasElement, args }) => {
     await expect(await storyElement(canvasElement, '[data-testid="view-header"]')).toBeVisible();
+    const editing = canvasElement.querySelectorAll(
+      '[data-tool]:not([data-tool="search"]):not([data-tool="search-close"]):not([data-tool="views"]), [data-testid="new-card"]',
+    );
+    if (args.readOnly) await expect(editing).toHaveLength(0);
+    else await expect(editing.length).toBeGreaterThan(0);
   },
 } satisfies Meta<typeof ViewSample>;
 export default meta;

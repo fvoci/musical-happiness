@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
+import { assertNoBrowserErrors, browserErrors } from './browser-errors.ts';
 
 interface Entry {
   id: string;
@@ -12,15 +13,6 @@ const index = JSON.parse(
 ) as { entries: Record<string, Entry> };
 const stories = Object.values(index.entries).filter((entry) => entry.type === 'story');
 if (stories.length === 0) throw new Error('The built Storybook contains no stories');
-
-function browserErrors(page: Page): string[] {
-  const errors: string[] = [];
-  page.on('console', (message) => {
-    if (message.type() === 'error') errors.push(message.text());
-  });
-  page.on('pageerror', (error) => errors.push(error.message));
-  return errors;
-}
 
 for (const story of stories) {
   test(story.id, async ({ page }, info) => {
@@ -37,20 +29,24 @@ for (const story of stories) {
     await page.waitForLoadState('networkidle');
     await page.evaluate(() => document.fonts.ready);
     await expect(page.locator('.doc-diagram[data-state="pending"]')).toHaveCount(0);
-    expect(errors, `${story.id}: browser errors`).toEqual([]);
+    await assertNoBrowserErrors(errors, story.id);
   });
 }
 
-test('the guard observes console errors and uncaught exceptions', async ({ page }) => {
+test('the guard rejects console errors and exceptions delayed beyond a second', async ({
+  page,
+}) => {
   const errors = browserErrors(page);
   await page.goto('about:blank');
-  await page.evaluate(() => {
-    console.error('example console failure');
+  await page.setContent(`<main>Example settled page</main><script>
     setTimeout(() => {
-      throw new Error('example uncaught failure');
-    }, 0);
-  });
-  await expect.poll(() => errors).toEqual(['example console failure', 'example uncaught failure']);
+      console.error('example delayed console failure');
+      throw new Error('example delayed uncaught failure');
+    }, 1500);
+  </script>`);
+  // No polling for the injected errors: the same guard used by every story must reject.
+  await expect(assertNoBrowserErrors(errors, 'delayed example')).rejects.toThrow('browser errors');
+  expect(errors).toEqual(['example delayed console failure', 'example delayed uncaught failure']);
 });
 
 test('the language toolbar refreshes a mounted story', async ({ page }) => {

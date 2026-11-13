@@ -7,9 +7,16 @@ const meta = {
   title: 'Views/Calendar',
   component: ViewSample,
   args: { kind: 'calendar' },
-  play: async ({ canvasElement }) => {
+  play: async ({ canvasElement, args }) => {
     const calendar = await storyElement(canvasElement, '[data-testid="calendar"][data-layout]');
     await expect(calendar).toHaveAttribute('data-month', '2026-11');
+    if (args.readOnly) {
+      await expect(
+        calendar.querySelectorAll('[data-grip], [data-new-card], [data-testid="day-new-card"]'),
+      ).toHaveLength(0);
+    } else if (calendar.dataset.layout === 'bars' && args.count !== 0) {
+      await expect(calendar.querySelectorAll('[data-grip]').length).toBeGreaterThan(0);
+    }
   },
 } satisfies Meta<typeof ViewSample>;
 export default meta;

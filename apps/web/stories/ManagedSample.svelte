@@ -27,7 +27,7 @@
 <div class="h-[32rem]" data-testid="managed-example">
   {#if joined}
     <output data-testid="joined-board">{example.workspace.board?.role}</output>
-  {:else if example.workspace.board?.status === 'failed'}
+  {:else if example.workspace.board?.missing}
     <ManagedBoard
       workspace={example.workspace}
       board={example.workspace.board}

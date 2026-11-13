@@ -3,7 +3,7 @@
  * the server: a reader who is not among its members is told it is not there
  * (404), while the board and its members stay readable for those who manage
  * it (`src/lib/state/managed-board.ts`). The e2e tests and the Storybook's
- * managed board run on this backend; the story wraps it to refuse by hand.
+ * managed board run on this backend, with the same refusal as the server.
  */
 import { describe, expect, it } from 'vitest';
 
@@ -17,6 +17,15 @@ const NOW = Date.UTC(2026, 10, 13, 3);
 function inviteOnlyBoard(): MemoryBackend {
   const world = new World(() => NOW);
   world.workspace = { id: 'w', title: 'Example', role: 'admin' };
+  world.users.set('reader', {
+    id: 'reader',
+    username: 'example-reader',
+    displayName: 'Example reader',
+    email: 'example-reader@example.test',
+    createAt: NOW,
+    updateAt: NOW,
+    deleteAt: 0,
+  });
   const board = {
     ...createBoard(),
     id: 'b',
@@ -44,6 +53,26 @@ function inviteOnlyBoard(): MemoryBackend {
   const card = createCard(block('c', 'card', 'Secret title'));
   world.blocks.set(view.id, view);
   world.blocks.set(card.id, card);
+  world.blocks.set('comment', {
+    ...block('comment', 'comment', ''),
+    parentId: 'c',
+    body: {
+      type: 'doc',
+      content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Example comment' }] }],
+    },
+  });
+  const file = { fileId: 'file', name: 'example.txt', size: 12, contentType: 'text/plain' };
+  world.blocks.set('attachment', {
+    ...block('attachment', 'attachment', file.name),
+    parentId: 'c',
+    file,
+  });
+  world.files.set(file.fileId, {
+    ...file,
+    boardId: 'b',
+    blob: new Blob(['Example file']),
+    url: 'blob:example',
+  });
   return new MemoryBackend(world, 'reader');
 }
 
@@ -64,12 +93,58 @@ describe('a board the reader is not a member of', () => {
       views: await statusOf(backend.views('b')),
       cards: await statusOf(backend.cards('b')),
       card: await statusOf(backend.card('b', 'c')),
-    }).toEqual({ views: 404, cards: 404, card: 404 });
+      previews: await statusOf(backend.cardPreviews('b')),
+      comments: await statusOf(backend.comments('b', 'c')),
+      attachments: await statusOf(backend.attachments('b', 'c')),
+      bytes: await statusOf(backend.fileBytes('b', 'file')),
+    }).toEqual({
+      views: 404,
+      cards: 404,
+      card: 404,
+      previews: 404,
+      comments: 404,
+      attachments: 404,
+      bytes: 404,
+    });
+    expect(backend.fileUrl('b', 'file')).toBeUndefined();
   });
 
   it('still lets the reader see the board and its members, to manage them', async () => {
     const backend = inviteOnlyBoard();
     expect(await statusOf(backend.board('b'))).toBe('ok');
     expect(await statusOf(backend.members('b'))).toBe('ok');
+  });
+});
+
+describe('membership changes', () => {
+  it('allows content after joining and refuses it again after leaving', async () => {
+    const backend = inviteOnlyBoard();
+    await backend.addMember('b', 'reader', 'viewer');
+    expect(await backend.views('b')).toHaveLength(1);
+    expect(await backend.cards('b')).toHaveLength(1);
+    expect((await backend.card('b', 'c')).id).toBe('c');
+    expect((await backend.cardPreviews('b')).size).toBe(1);
+    expect(await backend.comments('b', 'c')).toHaveLength(1);
+    expect(await backend.attachments('b', 'c')).toHaveLength(1);
+    expect((await backend.fileBytes('b', 'file')).size).toBe(12);
+    expect(backend.fileUrl('b', 'file')).toBe('blob:example');
+    await backend.removeMember('b', 'reader');
+    expect(await statusOf(backend.card('b', 'c'))).toBe(404);
+    expect(backend.fileUrl('b', 'file')).toBeUndefined();
+  });
+
+  it('asks nonmembers of an open board to join instead of returning its content', async () => {
+    const backend = inviteOnlyBoard();
+    const board = backend.world.boards.get('b');
+    if (!board) throw new Error('missing test board');
+    board.type = 'O';
+    expect(await statusOf(backend.views('b'))).toBe(403);
+    expect(await statusOf(backend.cards('b'))).toBe(403);
+    expect(await statusOf(backend.card('b', 'c'))).toBe(403);
+    expect(await statusOf(backend.cardPreviews('b'))).toBe(403);
+    expect(await statusOf(backend.comments('b', 'c'))).toBe(403);
+    expect(await statusOf(backend.attachments('b', 'c'))).toBe(403);
+    expect(await statusOf(backend.fileBytes('b', 'file'))).toBe(403);
+    expect(backend.fileUrl('b', 'file')).toBeUndefined();
   });
 });

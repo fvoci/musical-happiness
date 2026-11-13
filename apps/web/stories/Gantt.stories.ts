@@ -7,8 +7,11 @@ const meta = {
   title: 'Views/Gantt',
   component: ViewSample,
   args: { kind: 'gantt' },
-  play: async ({ canvasElement }) => {
+  play: async ({ canvasElement, args }) => {
     await expect(await storyElement(canvasElement, '[data-testid="gantt-axis"]')).toBeVisible();
+    const grips = canvasElement.querySelectorAll('[data-grip]');
+    if (args.readOnly) await expect(grips).toHaveLength(0);
+    else if (args.count !== 0) await expect(grips.length).toBeGreaterThan(0);
   },
 } satisfies Meta<typeof ViewSample>;
 export default meta;

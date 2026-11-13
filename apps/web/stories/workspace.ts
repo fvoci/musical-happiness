@@ -2,7 +2,7 @@
 import { DEFAULT_ACCOUNT_SETTINGS } from '$lib/logic/account-settings.ts';
 import { createBoardView, type Board, type BoardView } from '$lib/logic/wire.ts';
 import { getLocale } from '$lib/i18n/paraglide/runtime.js';
-import { Workspace, BackendError } from '$lib/state/index.ts';
+import { Workspace } from '$lib/state/index.ts';
 import { MemoryBackend, memberOf } from '$lib/state/memory/backend.ts';
 import { World } from '$lib/state/memory/world.ts';
 
@@ -101,24 +101,8 @@ export function exampleWorkspace({
   world.blocks.set(view.id, view);
   seedCards(world, count, cycle, late);
   const backend = new MemoryBackend(world, 'example-reader');
-  if (managed) requireMembership(backend);
   const workspace = new Workspace({ backend, locale: getLocale });
   return { world, backend, workspace };
-}
-
-/** The memory backend permits content reads by nonmembers; the server does not.
- * Keep metadata readable for administration, and expose content only after joining. */
-function requireMembership(backend: MemoryBackend): void {
-  const member = (boardId: string): boolean =>
-    backend.world.members.get(boardId)?.some((one) => one.userId === backend.userId) ?? false;
-  const views = backend.views.bind(backend);
-  const cards = backend.cards.bind(backend);
-  const refused = (): BackendError =>
-    new BackendError(404, { detail: 'Example board content unavailable' });
-  backend.views = (boardId: string) =>
-    member(boardId) ? views(boardId) : Promise.reject(refused());
-  backend.cards = (boardId: string) =>
-    member(boardId) ? cards(boardId) : Promise.reject(refused());
 }
 
 export async function loadWorkspace(example: ReturnType<typeof exampleWorkspace>): Promise<void> {
