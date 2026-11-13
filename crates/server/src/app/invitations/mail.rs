@@ -4,17 +4,20 @@ use std::collections::BTreeSet;
 
 use fvoci_model::{Invitation, InvitationMail};
 
-use super::super::mail::{Content, Language};
+use super::super::mail::{Content, Language, Queued, Refused};
 use super::App;
 use crate::auth::{now_millis, secret::token_digest};
-use crate::error::AppError;
+use crate::error::{AppError, Reason};
 
 impl App {
     /// Queues individual messages carrying this workspace's existing invitation.
     ///
     /// # Errors
     /// Returns 404 without SMTP or a usable link in this workspace, 403 when the
-    /// sender cannot invite, and 400 if any recipient is not a single email address.
+    /// sender cannot invite, 400 if any recipient is not a single email address or
+    /// there are more than `invitation_mail_recipients`, 429 when the workspace's hourly
+    /// limit would be passed, and 503 when the invitation queue cannot hold them all.
+    /// Any refusal queues none of the messages.
     pub async fn email_invitation(
         &self,
         workspace_id: &str,
@@ -23,6 +26,14 @@ impl App {
     ) -> Result<(), AppError> {
         if !self.config().smtp.enabled() {
             return Err(AppError::not_found("route"));
+        }
+        let limit = self.config().smtp.invitation_mail_recipients;
+        if !u32::try_from(request.recipients.len()).is_ok_and(|named| named <= limit) {
+            return Err(AppError::bad_request(format!(
+                "at most {limit} recipients may be named at once"
+            ))
+            .with_field("recipients")
+            .with_reason(Reason::TooManyRecipients));
         }
         let mut recipients = BTreeSet::new();
         for recipient in &request.recipients {
@@ -44,13 +55,28 @@ impl App {
         }
         self.invitation_for_mail(workspace_id, sender, &request.token)
             .await?;
+        // Distinct recipients are no more than those named, which fit in the limit.
+        let count = u32::try_from(recipients.len()).unwrap_or(limit);
+        let queued = self
+            .inner
+            .mail
+            .queue_invitations(workspace_id, count)
+            .map_err(|refused| match refused {
+                Refused::HourlyLimit(wait) => {
+                    AppError::rate_limited(wait).with_reason(Reason::InvitationMailLimit)
+                }
+                Refused::QueueFull => {
+                    AppError::service_unavailable("too much mail is waiting; try again later")
+                        .with_reason(Reason::MailQueueFull)
+                }
+            })?;
         request.recipients = recipients.into_iter().collect();
         let app = self.clone();
         let workspace_id = workspace_id.to_owned();
         let sender = sender.to_owned();
         self.spawn_background(async move {
             if app
-                .deliver_invitation(&workspace_id, &sender, request)
+                .deliver_invitation(&workspace_id, &sender, request, queued)
                 .await
                 .is_err()
             {
@@ -98,6 +124,7 @@ impl App {
         workspace_id: &str,
         sender: &str,
         request: InvitationMail,
+        queued: Vec<Queued>,
     ) -> Result<(), AppError> {
         let settings = self.user_settings(sender).await?;
         let fallback =
@@ -107,11 +134,9 @@ impl App {
             self.config().server_root.trim_end_matches('/'),
             request.token
         );
-        for recipient in request.recipients {
-            let delivery = self
-                .inner
-                .mail
-                .delivery()
+        for (recipient, place) in request.recipients.into_iter().zip(queued) {
+            let delivery = place
+                .delivery(&self.inner.mail)
                 .await
                 .map_err(|_| AppError::internal("mail delivery is unavailable"))?;
             // Permissions and expiry may have changed while this job waited for capacity.

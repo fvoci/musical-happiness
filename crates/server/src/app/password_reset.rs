@@ -85,10 +85,14 @@ impl App {
         }
         let settings = self.user_settings(&user.id).await?;
         let language = Language::recipient(settings.language.as_str(), fallback);
-        let delivery = self
-            .inner
-            .mail
-            .delivery()
+        // The answer was the same either way; a full queue drops this message unseen.
+        let Some(queued) = self.inner.mail.queue_reset() else {
+            tracing::warn!("password recovery mail dropped: its queue is full");
+            self.metrics().password_reset_mail_dropped();
+            return Ok(());
+        };
+        let delivery = queued
+            .delivery(&self.inner.mail)
             .await
             .map_err(|_| AppError::internal("mail delivery is unavailable"))?;
         let link = self.reset_link_for(&user.id).await?;

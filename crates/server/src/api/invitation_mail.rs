@@ -22,6 +22,11 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 /// expiry and use limits. Invalid recipients reject the whole request before sending.
 /// The recipient's language wins when known, otherwise the sender's language is used;
 /// `language` is the fallback for a sender whose setting is auto. No SMTP means 404.
+/// A request names at most `invitation_mail_recipients` addresses, repeats counted
+/// (400, `too_many_recipients`). Its messages are queued all or none: 429
+/// (`invitation_mail_limit`, with `Retry-After`) when the workspace would pass
+/// `invitation_mail_per_hour` messages within an hour, and 503 (`mail_queue_full`) when
+/// the server's invitation queue cannot hold them all. A refused request sends nothing.
 #[utoipa::path(
     post, path = "/w/{workspaceId}/invitations/mail", operation_id = "emailInvitation",
     tag = tag::WORKSPACES, params(WorkerWorkspaceId), request_body = InvitationMail,

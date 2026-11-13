@@ -61,3 +61,34 @@ it('explains invalid addresses without showing server details', async () => {
   expect(await screen.findByRole('alert')).toHaveTextContent('Enter valid email addresses');
   expect(screen.getByRole('alert')).not.toHaveTextContent('private detail');
 });
+
+it.each([
+  [
+    new BackendError(400, {
+      reason: 'too_many_recipients',
+      errors: [{ pointer: '/recipients', reason: 'too_many_recipients', detail: 'private detail' }],
+    }),
+    'Too many addresses for one sending',
+  ],
+  [
+    new BackendError(429, { reason: 'invitation_mail_limit', retryAfter: 3540 }),
+    'try again in 59 min',
+  ],
+  [new BackendError(503, { reason: 'mail_queue_full' }), 'Too much mail is waiting'],
+])('says why a whole request was refused: %s', async (refusal, said) => {
+  const send = vi.fn(() => Promise.reject(refusal));
+  render(InviteEmail, {
+    mail: { available: () => Promise.resolve(true), send },
+    workspaceId: 'workspace',
+    token: 'secret',
+    language: 'en',
+  });
+  await fireEvent.input(await screen.findByLabelText('Email invitation to'), {
+    target: { value: 'one@example.test' },
+  });
+  await fireEvent.submit(screen.getByTestId('invite-email-form'));
+  const alert = await screen.findByRole('alert');
+  expect(alert).toHaveTextContent(said);
+  expect(alert).toHaveTextContent('Nothing was sent');
+  expect(alert).not.toHaveTextContent('private detail');
+});

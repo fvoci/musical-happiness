@@ -37,6 +37,7 @@ mod invitations;
 mod limits;
 mod login_limits;
 mod loose_objects;
+mod mail_limits;
 mod mail_reset;
 mod metrics;
 mod metrics_accounts;

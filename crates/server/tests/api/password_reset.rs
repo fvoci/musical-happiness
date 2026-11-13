@@ -112,3 +112,58 @@ async fn only_the_unix_socket_can_issue_reset_links() {
     }
     th.teardown().await;
 }
+
+/// Who belongs only to an organization that takes no password may still reset their
+/// password: every session ends, the new password signs in, and the organization opens
+/// for its provider's sessions only, as before.
+#[tokio::test]
+async fn a_reset_password_does_not_open_an_organization_that_takes_none() {
+    use crate::common::{ROOT_WORKSPACE_ID, USER1_USERNAME};
+    use crate::fake_oidc::FakeProvider;
+    use crate::oidc::{org_of, server_for, set_provider};
+    use crate::sso::{
+        ADMIN_SUBJECT, Passwords, admin_through_provider, require_sso, through_provider,
+    };
+
+    let fake = FakeProvider::start().await;
+    let ts = server_for(&fake).await;
+    let org_id = org_of(&ts).await;
+    set_provider(&ts, &org_id, &fake).await;
+    let admin = admin_through_provider(&ts, &fake, &org_id).await;
+    require_sso(&admin, &org_id, &fake, Passwords::Refused)
+        .await
+        .check_ok();
+    let url = ts
+        .app
+        .password_reset_link(USER1_USERNAME)
+        .await
+        .expect("the account has a password");
+    let token = url.split_once('#').expect("a fragment").1;
+    ts.anonymous()
+        .post(
+            "/password-reset/complete",
+            &json!({"token": token, "password": "New-password-1"}),
+        )
+        .await
+        .check_no_content();
+    for ended in [&ts.client, &admin] {
+        ended
+            .get("/users/me")
+            .await
+            .check_status(StatusCode::UNAUTHORIZED);
+    }
+
+    let boards = format!("/w/{ROOT_WORKSPACE_ID}/boards");
+    let fresh = ts.login(USER1_USERNAME, "New-password-1").await;
+    fresh.get("/users/me").await.check_ok();
+    let walled = fresh.get(&boards).await;
+    walled.check_status(StatusCode::UNAUTHORIZED);
+    assert_eq!(walled.error_reason(), "sso_required", "{}", walled.text());
+    through_provider(&ts, &fake, &org_id, ADMIN_SUBJECT)
+        .await
+        .get(&boards)
+        .await
+        .check_ok();
+    ts.teardown().await;
+    fake.stop();
+}

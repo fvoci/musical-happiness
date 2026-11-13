@@ -4,13 +4,17 @@ use anyhow::bail;
 use serde::Deserialize;
 use serde_json::{Map, Value};
 
-pub(super) const ENV_KEYS: [(&str, super::EnvKind); 6] = [
+pub(super) const ENV_KEYS: [(&str, super::EnvKind); 10] = [
     ("smtp_host", super::EnvKind::Text),
     ("smtp_port", super::EnvKind::Number),
     ("smtp_tls", super::EnvKind::Text),
     ("smtp_user", super::EnvKind::Text),
     ("smtp_password", super::EnvKind::Text),
     ("smtp_from", super::EnvKind::Text),
+    ("mail_reset_queue", super::EnvKind::Number),
+    ("mail_invitation_queue", super::EnvKind::Number),
+    ("invitation_mail_recipients", super::EnvKind::Number),
+    ("invitation_mail_per_hour", super::EnvKind::Number),
 ];
 
 /// The SMTP settings, flattened into the main configuration file.
@@ -30,6 +34,14 @@ pub struct SmtpSettings {
     pub smtp_password: String,
     /// Sender email address, without a display name.
     pub smtp_from: String,
+    /// The most recovery messages waiting or being delivered; more are dropped unseen.
+    pub mail_reset_queue: u32,
+    /// The most invitation messages waiting or being delivered; more are refused (503).
+    pub mail_invitation_queue: u32,
+    /// The most recipients one invitation mail request names (400 beyond).
+    pub invitation_mail_recipients: u32,
+    /// The most invitation messages one workspace queues in an hour (429 beyond).
+    pub invitation_mail_per_hour: u32,
 }
 
 impl Default for SmtpSettings {
@@ -41,6 +53,10 @@ impl Default for SmtpSettings {
             smtp_user: String::new(),
             smtp_password: String::new(),
             smtp_from: String::new(),
+            mail_reset_queue: 200,
+            mail_invitation_queue: 200,
+            invitation_mail_recipients: 20,
+            invitation_mail_per_hour: 100,
         }
     }
 }
@@ -52,6 +68,13 @@ impl std::fmt::Debug for SmtpSettings {
             .field("smtp_port", &self.smtp_port)
             .field("smtp_tls", &self.smtp_tls)
             .field("smtp_from", &self.smtp_from)
+            .field("mail_reset_queue", &self.mail_reset_queue)
+            .field("mail_invitation_queue", &self.mail_invitation_queue)
+            .field(
+                "invitation_mail_recipients",
+                &self.invitation_mail_recipients,
+            )
+            .field("invitation_mail_per_hour", &self.invitation_mail_per_hour)
             .finish_non_exhaustive()
     }
 }
@@ -79,6 +102,17 @@ impl SmtpSettings {
         }
         if self.smtp_port == 0 {
             bail!("smtp_port must be 1 to 65535");
+        }
+        if self.mail_reset_queue == 0 || self.invitation_mail_recipients == 0 {
+            bail!("mail_reset_queue and invitation_mail_recipients must be at least 1");
+        }
+        if self.invitation_mail_recipients > self.mail_invitation_queue
+            || self.invitation_mail_recipients > self.invitation_mail_per_hour
+        {
+            bail!(
+                "mail_invitation_queue and invitation_mail_per_hour must each be at least \
+                 invitation_mail_recipients"
+            );
         }
         if self.smtp_user.is_empty() != self.smtp_password.is_empty() {
             bail!("smtp_user and smtp_password must be supplied together");

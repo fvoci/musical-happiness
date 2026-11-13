@@ -1,9 +1,10 @@
-//! SMTP delivery in tracked background work, with bounded attempts and transport concurrency.
+//! SMTP delivery in tracked background work, with bounded attempts, queues and connections.
 
 mod content;
+mod quota;
 
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::Context as _;
 use lettre::address::Envelope;
@@ -18,6 +19,8 @@ pub(super) use content::{Content, Language};
 
 /// At most four SMTP connections deliver concurrently; HTTP requests never wait for them.
 const CONNECTIONS: usize = 4;
+/// Invitations use at most this many connections, so one is always left for recovery.
+const INVITATION_CONNECTIONS: usize = CONNECTIONS - 1;
 /// A whole SMTP attempt, including connection and all commands, gets ten seconds.
 const ATTEMPT_TIMEOUT: Duration = Duration::from_secs(10);
 /// The first attempt plus two retries, after one and four seconds, bounds delivery work.
@@ -28,11 +31,31 @@ struct Transport {
     from: Address,
 }
 
+/// What a queued message is, which decides its queue and the connections it may use.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Kind {
+    PasswordReset,
+    Invitation,
+}
+
+/// Why invitation messages were not queued; nothing of the request was.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Refused {
+    /// The workspace queued its hourly limit; the oldest of those leave after this.
+    HourlyLimit(Duration),
+    /// The invitation queue holds as many messages as it may.
+    QueueFull,
+}
+
 /// The optional transport; constructing it performs no network I/O.
 #[derive(Clone)]
 pub(super) struct Mailer {
     transport: Option<Arc<Transport>>,
     connections: Arc<Semaphore>,
+    invitation_connections: Arc<Semaphore>,
+    reset_queue: Arc<Semaphore>,
+    invitation_queue: Arc<Semaphore>,
+    invitation_quota: Arc<quota::HourlyQuota>,
 }
 
 impl std::fmt::Debug for Mailer {
@@ -75,31 +98,92 @@ impl Mailer {
         Ok(Self {
             transport,
             connections: Arc::new(Semaphore::new(CONNECTIONS)),
+            invitation_connections: Arc::new(Semaphore::new(INVITATION_CONNECTIONS)),
+            reset_queue: Arc::new(Semaphore::new(usize::try_from(settings.mail_reset_queue)?)),
+            invitation_queue: Arc::new(Semaphore::new(usize::try_from(
+                settings.mail_invitation_queue,
+            )?)),
+            invitation_quota: Arc::new(quota::HourlyQuota::new(settings.invitation_mail_per_hour)),
         })
     }
 
-    /// Waits for capacity before the caller creates short-lived message credentials.
-    pub(super) async fn delivery(&self) -> anyhow::Result<Delivery> {
+    /// Takes the place of one recovery message in its queue, or `None` when it is full.
+    pub(super) fn queue_reset(&self) -> Option<Queued> {
+        Arc::clone(&self.reset_queue)
+            .try_acquire_owned()
+            .ok()
+            .map(|place| Queued {
+                kind: Kind::PasswordReset,
+                place,
+            })
+    }
+
+    /// Takes the places of all `messages` of one invitation request, or none of them:
+    /// the queue must hold them all and the workspace's hourly limit must allow them.
+    pub(super) fn queue_invitations(
+        &self,
+        workspace_id: &str,
+        messages: u32,
+    ) -> Result<Vec<Queued>, Refused> {
+        let mut places = Arc::clone(&self.invitation_queue)
+            .try_acquire_many_owned(messages)
+            .map_err(|_| Refused::QueueFull)?;
+        self.invitation_quota
+            .take(workspace_id, messages, Instant::now())
+            .map_err(Refused::HourlyLimit)?;
+        let mut queued = Vec::new();
+        while let Some(place) = places.split(1) {
+            queued.push(Queued {
+                kind: Kind::Invitation,
+                place,
+            });
+        }
+        Ok(queued)
+    }
+}
+
+/// One message's place in its queue, held until the message was delivered or given up.
+#[derive(Debug)]
+pub(super) struct Queued {
+    kind: Kind,
+    place: OwnedSemaphorePermit,
+}
+
+impl Queued {
+    /// Waits for an SMTP connection this kind of message may use, keeping the place
+    /// until then, before the caller creates short-lived message credentials.
+    pub(super) async fn delivery(self, mailer: &Mailer) -> anyhow::Result<Delivery> {
         let transport = Arc::clone(
-            self.transport
+            mailer
+                .transport
                 .as_ref()
                 .context("outgoing mail is disabled")?,
         );
-        let connection = Arc::clone(&self.connections)
+        let share = match self.kind {
+            Kind::PasswordReset => None,
+            Kind::Invitation => Some(
+                Arc::clone(&mailer.invitation_connections)
+                    .acquire_owned()
+                    .await
+                    .context("mail transport is closed")?,
+            ),
+        };
+        let connection = Arc::clone(&mailer.connections)
             .acquire_owned()
             .await
             .context("mail transport is closed")?;
         Ok(Delivery {
             transport,
-            _connection: connection,
+            _permits: [Some(self.place), share, Some(connection)],
         })
     }
 }
 
-/// A reserved SMTP connection, retained through all attempts and released on drop.
+/// A reserved SMTP connection, retained through all attempts and released on drop,
+/// with the message's place in its queue and, for invitations, their share of connections.
 pub(super) struct Delivery {
     transport: Arc<Transport>,
-    _connection: OwnedSemaphorePermit,
+    _permits: [Option<OwnedSemaphorePermit>; 3],
 }
 
 impl Delivery {

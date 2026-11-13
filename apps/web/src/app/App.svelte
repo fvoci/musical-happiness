@@ -353,8 +353,7 @@
         else router.restart({});
         return;
       }
-      // Signed in on an address that is no page of the app (`/login`, where a
-      // sign-in through a provider comes back refused, or any other): the first.
+      // Signed in on no page of the app (`/login` after a refused provider sign-in): the first.
       if (router.route.unknown) router.go({}, { replace: true });
       await workspace?.load(router.route.workspaceId);
       // Signed in, yet the next request is not: the browser did not keep the

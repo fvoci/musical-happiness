@@ -1033,5 +1033,8 @@
   "mail_addresses_hint": "Separate addresses with commas or new lines. Each person receives a separate email with this same link.",
   "mail_addresses_invalid": "Enter valid email addresses, separated by commas or new lines.",
   "mail_queued": "Invitation mail queued.",
-  "mail_send": "Send invitation email"
+  "mail_send": "Send invitation email",
+  "mail_too_many_recipients": "Too many addresses for one sending. Nothing was sent; send to fewer at a time.",
+  "mail_hourly_limit": "This workspace has sent as many invitation emails as it may this hour. Nothing was sent; try again in {minutes} min.",
+  "mail_queue_full": "Too much mail is waiting to be sent. Nothing was sent; try again later."
 }

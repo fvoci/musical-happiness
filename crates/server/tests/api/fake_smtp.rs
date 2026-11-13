@@ -12,7 +12,7 @@ use mail_parser::MessageParser;
 use serde::Serialize;
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{Mutex, Notify};
+use tokio::sync::{Mutex, Notify, watch};
 use tokio::task::JoinHandle;
 use tokio_util::task::TaskTracker;
 
@@ -30,6 +30,8 @@ struct Inbox {
     failures: AtomicUsize,
     attempts: AtomicUsize,
     delay: Mutex<Duration>,
+    /// Messages to recipients ending so are answered only once this is `None` again.
+    held: watch::Sender<Option<String>>,
 }
 
 pub(crate) struct FakeSmtp {
@@ -83,6 +85,24 @@ impl FakeSmtp {
     }
     pub(crate) async fn delay(&self, delay: Duration) {
         *self.inbox.delay.lock().await = delay;
+    }
+    /// Leaves every message to a recipient ending with `suffix` unanswered after its
+    /// data until [`FakeSmtp::release`], keeping its connection busy.
+    pub(crate) fn hold(&self, suffix: &str) {
+        self.inbox.held.send_replace(Some(suffix.to_owned()));
+    }
+    pub(crate) fn release(&self) {
+        self.inbox.held.send_replace(None);
+    }
+    /// Waits until `count` messages had their data sent, delivered or not.
+    pub(crate) async fn attempted(&self, count: usize) {
+        tokio::time::timeout(Duration::from_secs(15), async {
+            while self.attempts() < count {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("SMTP attempts arrive");
     }
     pub(crate) async fn messages(&self) -> Vec<Received> {
         self.inbox.messages.lock().await.clone()
@@ -147,6 +167,14 @@ async fn serve(stream: TcpStream, inbox: Arc<Inbox>) -> std::io::Result<()> {
             inbox.attempts.fetch_add(1, Ordering::SeqCst);
             let delay = *inbox.delay.lock().await;
             tokio::time::sleep(delay).await;
+            let _ = inbox
+                .held
+                .subscribe()
+                .wait_for(|held| {
+                    held.as_ref()
+                        .is_none_or(|suffix| !recipient.ends_with(suffix.as_str()))
+                })
+                .await;
             if inbox
                 .failures
                 .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))

@@ -22,6 +22,22 @@
   let queued = $state(false);
   let problem = $state<string | undefined>(undefined);
 
+  /** What the person is told of a refusal; the server's own words stay out. */
+  function refusal(error: unknown): string {
+    if (!isBackendError(error)) return m.people_failed();
+    switch (error.reason) {
+      case 'too_many_recipients':
+        return m.mail_too_many_recipients();
+      case 'invitation_mail_limit':
+        return m.mail_hourly_limit({
+          minutes: Math.max(1, Math.ceil((error.retryAfter ?? 0) / 60)),
+        });
+      case 'mail_queue_full':
+        return m.mail_queue_full();
+    }
+    return error.refusalAt('/recipients') ? m.mail_addresses_invalid() : m.people_failed();
+  }
+
   async function submit(event: SubmitEvent): Promise<void> {
     event.preventDefault();
     if (working) return;
@@ -37,10 +53,7 @@
       addresses = '';
       queued = true;
     } catch (error) {
-      problem =
-        isBackendError(error) && error.errors.some((entry) => entry.pointer === '/recipients')
-          ? m.mail_addresses_invalid()
-          : m.people_failed();
+      problem = refusal(error);
     } finally {
       working = false;
     }

@@ -284,6 +284,12 @@ reasons! {
     LastOrgAdmin => "last_org_admin", "Last administrator of the organization";
     /// The organization has turned its public links off.
     PublicLinksOff => "public_links_off", "Public links turned off";
+    /// An invitation mail request names more recipients than one may.
+    TooManyRecipients => "too_many_recipients", "Too many recipients";
+    /// The workspace queued as many invitation messages within the hour as it may.
+    InvitationMailLimit => "invitation_mail_limit", "Hourly invitation mail limit reached";
+    /// The server holds as many invitation messages waiting to be sent as it may.
+    MailQueueFull => "mail_queue_full", "Mail queue full";
 }
 
 impl Reason {

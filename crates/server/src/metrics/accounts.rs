@@ -1,5 +1,5 @@
-//! The metrics of the accounts: how logins ended, how many users registered, and how
-//! many sessions are live. No label names a user, an address or a session.
+//! The metrics of the accounts: how logins ended, how many users registered, how many
+//! recovery messages were dropped, and how many sessions are live. No label names a user, an address or a session.
 
 use prometheus::{IntCounter, IntCounterVec, IntGauge, Opts, Registry};
 
@@ -64,6 +64,7 @@ pub(super) struct AccountMetrics {
     /// The counter of each outcome, in the order of [`LoginOutcome::ALL`].
     logins: [IntCounter; 5],
     registrations: IntCounter,
+    reset_mail_dropped: IntCounter,
     sessions_live: IntGauge,
     /// The scrapes' reads of the live sessions.
     sessions_read: ScrapeRead,
@@ -100,6 +101,16 @@ impl AccountMetrics {
             .namespace(PREFIX),
         )?;
         registry.register(Box::new(registrations.clone()))?;
+        let reset_mail_dropped = IntCounter::with_opts(
+            Opts::new(
+                "password_reset_mail_dropped_total",
+                "How many password recovery messages were not sent because \
+                 mail_reset_queue messages were already waiting or being delivered. The \
+                 request was answered as any other.",
+            )
+            .namespace(PREFIX),
+        )?;
+        registry.register(Box::new(reset_mail_dropped.clone()))?;
         let sessions_live = IntGauge::with_opts(
             Opts::new(
                 "sessions_live",
@@ -121,6 +132,7 @@ impl AccountMetrics {
         Ok(Self {
             logins,
             registrations,
+            reset_mail_dropped,
             sessions_live,
             sessions_read,
         })
@@ -139,6 +151,13 @@ impl Metrics {
     pub(crate) fn registered(&self) {
         if let Some(kept) = &self.kept {
             kept.accounts.registrations.inc();
+        }
+    }
+
+    /// Counts a password recovery message dropped because its queue was full.
+    pub(crate) fn password_reset_mail_dropped(&self) {
+        if let Some(kept) = &self.kept {
+            kept.accounts.reset_mail_dropped.inc();
         }
     }
 
