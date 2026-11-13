@@ -79,7 +79,7 @@ pub use sharing::SharingChange;
 pub use trash::{DeletedBlock, DeletedBoard, Purged};
 pub use uploads::{OpenUploads, PartRecord, UploadUsage};
 pub use users::{AdminChange, InstanceRole, Preference};
-pub use visibility::VisibilityVersion;
+pub use visibility::{VisibilityScope, VisibilityVersion};
 pub use workspace_membership::MembershipChange;
 
 use db::{ConnRef, Scope};
@@ -492,7 +492,7 @@ impl Store {
         operation: impl AsyncFnOnce(&mut Scope<'_>) -> Result<T, StoreError>,
     ) -> Result<T, StoreError> {
         let watch = self.watch(Access::Read);
-        let visibility = self.inner.visibility.writing();
+        let visibility = self.inner.visibility.writing(self.tenant);
         let (result, access) = self.on_conn(watch.as_ref(), &visibility, operation).await;
         drop(visibility);
         if let Some(watch) = watch {
@@ -558,7 +558,7 @@ impl Store {
         operation: impl AsyncFnOnce(&mut Scope<'_>) -> Result<T, StoreError>,
     ) -> Result<T, StoreError> {
         let watch = self.watch(Access::Write);
-        let visibility = self.inner.visibility.writing();
+        let visibility = self.inner.visibility.writing(self.tenant);
         let result = self
             .in_transaction(watch.as_ref(), &visibility, operation)
             .await;

@@ -29,13 +29,9 @@ impl Hub {
             return;
         }
         loop {
+            // Not cacheable for a while after an abandoned write: the checks below
+            // then read the store anew.
             let revision = self.audience.version().await;
-            if !revision.cacheable() {
-                for id in ids {
-                    self.close_listener(*id, Disconnect::AccessEnded);
-                }
-                return;
-            }
             let authorized = self.authorized(ids, access).await;
             #[cfg(feature = "test-util")]
             self.pause_dispatch().await;
@@ -58,13 +54,9 @@ impl Hub {
             return;
         }
         loop {
+            // Not cacheable for a while after an abandoned write: the checks below
+            // then read the store anew.
             let revision = self.audience.version().await;
-            if !revision.cacheable() {
-                for id in ids {
-                    self.close_listener(*id, Disconnect::ShareEnded);
-                }
-                return;
-            }
             let authorized = self.authorized(ids, Access::Public(&block.board_id)).await;
             if authorized.is_empty() {
                 return;

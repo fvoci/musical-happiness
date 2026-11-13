@@ -5,27 +5,25 @@ use std::fmt;
 use std::hash::Hash;
 use std::sync::Mutex;
 
-use fvoci_store::{Store, StoreError, VisibilityVersion};
+use fvoci_store::{Store, StoreError, VisibilityScope, VisibilityVersion};
 
 /// Bounds memory even when a client probes arbitrary workspace identifiers.
 const MAX_ENTRIES: usize = 4096;
 
 pub(super) struct Cache<K, V> {
-    state: Mutex<State<K, V>>,
+    state: Mutex<HashMap<VisibilityScope, Slot<K, V>>>,
 }
 
-struct State<K, V> {
-    revision: Option<VisibilityVersion>,
+/// What was read in one scope (an organization, or everything) at one revision.
+struct Slot<K, V> {
+    revision: VisibilityVersion,
     values: HashMap<K, V>,
 }
 
 impl<K, V> Default for Cache<K, V> {
     fn default() -> Self {
         Self {
-            state: Mutex::new(State {
-                revision: None,
-                values: HashMap::new(),
-            }),
+            state: Mutex::new(HashMap::new()),
         }
     }
 }
@@ -50,12 +48,16 @@ impl<K: Eq + Hash + Clone, V: Clone> Cache<K, V> {
                 return read().await;
             }
             {
-                let mut state = self.state.lock().expect("audience cache lock");
-                if state.revision != Some(revision) {
-                    state.values.clear();
-                    state.revision = Some(revision);
+                let mut slots = self.state.lock().expect("audience cache lock");
+                let slot = slots.entry(revision.scope()).or_insert_with(|| Slot {
+                    revision,
+                    values: HashMap::new(),
+                });
+                if slot.revision != revision {
+                    slot.values.clear();
+                    slot.revision = revision;
                 }
-                if let Some(value) = state.values.get(&key) {
+                if let Some(value) = slot.values.get(&key) {
                     return Ok(value.clone());
                 }
             }
@@ -63,13 +65,18 @@ impl<K: Eq + Hash + Clone, V: Clone> Cache<K, V> {
             if store.visibility_version().await != revision {
                 continue;
             }
-            let mut state = self.state.lock().expect("audience cache lock");
-            if state.revision == Some(revision) {
-                // Invalid workspace IDs must not grow a long-lived connection's cache forever.
-                if state.values.len() >= MAX_ENTRIES {
-                    state.values.clear();
-                }
-                state.values.insert(key.clone(), value.clone());
+            let mut slots = self.state.lock().expect("audience cache lock");
+            // Invalid workspace IDs must not grow a long-lived connection's cache
+            // forever, across all organizations together.
+            if slots.values().map(|slot| slot.values.len()).sum::<usize>() >= MAX_ENTRIES {
+                slots.clear();
+            }
+            let slot = slots.entry(revision.scope()).or_insert_with(|| Slot {
+                revision,
+                values: HashMap::new(),
+            });
+            if slot.revision == revision {
+                slot.values.insert(key.clone(), value.clone());
             }
             return Ok(value);
         }

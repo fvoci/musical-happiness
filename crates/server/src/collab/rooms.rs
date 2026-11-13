@@ -661,9 +661,9 @@ impl Collab {
             .await;
         let (admitted, _) = admission::admit_tracked(
             home,
+            home.store(),
             connection.asker(),
-            workspace_id,
-            card_id,
+            (workspace_id, card_id),
             &mut watching,
         )
         .await?;
@@ -689,19 +689,21 @@ impl Collab {
             };
             let registered = async {
                 loop {
+                    // At the revision of the room's organization, which the room's
+                    // own check below is of.
                     let (current, revision) = admission::admit_tracked(
                         home,
+                        room.app.store(),
                         connection.asker(),
-                        workspace_id,
-                        card_id,
+                        (workspace_id, card_id),
                         &mut watching,
                     )
                     .await?;
-                    if self.refresh_visibility(&room, &mut turn).await != Some(revision) {
+                    if self.refresh_visibility(&room, &mut turn).await != revision {
                         continue;
                     }
                     let mut result = Err(refusals::unavailable());
-                    if home.store().if_visibility_current(revision, || {
+                    if room.app.store().if_visibility_current(revision, || {
                         result =
                             turn.register(connection, doc, workspace_id, &current, &loaded, &room);
                     }) {

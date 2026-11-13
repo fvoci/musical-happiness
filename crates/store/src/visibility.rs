@@ -1,62 +1,166 @@
 //! Revisions for cached authorization reads, spanning the whole writing transaction.
+//!
+//! Each organization has a revision of its own, which its writes move on; a write of
+//! no organization or of every organization (the directory, users, the system's
+//! work) moves on a shared one that every organization's revision includes. So what
+//! one organization writes does not empty another's cached reads. A reader that is of
+//! no organization takes a revision that every write moves on.
+//!
+//! A write abandoned before its outcome was known (its future was dropped between its
+//! first authorization statement and its commit or rollback) may still land. For
+//! [`SETTLE`] after that nothing is cached: every check reads the store anew, and a
+//! dispatch is still checked against concurrent writers, but none is refused for it.
 
+use std::collections::HashMap;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
 
+use sqlx::types::Uuid;
 use tokio::sync::watch;
 
-use crate::Store;
+use crate::{Store, Tenant};
+
+/// How long after an abandoned authorization write reads are not cached. Longer than
+/// the store's busy timeout on SQLite (five seconds by default) and than what a commit
+/// that was already sent takes on PostgreSQL: the write has landed or never will by
+/// then. A delayed commit later than that would not be seen until the next write of
+/// the same organization moves its revision on.
+const SETTLE: Duration = Duration::from_secs(60);
+
+/// Writers of a part of the data, and its revision.
+#[derive(Debug, Default, Clone, Copy)]
+struct Count {
+    revision: u64,
+    writers: usize,
+}
+
+impl Count {
+    fn start(&mut self) {
+        self.writers += 1;
+        self.revision = self.revision.wrapping_add(1);
+    }
+
+    fn end(&mut self) {
+        self.writers -= 1;
+        self.revision = self.revision.wrapping_add(1);
+    }
+}
 
 #[derive(Debug, Default)]
 struct State {
-    revision: u64,
-    writers: usize,
-    uncertain: bool,
+    /// Writes of no organization or of every organization.
+    shared: Count,
+    /// Every write, for readers of no organization.
+    every: Count,
+    /// Writes of one organization, by its identifier.
+    orgs: HashMap<Uuid, Count>,
+    /// Until when reads are not cached, after an abandoned write.
+    unsettled_until: Option<Instant>,
+}
+
+impl State {
+    fn counts(&mut self, reach: Reach) -> [Count; 2] {
+        match reach {
+            Reach::Org(org) => [self.shared, *self.orgs.entry(org).or_default()],
+            Reach::Every => [self.every, self.every],
+        }
+    }
+
+    fn writers_of(&mut self, reach: Reach) -> usize {
+        self.counts(reach).iter().map(|count| count.writers).sum()
+    }
+
+    fn version(&mut self, reach: Reach, now: Instant) -> VisibilityVersion {
+        let [shared, own] = self.counts(reach);
+        VisibilityVersion {
+            reach,
+            shared: shared.revision,
+            own: own.revision,
+            cacheable: self.unsettled_until.is_none_or(|until| now >= until),
+        }
+    }
+
+    fn change(&mut self, reach: Reach, change: impl Fn(&mut Count)) {
+        change(&mut self.every);
+        match reach {
+            Reach::Org(org) => change(self.orgs.entry(org).or_default()),
+            Reach::Every => change(&mut self.shared),
+        }
+    }
+}
+
+/// Whose rows a write may reach, or a reader depends on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum Reach {
+    Org(Uuid),
+    Every,
+}
+
+impl From<Tenant> for Reach {
+    fn from(tenant: Tenant) -> Self {
+        match tenant {
+            Tenant::Org(org) => Self::Org(org),
+            Tenant::Unset | Tenant::System => Self::Every,
+        }
+    }
 }
 
 #[derive(Debug)]
 pub(crate) struct Visibility {
     state: Mutex<State>,
     changed: watch::Sender<u64>,
+    settle: Duration,
 }
 
 impl Default for Visibility {
     fn default() -> Self {
-        Self {
-            state: Mutex::default(),
-            changed: watch::channel(0).0,
-        }
+        Self::settling_for(SETTLE)
     }
 }
 
 impl Visibility {
-    pub(crate) fn writing(&self) -> Writing<'_> {
+    fn settling_for(settle: Duration) -> Self {
+        Self {
+            state: Mutex::default(),
+            changed: watch::channel(0).0,
+            settle,
+        }
+    }
+
+    fn state(&self) -> std::sync::MutexGuard<'_, State> {
+        self.state.lock().expect("visibility revision lock")
+    }
+
+    pub(crate) fn writing(&self, tenant: Tenant) -> Writing<'_> {
         Writing {
             visibility: self,
+            reach: tenant.into(),
             touched: AtomicBool::new(false),
             finished: AtomicBool::new(false),
         }
     }
 
     fn if_current(&self, version: VisibilityVersion, send: impl FnOnce()) -> bool {
-        let state = self.state.lock().expect("visibility revision lock");
-        if state.uncertain || state.writers != 0 || state.revision != version.revision {
+        let mut state = self.state();
+        let now = state.version(version.reach, Instant::now());
+        if state.writers_of(version.reach) != 0
+            || (now.shared, now.own) != (version.shared, version.own)
+        {
             return false;
         }
         send();
         true
     }
 
-    async fn version(&self) -> VisibilityVersion {
+    async fn version(&self, tenant: Tenant) -> VisibilityVersion {
+        let reach = Reach::from(tenant);
         let mut changes = self.changed.subscribe();
         loop {
             {
-                let state = self.state.lock().expect("visibility revision lock");
-                if state.writers == 0 {
-                    return VisibilityVersion {
-                        revision: state.revision,
-                        cacheable: !state.uncertain,
-                    };
+                let mut state = self.state();
+                if state.writers_of(reach) == 0 {
+                    return state.version(reach, Instant::now());
                 }
             }
             // Subscribe before checking the state so a commit cannot be missed.
@@ -68,42 +172,56 @@ impl Visibility {
     }
 }
 
-/// A committed authorization revision and whether its reads may be cached.
+/// A committed authorization revision of what one organization reads (or of
+/// everything), and whether its reads may be cached.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct VisibilityVersion {
-    revision: u64,
+    reach: Reach,
+    shared: u64,
+    own: u64,
     cacheable: bool,
 }
 
 impl VisibilityVersion {
-    /// False after an abandoned write whose eventual database outcome is uncertain.
+    /// False for a while after an abandoned write whose outcome was not known: reads
+    /// are made anew each time then.
     pub fn cacheable(self) -> bool {
         self.cacheable
     }
+
+    /// What the version is of: two versions of one scope may share a cache slot.
+    pub fn scope(self) -> VisibilityScope {
+        VisibilityScope(self.reach)
+    }
 }
 
+/// What a [`VisibilityVersion`] is of: one organization, or everything.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct VisibilityScope(Reach);
+
 impl Store {
-    /// The revision of authorization data after its pending writers finish.
-    /// Cached reads are reusable only at the same cacheable revision. An abandoned
-    /// authorization write has no confirmed outcome: dispatch must stop until this
-    /// store is reopened, rather than trust a read made before a delayed commit.
+    /// The revision of the authorization data this handle's organization reads, after
+    /// its pending writers finish (every organization's, for a handle of none). Cached
+    /// reads are reusable only at the same cacheable revision.
     pub async fn visibility_version(&self) -> VisibilityVersion {
-        self.inner.visibility.version().await
+        self.inner.visibility.version(self.tenant).await
     }
 
-    /// Runs a dispatch only while its checked revision is current and settled.
-    /// The callback must be synchronous and must not call back into the store.
-    /// Returns false if authorization must be checked again, or settlement is uncertain.
+    /// Runs a dispatch only while its checked revision is current and settled: no
+    /// write of its scope started or ended since. The callback must be synchronous and
+    /// must not call back into the store. Returns false if authorization must be
+    /// checked again.
     pub fn if_visibility_current(&self, version: VisibilityVersion, send: impl FnOnce()) -> bool {
         self.inner.visibility.if_current(version, send)
     }
 }
 
 /// Lives outside the connection/transaction future, including its commit or rollback.
-/// Abandonment invalidates existing entries and prevents caching a possibly stale read.
+/// Abandonment moves the revision on and keeps reads from being cached for a while.
 #[derive(Debug)]
 pub(crate) struct Writing<'a> {
     visibility: &'a Visibility,
+    reach: Reach,
     touched: AtomicBool,
     finished: AtomicBool,
 }
@@ -119,14 +237,9 @@ impl Writing<'_> {
         if self.touched.swap(true, Ordering::Relaxed) {
             return;
         }
-        let mut state = self
-            .visibility
-            .state
-            .lock()
-            .expect("visibility revision lock");
-        state.writers += 1;
-        state.revision = state.revision.wrapping_add(1);
-        self.visibility.changed.send_replace(state.revision);
+        let mut state = self.visibility.state();
+        state.change(self.reach, Count::start);
+        self.visibility.changed.send_replace(state.every.revision);
     }
 
     pub(crate) fn settled(&self) {
@@ -139,15 +252,12 @@ impl Drop for Writing<'_> {
         if !self.touched.load(Ordering::Relaxed) {
             return;
         }
-        let mut state = self
-            .visibility
-            .state
-            .lock()
-            .expect("visibility revision lock");
-        state.writers -= 1;
-        state.uncertain |= !self.finished.load(Ordering::Relaxed);
-        state.revision = state.revision.wrapping_add(1);
-        self.visibility.changed.send_replace(state.revision);
+        let mut state = self.visibility.state();
+        state.change(self.reach, Count::end);
+        if !self.finished.load(Ordering::Relaxed) {
+            state.unsettled_until = Some(Instant::now() + self.visibility.settle);
+        }
+        self.visibility.changed.send_replace(state.every.revision);
     }
 }
 
@@ -186,42 +296,85 @@ fn affects_visibility(text: &str) -> bool {
 mod tests {
     use super::*;
 
+    fn org(n: u128) -> Tenant {
+        Tenant::Org(Uuid::from_u128(n))
+    }
+
     #[tokio::test]
     async fn a_dispatch_requires_the_same_settled_revision() {
         let visibility = Visibility::default();
-        let old = visibility.version().await;
-        let writing = visibility.writing();
+        let old = visibility.version(Tenant::Unset).await;
+        let writing = visibility.writing(Tenant::Unset);
         writing.statement("UPDATE workspace_members SET role = 'guest'");
         assert!(!visibility.if_current(old, || panic!("a writer is active")));
         writing.settled();
         drop(writing);
         assert!(!visibility.if_current(old, || panic!("the revision changed")));
-        let current = visibility.version().await;
+        let current = visibility.version(Tenant::Unset).await;
         let mut sent = false;
         assert!(visibility.if_current(current, || sent = true));
         assert!(sent);
     }
 
     #[tokio::test]
-    async fn an_abandoned_authorization_write_cannot_authorize_dispatch() {
-        let visibility = Visibility::default();
-        let writing = visibility.writing();
+    async fn an_abandoned_write_stops_caching_for_a_while_but_not_dispatch() {
+        let visibility = Visibility::settling_for(Duration::from_millis(50));
+        let writing = visibility.writing(Tenant::Unset);
         writing.statement("DELETE FROM sharing");
         drop(writing);
-        let uncertain = visibility.version().await;
-        assert!(!uncertain.cacheable());
+        let unsettled = visibility.version(Tenant::Unset).await;
+        assert!(!unsettled.cacheable(), "its outcome may still land");
+        let mut sent = false;
         assert!(
-            !visibility.if_current(uncertain, || panic!("late commit can still revoke access"))
+            visibility.if_current(unsettled, || sent = true),
+            "a dispatch checked against the store anew goes on"
         );
-        let writing = visibility.writing();
+        assert!(sent);
+        let writing = visibility.writing(Tenant::Unset);
         writing.statement("UPDATE boards SET title = 'later'");
         writing.settled();
         drop(writing);
-        let later = visibility.version().await;
-        assert_ne!(uncertain, later);
         assert!(
-            !later.cacheable(),
-            "another successful write cannot prove the abandoned write settled"
+            !visibility.version(Tenant::Unset).await.cacheable(),
+            "another successful write does not prove the abandoned one settled"
+        );
+        tokio::time::sleep(Duration::from_millis(60)).await;
+        assert!(
+            visibility.version(Tenant::Unset).await.cacheable(),
+            "after the settle time reads are cached again"
+        );
+    }
+
+    #[tokio::test]
+    async fn one_organizations_writes_leave_anothers_revision() {
+        let visibility = Visibility::default();
+        let (first, second) = (org(1), org(2));
+        let of_second = visibility.version(second).await;
+        let of_everything = visibility.version(Tenant::Unset).await;
+        let writing = visibility.writing(first);
+        writing.statement("UPDATE board_members SET scheme_admin = true");
+        assert!(
+            visibility.if_current(of_second, || {}),
+            "a writer of the first organization does not hold up the second's dispatch"
+        );
+        writing.settled();
+        drop(writing);
+        assert_eq!(visibility.version(second).await, of_second);
+        assert_ne!(visibility.version(Tenant::Unset).await, of_everything);
+        assert!(!visibility.if_current(of_everything, || panic!("everything moved on")));
+
+        let writing = visibility.writing(Tenant::System);
+        writing.statement("UPDATE organizations SET delete_at = 1");
+        assert!(
+            !visibility.if_current(of_second, || panic!("a shared writer is active")),
+            "a write of every organization holds up each one's dispatch"
+        );
+        writing.settled();
+        drop(writing);
+        assert_ne!(visibility.version(second).await, of_second);
+        assert_ne!(
+            visibility.version(second).await.scope(),
+            visibility.version(first).await.scope()
         );
     }
 
@@ -229,7 +382,9 @@ mod tests {
     fn authorization_writers_cannot_enter_a_checked_dispatch() {
         let visibility = Visibility::default();
         let version = VisibilityVersion {
-            revision: 0,
+            reach: Reach::Every,
+            shared: 0,
+            own: 0,
             cacheable: true,
         };
         std::thread::scope(|scope| {
@@ -238,7 +393,7 @@ mod tests {
             assert!(visibility.if_current(version, || {
                 let visibility = &visibility;
                 scope.spawn(move || {
-                    let writing = visibility.writing();
+                    let writing = visibility.writing(Tenant::Unset);
                     started.send(()).expect("writer starts");
                     writing.statement("DELETE FROM board_members");
                     entered.send(()).expect("writer entered");
@@ -294,12 +449,14 @@ mod tests {
             () = reached.notified() => {}
         }
         drop(writing);
-        let version = store.inner.visibility.version().await;
+        let version = store.inner.visibility.version(store.tenant).await;
         assert!(
             !version.cacheable(),
-            "abandoned transaction cannot authorize until settlement is known"
+            "an abandoned transaction's reads are not cached until it settles"
         );
-        assert!(!store.if_visibility_current(version, || panic!("must not enqueue")));
+        let mut sent = false;
+        assert!(store.if_visibility_current(version, || sent = true));
+        assert!(sent, "a dispatch checked anew is not refused for it");
         store.close().await;
         database.remove().await;
     }

@@ -1,7 +1,7 @@
 //! The existing provider contract also works when signup created a later organization.
 
 use base64::Engine as _;
-use reqwest::{Client as HttpClient, StatusCode, header};
+use reqwest::{Client as HttpClient, Method, StatusCode, header};
 use serde_json::json;
 
 use fvoci_server::auth::sealed::SecretKey;
@@ -126,4 +126,36 @@ async fn sign_in(case: &mut Case, server: &TestServer, fake: &FakeProvider) {
         "OIDC follows its organization"
     );
     case.record("finishOidcLogin", &completed);
+    linked(case, &newcomer, fake).await;
+}
+
+/// The account the provider made in this organization lists the identity it was made
+/// with, and keeps it: it has no password, so its last way in is not removed.
+async fn linked(case: &mut Case, newcomer: &Client, fake: &FakeProvider) {
+    let listed = case
+        .send(
+            "getMyIdentities",
+            newcomer.request(Method::GET, "/users/me/identities"),
+        )
+        .await
+        .value();
+    assert_eq!(
+        listed.as_array().map(Vec::len),
+        Some(1),
+        "the provider's account has its identity: {listed}"
+    );
+    assert_eq!(listed[0]["issuer"], fake.issuer.as_str(), "{listed}");
+    let kept = Client::send(
+        newcomer
+            .request(Method::DELETE, "/users/me/identities")
+            .json(&json!({
+                "issuer": listed[0]["issuer"],
+                "subject": listed[0]["subject"],
+                "password": "",
+            })),
+    )
+    .await;
+    assert_eq!(kept.status, StatusCode::CONFLICT, "{}", kept.text());
+    assert_eq!(kept.error_reason(), "last_sign_in", "its only way in stays");
+    case.record("unlinkIdentity", &kept);
 }

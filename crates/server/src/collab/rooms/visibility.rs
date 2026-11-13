@@ -8,24 +8,20 @@ use crate::collab::frame::{self, Sync};
 use crate::collab::messages::{self, reason_of};
 use crate::collab::queue::Queued;
 use crate::collab::{Collab, Loaded, admission, refusals};
-use crate::error::{AppError, Reason};
+use crate::error::AppError;
 
 impl Collab {
     pub(super) async fn refresh_visibility(
         &self,
         room: &Room,
         turn: &mut Turn,
-    ) -> Option<fvoci_store::VisibilityVersion> {
+    ) -> fvoci_store::VisibilityVersion {
         loop {
             let revision = room.app.store().visibility_version().await;
-            if !revision.cacheable() {
-                while !turn.members.is_empty() {
-                    turn.put_out(0, Reason::DocumentUnavailable.as_str());
-                }
-                return None;
-            }
-            if turn.visibility == Some(revision) {
-                return Some(revision);
+            // An uncacheable revision (for a while after an abandoned write) is asked
+            // anew each time.
+            if revision.cacheable() && turn.visibility == Some(revision) {
+                return revision;
             }
             let asked = turn.asked();
             let mut users: Vec<_> = asked.iter().map(|asked| asked.who.clone()).collect();
@@ -36,7 +32,7 @@ impl Collab {
                 turn.apply_answers(asked, &answers);
                 turn.visibility = Some(revision);
             }) {
-                return Some(revision);
+                return revision;
             }
         }
     }
@@ -48,9 +44,7 @@ impl Collab {
         mut send: impl FnMut(&mut Turn),
     ) {
         loop {
-            let Some(revision) = self.refresh_visibility(room, turn).await else {
-                return;
-            };
+            let revision = self.refresh_visibility(room, turn).await;
             #[cfg(feature = "test-util")]
             self.paused_before_room_dispatch().await;
             if room

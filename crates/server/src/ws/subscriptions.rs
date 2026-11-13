@@ -93,11 +93,14 @@ impl Hub {
         let mut validated_role = None;
         loop {
             let revision = self.listeners().revision;
-            let Some(role) = self.opened_role(id, user_id, workspace).await else {
-                if validated_role.is_some() {
-                    self.close_listener(id, Disconnect::AccessEnded);
+            let role = match self.opened_role(id, user_id, workspace).await {
+                Ok(role) => role,
+                Err(ended) => {
+                    if validated_role.is_some() {
+                        self.close_listener(id, ended);
+                    }
+                    return;
                 }
-                return;
             };
             if validated_role.is_some_and(|previous| previous != role) {
                 self.close_listener(id, Disconnect::AccessEnded);
@@ -119,20 +122,28 @@ impl Hub {
     }
 
     /// What the connection's user is in the workspace, if they are a member of it and
-    /// the connection's session opens the workspace's organization; `None` otherwise,
-    /// and for a connection that is gone.
+    /// the connection's session opens the workspace's organization. Otherwise why a
+    /// subscription checked before would end: `AccessEnded` for who is no member (and
+    /// a connection that is gone), `SsoRequired` for a session the organization does
+    /// not take.
     pub(super) async fn opened_role(
         &self,
         id: ListenerId,
         user_id: &str,
         workspace: &str,
-    ) -> Option<WorkspaceRole> {
-        let access = self.audience.workspace_access(user_id, workspace).await?;
-        let opens =
-            self.listeners().by_id.get(&id).is_some_and(|listener| {
-                listener.session_opens(access.required_provider.as_deref())
-            });
-        opens.then_some(access.workspace_role)
+    ) -> Result<WorkspaceRole, Disconnect> {
+        let access = self
+            .audience
+            .workspace_access(user_id, workspace)
+            .await
+            .ok_or(Disconnect::AccessEnded)?;
+        let listeners = self.listeners();
+        let listener = listeners.by_id.get(&id).ok_or(Disconnect::AccessEnded)?;
+        if listener.session_opens(access.required_provider.as_deref()) {
+            Ok(access.workspace_role)
+        } else {
+            Err(Disconnect::SsoRequired)
+        }
     }
 
     /// A block subscription needs a workspace, blocks that all belong to one board, and that

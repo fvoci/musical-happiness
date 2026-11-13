@@ -84,6 +84,7 @@ async fn write<S: Sink<Message> + Unpin>(
         Some(Disconnect::AccessEnded) => Some("workspace access ended"),
         Some(Disconnect::ShareEnded) => Some("public link access ended"),
         Some(Disconnect::SessionEnded) => Some("session ended"),
+        Some(Disconnect::SsoRequired) => Some("sso required"),
         _ => None,
     };
     if let Some(reason) = reason {

@@ -15,23 +15,27 @@ pub(super) struct Admitted {
     pub(super) workspace_role: fvoci_model::WorkspaceRole,
 }
 
-/// Publishes the admitted role atomically with respect to permission writes.
+/// Admits the connection ([`admit`]) and publishes the admitted role atomically with
+/// respect to permission writes, at the revision of `versions` (the store of the
+/// organization the answer is used in, or of everything), which it returns.
+///
+/// # Errors
+///
+/// As [`admit`], and a not-found error for who is not let in.
 pub(super) async fn admit_tracked(
     home: &App,
+    versions: &fvoci_store::Store,
     asker: Asker<'_>,
-    workspace_id: &str,
-    card_id: &str,
+    place: (&str, &str),
     watching: &mut super::participation::Admission,
 ) -> Result<(Admitted, fvoci_store::VisibilityVersion), AppError> {
+    let (workspace_id, card_id) = place;
     loop {
-        let revision = home.store().visibility_version().await;
-        if !revision.cacheable() {
-            return Err(super::refusals::unavailable());
-        }
+        let revision = versions.visibility_version().await;
         let admitted = admit(home, asker, workspace_id, card_id)
             .await?
             .ok_or_else(|| AppError::not_found("card"))?;
-        if home.store().if_visibility_current(revision, || {
+        if versions.if_visibility_current(revision, || {
             watching.set_role(admitted.workspace_role);
         }) {
             return Ok((admitted, revision));
