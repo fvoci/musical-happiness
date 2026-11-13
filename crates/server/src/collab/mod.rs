@@ -43,6 +43,8 @@ pub mod worker;
 
 pub use queue::Outgoing;
 pub(crate) use removal::Deletion;
+#[cfg(feature = "test-util")]
+pub use removal::DeletionStage;
 pub(crate) use rooms::AccessScope;
 pub use seat::{Outbox, Seat};
 pub use whole::cards_written_whole;
@@ -118,8 +120,9 @@ struct Inner {
     /// for the tests of what is written to the card meanwhile.
     #[cfg(feature = "test-util")]
     projection_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
+    /// Where the next deletion waits, for the tests of what happens meanwhile.
     #[cfg(feature = "test-util")]
-    deletion_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
+    deletion_pause: Mutex<Option<removal::DeletionPause>>,
     /// What the next update waits for, between the worker taking it and the log
     /// having it: for the tests of what is sent on meanwhile.
     #[cfg(feature = "test-util")]

@@ -21,14 +21,15 @@ impl Collab {
             .by_key
             .lock()
             .expect("the rooms are not poisoned");
-        card_ids
+        let detached: Vec<Arc<Room>> = card_ids
             .iter()
             .filter_map(|id| rooms.remove(&place::key_of(app.store().tenant(), id)))
-            .inspect(|room| {
-                room.deleted.store(true, Ordering::SeqCst);
-                room.gone.cancel();
-            })
-            .collect()
+            .collect();
+        for room in &detached {
+            room.deleted.store(true, Ordering::SeqCst);
+            room.gone.cancel();
+        }
+        detached
     }
 
     /// A normal last departure writes the body; a deletion already did so. Check

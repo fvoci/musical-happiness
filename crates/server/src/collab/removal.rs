@@ -9,7 +9,7 @@ use fvoci_store::{BlockFilter, Previews, Tenant};
 use tokio::sync::Notify;
 use tokio::sync::{OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
 
-use super::Collab;
+use super::{Collab, place};
 use crate::app::App;
 use crate::error::AppError;
 
@@ -24,6 +24,7 @@ pub(crate) enum Deletion {
 
 /// Keeps a structural store mutation on one side of a document deletion.
 #[derive(Debug)]
+#[must_use = "the gate is let go when this is dropped"]
 pub(crate) struct StructureChange {
     _held: OwnedRwLockReadGuard<()>,
 }
@@ -73,28 +74,34 @@ impl Collab {
             })?
     }
 
-    /// Pauses after deletion, before the detached rooms are told, for restore races.
+    /// Pauses the next deletion at `stage` until the second is notified; the first is
+    /// notified when it gets there. For the tests of what happens meanwhile.
     #[cfg(feature = "test-util")]
     #[doc(hidden)]
     #[must_use]
-    pub fn pause_next_deletion(&self) -> (Arc<Notify>, Arc<Notify>) {
-        let pause = (Arc::new(Notify::new()), Arc::new(Notify::new()));
+    pub fn pause_next_deletion(&self, stage: DeletionStage) -> (Arc<Notify>, Arc<Notify>) {
+        let (waiting, go) = (Arc::new(Notify::new()), Arc::new(Notify::new()));
         *self
             .inner
             .deletion_pause
             .lock()
-            .expect("the deletion pause is not poisoned") = Some(pause.clone());
-        pause
+            .expect("the deletion pause is not poisoned") =
+            Some((stage, Arc::clone(&waiting), Arc::clone(&go)));
+        (waiting, go)
     }
 
     #[cfg(feature = "test-util")]
-    async fn paused_after_deletion(&self) {
-        let pause = self
-            .inner
-            .deletion_pause
-            .lock()
-            .expect("the deletion pause is not poisoned")
-            .take();
+    async fn paused_at(&self, stage: DeletionStage) {
+        let pause = {
+            let mut pause = self
+                .inner
+                .deletion_pause
+                .lock()
+                .expect("the deletion pause is not poisoned");
+            pause
+                .take_if(|(at, _, _)| *at == stage)
+                .map(|(_, waiting, go)| (waiting, go))
+        };
         if let Some((waiting, go)) = pause {
             waiting.notify_one();
             go.notified().await;
@@ -111,44 +118,96 @@ impl Collab {
         W: FnOnce(App) -> F,
         F: Future<Output = Result<(), AppError>>,
     {
+        // A block that holds no card (a comment, a view) takes no document along: the
+        // organization's documents do not wait for it.
+        if matches!(deletion, Deletion::Block(_)) && deletion.cards(app).await?.is_empty() {
+            return remove(app.clone()).await;
+        }
         let documents = self.writing(app.store().tenant()).await;
         let card_ids = deletion.cards(app).await?;
-        for card_id in &card_ids {
-            let mut slot = self.slot(app, card_id).await;
-            let mut opened_here = false;
-            let written = self
-                .write_first(app, card_id, &mut slot, &mut opened_here)
-                .await;
-            if opened_here {
-                self.forget(&mut slot).await;
-            }
-            self.retire(&mut slot);
-            written?;
-        }
+        self.write_deleted(app, &card_ids).await?;
+        #[cfg(feature = "test-util")]
+        self.paused_at(DeletionStage::BeforeRemoving).await;
         remove(app.clone()).await?;
         // Mark and detach the old rooms before new document work can begin. A restored
         // card may open a new room while the old connections are still being told.
         let rooms = self.detach_deleted_rooms(app, &card_ids);
         for card_id in &card_ids {
-            let mut slot = self.slot(app, card_id).await;
-            self.forget(&mut slot).await;
-            self.retire(&mut slot);
+            if let Some(mut slot) = self.existing_slot(app, card_id).await {
+                self.forget(&mut slot).await;
+                self.retire(&mut slot);
+            }
         }
         drop(documents);
         #[cfg(feature = "test-util")]
-        self.paused_after_deletion().await;
+        self.paused_at(DeletionStage::AfterRemoving).await;
         self.finish_deleted_rooms(rooms).await;
         Ok(())
     }
+
+    /// Writes to the cards about to be deleted what their documents hold and they do
+    /// not: of those with a document open or a log not written, found in one query.
+    /// What cannot be written stays in the log, and the card restored opens with it.
+    async fn write_deleted(&self, app: &App, card_ids: &[String]) -> Result<(), AppError> {
+        let unwritten = app.store().with_unwritten_bodies(card_ids).await?;
+        let tenant = app.store().tenant();
+        let mut pending: Vec<&String> = {
+            let slots = self.inner.slots.lock().expect("the slots are not poisoned");
+            card_ids
+                .iter()
+                .filter(|id| slots.contains_key(&place::key_of(tenant, id)))
+                .chain(&unwritten)
+                .collect()
+        };
+        pending.sort();
+        pending.dedup();
+        for card_id in pending {
+            let mut slot = self.slot(app, card_id).await;
+            let mut opened_here = false;
+            if let Err(error) = self
+                .write_first(app, card_id, &mut slot, &mut opened_here)
+                .await
+            {
+                tracing::error!(%error, card_id, "cannot write a deleted card's body; its log keeps it");
+            }
+            if opened_here {
+                self.forget(&mut slot).await;
+            }
+            self.retire(&mut slot);
+        }
+        Ok(())
+    }
 }
+
+/// Where a deletion is paused for a test ([`Collab::pause_next_deletion`]).
+#[cfg(feature = "test-util")]
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeletionStage {
+    /// The bodies are written, the gate is held, the store has not deleted yet.
+    BeforeRemoving,
+    /// The store deleted and the rooms are detached; the gate is let go and the
+    /// rooms' members are not told yet.
+    AfterRemoving,
+}
+
+/// A deletion paused at a stage: told when it gets there, and waiting to go on.
+#[cfg(feature = "test-util")]
+pub(super) type DeletionPause = (DeletionStage, Arc<Notify>, Arc<Notify>);
 
 impl Deletion {
     async fn cards(&self, app: &App) -> Result<Vec<String>, AppError> {
         let mut cards = Vec::new();
         match self {
             Self::Block(id) => {
+                // Deleted meanwhile: deleting it again takes nothing along.
+                let root = match app.store().get_block(id).await {
+                    Ok(root) => root,
+                    Err(error) if error.is_not_found() => return Ok(cards),
+                    Err(error) => return Err(error.into()),
+                };
                 let mut blocks = app.store().get_blocks_below(id).await?;
-                blocks.push(app.store().get_block(id).await?);
+                blocks.push(root);
                 cards.extend(
                     blocks
                         .into_iter()
