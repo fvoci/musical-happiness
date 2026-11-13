@@ -28,6 +28,8 @@ struct Inbox {
     messages: Mutex<Vec<Received>>,
     changed: Notify,
     failures: AtomicUsize,
+    /// Messages answered with a permanent refusal, before any `failures`.
+    rejections: AtomicUsize,
     attempts: AtomicUsize,
     delay: Mutex<Duration>,
     /// Messages to recipients ending so are answered only once this is `None` again.
@@ -73,12 +75,18 @@ impl FakeSmtp {
             smtp_port: self.port,
             smtp_tls: fvoci_server::config::smtp::SmtpTls::Unencrypted,
             smtp_from: "sender@example.test".to_owned(),
+            // The pace has tests of its own; these send without waiting for it.
+            mail_per_second: 1000,
             ..Default::default()
         }
     }
 
     pub(crate) fn fail_next(&self, count: usize) {
         self.inbox.failures.store(count, Ordering::SeqCst);
+    }
+    /// Refuses the next `count` messages for good (`550`).
+    pub(crate) fn reject_next(&self, count: usize) {
+        self.inbox.rejections.store(count, Ordering::SeqCst);
     }
     pub(crate) fn attempts(&self) -> usize {
         self.inbox.attempts.load(Ordering::SeqCst)
@@ -175,11 +183,14 @@ async fn serve(stream: TcpStream, inbox: Arc<Inbox>) -> std::io::Result<()> {
                         .is_none_or(|suffix| !recipient.ends_with(suffix.as_str()))
                 })
                 .await;
-            if inbox
-                .failures
-                .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
-                .is_ok()
-            {
+            let take = |count: &AtomicUsize| {
+                count
+                    .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+                    .is_ok()
+            };
+            if take(&inbox.rejections) {
+                b"550 No such mailbox here\r\n"
+            } else if take(&inbox.failures) {
                 b"451 Try later\r\n"
             } else {
                 inbox.messages.lock().await.push(Received {

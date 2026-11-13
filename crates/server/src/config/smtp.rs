@@ -4,13 +4,14 @@ use anyhow::bail;
 use serde::Deserialize;
 use serde_json::{Map, Value};
 
-pub(super) const ENV_KEYS: [(&str, super::EnvKind); 11] = [
+pub(super) const ENV_KEYS: [(&str, super::EnvKind); 12] = [
     ("smtp_host", super::EnvKind::Text),
     ("smtp_port", super::EnvKind::Number),
     ("smtp_tls", super::EnvKind::Text),
     ("smtp_user", super::EnvKind::Text),
     ("smtp_password", super::EnvKind::Text),
     ("smtp_from", super::EnvKind::Text),
+    ("mail_per_second", super::EnvKind::Number),
     ("mail_reset_queue", super::EnvKind::Number),
     ("mail_reset_per_account_hour", super::EnvKind::Number),
     ("mail_invitation_queue", super::EnvKind::Number),
@@ -51,6 +52,8 @@ pub struct SmtpSettings {
     pub smtp_password: String,
     /// Sender email address, without a display name.
     pub smtp_from: String,
+    /// How many attempts to send all mail makes a second, recovery first; at least one.
+    pub mail_per_second: u32,
     /// The most recovery messages waiting or being delivered; more are dropped unseen.
     pub mail_reset_queue: u32,
     /// The most recovery messages one account is sent in an hour; more requests are
@@ -73,6 +76,7 @@ impl Default for SmtpSettings {
             smtp_user: String::new(),
             smtp_password: String::new(),
             smtp_from: String::new(),
+            mail_per_second: 1,
             mail_reset_queue: 200,
             mail_reset_per_account_hour: 3,
             mail_invitation_queue: 200,
@@ -89,6 +93,7 @@ impl std::fmt::Debug for SmtpSettings {
             .field("smtp_port", &self.smtp_port)
             .field("smtp_tls", &self.smtp_tls)
             .field("smtp_from", &self.smtp_from)
+            .field("mail_per_second", &self.mail_per_second)
             .field("mail_reset_queue", &self.mail_reset_queue)
             .field(
                 "mail_reset_per_account_hour",
@@ -125,13 +130,14 @@ impl SmtpSettings {
         if self.smtp_port == 0 {
             bail!("smtp_port must be 1 to 65535");
         }
-        if self.mail_reset_queue == 0
+        if self.mail_per_second == 0
+            || self.mail_reset_queue == 0
             || self.mail_reset_per_account_hour == 0
             || self.invitation_mail_recipients == 0
         {
             bail!(
-                "mail_reset_queue, mail_reset_per_account_hour and invitation_mail_recipients \
-                 must be at least 1"
+                "mail_per_second, mail_reset_queue, mail_reset_per_account_hour and \
+                 invitation_mail_recipients must be at least 1"
             );
         }
         if self.invitation_mail_recipients > self.mail_invitation_queue
@@ -198,6 +204,7 @@ mod tests {
     #[test]
     fn mail_limits_hold_a_whole_request_with_or_without_smtp() {
         for (key, value) in [
+            ("mail_per_second", 0),
             ("mail_reset_queue", 0),
             ("mail_reset_per_account_hour", 0),
             ("invitation_mail_recipients", 0),

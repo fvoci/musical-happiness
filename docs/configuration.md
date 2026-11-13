@@ -207,13 +207,14 @@ SMTP는 선택 사항이다. 설정되면 로그인 화면에서 비밀번호 �
 | `smtp_user` | `FVOCI_SMTP_USER` | 문자열 | `""` | SMTP 인증 사용자. 비밀번호와 함께 주거나 둘 다 비운다 |
 | `smtp_password` | `FVOCI_SMTP_PASSWORD` | 문자열 | `""` | SMTP 인증 비밀번호. 로그에 남기지 않는다 |
 | `smtp_from` | `FVOCI_SMTP_FROM` | 문자열 | `""` | 보내는 주소 하나. SMTP가 설정되면 필수. 표시 이름과 줄바꿈은 받지 않는다 |
+| `mail_per_second` | `FVOCI_MAIL_PER_SECOND` | 정수(1 이상) | `1` | 모든 메일(재설정과 초대, 다시 하는 것까지)이 함께 지키는 초당 보내기 시도 수. 기다리는 재설정 메일이 초대보다 먼저 차례를 얻는다. 기본 1은 새 공급자 계정(샌드박스)의 한도에도 맞는다: 공급자가 허락하는 만큼 올린다 |
 | `mail_reset_queue` | `FVOCI_MAIL_RESET_QUEUE` | 정수(1 이상) | `200` | 기다리거나 보내는 중인 비밀번호 재설정 메일의 천장. 차면 새 재설정 메일은 버리고(답은 그대로 204) 경고 로그와 `fvoci_password_reset_mail_dropped_total{reason="queue_full"}`에 센다 |
 | `mail_reset_per_account_hour` | `FVOCI_MAIL_RESET_PER_ACCOUNT_HOUR` | 정수(1 이상) | `3` | 한 계정에 지난 한 시간에 줄 세운 재설정 메일의 천장(메모리에서 센다). 넘으면 메일을 보내지 않고(답은 그대로 204) 정보 로그와 `fvoci_password_reset_mail_dropped_total{reason="account_limit"}`에 센다. 계정도 출처도 잠그지 않는다 |
 | `mail_invitation_queue` | `FVOCI_MAIL_INVITATION_QUEUE` | 정수(`invitation_mail_recipients` 이상) | `200` | 기다리거나 보내는 중인 초대 메일의 천장. 한 요청의 메일이 다 들어가지 않으면 그 요청은 아무것도 보내지 않고 503(`mail_queue_full`) |
 | `invitation_mail_recipients` | `FVOCI_INVITATION_MAIL_RECIPIENTS` | 정수(1 이상) | `20` | 초대 메일 요청 하나의 받는 사람 수(중복 포함)의 천장. 넘으면 400(`too_many_recipients`) |
 | `invitation_mail_per_hour` | `FVOCI_INVITATION_MAIL_PER_HOUR` | 정수(`invitation_mail_recipients` 이상) | `100` | 워크스페이스마다 지난 한 시간에 줄 세운 초대 메일의 천장(메모리에서 센다). 이 요청의 메일까지 넘으면 아무것도 보내지 않고 429(`invitation_mail_limit`, `Retry-After`) |
 
-보내기는 동시에 네 연결까지이며 초대 메일은 그 가운데 셋까지만 쓴다(하나는 늘 재설정의 몫). 재설정과 초대는 줄을 따로 선다. 한 번의 시도는 10초까지다. 실패하면 1초·4초 뒤 두 번 더 시도하고 실패를 기록한다. SMTP의 오류 본문이나 메일의 주소·토큰은 로그에 남기지 않는다. 재설정 토큰은 연결 차례를 얻은 뒤 만든다. 작업은 메모리에 있으므로 프로세스가 갑자기 멈추면 보내지 못할 수 있다. SMTP가 없으면 운영자가 위 관리 소켓으로 링크를 발급한다.
+보내기는 동시에 넷까지이며 초대 메일은 그 가운데 셋까지만 쓴다(하나는 늘 재설정의 몫). 재설정과 초대는 줄을 따로 서고, 시도마다 `mail_per_second`의 차례를 받는다. 한 번의 시도는 10초까지다. 보내는 길의 답이 "잠시 뒤 다시"(SMTP 4xx, `454` 포함, 연결·시간 초과)이면 1초·4초 뒤(길이 기다릴 시간을 말하면 그만큼, 1분까지) 두 번 더 시도하고, "영구 실패"(SMTP 5xx)이면 다시 하지 않는다. "잠시 뒤 다시"가 세 번 잇따르면(공급자의 하루 한도로 본다) 초대 메일은 1분(길이 말한 시간, 15분까지) 기다리고 재설정 메일만 시도한다. 보낸 메일이 하나 나오면 초대도 다시 나간다. 포기한 메일은 경고 로그(종류, 시도, 응답 코드만)와 `fvoci_mail_failed_total{kind,class}`(`kind`: `password_reset`·`invitation`, `class`: `permanent`·`temporary`)에 센다. 공급자의 응답 글, 메일의 주소·토큰은 로그에 남기지 않는다. 재설정 토큰은 보낼 차례를 얻은 뒤 만든다. 작업은 메모리에 있으므로 프로세스가 갑자기 멈추면 보내지 못할 수 있다. SMTP가 없으면 운영자가 위 관리 소켓으로 링크를 발급한다.
 
 ## 키: 조직의 로그인 공급자
 

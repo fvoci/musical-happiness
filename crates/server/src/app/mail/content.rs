@@ -21,6 +21,14 @@ impl Language {
         }
     }
 
+    /// The language tag of the mail, as its HTML and `Content-Language` give it.
+    pub(crate) fn tag(self) -> &'static str {
+        match self {
+            Self::English => "en",
+            Self::Korean => "ko",
+        }
+    }
+
     /// The first of `choices`, most wanted first, that the mail is written in, or
     /// English: the recipient's setting, then the sender's setting (for invitations),
     /// then the language of the screen the request came from.
@@ -33,10 +41,12 @@ impl Language {
     }
 }
 
+/// The text of one message, in one language.
 pub(crate) struct Content {
     pub(crate) subject: &'static str,
     pub(crate) plain: String,
     pub(crate) html: String,
+    pub(crate) language: Language,
 }
 
 impl Content {
@@ -92,10 +102,7 @@ impl Content {
         link: &str,
         language: Language,
     ) -> Self {
-        let tag = match language {
-            Language::English => "en",
-            Language::Korean => "ko",
-        };
+        let tag = language.tag();
         let safe = escape(link);
         Self {
             subject,
@@ -105,6 +112,7 @@ impl Content {
                 escape(intro),
                 escape(ending)
             ),
+            language,
         }
     }
 }

@@ -78,6 +78,7 @@ async fn mail_reset_answers_uniformly_without_waiting_for_delivery() {
         decoded.contains("lang=\"ko\""),
         "request language used when recipient is auto"
     );
+    assert!(message.message.contains("Content-Language: ko"));
     assert!(!decoded.contains(&passwordless.id));
     let link = decoded
         .lines()
@@ -123,6 +124,47 @@ async fn mail_reset_retries_twice_and_stops() {
     assert!(th.app.finish_background(Duration::from_secs(10)).await);
     assert_eq!(smtp.attempts(), 3);
     assert!(smtp.messages().await.is_empty());
+    th.teardown().await;
+    smtp.stop().await;
+}
+
+#[tokio::test]
+async fn mail_reset_refused_for_good_is_not_tried_again_and_is_counted() {
+    let smtp = FakeSmtp::start_on(0).await;
+    smtp.reject_next(1);
+    let th = Setup::native()
+        .smtp(smtp.settings())
+        .metrics_at("127.0.0.1:0")
+        .start()
+        .await
+        .init_basic()
+        .await;
+    th.anonymous()
+        .post(
+            "/password-reset/request",
+            &json!({"email":"user1@sample.com"}),
+        )
+        .await
+        .check_no_content();
+    assert!(th.app.finish_background(Duration::from_secs(10)).await);
+    assert_eq!(smtp.attempts(), 1, "a 5xx reply is final");
+    assert!(smtp.messages().await.is_empty());
+    let body = scrape_until(&th, |body| {
+        sample(
+            body,
+            "fvoci_mail_failed_total",
+            &[("class", "permanent"), ("kind", "password_reset")],
+        ) == Some(1.0)
+    })
+    .await;
+    assert_eq!(
+        sample(
+            &body,
+            "fvoci_mail_failed_total",
+            &[("class", "temporary"), ("kind", "password_reset")],
+        ),
+        Some(0.0)
+    );
     th.teardown().await;
     smtp.stop().await;
 }

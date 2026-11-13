@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 
 use fvoci_model::{Invitation, InvitationMail};
 
-use super::super::mail::{Content, InvitationRefusal, Language, Queued};
+use super::super::mail::{Content, InvitationRefusal, Language, Letter, Queued};
 use super::App;
 use crate::auth::{now_millis, secret::token_digest};
 use crate::error::{AppError, Reason};
@@ -78,8 +78,8 @@ impl App {
         let workspace_id = workspace_id.to_owned();
         let sender = sender.to_owned();
         self.spawn_background(async move {
-            // The cause is the store's, a refusal, or a fixed text: SMTP replies never
-            // reach it.
+            // The cause is the store's or a refusal: what became of each message is told
+            // where it is sent.
             if let Err(error) = app
                 .deliver_invitation(&workspace_id, &sender, request, queued)
                 .await
@@ -139,33 +139,28 @@ impl App {
             request.token
         );
         for (recipient, place) in request.recipients.into_iter().zip(queued) {
-            let delivery = place
-                .delivery(&self.inner.mail)
-                .await
-                .map_err(|_| AppError::internal("mail delivery is unavailable"))?;
-            // Permissions and expiry may have changed while this job waited for capacity.
-            let invitation = self
-                .invitation_for_mail(workspace_id, sender, &request.token)
+            place
+                .deliver(&self.inner.mail, || async {
+                    // Permissions and expiry may have changed while this waited its turn.
+                    let invitation = self
+                        .invitation_for_mail(workspace_id, sender, &request.token)
+                        .await?;
+                    let recipient_language = match self.store().get_user_by_email(&recipient).await
+                    {
+                        Ok(user) => Language::written_in(
+                            self.user_settings(&user.id).await?.language.as_str(),
+                        ),
+                        Err(error) if error.is_not_found() => None,
+                        Err(error) => return Err(AppError::from(error)),
+                    };
+                    let language =
+                        Language::first_of([recipient_language, sender_language, requested]);
+                    Ok(Some(Letter {
+                        content: Content::invitation(&link, language, invitation.role),
+                        to: recipient,
+                    }))
+                })
                 .await?;
-            let recipient_language = match self.store().get_user_by_email(&recipient).await {
-                Ok(user) => {
-                    Language::written_in(self.user_settings(&user.id).await?.language.as_str())
-                }
-                Err(error) if error.is_not_found() => None,
-                Err(error) => return Err(error.into()),
-            };
-            let language = Language::first_of([recipient_language, sender_language, requested]);
-            // One failed address must not stop delivery to the other recipients.
-            if delivery
-                .send(
-                    &recipient,
-                    Content::invitation(&link, language, invitation.role),
-                )
-                .await
-                .is_err()
-            {
-                tracing::warn!("invitation mail delivery exhausted its retries");
-            }
         }
         Ok(())
     }

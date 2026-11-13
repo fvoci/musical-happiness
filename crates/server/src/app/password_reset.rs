@@ -3,7 +3,7 @@
 use std::net::IpAddr;
 use std::time::Instant;
 
-use super::mail::{Content, Language};
+use super::mail::{Content, Language, Letter};
 use crate::auth::limiter::RetryAfter;
 
 use super::App;
@@ -73,7 +73,7 @@ impl App {
         let app = self.clone();
         let requested = Language::written_in(language);
         Ok(async move {
-            // The cause is the store's or a fixed text: SMTP replies never reach it.
+            // The cause is the store's: what became of the message is told where it is sent.
             if let Err(error) = app.mail_password_reset(&email, requested).await {
                 tracing::warn!(%error, "password recovery delivery failed");
             }
@@ -114,15 +114,16 @@ impl App {
                 return Ok(());
             }
         };
-        let delivery = queued
-            .delivery(&self.inner.mail)
+        // The link is made once the message has its turn: its hour starts as it leaves.
+        queued
+            .deliver(&self.inner.mail, || async {
+                let link = self.reset_link_for(&user.id).await?;
+                Ok(Some(Letter {
+                    to: user.email.clone(),
+                    content: Content::reset(&link, language),
+                }))
+            })
             .await
-            .map_err(|_| AppError::internal("mail delivery is unavailable"))?;
-        let link = self.reset_link_for(&user.id).await?;
-        delivery
-            .send(&user.email, Content::reset(&link, language))
-            .await
-            .map_err(|_| AppError::internal("SMTP delivery failed after three attempts"))
     }
 
     /// Sets the password proved by a reset token and closes every session and live
