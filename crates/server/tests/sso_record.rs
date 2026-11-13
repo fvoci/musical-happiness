@@ -181,16 +181,18 @@ impl Running {
     /// Registers the first user, who administers the organization, and signs in with
     /// the password: the token of that session.
     async fn admin(&self) -> String {
-        let credentials = json!({
+        let login = json!({ "username": "admin", "password": "Pa$$word1" });
+        let register = json!({
             "username": "admin", "email": "admin@example.com", "password": "Pa$$word1",
+            "organizationName": "The organization",
         });
         let mut token = None;
-        for path in ["/register", "/login"] {
+        for (path, body) in [("/register", &register), ("/login", &login)] {
             let answer = self
                 .http
                 .post(self.api(path))
                 .header("X-Requested-With", "XMLHttpRequest")
-                .json(&credentials)
+                .json(body)
                 .send()
                 .await
                 .expect("an answer");
