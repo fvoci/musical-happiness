@@ -298,3 +298,43 @@ async fn an_admin_of_the_board_who_restores_it_records_nobody() {
     );
     th.teardown().await;
 }
+
+#[tokio::test]
+async fn giving_a_team_the_role_it_has_or_taking_one_it_lacks_changes_nobody() {
+    use fvoci_model::MinimumRole::{Editor, Viewer};
+    let th = Setup::native().start().await.init_basic().await;
+    let manager = th.client.me().await.id;
+    let user = th.client2.me().await.id;
+    let board = board_with_admin(
+        &th,
+        new_board(ROOT_WORKSPACE_ID, BoardType::Private, "Unchanged"),
+        &manager,
+    )
+    .await;
+    let team = th
+        .app
+        .create_team(ROOT_WORKSPACE_ID, "Steady", &manager)
+        .await
+        .expect("the team is made");
+    th.app
+        .add_team_member(ROOT_WORKSPACE_ID, &team.id, &user, &manager)
+        .await
+        .expect("the person joins the team");
+    for (role, changed, why) in [
+        (None, 0, "no role to take away"),
+        (Some(Editor), 1, "a role given"),
+        (Some(Editor), 0, "the role it has"),
+        (Some(Viewer), 1, "a role lowered"),
+        (None, 1, "the role taken away"),
+        (None, 0, "no role left to take away"),
+    ] {
+        let changes = th
+            .app
+            .store()
+            .set_board_team(ROOT_WORKSPACE_ID, &board.id, &team.id, role, &manager)
+            .await
+            .expect("the role is set");
+        assert_eq!(changes.len(), changed, "{why}: {changes:?}");
+    }
+    th.teardown().await;
+}

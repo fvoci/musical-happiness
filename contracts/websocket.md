@@ -84,7 +84,7 @@
 | `deleteBlock` | `UPDATE_BLOCK`, `block`은 `id`, `boardId`, `updateAt`, `deleteAt`(0이 아님)만 뜻이 있고 나머지는 빈 값. **지운 블록 하나만** 알린다. 함께 휴지통에 간 아래 블록(카드의 댓글·첨부)은 따로 알리지 않는다 |
 | `addMember`, `joinBoard`, `updateMember` | `UPDATE_MEMBER`. 이미 멤버인 사용자의 `addMember`·`joinBoard`, 멤버가 아닌 사용자의 `updateMember`는 아무것도 내지 않는다. 템플릿이 아닌 보드에 새로 든 멤버는 기본 카테고리에 들어가며 `UPDATE_BOARD_CATEGORY`도 받는다 |
 | `removeMember`, `leaveBoard` | `DELETE_MEMBER` |
-| `addTeamMember`, `removeTeamMember`, `deleteTeam`, `setBoardTeam`, `removeBoardTeam` | 그 팀이 걸린 보드와 그 팀의 사람마다 `DELETE_MEMBER`(역할이 생기거나 오른 때에도): 받은 클라이언트는 보드의 멤버를 다시 읽는다. 팀이 걸린 보드가 없으면 아무것도 내지 않는다 |
+| `addTeamMember`, `removeTeamMember`, `deleteTeam`, `setBoardTeam`, `removeBoardTeam` | 역할이 바뀐 보드와 사람마다 `DELETE_MEMBER`(역할이 생기거나 오른 때에도): 받은 클라이언트는 보드의 멤버를 다시 읽는다. 사람을 넣고 빼면 그 팀이 걸린 보드마다 그 사람의 것, 팀을 지우면 그 팀이 걸린 보드마다 그 팀의 사람 모두의 것, 보드의 팀 역할을 주고 바꾸고 떼면 그 보드에서 그 팀의 사람 모두의 것이다. 팀이 이미 그 역할이었거나 뗄 역할이 없었으면, 또 팀이 걸린 보드나 팀의 사람이 없으면 아무것도 내지 않는다 |
 | `createCategory`, `updateCategory`, `deleteCategory` | `UPDATE_CATEGORY`. 지운 카테고리는 `deleteAt`이 0이 아니다. `deleteCategory`는 그 보드들을 기본 카테고리로 옮기며 `UPDATE_BOARD_CATEGORY`도 낸다 |
 | `getCategories`와 기본 카테고리를 쓰는 위의 조작 | 사용자에게 기본 카테고리가 아직 없으면 만들면서 `UPDATE_CATEGORY`와 `UPDATE_BOARD_CATEGORY`를 낸다(읽기인 `GET`도) |
 | `reorderCategories` | `REORDER_CATEGORIES` |

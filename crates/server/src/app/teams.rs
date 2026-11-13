@@ -190,7 +190,7 @@ impl App {
 
     /// Rechecks the card rooms of the boards whose team roles changed, for the people
     /// those roles reach, before the change is answered, then asks their clients to
-    /// read the boards' members again. `changes` names each board and person once.
+    /// read the boards' members again, in the background.
     async fn tell_team_changes(&self, workspace_id: &str, changes: Vec<BoardMember>) {
         if changes.is_empty() {
             return;
@@ -205,10 +205,13 @@ impl App {
         self.collab()
             .recheck_access(self, AccessScope::boards(boards).of_users(people))
             .await;
-        for member in changes {
-            self.ws()
-                .broadcast_member_delete(workspace_id, &member.board_id, &member.user_id)
-                .await;
-        }
+        let (app, workspace_id) = (self.clone(), workspace_id.to_owned());
+        self.spawn_background(async move {
+            for member in changes {
+                app.ws()
+                    .broadcast_member_delete(&workspace_id, &member.board_id, &member.user_id)
+                    .await;
+            }
+        });
     }
 }

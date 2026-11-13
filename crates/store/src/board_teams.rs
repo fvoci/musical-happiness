@@ -44,6 +44,8 @@ impl Store {
 
     /// Gives a team its board role, or removes its assignment with `None`.
     /// Direct roles are untouched; only a workspace admin or direct board admin acts.
+    /// Returns the board with each of the team's people, or nothing when the team
+    /// already had that role, or had none to take away.
     ///
     /// # Errors
     /// Returns not found for a missing or mismatched board/team or a revoked actor,
@@ -66,6 +68,11 @@ impl Store {
             if board.workspace_id != workspace_id { return Err(StoreError::not_found("board")); }
             require_manager(scope, &board, by).await?;
             teams::require_team(scope, workspace_id, team_id).await?;
+            // Giving the role it has, or taking away one it does not have, changes
+            // nobody's access and is told to nobody.
+            if assigned_role(scope, board_id, team_id).await? == role {
+                return Ok(Vec::new());
+            }
             let users = people(scope, team_id).await?;
             let changes: Vec<BoardMember> = users.iter().map(|user_id| BoardMember { board_id: board_id.to_owned(), user_id: user_id.clone(), ..BoardMember::default() }).collect();
             if let Some(role) = role {
@@ -98,6 +105,23 @@ async fn require_manager(scope: &mut Scope<'_>, board: &Board, by: &str) -> Resu
     } else {
         Err(StoreError::not_found("board"))
     }
+}
+
+/// The role the team `team_id` has on the board `board_id`; `None` if it has none.
+async fn assigned_role(
+    scope: &mut Scope<'_>,
+    board_id: &str,
+    team_id: &str,
+) -> Result<Option<MinimumRole>, StoreError> {
+    let mut sql = scope.sql("SELECT role FROM board_teams WHERE board_id = ");
+    sql.bind(Id(board_id))
+        .push_bind(" AND team_id = ", Id(team_id))
+        .push_bind(" AND org_id = ", scope.org()?);
+    scope
+        .fetch_optional(sql)
+        .await?
+        .map(|row| board_team_access::parse_role(&row.text(0)?))
+        .transpose()
 }
 
 pub(crate) async fn people(
