@@ -133,7 +133,8 @@ async fn sign_in(case: &mut Case, server: &TestServer, fake: &FakeProvider) {
 /// The provider's pending settings, by an administrator whose session was made through
 /// it: the newcomer, made one, requires single sign-on, saves another secret, which
 /// waits aside, starts a trial of it and throws it away, and takes the requirement off
-/// again, so that what the founder does next is as before.
+/// again; then the founder makes them a member again, so that what follows is as
+/// before.
 async fn pending(case: &mut Case, newcomer: &Client, fake: &FakeProvider) {
     let id = newcomer.me().await.id;
     case.run("putOrgRole", &[("userId", &id)], json!({"role": "admin"}))
@@ -183,6 +184,8 @@ async fn pending(case: &mut Case, newcomer: &Client, fake: &FakeProvider) {
     )
     .await;
     assert_eq!(released.status, StatusCode::OK, "{}", released.text());
+    case.run("putOrgRole", &[("userId", &id)], json!({"role": "member"}))
+        .await;
 }
 
 /// The account the provider made in this organization lists the identity it was made

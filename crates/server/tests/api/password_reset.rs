@@ -194,7 +194,7 @@ async fn a_reset_password_does_not_open_an_organization_that_takes_none() {
 #[tokio::test]
 async fn the_operators_reset_link_is_recorded_in_each_organization_of_the_person() {
     use crate::fake_smtp::FakeSmtp;
-    use fvoci_model::{AuditAction, new_id};
+    use fvoci_model::new_id;
     use fvoci_store::DbType;
 
     let socket = std::env::temp_dir().join(format!("fvoci-reset-{}.socket", new_id()));
@@ -240,26 +240,21 @@ async fn the_operators_reset_link_is_recorded_in_each_organization_of_the_person
     smtp.received(1).await;
 
     assert_eq!((made, unknown), (StatusCode::OK, StatusCode::NOT_FOUND));
-    let once = |org_id: &str| {
-        vec![(
-            AuditAction::PasswordResetLinkMade,
-            org_id.to_owned(),
-            user1.clone(),
-        )]
-    };
+    // One record of a link, the operator's, and none of the mailed one.
+    let once = |org_id: &str| vec![(true, org_id.to_owned(), user1.clone())];
     assert_eq!(
-        operators(&first).await,
+        reset_links(&first).await,
         once(&first_id),
         "one record, the operator's"
     );
     if let Some(made) = others {
         assert_eq!(
-            operators(&made[0].1).await,
+            reset_links(&made[0].1).await,
             once(&made[0].0),
             "also in the second"
         );
         assert_eq!(
-            operators(&made[1].1).await,
+            reset_links(&made[1].1).await,
             [],
             "none in an organization not theirs"
         );
@@ -267,10 +262,10 @@ async fn the_operators_reset_link_is_recorded_in_each_organization_of_the_person
     th.teardown().await;
 }
 
-/// The operator's records of the handle's organization: what, of which organization, to
-/// whom.
+/// The records of reset links of the handle's organization, by whomever: whether the
+/// server's operator made it, of which organization, to whom.
 #[cfg(unix)]
-async fn operators(store: &fvoci_store::Store) -> Vec<(fvoci_model::AuditAction, String, String)> {
+async fn reset_links(store: &fvoci_store::Store) -> Vec<(bool, String, String)> {
     let paging = fvoci_store::Paging {
         page: 0,
         per_page: 100,
@@ -280,10 +275,11 @@ async fn operators(store: &fvoci_store::Store) -> Vec<(fvoci_model::AuditAction,
         .await
         .expect("records")
         .into_iter()
-        .filter(|record| record.actor == fvoci_model::AuditRecordActor::ServerOperator)
+        .filter(|record| record.action == fvoci_model::AuditAction::PasswordResetLinkMade)
         .map(|record| {
+            let operator = record.actor == fvoci_model::AuditRecordActor::ServerOperator;
             let subject = record.subject.map(|subject| subject.id).unwrap_or_default();
-            (record.action, record.target_id, subject)
+            (operator, record.target_id, subject)
         })
         .collect()
 }

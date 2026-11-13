@@ -75,13 +75,13 @@ impl Store {
 }
 
 /// Records `action` by the server's operator, done to the user `user_id`, in every
-/// organization in use that they are a member of, one record each, of no workspace;
-/// returns how many. Needs the system's reach: the wall hides the other organizations.
+/// organization in use that they are a member of, one record each, of no workspace.
+/// Needs the system's reach: the wall hides the other organizations.
 async fn record_in_organizations_of(
     scope: &mut Scope<'_>,
     user_id: &str,
     action: AuditAction,
-) -> Result<usize, StoreError> {
+) -> Result<(), StoreError> {
     let mut sql = scope.sql(
         "SELECT m.org_id FROM organization_members AS m \
          JOIN organizations AS o ON o.id = m.org_id WHERE m.user_id = ",
@@ -99,5 +99,5 @@ async fn record_in_organizations_of(
             AuditEntry::by(&AuditActor::ServerOperator, "", action, org_id).with_subject(user_id);
         audit::record_entry_in(scope, org_id, &entry).await?;
     }
-    Ok(organizations.len())
+    Ok(())
 }
