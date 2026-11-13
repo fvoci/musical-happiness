@@ -104,6 +104,7 @@ pub(crate) struct Setup {
     base_path: String,
     configure: Vec<fn(&mut Configuration)>,
     admin_socket: Option<PathBuf>,
+    smtp: Option<fvoci_server::config::smtp::SmtpSettings>,
     tls_files: Option<TlsFiles>,
     database_role: DatabaseRole,
     database: Database,
@@ -184,6 +185,12 @@ impl Setup {
         self
     }
 
+    /// Delivers through the test's SMTP sink.
+    pub(crate) fn smtp(mut self, settings: fvoci_server::config::smtp::SmtpSettings) -> Self {
+        self.smtp = Some(settings);
+        self
+    }
+
     /// Opens the administration socket at `path` (`enablelocalmode`).
     pub(crate) fn admin_socket(mut self, path: &Path) -> Self {
         self.admin_socket = Some(path.to_owned());
@@ -249,6 +256,9 @@ impl Setup {
         config
             .oidc_extra_root_certificates
             .clone_from(&self.oidc_roots);
+        if let Some(smtp) = self.smtp {
+            config.smtp = smtp;
+        }
         for change in &self.configure {
             change(&mut config);
         }
