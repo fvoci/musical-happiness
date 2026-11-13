@@ -34,8 +34,6 @@ export interface Gesture {
   over: Promise<void>;
   /** A caller must not open a result that was already asked to be taken back. */
   undoRequested: boolean;
-  /** An undo of it has begun: it stays requested, even if redo followed. */
-  undoBegun: boolean;
   /** The step its next change joins. */
   entry: Entry | undefined;
   /** Every step it made: more than one where a change of the person came between its own. */
@@ -127,12 +125,12 @@ export function cancel(ask: Asked, asks: readonly Asked[]): void {
   if (!ask.begun) unrequest(ask.entry.gesture, asks);
 }
 
-/** `gesture` is asked to be undone while an undo of it has begun or is asked for and not dropped. */
+/** `gesture` is asked to be undone while an undo of it is asked for and not dropped. */
 function unrequest(gesture: Gesture | undefined, asks: readonly Asked[]): void {
   if (!gesture) return;
-  gesture.undoRequested =
-    gesture.undoBegun ||
-    asks.some((ask) => !ask.cancelled && ask.action === 'undo' && ask.entry.gesture === gesture);
+  gesture.undoRequested = asks.some(
+    (ask) => !ask.cancelled && ask.action === 'undo' && ask.entry.gesture === gesture,
+  );
 }
 
 /** A step in no history. */

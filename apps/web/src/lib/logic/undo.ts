@@ -174,7 +174,6 @@ export class UndoManager {
     const record: Gesture = {
       over: over.promise,
       undoRequested: false,
-      undoBegun: false,
       entry: undefined,
       entries: [],
       history: this.#history,
@@ -386,7 +385,6 @@ export class UndoManager {
       const { entry } = ask;
       if (!current() || !this.#entries.includes(entry)) return;
       ask.begun = true;
-      if (action === 'undo' && entry.gesture) entry.gesture.undoBegun = true;
       entry.inForce = action === 'redo';
       const carrying = this.#carryOut(entry, action);
       entry.carrying = carrying.catch(() => undefined);
