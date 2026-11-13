@@ -913,8 +913,8 @@ fn rust_sources(directory: &Path, found: &mut Vec<std::path::PathBuf>) {
 /// every organization: the store itself, the directory, the records of the server's
 /// operator in each organization of a person, the changes of the data after a
 /// migration, and the one function of the server that its housekeeping works through.
-/// Asked by the handle or by the setting of a transaction alike. Anywhere else, a request would be let past the wall it is there to be held
-/// by. (The system organization, which holds the built-in templates, is an
+/// Asked by the handle or by the setting of a transaction alike. Anywhere else, a
+/// request would be let past the wall it is there to be held by. (The system organization, which holds the built-in templates, is an
 /// organization like another to the wall: `Tenant::org(SYSTEM_ORG_ID)` is not this.)
 #[test]
 fn the_systems_reach_is_asked_for_in_few_places() {
@@ -941,10 +941,11 @@ fn the_systems_reach_is_asked_for_in_few_places() {
             .to_string_lossy()
             .replace('\\', "/");
         let text = std::fs::read_to_string(&file).expect("a source file");
-        // A file's unit tests, after its `#[cfg(test)]`, are compiled into no server.
+        // A file's unit tests, in its `mod tests` at the end, are compiled into no
+        // server; an item that is `#[cfg(test)]` alone among the rest is still read.
         let asks = text
             .lines()
-            .take_while(|line| line.trim() != "#[cfg(test)]")
+            .take_while(|line| !line.trim_start().starts_with("mod tests"))
             .filter(|line| !line.trim_start().starts_with("//"))
             .any(|line| {
                 // By the variant, also where it is imported by its bare name, and by
@@ -1938,6 +1939,13 @@ async fn the_instances_organization_is_asked_behind_a_wall_closed_again() {
         .instances_organization_and_reach()
         .await
         .expect("asked");
+    // The system's organization, also on SQLite, which holds one organization besides.
+    let systems = test
+        .for_org(SYSTEM_ORG_ID)
+        .expect("organization")
+        .instances_organization_and_reach()
+        .await
+        .expect("asked");
     let later = if common::db_type() == DbType::Postgres {
         let (org, _) = common::organization(&test.system(), "Later").await;
         let later = test.for_org(&org).expect("organization");
@@ -1953,6 +1961,7 @@ async fn the_instances_organization_is_asked_behind_a_wall_closed_again() {
     test.teardown().await;
 
     assert!(own.0, "the oldest organization is the instance's");
+    assert!(!systems.0, "the system's organization is not");
     if let Some(later) = later {
         assert_eq!(
             later,
