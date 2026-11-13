@@ -139,6 +139,8 @@ test('density: "Comfortable" makes what is pressed 44px, "Compact" 32px, and a r
     (await choice(page, 'density', 'Comfortable').boundingBox())?.height,
   ).toBeGreaterThanOrEqual(44);
 
+  // Reload only once the backend has kept the choice, not its optimistic preview.
+  await expect.poll(async () => (await stored(page)).density).toBe('comfortable');
   await page.reload();
   await expect(page.getByTestId('board-page')).toBeVisible();
   await expect(page.locator('html')).toHaveAttribute('data-density', 'comfortable');

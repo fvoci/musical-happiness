@@ -291,8 +291,8 @@ export class Workspace {
         }));
         break;
       case 'categories':
-        // Of the workspace shown, or none: no sidebar of another replaces it.
-        if (change.categories.every((one) => one.workspaceId === this.info?.id)) {
+        // Of this workspace, after pending writes: an earlier echo must not undo a move.
+        if (this.#sidebarWrites.accepts(change.categories, this.info?.id)) {
           this.categories = change.categories;
         }
         break;

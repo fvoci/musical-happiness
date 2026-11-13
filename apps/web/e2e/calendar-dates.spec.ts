@@ -6,6 +6,7 @@
  *
  * The same welcome board, moment and projects as e2e/calendar.spec.ts.
  */
+import { menuTo } from './keyboard.support.ts';
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
 
 import {
@@ -42,7 +43,7 @@ async function changeDateByKeys(page: Page, info: TestInfo, title: string): Prom
   const change = page.locator('[data-action="change-date"]');
   await expect(change).toHaveText('Change date');
   // A dropdown puts the focus on its first line; a sheet on itself.
-  await tabTo(page, change);
+  await menuTo(page, change);
   await page.keyboard.press('Enter');
 }
 

@@ -16,6 +16,7 @@ import path from 'node:path';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { ON_A_CARD, boardPath, viewAddress } from './address.ts';
 import { screensDir } from './screens.ts';
+import { documentBoundary } from './keyboard.support.ts';
 
 // The longer tests here take a dozen steps each. On a machine that is busy with
 // other work they have run past the default of thirty seconds without anything
@@ -602,7 +603,7 @@ test('the body is stored when the typing pauses, and is there when the card is o
   await expect(saveState(page)).toHaveText('');
 
   await editor.click();
-  await page.keyboard.press('Control+Home');
+  await documentBoundary(page, 'start');
   await page.keyboard.type('Typed and kept. ');
   await expect(saveState(page)).toHaveText('Saving…');
   await expect(saveState(page)).toHaveText('Saved');
@@ -662,7 +663,7 @@ test('the other choice of a conflict shows the stored text and drops what the re
 
   // The editor takes typing again, and it is stored.
   await editor.click();
-  await page.keyboard.press('Control+End');
+  await documentBoundary(page, 'end');
   await page.keyboard.type(' and mine after');
   await expect(saveState(page)).toHaveText('Saved');
   expect(textOf((await stored(page, place)).body)).toBe('Theirs and mine after');
@@ -678,7 +679,7 @@ async function meetSomebodyElse(page: Page, place: Place, editor: Locator): Prom
     window.fvociDev.backend.latency = 1500;
   });
   await editor.click();
-  await page.keyboard.press('Control+Home');
+  await documentBoundary(page, 'start');
   await page.keyboard.type('Mine. ');
   await page.evaluate(
     async ({ place: at, body }) => {
@@ -703,7 +704,7 @@ test('somebody else changes only a property while the reader writes: the body is
     window.fvociDev.backend.latency = 1000;
   });
   await editor.click();
-  await page.keyboard.press('Control+Home');
+  await documentBoundary(page, 'start');
   await page.keyboard.type('Written meanwhile. ');
   await page.evaluate(async ({ boardId, cardId }) => {
     await window.fvociDev.someoneElse().patchCard(boardId, cardId, { title: 'Renamed by them' });
@@ -739,7 +740,7 @@ test('the window changes size under an open card: the text, the caret, the focus
   // A comment that is being written, then the caret in the middle of what was typed into the body.
   await commentField(page).fill('half a comment');
   await editor.click();
-  await page.keyboard.press('Control+Home');
+  await documentBoundary(page, 'start');
   await page.keyboard.type('ABCDEF ');
   for (let step = 0; step < 4; step += 1) await page.keyboard.press('ArrowLeft');
   await expect(editor).toContainText('ABCDEF');

@@ -194,7 +194,7 @@ test.describe('dragging cards with a mouse', () => {
     page,
   }, info) => {
     await openView(page, info, ...TASKS);
-    const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
+    const modifier = 'ControlOrMeta';
     await card(page, 'Project budget approval').click({ modifiers: [modifier] });
     await card(page, 'Identify dependencies').click({ modifiers: ['Shift'] });
     await expect(page.getByTestId('selection-bar')).toContainText('3 selected');
@@ -915,7 +915,7 @@ test.describe('a board the reader may only look at', () => {
       await expect(overlay(page)).toHaveCount(0);
       await page.mouse.up();
     }
-    await first.click({ modifiers: ['Control'] });
+    await first.click({ modifiers: ['ControlOrMeta'] });
     await expect(dialog(page)).toBeVisible();
     await expect(page.getByTestId('selection-bar')).toHaveCount(0);
   });

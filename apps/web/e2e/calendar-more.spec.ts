@@ -6,6 +6,7 @@
  *
  * The same welcome board, moment and projects as e2e/calendar.spec.ts.
  */
+import { menuTo } from './keyboard.support.ts';
 import { expect, test } from '@playwright/test';
 
 import {
@@ -36,7 +37,7 @@ test('a card without a date is given one from "No date" with the keys alone, and
   await page.keyboard.press('Enter');
   const set = page.locator('[data-action="change-date"]');
   await expect(set).toHaveText('Set date');
-  await tabTo(page, set);
+  await menuTo(page, set);
   await page.keyboard.press('Enter');
 
   const picker = page.getByTestId('day-picker');

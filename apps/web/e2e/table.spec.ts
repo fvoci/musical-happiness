@@ -7,6 +7,7 @@
  * read what was stored through the development handle (`window.fvociDev`),
  * so they do not depend on how the sidebar or the header of a view is drawn.
  */
+import { scrollTo } from './scroll.support.ts';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { boardPath } from './address.ts';
 import { screensDir } from './screens.ts';
@@ -1203,9 +1204,7 @@ test.describe('when the window changes size', () => {
     const start = page.viewportSize() ?? { width: 1280, height: 720 };
     const scroller = await table(page).elementHandle();
 
-    await table(page).evaluate((element) => {
-      element.scrollTo(180, 420);
-    });
+    await scrollTo(table(page), 180, 420);
     await expect.poll(() => scrollPlace(page)).toEqual({ x: 180, y: 420 });
 
     // Compact, medium, expanded, turned on its side, and back to where it began.
@@ -1245,9 +1244,7 @@ test.describe('when the window changes size', () => {
     expect(room.x).toBeGreaterThan(150);
     expect(room.y).toBeGreaterThan(200);
     const place = { x: Math.min(300, room.x), y: 200 };
-    await table(page).evaluate((element, to) => {
-      element.scrollTo(to.x, to.y);
-    }, place);
+    await scrollTo(table(page), place.x, place.y);
     await expect.poll(() => scrollPlace(page)).toEqual(place);
 
     // In a window this large the whole table fits: there is nothing to scroll.
@@ -1258,9 +1255,7 @@ test.describe('when the window changes size', () => {
 
     // What the reader scrolls to in the large window is theirs: it is not undone later.
     await page.setViewportSize({ width: 1400, height: 500 });
-    await table(page).evaluate((element) => {
-      element.scrollTo(0, 40);
-    });
+    await scrollTo(table(page), 0, 40);
     await expect.poll(() => scrollPlace(page)).toEqual({ x: 0, y: 40 });
     await page.setViewportSize({ width: 900, height: 500 });
     await expect.poll(() => scrollPlace(page)).toEqual({ x: 0, y: 40 });
@@ -1275,9 +1270,7 @@ test.describe('when the window changes size', () => {
     await page.setViewportSize({ width: 900, height: 600 });
     const room = await table(page).evaluate((element) => element.scrollWidth - element.clientWidth);
     expect(room).toBeGreaterThan(150);
-    await table(page).evaluate((element) => {
-      element.scrollLeft = 120;
-    });
+    await scrollTo(table(page), 120, 0);
     await expect.poll(() => scrollPlace(page)).toMatchObject({ x: 120 });
 
     const cut = await table(page).evaluate(
