@@ -62,6 +62,18 @@ impl Collab {
         self.pause_next(Pause::AfterAdmission)
     }
 
+    /// Takes away the pauses set and not got to, so that nothing waits at them.
+    #[doc(hidden)]
+    pub fn unpause(&self) {
+        self.inner
+            .rooms
+            .pauses
+            .at
+            .lock()
+            .expect("the pauses are not poisoned")
+            .clear();
+    }
+
     fn pause_next(&self, at: Pause) -> Waiting {
         let pause = (Arc::new(Notify::new()), Arc::new(Notify::new()));
         self.inner

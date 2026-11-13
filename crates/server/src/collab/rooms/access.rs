@@ -82,10 +82,16 @@ impl AccessScope {
 
     /// Whether the change reached the room of `room`'s card.
     pub(super) fn contains(&self, room: &Room) -> bool {
+        self.reaches(&room.card_id, &room.board_id, &room.workspace_id)
+    }
+
+    /// Whether the change reached the card `card_id` of the board `board_id` of the
+    /// workspace `workspace_id`.
+    fn reaches(&self, card_id: &str, board_id: &str, workspace_id: &str) -> bool {
         match &self.place {
-            Place::Board(id) => room.board_id == *id,
-            Place::Cards(ids) => ids.contains(&room.card_id),
-            Place::Workspace(id) => room.workspace_id == *id,
+            Place::Board(id) => id == board_id,
+            Place::Cards(ids) => ids.iter().any(|id| id == card_id),
+            Place::Workspace(id) => id == workspace_id,
             Place::Organization => true,
         }
     }
@@ -530,6 +536,28 @@ mod tests {
         let later = turn.hold(&change_of("user"), 2);
         assert_eq!(turn.let_go(&earlier[0], 1), None, "an answer is taken once");
         assert_eq!(turn.let_go(&later[0], 2), Some(0));
+    }
+
+    #[test]
+    fn a_change_reaches_its_place_and_its_user() {
+        let card = ("card", "board", "workspace");
+        let reaches = |scope: &AccessScope| scope.reaches(card.0, card.1, card.2);
+        let cards = ["card".to_owned()];
+        for (scope, reached) in [
+            (AccessScope::board("board"), true),
+            (AccessScope::board("another"), false),
+            (AccessScope::cards(&cards), true),
+            (AccessScope::cards(&["another".to_owned()]), false),
+            (AccessScope::workspace("workspace"), true),
+            (AccessScope::workspace("another"), false),
+            (AccessScope::organization(), true),
+        ] {
+            assert_eq!(reaches(&scope), reached, "{scope:?}");
+            let of_user = scope.of_user("user");
+            assert_eq!(reaches(&of_user), reached, "{of_user:?}");
+            assert!(of_user.concerns("user") && !of_user.concerns("another user"));
+        }
+        assert!(AccessScope::organization().concerns("anybody"));
     }
 
     #[test]

@@ -20,29 +20,43 @@ fn seldom() -> Setup {
 }
 
 /// Comes into the room of `card_id` while `change` is made between the admission and
-/// the room: whether the connection was admitted once more for it.
+/// the room: whether the connection was admitted once more for it. An admission again
+/// gets to its pause before the room answers, so the two are told apart without a
+/// timeout.
 async fn admitted_again_for(
     th: &TestServer,
     peer: &mut Peer,
     card_id: &str,
     change: impl Future<Output = ()>,
 ) -> bool {
-    let (admitted, go) = th.app.collab().pause_next_admission();
+    let collab = th.app.collab();
+    let (admitted, go) = collab.pause_next_admission();
     let joining = peer.join(TEST_WORKSPACE_ID, card_id);
-    let changing = async {
-        admitted.notified().await;
-        change.await;
-        let (again, go_again) = th.app.collab().pause_next_admission();
-        go.notify_one();
-        let again = tokio::time::timeout(PROMPT, again.notified()).await.is_ok();
-        go_again.notify_one();
-        again
+    tokio::pin!(joining);
+    tokio::select! {
+        () = admitted.notified() => {}
+        answer = &mut joining => panic!("answered before it was admitted: {answer}"),
+    }
+    change.await;
+    let (again, go_again) = collab.pause_next_admission();
+    go.notify_one();
+    let readmitted = tokio::select! {
+        biased;
+        () = again.notified() => {
+            go_again.notify_one();
+            true
+        }
+        answer = &mut joining => {
+            assert_eq!(answer["action"], json!("DOC_JOINED"), "{answer}");
+            false
+        }
     };
-    let (answer, again) = tokio::join!(joining, changing);
-    assert_eq!(answer["action"], json!("DOC_JOINED"), "{answer}");
-    // Not admitted again: the pause set for that is taken by no one; take it away.
-    drop(th.app.collab().pause_next_admission());
-    again
+    if readmitted {
+        let answer = joining.await;
+        assert_eq!(answer["action"], json!("DOC_JOINED"), "{answer}");
+    }
+    collab.unpause();
+    readmitted
 }
 
 /// Changes go on on another board of the organization while a member comes into a
