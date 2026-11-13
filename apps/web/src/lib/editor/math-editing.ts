@@ -21,11 +21,20 @@ export interface MathEditingOptions {
   latex: string;
   /** Where on the screen the formula is, now. Asked again when the window changes. */
   anchor: () => { left: number; top: number; bottom: number } | undefined;
-  /** The source to keep; empty means "no formula". Called once, unless `cancel` is. */
-  apply: (latex: string) => void;
-  /** Nothing is to change. Called once, unless `apply` is. */
-  cancel: () => void;
+  /**
+   * The source to keep; empty means "no formula". `changed`: the field holds
+   * something else than the source it opened with. Called once, unless
+   * `cancel` is.
+   */
+  apply: (latex: string, changed: boolean) => void;
+  /**
+   * Nothing is to change. `dropped`: closed while locked with something
+   * written in it, which is lost (to be said). Called once, unless `apply` is.
+   */
+  cancel: (dropped: boolean) => void;
   page: Document;
+  /** Whose box it is (the editor's view): for `lockMathEditing` and `mathDraftChanged`. */
+  owner?: object;
 }
 
 /** Builds the dialog controls before any listeners for its lifetime are installed. */
@@ -50,6 +59,8 @@ function mathDialog(page: Document, options: MathEditingOptions) {
 
   const hint = page.createElement('p');
   hint.setAttribute('class', 'doc-math-hint');
+  // Said when it changes: why the field no longer takes typing, and when it does again.
+  hint.setAttribute('aria-live', 'polite');
   hint.append(page.createTextNode(m.editor_math_hint()));
 
   const buttons = page.createElement('div');
@@ -79,19 +90,16 @@ function placeMathDialog(box: HTMLElement, options: MathEditingOptions, view: Wi
   box.style.top = `${fits ? below : rect.top - 6 - size.height}px`;
 }
 
-let open: { apply: () => void; cancel: () => void } | undefined;
-
-/** Opens the box. Only one is open at a time; opening another applies the first. */
-export function editMath(options: MathEditingOptions): void {
-  open?.apply();
-  const { page } = options;
-  const view = page.defaultView;
-  const { box, field, preview, hint, buttons, button } = mathDialog(page, options);
-
-  let done = false;
+/** Draws the field's source into the preview as it is typed: aside, and swapped in when ready. */
+function previewer(
+  page: Document,
+  box: HTMLElement,
+  field: HTMLTextAreaElement,
+  preview: HTMLElement,
+  closed: () => boolean,
+): () => void {
   let sequence = 0;
-
-  function redraw(): void {
+  return () => {
     const latex = field.value.trim();
     sequence += 1;
     const mine = sequence;
@@ -99,7 +107,6 @@ export function editMath(options: MathEditingOptions): void {
       preview.replaceChildren();
       return;
     }
-    // Drawn aside and swapped in when ready, so that the preview does not blink.
     const slot = page.createElement(MATH_SLOTS.inlineMath.tag);
     slot.setAttribute('class', MATH_CLASS);
     slot.setAttribute('data-type', MATH_SLOTS.inlineMath.type);
@@ -109,50 +116,19 @@ export function editMath(options: MathEditingOptions): void {
     holder.hidden = true;
     holder.append(slot);
     box.append(holder);
+    // So that the preview does not blink.
     void fillMath(slot)
       .catch(() => undefined)
       .then(() => {
         holder.remove();
-        if (mine === sequence && !done) preview.replaceChildren(slot);
+        if (mine === sequence && !closed()) preview.replaceChildren(slot);
       });
-  }
+  };
+}
 
-  function place(): void {
-    placeMathDialog(box, options, view);
-  }
-
-  function close(): void {
-    if (done) return;
-    done = true;
-    open = undefined;
-    view?.removeEventListener('resize', place);
-    page.removeEventListener('pointerdown', outside, true);
-    box.remove();
-  }
-  function apply(): void {
-    if (done) return;
-    const latex = field.value.trim().slice(0, MAX_LATEX);
-    close();
-    options.apply(latex);
-  }
-  function cancel(): void {
-    if (done) return;
-    close();
-    options.cancel();
-  }
-  /** A press anywhere else keeps what was written, like leaving a field. */
-  function outside(event: Event): void {
-    if (event.target instanceof Node && box.contains(event.target)) return;
-    apply();
-  }
-
-  // Leaving the box for another part of the page keeps what was written.
-  box.addEventListener('focusout', (event) => {
-    const next = event.relatedTarget;
-    if (next instanceof Node && !box.contains(next)) apply();
-  });
-  field.addEventListener('input', redraw);
-  field.addEventListener('keydown', (event) => {
+/** The keys of the field: Escape cancels, Enter keeps. */
+function fieldKeys(apply: () => void, cancel: () => void): (event: KeyboardEvent) => void {
+  return (event) => {
     // While an input method is composing, its keys are not commands.
     if (event.isComposing) return;
     if (event.key === 'Escape') {
@@ -163,7 +139,76 @@ export function editMath(options: MathEditingOptions): void {
       event.preventDefault();
       apply();
     }
+  };
+}
+
+let open:
+  | {
+      leave: () => void;
+      cancel: () => void;
+      owner?: object;
+      changed: () => boolean;
+      lock: (locked: boolean) => void;
+    }
+  | undefined;
+
+/** Opens the box. Only one is open at a time; opening another applies the first. */
+export function editMath(options: MathEditingOptions): void {
+  open?.leave();
+  const { page } = options;
+  const view = page.defaultView;
+  const { box, field, preview, hint, buttons, button } = mathDialog(page, options);
+  let done = false;
+  /** The editor is read-only for now: nothing is typed in, nothing kept (`lockMathEditing`). */
+  let locked = false;
+  const changed = (): boolean =>
+    field.value.trim().slice(0, MAX_LATEX) !== options.latex.trim().slice(0, MAX_LATEX);
+
+  const redraw = previewer(page, box, field, preview, () => done);
+
+  function place(): void {
+    placeMathDialog(box, options, view);
+  }
+
+  function close(): void {
+    if (done) return;
+    done = true;
+    if (open?.cancel === cancel) open = undefined;
+    view?.removeEventListener('resize', place);
+    page.removeEventListener('pointerdown', outside, true);
+    page.removeEventListener('click', outside, true);
+    box.remove();
+  }
+  function apply(): void {
+    if (done || locked) return;
+    const latex = field.value.trim().slice(0, MAX_LATEX);
+    const written = changed();
+    close();
+    options.apply(latex, written);
+  }
+  function cancel(): void {
+    if (done) return;
+    const dropped = locked && changed();
+    close();
+    options.cancel(dropped);
+  }
+  /** Leaving keeps what was written, like leaving a field; locked, it closes keeping nothing. */
+  function leave(): void {
+    if (locked) cancel();
+    else apply();
+  }
+  const elsewhere = (event: Event): boolean =>
+    !(event.target instanceof Node && box.contains(event.target));
+  // Locked, only a press (a click), not a touch that only scrolls the page, closes it.
+  const outside = (event: Event): void => {
+    if (elsewhere(event) && (event.type === 'click') === locked) leave();
+  };
+  box.addEventListener('focusout', (event) => {
+    const next = event.relatedTarget;
+    if (next instanceof Node && !box.contains(next)) leave();
   });
+  field.addEventListener('input', redraw);
+  field.addEventListener('keydown', fieldKeys(apply, cancel));
   button(m.ui_done(), 'apply', apply);
   button(m.editor_math_remove(), 'remove', () => {
     field.value = '';
@@ -172,20 +217,42 @@ export function editMath(options: MathEditingOptions): void {
 
   box.append(field, preview, hint, buttons);
   page.body.append(box);
-  open = { apply, cancel };
+  open = { leave, cancel, owner: options.owner, changed, lock: lockBox };
+  function lockBox(lock: boolean): void {
+    if (lock === locked) return;
+    locked = lock;
+    field.readOnly = lock;
+    for (const each of buttons.querySelectorAll('button')) each.disabled = lock;
+    hint.replaceChildren(page.createTextNode(lock ? m.editor_math_locked() : m.editor_math_hint()));
+  }
   place();
   redraw();
   view?.addEventListener('resize', place);
   page.addEventListener('pointerdown', outside, true);
+  page.addEventListener('click', outside, true);
   field.focus();
   field.select();
 }
 
 /**
- * Closes the box that is open, if one is, without keeping what was written:
- * for when the editor behind it goes away or is handed another document, and
- * a late change would land on something it was not written for.
+ * Locks the box of `owner`, if it is open, while its editor is read-only:
+ * nothing more is typed into it and nothing is kept from it, and it says
+ * why; unlocked when the editor may be written again. Escape still closes it.
  */
-export function cancelMathEditing(): void {
-  open?.cancel();
+export function lockMathEditing(owner: object, locked: boolean): void {
+  if (open?.owner === owner) open.lock(locked);
+}
+
+/**
+ * Closes the box of `owner`, if it is open, keeping nothing: for when the
+ * editor behind it goes away or is handed another document, and a late
+ * change would land on something it was not written for.
+ */
+export function cancelMathEditingOf(owner: object): void {
+  if (open?.owner === owner) open.cancel();
+}
+
+/** Whether the box of `owner` is open with a source other than the one it opened with. */
+export function mathDraftChanged(owner: object): boolean {
+  return open?.owner === owner && open.changed();
 }

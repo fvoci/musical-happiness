@@ -8,9 +8,10 @@
  *
  * The shapes follow the server design (its `docs/s6-design.md`): errors are
  * the problem details of RFC 9457 with the status codes of its section 1.3, identifiers are made by the server, a card or a comment has
- * its text as one document (`body`), a card list comes without bodies, and
- * a body is written with the `updateAt` it was read at so that a stale write
- * is refused with 409. Where the design says nothing and something had to be
+ * its text as one document (`body`), a card list comes without bodies, a
+ * comment is written with the `updateAt` it was read at so that a stale
+ * write is refused with 409, and a card's body is written together in its
+ * room (`openDoc`). Where the design says nothing and something had to be
  * made up and is still open, it is listed in `docs/contract-assumptions.md`.
  *
  * No method promises an order. Whatever is shown in an order is sorted by
@@ -32,6 +33,7 @@ import type {
   Card,
 } from '../logic/wire.ts';
 
+import type { DocRooms } from './body-doc.ts';
 import type { WorkspaceRole } from './people-types.ts';
 import type { TrashReads } from './trash-reads.ts';
 
@@ -45,6 +47,7 @@ export type {
   Registration,
 } from './account-types.ts';
 export type { DeletedItem, Paging, TrashReads } from './trash-reads.ts';
+export type { BodyDoc, BodyDocHears, BodyDocState, BodyDocStatus, DocRooms } from './body-doc.ts';
 
 /** What an import did beyond making the archive's boards. */
 export interface Imported {
@@ -226,7 +229,7 @@ export interface BoardDraft {
 /** A write of a body: the document and the version it was based on. */
 export interface BodyWrite {
   body: DocNode | null;
-  /** The `updateAt` of the card or comment as the writer read it. */
+  /** The `updateAt` of the comment as the writer read it. */
   readAt: number;
 }
 
@@ -298,7 +301,7 @@ export function isViewBlock(block: ChangedBlock): block is BoardView {
 
 // ---------------------------------------------------------------- backend
 
-export interface Backend extends TrashReads {
+export interface Backend extends DocRooms, TrashReads {
   // The reader and the people around them.
   me(): Promise<User>;
   /** Changes the reader's display name, as the server reads it (`patchMe`); `null` is none. */
@@ -430,8 +433,6 @@ export interface Backend extends TrashReads {
   card(boardId: string, cardId: string): Promise<CardDetail>;
   createCard(boardId: string, draft: CardDraft): Promise<CardSummary>;
   patchCard(boardId: string, cardId: string, patch: CardPatch): Promise<CardSummary>;
-  /** Replaces the body. Rejects with 409 when the card changed since `readAt`. */
-  writeCardBody(boardId: string, cardId: string, write: BodyWrite): Promise<CardDetail>;
 
   // Comments and attachments of a card.
   comments(boardId: string, cardId: string): Promise<Comment[]>;

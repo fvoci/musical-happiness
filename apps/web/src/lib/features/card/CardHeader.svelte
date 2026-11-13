@@ -27,7 +27,7 @@
   import type { BoardView } from '$lib/logic/wire.ts';
   import type { BoardStore, CardStore } from '$lib/state/index.ts';
 
-  import type { SaveState } from './body-saver.svelte.ts';
+  import type { SaveState } from './save-state.ts';
 
   interface Props {
     board: BoardStore;
@@ -59,7 +59,6 @@
     saving: m.card_saving,
     saved: m.card_saved,
     unsaved: m.card_not_saved,
-    conflict: m.card_not_saved,
   };
 
   async function copyLink(): Promise<void> {
