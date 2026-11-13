@@ -863,6 +863,11 @@ async fn an_export_is_sent_with_its_length_and_leaves_nothing() {
         "the length of the archive"
     );
     let exports = ts.app.config().tmp_dir().join("exports");
+    // Receiving the body does not wait for the stream's asynchronous cleanup.
+    until("the temporary archive is removed", || {
+        temporary_archives(&ts) == 0
+    })
+    .await;
     let left = std::fs::read_dir(&exports).map_or(0, Iterator::count);
     assert_eq!(left, 0, "no temporary archive is left");
 
@@ -955,6 +960,10 @@ async fn exports_run_one_per_user_and_two_on_the_server() {
     drop(other);
     export_board(&ts.client, &board).await.check_ok();
     // The place of a sent export is given back.
+    until("the place is given back", || {
+        ts.app.start_export(&me.id).is_ok()
+    })
+    .await;
     export_board(&ts.client, &board).await.check_ok();
     ts.client2.get(&workspace_export).await.check_ok();
 }

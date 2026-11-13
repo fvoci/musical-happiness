@@ -1,6 +1,8 @@
 //! What a store tells its observer about its calls.
 
+use std::future::Future as _;
 use std::sync::{Arc, Mutex};
+use std::task::{Context, Waker};
 use std::time::Duration;
 
 use fvoci_model::{User, new_id};
@@ -122,9 +124,14 @@ async fn every_call_is_told_with_whether_it_wrote_and_how_it_ended() {
     // A call its caller gives up is told as given up, when it is dropped.
     let mut abandoned = false;
     for _ in 0..20 {
-        let given_up = tokio::time::timeout(Duration::ZERO, store.get_registered_user_count())
-            .await
-            .is_err();
+        // A zero-duration timer still waits for a timer tick. Drop a pending call
+        // after its first poll, before a fast database can answer on the next poll.
+        let given_up = {
+            let mut call = std::pin::pin!(store.get_registered_user_count());
+            call.as_mut()
+                .poll(&mut Context::from_waker(Waker::noop()))
+                .is_pending()
+        };
         let (calls, _) = recorder.take();
         if given_up {
             assert_eq!(
