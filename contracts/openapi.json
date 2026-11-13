@@ -6383,7 +6383,7 @@
     },
     "/api/v1/w/{workspaceId}/boards/{boardId}/blocks": {
       "get": {
-        "description": "For the board's members, and for an open template everyone in its workspace.\n\n`all` asks for every block and `blockId` for one, which is 404 if the board has no\nsuch block. Otherwise `parentId` and `type` narrow the list, and without either the\nlist is every block of the board. A parameter with an empty value counts as left\nout. Oldest first; the blocks that one request made come in the order that request\nhad them in.",
+        "description": "For the board's members, and for an open template everyone who works in its workspace.\nA guest of the path's workspace cannot read template blocks (403).\n\n`all` asks for every block and `blockId` for one, which is 404 if the board has no\nsuch block. Otherwise `parentId` and `type` narrow the list, and without either the\nlist is every block of the board. A parameter with an empty value counts as left\nout. Oldest first; the blocks that one request made come in the order that request\nhad them in.",
         "operationId": "getBlocks",
         "parameters": [
           {

@@ -1215,7 +1215,8 @@ export interface paths {
         };
         /**
          * The blocks of a board
-         * @description For the board's members, and for an open template everyone in its workspace.
+         * @description For the board's members, and for an open template everyone who works in its workspace.
+         *     A guest of the path's workspace cannot read template blocks (403).
          *
          *     `all` asks for every block and `blockId` for one, which is 404 if the board has no
          *     such block. Otherwise `parentId` and `type` narrow the list, and without either the

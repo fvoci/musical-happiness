@@ -146,18 +146,13 @@ impl Ws {
         }
     }
 
-    /// The workspace for one who makes boards in it: whoever works in it, and is no
-    /// guest of the instance either. A guest is refused (403) in `denial`: the workspace
-    /// is there for them.
+    /// Refuses a guest of this workspace who asks to make a board.
     ///
     /// # Errors
     ///
-    /// Returns 403 for a guest of the workspace or of the instance, and the store's
-    /// error if the user cannot be read.
-    pub(crate) async fn require_board_maker(&self, denial: &str) -> Result<(), AppError> {
-        if self.role == WorkspaceRole::Guest
-            || self.app.user_is_guest(&self.session.user_id).await?
-        {
+    /// Returns 403 in `denial` for a guest; the workspace is there for them.
+    pub(crate) fn require_board_maker(&self, denial: &str) -> Result<(), AppError> {
+        if self.role == WorkspaceRole::Guest {
             return Err(AppError::forbidden(denial));
         }
         Ok(())

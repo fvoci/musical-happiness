@@ -130,19 +130,6 @@ impl App {
         Ok(self.store().get_users_in_sight(sight, user_ids).await?)
     }
 
-    /// Returns whether a user is a guest. A standalone server has no guests, but the user
-    /// must exist.
-    ///
-    /// TEMPORARY, with `only_organization_scope`: a guest is a role in a workspace now
-    /// (`WorkspaceRole::Guest`), which the routes under a workspace ask.
-    ///
-    /// # Errors
-    ///
-    /// Returns the store's error if the user cannot be read.
-    pub async fn user_is_guest(&self, user_id: &str) -> Result<bool, AppError> {
-        Ok(self.store().get_user_by_id(user_id).await?.is_guest)
-    }
-
     /// The users the user `seer_id`, in `role` in the workspace, sees among its people
     /// (`permissions::sees_person`: members of it now) whose login name or display name
     /// matches `search_query`: at most ten, oldest account first.

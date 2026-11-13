@@ -306,9 +306,3 @@ pub(crate) async fn require_workspace_access(
     }
     app.workspace(workspace_id).await
 }
-
-/// Returns whether a user is a guest. There are no guests on a standalone server, but
-/// the user must exist: a missing user is a 404.
-pub(crate) async fn user_is_guest(app: &App, user_id: &str) -> Result<bool, AppError> {
-    app.user_is_guest(user_id).await
-}

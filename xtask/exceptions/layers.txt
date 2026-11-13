@@ -18,7 +18,6 @@ crates/server/src/api/mod.rs         fvoci_store::DuplicateAs                   
 crates/server/src/api/mod.rs         fvoci_store::DuplicateAs::Copy                       1
 crates/server/src/api/mod.rs         fvoci_store::DuplicateAs::Template                   1
 crates/server/src/api/search.rs      fvoci_store::PublicBoards                            1
-crates/server/src/api/search.rs      fvoci_store::PublicBoards::Exclude                   1
 crates/server/src/api/search.rs      fvoci_store::PublicBoards::Include                   1
 crates/server/src/api/sharing.rs     fvoci_store::SharingChange                           2
 crates/server/src/api/sharing.rs     fvoci_store::SharingChange::Off                      1

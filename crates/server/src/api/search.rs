@@ -9,7 +9,6 @@ use utoipa_axum::routes;
 use super::contract::params::{SearchField, SearchTerm, WorkspaceId};
 use super::contract::tag;
 
-use super::user_is_guest;
 use super::workspace::Ws;
 use super::{ApiResult, json_response, query_param};
 use crate::app::App;
@@ -65,13 +64,6 @@ async fn search_boards(
     if term.is_empty() {
         return Ok(Vec::new());
     }
-    // A guest finds only the boards they are a member of.
-    let is_guest = user_is_guest(app, user_id).await?;
-    let public_boards = if is_guest {
-        PublicBoards::Exclude
-    } else {
-        PublicBoards::Include
-    };
-    app.search_boards_for_user(term, search_field, user_id, public_boards)
+    app.search_boards_for_user(term, search_field, user_id, PublicBoards::Include)
         .await
 }
