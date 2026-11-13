@@ -35,9 +35,10 @@ pub(crate) async fn keep(scope: &mut Scope<'_>, board_id: &str) -> Result<(), St
     Ok(())
 }
 
-/// Gives the surviving teams their roles again, after the board's people have theirs.
-/// Who reads the board only through a team joined while it was in the trash is put on
-/// the record as by an assignment, when `by` restores it as a manager who does not read it.
+/// Gives the surviving teams their roles again, after the board's people have theirs,
+/// and with the people the teams have now. Restoring is a grant like an assignment:
+/// when `by` restores the board as a manager who does not read it, whoever comes to read
+/// it only through its teams is put on the record, the manager too.
 pub(crate) async fn restore(
     scope: &mut Scope<'_>,
     board: &Board,
@@ -50,11 +51,18 @@ pub(crate) async fn restore(
         .await?
         .ok_or_else(|| StoreError::not_found("board"))?;
     let roles: Vec<StoredRole> = trash::from_json(&row, 0, "team_roles")?;
+    // The organization lock covers team deletion and membership changes too. Everyone
+    // the teams bring is looked at before any of their roles is back, so what is
+    // recorded does not depend on the order of the teams.
+    let mut people = Vec::new();
+    for stored in &roles {
+        people.extend(board_teams::people(scope, &stored.team_id).await?);
+    }
+    people.sort_unstable();
+    people.dedup();
+    board_teams::record_new_access(scope, board, &people, by).await?;
     for stored in roles {
-        // The organization lock covers team deletion and membership changes too.
         // Only a surviving team in this workspace can regain the assignment.
-        let people = board_teams::people(scope, &stored.team_id).await?;
-        board_teams::record_new_access(scope, board, &people, by).await?;
         let mut sql = scope
             .sql("INSERT INTO board_teams (board_id, team_id, workspace_id, org_id, role) SELECT ");
         sql.bind(Id(&board.id))

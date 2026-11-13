@@ -165,11 +165,42 @@ async fn team_removal_preserves_template_subscriptions_until_workspace_membershi
     }
 }
 
+async fn empty_team(th: &TestServer, name: &str) -> Team {
+    th.client
+        .post(
+            &format!("/w/{ROOT_WORKSPACE_ID}/teams"),
+            &json!({"name":name}),
+        )
+        .await
+        .ok_json()
+}
+
+/// The board's records of people put on it: (action, actor, subject).
+async fn records_of(th: &TestServer, board_id: &str) -> Vec<(&'static str, String, String)> {
+    th.app
+        .store()
+        .get_audit_log(ROOT_WORKSPACE_ID)
+        .await
+        .expect("the audit log is read")
+        .into_iter()
+        .filter(|r| {
+            r.target_id == board_id
+                && matches!(
+                    r.action,
+                    AuditAction::SelfAddedToBoard | AuditAction::AddedToBoard
+                )
+        })
+        .map(|r| (r.action.as_str(), r.actor_id, r.subject_id))
+        .collect()
+}
+
 #[tokio::test]
-async fn a_manager_who_restores_a_board_through_a_team_joined_in_the_trash_is_on_the_record() {
+async fn a_manager_who_restores_a_board_through_its_teams_puts_everyone_it_opens_to_on_the_record()
+{
     let th = Setup::native().start().await.init_basic().await;
     let manager = th.client.me().await.id;
     let owner = th.client2.me().await.id;
+    let colleague = th.stranger().await;
     let board = board_with_admin(
         &th,
         new_board(ROOT_WORKSPACE_ID, BoardType::Private, "Restored managed"),
@@ -177,54 +208,93 @@ async fn a_manager_who_restores_a_board_through_a_team_joined_in_the_trash_is_on
     )
     .await;
     let path = format!("/w/{ROOT_WORKSPACE_ID}/boards/{}", board.id);
-    let team: Team = th
-        .client
-        .post(
-            &format!("/w/{ROOT_WORKSPACE_ID}/teams"),
-            &json!({"name":"Joined in the trash"}),
-        )
+    // The manager's team sorts first: letting the manager in must not hide the second.
+    let mine = empty_team(&th, "Joined in the trash").await;
+    let theirs = empty_team(&th, "Colleagues").await;
+    for team in [&mine, &theirs] {
+        th.client2
+            .put(
+                &format!("{path}/teams/{}", team.id),
+                &json!({"role":"viewer"}),
+            )
+            .await
+            .check_no_content();
+    }
+    th.client2.delete(&path).await.check_no_content();
+    for (team, user) in [(&mine, &manager), (&theirs, &colleague)] {
+        th.client
+            .put(&member_path(team, user), &json!({}))
+            .await
+            .check_no_content();
+    }
+    assert_eq!(
+        records_of(&th, &board.id).await,
+        Vec::new(),
+        "a board in the trash opens nothing"
+    );
+    th.client
+        .post(&format!("{path}/undelete"), &json!({}))
         .await
-        .ok_json();
-    th.client2
+        .check_ok();
+    th.client.get(&path).await.check_ok();
+    let mut records = records_of(&th, &board.id).await;
+    records.sort();
+    let mut expected = vec![
+        (
+            AuditAction::SelfAddedToBoard.as_str(),
+            manager.clone(),
+            String::new(),
+        ),
+        (
+            AuditAction::AddedToBoard.as_str(),
+            manager.clone(),
+            colleague.clone(),
+        ),
+    ];
+    expected.sort();
+    assert_eq!(
+        records, expected,
+        "both whom the teams let in are on the record"
+    );
+    th.teardown().await;
+}
+
+#[tokio::test]
+async fn an_admin_of_the_board_who_restores_it_records_nobody() {
+    let th = Setup::native().start().await.init_basic().await;
+    let manager = th.client.me().await.id;
+    let board = board_with_admin(
+        &th,
+        new_board(
+            ROOT_WORKSPACE_ID,
+            BoardType::Private,
+            "Restored by its admin",
+        ),
+        &manager,
+    )
+    .await;
+    let path = format!("/w/{ROOT_WORKSPACE_ID}/boards/{}", board.id);
+    let team = empty_team(&th, "With the admin").await;
+    th.client
+        .put(&member_path(&team, &manager), &json!({}))
+        .await
+        .check_no_content();
+    th.client
         .put(
             &format!("{path}/teams/{}", team.id),
             &json!({"role":"viewer"}),
         )
         .await
         .check_no_content();
-    th.client2.delete(&path).await.check_no_content();
-    th.client
-        .put(&member_path(&team, &manager), &json!({}))
-        .await
-        .check_no_content();
-    let self_added = |records: &[fvoci_store::AuditEntry]| {
-        records
-            .iter()
-            .filter(|r| r.target_id == board.id && r.action == AuditAction::SelfAddedToBoard)
-            .count()
-    };
-    let before = th
-        .app
-        .store()
-        .get_audit_log(ROOT_WORKSPACE_ID)
-        .await
-        .unwrap();
-    assert_eq!(self_added(&before), 0, "a board in the trash opens nothing");
+    th.client.delete(&path).await.check_no_content();
     th.client
         .post(&format!("{path}/undelete"), &json!({}))
         .await
         .check_ok();
-    th.client.get(&path).await.check_ok();
-    let after = th
-        .app
-        .store()
-        .get_audit_log(ROOT_WORKSPACE_ID)
-        .await
-        .unwrap();
     assert_eq!(
-        self_added(&after),
-        1,
-        "restoring the board gave the manager reading through the team: {after:?}"
+        records_of(&th, &board.id).await,
+        Vec::new(),
+        "who reads the board as its admin again is let in by nothing new"
     );
     th.teardown().await;
 }

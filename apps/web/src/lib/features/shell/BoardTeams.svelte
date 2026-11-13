@@ -29,6 +29,8 @@
 
   async function read(workspaceId: string, boardId: string): Promise<void> {
     const current = ++reading;
+    // A failure to read the last workspace or board says nothing of this one.
+    unread = false;
     try {
       const [all, onBoard] = await Promise.all([
         teams.list(workspaceId),

@@ -39,6 +39,8 @@
 
   async function read(place: string, manager: boolean): Promise<void> {
     const current = ++reading;
+    // A failure to read the last workspace or board says nothing of this one.
+    unread = false;
     try {
       const [listed, candidates] = await Promise.all([
         teams.list(place),
