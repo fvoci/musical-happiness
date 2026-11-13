@@ -11,20 +11,21 @@ afterEach(cleanup);
 const DESIGN: Team = { id: 't1', workspaceId: 'w1', name: 'Design', members: [] };
 
 it('puts a refused role back in its select, with the reason', async () => {
+  const assign = vi.fn<Teams['assign']>(() => Promise.reject(new BackendError(403)));
   const teams = {
-    list: vi.fn(() => Promise.resolve([DESIGN])),
-    onBoard: vi.fn(() => Promise.resolve([{ team: DESIGN, role: 'viewer' as const }])),
-    assign: vi.fn(() => Promise.reject(new BackendError(403))),
-  } as unknown as Teams;
-  render(BoardTeams, {
-    workspace: { info: { id: 'w1' } } as unknown as Workspace,
-    board: { boardId: 'b1', members: [] } as unknown as BoardStore,
-    teams,
-  });
+    list: vi.fn<Teams['list']>(() => Promise.resolve([DESIGN])),
+    onBoard: vi.fn<Teams['onBoard']>(() => Promise.resolve([{ team: DESIGN, role: 'viewer' }])),
+    assign,
+  } as Partial<Teams> as Teams;
+  const workspace = { info: { id: 'w1' } } as unknown as Workspace;
+  const board = { boardId: 'b1', members: [] } as unknown as BoardStore;
+  render(BoardTeams, { workspace, board, teams });
   const select = await screen.findByRole<HTMLSelectElement>('combobox', { name: /Design/ });
   expect(select.value).toBe('viewer');
   await fireEvent.change(select, { target: { value: 'editor' } });
-  expect(teams.assign).toHaveBeenCalledWith('w1', 'b1', 't1', 'editor');
+  expect(assign).toHaveBeenCalledWith('w1', 'b1', 't1', 'editor');
   expect(await screen.findByRole('alert')).toHaveTextContent('Could not change the team.');
-  await waitFor(() => expect(select.value).toBe('viewer'));
+  await waitFor(() => {
+    expect(select.value).toBe('viewer');
+  });
 });
