@@ -861,11 +861,11 @@
 - **Q6 (터치의 너비·순서).** 열 머리글 메뉴에 "왼쪽으로", "오른쪽으로", "더 넓게", "더 좁게"가 있다(모든 기기에서). 가장자리 손잡이도 터치에서 숨기지는 않았다(8px, 넉넉한 밀도 12px, `touch-action: none`). 44px이 안 되므로 터치의 길은 메뉴다.
   - 바꾸려면: 메뉴: `menus.ts`의 `headerMenu`. 한 번에 바뀌는 양: `columns.ts`의 `TABLE_SETTINGS.menuStep`(48px).
 - **Q16 ("새로 만들기"의 자리).** 테이블 쪽 몫만: 마지막 행의 "+ 새로 만들기"(그룹이 있으면 그룹마다 맨 아래에 하나, 그룹 머리에 "+"). 만든 뒤 그 행의 제목 칸에 커서가 간다. 둥근 단추는 뷰 머리글 작업의 것이다.
-  - 바꾸려면: `Table.svelte`의 `addRow` 스니펫, `table.svelte.ts`의 `addCard`.
+  - 바꾸려면: `Table.svelte`의 `addRow` 스니펫, `table-controller.svelte.ts`의 `addCard`.
 - **Q22 (hover로만 보이던 것).** 행의 "열기"와 "…", 손잡이 점, 계산 없는 칸의 "계산"은 `can-hover:`에서만 숨는다. **다만 hover가 없는 기기에서는 "열기"를 따로 그리지 않고 늘 보이는 "…" 메뉴의 첫 항목으로 두었다**(아래 1번).
   - 바꾸려면: `Row.svelte`의 열기 링크의 `hidden can-hover:flex`.
 - **Q24 (터치 드래그의 범위).** 권고(W3에서는 칸반 카드만)보다 넓다. 행의 손잡이가 제목 칸 전체라서 손가락을 300ms 머무르면 행이 집힌다(드래그 기반이 그대로 준다). 열 머리글도 같다. 메뉴 항목(열의 "왼쪽으로"·"오른쪽으로")도 있다. 행을 위아래로 옮기는 메뉴 항목은 지시에 없어 만들지 않았다.
-  - 바꾸려면: 터치로 행을 못 끌게: `table.svelte.ts`의 `rows` Sortable에 `pointer: { touchDelay: Infinity }`, 또는 `Row.svelte`의 `data-drag-handle`을 hover 기기에서만.
+  - 바꾸려면: 터치로 행을 못 끌게: `table-controller.svelte.ts`의 `rows` Sortable에 `pointer: { touchDelay: Infinity }`, 또는 `Row.svelte`의 `data-drag-handle`을 hover 기기에서만.
 - **Q33 (창 크기가 바뀔 때).** 방침 그대로, 픽셀. 표는 한 부품이고 단계마다 갈아 끼우는 것이 없다(편집 중인 칸의 글과 초점이 남는다). 스크롤 위치는 DOM에만 맡기지 않고 `ScrollKeeper`가 "사용자가 민 자리"를 따로 들고 있다가, 상자의 크기가 바뀔 때마다 그 자리로 되돌린다. 배치가 잘라 낸 위치(상자 크기가 바뀌었고, 새 끝에 붙어 있고, 기억한 자리보다 앞)는 사용자의 것으로 치지 않는다. 그래서 "단계 판정이 한 박자 늦는" 경우에도, 넓어졌다 다시 좁아지는 경우에도 위치가 돌아온다.
   - 바꾸려면: `scroll-keeper.ts`(판정은 순수 함수 `afterScroll`). 되돌리지 않게 하려면 `Table.svelte`의 `{@attach keeper.attach}`를 뺀다(그림자 표시도 거기서 온다).
 
@@ -882,14 +882,14 @@
 3. **끄는 동안 빈자리를 열지 않고 선을 긋는다**(행은 가로선, 열은 세로선). 끌리는 것은 제자리에 흐리게 남고 작은 딱지가 포인터를 따라간다. 키보드로 나르는 동안에는 행(열은 머리글만)이 놓일 자리로 옮겨 선다.
    - 왜: 표에서 행 하나만큼 빈자리가 열리면 그 아래 수백 행이 밀린다.
    - 다른 안: 칸반처럼 빈자리.
-   - 바꾸려면: `table.svelte.ts`의 `rowMarker`·`columnMarker`·`shownLists`·`headerColumns`, 선의 생김새는 `host.ts`의 `DROP_LINE_ROW`와 `HeaderCell.svelte`.
+   - 바꾸려면: `table-controller.svelte.ts`의 `rowMarker`·`columnMarker`·`shownLists`·`headerColumns`, 선의 생김새는 `host.ts`의 `DROP_LINE_ROW`와 `HeaderCell.svelte`.
 4. **한 번에 한 칸만 편집기다.** 모든 칸은 `PropertyValue`의 `display`로 그리고, 누른 칸만 `edit` + `startOpen`으로 바꾼다. 끝났는지는 그 칸의 DOM에서 읽는다: 글 칸은 초점이 칸을 떠나면, 선택기는 방아쇠의 `aria-expanded`가 참에서 거짓이 되면.
    - 왜: 속성 부품에 "끝났다"는 콜백이 없고, 공용 부품을 고치면 카드 상세 작업과 겹친다.
    - 다른 안: `PropertyValue`에 `onDone`을 더한다(더 깔끔하다. 합친 뒤의 후보).
    - 바꾸려면: `cell-editing.svelte.ts`.
 5. **체크박스 칸은 편집 상태가 없다.** 표시로 그리고 칸이 누름을 받아 바로 바꾼다(키보드는 Space·Enter). 화면 낭독기에는 안의 체크박스가 "사용할 수 없음"으로 읽힌다(표시 모드가 `disabled`라서). 공용 부품에 "읽기 전용이지만 꺼지지 않은" 표시가 생기면 바꾼다.
    - 왜: 편집 모드의 체크박스는 칸마다 Tab이 멈추는 단추가 된다.
-   - 바꾸려면: `Row.svelte`, `table.svelte.ts`의 `host.activate`.
+   - 바꾸려면: `Row.svelte`, `table-controller.svelte.ts`의 `host.activate`.
 6. **칸에서 선택지를 만들거나 이름·색을 바꾸거나 지우지 않는다**(있는 선택지를 고르기만).
    - 왜: 속성 정의를 바꾸는 일은 카드 상세의 것이라는 지시의 연장으로 봤다.
    - 다른 안: 칸에서도 하게 하기.
@@ -899,14 +899,14 @@
 8. **너비는 "지금 보이는 너비"에서 바꾼다.** 제목 열이 절반 제한에 걸려 저장된 값보다 좁게 보일 때 "더 좁게"는 보이는 너비에서 줄이고, "더 넓게"는 아무것도 하지 않는다(보이지 않는 값만 커지지 않게). 손잡이를 끌 때도 같다.
    - 바꾸려면: `column-resize.svelte.ts`.
 9. **정렬 메뉴는 그 열 하나로 뷰의 정렬을 바꾼다**(다른 정렬은 사라진다). 정렬을 푸는 항목은 머리글 메뉴에 없다(뷰 머리글의 일).
-   - 바꾸려면: `table.svelte.ts`의 `headerActions`.
+   - 바꾸려면: `table-controller.svelte.ts`의 `headerActions`.
 10. **그룹 접기**: 고칠 수 있는 사람은 뷰에 저장(`collapsedOptionIds`), 읽기만 하는 사람은 이번 방문 동안만(저장하지 않는다). 값 없는 그룹도 접을 수 있다(`collapsedOptionIds`에 `''`가 들어간다).
     - 다른 안: 읽기만 하는 사람은 못 접게.
-    - 바꾸려면: `table.svelte.ts`의 `toggleGroup`.
+    - 바꾸려면: `table-controller.svelte.ts`의 `toggleGroup`.
 11. **그룹과 새 카드**: 그룹 머리의 "+"와 그룹 맨 아래의 "+ 새로 만들기"가 그 그룹의 값으로 만든다. 접힌 그룹의 "+"는 그룹을 펴고 만든다. 만든 사람·고친 사람으로 묶인 뷰(값을 정할 수 없다)에서는 그룹별 추가가 없고 표 맨 아래에 하나만 있다. 새 카드는 뷰의 필터가 요구하는 값도 받는다(조립 파일의 `addCard`와 같게).
-    - 바꾸려면: `table.svelte.ts`의 `addCard`·`canAddTo`·`canAddLoose`.
+    - 바꾸려면: `table-controller.svelte.ts`의 `addCard`·`canAddTo`·`canAddLoose`.
 12. **행 메뉴**: 삭제는 묻지 않는다(실행 취소가 된다). 삭제 뒤 초점은 그 자리에 온 이웃 행의 제목 칸, 복제 뒤 초점은 새 행의 제목 칸. 링크 복사는 화면 낭독기에만 "복사되었습니다!"를 알린다(보이는 표시는 없다).
-    - 바꾸려면: `table.svelte.ts`의 `#deleteCard`·`#duplicateCard`·`#copyLink`.
+    - 바꾸려면: `table-controller.svelte.ts`의 `#deleteCard`·`#duplicateCard`·`#copyLink`.
 13. **계산**: 저장된 값이 없으면 제목 열은 "개수", 나머지는 없음. 그 종류가 가질 수 없는 계산이 저장돼 있으면 없음으로 본다. 메뉴는 `propertyBehavior(type).calculationOptions`에 **체크박스의 넷(체크된 개수 등)과 날짜의 셋(가장 이른 날짜 등)을 테이블에서 보탰다**(`lib/logic/properties.ts`에는 없다). 메시지가 없던 네 계산(빈 값 개수 등)의 이름을 새로 지었다.
     - 바꾸려면: `calculation-names.ts`의 `TABLE_EXTRAS`와 `NAMES`, 문구는 `messages/`의 `table_*`.
 14. **Ctrl/⌘+Z는 표가 받지 않고 틀이 받는다(50번).** 표의 칸에 초점을 둔 채 누른 단축키는 틀까지 올라가 한 번 처리된다. 입력 칸 안에서는 틀도 가로채지 않는다. 종단 테스트(`e2e/table.spec.ts`의 Ctrl+Z 세 곳)가 틀의 단축키로 통과한다.
@@ -1419,7 +1419,7 @@
 **겹친 것 가운데 동작이 걸린 것** (정할 것이 있어 묶어 두지 않았다)
 
 - ✔ **선택지 편집이 두 벌이다**: 카드 상세(`features/card/property-actions.ts`, `property-change.ts`)와 칸반(`features/views/kanban/board-data.ts`). 새 선택지의 id를 만드는 방식도 다르다(`createId('none')`과 `createId('block')`). 표의 칸에서는 선택지를 새로 만들지 못한다(테이블 절의 6번). 하나로 모으려면 `lib/state`에 "속성 정의를 고치는 쓰기"를 두어야 하고, 그 쓰기가 서버에서 한 번의 요청인지(속성 종류를 바꿀 때 카드 값까지) 적을 때는 몰랐다(지금은 `contract-assumptions.md` 4절의 A7). 그 뒤 계약이 나왔고 여러 블록을 한 번에 고치는 조작(`boards-and-blocks`)이 거기 있다. 아직 모으지 않았다.
-- ✔ **카드를 지울 때 묻는 곳과 묻지 않는 곳**: 카드 상세는 묻고(`CardHeader.svelte`의 `ConfirmDialog`), 칸반·갤러리·표의 메뉴는 묻지 않고 지운다(실행 취소로 되돌린다). 취향이 갈리는 동작이라 그대로 두고 물었다. **답이 났다: 어디서나 묻지 않는다**(사용자 결정, 2026-11-11 02:12 KST). 카드 상세 쪽을 고쳤다(웹 연결의 tracer-bullet 8). 묻지 않는 쪽의 자리는 `kanban/CardMenu.svelte`의 `delete`, `table/table.svelte.ts`의 `#deleteCard`다.
+- ✔ **카드를 지울 때 묻는 곳과 묻지 않는 곳**: 카드 상세는 묻고(`CardHeader.svelte`의 `ConfirmDialog`), 칸반·갤러리·표의 메뉴는 묻지 않고 지운다(실행 취소로 되돌린다). 취향이 갈리는 동작이라 그대로 두고 물었다. **답이 났다: 어디서나 묻지 않는다**(사용자 결정, 2026-11-11 02:12 KST). 카드 상세 쪽을 고쳤다(웹 연결의 tracer-bullet 8). 묻지 않는 쪽의 자리는 `kanban/CardMenu.svelte`의 `delete`, `table/table-controller.svelte.ts`의 `#deleteCard`다.
 - **"링크 복사"가 세 가지 방식이다**(카드 메뉴 셋). 주소를 만드는 것은 조립(`src/app`)이 넘긴 `cardHref` 하나라 결과는 같다. 확인을 보이는 방식만 다르다. 틀에 알림 자리가 생기면 그리로 모은다(칸반 절의 "링크 복사" 줄).
 - **뷰의 필터에 맞는 새 카드의 속성 값을 정하는 코드가 네 곳**(`src/app/BoardPage.svelte`, `Gallery.svelte`, 칸반의 `propertiesForColumn`, 표의 `addCard`). 계산은 `lib/logic/filter.ts`의 한 함수이고 네 곳은 그 위에 그룹의 값을 얹는 방식이 뷰마다 다르다. "보이는 열에 만들기"(Q16)를 만들 때 함께 정리한다.
 
