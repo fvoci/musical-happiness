@@ -72,11 +72,11 @@ impl App {
             }
         };
 
-        for board in &created.boards {
-            self.collab()
-                .recheck_access(self, AccessScope::board(&board.id))
-                .await;
-        }
+        // One check for every board made: an import makes many.
+        let made = created.boards.iter().map(|board| &board.id);
+        self.collab()
+            .recheck_access(self, AccessScope::boards(made))
+            .await;
         self.announce_created(&created, &members).await;
 
         for board in &created.boards {
@@ -162,14 +162,16 @@ impl App {
                 .await?
         };
 
-        let access_changed = patches
+        let access_changed: Vec<&String> = patches
             .board_ids
             .iter()
             .zip(&patches.board_patches)
-            .filter(|(_, patch)| super::boards::changes_access(patch));
-        for (board_id, _) in access_changed {
+            .filter(|(_, patch)| super::boards::changes_access(patch))
+            .map(|(board_id, _)| board_id)
+            .collect();
+        if !access_changed.is_empty() {
             self.collab()
-                .recheck_access(self, AccessScope::board(board_id))
+                .recheck_access(self, AccessScope::boards(access_changed))
                 .await;
         }
         let app = self.clone();
@@ -234,11 +236,9 @@ impl App {
             )
             .await?;
 
-        for board_id in &request.boards {
-            self.collab()
-                .recheck_access(self, AccessScope::board(board_id))
-                .await;
-        }
+        self.collab()
+            .recheck_access(self, AccessScope::boards(&request.boards))
+            .await;
         for (block_id, board_id) in &deleted_blocks {
             // A block of a board the request does not list was refused by the store.
             let members = former_members

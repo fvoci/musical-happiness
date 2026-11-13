@@ -22,6 +22,7 @@
 //! logged and sent to the others, never logged and not sent.
 
 mod access;
+mod index;
 #[cfg(feature = "test-util")]
 mod pauses;
 mod removal;
@@ -43,7 +44,7 @@ use tokio_util::sync::CancellationToken;
 use super::frame::{self, Sync};
 use super::messages::{self, reason_of};
 use super::queue::{Capacity, NotQueued, Queue, Queued};
-use super::{Collab, DocChange, DocEvent, Loaded, admission, place, refusals};
+use super::{Collab, DocChange, DocEvent, Loaded, admission, refusals};
 use crate::app::{App, Asker};
 use crate::config::collab::CollabSettings;
 use crate::error::{AppError, Reason};
@@ -73,7 +74,8 @@ const QUEUE_DOCUMENTS: usize = 2;
 /// The rooms there are.
 #[derive(Debug)]
 pub(super) struct Rooms {
-    by_key: Mutex<HashMap<String, Arc<Room>>>,
+    /// By organization and board.
+    index: Mutex<index::Index>,
     /// How often a room asks again whether its members may be in it.
     recheck: Duration,
     /// In how many rooms a connection may be.
@@ -103,7 +105,7 @@ impl Rooms {
     /// No rooms, held to what `settings` say.
     pub(super) fn new(settings: &CollabSettings) -> Self {
         Self {
-            by_key: Mutex::new(HashMap::new()),
+            index: Mutex::new(index::Index::default()),
             recheck: Duration::from_secs(settings.collab_recheck_seconds),
             per_connection: as_count(settings.collab_documents_per_connection),
             per_room: as_count(settings.collab_connections_per_document),
@@ -211,8 +213,6 @@ impl Connection {
 pub(super) struct Room {
     /// A deletion permanently disconnects this room from any restored card.
     deleted: AtomicBool,
-    /// Its key among the rooms: the card's place ([`place::key_of`]).
-    key: String,
     card_id: String,
     /// The board the card was on as the room was made: a card is not moved to another
     /// board while it has a room.
@@ -404,13 +404,18 @@ impl Collab {
 
     /// Whether a card of `app`'s organization has a room.
     pub(super) fn has_room(&self, app: &App, card_id: &str) -> bool {
-        let key = place::key_of(app.store().tenant(), card_id);
+        self.rooms_index()
+            .get(app.store().tenant(), card_id)
+            .is_some()
+    }
+
+    /// The rooms there are, held.
+    fn rooms_index(&self) -> std::sync::MutexGuard<'_, index::Index> {
         self.inner
             .rooms
-            .by_key
+            .index
             .lock()
             .expect("the rooms are never held across a panic")
-            .contains_key(&key)
     }
 
     /// How many rooms there are, for the tests of what a connection leaves behind.
@@ -418,12 +423,7 @@ impl Collab {
     #[doc(hidden)]
     #[must_use]
     pub fn rooms(&self) -> usize {
-        self.inner
-            .rooms
-            .by_key
-            .lock()
-            .expect("the rooms are never held across a panic")
-            .len()
+        self.rooms_index().len()
     }
 
     /// The room of a card of `app`'s organization, made if there is none, with its
@@ -431,19 +431,13 @@ impl Collab {
     /// asks again whether its members may be in it.
     fn room(&self, admitted: &admission::Admitted, workspace_id: &str, card_id: &str) -> Arc<Room> {
         let app = &admitted.app;
-        let key = place::key_of(app.store().tenant(), card_id);
-        let mut rooms = self
-            .inner
-            .rooms
-            .by_key
-            .lock()
-            .expect("the rooms are never held across a panic");
-        if let Some(room) = rooms.get(&key) {
+        let tenant = app.store().tenant();
+        let mut rooms = self.rooms_index();
+        if let Some(room) = rooms.get(tenant, card_id) {
             return Arc::clone(room);
         }
         let room = Arc::new(Room {
             deleted: AtomicBool::new(false),
-            key: key.clone(),
             card_id: card_id.to_owned(),
             board_id: admitted.board_id.clone(),
             workspace_id: workspace_id.to_owned(),
@@ -452,7 +446,8 @@ impl Collab {
             checked: tokio::sync::Notify::new(),
             gone: CancellationToken::new(),
         });
-        rooms.insert(key, Arc::clone(&room));
+        rooms.insert(tenant, Arc::clone(&room));
+        drop(rooms);
         // Subscribed before anyone is in the room: whatever happens to the document
         // from its first opening on is heard.
         let events = self.subscribe();
@@ -541,14 +536,8 @@ impl Collab {
         let tenant = app.store().tenant();
         // Before the rooms are read: a connection that comes into one later sees it.
         rooms.walls.raise(tenant, AccessScope::organization());
-        let of_organization: Vec<Arc<Room>> = rooms
-            .by_key
-            .lock()
-            .expect("the rooms are never held across a panic")
-            .values()
-            .filter(|room| room.app.store().tenant() == tenant)
-            .cloned()
-            .collect();
+        let of_organization: Vec<Arc<Room>> =
+            self.rooms_index().of_tenant(tenant).cloned().collect();
         // As for a card that is not there: the organization is told to nobody.
         let reason = reason_of(&AppError::not_found("card"));
         for room in of_organization {
@@ -741,14 +730,10 @@ impl Collab {
     #[cfg(feature = "test-util")]
     #[doc(hidden)]
     pub async fn room_members(&self, app: &App, card_id: &str) -> usize {
-        let key = place::key_of(app.store().tenant(), card_id);
-        let room = {
-            let rooms = self.inner.rooms.by_key.lock();
-            rooms
-                .expect("the rooms are never held across a panic")
-                .get(&key)
-                .map(Arc::clone)
-        };
+        let room = self
+            .rooms_index()
+            .get(app.store().tenant(), card_id)
+            .map(Arc::clone);
         match room {
             Some(room) => room.turn.lock().await.members.len(),
             None => 0,
@@ -918,17 +903,7 @@ impl Collab {
         if let Err(error) = self.close_room_document(room).await {
             tracing::error!(%error, card_id = room.card_id, "cannot write a card's body as its room closes");
         }
-        let mut rooms = self
-            .inner
-            .rooms
-            .by_key
-            .lock()
-            .expect("the rooms are never held across a panic");
-        if rooms
-            .get(&room.key)
-            .is_some_and(|there| Arc::ptr_eq(there, room))
-        {
-            rooms.remove(&room.key);
-        }
+        self.rooms_index()
+            .remove_room(room.app.store().tenant(), room);
     }
 }

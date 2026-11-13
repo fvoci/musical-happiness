@@ -36,7 +36,7 @@ pub(crate) struct AccessScope {
 
 #[derive(Debug, Clone)]
 enum Place {
-    Board(String),
+    Boards(Vec<String>),
     /// The cards themselves: who may be in their rooms changes as they are deleted.
     Cards(Vec<String>),
     Workspace(String),
@@ -46,7 +46,13 @@ enum Place {
 impl AccessScope {
     /// One board, including all its cards.
     pub(crate) fn board(board_id: &str) -> Self {
-        Self::of(Place::Board(board_id.to_owned()))
+        Self::of(Place::Boards(vec![board_id.to_owned()]))
+    }
+
+    /// Boards changed at once (a batch, an import), including all their cards: one
+    /// check for all of them.
+    pub(crate) fn boards<'id>(board_ids: impl IntoIterator<Item = &'id String>) -> Self {
+        Self::of(Place::Boards(board_ids.into_iter().cloned().collect()))
     }
 
     /// The rooms of these cards, as they are deleted.
@@ -89,10 +95,26 @@ impl AccessScope {
     /// workspace `workspace_id`.
     fn reaches(&self, card_id: &str, board_id: &str, workspace_id: &str) -> bool {
         match &self.place {
-            Place::Board(id) => id == board_id,
+            Place::Boards(ids) => ids.iter().any(|id| id == board_id),
             Place::Cards(ids) => ids.iter().any(|id| id == card_id),
             Place::Workspace(id) => id == workspace_id,
             Place::Organization => true,
+        }
+    }
+
+    /// The boards the change named, if it named boards.
+    pub(super) fn named_boards(&self) -> Option<&[String]> {
+        match &self.place {
+            Place::Boards(ids) => Some(ids),
+            _ => None,
+        }
+    }
+
+    /// The cards the change named, if it named cards.
+    pub(super) fn named_cards(&self) -> Option<&[String]> {
+        match &self.place {
+            Place::Cards(ids) => Some(ids),
+            _ => None,
         }
     }
 
@@ -268,7 +290,7 @@ impl Collab {
             let (board_id, who) = key.clone();
             (key, async move {
                 #[cfg(feature = "test-util")]
-                self.stalled_access().await;
+                self.before_access_read().await;
                 admission::board_mode(&app, who.asker(), &who.workspace_id, &board_id).await
             })
         });
@@ -289,16 +311,13 @@ impl Collab {
     /// Holds, for the check of `change`, the members `scope` concerns in the rooms of
     /// `tenant` it reaches.
     async fn hold(&self, tenant: Tenant, scope: &AccessScope, change: u64) -> Holds {
-        let reached: Vec<Arc<Room>> = self
+        let reached = self
             .inner
             .rooms
-            .by_key
+            .index
             .lock()
             .expect("the rooms are never held across a panic")
-            .values()
-            .filter(|room| room.app.store().tenant() == tenant && scope.contains(room))
-            .cloned()
-            .collect();
+            .reached(tenant, scope);
         let mut holds = Holds {
             collab: self.clone(),
             change,

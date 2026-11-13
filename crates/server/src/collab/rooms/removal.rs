@@ -6,7 +6,6 @@ use std::sync::atomic::Ordering;
 use super::{Collab, Room};
 use crate::app::App;
 use crate::collab::messages::reason_of;
-use crate::collab::place;
 use crate::error::AppError;
 
 impl Collab {
@@ -20,16 +19,14 @@ impl Collab {
             .rooms
             .walls
             .raise(app.store().tenant(), super::AccessScope::cards(card_ids));
-        let mut rooms = self
-            .inner
-            .rooms
-            .by_key
-            .lock()
-            .expect("the rooms are not poisoned");
-        let detached: Vec<Arc<Room>> = card_ids
-            .iter()
-            .filter_map(|id| rooms.remove(&place::key_of(app.store().tenant(), id)))
-            .collect();
+        let tenant = app.store().tenant();
+        let detached: Vec<Arc<Room>> = {
+            let mut rooms = self.rooms_index();
+            card_ids
+                .iter()
+                .filter_map(|id| rooms.remove(tenant, id))
+                .collect()
+        };
         for room in &detached {
             room.deleted.store(true, Ordering::SeqCst);
             room.gone.cancel();
