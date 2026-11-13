@@ -116,6 +116,8 @@ pub(crate) const LAYERS: &[Layer] = &[
             "fvoci_server::scheduler",
             "fvoci_server::storage",
             "fvoci_server::webhook",
+            "lettre",
+            "mail_builder",
         ],
         may_use: &["metrics", "collab", "worker", "store", "model"],
         handles: &[],

@@ -43,6 +43,11 @@ const fakeOidc =
   process.env.FVOCI_FAKE_OIDC_BIN ?? path.join(REPO_ROOT, 'target/debug/examples/fake_oidc');
 /** The fake provider listens on the port after the server's (`e2e-live/oidc.spec.ts`). */
 const oidcPort = port + 1;
+/** The fake SMTP and its inbox take the next two (`e2e-live/mail.spec.ts` reads the inbox at +3); the
+ * organizations server runs four ports up (`playwright.live.config.ts`), clear of these. */
+const smtpPort = port + 2;
+const inboxPort = port + 3;
+const fakeSmtp = path.join(REPO_ROOT, 'target/debug/examples/fake_smtp');
 /** The key the server seals client secrets with: a test's, kept nowhere else. */
 const SECRET_KEY = Buffer.alloc(32, 7).toString('base64');
 
@@ -110,6 +115,10 @@ writeFileSync(
   JSON.stringify(
     {
       serverRoot: origin,
+      smtp_host: '127.0.0.1',
+      smtp_port: smtpPort,
+      smtp_tls: 'none',
+      smtp_from: 'sender@example.test',
       port,
       localOnly: true,
       ...storage,
@@ -161,6 +170,22 @@ if (provider)
       if (!stopping) stop(`the fake provider ended (${code})`);
     });
   });
+
+const smtp = spawn(fakeSmtp, [String(smtpPort), String(inboxPort)], {
+  cwd: data,
+  stdio: ['ignore', 'pipe', 'inherit'],
+});
+await new Promise<void>((started) => {
+  const said = createInterface({ input: smtp.stdout });
+  said.on('line', (line) => {
+    log.write(`${line}\n`);
+    if (line.startsWith('fake-smtp:')) started();
+  });
+  smtp.on('error', (error) => stop(`the fake SMTP could not start: ${error.message}`));
+  smtp.on('exit', (code) => {
+    if (!stopping) stop(`the fake SMTP ended (${code})`);
+  });
+});
 
 const server = spawn(binary, ['--config', path.join(data, 'config.json')], {
   cwd: data,
@@ -214,6 +239,7 @@ database?.on('exit', (code) => {
 const end = (): void => {
   stopping = true;
   provider?.kill('SIGTERM');
+  smtp.kill('SIGTERM');
   server.kill('SIGTERM');
   // A server that does not stop within the time it gives its own requests is ended.
   setTimeout(() => server.kill('SIGKILL'), 12_000).unref();
@@ -223,4 +249,5 @@ process.on('SIGINT', end);
 process.on('exit', () => {
   server.kill('SIGKILL');
   provider?.kill('SIGKILL');
+  smtp.kill('SIGKILL');
 });

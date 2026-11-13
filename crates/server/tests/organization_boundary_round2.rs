@@ -6,6 +6,9 @@ mod common;
 #[path = "api/fake_oidc.rs"]
 mod fake_oidc;
 
+#[path = "api/fake_smtp.rs"]
+mod fake_smtp;
+
 #[path = "organization_boundary_round2/routes.rs"]
 mod routes;
 

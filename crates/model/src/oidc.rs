@@ -283,6 +283,8 @@ pub struct LoginOptions {
     /// server where everybody may, and on any server until its first user did. Where it
     /// is `false`, the link of an invitation is the way in.
     pub registration_open: bool,
+    /// Whether this server can deliver password recovery and invitation mail.
+    pub mail_enabled: bool,
 }
 
 #[cfg(test)]

@@ -20,6 +20,7 @@ mod accounts;
 mod background;
 mod database;
 mod files;
+mod mail;
 mod objects;
 mod ready;
 mod requests;
@@ -27,10 +28,11 @@ mod scrape_read;
 mod storage;
 mod websocket;
 
-pub(crate) use accounts::LoginOutcome;
+pub(crate) use accounts::{LoginOutcome, ResetMailDrop};
 pub(crate) use background::{Job, JobOutcome, LoginLimit};
 pub(crate) use database::{Database, DbAccess, DbOutcome};
 pub(crate) use files::{FilesBackend, FilesOperation, FilesOutcome};
+pub(crate) use mail::{MailFailure, MailKind};
 pub(crate) use objects::LooseObjects;
 #[cfg(test)]
 pub(crate) use objects::REMOVAL_ERRORS;
@@ -64,6 +66,7 @@ struct Kept {
     files: files::FilesMetrics,
     background: background::BackgroundMetrics,
     accounts: accounts::AccountMetrics,
+    mail: mail::MailMetrics,
     ready: ready::ReadyMetrics,
     objects: objects::ObjectMetrics,
 }
@@ -106,6 +109,7 @@ impl Metrics {
         let files = files::FilesMetrics::register(&registry)?;
         let background = background::BackgroundMetrics::register(&registry)?;
         let accounts = accounts::AccountMetrics::register(&registry)?;
+        let mail = mail::MailMetrics::register(&registry)?;
         let ready = ready::ReadyMetrics::register(&registry)?;
         let objects = objects::ObjectMetrics::register(&registry)?;
         Ok(Self {
@@ -118,6 +122,7 @@ impl Metrics {
                 files,
                 background,
                 accounts,
+                mail,
                 ready,
                 objects,
             })),

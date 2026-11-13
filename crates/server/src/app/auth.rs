@@ -597,7 +597,7 @@ impl App {
         }
     }
 
-    async fn hash(&self, password: &str) -> Result<String, AppError> {
+    pub(super) async fn hash(&self, password: &str) -> Result<String, AppError> {
         let password = password.to_owned();
         self.password_work(move || hash_password(&password))
             .await?

@@ -566,6 +566,7 @@ fn the_configuration_document_lists_every_key() {
     let env: BTreeMap<String, String> = ENV_KEYS
         .iter()
         .chain(&super::collab::ENV_KEYS)
+        .chain(&super::smtp::ENV_KEYS)
         .map(|(key, _)| ((*key).to_owned(), env_name(key)))
         .collect();
     assert_eq!(
