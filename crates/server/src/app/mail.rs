@@ -199,7 +199,8 @@ fn is_loopback_root(server_root: &str) -> bool {
         let address = address.to_canonical();
         address.is_loopback() || address.is_unspecified()
     } else {
-        let name = host.to_ascii_lowercase();
+        // The parser writes the name in lower case; a trailing dot names the same host.
+        let name = host.trim_end_matches('.');
         name == "localhost" || name.ends_with(".localhost")
     }
 }
@@ -308,6 +309,9 @@ mod tests {
             "http://0.0.0.0:8000",
             "http://[::]:8000",
             "http://[::ffff:127.0.0.1]:8000",
+            "http://127.1",
+            "http://localhost.:8000",
+            "HTTP://LocalHost",
         ] {
             assert!(is_loopback_root(root), "{root}");
         }

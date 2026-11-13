@@ -399,7 +399,7 @@ async fn mail_reset_is_written_in_the_recipients_language_else_the_requesters_el
         .patch("/users/me/settings", &json!({"language":"ja"}))
         .await
         .check_status(StatusCode::OK);
-    for (requested, want) in [("ko-KR", "ko"), ("ja", "en")] {
+    for (count, (requested, want)) in [("ko-KR", "ko"), ("ja", "en")].into_iter().enumerate() {
         th.anonymous()
             .post(
                 "/password-reset/request",
@@ -407,9 +407,8 @@ async fn mail_reset_is_written_in_the_recipients_language_else_the_requesters_el
             )
             .await
             .check_no_content();
-        assert!(th.app.finish_background(Duration::from_secs(10)).await);
-        let messages = smtp.messages().await;
-        let last = messages.last().expect("a message");
+        let messages = smtp.received(count + 1).await;
+        let last = &messages[count];
         assert!(
             last.decoded.contains(&format!("lang=\"{want}\"")),
             "{requested}: {}",

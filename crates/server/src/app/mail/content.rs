@@ -10,7 +10,7 @@ pub(crate) enum Language {
 impl Language {
     /// The language of the mail that `tag` names (`ko`, `ko-KR`, `en-GB`), or `None`
     /// for one the mail is not written in (`ja`) and for `auto`.
-    fn written_in(tag: &str) -> Option<Self> {
+    pub(crate) fn written_in(tag: &str) -> Option<Self> {
         let language = tag.split('-').next().unwrap_or_default();
         if language.eq_ignore_ascii_case("ko") {
             Some(Self::Korean)
@@ -21,11 +21,14 @@ impl Language {
         }
     }
 
-    /// The first of `tags`, most wanted first, that the mail is written in, or English:
-    /// the recipient's setting, then the requester's or sender's language.
-    pub(crate) fn first_of(tags: &[&str]) -> Self {
-        tags.iter()
-            .find_map(|tag| Self::written_in(tag))
+    /// The first of `choices`, most wanted first, that the mail is written in, or
+    /// English: the recipient's setting, then the sender's setting (for invitations),
+    /// then the language of the screen the request came from.
+    pub(crate) fn first_of(choices: impl IntoIterator<Item = Option<Self>>) -> Self {
+        choices
+            .into_iter()
+            .flatten()
+            .next()
             .unwrap_or(Self::English)
     }
 }
@@ -123,13 +126,17 @@ mod tests {
         for (tags, want) in [
             (&["ko", "en"][..], Language::Korean),
             (&["auto", "ko-KR"][..], Language::Korean),
-            (&["ja", "ko"][..], Language::Korean),
+            (&["ja", "KO"][..], Language::Korean),
             (&["ja", "auto", "EN-gb"][..], Language::English),
-            (&["ja", "zh-Hans", ""][..], Language::English),
+            (
+                &["ja", "zh-Hans", "", "ko_KR", " ko"][..],
+                Language::English,
+            ),
             (&["en", "ko"][..], Language::English),
             (&[][..], Language::English),
         ] {
-            assert_eq!(Language::first_of(tags), want, "{tags:?}");
+            let choices = tags.iter().map(|tag| Language::written_in(tag));
+            assert_eq!(Language::first_of(choices), want, "{tags:?}");
         }
     }
 

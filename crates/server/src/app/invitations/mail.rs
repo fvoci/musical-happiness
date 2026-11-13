@@ -130,7 +130,9 @@ impl App {
         request: InvitationMail,
         queued: Vec<Queued>,
     ) -> Result<(), AppError> {
-        let sender_language = self.user_settings(sender).await?.language;
+        let sender_language =
+            Language::written_in(self.user_settings(sender).await?.language.as_str());
+        let requested = Language::written_in(&request.language);
         let link = format!(
             "{}/invite/{}",
             self.config().server_root.trim_end_matches('/'),
@@ -146,15 +148,13 @@ impl App {
                 .invitation_for_mail(workspace_id, sender, &request.token)
                 .await?;
             let recipient_language = match self.store().get_user_by_email(&recipient).await {
-                Ok(user) => Some(self.user_settings(&user.id).await?.language),
+                Ok(user) => {
+                    Language::written_in(self.user_settings(&user.id).await?.language.as_str())
+                }
                 Err(error) if error.is_not_found() => None,
                 Err(error) => return Err(error.into()),
             };
-            let language = Language::first_of(&[
-                recipient_language.as_ref().map_or("", |tag| tag.as_str()),
-                sender_language.as_str(),
-                &request.language,
-            ]);
+            let language = Language::first_of([recipient_language, sender_language, requested]);
             // One failed address must not stop delivery to the other recipients.
             if delivery
                 .send(

@@ -71,17 +71,20 @@ impl App {
             .admit_from_address(address, Instant::now())
             .map_err(|RetryAfter(wait)| AppError::rate_limited(wait))?;
         let app = self.clone();
-        // Never more of the request than a language tag holds.
-        let language: String = language.chars().take(64).collect();
+        let requested = Language::written_in(language);
         Ok(async move {
             // The cause is the store's or a fixed text: SMTP replies never reach it.
-            if let Err(error) = app.mail_password_reset(&email, &language).await {
+            if let Err(error) = app.mail_password_reset(&email, requested).await {
                 tracing::warn!(%error, "password recovery delivery failed");
             }
         })
     }
 
-    async fn mail_password_reset(&self, email: &str, requested: &str) -> Result<(), AppError> {
+    async fn mail_password_reset(
+        &self,
+        email: &str,
+        requested: Option<Language>,
+    ) -> Result<(), AppError> {
         let user = match self.store().get_user_by_email(email).await {
             Ok(user) => user,
             Err(error) if error.is_not_found() => return Ok(()),
@@ -91,7 +94,8 @@ impl App {
             return Ok(());
         }
         let settings = self.user_settings(&user.id).await?;
-        let language = Language::first_of(&[settings.language.as_str(), requested]);
+        let language =
+            Language::first_of([Language::written_in(settings.language.as_str()), requested]);
         // The answer was the same either way; a dropped message is told only here.
         let queued = match self.inner.mail.queue_reset(&user.id) {
             Ok(queued) => queued,

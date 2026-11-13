@@ -314,6 +314,22 @@ async fn invitation_mail_without_the_recipients_language_is_written_in_the_sende
             message.recipient
         );
     }
+    th.client
+        .patch("/users/me/settings", &json!({"language":"auto"}))
+        .await
+        .check_status(StatusCode::OK);
+    th.client
+        .post(
+            &format!("{path}/mail"),
+            &json!({"token":link.token,"recipients":["user2@sample.com"],"language":"ko-KR"}),
+        )
+        .await
+        .check_no_content();
+    let messages = smtp.received(3).await;
+    assert!(
+        messages[2].decoded.contains("lang=\"ko\""),
+        "with no setting of either, the screen's language"
+    );
     th.teardown().await;
     smtp.stop().await;
 }
