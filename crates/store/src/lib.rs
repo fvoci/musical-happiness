@@ -633,8 +633,14 @@ async fn finish<T, DB: sqlx::Database>(
         }
         Err(error) => {
             if let Err(rollback_error) = tx.rollback().await {
-                tracing::error!(error = %rollback_error, "transaction rollback failed");
-                return Err(rollback_error.into());
+                // The operation's own error says why it failed; the rollback's is
+                // logged with it, and leaves the write unsettled.
+                tracing::error!(
+                    error = %rollback_error,
+                    cause = %error,
+                    "transaction rollback failed"
+                );
+                return Err(error);
             }
             visibility.settled();
             Err(error)

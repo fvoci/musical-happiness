@@ -8,6 +8,20 @@ use super::{
 };
 use crate::metrics::Disconnect;
 
+/// How many times a subscription is checked again because access was taken back
+/// somewhere meanwhile, before it is given up: any session's end moves the listeners'
+/// revision on, and a check is a few reads of the store.
+const CHECKED_AT_MOST: usize = 8;
+
+/// Why a connection does not follow a workspace.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Refusal {
+    /// Its access is not there: a subscription checked before ends, for this reason.
+    Ended(Disconnect),
+    /// Its access could not be read: nothing ends for it.
+    Unreadable,
+}
+
 impl Hub {
     /// Handles one command. Returns `false` if the connection must be closed.
     pub(super) async fn handle(&self, id: ListenerId, command: Command) -> bool {
@@ -56,7 +70,7 @@ impl Hub {
 
     async fn subscribe_blocks(&self, id: ListenerId, command: &Command) {
         let mut validated = false;
-        loop {
+        for _ in 0..CHECKED_AT_MOST {
             let revision = self.listeners().revision;
             let Some(board_id) = self.board_of_read_token(command).await else {
                 if validated {
@@ -87,20 +101,27 @@ impl Hub {
             }
             return;
         }
+        tracing::warn!(
+            workspace_id = %command.workspace_id,
+            "websocket: a block subscription was given up"
+        );
     }
 
     async fn subscribe_workspace(&self, id: ListenerId, user_id: &str, workspace: &str) {
         let mut validated_role = None;
-        loop {
+        for _ in 0..CHECKED_AT_MOST {
             let revision = self.listeners().revision;
             let role = match self.opened_role(id, user_id, workspace).await {
                 Ok(role) => role,
-                Err(ended) => {
+                Err(Refusal::Ended(ended)) => {
                     if validated_role.is_some() {
                         self.close_listener(id, ended);
                     }
                     return;
                 }
+                // Not subscribed, and not closed: access that cannot be read has not
+                // ended. The page subscribes again when it connects again.
+                Err(Refusal::Unreadable) => return,
             };
             if validated_role.is_some_and(|previous| previous != role) {
                 self.close_listener(id, Disconnect::AccessEnded);
@@ -119,30 +140,42 @@ impl Hub {
             }
             return;
         }
+        tracing::warn!(
+            workspace_id = workspace,
+            user_id,
+            "websocket: a workspace subscription was given up"
+        );
     }
 
     /// What the connection's user is in the workspace, if they are a member of it and
-    /// the connection's session opens the workspace's organization. Otherwise why a
-    /// subscription checked before would end: `AccessEnded` for who is no member (and
-    /// a connection that is gone), `SsoRequired` for a session the organization does
-    /// not take.
+    /// the connection's session opens the workspace's organization; otherwise why not.
     pub(super) async fn opened_role(
         &self,
         id: ListenerId,
         user_id: &str,
         workspace: &str,
-    ) -> Result<WorkspaceRole, Disconnect> {
-        let access = self
+    ) -> Result<WorkspaceRole, Refusal> {
+        let access = match self
             .audience
             .current_workspace_access(user_id, workspace)
             .await
-            .ok_or(Disconnect::AccessEnded)?;
+        {
+            Ok(Some(access)) => access,
+            Ok(None) => return Err(Refusal::Ended(Disconnect::AccessEnded)),
+            Err(error) => {
+                tracing::error!(%error, workspace_id = workspace, "websocket: reading a workspace's membership failed");
+                return Err(Refusal::Unreadable);
+            }
+        };
         let listeners = self.listeners();
-        let listener = listeners.by_id.get(&id).ok_or(Disconnect::AccessEnded)?;
+        let listener = listeners
+            .by_id
+            .get(&id)
+            .ok_or(Refusal::Ended(Disconnect::AccessEnded))?;
         if listener.session_opens(access.required_provider.as_deref()) {
             Ok(access.workspace_role)
         } else {
-            Err(Disconnect::SsoRequired)
+            Err(Refusal::Ended(Disconnect::SsoRequired))
         }
     }
 

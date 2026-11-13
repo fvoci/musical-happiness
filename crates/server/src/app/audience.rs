@@ -55,7 +55,11 @@ impl Audience {
     }
 
     /// Whether a previously admitted public subscription still has a valid token.
-    pub async fn shared_board(&self, board_id: &str, read_token: &str) -> bool {
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if the sharing cannot be read: that is no "no".
+    pub async fn shared_board(&self, board_id: &str, read_token: &str) -> Result<bool, StoreError> {
         self.cache
             .shares
             .read(
@@ -70,7 +74,6 @@ impl Audience {
                 },
             )
             .await
-            .unwrap_or(false)
     }
 
     /// The board of a block in the named workspace, if its public read token opens it.
@@ -93,53 +96,46 @@ impl Audience {
     /// a session must be made through to open the workspace's organization; `None` for
     /// who is no member. What a subscription of the workspace is told of a board goes
     /// to the board's members only, so a guest hears the boards they were invited to
-    /// and no other. A membership that cannot be read is no membership here: the
-    /// connection is not subscribed.
+    /// and no other.
     ///
     /// Cached at the visibility revision of this audience's organization, which a
-    /// change of a membership or of the organization's provider moves on: for a
-    /// workspace of that organization, as a change it writes is sent.
+    /// change of a membership or of the organization's provider moves on. So the
+    /// workspace must be of that organization: the one of the change being sent,
+    /// which is written through this audience's store. A workspace of any organization
+    /// is asked with [`Self::current_workspace_access`].
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if the membership cannot be read: that is no "not a
+    /// member".
     pub async fn workspace_access(
         &self,
         user_id: &str,
         workspace_id: &str,
-    ) -> Option<WorkspaceAccess> {
-        let read = self
-            .cache
+    ) -> Result<Option<WorkspaceAccess>, StoreError> {
+        self.cache
             .workspaces
             .read(
                 &self.store,
                 (user_id.to_owned(), workspace_id.to_owned()),
                 || async { self.store.resolve_workspace(user_id, workspace_id).await },
             )
-            .await;
-        Self::access_or_none(read, workspace_id)
+            .await
     }
 
     /// As [`Self::workspace_access`], read from the store and not cached: for what is
     /// asked of a workspace of any organization (a subscription, what is left of a
     /// user's after their roles change), which no one organization's revision covers.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::workspace_access`].
     pub async fn current_workspace_access(
         &self,
         user_id: &str,
         workspace_id: &str,
-    ) -> Option<WorkspaceAccess> {
-        let read = self.store.resolve_workspace(user_id, workspace_id).await;
-        Self::access_or_none(read, workspace_id)
-    }
-
-    fn access_or_none(
-        read: Result<Option<WorkspaceAccess>, StoreError>,
-        workspace_id: &str,
-    ) -> Option<WorkspaceAccess> {
-        read.unwrap_or_else(|error| {
-            tracing::error!(
-                %error,
-                workspace_id,
-                "websocket: reading a workspace's membership failed"
-            );
-            None
-        })
+    ) -> Result<Option<WorkspaceAccess>, StoreError> {
+        self.store.resolve_workspace(user_id, workspace_id).await
     }
 
     /// The members of the board.

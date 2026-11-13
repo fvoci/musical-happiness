@@ -107,11 +107,18 @@ impl Hub {
             if subscribed_role.is_none() {
                 continue;
             }
-            let role = self
+            let role = match self
                 .audience
                 .current_workspace_access(user_id, &workspace_id)
                 .await
-                .map(|access| access.workspace_role);
+            {
+                Ok(access) => access.map(|access| access.workspace_role),
+                // Left as it is: each change sent to it asks again.
+                Err(error) => {
+                    tracing::error!(%error, %workspace_id, "websocket: reading a workspace's membership failed");
+                    continue;
+                }
+            };
             if role.is_some() && role == subscribed_role {
                 continue;
             }

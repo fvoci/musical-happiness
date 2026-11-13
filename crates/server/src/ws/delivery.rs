@@ -137,23 +137,39 @@ impl Hub {
             return false;
         };
         if let Some(permit) = permit {
-            if self
+            return match self
                 .audience
                 .shared_board(&permit.board, &permit.token)
                 .await
             {
-                return true;
-            }
-            self.close_listener(id, Disconnect::ShareEnded);
-            return false;
+                Ok(true) => true,
+                Ok(false) => {
+                    self.close_listener(id, Disconnect::ShareEnded);
+                    false
+                }
+                // Not told this change, and not closed: the link may still open.
+                Err(error) => {
+                    tracing::error!(%error, board_id = %permit.board, "websocket: reading a board's sharing failed");
+                    false
+                }
+            };
         }
         let workspace = match access {
             Access::Workspace(workspace) | Access::Members { workspace, .. } => workspace,
             Access::All | Access::Public(_) => return false,
         };
-        let Some(current) = self.audience.workspace_access(&user, workspace).await else {
-            self.close_listener(id, Disconnect::AccessEnded);
-            return false;
+        let current = match self.audience.workspace_access(&user, workspace).await {
+            Ok(Some(current)) => current,
+            Ok(None) => {
+                self.close_listener(id, Disconnect::AccessEnded);
+                return false;
+            }
+            // Not told this change, and not closed: access that cannot be read has
+            // not ended.
+            Err(error) => {
+                tracing::error!(%error, workspace_id = workspace, "websocket: reading a workspace's membership failed");
+                return false;
+            }
         };
         if Some(current.workspace_role) != subscribed_role {
             self.close_listener(id, Disconnect::AccessEnded);
