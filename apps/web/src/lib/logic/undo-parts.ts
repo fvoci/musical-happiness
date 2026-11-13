@@ -13,6 +13,8 @@ export interface Entry {
   reservedAt: number | undefined;
   /** Redo entries hidden provisionally while a reservation may still change nothing. */
   hidden: Entry[];
+  /** The how-manieth step placed it is (0 in no history). */
+  placed: number;
   checkpoint: number;
   groupId: string | undefined;
   /** In the order they were made. */
@@ -32,6 +34,8 @@ export interface Gesture {
   over: Promise<void>;
   /** A caller must not open a result that was already asked to be taken back. */
   undoRequested: boolean;
+  /** An undo of it has begun: it stays requested, even if redo followed. */
+  undoBegun: boolean;
   /** The step its next change joins. */
   entry: Entry | undefined;
   /** Every step it made: more than one where a change of the person came between its own. */
@@ -53,6 +57,8 @@ export interface Asked {
   cancelled: boolean;
   /** Carried out (or being), on its step as it was then. */
   begun: boolean;
+  /** The number of the last step placed when it was asked for: it is of none placed after. */
+  seen: number;
   dropped: ReturnType<typeof deferred>;
 }
 
@@ -80,12 +86,62 @@ export function targetOf(
   return entries.slice(index + 1).find((entry) => !hidden.has(entry));
 }
 
+/**
+ * Aims again the undos and redos asked for after the ask numbered `after`
+ * and not begun: each was asked of the history as the asks before it were
+ * to leave it, and some of those were dropped. Each is aimed among the steps
+ * placed before it was asked for; one left with nothing to take is dropped.
+ */
+export function reaim(entries: readonly Entry[], asks: readonly Asked[], after: number): void {
+  const wanted = requested(
+    entries,
+    asks.filter((ask) => ask.number <= after || ask.begun),
+  );
+  for (const ask of asks) {
+    if (ask.cancelled || ask.begun || ask.number <= after) continue;
+    const seen = entries.filter((entry) => entry.placed <= ask.seen);
+    const target = targetOf(
+      seen,
+      new Map(seen.map((entry) => [entry, wanted.get(entry) ?? false])),
+      ask.action,
+    );
+    if (!target) {
+      cancel(ask, asks);
+      continue;
+    }
+    if (target !== ask.entry) {
+      const before = ask.entry;
+      ask.entry = target;
+      unrequest(before.gesture, asks);
+    }
+    if (ask.action === 'undo' && target.gesture) target.gesture.undoRequested = true;
+    wanted.set(target, ask.action === 'redo');
+  }
+}
+
+/** Drops `ask` (of `asks`): its gesture is no longer asked to be undone by it. */
+export function cancel(ask: Asked, asks: readonly Asked[]): void {
+  if (ask.cancelled) return;
+  ask.cancelled = true;
+  ask.dropped.resolve();
+  if (!ask.begun) unrequest(ask.entry.gesture, asks);
+}
+
+/** `gesture` is asked to be undone while an undo of it has begun or is asked for and not dropped. */
+function unrequest(gesture: Gesture | undefined, asks: readonly Asked[]): void {
+  if (!gesture) return;
+  gesture.undoRequested =
+    gesture.undoBegun ||
+    asks.some((ask) => !ask.cancelled && ask.action === 'undo' && ask.entry.gesture === gesture);
+}
+
 /** A step in no history. */
 export function detached(groupId: string | undefined): Entry {
   return {
     inForce: true,
     reservedAt: undefined,
     hidden: [],
+    placed: 0,
     checkpoint: 0,
     groupId,
     steps: [],

@@ -305,3 +305,53 @@ it('leaves the history begun by clear alone when a reservation of the one before
   await manager.redo();
   expect(values).toEqual(['X', 'copy', 'Y']);
 });
+
+it('keeps a press made before a second reservation on the first, which it was of', async () => {
+  const manager = new UndoManager();
+  const values: string[] = [];
+  const firstRead = held();
+  const secondRead = held();
+  let secondOpened = false;
+  const first = manager.group(async (groupId) => {
+    await firstRead.promise;
+    await adding(manager, values, 'copy1', groupId);
+  }, true);
+  const undoing = manager.undo();
+  const second = manager.group(async (groupId) => {
+    await secondRead.promise;
+    await adding(manager, values, 'copy2', groupId);
+    secondOpened = !manager.undoRequestedFor(groupId);
+  }, true);
+  firstRead.release();
+  await Promise.all([first, undoing]);
+  expect(values).toEqual([]);
+  secondRead.release();
+  await second;
+  expect(values).toEqual(['copy2']);
+  expect(secondOpened).toBe(true);
+});
+
+it('opens what a gesture made when the undo asked of it was dropped', async () => {
+  const manager = new UndoManager();
+  const values: string[] = [];
+  const firstRead = held();
+  const secondRead = held();
+  let firstOpened = false;
+  const first = manager.group(async (groupId) => {
+    await firstRead.promise;
+    await adding(manager, values, 'copy1', groupId);
+    firstOpened = !manager.undoRequestedFor(groupId);
+  }, true);
+  const undoing = manager.undo();
+  const second = manager.group(async (groupId) => {
+    await secondRead.promise;
+    await adding(manager, values, 'copy2', groupId);
+  }, true);
+  // The second copy's change comes first and drops the press made before it.
+  secondRead.release();
+  await second;
+  firstRead.release();
+  await Promise.all([first, undoing]);
+  expect(values).toEqual(['copy2', 'copy1']);
+  expect(firstOpened).toBe(true);
+});

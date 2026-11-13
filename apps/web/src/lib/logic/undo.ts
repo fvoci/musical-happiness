@@ -31,8 +31,10 @@
 
 import {
   call,
+  cancel,
   deferred,
   detached,
+  reaim,
   replaceCut,
   requested,
   settled,
@@ -56,6 +58,8 @@ export class UndoManager {
   #asks: Asked[] = [];
   /** How many undos and redos were asked for: the number of the last one. */
   #asked = 0;
+  /** How many steps were placed: the number of the last one. */
+  #placed = 0;
   /** Gestures still under way, by group. */
   readonly #gestures = new Map<string, Gesture>();
   /** The turn the next undo or redo waits for. */
@@ -170,6 +174,7 @@ export class UndoManager {
     const record: Gesture = {
       over: over.promise,
       undoRequested: false,
+      undoBegun: false,
       entry: undefined,
       entries: [],
       history: this.#history,
@@ -287,6 +292,7 @@ export class UndoManager {
    * dropped; what could be redone is gone (kept in `cut`).
    */
   #push(groupId: string | undefined, isDiscardable: boolean, reserve = false): Entry {
+    this.#placed += 1;
     // A reservation can still end without a change: it must not discard requests or redo yet.
     if (!reserve) this.#drop();
     const requested = this.#requested();
@@ -300,6 +306,7 @@ export class UndoManager {
       cut,
       hidden,
       reservedAt: reserve ? this.#asked : undefined,
+      placed: this.#placed,
     };
     this.#entries.push(entry);
     return entry;
@@ -322,29 +329,7 @@ export class UndoManager {
     const cut = this.#entries.slice(0, at).filter((other) => !other.inForce);
     this.#entries = this.#entries.filter((other) => !cut.includes(other));
     entry.cut.push(...cut);
-    this.#reaim(reservedAt);
-  }
-
-  /**
-   * Aims again the undos and redos asked for after the ask numbered `after`
-   * and not begun: each was asked of the history as the asks before it were
-   * to leave it, and some of those were dropped. One left with no step to
-   * take is dropped.
-   */
-  #reaim(after: number): void {
-    const wanted = this.#requested(this.#asks.filter((ask) => ask.number <= after || ask.begun));
-    for (const ask of this.#asks) {
-      if (ask.cancelled || ask.begun || ask.number <= after) continue;
-      const target = this.#target(wanted, ask.action);
-      if (!target) {
-        ask.cancelled = true;
-        ask.dropped.resolve();
-        continue;
-      }
-      ask.entry = target;
-      if (ask.action === 'undo' && target.gesture) target.gesture.undoRequested = true;
-      wanted.set(target, ask.action === 'redo');
-    }
+    reaim(this.#entries, this.#asks, reservedAt);
   }
 
   /**
@@ -367,9 +352,7 @@ export class UndoManager {
   /** Drops the undos and redos asked for and not yet begun. */
   #drop(through = Infinity): void {
     for (const ask of this.#asks) {
-      if (ask.number > through) continue;
-      ask.cancelled = true;
-      ask.dropped.resolve();
+      if (ask.number <= through) cancel(ask, this.#asks);
     }
   }
 
@@ -382,6 +365,7 @@ export class UndoManager {
       action,
       cancelled: false,
       begun: false,
+      seen: this.#placed,
       dropped: deferred(),
     };
     this.#asks.push(ask);
@@ -402,6 +386,7 @@ export class UndoManager {
       const { entry } = ask;
       if (!current() || !this.#entries.includes(entry)) return;
       ask.begun = true;
+      if (action === 'undo' && entry.gesture) entry.gesture.undoBegun = true;
       entry.inForce = action === 'redo';
       const carrying = this.#carryOut(entry, action);
       entry.carrying = carrying.catch(() => undefined);
