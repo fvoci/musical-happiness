@@ -63,6 +63,7 @@ mod rooms_epochs;
 mod rooms_limits;
 mod rooms_measure;
 mod rooms_org;
+mod rooms_readers;
 mod rooms_review;
 mod rooms_snapshots;
 mod search;
