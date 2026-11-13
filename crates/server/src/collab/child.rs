@@ -1,6 +1,7 @@
 //! What a worker process is held to on Unix, set in the child between `fork` and
-//! `exec`: an address space of its own size, no core file, a handful of files, a
-//! process group of its own, and, on Linux, death with the server.
+//! `exec`: no core file, a handful of files, and a process group of its own. Linux
+//! also limits the address space and ties the worker's death to the server's.
+//! The address-space limit is Linux-only because macOS rejects it with `EINVAL`.
 //!
 //! A worker also ends when the server's end of its input closes, which is when the
 //! server ends however it ends; death with the server (`PR_SET_PDEATHSIG`) also ends a
@@ -22,7 +23,10 @@ pub(super) fn limit(command: &mut Command, memory_bytes: u64) {
     command.process_group(0);
     #[cfg(target_os = "linux")]
     let parent = libc::pid_t::try_from(std::process::id()).unwrap_or(0);
+    #[cfg(target_os = "linux")]
     let memory: libc::rlim_t = memory_bytes;
+    #[cfg(not(target_os = "linux"))]
+    let _ = memory_bytes;
     // SAFETY: the closure runs in the child between `fork` and `exec`, where only
     // functions that are safe in a signal handler may be called. It calls `setrlimit`,
     // `prctl` and `getppid`, which are, and makes an `io::Error` from the last error
@@ -30,6 +34,7 @@ pub(super) fn limit(command: &mut Command, memory_bytes: u64) {
     // server but the values it captured by copy.
     unsafe {
         command.pre_exec(move || {
+            #[cfg(target_os = "linux")]
             set_limit(libc::RLIMIT_AS, memory)?;
             set_limit(libc::RLIMIT_CORE, 0)?;
             set_limit(libc::RLIMIT_NOFILE, OPEN_FILES)?;

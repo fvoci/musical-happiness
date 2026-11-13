@@ -561,6 +561,7 @@ fn resident_kib(pid: u32) -> u64 {
 }
 
 /// Whether the tests run in a debug build: the times they print are of that.
+#[cfg(target_os = "linux")]
 fn profile() -> &'static str {
     if cfg!(debug_assertions) {
         "debug build"
@@ -569,6 +570,7 @@ fn profile() -> &'static str {
     }
 }
 
+#[cfg(target_os = "linux")]
 #[expect(clippy::print_stderr, reason = "the measurements are for the report")]
 fn report(line: &str) {
     eprintln!("measured: {line}");
@@ -586,5 +588,19 @@ fn signal(pid: u32, name: &str) {
 /// Whether a process of that identifier is there, a zombie included.
 #[cfg(unix)]
 fn is_alive(pid: u32) -> bool {
-    std::path::Path::new(&format!("/proc/{pid}")).exists()
+    let pid = libc::pid_t::try_from(pid).expect("a process identifier fits pid_t");
+    // SAFETY: signal zero only checks whether this process exists; it sends no signal.
+    if unsafe { libc::kill(pid, 0) } == 0 {
+        return true;
+    }
+    let error = std::io::Error::last_os_error();
+    if error.raw_os_error() == Some(libc::EPERM) {
+        return true;
+    }
+    assert_eq!(
+        error.raw_os_error(),
+        Some(libc::ESRCH),
+        "process {pid}: {error}"
+    );
+    false
 }
