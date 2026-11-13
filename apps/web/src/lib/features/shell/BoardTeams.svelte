@@ -79,13 +79,13 @@
   }
 </script>
 
-<section class="grid gap-2" aria-labelledby="{id}-title" data-testid="board-teams">
+<section class="grid grid-cols-1 gap-2" aria-labelledby="{id}-title" data-testid="board-teams">
   <h3 id="{id}-title" class="font-medium">{m.teams_title()}</h3>
   <p class="text-sm text-muted-foreground">{m.teams_board_description()}</p>
   {#if problem || unread}<p role="alert" class="text-sm text-destructive">
       {problem || m.teams_load_failed()}
     </p>{/if}
-  <ul class="grid gap-1">
+  <ul class="grid grid-cols-1 gap-1">
     {#each assigned as item (item.team.id)}
       <li class="flex items-start gap-2" data-board-team={item.team.name}>
         <details class="group min-w-0 flex-1">
@@ -100,7 +100,7 @@
             <span class="min-w-0 truncate" translate="no">{item.team.name}</span>
             <span class="text-sm text-muted-foreground">({item.team.members.length})</span>
           </summary>
-          <ul class="grid gap-1 pb-1 pl-6 text-sm">
+          <ul class="grid grid-cols-1 gap-1 pb-1 pl-6 text-sm">
             {#each item.team.members as person (person.userId)}
               <li class="break-words" translate="no">{person.displayName || person.username}</li>
             {/each}

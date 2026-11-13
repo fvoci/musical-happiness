@@ -236,7 +236,7 @@ async fn people(case: &mut Case, board: &str) -> String {
 }
 
 /// A team of the workspace with the peer in it and a role on the board, renamed and
-/// then taken apart.
+/// then taken apart; and another that stays.
 async fn teams(case: &mut Case, board: &str) {
     let peer = case.peer.clone();
     let made = case
@@ -254,11 +254,32 @@ async fn teams(case: &mut Case, board: &str) {
     let on_board = &[("boardId", board), ("teamId", team.as_str())];
     case.run("setBoardTeam", on_board, json!({"role": "editor"}))
         .await;
-    case.present("getBoardTeams", &[("boardId", board)], &team)
-        .await;
+    let listed = case
+        .present("getBoardTeams", &[("boardId", board)], &team)
+        .await
+        .text();
+    for held in [peer.as_str(), "Designers", "\"editor\""] {
+        assert!(
+            listed.contains(held),
+            "the board's team holds {held}: {listed}"
+        );
+    }
     case.run("removeBoardTeam", on_board, json!({})).await;
     case.run("removeTeamMember", member_at, json!({})).await;
     case.run("deleteTeam", at, json!({})).await;
+    // One team stays, with a role on the board: what the next founder reads of their
+    // teams must not be this one.
+    let kept = case
+        .run("createTeam", &[], json!({"name": "Kept"}))
+        .await
+        .value();
+    let kept = case.remember(&kept, "id");
+    case.run(
+        "setBoardTeam",
+        &[("boardId", board), ("teamId", kept.as_str())],
+        json!({"role": "viewer"}),
+    )
+    .await;
 }
 
 async fn joining(case: &mut Case) {
