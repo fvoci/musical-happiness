@@ -348,7 +348,7 @@ export class BoardStore {
 
   /**
    * Reads the board again over what is shown, after changes may have been
-   * missed (`resync`). Unlike `load`, the board stays on screen meanwhile;
+   * missed (`resync`, a card's room gone). Unlike `load`, the board stays;
    * what is read is merged with it (`reread`): a write under way, or a
    * change that arrived while reading, is not taken back. Of two readings
    * that overlap, the later one counts.
@@ -787,7 +787,7 @@ export class BoardStore {
   async showCard(cardId: string): Promise<CardStore> {
     if (this.openCard?.cardId === cardId) return this.openCard;
     this.openCard?.close();
-    const store = new CardStore(this, cardId);
+    const store = new CardStore(this, cardId, () => void this.#refresh());
     this.openCard = store;
     await store.load();
     return store;
