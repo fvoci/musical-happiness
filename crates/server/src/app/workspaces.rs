@@ -8,7 +8,7 @@ use std::collections::HashSet;
 use fvoci_model::{Board, OrgRole, Session, UserWorkspace, Workspace, WorkspaceRole};
 use fvoci_store::{PublicBoards, Tenant};
 
-use super::{App, as_managed, sso};
+use super::{App, Asker, as_managed, sso};
 use crate::auth::secret::new_secret;
 use crate::error::AppError;
 
@@ -56,7 +56,7 @@ impl App {
             .store()
             .required_provider_for(&session.user_id, org_id)
             .await?;
-        sso::require_session_opens(session, org_id, required.as_deref())?;
+        sso::require_session_opens(session.into(), org_id, required.as_deref())?;
         Ok(Some(self.scoped(tenant)))
     }
 
@@ -83,14 +83,29 @@ impl App {
         session: &Session,
         workspace_id: &str,
     ) -> Result<Option<Entered>, AppError> {
+        self.enter_workspace_as(session.into(), workspace_id).await
+    }
+
+    /// As [`Self::enter_workspace`], for who is known by their user and the provider
+    /// their session was made through: a request by its session, a websocket
+    /// connection by what it kept of the session its handshake came with.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::enter_workspace`].
+    pub async fn enter_workspace_as(
+        &self,
+        asker: Asker<'_>,
+        workspace_id: &str,
+    ) -> Result<Option<Entered>, AppError> {
         let Some(access) = self
             .store()
-            .resolve_workspace(&session.user_id, workspace_id)
+            .resolve_workspace(asker.user_id, workspace_id)
             .await?
         else {
             return Ok(None);
         };
-        sso::require_session_opens(session, &access.org_id, access.required_provider.as_deref())?;
+        sso::require_session_opens(asker, &access.org_id, access.required_provider.as_deref())?;
         let app = self.in_organization(&access.org_id)?;
         let home = app.store().tenant() == self.store().tenant();
         Ok(Some(Entered {

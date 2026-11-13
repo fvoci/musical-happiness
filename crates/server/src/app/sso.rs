@@ -139,6 +139,37 @@ pub(crate) fn check_change(
     }
 }
 
+/// Who asks for what is an organization's: the user, and the provider their session
+/// was made through, `None` for one made with a password. A request has its session;
+/// a websocket connection keeps these two of the session its handshake came with.
+#[derive(Debug, Clone, Copy)]
+pub struct Asker<'a> {
+    /// The user of the session.
+    pub user_id: &'a str,
+    /// The provider the session was made through.
+    pub made_through: Option<&'a str>,
+}
+
+impl<'a> Asker<'a> {
+    /// The user with a session made with a password, through no provider.
+    #[must_use]
+    pub fn with_password(user_id: &'a str) -> Self {
+        Self {
+            user_id,
+            made_through: None,
+        }
+    }
+}
+
+impl<'a> From<&'a Session> for Asker<'a> {
+    fn from(session: &'a Session) -> Self {
+        Self {
+            user_id: &session.user_id,
+            made_through: session.login_provider_id.as_deref(),
+        }
+    }
+}
+
 /// Refuses a session that does not open what is the organization `org_id`'s:
 /// `required` is the provider the organization takes sessions of and no other, as
 /// the store answered it for this user, `None` if it takes a password too.
@@ -150,16 +181,16 @@ pub(crate) fn check_change(
 /// user has one, so that the answer tells nobody else that the organization is
 /// there.
 pub(crate) fn require_session_opens(
-    session: &Session,
+    asker: Asker<'_>,
     org_id: &str,
     required: Option<&str>,
 ) -> Result<(), AppError> {
-    if session_opens(required, session.login_provider_id.as_deref()) {
+    if session_opens(required, asker.made_through) {
         return Ok(());
     }
     tracing::debug!(
         org_id,
-        user_id = %session.user_id,
+        user_id = asker.user_id,
         "a session not made through the organization's provider was refused"
     );
     Err(AppError::sso_required(org_id))
@@ -246,6 +277,6 @@ impl App {
             .store()
             .required_provider_for(&session.user_id, &org_id)
             .await?;
-        require_session_opens(session, &org_id, required.as_deref())
+        require_session_opens(session.into(), &org_id, required.as_deref())
     }
 }

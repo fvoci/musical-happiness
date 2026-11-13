@@ -8,9 +8,10 @@ use fvoci_store::DbType;
 use fvoci_store::testing::db_type_of_the_tests;
 use serde_json::{Value, json};
 
-use crate::common::{Client, ROOT_WORKSPACE_ID, Setup, TestServer};
+use crate::common::{Client, ROOT_WORKSPACE_ID, Setup, TEST_WORKSPACE_ID, TestServer};
 use crate::fake_oidc::FakeProvider;
 use crate::oidc::{org_of, set_provider, with_key_and_private_addresses};
+use crate::rooms::{Peer, paragraphs, table};
 use crate::sso::{
     ADMIN_SUBJECT, Passwords, Two, admin_through_provider, require_sso, through_provider, tie,
     two_organizations,
@@ -277,6 +278,59 @@ async fn the_session_of_another_organizations_provider_follows_nothing() {
         follows(&ts, &mut of_ours, &their_workspace, &user1, HOPE).await,
         "theirs takes any session"
     );
+    ts.teardown().await;
+    fake.stop();
+}
+
+/// The room of a card's body is behind the wall, as the card is: when its organization
+/// begins to take no password, the connection of a password session is put out at the
+/// next asking, as for a card that is not there, and comes into no room of it again,
+/// nor does a new one; the connection of the provider's session stays and writes.
+/// Released, the password comes in again.
+#[tokio::test]
+async fn the_room_of_a_body_is_behind_the_wall() {
+    let fake = FakeProvider::start().await;
+    let ts = Setup::native()
+        .trusting_oidc_provider(&fake.certificate_der)
+        .configure(|config| {
+            with_key_and_private_addresses(config);
+            config.collab.collab_recheck_seconds = 1;
+        })
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let org_id = org_of(&ts).await;
+    set_provider(&ts, &org_id, &fake).await;
+    let t = table(&ts, &paragraphs(&["first"])).await;
+    let admin = admin_through_provider(&ts, &fake, &org_id).await;
+    let mut with_password = Peer::connect(&ts.client, 101).await;
+    let mut through = Peer::connect(&admin, 102).await;
+    with_password.joined(TEST_WORKSPACE_ID, &t.card_id).await;
+    through.joined(TEST_WORKSPACE_ID, &t.card_id).await;
+    with_password.write_acked("with a password").await;
+
+    require_sso(&admin, &org_id, &fake, Passwords::Refused)
+        .await
+        .check_ok();
+    let left = with_password.text("DOC_LEFT").await;
+    assert_eq!(left["reason"], json!("not_found"), "{left}");
+    let mut late = Peer::connect(&ts.client, 103).await;
+    for peer in [&mut with_password, &mut late] {
+        let refused = peer.join(TEST_WORKSPACE_ID, &t.card_id).await;
+        assert_eq!(refused["action"], json!("DOC_REFUSED"), "{refused}");
+        assert_eq!(refused["reason"], json!("not_found"), "{refused}");
+    }
+    through.write_acked("through the provider").await;
+    assert_eq!(
+        through.lines(),
+        ["first", "with a password", "through the provider"]
+    );
+
+    require_sso(&admin, &org_id, &fake, Passwords::Taken)
+        .await
+        .check_ok();
+    late.joined(TEST_WORKSPACE_ID, &t.card_id).await;
     ts.teardown().await;
     fake.stop();
 }

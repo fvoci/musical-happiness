@@ -13,6 +13,8 @@ use fvoci_model::{Board, BoardMember, BoardRole, BoardType, OrgRole, WorkspaceRo
 use fvoci_store::{Looking, Reach};
 
 #[cfg(test)]
+mod session_table;
+#[cfg(test)]
 mod table;
 
 /// What a user is where a board lives: in the board's organization and in its
@@ -262,6 +264,41 @@ impl Grant {
     #[must_use]
     pub const fn reads(self) -> bool {
         self.allows(BoardPermission::ViewBoard)
+    }
+}
+
+/// How a user is in the room of a card's body that is edited together.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DocMode {
+    /// The user receives what the others write; what they send is refused.
+    Read,
+    /// The user writes as well.
+    Write,
+}
+
+impl DocMode {
+    /// The value of the member `mode` of the websocket's messages.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Read => "read",
+            Self::Write => "write",
+        }
+    }
+}
+
+/// How the holder of `grant` on a card's board enters the room of the card's body:
+/// writing for who may change the board's cards, reading for who reads the board, and
+/// not at all (`None`) for anybody else, who is told what one is told of a card that
+/// is not there. A read token of a shared board is no grant: its readers stay outside.
+#[must_use]
+pub const fn doc_mode(grant: Grant) -> Option<DocMode> {
+    if grant.allows(BoardPermission::ManageBoardCards) {
+        Some(DocMode::Write)
+    } else if grant.reads() {
+        Some(DocMode::Read)
+    } else {
+        None
     }
 }
 

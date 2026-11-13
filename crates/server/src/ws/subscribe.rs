@@ -14,6 +14,7 @@ use super::{
     Command, Hub, Identity, Listener, ListenerId, Listeners, subscribe_to_blocks,
     subscribe_to_workspace, unsubscribe_from_blocks,
 };
+use crate::app::Asker;
 use crate::metrics::Disconnect;
 use crate::permissions::session_opens;
 
@@ -32,6 +33,14 @@ pub(super) struct Who {
 }
 
 impl Who {
+    /// Who asks, for what is asked of an organization for the connection.
+    pub(super) fn asker(&self) -> Asker<'_> {
+        Asker {
+            user_id: &self.user_id,
+            made_through: self.login_provider.as_deref(),
+        }
+    }
+
     /// Whose the connection of a handshake is; nobody's without a session.
     pub(super) fn of(identity: Option<Identity>) -> Self {
         identity.map_or_else(Self::default, |identity| Self {

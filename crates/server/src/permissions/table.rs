@@ -10,7 +10,10 @@ use super::BoardPermission::{
     ShareBoard, ViewBoard,
 };
 use super::BoardScope::{BuiltIn, InvitedOnly, InvitedOnlyTemplate, Open, OpenTemplate};
-use super::{Actor, BoardFacts, BoardPermission, BoardScope, Grant, grant, highest_board_role};
+use super::{
+    Actor, BoardFacts, BoardPermission, BoardScope, DocMode, Grant, doc_mode, grant,
+    highest_board_role,
+};
 
 const VIEWER: &[BoardPermission] = &[SeeBoard, ViewBoard, ListMembers];
 const COMMENTER: &[BoardPermission] = &[SeeBoard, ViewBoard, ListMembers, CommentBoardCards];
@@ -797,65 +800,147 @@ fn who_administers_the_organization() {
     }
 }
 
-/// One case of which session opens what is an organization's.
-struct SessionRow {
-    case: &'static str,
-    /// The provider the organization takes sessions of and no other.
-    required: Option<&'static str>,
-    /// The provider the session was made through.
-    made_through: Option<&'static str>,
-    opens: bool,
-}
-
-const SESSION_ROWS: &[SessionRow] = &[
-    SessionRow {
-        case: "a password opens an organization that takes one",
-        required: None,
-        made_through: None,
-        opens: true,
-    },
-    SessionRow {
-        case: "a provider's session opens an organization that takes a password too",
-        required: None,
-        made_through: Some("ours"),
-        opens: true,
-    },
-    SessionRow {
-        case: "a password opens nothing of an organization that takes none",
-        required: Some("ours"),
-        made_through: None,
-        opens: false,
-    },
-    SessionRow {
-        case: "the session of the organization's provider opens it",
-        required: Some("ours"),
-        made_through: Some("ours"),
-        opens: true,
-    },
-    SessionRow {
-        case: "the session of another organization's provider opens nothing",
-        required: Some("ours"),
-        made_through: Some("theirs"),
-        opens: false,
-    },
-    SessionRow {
-        case: "the session of the provider the organization had before opens nothing",
-        required: Some("ours-now"),
-        made_through: Some("ours-before"),
-        opens: false,
-    },
+/// How one enters the room of a card's body that is edited together: writing for who
+/// may change the board's cards, reading for who reads the board, and not at all for
+/// anybody else. `(case, who, scope, role on the board, mode)`.
+const ROOM_ROWS: &[RoomRow] = &[
+    room(
+        "an admin writes",
+        MEMBER,
+        InvitedOnly,
+        Some(BoardRole::Admin),
+        WRITE,
+    ),
+    room(
+        "an editor writes",
+        MEMBER,
+        InvitedOnly,
+        Some(BoardRole::Editor),
+        WRITE,
+    ),
+    room(
+        "a commenter reads",
+        MEMBER,
+        InvitedOnly,
+        Some(BoardRole::Commenter),
+        READ,
+    ),
+    room(
+        "a viewer reads",
+        MEMBER,
+        InvitedOnly,
+        Some(BoardRole::Viewer),
+        READ,
+    ),
+    room(
+        "an invited guest who edits writes",
+        GUEST,
+        InvitedOnly,
+        Some(BoardRole::Editor),
+        WRITE,
+    ),
+    room(
+        "an invited guest who views reads",
+        GUEST,
+        InvitedOnly,
+        Some(BoardRole::Viewer),
+        READ,
+    ),
+    room(
+        "an editor of an open template writes",
+        MEMBER,
+        OpenTemplate,
+        Some(BoardRole::Editor),
+        WRITE,
+    ),
+    room(
+        "whoever works there reads an open template",
+        MEMBER,
+        OpenTemplate,
+        None,
+        READ,
+    ),
+    // To see an open board is not to read it: one joins it first.
+    room("a member who has not joined", MEMBER, Open, None, None),
+    room(
+        "a member: no invited-only board",
+        MEMBER,
+        InvitedOnly,
+        None,
+        None,
+    ),
+    room("a guest who was not invited", GUEST, Open, None, None),
+    // To manage a board is not to read it.
+    room(
+        "a workspace admin who only manages",
+        WORKSPACE_ADMIN,
+        InvitedOnly,
+        None,
+        None,
+    ),
+    room(
+        "an organization's admin outside the workspace",
+        ORG_ADMIN_ONLY,
+        Open,
+        None,
+        None,
+    ),
+    // A role left on a board after leaving the workspace opens nothing.
+    room(
+        "who left the workspace, with a role left",
+        REMOVED,
+        InvitedOnly,
+        Some(BoardRole::Admin),
+        None,
+    ),
+    room("a stranger", STRANGER, Open, None, None),
+    room(
+        "a stranger with a stored role",
+        STRANGER,
+        InvitedOnly,
+        Some(BoardRole::Editor),
+        None,
+    ),
 ];
 
-#[test]
-fn which_session_opens_an_organization() {
-    for row in SESSION_ROWS {
-        assert_eq!(
-            super::session_opens(row.required, row.made_through),
-            row.opens,
-            "{}",
-            row.case
-        );
+/// One case: who, on what board, with which role there, enters the room how.
+struct RoomRow {
+    case: &'static str,
+    actor: Actor,
+    scope: BoardScope,
+    role: Option<BoardRole>,
+    mode: Option<DocMode>,
+}
+
+const fn room(
+    case: &'static str,
+    actor: Actor,
+    scope: BoardScope,
+    role: Option<BoardRole>,
+    mode: Option<DocMode>,
+) -> RoomRow {
+    RoomRow {
+        case,
+        actor,
+        scope,
+        role,
+        mode,
     }
+}
+
+const READ: Option<DocMode> = Some(DocMode::Read);
+const WRITE: Option<DocMode> = Some(DocMode::Write);
+
+#[test]
+fn who_enters_the_room_of_a_body_and_how() {
+    for row in ROOM_ROWS {
+        let facts = BoardFacts {
+            scope: row.scope,
+            role: row.role,
+        };
+        assert_eq!(doc_mode(grant(row.actor, facts)), row.mode, "{}", row.case);
+    }
+    assert_eq!(doc_mode(Grant::NONE), None, "no grant, as a read token is");
 }
 
 /// Who reads the audit log of a workspace: whoever works there, its administrators and

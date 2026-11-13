@@ -213,6 +213,18 @@ reasons! {
     TooManyDocuments => "too_many_documents", "Too many documents open";
     /// The body's document cannot be worked on for now.
     DocumentUnavailable => "document_unavailable", "Document unavailable";
+    /// The connection reads the body's document and does not write it.
+    DocumentReadOnly => "document_read_only", "Document read only";
+    /// The websocket connection does not read what it is sent of the body's document.
+    ConnectionTooSlow => "connection_too_slow", "Connection too slow";
+    /// The websocket connection is in as many rooms of bodies as one may be.
+    TooManyDocumentsJoined => "too_many_documents_joined", "Connection in too many documents";
+    /// As many websocket connections are in the room of the body as may be.
+    DocumentFull => "document_full", "Document full";
+    /// As many of the user's websocket connections are in the room of the body as may be.
+    TooManyConnectionsJoined => "too_many_connections_joined", "Too many connections of one user";
+    /// The websocket connection sends more of the rooms in a second than it may.
+    TooManyFrames => "too_many_frames", "Too many frames";
     /// The server has no `secret_key` to seal a provider's client secret with.
     SecretKeyRequired => "secret_key_required", "Secret key required";
     /// The issuer of a provider could not be read and checked.
