@@ -10,7 +10,8 @@ use fvoci_model::{Body, BodyError};
 
 use super::frame::{FrameError, read_frame, write_frame};
 use super::wire::{
-    Answer, DocNumber, Limits, Refusal, Refused, Request, Response, Source, encode_response,
+    ASIDE_DOCUMENTS, Answer, DocNumber, Limits, Refusal, Refused, Request, Response, Share, Source,
+    encode_response,
 };
 
 /// The largest frame before the limits are known: the one that brings them.
@@ -62,11 +63,12 @@ struct Worker {
     held_bytes: u64,
 }
 
-/// A document and the size of its state.
+/// A document, the size of its state, and the share it is counted in.
 #[derive(Debug)]
 struct Held {
     doc: BodyDoc,
     state_bytes: u64,
+    share: Share,
 }
 
 impl Worker {
@@ -90,7 +92,7 @@ impl Worker {
                 Refusal::OutOfOrder,
                 "the worker is configured once",
             )),
-            Request::Open { doc, source } => self.open(doc, source),
+            Request::Open { doc, source, share } => self.open(doc, source, share),
             Request::Take { doc, update } => self.take(doc, &update, self.update_limits),
             Request::Retake { doc, update } => self.take(doc, &update, self.logged_limits()),
             Request::StateVector(doc) => Ok(Answer::Bytes(self.doc(doc)?.state_vector())),
@@ -134,7 +136,8 @@ impl Worker {
             .as_ref()
             .map(|body| body.file_ids().into_iter().map(str::to_owned).collect())
             .unwrap_or_default();
-        self.hold(doc, changed.doc, state_bytes)?;
+        let share = self.docs.get(&doc).map_or(Share::Kept, |held| held.share);
+        self.hold(doc, changed.doc, state_bytes, share)?;
         Ok(Answer::Taken {
             repair: changed.repair.update,
             state_bytes,
@@ -162,7 +165,13 @@ impl Worker {
 
     /// Holds `held` under `doc`, in place of what was held there, if the states of all
     /// the documents stay within [`Limits::held_bytes`].
-    fn hold(&mut self, doc: DocNumber, held: BodyDoc, state_bytes: u64) -> Result<(), Refused> {
+    fn hold(
+        &mut self,
+        doc: DocNumber,
+        held: BodyDoc,
+        state_bytes: u64,
+        share: Share,
+    ) -> Result<(), Refused> {
         let before = self.docs.get(&doc).map_or(0, |held| held.state_bytes);
         let after = self
             .held_bytes
@@ -180,22 +189,32 @@ impl Worker {
             Held {
                 doc: held,
                 state_bytes,
+                share,
             },
         );
         Ok(())
     }
 
-    fn open(&mut self, doc: DocNumber, source: Source) -> Response {
+    fn open(&mut self, doc: DocNumber, source: Source, share: Share) -> Response {
         if self.docs.contains_key(&doc) {
             return Err(refused(
                 Refusal::UnknownDocument,
                 "a document is open under it already",
             ));
         }
-        if u64::try_from(self.docs.len()).unwrap_or(u64::MAX) >= self.limits.documents {
+        let of_share = self
+            .docs
+            .values()
+            .filter(|held| held.share == share)
+            .count();
+        let limit = match share {
+            Share::Kept => self.limits.documents,
+            Share::Aside => ASIDE_DOCUMENTS,
+        };
+        if u64::try_from(of_share).unwrap_or(u64::MAX) >= limit {
             return Err(refused(
                 Refusal::TooManyDocuments,
-                "the worker holds as many documents as it may",
+                "the worker holds as many documents of that share as it may",
             ));
         }
         let (opened, state) = match source {
@@ -225,7 +244,7 @@ impl Worker {
             }
         };
         let (state, state_bytes) = state;
-        self.hold(doc, opened, state_bytes)?;
+        self.hold(doc, opened, state_bytes, share)?;
         Ok(Answer::Opened { state, state_bytes })
     }
 }
@@ -305,14 +324,17 @@ mod tests {
             Request::Open {
                 doc: 1,
                 source: Source::Body(Some(body.to_vec())),
+                share: Share::Kept,
             },
             Request::Open {
                 doc: 1,
                 source: Source::Body(None),
+                share: Share::Kept,
             },
             Request::Open {
                 doc: 2,
                 source: Source::Body(None),
+                share: Share::Kept,
             },
             Request::Body(1),
             Request::Close(1),
@@ -329,6 +351,42 @@ mod tests {
         let sent: serde_json::Value = serde_json::from_slice(body).expect("JSON");
         assert_eq!(json, sent, "its body");
         assert_eq!(refusal(5), Some(Refusal::UnknownDocument), "closed");
+    }
+
+    #[test]
+    fn a_worker_that_holds_as_many_documents_as_it_may_opens_some_aside() {
+        let open = |doc: DocNumber, share: Share| Request::Open {
+            doc,
+            source: Source::Body(None),
+            share,
+        };
+        let aside = ASIDE_DOCUMENTS;
+        let mut requests = vec![open(1, Share::Kept)];
+        requests.extend((0..=aside).map(|index| open(10 + index, Share::Aside)));
+        requests.extend([
+            Request::Close(10),
+            open(30, Share::Aside),
+            open(2, Share::Kept),
+        ]);
+        let got = answers(&requests);
+        let refused = |index: usize| got[index].as_ref().map_err(|refused| refused.refusal).err();
+        let aside = usize::try_from(aside).expect("a few");
+        assert!((0..=aside).all(|index| refused(index).is_none()), "{got:?}");
+        assert_eq!(
+            refused(aside + 1),
+            Some(Refusal::TooManyDocuments),
+            "past the share aside"
+        );
+        assert_eq!(
+            refused(aside + 3),
+            None,
+            "one closed aside makes room aside"
+        );
+        assert_eq!(
+            refused(aside + 4),
+            Some(Refusal::TooManyDocuments),
+            "none kept past the limit"
+        );
     }
 
     #[test]

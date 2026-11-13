@@ -59,7 +59,7 @@ use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 
 use crate::app::App;
-use crate::collab_worker::wire::{Answer, Limits, Refusal, Refused, Request};
+use crate::collab_worker::wire::{ASIDE_DOCUMENTS, Answer, Limits, Refusal, Refused, Request};
 use crate::config::collab::CollabSettings;
 use crate::error::AppError;
 use place::{Held, Slot};
@@ -106,8 +106,13 @@ struct Inner {
     /// Per organization: a deletion excludes its document work and changes to its
     /// card tree until it is done ([`removal`]).
     gates: Mutex<HashMap<Tenant, Arc<tokio::sync::RwLock<()>>>>,
-    /// How many documents each worker was given, of those that are open.
+    /// How many documents each worker was given, of those that are open, but those
+    /// opened aside.
     loads: Vec<AtomicUsize>,
+    /// The share of documents opened aside, only to write their log to their card
+    /// ([`Share::Aside`](crate::collab_worker::wire::Share::Aside)): of the whole server, so that a worker never holds more of
+    /// them than it takes, whichever they are opened in. Who finds none free waits.
+    aside: Arc<tokio::sync::Semaphore>,
     /// The documents that are open, or were and are closed for a while, by card.
     slots: Mutex<HashMap<String, Arc<tokio::sync::Mutex<Slot>>>>,
     /// The next number a document is opened under in a worker.
@@ -221,6 +226,9 @@ impl Collab {
                     .map(|_| Worker::new(worker_settings.clone()))
                     .collect(),
                 loads: (0..count).map(|_| AtomicUsize::new(0)).collect(),
+                aside: Arc::new(tokio::sync::Semaphore::new(
+                    usize::try_from(ASIDE_DOCUMENTS).unwrap_or(1),
+                )),
                 slots: Mutex::new(HashMap::new()),
                 numbers: AtomicU64::new(1),
                 limits,
@@ -446,13 +454,7 @@ impl Collab {
             card_id,
             move |collab, app, card_id, mut slot| async move {
                 let (collab, app, card_id, slot) = (&collab, &app, card_id.as_str(), &mut slot);
-                let mut opened_here = false;
-                let written = collab
-                    .write_first(app, card_id, slot, &mut opened_here)
-                    .await;
-                if opened_here {
-                    collab.forget(slot).await;
-                }
+                let written = collab.write_first(app, card_id, slot).await;
                 collab.retire(slot);
                 written
             },

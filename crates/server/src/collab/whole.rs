@@ -87,14 +87,14 @@ impl Collab {
         let _gate = self.reading(app.store().tenant()).await;
         card_ids.sort();
         card_ids.dedup();
-        let mut held: Vec<(String, Held, bool)> = Vec::with_capacity(card_ids.len());
+        let mut held: Vec<(String, Held)> = Vec::with_capacity(card_ids.len());
         for card_id in card_ids {
             let slot = self.slot(app, &card_id).await;
-            held.push((card_id, slot, false));
+            held.push((card_id, slot));
         }
         let mut written_first = Ok(());
-        for (card_id, slot, opened_here) in &mut held {
-            if let Err(error) = self.write_first(app, card_id, slot, opened_here).await {
+        for (card_id, slot) in &mut held {
+            if let Err(error) = self.write_first(app, card_id, slot).await {
                 written_first = Err(error);
                 break;
             }
@@ -103,18 +103,15 @@ impl Collab {
             Ok(()) => write(app.clone()).await,
             Err(error) => Err(error),
         };
-        for (card_id, mut slot, opened_here) in held {
-            if opened_here {
-                // Opened to write its log: the next request opens it from the card.
-                self.forget(&mut slot).await;
-            } else if written.is_ok() && slot.open.is_some() {
+        for (card_id, mut slot) in held {
+            if written.is_ok() && slot.open.is_some() {
                 self.after_whole(app, &card_id, &mut slot).await;
                 self.retire(&mut slot);
                 continue;
             }
-            // Not open (its worker ended over it, or it was opened here for its log
-            // alone), with a room all the same: the room holds the document before
-            // the write, and is told to open it anew.
+            // Not open (its worker ended over it, or it was opened for its log alone),
+            // with a room all the same: the room holds the document before the write,
+            // and is told to open it anew.
             if written.is_ok() && self.has_room(app, &card_id) {
                 self.tell(app, &card_id, DocChange::Closed);
             }
@@ -124,25 +121,36 @@ impl Collab {
     }
 
     /// Writes to a card what the editors typed and it does not hold yet: from its open
-    /// document, or from the document's log, opened for that.
+    /// document, or from the document's log, opened aside for that and closed after
+    /// ([`Collab::open_aside`]), so that a server that holds as many documents as it
+    /// may still writes it.
+    ///
+    /// # Errors
+    ///
+    /// Returns `document_unavailable` if what was read cannot be written, and the
+    /// errors of reading whether there is a log and of opening it.
     pub(super) async fn write_first(
         &self,
         app: &App,
         card_id: &str,
         slot: &mut Held,
-        opened_here: &mut bool,
     ) -> Result<(), AppError> {
-        if slot.open.is_none() {
+        let opened_aside = slot.open.is_none();
+        if opened_aside {
             if !app.store().has_unwritten_body(card_id).await? {
                 return Ok(());
             }
-            self.ensure_open(app, card_id, slot).await?;
-            *opened_here = true;
+            self.open_aside(app, card_id, slot).await?;
         }
-        self.write_now(app, card_id, slot).await.map_err(|error| {
+        let written = self.write_now(app, card_id, slot).await.map_err(|error| {
             tracing::error!(%error, card_id, "cannot write what the editors typed before a body is written whole");
             refusals::unavailable()
-        })
+        });
+        if opened_aside {
+            // Opened for its log alone: the next request opens it from the card.
+            self.forget(slot).await;
+        }
+        written
     }
 
     /// Makes an open document whose card was written whole again from that body.

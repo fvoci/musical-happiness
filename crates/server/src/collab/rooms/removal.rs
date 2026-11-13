@@ -5,7 +5,9 @@ use std::sync::atomic::Ordering;
 
 use super::{Collab, Room};
 use crate::app::App;
+use crate::collab::messages::reason_of;
 use crate::collab::place;
+use crate::error::AppError;
 
 impl Collab {
     /// Called with the document deletion gate held, before allowing any new work.
@@ -63,10 +65,12 @@ impl Collab {
     /// The documents were already forgotten: closing an old room must not close the
     /// new document of a card that somebody restored meanwhile.
     pub(in crate::collab) async fn finish_deleted_rooms(&self, rooms: Vec<Arc<Room>>) {
+        // As for a card that is not there.
+        let reason = reason_of(&AppError::not_found("card"));
         for room in rooms {
             let mut turn = room.turn.lock().await;
             while !turn.members.is_empty() {
-                turn.put_out(0, "not_found");
+                turn.put_out(0, &reason);
             }
             turn.closed = true;
         }

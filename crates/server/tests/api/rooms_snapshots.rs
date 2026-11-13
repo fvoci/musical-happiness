@@ -185,3 +185,75 @@ async fn copying_a_card_or_template_includes_pending_bodies_of_child_cards() {
     }
     th.teardown().await;
 }
+
+/// A server that holds as many documents as it may (one worker of one document, open
+/// in a room): a copy and an export still write the log of a card whose document is
+/// not open, in the worker's share aside, and copy what the editors typed.
+#[tokio::test]
+async fn a_full_server_still_writes_a_closed_documents_log_before_a_copy_or_an_export() {
+    let th = Setup::native()
+        .configure(|config| {
+            config.collab.collab_workers = 1;
+            config.collab.collab_documents_per_worker = 1;
+        })
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let e = crate::collab::editing(&th, &paragraphs(&["first"])).await;
+    let board_id = e
+        .app
+        .store()
+        .get_block(&e.card_id)
+        .await
+        .expect("the card")
+        .board_id;
+    let (editor, epoch) = crate::collab::joined(e.app.collab(), &e.app, &e.card_id, 102).await;
+    e.app
+        .collab()
+        .take(
+            &e.app,
+            &e.card_id,
+            epoch,
+            &e.user1,
+            &editor.append_paragraph("logged, and its document closed"),
+        )
+        .await
+        .expect("logged");
+    let wanted = editor.body().map(|body| body.document().clone());
+    e.app.collab().abandon().await;
+    let card_in_board = |title: &str| {
+        let path = format!("/w/{TEST_WORKSPACE_ID}/boards/{board_id}/cards");
+        let body = serde_json::json!({ "title": title });
+        let client = &th.client;
+        async move {
+            let card: fvoci_model::Card = client.post(&path, &body).await.created_json();
+            card.id
+        }
+    };
+    let (open, refused) = (card_in_board("Open").await, card_in_board("Refused").await);
+    let mut holder = Peer::connect(&th.client, 103).await;
+    holder.joined(TEST_WORKSPACE_ID, &open).await;
+    let mut other = Peer::connect(&th.client, 104).await;
+    let answer = other.join(TEST_WORKSPACE_ID, &refused).await;
+    assert_eq!(
+        (&answer["action"], &answer["reason"]),
+        (
+            &serde_json::json!("DOC_REFUSED"),
+            &serde_json::json!("too_many_documents")
+        ),
+        "the server holds as many documents as it may: {answer}"
+    );
+    let table = Table {
+        board_id,
+        card_id: e.card_id,
+    };
+    for operation in ["archive", "card"] {
+        assert_eq!(
+            snapshot(&th, &table, operation).await,
+            wanted,
+            "{operation}"
+        );
+    }
+    th.teardown().await;
+}

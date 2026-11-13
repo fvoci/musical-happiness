@@ -159,15 +159,8 @@ impl Collab {
         };
         for card_id in &pending {
             let mut slot = self.slot(app, card_id).await;
-            let mut opened_here = false;
-            if let Err(error) = self
-                .write_first(app, card_id, &mut slot, &mut opened_here)
-                .await
-            {
+            if let Err(error) = self.write_first(app, card_id, &mut slot).await {
                 tracing::error!(%error, card_id, "cannot write a deleted card's body; its log keeps it");
-            }
-            if opened_here {
-                self.forget(&mut slot).await;
             }
             self.retire(&mut slot);
         }

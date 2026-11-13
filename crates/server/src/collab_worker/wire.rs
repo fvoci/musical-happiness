@@ -47,6 +47,21 @@ const FRAME_OVERHEAD: u64 = 1024;
 /// A document of the worker, by the number the server gave it when it opened it.
 pub type DocNumber = u64;
 
+/// How many documents a worker holds at once besides its `documents`, opened only to
+/// write what their log holds to their card and closed at once ([`Share::Aside`]): a
+/// worker that holds as many documents as it may still writes a log so.
+pub const ASIDE_DOCUMENTS: u64 = 4;
+
+/// Which of a worker's shares of documents an opened document is counted in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Share {
+    /// Kept open for the rooms and the requests, within the worker's `documents`.
+    Kept,
+    /// Opened only to write its log to its card, and closed at once, within
+    /// [`ASIDE_DOCUMENTS`].
+    Aside,
+}
+
 /// Where a document is opened from.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Source {
@@ -67,6 +82,8 @@ pub enum Request {
         doc: DocNumber,
         /// What it is opened from.
         source: Source,
+        /// Which share it is counted in.
+        share: Share,
     },
     /// Takes a client's update into a document.
     Take {
@@ -198,12 +215,16 @@ impl Request {
                     out.number(number);
                 }
             }
-            Self::Open { doc, source } => {
+            Self::Open { doc, source, share } => {
                 out.tag(2).number(*doc);
                 match source {
                     Source::State(state) => out.tag(0).bytes(state),
                     Source::Body(body) => out.tag(1).optional(body.as_deref()),
                 };
+                out.tag(match share {
+                    Share::Kept => 0,
+                    Share::Aside => 1,
+                });
             }
             Self::Take { doc, update } => {
                 out.tag(3).number(*doc).bytes(update);
@@ -256,7 +277,12 @@ impl Request {
                     1 => Source::Body(input.optional()?),
                     _ => return Err(input.malformed()),
                 };
-                Self::Open { doc, source }
+                let share = match input.tag()? {
+                    0 => Share::Kept,
+                    1 => Share::Aside,
+                    _ => return Err(input.malformed()),
+                };
+                Self::Open { doc, source, share }
             }
             3 => Self::Take {
                 doc: input.number()?,
@@ -529,14 +555,17 @@ mod tests {
             Request::Open {
                 doc: 7,
                 source: Source::State(vec![1, 2, 3]),
+                share: Share::Aside,
             },
             Request::Open {
                 doc: 8,
                 source: Source::Body(None),
+                share: Share::Kept,
             },
             Request::Open {
                 doc: 9,
                 source: Source::Body(Some(b"{}".to_vec())),
+                share: Share::Kept,
             },
             Request::Take {
                 doc: 1,
