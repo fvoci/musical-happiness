@@ -146,6 +146,7 @@ pub(super) const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
     ("PUT", "/guest-invitations", "setGuestInvitations"),
     ("GET", "/invitations", "getInvitations"),
     ("POST", "/invitations", "createInvitation"),
+    ("POST", "/invitations/mail", "emailInvitation"),
     ("DELETE", "/invitations/{invitation}", "revokeInvitation"),
     ("POST", "/subscriptions", "createSubscription"),
     (

@@ -34,7 +34,7 @@
   };
 
   let role = $state<GuestBoardRole>('editor');
-  let made = $state.raw<string | undefined>(undefined);
+  let made = $state.raw<{ address: string; token: string } | undefined>(undefined);
   let working = $state(false);
   let problem = $state<string | undefined>(undefined);
 
@@ -46,7 +46,10 @@
     made = undefined;
     try {
       const link = await access.people.inviteGuest(workspaceId, boardId, role);
-      made = link.token === undefined ? undefined : access.inviteLink(link.token);
+      made =
+        link.token === undefined
+          ? undefined
+          : { address: access.inviteLink(link.token), token: link.token };
     } catch (error) {
       problem =
         isBackendError(error) && error.status === 403
@@ -87,10 +90,19 @@
   {/if}
   {#if made}
     <InviteLink
-      link={made}
+      link={made.address}
       label={m.people_invite_link()}
       note={m.share_guest_note()}
       testId="share-guest-link"
+      delivery={access.people.mail && workspace.info?.id
+        ? {
+            mail: access.people.mail,
+            workspaceId: workspace.info.id,
+            token: made.token,
+            language: workspace.locale,
+            hint: m.mail_guest_addresses_hint(),
+          }
+        : undefined}
     />
   {/if}
 </section>

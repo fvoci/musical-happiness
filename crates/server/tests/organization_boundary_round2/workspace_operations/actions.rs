@@ -213,6 +213,7 @@ async fn people(case: &mut Case, board: &str) -> String {
     )
     .await;
     case.run("removeMember", member_at, json!({})).await;
+    teams(case, board).await;
     joining(case).await;
     let audited = audit_admission(case).await;
     case.run("setGuestInvitations", &[], json!({"enabled": true}))
@@ -232,6 +233,32 @@ async fn people(case: &mut Case, board: &str) -> String {
     case.run("removeWorkspaceMember", &[("user", &peer)], json!({}))
         .await;
     audited
+}
+
+/// A team of the workspace with the peer in it and a role on the board, renamed and
+/// then taken apart.
+async fn teams(case: &mut Case, board: &str) {
+    let peer = case.peer.clone();
+    let made = case
+        .run("createTeam", &[], json!({"name": "Design"}))
+        .await
+        .value();
+    let team = case.remember(&made, "id");
+    let at = &[("teamId", team.as_str())];
+    case.present("getTeams", &[], &team).await;
+    case.present("getTeam", at, &team).await;
+    case.run("renameTeam", at, json!({"name": "Designers"}))
+        .await;
+    let member_at = &[("teamId", team.as_str()), ("userId", peer.as_str())];
+    case.run("addTeamMember", member_at, json!({})).await;
+    let on_board = &[("boardId", board), ("teamId", team.as_str())];
+    case.run("setBoardTeam", on_board, json!({"role": "editor"}))
+        .await;
+    case.present("getBoardTeams", &[("boardId", board)], &team)
+        .await;
+    case.run("removeBoardTeam", on_board, json!({})).await;
+    case.run("removeTeamMember", member_at, json!({})).await;
+    case.run("deleteTeam", at, json!({})).await;
 }
 
 async fn joining(case: &mut Case) {

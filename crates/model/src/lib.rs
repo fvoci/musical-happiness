@@ -88,7 +88,7 @@ pub use file_info::{FileInfo, is_storage_path};
 pub use id::{is_id, new_id};
 pub use invitation::{
     AcceptInvitation, AcceptedInvitation, GUEST_INVITATION_USES, INVITATION_LIFETIME_MILLIS,
-    Invitation, InvitationPreview, InvitationToken, NewInvitation,
+    Invitation, InvitationMail, InvitationPreview, InvitationToken, NewInvitation,
 };
 pub use name::{Named, required_name};
 pub use oidc::{

@@ -217,7 +217,9 @@
       </Dialog.Close>
     </Dialog.Header>
 
-    <div class="grid min-h-0 flex-1 content-start gap-5 overflow-y-auto overscroll-contain p-4">
+    <div
+      class="grid min-h-0 min-w-0 flex-1 grid-cols-1 content-start gap-5 overflow-y-auto overscroll-contain p-4"
+    >
       <!-- The workspace. -->
       {#if !membersOnly}
         <section class="grid gap-2" aria-labelledby="{uid}-workspace">
@@ -260,9 +262,9 @@
       {/if}
 
       <!-- The members. -->
-      <section class="grid gap-2" aria-labelledby="{uid}-members">
+      <section class="grid grid-cols-1 gap-2" aria-labelledby="{uid}-members">
         <h3 id="{uid}-members" class="font-medium">{m.share_members_title()}</h3>
-        <ul class="grid gap-1" data-testid="share-members">
+        <ul class="grid grid-cols-1 gap-1" data-testid="share-members">
           {#each board.orderedMembers.filter((member) => !member.synthetic) as member (member.userId)}
             {@const name = nameOf(member.userId)}
             {@const mine = member.userId === workspace.me?.id}
@@ -315,7 +317,7 @@
           class="roomy:h-touch roomy:text-base"
         />
         {#if candidates.length > 0}
-          <ul class="grid gap-1" data-testid="share-candidates">
+          <ul class="grid grid-cols-1 gap-1" data-testid="share-candidates">
             {#each candidates as user (user.id)}
               {@const name = userDisplayName(user)}
               <li class="flex min-h-8 items-center gap-2 roomy:min-h-touch">

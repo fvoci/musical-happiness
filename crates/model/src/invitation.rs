@@ -147,3 +147,22 @@ pub struct AcceptedInvitation {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub board_id: Option<String>,
 }
+
+/// A request to email an existing invitation to one or more recipients.
+#[derive(Clone, Deserialize, utoipa::ToSchema)]
+pub struct InvitationMail {
+    /// The secret of the existing invitation, sent only in the request body.
+    pub token: String,
+    /// Email addresses, each delivered separately; duplicates are sent once.
+    pub recipients: Vec<String>,
+    /// The sender's screen language, used for a recipient when neither the recipient's
+    /// nor the sender's setting names a language the mail is written in.
+    #[serde(default)]
+    pub language: String,
+}
+
+impl fmt::Debug for InvitationMail {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("InvitationMail").finish_non_exhaustive()
+    }
+}

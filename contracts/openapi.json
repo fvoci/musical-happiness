@@ -1204,6 +1204,23 @@
         ],
         "type": "object"
       },
+      "FinishPasswordReset": {
+        "properties": {
+          "password": {
+            "description": "The new password: at least eight characters, at most 1024 bytes.",
+            "type": "string"
+          },
+          "token": {
+            "description": "The secret from the reset link's fragment.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "password",
+          "token"
+        ],
+        "type": "object"
+      },
       "GuestInvitationsChange": {
         "description": "A request to turn the invitations of guests to a workspace's boards on or off.",
         "properties": {
@@ -1359,6 +1376,31 @@
         ],
         "type": "object"
       },
+      "InvitationMail": {
+        "description": "A request to email an existing invitation to one or more recipients.",
+        "properties": {
+          "language": {
+            "description": "The sender's screen language, used for a recipient when neither the recipient's\nnor the sender's setting names a language the mail is written in.",
+            "type": "string"
+          },
+          "recipients": {
+            "description": "Email addresses, each delivered separately; duplicates are sent once.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "token": {
+            "description": "The secret of the existing invitation, sent only in the request body.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
+          "recipients"
+        ],
+        "type": "object"
+      },
       "InvitationPreview": {
         "description": "What a link shows of where it leads, to whoever holds it.",
         "properties": {
@@ -1429,6 +1471,10 @@
       "LoginOptions": {
         "description": "What the login page shows: the organization it is for, if it is for one.",
         "properties": {
+          "mailEnabled": {
+            "description": "Whether this server can deliver password recovery and invitation mail.",
+            "type": "boolean"
+          },
           "organization": {
             "oneOf": [
               {
@@ -1446,6 +1492,7 @@
           }
         },
         "required": [
+          "mailEnabled",
           "organization",
           "registrationOpen"
         ],
@@ -2731,6 +2778,21 @@
             "reason": "public_links_off",
             "title": "Public links turned off",
             "type": "/problems/public-links-off"
+          },
+          {
+            "reason": "too_many_recipients",
+            "title": "Too many recipients",
+            "type": "/problems/too-many-recipients"
+          },
+          {
+            "reason": "invitation_mail_limit",
+            "title": "Hourly invitation mail limit reached",
+            "type": "/problems/invitation-mail-limit"
+          },
+          {
+            "reason": "mail_queue_full",
+            "title": "Mail queue full",
+            "type": "/problems/mail-queue-full"
           }
         ]
       },
@@ -2809,6 +2871,22 @@
           "email",
           "password",
           "organizationName"
+        ],
+        "type": "object"
+      },
+      "RequestPasswordReset": {
+        "properties": {
+          "email": {
+            "description": "The account's email address.",
+            "type": "string"
+          },
+          "language": {
+            "description": "The requester's language tag (`ko`, `en-GB`), used when the account's own setting\nnames no language the mail is written in (English, Korean); English if neither does.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email"
         ],
         "type": "object"
       },
@@ -4895,6 +4973,82 @@
         "summary": "Bring a workspace back",
         "tags": [
           "organization"
+        ]
+      }
+    },
+    "/api/v1/password-reset/complete": {
+      "post": {
+        "description": "Consumes a reset token before its one-hour expiry and sets the new password.\nAll of the account's sessions and WebSocket connections end, and so do its other\nreset links, as they do when the password is changed or set by an operator. The sign-in\nlock of the account, at its user name and its email, ends, and so does the wait of the\naddress that finished the reset. A missing, expired or already used token answers the\nsame 400, naming `token` in `errors`.",
+        "operationId": "completePasswordReset",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FinishPasswordReset"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "The password was reset; sign in again."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "security": [
+          {}
+        ],
+        "summary": "Finish resetting a password",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/password-reset/request": {
+      "post": {
+        "description": "Answers 204 with an empty body for an existing account, an absent account and\nan account without a password. Lookup and SMTP delivery run in the background;\nthe request never waits for either. Accounts without passwords receive no mail.\nRequests are limited by address only, with the login setting of attempts per minute\nand a separate counter (429); never by email. An account is sent at most\n`mail_reset_per_account_hour` messages an hour: more requests are answered the same\nand send nothing. Without SMTP this route answers 404.",
+        "operationId": "requestPasswordReset",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RequestPasswordReset"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "If eligible, the account will receive a reset link."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "security": [
+          {}
+        ],
+        "summary": "Request a password reset",
+        "tags": [
+          "auth"
         ]
       }
     },
@@ -9377,6 +9531,52 @@
           }
         },
         "summary": "Make an invitation",
+        "tags": [
+          "workspaces"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/invitations/mail": {
+      "post": {
+        "description": "Queues a separate message for each unique email address with an existing link.\nThe token must name a live invitation of this workspace, and the sender must\nstill be allowed to make that kind of invitation. The same checks are repeated\nbefore each delivery. A member link is sent as it is, its expiry and uses unchanged.\nA guest link lets one person in once, so it is not sent: each recipient gets a\none-use guest link of their own, to the same board in the same role and ending\nwith it, made by the sender as their message leaves (and revoked if the mail server\nrefuses that message for good); the named link is left as it is, and messages go\nout only while it is live and unused. Invalid recipients reject the whole request\nbefore sending.\nEach message is in the recipient's language when the mail is written in it, else the\nsender's setting, else `language`, else English. No SMTP means 404.\nA request names at most `invitation_mail_recipients` addresses, repeats counted\n(400, `too_many_recipients`). Its messages are queued all or none: 429\n(`invitation_mail_limit`, with `Retry-After`) when the workspace would pass\n`invitation_mail_per_hour` messages within an hour or its organization its own\nhourly limit (`invitation_mail_per_org_hour`), and 503 (`mail_queue_full`) when the\norganization's half of the server's invitation queue, or the queue, cannot hold them\nall. A refused request sends nothing.",
+        "operationId": "emailInvitation",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InvitationMail"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Delivery queued; the existing invitation is unchanged."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Email an invitation",
         "tags": [
           "workspaces"
         ]

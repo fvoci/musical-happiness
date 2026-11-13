@@ -11,9 +11,8 @@
 //! as a number and nothing else of HTTP.
 
 use fvoci_model::{
-    AuthParamError, BlockError, BoardError, CardError, CategoryError, InvalidInput, Problem,
-    RELATION_LIMIT, Refusal, Refusals, RelationError, RelationProblem, SubscriptionError,
-    json_pointer,
+    AuthParamError, BlockError, BoardError, CategoryError, InvalidInput, Problem, Refusal,
+    Refusals, SubscriptionError, json_pointer,
 };
 use fvoci_store::StoreError;
 
@@ -288,6 +287,12 @@ reasons! {
     LastOrgAdmin => "last_org_admin", "Last administrator of the organization";
     /// The organization has turned its public links off.
     PublicLinksOff => "public_links_off", "Public links turned off";
+    /// An invitation mail request names more recipients than one may.
+    TooManyRecipients => "too_many_recipients", "Too many recipients";
+    /// The workspace queued as many invitation messages within the hour as it may.
+    InvitationMailLimit => "invitation_mail_limit", "Hourly invitation mail limit reached";
+    /// The server holds as many invitation messages waiting to be sent as it may.
+    MailQueueFull => "mail_queue_full", "Mail queue full";
 }
 
 impl Reason {
@@ -441,6 +446,18 @@ impl AppError {
         let seconds = wait.as_secs() + u64::from(wait.subsec_nanos() > 0);
         let mut error = Self::new(ErrorKind::RateLimited, "too many attempts; try again later");
         error.more().retry_after = Some(seconds.max(1));
+        error
+    }
+
+    /// A 429 error for a quota of what is done within a time: `message` says which, and
+    /// `wait` is told as [`AppError::rate_limited`] tells it.
+    pub fn quota_reached(
+        message: impl std::fmt::Display,
+        reason: Reason,
+        wait: std::time::Duration,
+    ) -> Self {
+        let mut error = Self::rate_limited(wait).with_reason(reason);
+        error.message = message.to_string();
         error
     }
 
@@ -914,71 +931,12 @@ impl From<CategoryError> for AppError {
     }
 }
 
-impl From<BlockError> for AppError {
-    fn from(error: BlockError) -> Self {
-        match error {
-            BlockError::TitleSizeLimitExceeded
-            | BlockError::FieldsSizeLimitExceeded
-            | BlockError::InvalidCardProperties(_) => Self::bad_request(error),
-            BlockError::BodyNotAllowed | BlockError::ImageWithoutFile => {
-                Self::bad_request(error).with_field("body")
-            }
-            BlockError::NulInTitle => Self::bad_request(error).with_field("title"),
-            BlockError::InvalidCardField { .. } => Self::bad_request(error).with_field("fields"),
-            BlockError::InvalidRelation(error) => Self::from(error),
-            BlockError::TypeNotCurrent(_) | BlockError::TypeStrandsComments => {
-                Self::bad_request(error).with_field("type")
-            }
-            BlockError::ParentNotOnBoard
-            | BlockError::ParentBelowBlock
-            | BlockError::CommentNotOnCard
-            | BlockError::ParentIsComment => Self::bad_request(error).with_field("parentId"),
-            BlockError::EmptyBoardId => Self::from(anyhow::Error::from(error)),
-        }
-    }
-}
-
-impl From<RelationError> for AppError {
-    /// A bad request on `fields` (where a card's property values are), with the reason
-    /// of the problem: the words name the property, and no card.
-    fn from(error: RelationError) -> Self {
-        let reason = match error.problem {
-            RelationProblem::NotAList => Reason::RelationNotAList,
-            RelationProblem::ToItself => Reason::RelationToItself,
-            RelationProblem::Repeated => Reason::RelationRepeated,
-            RelationProblem::TooMany => Reason::RelationTooMany,
-            RelationProblem::NotACard => Reason::RelationNotACard,
-            RelationProblem::CardNotFound => Reason::RelationCardNotFound,
-        };
-        let refused = Self::bad_request(&error).with_reason(reason);
-        let refused = if error.problem == RelationProblem::TooMany {
-            refused.with_limit(u64::try_from(RELATION_LIMIT).unwrap_or(u64::MAX))
-        } else {
-            refused
-        };
-        refused.with_field("fields")
-    }
-}
-
-impl From<CardError> for AppError {
-    fn from(error: CardError) -> Self {
-        match error {
-            // What a client sent.
-            CardError::BoardIdMismatch | CardError::Invalid(_) => Self::bad_request(error),
-            CardError::ReadAtMissing => Self::bad_request(error).with_field("readAt"),
-            // What is stored cannot be read as a card.
-            CardError::NotCardBlock | CardError::InvalidFieldType { .. } => {
-                Self::from(anyhow::Error::from(error))
-            }
-        }
-    }
-}
-
 impl From<SubscriptionError> for AppError {
     fn from(error: SubscriptionError) -> Self {
         Self::from(error.into_refusals())
     }
 }
 
+mod model_errors;
 #[cfg(test)]
 mod tests;

@@ -37,7 +37,7 @@ struct Step {
 }
 
 /// Every migration, oldest first. Applied ones are never edited: add a new one.
-const STEPS: [Step; 24] = [
+const STEPS: [Step; 25] = [
     Step {
         version: 1,
         description: "baseline",
@@ -177,7 +177,12 @@ const STEPS: [Step; 24] = [
         sqlite: include_str!("../schema/sqlite/0024_sso.sql"),
         postgres: include_str!("../schema/postgres/0024_sso.sql"),
     },
-    // 25 belongs to the password-reset work.
+    Step {
+        version: 25,
+        description: "password resets",
+        sqlite: include_str!("../schema/sqlite/0025_password_resets.sql"),
+        postgres: include_str!("../schema/postgres/0025_password_resets.sql"),
+    },
     Step {
         version: 26,
         description: "workspace teams",
@@ -203,11 +208,12 @@ pub(crate) const ORG_MANAGEMENT_VERSION: i64 = 23;
 /// The tables that are no organization's: the accounts and what is true of the
 /// installation. Every other table of the schema is one of [`ORG_TABLES`].
 #[cfg(any(test, feature = "test-util"))]
-pub(crate) const GLOBAL_TABLES: [&str; 7] = [
+pub(crate) const GLOBAL_TABLES: [&str; 8] = [
     "_sqlx_migrations",
     "data_steps",
     "instance",
     "preferences",
+    "password_resets",
     "sessions",
     "user_identities",
     "users",
