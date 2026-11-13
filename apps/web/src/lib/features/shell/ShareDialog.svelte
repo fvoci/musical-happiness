@@ -222,7 +222,9 @@
       {#if !membersOnly}
         <section class="grid gap-2" aria-labelledby="{uid}-workspace">
           <h3 id="{uid}-workspace" class="font-medium">
-            {m.share_workspace_title({ workspace: workspaceName })}
+            {m.share_workspace_title({
+              workspace: workspace.info?.title || m.shell_workspace_unnamed_title(),
+            })}
           </h3>
           <label class="flex min-h-8 items-center gap-3 roomy:min-h-touch">
             <span class="min-w-0 flex-1 text-muted-foreground"

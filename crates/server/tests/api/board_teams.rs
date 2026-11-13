@@ -429,3 +429,65 @@ async fn a_private_template_is_listed_while_a_team_role_grants_it() {
     );
     th.teardown().await;
 }
+
+#[tokio::test]
+async fn a_template_turned_private_or_open_says_nothing_of_its_team_readers() {
+    use crate::board_broadcasts::WorkspaceSocket;
+    let th = Setup::native().start().await.init_basic().await;
+    let owner = th.client.me().await.id;
+    let user = th.client2.me().await.id;
+    let template = board_with_admin(
+        &th,
+        Board {
+            is_template: true,
+            ..new_board(ROOT_WORKSPACE_ID, BoardType::Open, "Team template")
+        },
+        &owner,
+    )
+    .await;
+    let team = group(&th, &user, "Template editors").await;
+    th.client
+        .put(
+            &format!(
+                "/w/{ROOT_WORKSPACE_ID}/boards/{}/teams/{}",
+                template.id, team.id
+            ),
+            &json!({"role":"editor"}),
+        )
+        .await
+        .check_no_content();
+    let outsider = th.stranger().await;
+    let mut socket = WorkspaceSocket::subscribe(&th, &th.client, ROOT_WORKSPACE_ID, &owner).await;
+    let about = |messages: &[serde_json::Value], action: &str, who: &str| {
+        messages
+            .iter()
+            .filter(|message| {
+                message["action"] == json!(action) && message["member"]["userId"] == json!(who)
+            })
+            .count()
+    };
+    for (kind, action) in [("P", "DELETE_MEMBER"), ("O", "UPDATE_MEMBER")] {
+        th.client
+            .patch(
+                &format!("/w/{ROOT_WORKSPACE_ID}/boards/{}", template.id),
+                &json!({"type": kind}),
+            )
+            .await
+            .check_ok();
+        socket
+            .expect("UPDATE_BOARD", "/board/id", &template.id)
+            .await;
+        let messages = socket.drain().await;
+        assert_eq!(
+            about(&messages, action, &outsider),
+            1,
+            "who reads it only as a template hears of it: {messages:?}"
+        );
+        assert_eq!(
+            about(&messages, action, &user),
+            0,
+            "a team editor keeps their role when the template becomes {kind}: {messages:?}"
+        );
+    }
+    th.teardown().await;
+}

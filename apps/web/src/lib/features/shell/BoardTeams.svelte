@@ -1,4 +1,4 @@
-<!-- One row per group; direct memberships remain in the people list. -->
+<!-- One row per team; direct memberships remain in the people list. -->
 <script lang="ts">
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type { BoardStore, Workspace } from '$lib/state/index.ts';
@@ -15,6 +15,7 @@
   let role = $state<TeamRole>('editor');
   let busy = $state(false);
   let problem = $state('');
+  let unread = $state(false);
   let reading = 0;
   const candidates = $derived(
     groups.filter((team) => !assigned.some((item) => item.team.id === team.id)),
@@ -36,8 +37,9 @@
       if (current !== reading) return;
       groups = all;
       assigned = onBoard;
+      unread = false;
     } catch {
-      if (current === reading) problem = m.teams_load_failed();
+      if (current === reading) unread = true;
     }
   }
 
@@ -50,16 +52,19 @@
     };
   });
 
-  async function change(teamId: string, next: TeamRole | undefined): Promise<void> {
-    if (!place || busy) return;
+  /** Whether the change was made. */
+  async function change(teamId: string, next: TeamRole | undefined): Promise<boolean> {
+    if (!place || busy) return false;
     busy = true;
     problem = '';
     try {
       if (next) await teams.assign(place, board.boardId, teamId, next);
       else await teams.unassign(place, board.boardId, teamId);
       selected = '';
+      return true;
     } catch {
       problem = m.teams_failed();
+      return false;
     } finally {
       await read(place, board.boardId);
       busy = false;
@@ -70,7 +75,9 @@
 <section class="grid gap-2" aria-labelledby="{id}-title" data-testid="board-teams">
   <h3 id="{id}-title" class="font-medium">{m.teams_title()}</h3>
   <p class="text-sm text-muted-foreground">{m.teams_board_description()}</p>
-  {#if problem}<p role="alert" class="text-sm text-destructive">{problem}</p>{/if}
+  {#if problem || unread}<p role="alert" class="text-sm text-destructive">
+      {problem || m.teams_load_failed()}
+    </p>{/if}
   <ul class="grid gap-2">
     {#each assigned as item (item.team.id)}
       <li class="rounded-md border p-2" data-board-team={item.team.name}>
@@ -90,7 +97,13 @@
             aria-label={m.share_role_of({ name: item.team.name })}
             value={item.role}
             disabled={busy}
-            onchange={(event) => void change(item.team.id, event.currentTarget.value as TeamRole)}
+            onchange={(event) => {
+              const select = event.currentTarget;
+              void change(item.team.id, select.value as TeamRole).then((done) => {
+                // A refused role is not left showing as if it were the team's.
+                if (!done) select.value = item.role;
+              });
+            }}
           >
             {#each roles as option (option)}<option value={option}>{labels[option]()}</option
               >{/each}

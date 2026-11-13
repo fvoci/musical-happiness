@@ -22,9 +22,9 @@
     managing: boolean;
     working: boolean;
     restrictedSelf?: string;
-    onRename: (name: string) => Promise<void>;
-    onAdd: (userId: string) => Promise<void>;
-    onRemove: (userId: string) => Promise<void>;
+    onRename: (name: string) => Promise<boolean>;
+    onAdd: (userId: string) => Promise<boolean>;
+    onRemove: (userId: string) => Promise<boolean>;
     onDelete: () => void;
   } = $props();
   let renaming = $state(false);
@@ -49,8 +49,8 @@
             onsubmit={(event) => {
               event.preventDefault();
               if (name.trim())
-                void onRename(name).then(() => {
-                  renaming = false;
+                void onRename(name).then((done) => {
+                  if (done) renaming = false;
                 });
             }}
           >
@@ -117,8 +117,8 @@
           onsubmit={(event) => {
             event.preventDefault();
             if (selected && selected !== restrictedSelf)
-              void onAdd(selected).then(() => {
-                selected = '';
+              void onAdd(selected).then((done) => {
+                if (done) selected = '';
               });
           }}
         >

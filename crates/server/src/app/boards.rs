@@ -231,7 +231,8 @@ impl App {
     /// Tells who works in the workspace and is no member of a template that they gained or
     /// lost access to it, after the template changed between open and private.
     async fn broadcast_workspace_users(&self, board: &Board, board_type: BoardType) {
-        let members = match self.members_for_board(&board.id).await {
+        // A team's people keep their role across the change, as direct members do.
+        let members = match self.effective_board_members(&board.id).await {
             Ok(members) => members,
             Err(error) => {
                 tracing::error!(%error, "Unable to get the board members");

@@ -122,7 +122,7 @@ describe('the people of a workspace', () => {
     await screen.findByTestId('people-members');
     await fireEvent.change(role(), { target: { value: 'admin' } });
     expect(await screen.findByTestId('people-problem')).toHaveTextContent(
-      /needs an admin. Make somebody else one first./,
+      /There must be an admin of .*. Make somebody else one first./,
     );
     expect(people.setRole).toHaveBeenCalledExactlyOnceWith('w1', 'u2', 'admin');
     expect(people.members).toHaveBeenCalledTimes(2);

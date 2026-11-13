@@ -780,7 +780,6 @@ pub(crate) async fn undelete_board(
         .forget_if_gone(scope, &mut board.created_by)
         .await?;
     boards::insert_board_row(scope, &board).await?;
-    crate::board_team_trash::restore(scope, &board).await?;
 
     for member in &members {
         // A membership of a user whose row is gone since does not come back.
@@ -803,6 +802,7 @@ pub(crate) async fn undelete_board(
         .with_role(Some(fvoci_model::BoardRole::Admin));
         boards::save_member(scope, &admin).await?;
     }
+    crate::board_team_trash::restore(scope, &board, user_id).await?;
     // Each user who still exists finds the board where they had filed it; a private
     // board, only those who are its members again (a member removed earlier keeps the
     // place but cannot see the board).

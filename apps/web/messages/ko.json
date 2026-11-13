@@ -1019,6 +1019,7 @@
   "org_restore_named": "{name} 되살리기",
   "shell_switch_workspace_from": "워크스페이스 바꾸기: {name}",
   "shell_workspace_unnamed": "이 워크스페이스",
+  "shell_workspace_unnamed_title": "이 워크스페이스",
   "teams_self_joining": "조직 관리자로 참여한 동안에는 자신을 팀에 넣을 수 없습니다. 보드에는 직접 참여할 수 있으며, 관리자 참여를 끝내면 그 역할은 거둬집니다.",
   "teams_title": "팀",
   "teams_description": "{workspace} 안의 사람 묶음입니다. 이곳의 관리자가 팀을 관리합니다.",

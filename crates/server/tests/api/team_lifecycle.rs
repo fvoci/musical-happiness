@@ -2,7 +2,9 @@
 
 use crate::boards::{board_with_admin, new_board};
 use crate::common::{ROOT_WORKSPACE_ID, Setup, TestServer};
-use fvoci_model::{Block, BlockType, BoardTeam, BoardType, Subscription, Team, new_id};
+use fvoci_model::{
+    AuditAction, Block, BlockType, BoardTeam, BoardType, Subscription, Team, new_id,
+};
 use reqwest::StatusCode;
 use serde_json::json;
 
@@ -161,4 +163,68 @@ async fn team_removal_preserves_template_subscriptions_until_workspace_membershi
         );
         th.teardown().await;
     }
+}
+
+#[tokio::test]
+async fn a_manager_who_restores_a_board_through_a_team_joined_in_the_trash_is_on_the_record() {
+    let th = Setup::native().start().await.init_basic().await;
+    let manager = th.client.me().await.id;
+    let owner = th.client2.me().await.id;
+    let board = board_with_admin(
+        &th,
+        new_board(ROOT_WORKSPACE_ID, BoardType::Private, "Restored managed"),
+        &owner,
+    )
+    .await;
+    let path = format!("/w/{ROOT_WORKSPACE_ID}/boards/{}", board.id);
+    let team: Team = th
+        .client
+        .post(
+            &format!("/w/{ROOT_WORKSPACE_ID}/teams"),
+            &json!({"name":"Joined in the trash"}),
+        )
+        .await
+        .ok_json();
+    th.client2
+        .put(
+            &format!("{path}/teams/{}", team.id),
+            &json!({"role":"viewer"}),
+        )
+        .await
+        .check_no_content();
+    th.client2.delete(&path).await.check_no_content();
+    th.client
+        .put(&member_path(&team, &manager), &json!({}))
+        .await
+        .check_no_content();
+    let self_added = |records: &[fvoci_store::AuditEntry]| {
+        records
+            .iter()
+            .filter(|r| r.target_id == board.id && r.action == AuditAction::SelfAddedToBoard)
+            .count()
+    };
+    let before = th
+        .app
+        .store()
+        .get_audit_log(ROOT_WORKSPACE_ID)
+        .await
+        .unwrap();
+    assert_eq!(self_added(&before), 0, "a board in the trash opens nothing");
+    th.client
+        .post(&format!("{path}/undelete"), &json!({}))
+        .await
+        .check_ok();
+    th.client.get(&path).await.check_ok();
+    let after = th
+        .app
+        .store()
+        .get_audit_log(ROOT_WORKSPACE_ID)
+        .await
+        .unwrap();
+    assert_eq!(
+        self_added(&after),
+        1,
+        "restoring the board gave the manager reading through the team: {after:?}"
+    );
+    th.teardown().await;
 }

@@ -100,7 +100,10 @@ async fn require_manager(scope: &mut Scope<'_>, board: &Board, by: &str) -> Resu
     }
 }
 
-async fn people(scope: &mut Scope<'_>, team_id: &str) -> Result<Vec<String>, StoreError> {
+pub(crate) async fn people(
+    scope: &mut Scope<'_>,
+    team_id: &str,
+) -> Result<Vec<String>, StoreError> {
     let mut sql = scope.sql(&format!(
         "SELECT tm.user_id FROM {} tm WHERE tm.team_id = ",
         teams::present_members(scope)
@@ -127,7 +130,7 @@ async fn reads(scope: &mut Scope<'_>, board_id: &str, user_id: &str) -> Result<b
 
 /// Checked before the grant, while the organization/workspace/board are held. This
 /// also covers an administrator joining a team already assigned to private boards.
-async fn record_new_access(
+pub(crate) async fn record_new_access(
     scope: &mut Scope<'_>,
     board: &Board,
     users: &[String],

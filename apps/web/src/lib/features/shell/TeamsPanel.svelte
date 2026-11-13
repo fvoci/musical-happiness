@@ -1,4 +1,4 @@
-<!-- Groups in this workspace. Members read them; administrators manage them. -->
+<!-- Teams of this workspace. Members read them; administrators manage them. -->
 <script lang="ts">
   import ConfirmDialog from '$lib/components/confirm/ConfirmDialog.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
@@ -31,6 +31,7 @@
   let loaded = $state(false);
   let working = $state(false);
   let problem = $state('');
+  let unread = $state(false);
   let name = $state('');
   let deleting = $state.raw<Team | undefined>(undefined);
   let askOpen = $state(false);
@@ -47,8 +48,9 @@
       groups = listed;
       members = candidates.filter((member) => member.role !== 'guest');
       loaded = true;
+      unread = false;
     } catch {
-      if (current === reading) problem = m.teams_load_failed();
+      if (current === reading) unread = true;
     }
   }
 
@@ -60,12 +62,14 @@
     };
   });
 
-  async function act(step: (place: string) => Promise<unknown>): Promise<void> {
-    if (!workspaceId || working) return;
+  /** Whether the step was done; on failure, what was typed for it stays. */
+  async function act(step: (place: string) => Promise<unknown>): Promise<boolean> {
+    if (!workspaceId || working) return false;
     working = true;
     problem = '';
     try {
       await step(workspaceId);
+      return true;
     } catch (error) {
       problem =
         isBackendError(error) && error.reason === 'team_self_joining'
@@ -73,6 +77,7 @@
           : isBackendError(error) && error.status === 409
             ? m.teams_name_taken()
             : m.teams_failed();
+      return false;
     } finally {
       await read(workspaceId, managing);
       working = false;
@@ -85,7 +90,9 @@
     <h3 id="{id}-title" class="font-medium">{m.teams_title()}</h3>
     <p class="text-sm text-muted-foreground">{m.teams_description({ workspace: workspaceName })}</p>
   </div>
-  {#if problem}<p role="alert" class="text-sm text-destructive">{problem}</p>{/if}
+  {#if problem || unread}<p role="alert" class="text-sm text-destructive">
+      {problem || m.teams_load_failed()}
+    </p>{/if}
   {#if managing}
     <form
       class="flex flex-wrap gap-2"
