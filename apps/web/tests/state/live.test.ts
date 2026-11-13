@@ -331,13 +331,16 @@ describe('changes from the server', () => {
 
   it('spreads the wait after the server asks to try again, so its pages do not all come back at once', async () => {
     const random = vi.spyOn(Math, 'random').mockReturnValue(0.5);
-    const { socket } = await connected();
-    socket.drop(1013);
-    await vi.advanceTimersByTimeAsync(749);
-    expect(FakeSocket.made).toHaveLength(1);
-    await vi.advanceTimersByTimeAsync(1);
-    expect(FakeSocket.made).toHaveLength(2);
-    random.mockRestore();
+    try {
+      const { socket } = await connected();
+      socket.drop(1013);
+      await vi.advanceTimersByTimeAsync(749);
+      expect(FakeSocket.made).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(FakeSocket.made).toHaveLength(2);
+    } finally {
+      random.mockRestore();
+    }
   });
 
   it('closes the connection when nobody listens any more, and does not open it again', async () => {

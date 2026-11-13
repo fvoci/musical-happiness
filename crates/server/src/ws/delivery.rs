@@ -2,14 +2,9 @@
 
 use fvoci_model::{Block, BoardMember};
 
-use super::{Hub, ListenerId, Outgoing, UpdateBlockMessage};
+use super::{CHECKED_AT_MOST, Hub, ListenerId, Outgoing, UpdateBlockMessage};
 use crate::metrics::Disconnect;
 use crate::permissions::{role_of, session_opens};
-
-/// How many times a change is checked again because a permission write of its
-/// organization landed meanwhile, before it is given up and its recipients told to
-/// read anew.
-const CHECKED_AT_MOST: usize = 8;
 
 #[derive(Clone, Copy)]
 pub(super) enum Access<'a> {
@@ -33,11 +28,12 @@ impl Hub {
         if ids.is_empty() {
             return;
         }
+        let mut authorized = Vec::new();
         for _ in 0..CHECKED_AT_MOST {
             // Not cacheable for a while after an abandoned write: the checks below
             // then read the store anew.
             let revision = self.audience.version().await;
-            let authorized = self.authorized(ids, access).await;
+            authorized = self.authorized(ids, access).await;
             #[cfg(feature = "test-util")]
             self.pause_dispatch().await;
             if self
@@ -47,7 +43,8 @@ impl Hub {
                 return;
             }
         }
-        self.give_up(ids, message.action());
+        // Who was to be told at the last check: not who could never see it.
+        self.give_up(&authorized, message.action());
     }
 
     pub(super) async fn send_public_block(
@@ -59,11 +56,12 @@ impl Hub {
         if ids.is_empty() {
             return;
         }
+        let mut authorized = Vec::new();
         for _ in 0..CHECKED_AT_MOST {
             // Not cacheable for a while after an abandoned write: the checks below
             // then read the store anew.
             let revision = self.audience.version().await;
-            let authorized = self.authorized(ids, Access::Public(&block.board_id)).await;
+            authorized = self.authorized(ids, Access::Public(&block.board_id)).await;
             if authorized.is_empty() {
                 return;
             }
@@ -92,7 +90,7 @@ impl Hub {
                 return;
             }
         }
-        self.give_up(ids, "UPDATE_BLOCK");
+        self.give_up(&authorized, "UPDATE_BLOCK");
     }
 
     /// Closes the recipients of a change whose check was overtaken by permission
@@ -103,7 +101,9 @@ impl Hub {
             recipients = ids.len(),
             "websocket: a change was given up, checked again too often"
         );
-        self.close_unread(ids);
+        for id in ids {
+            self.close_listener(*id, Disconnect::ChecksOvertaken);
+        }
     }
 
     /// Closes connections that a change could not be checked for, as retryable

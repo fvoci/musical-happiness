@@ -174,6 +174,12 @@ outgoing!(
 
 type ListenerId = u64;
 
+/// How many times a subscription or a change is checked again because access was
+/// taken back meanwhile, before it is given up and its connection told to read anew
+/// (1013): a check is a few reads of the store, and revocations elsewhere can keep
+/// overtaking it.
+const CHECKED_AT_MOST: usize = 8;
+
 #[derive(Debug)]
 struct Listener {
     /// The user of the session the handshake came with; empty for a connection without
@@ -366,14 +372,16 @@ impl Hub {
         if let Some(token) = &token
             && let Err(error) = self.inner.auth.find_session(token).await
         {
-            let reason = if error.kind() == ErrorKind::Unauthorized {
-                Disconnect::SessionEnded
-            } else {
-                tracing::warn!(%error, "a websocket connection ends: its session could not be read");
-                Disconnect::StoreUnavailable
-            };
             self.listeners().remove(id);
-            metrics.websocket_closed(reason);
+            if error.kind() == ErrorKind::Unauthorized {
+                metrics.websocket_closed(Disconnect::SessionEnded);
+            } else {
+                // Not ended, unread: the page is told to connect again, and does with
+                // its spread wait.
+                tracing::warn!(%error, "a websocket connection ends: its session could not be read");
+                metrics.websocket_closed(Disconnect::StoreUnavailable);
+                writer::close(sink, Some(Disconnect::StoreUnavailable)).await;
+            }
             return;
         }
 

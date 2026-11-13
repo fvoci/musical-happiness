@@ -80,12 +80,23 @@ async fn write<S: Sink<Message> + Unpin>(
             result = sink.send(message) => if result.is_err() { return; },
         }
     }
-    let frame = match closed_because.get() {
+    close(sink, closed_because.get().copied()).await;
+}
+
+/// Ends the connection, telling the page why when the reason has a close frame: 1008
+/// for access that ended, 1013 for what is to be read anew.
+pub(super) async fn close<S>(mut sink: S, reason: Option<Disconnect>)
+where
+    S: Sink<Message> + Unpin,
+{
+    let frame = match reason {
         Some(Disconnect::AccessEnded) => Some((close_code::POLICY, "workspace access ended")),
         Some(Disconnect::ShareEnded) => Some((close_code::POLICY, "public link access ended")),
         Some(Disconnect::SessionEnded) => Some((close_code::POLICY, "session ended")),
         Some(Disconnect::SsoRequired) => Some((close_code::POLICY, "sso required")),
-        Some(Disconnect::StoreUnavailable) => Some((close_code::AGAIN, "try again")),
+        Some(Disconnect::StoreUnavailable | Disconnect::ChecksOvertaken) => {
+            Some((close_code::AGAIN, "try again"))
+        }
         Some(
             Disconnect::ClientClosed
             | Disconnect::ReadError

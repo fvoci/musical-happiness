@@ -926,8 +926,27 @@ async fn a_change_checked_too_often_is_given_up_as_retryable() {
         .await
         .expect("the change ends")
         .expect("the change does not panic");
+    // Nothing of the change comes before the close.
+    let first = tokio::time::timeout(WAIT, async {
+        loop {
+            match socket
+                .next()
+                .await
+                .expect("a frame")
+                .expect("a protocol frame")
+            {
+                Message::Ping(_) | Message::Pong(_) => {}
+                other => return other,
+            }
+        }
+    })
+    .await
+    .expect("the connection is told");
+    let Message::Close(Some(frame)) = first else {
+        panic!("the change came before the close: {first:?}");
+    };
     assert_eq!(
-        close_frame(&mut socket).await,
-        (1013, "try again".to_owned())
+        (u16::from(frame.code), frame.reason.as_str()),
+        (1013, "try again")
     );
 }

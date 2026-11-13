@@ -3,16 +3,11 @@
 use fvoci_model::WorkspaceRole;
 
 use super::{
-    Command, Hub, ListenerId, ReadPermit, remove_from, subscribe_to_blocks, subscribe_to_workspace,
-    unsubscribe_from_blocks,
+    CHECKED_AT_MOST, Command, Hub, ListenerId, ReadPermit, remove_from, subscribe_to_blocks,
+    subscribe_to_workspace, unsubscribe_from_blocks,
 };
 use crate::error::AppError;
 use crate::metrics::Disconnect;
-
-/// How many times a subscription is checked again because access was taken back
-/// somewhere meanwhile, before it is given up: any session's end moves the listeners'
-/// revision on, and a check is a few reads of the store.
-const CHECKED_AT_MOST: usize = 8;
 
 /// Why a connection does not follow a workspace.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,7 +30,11 @@ impl Hub {
                 // Following less grants nothing: a token that cannot be checked
                 // still stops what the page asked to stop.
                 match self.board_of_read_token(&command).await {
-                    Ok(Some(_)) | Err(_) => {
+                    Ok(Some(_)) => {
+                        unsubscribe_from_blocks(&mut self.listeners(), id, &command.block_ids);
+                    }
+                    Err(error) => {
+                        tracing::error!(%error, workspace_id = %command.workspace_id, "websocket: checking a read token failed");
                         unsubscribe_from_blocks(&mut self.listeners(), id, &command.block_ids);
                     }
                     Ok(None) => {}
@@ -121,7 +120,7 @@ impl Hub {
             "websocket: a block subscription was given up"
         );
         // The page believes it follows the blocks: it connects again, later.
-        self.close_unread(&[id]);
+        self.close_listener(id, Disconnect::ChecksOvertaken);
     }
 
     async fn subscribe_workspace(&self, id: ListenerId, user_id: &str, workspace: &str) {
@@ -166,7 +165,7 @@ impl Hub {
             "websocket: a workspace subscription was given up"
         );
         // The page believes it follows the workspace: it connects again, later.
-        self.close_unread(&[id]);
+        self.close_listener(id, Disconnect::ChecksOvertaken);
     }
 
     /// What the connection's user is in the workspace, if they are a member of it and

@@ -25,7 +25,45 @@ struct Named {
     category: String,
     invitation: String,
     invitation_id: String,
+    read_token: String,
 }
+
+/// What a plain member who is on the board is answered 404 in the first organization
+/// too, for what the sweep names: one board and one card for every operation. Any
+/// other 404 fails the test, as an answer of the second organization equal to a
+/// wrong first one would hide a lookup in another organization.
+const NOT_THERE_FOR_A_MEMBER: [&str; 24] = [
+    // The organization's own routes are its administrators'.
+    "createOrgWorkspace",
+    "deleteOidcProvider",
+    "deleteOrgWorkspace",
+    "getOidcProvider",
+    "getOrgAudit",
+    "getOrgMembers",
+    "getOrgWorkspaces",
+    "getOrganization",
+    "joinOrgWorkspace",
+    "leaveOrgWorkspace",
+    "patchOrganization",
+    "putOidcProvider",
+    "putOrgRole",
+    "renameOrgWorkspace",
+    "restoreOrgWorkspace",
+    // A link the member did not make, and the empty body of the sweep.
+    "acceptInvitation",
+    "revokeInvitation",
+    // The card is no comment, and has no versions of one.
+    "getCommentVersions",
+    // The board is not in the trash, and the card is not.
+    "undeleteBoard",
+    "undeleteBlock",
+    // The member's subscription is to the card, by its own identifier.
+    "deleteSubscription",
+    // The upload asked of is done with by then, or was never begun in parts.
+    "completeUpload",
+    "putUploadPart",
+    "importArchive",
+];
 
 /// The operations the contract publishes: method, path and identifier, in its order.
 fn operations() -> Vec<(String, String, String)> {
@@ -42,9 +80,22 @@ fn operations() -> Vec<(String, String, String)> {
             }
         }
     }
-    // What ends the member's session goes last, so that it asks everything else.
-    let last = |id: &str| matches!(id, "logout" | "changePassword");
-    operations.sort_by_key(|(_, _, id)| last(id));
+    // What takes the member off the board, or a thing away, goes after the rest, and
+    // what ends the member's session last, so that everything else is asked first.
+    let rank = |id: &str| match id {
+        "logout" => 3,
+        "changePassword" => 2,
+        "leaveBoard"
+        | "deleteBoard"
+        | "deleteBlock"
+        | "deleteBoardsAndBlocks"
+        | "deleteUpload"
+        | "deleteCategory"
+        | "removeWorkspaceMember"
+        | "removeMember" => 1,
+        _ => 0,
+    };
+    operations.sort_by_key(|(_, _, id)| rank(id));
     operations
 }
 
@@ -86,6 +137,11 @@ impl Named {
                 !path.contains('{'),
                 "unfilled parameter of {operation}: {path}"
             );
+            let path = if template.starts_with("/api/v1/shared/") {
+                format!("{path}?readToken={}", self.read_token)
+            } else {
+                path
+            };
             let request = self
                 .member
                 .request(method.parse().expect("a method"), &path)
@@ -127,13 +183,6 @@ async fn organization(server: &TestServer, name: &str) -> Named {
     )
     .await
     .value();
-    let upload = founder
-        .post(
-            &format!("{at}/boards/{board}/uploads"),
-            &json!({"name": "later.bin", "size": 1}),
-        )
-        .await
-        .value();
     let invitation = founder
         .post(&format!("{at}/invitations"), &json!({"role": "member"}))
         .await
@@ -152,6 +201,34 @@ async fn organization(server: &TestServer, name: &str) -> Named {
     let member = log_in(server, &member_name).await;
     let member_id = member.me().await.id;
     let categories = member.get(&format!("{at}/categories")).await.value();
+    let sharing = founder
+        .post(
+            &format!("{at}/boards/{board}/sharing"),
+            &json!({"enabled": true}),
+        )
+        .await
+        .value();
+    // On the board, the member asks what its members are asked.
+    member
+        .post(&format!("{at}/boards/{board}/join"), &json!({}))
+        .await
+        .check_ok();
+    let card_id = text(&card, "id");
+    member
+        .post(
+            &format!("{at}/subscriptions"),
+            &json!({"blockType": "card", "blockId": card_id,
+                "subscriberType": "user", "subscriberId": member_id}),
+        )
+        .await
+        .check_created();
+    let upload = member
+        .post(
+            &format!("{at}/boards/{board}/uploads"),
+            &json!({"name": "later.bin", "size": 1}),
+        )
+        .await
+        .value();
     let access = server
         .app
         .store()
@@ -168,7 +245,8 @@ async fn organization(server: &TestServer, name: &str) -> Named {
         member,
         member_id,
         category: text(&categories[0], "id"),
-        card: text(&card, "id"),
+        card: card_id,
+        read_token: text(&sharing, "token"),
         file: text(&file, "fileId"),
         upload: text(&upload, "uploadId"),
         invitation: token,
@@ -232,13 +310,20 @@ async fn every_contract_operation_answers_a_plain_member_alike_in_both_organizat
         operations().len(),
         "every operation of the contract is asked"
     );
-    // What a member reads of their workspace is there for them in the second one too.
+    // What a member reads of their workspace and its board is there for them in the
+    // second one too.
     for read in [
         "getWorkspace",
         "getCategories",
         "getWorkspaceBoards",
         "searchWorkspaceBoards",
         "getBoard",
+        "getBlocks",
+        "getCards",
+        "getCard",
+        "getUpload",
+        "getSharedBoard",
+        "getSharedCards",
         "getTemplates",
         "getWorkspaceUsers",
         "getMyMemberships",
@@ -249,6 +334,23 @@ async fn every_contract_operation_answers_a_plain_member_alike_in_both_organizat
             "{read} for a member: {of_second:?}"
         );
     }
+    let failed: Vec<_> = of_first
+        .iter()
+        .chain(&of_second)
+        .filter(|(_, status)| **status >= 500)
+        .collect();
+    assert!(failed.is_empty(), "the server failed: {failed:?}");
+    let unexpected: Vec<&String> = of_first
+        .iter()
+        .filter(|(operation, status)| {
+            **status == 404 && !NOT_THERE_FOR_A_MEMBER.contains(&operation.as_str())
+        })
+        .map(|(operation, _)| operation)
+        .collect();
+    assert!(
+        unexpected.is_empty(),
+        "not there for a member of the first organization: {unexpected:?}"
+    );
     let differing: Vec<String> = of_first
         .iter()
         .filter(|(operation, status)| of_second.get(*operation) != Some(status))
