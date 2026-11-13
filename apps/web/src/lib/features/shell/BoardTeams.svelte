@@ -1,5 +1,9 @@
-<!-- One row per team; direct memberships remain in the people list. -->
+<!-- One row per team, shaped as a member's row; direct memberships remain in the people list. -->
 <script lang="ts">
+  import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
+  import XIcon from '@lucide/svelte/icons/x';
+
+  import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type { BoardStore, Workspace } from '$lib/state/index.ts';
   import type { BoardTeam, Team, TeamRole, Teams } from '$lib/state/team-types.ts';
@@ -80,22 +84,28 @@
   {#if problem || unread}<p role="alert" class="text-sm text-destructive">
       {problem || m.teams_load_failed()}
     </p>{/if}
-  <ul class="grid gap-2">
+  <ul class="grid gap-1">
     {#each assigned as item (item.team.id)}
-      <li class="rounded-md border p-2" data-board-team={item.team.name}>
-        <details>
-          <summary class="cursor-pointer font-medium break-words"
-            >{item.team.name} ({item.team.members.length})</summary
-          >
-          <ul class="mt-2 grid gap-1 pl-3 text-sm">
+      <li class="flex items-start gap-2" data-board-team={item.team.name}>
+        <details class="group min-w-0 flex-1">
+          <summary class="flex min-h-8 cursor-pointer items-center gap-2 roomy:min-h-touch">
+            <!-- A summary laid out as a row shows no marker of its own. -->
+            <ChevronRightIcon
+              class="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-90"
+              aria-hidden="true"
+            />
+            <span class="min-w-0 truncate" translate="no">{item.team.name}</span>
+            <span class="text-sm text-muted-foreground">({item.team.members.length})</span>
+          </summary>
+          <ul class="grid gap-1 pb-1 pl-6 text-sm">
             {#each item.team.members as person (person.userId)}
-              <li>{person.displayName || person.username}</li>
+              <li class="truncate" translate="no">{person.displayName || person.username}</li>
             {/each}
           </ul>
         </details>
-        <div class="mt-2 flex flex-wrap gap-2">
+        <div class="flex min-h-8 items-center gap-2 roomy:min-h-touch">
           <select
-            class="h-9 rounded-md border bg-background px-2"
+            class="h-8 rounded-md border border-input-border bg-background px-2 disabled:opacity-60 roomy:h-touch"
             aria-label={m.share_role_of({ name: item.team.name })}
             value={item.role}
             disabled={busy}
@@ -110,14 +120,14 @@
             {#each roles as option (option)}<option value={option}>{labels[option]()}</option
               >{/each}
           </select>
-          <Button
-            variant="ghost"
-            size="sm"
+          <IconButton
+            label={m.teams_board_remove({ name: item.team.name })}
+            class="text-muted-foreground"
             disabled={busy}
-            aria-label={m.teams_board_remove({ name: item.team.name })}
             onclick={() => void change(item.team.id, undefined)}
-            >{m.share_remove({ name: item.team.name })}</Button
           >
+            <XIcon />
+          </IconButton>
         </div>
       </li>
     {/each}
@@ -131,7 +141,7 @@
       }}
     >
       <select
-        class="h-9 min-w-0 flex-1 rounded-md border bg-background px-2"
+        class="h-8 min-w-0 flex-1 rounded-md border border-input-border bg-background px-2 disabled:opacity-60 roomy:h-touch"
         aria-label={m.teams_board_choose()}
         bind:value={selected}
         disabled={busy}
@@ -140,14 +150,20 @@
         {#each candidates as team (team.id)}<option value={team.id}>{team.name}</option>{/each}
       </select>
       <select
-        class="h-9 rounded-md border bg-background px-2"
+        class="h-8 rounded-md border border-input-border bg-background px-2 disabled:opacity-60 roomy:h-touch"
         aria-label={m.share_minimum_role()}
         bind:value={role}
         disabled={busy}
       >
         {#each roles as option (option)}<option value={option}>{labels[option]()}</option>{/each}
       </select>
-      <Button type="submit" size="sm" disabled={busy || !selected}>{m.teams_board_add()}</Button>
+      <Button
+        type="submit"
+        variant="outline"
+        size="sm"
+        class="roomy:min-h-touch"
+        disabled={busy || !selected}>{m.teams_board_add()}</Button
+      >
     </form>
   {/if}
 </section>
