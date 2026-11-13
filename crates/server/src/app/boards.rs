@@ -417,6 +417,7 @@ impl App {
         to_workspace: &str,
         duplicate_as: DuplicateAs,
     ) -> Result<(BoardsAndBlocks, Vec<BoardMember>), AppError> {
+        self.write_board_bodies(board_id).await?;
         let (mut copies, members) = self
             .store()
             .duplicate_board(

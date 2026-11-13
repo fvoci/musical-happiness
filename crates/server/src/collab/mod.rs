@@ -363,7 +363,7 @@ impl Collab {
     }
 
     /// Writes the body of a card's document to the card now, if it has updates whose
-    /// body the card does not hold. Nothing if the document is not open.
+    /// body the card does not hold, including the log of a document no longer open.
     ///
     /// # Errors
     ///
@@ -374,7 +374,13 @@ impl Collab {
             card_id,
             move |collab, app, card_id, mut slot| async move {
                 let (collab, app, card_id, slot) = (&collab, &app, card_id.as_str(), &mut slot);
-                let written = collab.write_now(app, card_id, slot).await;
+                let mut opened_here = false;
+                let written = collab
+                    .write_first(app, card_id, slot, &mut opened_here)
+                    .await;
+                if opened_here {
+                    collab.forget(slot).await;
+                }
                 collab.retire(slot);
                 written
             },

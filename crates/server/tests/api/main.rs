@@ -63,6 +63,7 @@ mod rooms_limits;
 mod rooms_measure;
 mod rooms_org;
 mod rooms_review;
+mod rooms_snapshots;
 mod search;
 mod server_lock;
 mod shared;

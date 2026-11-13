@@ -124,7 +124,7 @@ impl Collab {
 
     /// Writes to a card what the editors typed and it does not hold yet: from its open
     /// document, or from the document's log, opened for that.
-    async fn write_first(
+    pub(super) async fn write_first(
         &self,
         app: &App,
         card_id: &str,
