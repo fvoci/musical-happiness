@@ -37,18 +37,18 @@ impl App {
         ))
     }
 
-    /// Accepts a recovery request identically for existing and absent accounts.
-    /// Account lookup and delivery are background work, never awaited by the request.
+    /// Admits recovery identically for existing and absent accounts and returns unstarted work.
+    /// The HTTP adapter releases this work only after handing off its response.
     ///
     /// # Errors
     /// Returns 404 without SMTP, 400 for a malformed email, or 429 for too many
     /// requests from this address or for this email, independently of login limits.
-    pub fn request_password_reset(
+    pub fn prepare_password_reset(
         &self,
         email: &str,
         language: &str,
         address: Option<IpAddr>,
-    ) -> Result<(), AppError> {
+    ) -> Result<impl Future<Output = ()> + Send + 'static + use<>, AppError> {
         if !self.config().smtp.enabled() {
             return Err(AppError::not_found("route"));
         }
@@ -67,12 +67,11 @@ impl App {
         attempt.failed(Instant::now());
         let app = self.clone();
         let language = Language::of(language);
-        self.spawn_background(async move {
+        Ok(async move {
             if app.mail_password_reset(&email, language).await.is_err() {
                 tracing::warn!("password recovery delivery failed");
             }
-        });
-        Ok(())
+        })
     }
 
     async fn mail_password_reset(&self, email: &str, fallback: Language) -> Result<(), AppError> {

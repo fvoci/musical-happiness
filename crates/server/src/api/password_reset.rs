@@ -1,7 +1,12 @@
 //! Password recovery without a session; reset tokens travel only in request bodies.
 
-use axum::body::Bytes;
+use std::convert::Infallible;
+use std::pin::Pin;
+use std::task::{Context, Poll};
+
+use axum::body::{Body, Bytes};
 use axum::extract::{Extension, State};
+use futures_util::{Stream, future::BoxFuture};
 use serde::Deserialize;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
@@ -74,6 +79,35 @@ async fn request(
     body: Bytes,
 ) -> ApiResult {
     let request: RequestPasswordReset = decode_object(&body)?;
-    app.request_password_reset(&request.email, &request.language, address_of(client))?;
-    Ok(no_content())
+    let work = app.prepare_password_reset(&request.email, &request.language, address_of(client))?;
+    let mut response = no_content();
+    *response.body_mut() = Body::from_stream(RecoveryResponse {
+        app,
+        work: Some(Box::pin(work)),
+    });
+    Ok(response)
+}
+
+/// The empty acknowledgement owns unstarted work until HTTP releases the response.
+/// A 204 body is normally dropped without polling; a disconnected client also
+/// releases it. Neither body polling nor dropping waits for the background job.
+struct RecoveryResponse {
+    app: App,
+    work: Option<BoxFuture<'static, ()>>,
+}
+
+impl Stream for RecoveryResponse {
+    type Item = Result<Bytes, Infallible>;
+
+    fn poll_next(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        Poll::Ready(None)
+    }
+}
+
+impl Drop for RecoveryResponse {
+    fn drop(&mut self) {
+        if let Some(work) = self.work.take() {
+            self.app.spawn_background(work);
+        }
+    }
 }

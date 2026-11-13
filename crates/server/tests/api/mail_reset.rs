@@ -161,27 +161,35 @@ async fn mail_reset_limits_normalized_email_across_addresses_and_addresses_acros
         .start()
         .await;
     let ip = |last| Some(IpAddr::V4(Ipv4Addr::new(192, 0, 2, last)));
-    th.app
-        .request_password_reset(" absent@example.test ", "en", ip(1))
-        .expect("first");
-    th.app
-        .request_password_reset("ABSENT@example.test", "en", ip(2))
-        .expect("second");
+    th.app.spawn_background(
+        th.app
+            .prepare_password_reset(" absent@example.test ", "en", ip(1))
+            .expect("first"),
+    );
+    th.app.spawn_background(
+        th.app
+            .prepare_password_reset("ABSENT@example.test", "en", ip(2))
+            .expect("second"),
+    );
     assert!(
         th.app
-            .request_password_reset("absent@example.test", "en", ip(3))
+            .prepare_password_reset("absent@example.test", "en", ip(3))
             .is_err(),
         "email counted across addresses"
     );
-    th.app
-        .request_password_reset("one@example.test", "en", ip(4))
-        .expect("first address");
-    th.app
-        .request_password_reset("two@example.test", "en", ip(4))
-        .expect("second address");
+    th.app.spawn_background(
+        th.app
+            .prepare_password_reset("one@example.test", "en", ip(4))
+            .expect("first address"),
+    );
+    th.app.spawn_background(
+        th.app
+            .prepare_password_reset("two@example.test", "en", ip(4))
+            .expect("second address"),
+    );
     assert!(
         th.app
-            .request_password_reset("three@example.test", "en", ip(4))
+            .prepare_password_reset("three@example.test", "en", ip(4))
             .is_err(),
         "address counted across emails"
     );
@@ -234,9 +242,11 @@ async fn mail_reset_waits_for_delivery_capacity_before_minting_a_token() {
         .init_basic()
         .await;
     for _ in 0..4 {
-        th.app
-            .request_password_reset("user1@sample.com", "en", None)
-            .expect("request");
+        th.app.spawn_background(
+            th.app
+                .prepare_password_reset("user1@sample.com", "en", None)
+                .expect("request"),
+        );
     }
     tokio::time::timeout(Duration::from_secs(5), async {
         while smtp.attempts() < 4 {
@@ -245,9 +255,11 @@ async fn mail_reset_waits_for_delivery_capacity_before_minting_a_token() {
     })
     .await
     .expect("all SMTP slots are busy");
-    th.app
-        .request_password_reset("user1@sample.com", "en", None)
-        .expect("queued request");
+    th.app.spawn_background(
+        th.app
+            .prepare_password_reset("user1@sample.com", "en", None)
+            .expect("queued request"),
+    );
     assert!(!th.app.finish_background(Duration::from_millis(100)).await);
     assert_eq!(
         th.app
@@ -267,6 +279,52 @@ async fn mail_reset_waits_for_delivery_capacity_before_minting_a_token() {
             .expect("tokens"),
         5
     );
+    th.teardown().await;
+    smtp.stop().await;
+}
+
+#[tokio::test]
+async fn mail_reset_waits_until_the_http_response_is_released() {
+    use axum::body::Body;
+    use axum::http::Request;
+    use tower::ServiceExt as _;
+
+    let smtp = FakeSmtp::start_on(0).await;
+    let th = Setup::native()
+        .smtp(smtp.settings())
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let router = fvoci_server::api::router(&th.app).with_state(th.app.clone());
+    let response = router
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/password-reset/request")
+                .header("X-Requested-With", "XMLHttpRequest")
+                .header("Content-Type", "application/json")
+                .body(Body::from(json!({"email":"user1@sample.com"}).to_string()))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    assert!(th.app.finish_background(Duration::from_secs(5)).await);
+    assert!(
+        smtp.messages().await.is_empty(),
+        "holding the response must hold delivery"
+    );
+    assert_eq!(
+        th.app
+            .store()
+            .count_rows("password_resets")
+            .await
+            .expect("tokens"),
+        0
+    );
+    drop(response);
+    smtp.received(1).await;
     th.teardown().await;
     smtp.stop().await;
 }
