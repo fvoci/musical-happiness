@@ -338,3 +338,42 @@ async fn giving_a_team_the_role_it_has_or_taking_one_it_lacks_changes_nobody() {
     }
     th.teardown().await;
 }
+
+#[tokio::test]
+async fn adding_a_person_already_in_the_team_changes_nobody() {
+    use fvoci_model::MinimumRole::Editor;
+    let th = Setup::native().start().await.init_basic().await;
+    let manager = th.client.me().await.id;
+    let user = th.client2.me().await.id;
+    let board = board_with_admin(
+        &th,
+        new_board(ROOT_WORKSPACE_ID, BoardType::Private, "Once"),
+        &manager,
+    )
+    .await;
+    let team = th
+        .app
+        .create_team(ROOT_WORKSPACE_ID, "Already", &manager)
+        .await
+        .expect("the team is made");
+    th.app
+        .set_board_team(
+            ROOT_WORKSPACE_ID,
+            &board.id,
+            &team.id,
+            Some(Editor),
+            &manager,
+        )
+        .await
+        .expect("the team has a role on the board");
+    for (changed, why) in [(1, "a person joins"), (0, "the person is in it already")] {
+        let changes = th
+            .app
+            .store()
+            .add_team_member(ROOT_WORKSPACE_ID, &team.id, &user, &manager)
+            .await
+            .expect("the person is in the team");
+        assert_eq!(changes.len(), changed, "{why}: {changes:?}");
+    }
+    th.teardown().await;
+}

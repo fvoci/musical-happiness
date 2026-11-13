@@ -210,6 +210,19 @@ pub(crate) async fn require_addition(
     Ok(())
 }
 
+/// Whether `user_id` is in the team `team_id` already.
+pub(crate) async fn has_member(
+    scope: &mut Scope<'_>,
+    team_id: &str,
+    user_id: &str,
+) -> Result<bool, StoreError> {
+    let mut sql = scope.sql("SELECT user_id FROM team_members WHERE team_id = ");
+    sql.bind(Id(team_id))
+        .push_bind(" AND user_id = ", Id(user_id))
+        .push_bind(" AND org_id = ", scope.org()?);
+    Ok(scope.fetch_optional(sql).await?.is_some())
+}
+
 pub(crate) async fn add_member(
     scope: &mut Scope<'_>,
     workspace_id: &str,

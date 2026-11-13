@@ -31,7 +31,8 @@ impl Store {
         .await
     }
 
-    /// Adds a nonguest workspace member to a team, idempotently.
+    /// Adds a nonguest workspace member to a team, idempotently, and returns each board
+    /// of the team with them; nothing if they were in it already.
     ///
     /// # Errors
     /// As [`Store::rename_team`]; not found for a guest or a person outside the workspace.
@@ -46,6 +47,10 @@ impl Store {
             teams::managing(scope, workspace_id, by).await?;
             teams::require_team(scope, workspace_id, team_id).await?;
             teams::require_addition(scope, workspace_id, user_id, by).await?;
+            // Already in it: nobody's access changes, and nobody is told.
+            if teams::has_member(scope, team_id, user_id).await? {
+                return Ok(Vec::new());
+            }
             let changes = board_teams::joining(scope, team_id, user_id, by).await?;
             teams::add_member(scope, workspace_id, team_id, user_id).await?;
             Ok(changes)

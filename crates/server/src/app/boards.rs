@@ -337,9 +337,10 @@ impl App {
         }
     }
 
-    /// Restores a board from the trash, with its blocks, its file records and the
-    /// memberships and places in the sidebar of the users who still exist, tells the
-    /// board's members and each user it is filed for, and returns the board.
+    /// Restores a board from the trash, with its blocks, its file records, the
+    /// memberships and places in the sidebar of the users who still exist and the roles
+    /// of its surviving teams, rechecks its card rooms, tells the board's members and
+    /// each user it is filed for, and returns the board.
     ///
     /// # Errors
     ///
@@ -359,8 +360,9 @@ impl App {
             Err(error) if error.is_not_found() => return Err(AppError::not_found("board")),
             Err(error) => return Err(error.into()),
         };
-        // Its people and its surviving teams have their roles on it again; a card
-        // room of it that someone was being let into reads them.
+        // Its people and its surviving teams have their roles on it again. Its rooms
+        // were emptied when it was deleted: this is for an entry under way, which
+        // reads the roles again.
         self.collab()
             .recheck_access(self, AccessScope::board(&board.id))
             .await;

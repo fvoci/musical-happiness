@@ -157,3 +157,41 @@ async fn joining_a_team_that_edits_lets_a_reader_write_at_once() {
     member.write_acked("written once in the team").await;
     th.teardown().await;
 }
+
+#[tokio::test]
+async fn deleting_a_team_reaches_every_board_it_was_on_and_only_its_people() {
+    let th = seldom().start().await.init_basic().await;
+    workspace_admin(&th).await;
+    let team_id = team_of_the_second(&th, "Both boards").await;
+    let mut rooms = Vec::new();
+    for (index, text) in [(0, "first board"), (1, "second board")] {
+        let table = table(&th, &paragraphs(&[text])).await;
+        assign(&th, &table, &team_id, "editor").await;
+        let mut owner = Peer::connect(&th.client, 310 + index).await;
+        owner.joined(TEST_WORKSPACE_ID, &table.card_id).await;
+        let mut member = Peer::connect(&th.client2, 320 + index).await;
+        member.joined(TEST_WORKSPACE_ID, &table.card_id).await;
+        rooms.push((owner, member));
+    }
+
+    let changed_at = Instant::now();
+    th.client
+        .delete(&team_path(&team_id, ""))
+        .await
+        .check_no_content();
+    for (owner, member) in &mut rooms {
+        left_at_once(member, changed_at).await;
+        owner.write_acked("the owner of the board writes on").await;
+        owner.settle().await;
+        assert!(
+            owner
+                .unread()
+                .iter()
+                .all(|message| !["DOC_LEFT", "DOC_MODE"]
+                    .contains(&message["action"].as_str().unwrap_or_default())),
+            "the board's own admin is not told anything: {:?}",
+            owner.unread()
+        );
+    }
+    th.teardown().await;
+}
