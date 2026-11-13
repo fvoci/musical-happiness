@@ -268,4 +268,5 @@ crates/store/src/visibility.rs | a team's people
 
 # A user's board memberships in every organization count the roles of their teams too.
 crates/store/src/memberships_everywhere.rs | through a team
+crates/store/src/directory.rs | through a team
 crates/store/src/memberships_everywhere.rs | board_team_access

@@ -15,7 +15,8 @@
 use std::collections::BTreeSet;
 
 use fvoci_model::{
-    BoardType, LoginOrganization, OrgRole, User, UserWorkspace, Workspace, WorkspaceRole, new_id,
+    BoardMember, BoardType, LoginOrganization, OrgRole, User, UserWorkspace, Workspace,
+    WorkspaceRole, new_id,
 };
 use subtle::ConstantTimeEq as _;
 
@@ -27,7 +28,7 @@ use crate::loose_objects::LooseState;
 use crate::oidc::{FLOW_COLUMNS, LoginFlow, flow_from_row};
 use crate::uploads::{OpenUploads, UploadUsage};
 use crate::{Store, Tenant};
-use crate::{invitations, users, workspaces};
+use crate::{invitations, memberships_everywhere, users, workspaces};
 
 /// The organization that holds what the server ships with and is nobody's: the
 /// built-in templates. The schema makes it, under this identifier.
@@ -622,6 +623,27 @@ impl Store {
                     held.insert(row.text(0)?);
                 }
                 Ok(held)
+            })
+            .await
+    }
+
+    /// The user's board memberships in live workspaces of every organization, direct
+    /// and through a team (`inherited_role`), ordered by board identifier. Only the
+    /// named user's memberships are returned, and only of the organizations a session
+    /// made through `login_provider` (`None` for a password) opens: one that takes only
+    /// sessions of another provider is left out.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn board_memberships_of_user(
+        &self,
+        user_id: &str,
+        login_provider: Option<&str>,
+    ) -> Result<Vec<BoardMember>, StoreError> {
+        self.system()
+            .with_conn(async |scope| {
+                memberships_everywhere::of_user(scope, user_id, login_provider).await
             })
             .await
     }
