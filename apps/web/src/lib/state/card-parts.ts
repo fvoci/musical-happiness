@@ -18,6 +18,13 @@ export interface Upload {
 }
 
 /**
+ * How long after its room was joined again by itself (`afterPutOut` said
+ * `there`) a card's room is not joined again by itself: a server that lets
+ * the reader in and puts them out again is not asked in a loop.
+ */
+export const REJOIN_SPACING = 10_000;
+
+/**
  * What became of a card whose room let the reader go as it does for a card
  * that is not there (`not_found`), as reading the card again says:
  *

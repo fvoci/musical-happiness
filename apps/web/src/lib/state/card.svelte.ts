@@ -26,7 +26,7 @@ import {
   type Comment,
 } from './backend.ts';
 import type { BoardStore } from './board.svelte.ts';
-import { afterPutOut, type CommentEdit, type Upload } from './card-parts.ts';
+import { REJOIN_SPACING, afterPutOut, type CommentEdit, type Upload } from './card-parts.ts';
 import { byCreation } from './order.ts';
 import type { LoadStatus } from './workspace.svelte.ts';
 import { reread, take } from './write.ts';
@@ -80,6 +80,8 @@ export class CardStore {
   #savingShown: ReturnType<typeof setTimeout> | undefined;
   #uploadCount = 0;
   #closed = false;
+  /** When the room was last joined again by itself (`#stillThere`). */
+  #rejoinedAt = -Infinity;
   /** Has the board read again: a card gone for the reader may take its board along. */
   readonly #readBoardAgain: () => void;
 
@@ -146,8 +148,8 @@ export class CardStore {
       state: (state) => {
         if (this.#bodyDoc !== opened) return;
         const shut = state.status === 'out' && state.reason === 'not_found';
-        const wasIn = this.room?.status === 'joined' || this.room?.status === 'receiving';
-        if (shut && this.room?.reason !== 'not_found') void this.#stillThere(opened, wasIn);
+        const heldDoc = this.room?.doc !== undefined;
+        if (shut && this.room?.reason !== 'not_found') void this.#stillThere(opened, heldDoc);
         this.room = state;
         this.#showSaving(state.pending);
         // Without the room's document the body is the card's again: read what was missed.
@@ -165,14 +167,18 @@ export class CardStore {
    * The room let the reader go as it does for a card that is not there. The
    * card says why (`afterPutOut`). Gone for the reader, it is missing, and the
    * board is read again: one that is gone for them takes the card's window
-   * along. Still there (restored before the room told), a room the reader was
-   * in is joined again; one that refused them is not asked again.
+   * along. Still there (restored before the room told), a room that gave the
+   * reader its document is joined again, not sooner than `REJOIN_SPACING`
+   * after the last time; one that refused them is not asked again.
    */
-  async #stillThere(opened: BodyDoc, wasIn: boolean): Promise<void> {
+  async #stillThere(opened: BodyDoc, heldDoc: boolean): Promise<void> {
     const read = await afterPutOut(() => this.#backend.card(this.#boardId, this.cardId));
     // Of a room that is still this card's: not one left meanwhile, or of the card restored.
     if (this.#bodyDoc !== opened) return;
-    if (read.found === 'there' && wasIn) opened.retry();
+    if (read.found === 'there' && heldDoc && Date.now() - this.#rejoinedAt >= REJOIN_SPACING) {
+      this.#rejoinedAt = Date.now();
+      opened.retry();
+    }
     if (read.found === 'ended') this.board.workspace.report('load', read.error);
     if (read.found !== 'gone') return;
     this.missing = true;

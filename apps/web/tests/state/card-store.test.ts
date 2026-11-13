@@ -19,9 +19,20 @@ async function openAlpha() {
 }
 
 /** Alpha open with its body in its room, and a way to have the reader taken off the board. */
-async function inTheRoom() {
+/** The reader in the card's room; each state of the room is put on `statuses` as it comes. */
+async function inTheRoom(statuses: string[] = []) {
   const made = await openAlpha();
   const { card, board, backend, world } = made;
+  const openDoc = backend.openDoc.bind(backend);
+  vi.spyOn(backend, 'openDoc').mockImplementation((workspaceId, boardId, cardId, hears) =>
+    openDoc(workspaceId, boardId, cardId, {
+      ...hears,
+      state: (state) => {
+        statuses.push(state.status);
+        hears.state(state);
+      },
+    }),
+  );
   card.openBody();
   await vi.waitFor(() => {
     expect(card.room?.status).toBe('joined');
@@ -152,19 +163,20 @@ describe('an open card', () => {
   });
 
   it('asks its room once more when the room lets the reader go but the card can still be read', async () => {
-    const { card, board, cardId, backend, takenOff } = await inTheRoom();
+    const statuses: string[] = [];
+    const { card, board, cardId, backend, takenOff } = await inTheRoom(statuses);
     // A card that is still read is not called gone; its room, which refuses them now, is not asked again.
     const detail = await backend.card(board.boardId, cardId);
     const read = vi.spyOn(backend, 'card').mockResolvedValue(detail);
     await takenOff();
+    const sincePutOut = () => statuses.slice(statuses.indexOf('out'));
     await vi.waitFor(() => {
-      expect(read).toHaveBeenCalledOnce();
+      expect(sincePutOut()).toEqual(['out', 'joining', 'out']);
     });
     await settle();
-    // Refused again, the room is not asked a third time, nor the card read again.
+    expect(sincePutOut()).toEqual(['out', 'joining', 'out']);
     expect(read).toHaveBeenCalledOnce();
     expect(card.missing).toBe(false);
-    expect(card.room?.status).toBe('out');
     expect(card.room?.reason).toBe('not_found');
     card.close();
   });
