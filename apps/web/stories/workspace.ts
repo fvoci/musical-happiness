@@ -14,6 +14,7 @@ export interface WorkspaceExample {
   readOnly?: boolean;
   managed?: boolean;
   cycle?: boolean;
+  late?: boolean;
 }
 
 export function exampleWorkspace({
@@ -22,6 +23,7 @@ export function exampleWorkspace({
   readOnly = false,
   managed = false,
   cycle = false,
+  late = false,
 }: WorkspaceExample = {}) {
   const world = new World(() => STORY_NOW);
   world.workspace = {
@@ -97,18 +99,7 @@ export function exampleWorkspace({
     },
   });
   world.blocks.set(view.id, view);
-  for (let index = 1; index <= count; index += 1) {
-    const card = exampleCard(index);
-    if (index === 1) card.title += ' — Long example / 긴 예시'.repeat(5);
-    card.fields.properties.status = index % 3 === 0 ? 'done' : 'todo';
-    if (index % 5 !== 0) {
-      const day = 10 + (index % 15);
-      card.fields.properties.due = { from: `2026-11-${day}`, to: `2026-11-${day + 2}` };
-    }
-    if (index > 1) card.fields.properties.before = [`example-card-${index - 1}`];
-    if (cycle && index === 1 && count >= 3) card.fields.properties.before = ['example-card-3'];
-    world.blocks.set(card.id, card);
-  }
+  seedCards(world, count, cycle, late);
   const backend = new MemoryBackend(world, 'example-reader');
   if (managed) requireMembership(backend);
   const workspace = new Workspace({ backend, locale: getLocale });
@@ -133,4 +124,22 @@ function requireMembership(backend: MemoryBackend): void {
 export async function loadWorkspace(example: ReturnType<typeof exampleWorkspace>): Promise<void> {
   await example.workspace.load();
   await example.workspace.openBoard('example-board');
+}
+
+function seedCards(world: World, count: number, cycle: boolean, late: boolean): void {
+  for (let index = 1; index <= count; index += 1) {
+    const card = exampleCard(index);
+    if (index === 1) card.title += ' — Long example / 긴 예시'.repeat(5);
+    card.fields.properties.status = index % 3 === 0 ? 'done' : 'todo';
+    if (index % 5 !== 0) {
+      const day = late && index === 2 ? 5 : 4 + ((index - 1) % 8) * 3;
+      card.fields.properties.due = {
+        from: `2026-11-${String(day).padStart(2, '0')}`,
+        to: `2026-11-${String(day + 2).padStart(2, '0')}`,
+      };
+    }
+    if (index > 1) card.fields.properties.before = [`example-card-${index - 1}`];
+    if (cycle && index === 1 && count >= 3) card.fields.properties.before = ['example-card-3'];
+    world.blocks.set(card.id, card);
+  }
 }

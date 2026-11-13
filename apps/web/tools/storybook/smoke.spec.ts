@@ -87,3 +87,65 @@ test.describe('a reader in another time zone', () => {
     await expect(page.locator('time').first()).toHaveText('Nov 13, 2026, 12:00 PM');
   });
 });
+
+for (const kind of ['mermaid', 'formula'] as const) {
+  test(`${kind} keeps its source while the renderer loads`, async ({ page }) => {
+    const errors = browserErrors(page);
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let intercepted = false;
+    const library = kind === 'mermaid' ? /\/mermaid\.core-[^/]+\.js$/ : /\/katex-[^/]+\.js$/;
+    await page.route(library, async (route) => {
+      intercepted = true;
+      await gate;
+      await route.continue();
+    });
+    try {
+      await page.goto(`iframe.html?id=editor-blocks-${kind}--loading-then-drawn&viewMode=story`, {
+        waitUntil: 'domcontentloaded',
+      });
+      await expect.poll(() => intercepted).toBe(true);
+      if (kind === 'mermaid') {
+        await expect(page.locator('.doc-diagram[data-state="pending"]')).toHaveCount(1);
+        await expect(page.locator('pre > code.language-mermaid')).toBeVisible();
+      } else {
+        await expect(page.locator('.doc-math')).toHaveText('E = mc^2');
+        await expect(page.locator('.katex')).toHaveCount(0);
+      }
+    } finally {
+      release();
+    }
+    await expect(page.locator('#storybook-root [data-state="drawn"]')).toHaveCount(1);
+    await expect(page.locator('html')).toHaveAttribute('data-story-result', 'success');
+    expect(errors).toEqual([]);
+  });
+}
+
+test('formula controls return drawn math to its source and draw it again', async ({ page }) => {
+  const errors = browserErrors(page);
+  const storyId = 'editor-blocks-formula--drawn';
+  await page.goto(`iframe.html?id=${storyId}&viewMode=story`);
+  const formula = page.locator('.doc-math');
+  await expect(formula).toHaveAttribute('data-state', 'drawn');
+  for (const draw of [false, true]) {
+    await page.evaluate(
+      ({ storyId, draw }) => {
+        const channel = (
+          window as unknown as {
+            __STORYBOOK_ADDONS_CHANNEL__: { emit: (event: string, payload: unknown) => void };
+          }
+        ).__STORYBOOK_ADDONS_CHANNEL__;
+        channel.emit('updateStoryArgs', { storyId, updatedArgs: { draw } });
+      },
+      { storyId, draw },
+    );
+    if (draw) await expect(formula).toHaveAttribute('data-state', 'drawn');
+    else {
+      await expect(formula).toHaveText('E = mc^2');
+      await expect(formula.locator('.katex')).toHaveCount(0);
+    }
+  }
+  expect(errors).toEqual([]);
+});
