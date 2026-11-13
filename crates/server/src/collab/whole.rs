@@ -84,6 +84,7 @@ impl Collab {
         W: FnOnce(App) -> F,
         F: Future<Output = Result<R, AppError>>,
     {
+        let _gate = self.reading(app.store().tenant()).await;
         card_ids.sort();
         card_ids.dedup();
         let mut held: Vec<(String, Held, bool)> = Vec::with_capacity(card_ids.len());

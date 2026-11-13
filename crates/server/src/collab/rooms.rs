@@ -22,11 +22,12 @@
 //! logged and sent to the others, never logged and not sent.
 
 mod access;
+mod removal;
 
 pub(crate) use access::AccessScope;
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -211,6 +212,8 @@ impl Connection {
 /// The connections that hold one card's document.
 #[derive(Debug)]
 pub(super) struct Room {
+    /// A deletion permanently disconnects this room from any restored card.
+    deleted: AtomicBool,
     /// Its key among the rooms: the card's place ([`place::key_of`]).
     key: String,
     card_id: String,
@@ -433,6 +436,7 @@ impl Collab {
             return Arc::clone(room);
         }
         let room = Arc::new(Room {
+            deleted: AtomicBool::new(false),
             key: key.clone(),
             card_id: card_id.to_owned(),
             board_id: admitted.board_id.clone(),
@@ -595,7 +599,7 @@ impl Collab {
         loop {
             let room = self.room(&admitted, workspace_id, card_id);
             let mut turn = room.turn.lock().await;
-            if turn.closed {
+            if turn.closed || room.gone.is_cancelled() {
                 continue;
             }
             // Access changed since admission; its immediate check may have passed
@@ -617,13 +621,19 @@ impl Collab {
                 self.shut_if_empty(&room, &mut turn).await;
                 return Err(refused);
             }
-            let loaded = match self.open(&room.app, card_id).await {
+            let loaded = match self
+                .open_while(&room.app, card_id, Some(room.gone.clone()))
+                .await
+            {
                 Ok(loaded) => loaded,
                 Err(error) => {
                     self.shut_if_empty(&room, &mut turn).await;
                     return Err(error);
                 }
             };
+            if room.gone.is_cancelled() {
+                return Err(AppError::not_found("card"));
+            }
             let epoch = loaded.epoch;
             let whole = frame::message(Sync::Missing, &loaded.state);
             let joined = messages::joined(workspace_id, card_id, doc, epoch, admitted.mode);
@@ -760,12 +770,13 @@ impl Collab {
         let taken = match refusal {
             Some(reason) => Err(reason),
             None => self
-                .take(
+                .take_while(
                     &room.app,
                     &room.card_id,
                     epoch,
                     &connection.user_id,
                     &update,
+                    Some(room.gone.clone()),
                 )
                 .await
                 .map_err(|error| {
@@ -819,16 +830,23 @@ impl Collab {
             return;
         }
         match self
-            .diff(&room.app, &room.card_id, epoch, &state_vector)
+            .diff_while(
+                &room.app,
+                &room.card_id,
+                epoch,
+                &state_vector,
+                Some(room.gone.clone()),
+            )
             .await
         {
-            Ok(missing) => {
+            Ok(missing) if !room.gone.is_cancelled() => {
                 let missing = frame::message(Sync::Missing, &missing);
                 turn.send(
                     |member| member.connection.id == connection.id,
                     |_| [Queued::sync(doc, epoch, &missing)],
                 );
             }
+            Ok(_) => {}
             Err(error) => error.log(),
         }
         self.shut_if_empty(room, &mut turn).await;
@@ -844,7 +862,10 @@ impl Collab {
     /// If it cannot be opened for another reason (its card is gone, the server holds
     /// as many documents as it may) the members are put out, with that reason.
     async fn anew(&self, room: &Room, turn: &mut Turn, heard: Option<DocChange>) -> bool {
-        let loaded = match self.open(&room.app, &room.card_id).await {
+        let loaded = match self
+            .open_while(&room.app, &room.card_id, Some(room.gone.clone()))
+            .await
+        {
             Ok(loaded) => loaded,
             Err(error) if error.reason() == Some(Reason::DocumentUnavailable) => return false,
             Err(error) => {
@@ -856,6 +877,9 @@ impl Collab {
                 return true;
             }
         };
+        if room.gone.is_cancelled() {
+            return true;
+        }
         let made_again = matches!(heard, Some(DocChange::Remade | DocChange::Replaced));
         if made_again && loaded.epoch == turn.epoch {
             // Sent already, by the join or the update that found it made again.
@@ -874,7 +898,7 @@ impl Collab {
         }
         turn.closed = true;
         room.gone.cancel();
-        if let Err(error) = self.close(&room.app, &room.card_id).await {
+        if let Err(error) = self.close_room_document(room).await {
             tracing::error!(%error, card_id = room.card_id, "cannot write a card's body as its room closes");
         }
         let mut rooms = self

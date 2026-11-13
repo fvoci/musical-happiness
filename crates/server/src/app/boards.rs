@@ -9,7 +9,7 @@ use fvoci_store::{
 };
 
 use super::{App, BoardAccess, DEFAULT_CATEGORY_BOARDS};
-use crate::collab::AccessScope;
+use crate::collab::{AccessScope, Deletion};
 use crate::error::{AppError, Reason};
 
 /// The message of the refusal to remove or demote a board's only admin.
@@ -295,7 +295,14 @@ impl App {
         };
         // The memberships go with the board; who is told is who was a member.
         let members = self.store().get_members_for_board(board_id).await?;
-        self.store().delete_board(board_id, user_id).await?;
+        let (removed, by) = (board_id.to_owned(), user_id.to_owned());
+        self.collab()
+            .remove(
+                self,
+                Deletion::Boards(vec![removed.clone()]),
+                async move |app| Ok(app.store().delete_board(&removed, &by).await?),
+            )
+            .await?;
         self.collab()
             .recheck_access(self, AccessScope::Board(board_id.to_owned()))
             .await;
@@ -334,7 +341,11 @@ impl App {
         board_id: &str,
         modified_by: &str,
     ) -> Result<Board, AppError> {
-        let board = match self.store().undelete_board(board_id, modified_by).await {
+        let restored = {
+            let _structure = self.collab().changing_structure(self).await;
+            self.store().undelete_board(board_id, modified_by).await
+        };
+        let board = match restored {
             Ok(board) => board,
             Err(error) if error.is_not_found() => return Err(AppError::not_found("board")),
             Err(error) => return Err(error.into()),

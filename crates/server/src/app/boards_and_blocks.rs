@@ -8,7 +8,7 @@ use fvoci_store::NewImages;
 
 use super::App;
 use super::boards::CreatorMembership;
-use crate::collab::AccessScope;
+use crate::collab::{AccessScope, Deletion};
 use crate::error::AppError;
 
 impl App {
@@ -55,17 +55,20 @@ impl App {
         user_id: &str,
         membership: CreatorMembership,
     ) -> Result<BoardsAndBlocks, AppError> {
-        let members = match membership {
-            CreatorMembership::Admin => {
-                self.store()
-                    .create_boards_and_blocks_with_admin(&mut created, user_id)
-                    .await?
-            }
-            CreatorMembership::None => {
-                self.store()
-                    .create_boards_and_blocks(&mut created, user_id, NewImages::Unchecked)
-                    .await?;
-                Vec::new()
+        let members = {
+            let _structure = self.collab().changing_structure(self).await;
+            match membership {
+                CreatorMembership::Admin => {
+                    self.store()
+                        .create_boards_and_blocks_with_admin(&mut created, user_id)
+                        .await?
+                }
+                CreatorMembership::None => {
+                    self.store()
+                        .create_boards_and_blocks(&mut created, user_id, NewImages::Unchecked)
+                        .await?;
+                    Vec::new()
+                }
             }
         };
 
@@ -143,6 +146,7 @@ impl App {
         let card_ids =
             crate::collab::cards_written_whole(&blocks, &patches.block_ids, &patches.block_patches);
         let result = if card_ids.is_empty() {
+            let _structure = self.collab().changing_structure(self).await;
             self.store()
                 .patch_boards_and_blocks(patches, user_id)
                 .await?
@@ -216,8 +220,13 @@ impl App {
             deleted_blocks.push((block.id, block.board_id));
         }
 
-        self.store()
-            .delete_boards_and_blocks(request, user_id)
+        let (removed, by) = (request.clone(), user_id.to_owned());
+        self.collab()
+            .remove(
+                self,
+                Deletion::Boards(removed.boards.clone()),
+                async move |app| Ok(app.store().delete_boards_and_blocks(&removed, &by).await?),
+            )
             .await?;
 
         for board_id in &request.boards {

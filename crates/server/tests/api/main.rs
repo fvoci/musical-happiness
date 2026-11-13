@@ -58,6 +58,7 @@ mod rooms;
 mod rooms_access;
 mod rooms_changes;
 mod rooms_contract;
+mod rooms_deletions;
 mod rooms_epochs;
 mod rooms_limits;
 mod rooms_measure;

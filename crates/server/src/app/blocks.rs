@@ -4,6 +4,7 @@ use fvoci_model::{Block, BlockPatch, BlockPatchBatch, BlockType, CommentVersion}
 use fvoci_store::{BlockFilter, DeletedBlock, DuplicateAs};
 
 use super::App;
+use crate::collab::Deletion;
 use crate::error::AppError;
 
 /// Whether a change to a block is reported to the notification service, which tells
@@ -133,6 +134,7 @@ impl App {
                 })
                 .await?;
         } else {
+            let _structure = self.collab().changing_structure(self).await;
             self.store().insert_block(block, modified_by).await?;
         }
         log_notification(notification, ChangeAction::Add, &block.id);
@@ -185,6 +187,7 @@ impl App {
             .map(|block| block.id.clone())
             .collect();
         if card_ids.is_empty() {
+            let _structure = self.collab().changing_structure(self).await;
             self.store().insert_blocks(blocks, modified_by).await?;
         } else {
             // Cards stored again write their bodies whole, around their documents.
@@ -227,6 +230,7 @@ impl App {
         let old_block = self.store().get_block(block_id).await?;
         let board = self.store().get_board(&old_block.board_id).await?;
         if patch.body.is_keep() || old_block.block_type != BlockType::Card {
+            let _structure = self.collab().changing_structure(self).await;
             self.store()
                 .patch_block(block_id, patch, modified_by)
                 .await?;
@@ -285,6 +289,7 @@ impl App {
         let card_ids =
             crate::collab::cards_written_whole(&blocks, &batch.block_ids, &batch.block_patches);
         if card_ids.is_empty() {
+            let _structure = self.collab().changing_structure(self).await;
             self.store().patch_blocks(batch, modified_by).await?;
         } else {
             let (batch, modified_by) = (batch.clone(), modified_by.to_owned());
@@ -331,7 +336,12 @@ impl App {
     ) -> Result<(), AppError> {
         let block = self.store().get_block(block_id).await?;
         let board = self.store().get_board(&block.board_id).await?;
-        self.store().delete_block(block_id, modified_by).await?;
+        let (removed, by) = (block_id.to_owned(), modified_by.to_owned());
+        self.collab()
+            .remove(self, Deletion::Block(removed.clone()), async move |app| {
+                Ok(app.store().delete_block(&removed, &by).await?)
+            })
+            .await?;
         log_notification(notification, ChangeAction::Delete, block_id);
 
         let app = self.clone();
@@ -417,7 +427,11 @@ impl App {
         block_id: &str,
         modified_by: &str,
     ) -> Result<Block, AppError> {
-        let block = match self.store().undelete_block(block_id, modified_by).await {
+        let restored = {
+            let _structure = self.collab().changing_structure(self).await;
+            self.store().undelete_block(block_id, modified_by).await
+        };
+        let block = match restored {
             Ok(block) => block,
             Err(error) if error.is_not_found() => return Err(AppError::not_found("block")),
             Err(error) => return Err(error.into()),
