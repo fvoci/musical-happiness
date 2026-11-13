@@ -197,7 +197,7 @@ Cloudflare R2는 같은 규칙이 기본으로 7일이다. 다른 S3 호환 저�
 
 ## 키: 메일 보내기
 
-SMTP는 선택 사항이다. 설정되면 로그인 화면에서 비밀번호 재설정 메일을 요청하고, 사람 관리·손님 초대 화면에서 기존 초대 링크를 여러 주소로 보낸다. 초대 메일은 주소마다 따로 보내며 링크의 만료·사용 횟수는 바꾸지 않는다. 보내기 전마다 초대 권한과 링크를 다시 확인한다. 비밀번호 재설정 요청의 답은 계정 유무와 관계없이 같고, 계정 조회와 보내기는 배경 작업이다. 비밀번호 없는 계정에는 재설정 메일을 보내지 않는다. 주소별·이메일별 제한은 로그인 제한과 같은 설정을 쓰되 횟수는 따로 센다. 메일은 수신자의 언어(모르면 요청자의 언어)에 따라 영어·한국어 평문과 HTML로 보낸다. `/ready`는 SMTP에 연결하지 않는다. 메일의 링크는 `serverroot`에서 나오므로 받는 사람이 닿는 공개 주소여야 한다(루프백 주소면 시작할 때 경고를 남긴다).
+SMTP는 선택 사항이다. 설정되면 로그인 화면에서 비밀번호 재설정 메일을 요청하고, 사람 관리·손님 초대 화면에서 기존 초대 링크를 여러 주소로 보낸다. 초대 메일은 주소마다 따로 보내며 링크의 만료·사용 횟수는 바꾸지 않는다. 보내기 전마다 초대 권한과 링크를 다시 확인한다. 비밀번호 재설정 요청의 답은 계정 유무와 관계없이 같고, 계정 조회와 보내기는 배경 작업이다. 비밀번호 없는 계정에는 재설정 메일을 보내지 않는다. 요청은 출처 주소마다 로그인과 같은 설정(`login_address_attempts_per_minute`)으로 따로 세고, 이메일로는 세지 않는다: 남이 내 주소로 요청해도 나는 막히지 않는다. 한 계정에 가는 메일은 `mail_reset_per_account_hour`까지이고, 넘은 요청도 답은 같으며 아무것도 잠그지 않는다. 재설정을 마치면 그 계정(사용자 이름과 이메일)의 로그인 잠금과 기다림도 끝난다. 메일은 수신자의 언어(모르면 요청자의 언어)에 따라 영어·한국어 평문과 HTML로 보낸다. `/ready`는 SMTP에 연결하지 않는다. 메일의 링크는 `serverroot`에서 나오므로 받는 사람이 닿는 공개 주소여야 한다(루프백 주소면 시작할 때 경고를 남긴다).
 
 | 키 | 환경 변수 | 타입 | 기본값 | 뜻과 범위 |
 |---|---|---|---|---|
@@ -207,7 +207,8 @@ SMTP는 선택 사항이다. 설정되면 로그인 화면에서 비밀번호 �
 | `smtp_user` | `FVOCI_SMTP_USER` | 문자열 | `""` | SMTP 인증 사용자. 비밀번호와 함께 주거나 둘 다 비운다 |
 | `smtp_password` | `FVOCI_SMTP_PASSWORD` | 문자열 | `""` | SMTP 인증 비밀번호. 로그에 남기지 않는다 |
 | `smtp_from` | `FVOCI_SMTP_FROM` | 문자열 | `""` | 보내는 주소 하나. SMTP가 설정되면 필수. 표시 이름과 줄바꿈은 받지 않는다 |
-| `mail_reset_queue` | `FVOCI_MAIL_RESET_QUEUE` | 정수(1 이상) | `200` | 기다리거나 보내는 중인 비밀번호 재설정 메일의 천장. 차면 새 재설정 메일은 버리고(답은 그대로 204) 경고 로그와 `fvoci_password_reset_mail_dropped_total`에 센다 |
+| `mail_reset_queue` | `FVOCI_MAIL_RESET_QUEUE` | 정수(1 이상) | `200` | 기다리거나 보내는 중인 비밀번호 재설정 메일의 천장. 차면 새 재설정 메일은 버리고(답은 그대로 204) 경고 로그와 `fvoci_password_reset_mail_dropped_total{reason="queue_full"}`에 센다 |
+| `mail_reset_per_account_hour` | `FVOCI_MAIL_RESET_PER_ACCOUNT_HOUR` | 정수(1 이상) | `3` | 한 계정에 지난 한 시간에 줄 세운 재설정 메일의 천장(메모리에서 센다). 넘으면 메일을 보내지 않고(답은 그대로 204) 정보 로그와 `fvoci_password_reset_mail_dropped_total{reason="account_limit"}`에 센다. 계정도 출처도 잠그지 않는다 |
 | `mail_invitation_queue` | `FVOCI_MAIL_INVITATION_QUEUE` | 정수(`invitation_mail_recipients` 이상) | `200` | 기다리거나 보내는 중인 초대 메일의 천장. 한 요청의 메일이 다 들어가지 않으면 그 요청은 아무것도 보내지 않고 503(`mail_queue_full`) |
 | `invitation_mail_recipients` | `FVOCI_INVITATION_MAIL_RECIPIENTS` | 정수(1 이상) | `20` | 초대 메일 요청 하나의 받는 사람 수(중복 포함)의 천장. 넘으면 400(`too_many_recipients`) |
 | `invitation_mail_per_hour` | `FVOCI_INVITATION_MAIL_PER_HOUR` | 정수(`invitation_mail_recipients` 이상) | `100` | 워크스페이스마다 지난 한 시간에 줄 세운 초대 메일의 천장(메모리에서 센다). 이 요청의 메일까지 넘으면 아무것도 보내지 않고 429(`invitation_mail_limit`, `Retry-After`) |

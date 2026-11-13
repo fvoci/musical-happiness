@@ -27,7 +27,7 @@ mod scrape_read;
 mod storage;
 mod websocket;
 
-pub(crate) use accounts::LoginOutcome;
+pub(crate) use accounts::{LoginOutcome, ResetMailDrop};
 pub(crate) use background::{Job, JobOutcome, LoginLimit};
 pub(crate) use database::{Database, DbAccess, DbOutcome};
 pub(crate) use files::{FilesBackend, FilesOperation, FilesOutcome};

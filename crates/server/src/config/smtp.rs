@@ -4,7 +4,7 @@ use anyhow::bail;
 use serde::Deserialize;
 use serde_json::{Map, Value};
 
-pub(super) const ENV_KEYS: [(&str, super::EnvKind); 10] = [
+pub(super) const ENV_KEYS: [(&str, super::EnvKind); 11] = [
     ("smtp_host", super::EnvKind::Text),
     ("smtp_port", super::EnvKind::Number),
     ("smtp_tls", super::EnvKind::Text),
@@ -12,6 +12,7 @@ pub(super) const ENV_KEYS: [(&str, super::EnvKind); 10] = [
     ("smtp_password", super::EnvKind::Text),
     ("smtp_from", super::EnvKind::Text),
     ("mail_reset_queue", super::EnvKind::Number),
+    ("mail_reset_per_account_hour", super::EnvKind::Number),
     ("mail_invitation_queue", super::EnvKind::Number),
     ("invitation_mail_recipients", super::EnvKind::Number),
     ("invitation_mail_per_hour", super::EnvKind::Number),
@@ -52,6 +53,9 @@ pub struct SmtpSettings {
     pub smtp_from: String,
     /// The most recovery messages waiting or being delivered; more are dropped unseen.
     pub mail_reset_queue: u32,
+    /// The most recovery messages one account is sent in an hour; more requests are
+    /// answered as any other and send nothing.
+    pub mail_reset_per_account_hour: u32,
     /// The most invitation messages waiting or being delivered; more are refused (503).
     pub mail_invitation_queue: u32,
     /// The most recipients one invitation mail request names (400 beyond).
@@ -70,6 +74,7 @@ impl Default for SmtpSettings {
             smtp_password: String::new(),
             smtp_from: String::new(),
             mail_reset_queue: 200,
+            mail_reset_per_account_hour: 3,
             mail_invitation_queue: 200,
             invitation_mail_recipients: 20,
             invitation_mail_per_hour: 100,
@@ -85,6 +90,10 @@ impl std::fmt::Debug for SmtpSettings {
             .field("smtp_tls", &self.smtp_tls)
             .field("smtp_from", &self.smtp_from)
             .field("mail_reset_queue", &self.mail_reset_queue)
+            .field(
+                "mail_reset_per_account_hour",
+                &self.mail_reset_per_account_hour,
+            )
             .field("mail_invitation_queue", &self.mail_invitation_queue)
             .field(
                 "invitation_mail_recipients",
@@ -116,8 +125,14 @@ impl SmtpSettings {
         if self.smtp_port == 0 {
             bail!("smtp_port must be 1 to 65535");
         }
-        if self.mail_reset_queue == 0 || self.invitation_mail_recipients == 0 {
-            bail!("mail_reset_queue and invitation_mail_recipients must be at least 1");
+        if self.mail_reset_queue == 0
+            || self.mail_reset_per_account_hour == 0
+            || self.invitation_mail_recipients == 0
+        {
+            bail!(
+                "mail_reset_queue, mail_reset_per_account_hour and invitation_mail_recipients \
+                 must be at least 1"
+            );
         }
         if self.invitation_mail_recipients > self.mail_invitation_queue
             || self.invitation_mail_recipients > self.invitation_mail_per_hour
@@ -184,6 +199,7 @@ mod tests {
     fn mail_limits_hold_a_whole_request_with_or_without_smtp() {
         for (key, value) in [
             ("mail_reset_queue", 0),
+            ("mail_reset_per_account_hour", 0),
             ("invitation_mail_recipients", 0),
             ("mail_invitation_queue", 19),
             ("invitation_mail_per_hour", 19),
@@ -206,6 +222,7 @@ mod tests {
             "invitation_mail_per_hour": 1,
             "mail_invitation_queue": 1,
             "mail_reset_queue": 1,
+            "mail_reset_per_account_hour": 1,
         });
         Configuration::parse(&fits.to_string(), |_| None)
             .expect("parse")

@@ -1,4 +1,5 @@
-//! How many invitation messages each workspace has queued within the last hour.
+//! How many messages each key (an account, a workspace, an organization) was given
+//! within the last hour.
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
@@ -11,14 +12,14 @@ const WINDOW: Duration = Duration::from_hours(1);
 
 /// Why messages were not taken; nothing was recorded.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Refused {
-    /// The workspace would pass its limit; enough earlier messages leave after this.
+pub(super) enum Refusal {
+    /// The key would pass its limit; enough earlier messages leave after this.
     Limit(RetryAfter),
     /// The messages fit within the hour, but there was no place for them.
     Unplaced,
 }
 
-/// Messages admitted per workspace, as (when, how many) oldest first, kept in memory.
+/// Messages admitted per key, as (when, how many) oldest first, kept in memory.
 #[derive(Debug)]
 pub(super) struct HourlyQuota {
     per_hour: u32,
@@ -33,23 +34,23 @@ impl HourlyQuota {
         }
     }
 
-    /// Records `messages` for `workspace_id` if they fit within the last hour's limit
+    /// Records `messages` for `key` if they fit within the last hour's limit
     /// and `place` finds room for them, returning what it found. Both are decided under
     /// one lock, so no other request is counted in between.
     ///
     /// # Errors
-    /// Returns [`Refused::Limit`] with how long until enough earlier messages leave the
-    /// window, or [`Refused::Unplaced`] when `place` found no room; nothing is recorded.
+    /// Returns [`Refusal::Limit`] with how long until enough earlier messages leave the
+    /// window, or [`Refusal::Unplaced`] when `place` found no room; nothing is recorded.
     pub(super) fn take<T>(
         &self,
-        workspace_id: &str,
+        key: &str,
         messages: u32,
         now: Instant,
         place: impl FnOnce() -> Option<T>,
-    ) -> Result<T, Refused> {
+    ) -> Result<T, Refusal> {
         let mut admitted = self.admitted.lock().expect("mail quota lock poisoned");
-        // Forget workspaces with nothing in the window, so the map stays as small as
-        // the workspaces that sent mail within the hour.
+        // Forget keys with nothing in the window, so the map stays as small as the
+        // keys that were given mail within the hour.
         admitted.retain(|_, entries| {
             while entries
                 .front()
@@ -59,10 +60,10 @@ impl HourlyQuota {
             }
             !entries.is_empty()
         });
-        let earlier = admitted.get(workspace_id);
+        let earlier = admitted.get(key);
         let mut used: u32 = earlier.map_or(0, |entries| entries.iter().map(|(_, n)| n).sum());
         if used.saturating_add(messages) > self.per_hour {
-            // The configuration keeps a request's recipients within the hourly limit,
+            // The configuration keeps a request's messages within every hourly limit,
             // so the window always empties far enough.
             let mut wait = WINDOW;
             for (at, count) in earlier.into_iter().flatten() {
@@ -72,11 +73,11 @@ impl HourlyQuota {
                     break;
                 }
             }
-            return Err(Refused::Limit(RetryAfter(wait)));
+            return Err(Refusal::Limit(RetryAfter(wait)));
         }
-        let placed = place().ok_or(Refused::Unplaced)?;
+        let placed = place().ok_or(Refusal::Unplaced)?;
         admitted
-            .entry(workspace_id.to_owned())
+            .entry(key.to_owned())
             .or_default()
             .push_back((now, messages));
         Ok(placed)
@@ -90,8 +91,8 @@ mod tests {
     fn take(quota: &HourlyQuota, workspace: &str, messages: u32, at: Instant) -> Option<Duration> {
         match quota.take(workspace, messages, at, || Some(())) {
             Ok(()) => None,
-            Err(Refused::Limit(RetryAfter(wait))) => Some(wait),
-            Err(Refused::Unplaced) => panic!("placing always succeeds here"),
+            Err(Refusal::Limit(RetryAfter(wait))) => Some(wait),
+            Err(Refusal::Unplaced) => panic!("placing always succeeds here"),
         }
     }
 
@@ -129,7 +130,7 @@ mod tests {
         let start = Instant::now();
         assert_eq!(
             quota.take("w1", 5, start, || None::<()>),
-            Err(Refused::Unplaced)
+            Err(Refusal::Unplaced)
         );
         assert_eq!(take(&quota, "w1", 5, start), None, "the hour is untouched");
         let mut asked = false;
@@ -139,7 +140,7 @@ mod tests {
         });
         assert_eq!(
             refused,
-            Err(Refused::Limit(RetryAfter(WINDOW))),
+            Err(Refusal::Limit(RetryAfter(WINDOW))),
             "the limit is told before a place is looked for"
         );
         assert!(!asked);

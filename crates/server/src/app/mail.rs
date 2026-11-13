@@ -45,7 +45,7 @@ enum Kind {
 
 /// Why invitation messages were not queued; nothing of the request was.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Refused {
+pub(super) enum InvitationRefusal {
     /// The workspace queued its hourly limit; the oldest of those leave after this.
     HourlyLimit(Duration),
     /// The invitation queue holds as many messages as it may.
@@ -61,6 +61,16 @@ pub(super) struct Mailer {
     reset_queue: Arc<Semaphore>,
     invitation_queue: Arc<Semaphore>,
     invitation_quota: Arc<quota::HourlyQuota>,
+    reset_quota: Arc<quota::HourlyQuota>,
+}
+
+/// Why a recovery message was not queued. Its request was answered as any other.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ResetDrop {
+    /// The account was sent `mail_reset_per_account_hour` messages within the hour.
+    AccountLimit,
+    /// The recovery queue holds as many messages as it may.
+    QueueFull,
 }
 
 impl std::fmt::Debug for Mailer {
@@ -119,17 +129,30 @@ impl Mailer {
                 settings.mail_invitation_queue,
             )?)),
             invitation_quota: Arc::new(quota::HourlyQuota::new(settings.invitation_mail_per_hour)),
+            reset_quota: Arc::new(quota::HourlyQuota::new(
+                settings.mail_reset_per_account_hour,
+            )),
         })
     }
 
-    /// Takes the place of one recovery message in its queue, or `None` when it is full.
-    pub(super) fn queue_reset(&self) -> Option<Queued> {
-        Arc::clone(&self.reset_queue)
-            .try_acquire_owned()
-            .ok()
+    /// Takes the place of one recovery message to the account `user_id` in its queue.
+    /// A message that finds no place counts nothing against the account's hour.
+    ///
+    /// # Errors
+    /// Returns why the message is dropped: the account's hourly limit, asked first, or
+    /// a full queue.
+    pub(super) fn queue_reset(&self, user_id: &str) -> Result<Queued, ResetDrop> {
+        self.reset_quota
+            .take(user_id, 1, Instant::now(), || {
+                Arc::clone(&self.reset_queue).try_acquire_owned().ok()
+            })
             .map(|place| Queued {
                 kind: Kind::PasswordReset,
                 place,
+            })
+            .map_err(|refusal| match refusal {
+                quota::Refusal::Limit(_) => ResetDrop::AccountLimit,
+                quota::Refusal::Unplaced => ResetDrop::QueueFull,
             })
     }
 
@@ -141,7 +164,7 @@ impl Mailer {
         &self,
         workspace_id: &str,
         messages: u32,
-    ) -> Result<Vec<Queued>, Refused> {
+    ) -> Result<Vec<Queued>, InvitationRefusal> {
         let mut places = self
             .invitation_quota
             .take(workspace_id, messages, Instant::now(), || {
@@ -150,8 +173,8 @@ impl Mailer {
                     .ok()
             })
             .map_err(|refused| match refused {
-                quota::Refused::Limit(RetryAfter(wait)) => Refused::HourlyLimit(wait),
-                quota::Refused::Unplaced => Refused::QueueFull,
+                quota::Refusal::Limit(RetryAfter(wait)) => InvitationRefusal::HourlyLimit(wait),
+                quota::Refusal::Unplaced => InvitationRefusal::QueueFull,
             })?;
         let mut queued = Vec::new();
         while let Some(place) = places.split(1) {

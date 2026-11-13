@@ -3,13 +3,14 @@
 use std::net::IpAddr;
 use std::time::Instant;
 
-use super::mail::{Content, Language};
+use super::mail::{Content, Language, ResetDrop};
 use crate::auth::limiter::RetryAfter;
 
 use super::App;
 use crate::auth::now_millis;
 use crate::auth::secret::{new_secret, token_digest};
 use crate::error::AppError;
+use crate::metrics::ResetMailDrop;
 
 impl App {
     /// Creates a reset link for an operator to deliver through the administration socket.
@@ -40,9 +41,14 @@ impl App {
     /// Admits recovery identically for existing and absent accounts and returns unstarted work.
     /// The HTTP adapter releases this work only after handing off its response.
     ///
+    /// Requests are limited by their address only, as logins are by theirs: a limit on
+    /// the email would lock its owner out for whoever asks in their name. What one
+    /// account is sent is limited after it is looked up, in the background, where the
+    /// answer cannot tell (`mail_reset_per_account_hour`).
+    ///
     /// # Errors
     /// Returns 404 without SMTP, 400 for a malformed email, or 429 for too many
-    /// requests from this address or for this email, independently of login limits.
+    /// requests from this address, independently of login limits.
     pub fn prepare_password_reset(
         &self,
         email: &str,
@@ -58,13 +64,12 @@ impl App {
                 AppError::bad_request("a valid email address is required").with_field("email")
             );
         }
-        let attempt = self
+        // Counted against the address as it is admitted; nothing is counted at the email.
+        let _request = self
             .inner
             .reset_limiter
-            .admit_login(&[&email], address, Instant::now())
+            .admit_from_address(address, Instant::now())
             .map_err(|RetryAfter(wait)| AppError::rate_limited(wait))?;
-        // Count every request equally. Success never resets the email's request count.
-        attempt.failed(Instant::now());
         let app = self.clone();
         let language = Language::of(language);
         Ok(async move {
@@ -86,11 +91,21 @@ impl App {
         }
         let settings = self.user_settings(&user.id).await?;
         let language = Language::recipient(settings.language.as_str(), fallback);
-        // The answer was the same either way; a full queue drops this message unseen.
-        let Some(queued) = self.inner.mail.queue_reset() else {
-            tracing::warn!("password recovery mail dropped: its queue is full");
-            self.metrics().password_reset_mail_dropped();
-            return Ok(());
+        // The answer was the same either way; a dropped message is told only here.
+        let queued = match self.inner.mail.queue_reset(&user.id) {
+            Ok(queued) => queued,
+            Err(ResetDrop::AccountLimit) => {
+                tracing::info!("password recovery mail dropped: the account's hourly limit");
+                self.metrics()
+                    .password_reset_mail_dropped(ResetMailDrop::AccountLimit);
+                return Ok(());
+            }
+            Err(ResetDrop::QueueFull) => {
+                tracing::warn!("password recovery mail dropped: its queue is full");
+                self.metrics()
+                    .password_reset_mail_dropped(ResetMailDrop::QueueFull);
+                return Ok(());
+            }
         };
         let delivery = queued
             .delivery(&self.inner.mail)
@@ -103,7 +118,9 @@ impl App {
             .map_err(|_| AppError::internal("SMTP delivery failed after three attempts"))
     }
 
-    /// Sets the password proved by a reset token and closes every session and live connection.
+    /// Sets the password proved by a reset token and closes every session and live
+    /// connection. Who reset it proved the mailbox, so the sign-in lock that others'
+    /// guesses at the old password left on the account ends too.
     ///
     /// # Errors
     /// Returns 400 for an invalid password or unavailable token, 429 for too many
@@ -125,6 +142,15 @@ impl App {
                 AppError::bad_request("the reset link is invalid or expired").with_field("token")
             })?;
         self.ws().close_user(&user_id);
+        match self.store().get_user_by_id(&user_id).await {
+            Ok(user) => self
+                .login_limiter()
+                .forget_account(&[&user.username, &user.email]),
+            // The password is set; an account deleted meanwhile has nothing to unlock.
+            Err(error) if error.is_not_found() => {}
+            // The password is set: what is left of the lock ends on its own.
+            Err(error) => tracing::warn!(%error, "the account's sign-in lock was not ended"),
+        }
         Ok(())
     }
 }

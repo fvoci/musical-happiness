@@ -1,5 +1,5 @@
 //! The metrics of the accounts: how logins ended, how many users registered, how many
-//! recovery messages were dropped, and how many sessions are live. No label names a
+//! recovery messages were dropped and why, and how many sessions are live. No label names a
 //! user, an address or a session.
 
 use prometheus::{IntCounter, IntCounterVec, IntGauge, Opts, Registry};
@@ -59,13 +59,35 @@ impl LoginOutcome {
     }
 }
 
+/// Why a password recovery message was not sent although its request was answered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ResetMailDrop {
+    /// `mail_reset_queue` messages were already waiting or being delivered.
+    QueueFull,
+    /// The account was sent `mail_reset_per_account_hour` messages within the hour.
+    AccountLimit,
+}
+
+impl ResetMailDrop {
+    const ALL: [Self; 2] = [Self::QueueFull, Self::AccountLimit];
+
+    /// The value of the `reason` label.
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::QueueFull => "queue_full",
+            Self::AccountLimit => "account_limit",
+        }
+    }
+}
+
 /// The metrics of the accounts.
 #[derive(Debug)]
 pub(super) struct AccountMetrics {
     /// The counter of each outcome, in the order of [`LoginOutcome::ALL`].
     logins: [IntCounter; 5],
     registrations: IntCounter,
-    reset_mail_dropped: IntCounter,
+    /// The counter of each reason, in the order of [`ResetMailDrop::ALL`].
+    reset_mail_dropped: [IntCounter; 2],
     sessions_live: IntGauge,
     /// The scrapes' reads of the live sessions.
     sessions_read: ScrapeRead,
@@ -102,16 +124,24 @@ impl AccountMetrics {
             .namespace(PREFIX),
         )?;
         registry.register(Box::new(registrations.clone()))?;
-        let reset_mail_dropped = IntCounter::with_opts(
+        let reset_mail_dropped = IntCounterVec::new(
             Opts::new(
                 "password_reset_mail_dropped_total",
-                "How many password recovery messages were not sent because \
-                 mail_reset_queue messages were already waiting or being delivered. The \
-                 request was answered as any other.",
+                "How many password recovery messages to an account were not sent, by \
+                 reason: queue_full (mail_reset_queue messages were already waiting or \
+                 being delivered), account_limit (the account was sent \
+                 mail_reset_per_account_hour messages within the hour). The request was \
+                 answered as any other, and nothing was locked.",
             )
             .namespace(PREFIX),
+            &["reason"],
         )?;
         registry.register(Box::new(reset_mail_dropped.clone()))?;
+        let reset_mail_dropped = ResetMailDrop::ALL.map(|reason| {
+            let counter = reset_mail_dropped.with_label_values(&[reason.as_str()]);
+            counter.reset();
+            counter
+        });
         let sessions_live = IntGauge::with_opts(
             Opts::new(
                 "sessions_live",
@@ -155,10 +185,14 @@ impl Metrics {
         }
     }
 
-    /// Counts a password recovery message dropped because its queue was full.
-    pub(crate) fn password_reset_mail_dropped(&self) {
+    /// Counts a password recovery message that was not sent, for `reason`.
+    pub(crate) fn password_reset_mail_dropped(&self, reason: ResetMailDrop) {
         if let Some(kept) = &self.kept {
-            kept.accounts.reset_mail_dropped.inc();
+            let index = match reason {
+                ResetMailDrop::QueueFull => 0,
+                ResetMailDrop::AccountLimit => 1,
+            };
+            kept.accounts.reset_mail_dropped[index].inc();
         }
     }
 

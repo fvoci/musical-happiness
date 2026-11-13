@@ -8,6 +8,7 @@ use serde_json::json;
 
 use crate::common::Setup;
 use crate::fake_smtp::FakeSmtp;
+use crate::metrics::{sample, scrape_until};
 
 #[tokio::test]
 async fn mail_reset_answers_uniformly_without_waiting_for_delivery() {
@@ -150,7 +151,7 @@ async fn mail_reset_retries_a_transient_failure() {
 }
 
 #[tokio::test]
-async fn mail_reset_limits_normalized_email_across_addresses_and_addresses_across_emails() {
+async fn mail_reset_limits_addresses_across_emails_and_never_an_email() {
     let smtp = FakeSmtp::start_on(0).await;
     let th = Setup::native()
         .smtp(smtp.settings())
@@ -161,38 +162,97 @@ async fn mail_reset_limits_normalized_email_across_addresses_and_addresses_acros
         .start()
         .await;
     let ip = |last| Some(IpAddr::V4(Ipv4Addr::new(192, 0, 2, last)));
+    for last in 1..=5 {
+        th.app.spawn_background(
+            th.app
+                .prepare_password_reset(" ABSENT@example.test ", "en", ip(last))
+                .expect("an email is never refused for what others asked in its name"),
+        );
+    }
     th.app.spawn_background(
         th.app
-            .prepare_password_reset(" absent@example.test ", "en", ip(1))
-            .expect("first"),
-    );
-    th.app.spawn_background(
-        th.app
-            .prepare_password_reset("ABSENT@example.test", "en", ip(2))
-            .expect("second"),
-    );
-    assert!(
-        th.app
-            .prepare_password_reset("absent@example.test", "en", ip(3))
-            .is_err(),
-        "email counted across addresses"
-    );
-    th.app.spawn_background(
-        th.app
-            .prepare_password_reset("one@example.test", "en", ip(4))
+            .prepare_password_reset("one@example.test", "en", ip(9))
             .expect("first address"),
     );
     th.app.spawn_background(
         th.app
-            .prepare_password_reset("two@example.test", "en", ip(4))
+            .prepare_password_reset("two@example.test", "en", ip(9))
             .expect("second address"),
     );
     assert!(
         th.app
-            .prepare_password_reset("three@example.test", "en", ip(4))
+            .prepare_password_reset("three@example.test", "en", ip(9))
             .is_err(),
         "address counted across emails"
     );
+    th.teardown().await;
+    smtp.stop().await;
+}
+
+#[tokio::test]
+async fn mail_reset_sends_an_account_its_hourly_messages_and_locks_nothing() {
+    let smtp = FakeSmtp::start_on(0).await;
+    let th = Setup::native()
+        .smtp(smtp.settings())
+        .metrics_at("127.0.0.1:0")
+        .configure(|config| config.login_account_max_failures = 2)
+        .start()
+        .await
+        .init_basic()
+        .await;
+    assert_eq!(th.app.config().smtp.mail_reset_per_account_hour, 3);
+    let ip = |last| Some(IpAddr::V4(Ipv4Addr::new(198, 51, 100, last)));
+    for last in 1..=5 {
+        let email = if last % 2 == 0 {
+            "USER1@sample.com"
+        } else {
+            "user1@sample.com"
+        };
+        th.app.spawn_background(
+            th.app
+                .prepare_password_reset(email, "en", ip(last))
+                .expect("answered as any other"),
+        );
+    }
+    smtp.received(3).await;
+    assert!(th.app.finish_background(Duration::from_secs(10)).await);
+    assert_eq!(smtp.messages().await.len(), 3, "three an hour");
+    assert_eq!(
+        th.app
+            .store()
+            .count_rows("password_resets")
+            .await
+            .expect("tokens"),
+        3,
+        "a dropped request made no token"
+    );
+    let body = scrape_until(&th, |body| {
+        sample(
+            body,
+            "fvoci_password_reset_mail_dropped_total",
+            &[("reason", "account_limit")],
+        ) == Some(2.0)
+    })
+    .await;
+    assert_eq!(
+        sample(
+            &body,
+            "fvoci_password_reset_mail_dropped_total",
+            &[("reason", "queue_full")],
+        ),
+        Some(0.0)
+    );
+    // Neither the owner's sign-in nor another account's recovery is held back.
+    th.anonymous()
+        .login("user1", crate::common::PASSWORD)
+        .await
+        .check_no_content();
+    th.app.spawn_background(
+        th.app
+            .prepare_password_reset("user2@sample.com", "en", ip(7))
+            .expect("another account"),
+    );
+    smtp.received(4).await;
     th.teardown().await;
     smtp.stop().await;
 }
@@ -233,10 +293,7 @@ async fn mail_reset_waits_for_delivery_capacity_before_minting_a_token() {
     smtp.delay(Duration::from_secs(2)).await;
     let th = Setup::native()
         .smtp(smtp.settings())
-        .configure(|config| {
-            config.login_pair_free_failures = 10;
-            config.login_account_max_failures = 10;
-        })
+        .configure(|config| config.smtp.mail_reset_per_account_hour = 5)
         .start()
         .await
         .init_basic()

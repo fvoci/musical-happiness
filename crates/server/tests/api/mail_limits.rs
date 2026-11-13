@@ -296,7 +296,11 @@ async fn recovery_answers_the_same_when_its_queue_is_full_and_counts_the_drop() 
     };
     assert_eq!(headers(&first), headers(&dropped));
     let body = scrape_until(&th, |body| {
-        sample(body, "fvoci_password_reset_mail_dropped_total", &[]) == Some(1.0)
+        sample(
+            body,
+            "fvoci_password_reset_mail_dropped_total",
+            &[("reason", "queue_full")],
+        ) == Some(1.0)
     })
     .await;
     assert!(!body.contains("user2"), "{body}");

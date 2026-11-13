@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 
 use fvoci_model::{Invitation, InvitationMail};
 
-use super::super::mail::{Content, Language, Queued, Refused};
+use super::super::mail::{Content, InvitationRefusal, Language, Queued};
 use super::App;
 use crate::auth::{now_millis, secret::token_digest};
 use crate::error::{AppError, Reason};
@@ -63,12 +63,12 @@ impl App {
             .mail
             .queue_invitations(workspace_id, count)
             .map_err(|refused| match refused {
-                Refused::HourlyLimit(wait) => AppError::quota_reached(
+                InvitationRefusal::HourlyLimit(wait) => AppError::quota_reached(
                     "the workspace sent its hourly invitation mail; try again later",
                     Reason::InvitationMailLimit,
                     wait,
                 ),
-                Refused::QueueFull => {
+                InvitationRefusal::QueueFull => {
                     AppError::service_unavailable("too much mail is waiting; try again later")
                         .with_reason(Reason::MailQueueFull)
                 }
