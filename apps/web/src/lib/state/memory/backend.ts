@@ -69,6 +69,7 @@ import {
   roleOn,
   type Role,
 } from './comments.ts';
+import { usersAmong, usersNamed } from './users.ts';
 import { changeDisplayName } from './account.ts';
 import { checkRelations, renameCopied } from './references.ts';
 import { fail } from './refuse.ts';
@@ -259,16 +260,13 @@ export class MemoryBackend implements Backend {
 
   async users(workspaceId: string): Promise<User[]> {
     await this.#enterWorkspace('users', workspaceId);
-    return scramble([...this.world.users.values()]).map((user) => {
-      const { isAdmin: _isAdmin, ...rest } = copy(user);
-      return rest;
-    });
+    return usersAmong(this.world);
   }
 
-  /** As the server: whom the workspace does not have is left out, and each is there once. */
+  /** Names visible members and authors, without offering departed authors among people. */
   async usersById(workspaceId: string, userIds: string[]): Promise<User[]> {
-    const users = await this.users(workspaceId);
-    return users.filter((user) => userIds.includes(user.id));
+    await this.#enterWorkspace('usersById', workspaceId);
+    return usersNamed(this.world, this.userId, userIds);
   }
 
   // ----------------------------------------------------------- settings

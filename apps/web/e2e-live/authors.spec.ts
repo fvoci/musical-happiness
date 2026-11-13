@@ -89,3 +89,59 @@ test('a departed writer of an earlier revision is named when the comment history
   expect(errors).toEqual([]);
   for (const client of [api, writer, admin]) await client.dispose();
 });
+
+test('a departed comment author is named without opening the comment history', async ({
+  page,
+  baseURL,
+}) => {
+  const base = baseURL ?? '';
+  const owner = person('comment-reader');
+  const departed = person('comment-writer');
+  for (const who of [owner, departed]) await register(base, who);
+  const api = await signedIn(base, owner);
+  const writer = await signedIn(base, departed);
+  const writerId = ((await (await writer.get('/api/v1/users/me')).json()) as Schemas['User']).id;
+  const board = await makeBoard(api, {
+    title: 'Remembered authors',
+    cards: [{ title: 'Kept conversation', status: 'To do' }],
+  });
+  const prefix = `/api/v1/w/${board.workspaceId}/boards/${board.boardId}`;
+  const added = await api.post(`${prefix}/members`, {
+    data: { userId: writerId, schemeCommenter: true },
+  });
+  expect(added.ok(), await added.text()).toBe(true);
+  const posted = await writer.post(`${prefix}/blocks`, {
+    data: [
+      {
+        boardId: board.boardId,
+        parentId: board.cards['Kept conversation'],
+        type: 'comment',
+        title: '',
+        fields: {},
+        createAt: 1,
+        updateAt: 1,
+        body: body('Words that remain after leaving'),
+      },
+    ],
+  });
+  expect(posted.ok(), await posted.text()).toBe(true);
+  const admin = await signedIn(base, ADMIN);
+  const removed = await admin.delete(`/api/v1/w/${board.workspaceId}/members/${writerId}`);
+  expect(removed.ok(), await removed.text()).toBe(true);
+  const listed = await api.get(`/api/v1/w/${board.workspaceId}/users`, {
+    params: { search: departed.username },
+  });
+  expect(listed.ok()).toBe(true);
+  expect(await listed.json()).toEqual([]);
+  const errors = watchErrors(page);
+  await page.goto(boardPath(board, board.viewId, board.cards['Kept conversation']));
+  await signInOnPage(page, owner);
+  await expect(page.getByText('Words that remain after leaving')).toBeVisible();
+  await expect(
+    page.getByTestId('card-comments').getByText(departed.username, { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByTestId('card-comments')).not.toContainText('Unknown user');
+  await expect(page.getByTestId('comment-history')).toHaveCount(0);
+  expect(errors).toEqual([]);
+  for (const client of [api, writer, admin]) await client.dispose();
+});

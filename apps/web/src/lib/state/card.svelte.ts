@@ -32,25 +32,9 @@ import { byCreation } from './order.ts';
 import type { LoadStatus } from './workspace.svelte.ts';
 import { reread, take } from './write.ts';
 
-export interface BodyConflict {
-  /** What the reader wrote. */
-  mine: DocNode | null;
-  /** The card as it is stored now. */
-  theirs: CardDetail;
-}
-
-/** How a change of a comment ended: stored, refused for a newer version, or failed (and told). */
-export type CommentEdit = 'saved' | 'conflict' | 'failed';
-
-export interface Upload {
-  id: number;
-  name: string;
-  sentBytes: number;
-  totalBytes: number;
-  failed: boolean;
-  /** Gives the upload up. */
-  cancel: () => void;
-}
+export type { BodyConflict, CommentEdit, Upload } from './card-types.ts';
+import type { BodyConflict, CommentEdit, Upload } from './card-types.ts';
+import { authorIds } from './user-names.ts';
 
 /** How many times a body is sent on a newer version when only something else of the card changed. */
 const MAX_TRIES = 4;
@@ -120,7 +104,9 @@ export class CardStore {
         this.#backend.comments(this.#boardId, this.cardId),
         this.#backend.attachments(this.#boardId, this.cardId),
       ]);
+      if (this.#closed) return;
       this.#takeDetail(detail);
+      void this.board.workspace.learnUsers(authorIds(comments));
       this.#comments = comments;
       this.#attachments = attachments;
       this.status = 'ready';
@@ -313,6 +299,7 @@ export class CardStore {
   /** A comment or an attachment arrived from the backend. */
   receive(block: Comment | Attachment): void {
     if (block.parentId !== this.cardId) return;
+    void this.board.workspace.learnUsers(authorIds([block]));
     if (block.type === 'comment') this.#comments = take(this.#comments, block);
     else this.#attachments = take(this.#attachments, block);
   }
@@ -337,6 +324,7 @@ export class CardStore {
       // Closed meanwhile, or a later reading has begun (asked again: the
       // check above was before the wait, which TypeScript does not see).
       if (this.#isClosed() || reading !== this.#refreshing) return;
+      void this.board.workspace.learnUsers(authorIds(comments));
       this.#comments = reread(this.#comments, comments, commentsBefore);
       this.#attachments = reread(this.#attachments, attachments, attachmentsBefore);
     } catch (error) {

@@ -43,6 +43,7 @@ import { CardStore } from './card.svelte.ts';
 import { Inverses } from './inverses.ts';
 import { lastCommentsOf } from './last-comments.ts';
 import { propertyMovesOf } from './property-moves.ts';
+import { authorIds } from './user-names.ts';
 import { readBoard } from './board-load.ts';
 import { addMemberTo, boardOfWorkspace, roleFlags, roleOf, type CardDrop } from './board-parts.ts';
 import { orderMembers, orderViews } from './order.ts';
@@ -359,12 +360,7 @@ export class BoardStore {
     const viewsBefore = this.views.map((view) => view.id);
     const membersTold = this.#membersTold;
     try {
-      const [board, views, cards, members] = await Promise.all([
-        boardOfWorkspace(this.#backend, this.boardId, this.workspace.info?.id),
-        this.#backend.views(this.boardId),
-        this.#backend.cards(this.boardId),
-        this.#backend.members(this.boardId),
-      ]);
+      const [board, views, cards, members] = await readBoard(this.workspace, this.boardId);
       // A newer reading has begun meanwhile: it is the one that counts.
       if (reading !== this.#refreshing) return;
       if (this.#boardWrites.receive(board)) this.#takeBoard(board);
@@ -402,6 +398,7 @@ export class BoardStore {
   #receiveCard(incoming: CardSummary): void {
     const card = this.#lastComments.merge(incoming, this.card(incoming.id));
     if (!this.#cardWrites.receive(card)) return;
+    void this.workspace.learnUsers(authorIds([card]));
     this.cards = take(this.cards, card);
     this.openCard?.cardChanged(card);
   }
@@ -522,6 +519,7 @@ export class BoardStore {
     return this.#perform(
       async () => {
         const card = await this.#backend.createCard(this.boardId, draft);
+        void this.workspace.learnUsers(authorIds([card]));
         this.cards = take(this.cards, card);
         return card;
       },

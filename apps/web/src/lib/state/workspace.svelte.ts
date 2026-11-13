@@ -1,3 +1,4 @@
+import { UserNames } from './user-names.ts';
 /**
  * The reader's workspace: who they are, the people around them, the boards
  * they can see, their sidebar and their settings. One per app.
@@ -369,24 +370,10 @@ export class Workspace {
    * Failing, the names stay unknown and nothing is told: nothing else
    * depends on them. A session that is over still signs out.
    */
+  readonly #userNames = new UserNames(this);
+
   async learnUsers(userIds: readonly string[]): Promise<void> {
-    const workspace = this.info;
-    const missing = userIds.filter(
-      (id, at) => userIds.indexOf(id) === at && this.#usersById[id] === undefined,
-    );
-    if (!workspace || missing.length === 0) return;
-    try {
-      const found = await this.backend.usersById(workspace.id, missing);
-      if (this.info !== workspace) return;
-      // Another read may have brought some of them meanwhile.
-      this.users = [
-        ...this.users,
-        ...found.filter((user) => this.#usersById[user.id] === undefined),
-      ];
-    } catch (error) {
-      if (isBackendError(error) && error.status === 401) this.report('load', error);
-      else if (!isBackendError(error)) console.error(error);
-    }
+    await this.#userNames.learn(userIds);
   }
 
   /**
