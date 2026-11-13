@@ -81,19 +81,36 @@ pub(crate) async fn system(s: &mut Session) {
         .await;
 }
 
-pub(crate) async fn auth(s: &mut Session) {
-    let [alice] = s.users("auth", ["alice"]).await;
-    let token = s.signup_token("root").await;
+/// The part of [`auth`] about who gets an account: nobody by registering once the
+/// server has its organization, and whoever accepts a link with an account to make.
+async fn registrations_and_acceptances(s: &mut Session, alice: &str) {
+    let link = s.member_link("root").await;
     let register = format!("{API}/register");
-    let login = format!("{API}/login");
+    let accept = format!("{API}/invitations/accept");
 
-    s.post("register without token", &register)
-        .json(json!({"username": "auth-x", "email": "auth-x@example.com", "password": "test-password"}))
-        .await;
-    s.post("register with a wrong token", &register)
+    // The server has its organization: nobody registers after its first user, whatever they send.
+    s.post("register: the server has its organization", &register)
         .json(json!({
-            "username": "auth-x", "email": "auth-x@example.com", "password": "test-password", "token": "nope",
+            "username": "auth-x", "email": "auth-x@example.com", "password": "test-password",
+            "organizationName": "Another Firm",
         }))
+        .await;
+    s.post(
+        "register: the server has its organization, nothing sent",
+        &register,
+    )
+    .json(json!({}))
+    .await;
+    s.post("accept: no such link", &accept)
+        .json(json!({
+            "token": "nope",
+            "account": {
+                "username": "auth-x", "email": "auth-x@example.com", "password": "test-password",
+            },
+        }))
+        .await;
+    s.post("accept: neither a session nor an account", &accept)
+        .json(json!({"token": link}))
         .await;
     let refused: [(&str, Value); 8] = [
         (
@@ -129,21 +146,44 @@ pub(crate) async fn auth(s: &mut Session) {
             json!({"username": "auth-z", "email": format!("{alice}@example.com"), "password": "test-password"}),
         ),
     ];
-    for (name, mut body) in refused {
-        body["token"] = json!(token);
-        s.post(&format!("register: {name}"), &register)
-            .json(body)
+    for (name, account) in refused {
+        s.post(&format!("accept: {name}"), &accept)
+            .json(json!({"token": link, "account": account}))
             .await;
     }
 
-    // A registration answers with the user it made and signs nobody in.
-    s.post("register", &register)
+    // An acceptance answers where the account was let in and signs nobody in.
+    s.post("accept", &accept)
         .json(json!({
-            "username": "auth-new", "email": "auth-new@example.com",
-            "password": "test-password", "token": token,
+            "token": link,
+            "account": {
+                "username": "auth-new", "email": "auth-new@example.com",
+                "password": "test-password",
+            },
         }))
         .keep_headers(&["Set-Cookie"])
         .await;
+    s.post("accept: a session and an account", &accept)
+        .json(json!({
+            "token": link,
+            "account": {
+                "username": "auth-other", "email": "auth-other@example.com",
+                "password": "test-password",
+            },
+        }))
+        .user(alice)
+        .await;
+    s.post("accept: a member already", &accept)
+        .json(json!({"token": link}))
+        .user(alice)
+        .await;
+}
+
+pub(crate) async fn auth(s: &mut Session) {
+    let [alice] = s.users("auth", ["alice"]).await;
+    let login = format!("{API}/login");
+    registrations_and_acceptances(s, &alice).await;
+
     s.post("login: the registered user", &login)
         .json(json!({"username": "auth-new", "password": "test-password"}))
         .await;
@@ -345,9 +385,8 @@ pub(crate) async fn admins(s: &mut Session) {
     let alice_id = s.user_id(&alice).await;
     let bob_id = s.user_id(&bob).await;
     let root_id = s.user_id("root").await;
-    let old_token = s.signup_token("root").await;
-    let workspace = ROOT_API.to_owned();
-    let regenerate = format!("{workspace}/signup-token");
+    let workspace = format!("{API}/w/{ROOT_WORKSPACE_ID}");
+    let invitations = format!("{workspace}/invitations");
     let admin_of = |user_id: &str| format!("{API}/users/{user_id}/admin");
 
     s.get("me: the first user", &format!("{API}/users/me"))
@@ -363,7 +402,7 @@ pub(crate) async fn admins(s: &mut Session) {
     .user(&alice)
     .await;
 
-    // -- the signup token is for administrators --------------------------------------
+    // -- a workspace's administrators invite its members -----------------------------
     s.get("workspace: administrator", &workspace)
         .user("root")
         .await;
@@ -382,33 +421,42 @@ pub(crate) async fn admins(s: &mut Session) {
     )
     .user(&alice)
     .await;
-    s.post("renew the token: not an administrator", &regenerate)
+    s.post("invite: not an administrator", &invitations)
+        .json(json!({"role": "member"}))
         .user(&alice)
         .await;
-    s.post("renew the token: no session", &regenerate).await;
+    s.post("invite: no session", &invitations)
+        .json(json!({"role": "member"}))
+        .await;
     s.post(
-        "renew the token: unknown workspace",
-        &format!("{API}/w/{UNKNOWN_ID}/signup-token"),
+        "invite: unknown workspace",
+        &format!("{API}/w/{UNKNOWN_ID}/invitations"),
     )
+    .json(json!({"role": "member"}))
     .user("root")
     .await;
     s.post(
         "old path: renew the token",
-        &format!("{workspace}/regenerate_signup_token"),
+        &format!("{workspace}/signup-token"),
     )
     .user("root")
     .await;
-    s.post("renew the token", &regenerate).user("root").await;
-    s.post("register with the old token", &format!("{API}/register"))
-        .json(json!({
-            "username": "admins-late", "email": "admins-late@example.com",
-            "password": "test-password", "token": old_token,
-        }))
+    s.post("invite", &invitations)
+        .json(json!({"role": "member"}))
+        .user("root")
         .await;
-    s.post("register without a token", &format!("{API}/register"))
+    s.post("invite: administrators", &invitations)
+        .json(json!({"role": "admin"}))
+        .user("root")
+        .await;
+    s.post("invite: members to a board", &invitations)
+        .json(json!({"role": "member", "boardId": UNKNOWN_ID}))
+        .user("root")
+        .await;
+    s.post("register without an invitation", &format!("{API}/register"))
         .json(json!({
             "username": "admins-late", "email": "admins-late@example.com",
-            "password": "test-password",
+            "password": "test-password", "organizationName": "Late",
         }))
         .await;
 
@@ -470,9 +518,15 @@ pub(crate) async fn admins(s: &mut Session) {
         .json(json!({"isAdmin": false}))
         .user(&bob)
         .await;
-    s.post("renew the token: the new administrator", &regenerate)
-        .user(&bob)
-        .await;
+    // An administrator of the instance administers no workspace by that: the members
+    // of a workspace are its administrators' to invite.
+    s.post(
+        "invite: an administrator of the instance alone",
+        &invitations,
+    )
+    .json(json!({"role": "member"}))
+    .user(&bob)
+    .await;
 }
 
 /// What a user has set about how things are shown to them, and the bag of client state

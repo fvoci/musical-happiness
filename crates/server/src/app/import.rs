@@ -102,7 +102,7 @@ impl App {
         if u64::try_from(zip.len()).map_or(true, |entries| entries > MAX_ENTRIES) {
             return Err(too_many_entries());
         }
-        let largest_file = u64::try_from(self.largest_upload()).unwrap_or(0);
+        let largest_file = u64::try_from(self.limits().largest_file).unwrap_or(0);
 
         // The version first: nothing of an archive of another version is stored.
         let version = (0..zip.len())

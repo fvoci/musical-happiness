@@ -88,7 +88,7 @@ SQLite와 PostgreSQL을 지원하는 SQL 스토어다. 테이블·컬럼·부기
 | `GetActiveUserCount` | `get_active_user_count(updated_seconds_ago)` |
 | `GetSession`, `CreateSession`, `RefreshSession`, `UpdateSession`, `DeleteSession`, `CleanUpSessions` | `get_session(token, expire_seconds)`, `create_session(&Session)`, `refresh_session(&Session)`, `update_session(&Session)`, `delete_session(id)`, `clean_up_sessions(expire_seconds)` |
 | `GetSystemSetting`, `GetSystemSettings`, `SetSystemSetting` | `get_system_setting(key) -> Option<String>`, `get_system_settings()`, `set_system_setting(key, value)` |
-| `UpsertTeamSignupToken`, `UpsertTeamSettings`, `GetTeam`, `GetTeamCount` | `create_workspace(&Workspace)`, `set_workspace_signup_token(id, token, modified_by)`, `get_workspace(id)`. 설정만 고치는 것과 수는 없다 |
+| `UpsertTeamSignupToken`, `UpsertTeamSettings`, `GetTeam`, `GetTeamCount` | `create_workspace(&Workspace)`, `get_workspace(id)`. 가입 토큰은 없다(초대는 `invitations.rs`). 설정만 고치는 것과 수는 없다 |
 | `GetTeamsForUser`, `GetAllTeams` | `get_workspaces()` (standalone에서는 둘이 같은 질의다) |
 | `UpsertSharing`, `GetSharing` | `upsert_sharing(&Sharing)`, `get_sharing(board_id)` |
 | `CreateSubscription`, `DeleteSubscription`, `GetSubscription`, `GetSubscriptions` | `create_subscription(Subscription)`, `delete_subscription(block_id, subscriber_id)`, `get_subscription(..)`, `get_subscriptions(subscriber_id)` |
@@ -120,7 +120,7 @@ SQLite와 PostgreSQL을 지원하는 SQL 스토어다. 테이블·컬럼·부기
 | `users.go` | `testGetUsersByTeam` → `users::get_users_by_workspace`, `testCreateAndGetUser` → `create_and_get_user`, `testGetUsersList` → `get_users_list`, `testCreateAndUpdateUser` → `create_and_update_user`, `testCreateAndGetRegisteredUserCount` → `create_and_get_registered_user_count`, `testPatchUserProps` → `patch_user_props` |
 | `session.go` | `testCreateAndGetAndDeleteSession` → `sessions::create_and_get_and_delete_session`, `testGetActiveUserCount` → `get_active_user_count`, `testUpdateSession` → `update_session` |
 | `system.go` | `testSetGetSystemSettings` → `system_settings::set_get_system_settings` |
-| `teams.go` | `testGetTeam` → `workspaces::get_workspace`, `testUpsertTeamSignupToken` → `upsert_workspace_signup_token`, `testUpsertTeamSettings`는 옮기지 않았다(워크스페이스는 통째로 만든다), `testGetAllTeams` → `get_all_workspaces` |
+| `teams.go` | `testGetTeam` → `workspaces::get_workspace`, `testUpsertTeamSignupToken`과 `testUpsertTeamSettings`는 옮기지 않았다(워크스페이스는 통째로 만들고 가입 토큰이 없다), `testGetAllTeams` → `get_all_workspaces` |
 | `sharing.go` | `testUpsertSharingAndGetSharing` → `sharing::upsert_sharing_and_get_sharing` |
 | `subscriptions.go` | `testCreateSubscription` → `subscriptions::create_subscription`, `testDeleteSubscription` → `delete_subscription`, `testUndeleteSubscription` → `undelete_subscription`, `testGetSubscription` → `get_subscription`, `testGetSubscriptions` → `get_subscriptions`, `testGetSubscribersForBlock` → `get_subscribers_for_block` |
 | `files.go` | `StoreTestFileStore` → `file_info::file_store` |
@@ -180,7 +180,7 @@ SQLite와 PostgreSQL을 지원하는 SQL 스토어다. 테이블·컬럼·부기
 - `get_session`은 `create_at`/`update_at`을 읽지 않아 항상 0이다. 그래서 인증 계층이 요청마다 세션을 갱신한다(`session.go:30-34`, `server/auth/auth.go:41`).
 - 세션 만료·정리 인자는 초 단위이고, 정확히 경계에 있는 세션은 조회도 정리도 되지 않는다(`session.go:105-111`).
 - 없는 세션·팀·공유의 오류 문구는 `sql: no rows in result set`다(`StoreError::NoRows`). 이 문구가 응답에 그대로 나간다.
-- 원본의 `UpsertTeamSettings`는 넘겨받은 가입 토큰을 무시하고 새 팀이면 토큰을 새로 만든다(`team.go:58`). 포트는 워크스페이스를 통째로 만들고(`create_workspace`) 가입 토큰만 따로 바꾼다.
+- 원본의 `UpsertTeamSettings`는 넘겨받은 가입 토큰을 무시하고 새 팀이면 토큰을 새로 만든다(`team.go:58`). 포트는 워크스페이스를 통째로 만들고(`create_workspace`) 가입 토큰을 두지 않는다.
 - 이미 삭제된 구독을 지워도 성공한다. 다시 구독하면 저장된 `create_at`과 타입은 그대로인데 반환 값은 새 값이다(`subscriptions.go:82-104`).
 - `save_file_info`는 항상 `archived = false`를 쓰고, 테이블에 키가 없어 중복 행이 생길 수 있다(`file.go:36`).
 

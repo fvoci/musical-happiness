@@ -323,7 +323,7 @@ impl SingleUploadLimit {
     /// where that is less.
     fn of(app: &App) -> Self {
         let part = app.config().upload_part_bytes;
-        let largest = u64::try_from(app.largest_upload()).unwrap_or(0);
+        let largest = u64::try_from(app.limits().largest_file).unwrap_or(0);
         if part < largest {
             Self {
                 bytes: part,

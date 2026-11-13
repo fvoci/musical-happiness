@@ -69,7 +69,7 @@ async fn a_user_lists_the_workspaces_they_are_a_member_of() {
         serde_json::json!({
             "id": ROOT_WORKSPACE_ID,
             "orgId": first[0].org_id,
-            "name": "",
+            "name": crate::common::ORG_NAME,
             "role": "admin",
         }),
         "the members of a workspace in the list"
@@ -199,7 +199,6 @@ async fn the_boards_of_a_workspace_are_for_its_members() {
 pub(crate) async fn another_organization(ts: &TestServer) -> (Store, String, String) {
     let workspace = Workspace {
         id: fvoci_model::new_id(),
-        signup_token: "signup-token".to_owned(),
         title: "theirs".to_owned(),
         ..Workspace::default()
     };
@@ -283,7 +282,7 @@ async fn a_workspace_of_another_organization_is_reached_by_its_members_only() {
     assert_eq!(
         found,
         [
-            (ROOT_WORKSPACE_ID, ""),
+            (ROOT_WORKSPACE_ID, crate::common::ORG_NAME),
             (TEST_WORKSPACE_ID, ""),
             (their_workspace.as_str(), "theirs")
         ],
@@ -438,7 +437,7 @@ async fn a_workspace_the_user_is_not_in_answers_as_one_that_is_not_there() {
         assert_eq!(said(&hidden), said(&absent), "GET /w/<id>{route}");
         hidden.check_error(reqwest::StatusCode::NOT_FOUND, "workspace not found");
     }
-    for route in ["/onboard", "/signup-token", "/archive/uploads"] {
+    for route in ["/onboard", "/invitations", "/archive/uploads"] {
         let hidden = ts
             .client
             .post(&format!("/w/{HIDDEN_WORKSPACE_ID}{route}"), &nothing)

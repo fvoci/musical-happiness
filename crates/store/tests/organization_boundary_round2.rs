@@ -648,6 +648,9 @@ async fn every_key_without_the_organization_is_one_of_the_few_that_need_none() {
             ("category_boards", "(id)"),
             ("file_info", "(board_id, name)"),
             ("file_info", "(id)"),
+            // The digest of a secret the server makes; a link is found by it before its
+            // organization is known.
+            ("invitations", "(token_hash)"),
             // The digest of a secret the server makes; a sign-in is found by it before
             // its organization is known.
             ("oidc_login_flows", "(state_hash)"),

@@ -7,7 +7,7 @@
     "body": [
       {
         "id": "<id:1>",
-        "name": "",
+        "name": "The Firm",
         "orgId": "<id:2>",
         "role": "member"
       },
@@ -25,10 +25,11 @@
     "status": 200,
     "content_type": "application/json",
     "body": {
+      "guestInvitations": true,
       "id": "<id:1>",
       "modifiedBy": "",
       "settings": {},
-      "title": "",
+      "title": "The Firm",
       "updateAt": "<ts>"
     }
   },

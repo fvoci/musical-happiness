@@ -28,7 +28,6 @@ async fn other_organization(ts: &TestServer) -> (Store, Workspace, User, Board) 
     let workspace = Workspace {
         id: new_id(),
         title: "Other organization's workspace".to_owned(),
-        signup_token: "another-signup-token".to_owned(),
         ..Workspace::default()
     };
     let org_id = ts

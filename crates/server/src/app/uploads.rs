@@ -235,8 +235,8 @@ impl App {
     ) -> Result<Upload, AppError> {
         new.check()?;
         let limit = match purpose {
-            UploadPurpose::File => self.largest_upload(),
-            UploadPurpose::Import => self.largest_import(),
+            UploadPurpose::File => self.limits().largest_file,
+            UploadPurpose::Import => self.limits().largest_import,
         };
         if new.size > limit {
             return Err(AppError::payload_too_large(
@@ -255,10 +255,7 @@ impl App {
                 Reason::TooManyUploads,
             ));
         }
-        let user_share = self
-            .largest_upload()
-            .max(self.largest_import())
-            .saturating_mul(2);
+        let user_share = self.limits().open_upload_bytes_of_a_user();
         if usage.user_bytes.saturating_add(new.size) > user_share {
             return Err(AppError::limited(
                 format_args!(
@@ -838,18 +835,6 @@ impl App {
         };
         let removed = remove_dir_quietly(&self.upload_dir(&upload.id)).await;
         forgotten && removed
-    }
-
-    /// The largest file a session takes: `maxfilesize`, which the configuration keeps
-    /// positive and within what [`fvoci_model::MAX_UPLOAD_PARTS`] parts hold.
-    pub fn largest_upload(&self) -> i64 {
-        self.config().max_file_size
-    }
-
-    /// The largest archive an import takes: `max_import_bytes`, which the configuration
-    /// keeps positive and within what [`fvoci_model::MAX_UPLOAD_PARTS`] parts hold.
-    pub fn largest_import(&self) -> i64 {
-        i64::try_from(self.config().max_import_bytes).unwrap_or(i64::MAX)
     }
 
     /// Throws away the sessions that have ended at `now`, and those closed for longer

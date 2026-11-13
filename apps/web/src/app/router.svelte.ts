@@ -4,7 +4,8 @@
  * The addresses are `/w/<workspace>/boards/<board>/<view>/<card>`, each part
  * optional from the right (`/w/<workspace>` alone is the workspace), and
  * `/org/<organization>`, the screen of its administrators, under
- * the base path the server serves the app at. A board's public link is
+ * the base path the server serves the app at. The link of an invitation is an
+ * address of its own, `/invite/<token>`, which the app reads and never writes. A board's public link is
  * `/shared/<board>/<view>/<card>?r=<read token>`, the view and the card
  * optional: whoever has it reads the board, signed in or not. The root `/` names no
  * workspace: the app chooses one and puts its address in place. The base
@@ -28,6 +29,11 @@ export interface Route {
   boardId: string | undefined;
   viewId: string | undefined;
   cardId: string | undefined;
+  /**
+   * The token of an invitation: the address is the link of one
+   * (`/invite/<token>`), and names nothing else.
+   */
+  invitation?: string | undefined;
   /** The read token of a public link: the board is read by it alone, with no workspace. */
   readToken?: string;
   /**
@@ -75,6 +81,9 @@ export function parseRoute(pathname: string, basePath: string, search = ''): Rou
       }
     });
   if (segments.length === 0) return NOWHERE;
+  if (segments[0] === 'invite' && segments.length === 2) {
+    return { ...NOWHERE, invitation: segments[1] };
+  }
   if (segments[0] === 'shared') return sharedRoute(segments.slice(1), search);
   if (segments[0] === 'org') {
     return segments.length === 2
@@ -175,6 +184,7 @@ export class Router {
         next.boardId === now.boardId &&
         next.viewId === now.viewId &&
         next.cardId === now.cardId &&
+        next.invitation === now.invitation &&
         next.readToken === now.readToken &&
         next.shared === now.shared &&
         next.unknown === now.unknown
@@ -194,16 +204,22 @@ export class Router {
     return routePath(route, this.basePath);
   }
 
+  /** The address of the page of an invitation, by its token. */
+  inviteHref(token: string): string {
+    return buildUrl(`/invite/${encodeURIComponent(token)}`, this.basePath);
+  }
+
   /**
    * Loads the page anew at a route (signing out, another account signing
    * in). What is open over the page lets go of its entries first: closing as
    * the page goes (the shell gives way to the sign-in page) would otherwise
    * step back in the history, over the new address, to the one left. The new
-   * address takes the place of such an entry, as `go` does it.
+   * address takes the place of such an entry, as `go` does it, and of the
+   * current one where `replace` asks for it.
    */
-  restart(route: Partial<Route>): void {
+  restart(route: Partial<Route>, options: { replace?: boolean } = {}): void {
     const overOverlay = releaseOverlayEntries() > 0;
-    if (overOverlay) window.location.replace(this.href(route));
+    if (overOverlay || options.replace) window.location.replace(this.href(route));
     else window.location.assign(this.href(route));
   }
 

@@ -6,7 +6,6 @@ use std::time::Duration;
 use anyhow::{Context as _, bail};
 use fvoci_store::{DbType, Store};
 
-use crate::auth;
 use crate::config::Configuration;
 
 /// Opens the database of the configuration, and looks at the role the server connects
@@ -105,11 +104,11 @@ async fn check_the_wall_holds(store: &Store, config: &Configuration) -> anyhow::
 /// members), so that run tells less. The first organization of an empty database is
 /// made here too, and needs another place then.
 async fn only_organization_scope(store: Store) -> anyhow::Result<Store> {
-    // The first workspace of an organization that is made now: the root workspace, with a
-    // fresh signup token.
+    // The first workspace of an organization that is made now: the root workspace. It
+    // and its organization are nobody's, and unnamed, until the first user signs up
+    // with the name of their organization (`App::sign_up`).
     let workspace = fvoci_model::Workspace {
         id: fvoci_model::new_id(),
-        signup_token: auth::secret::new_secret(),
         ..fvoci_model::Workspace::default()
     };
     let org_id = store

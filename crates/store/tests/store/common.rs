@@ -54,7 +54,6 @@ pub(crate) async fn setup() -> TestStore {
 pub(crate) async fn organization(store: &Store, name: &str) -> (String, String) {
     let workspace = Workspace {
         id: new_id(),
-        signup_token: "signup-token".to_owned(),
         ..Workspace::default()
     };
     let org_id = store
@@ -189,7 +188,6 @@ pub(crate) async fn user(store: &Store, username: &str) -> String {
 pub(crate) async fn workspace(store: &Store) -> String {
     let workspace = Workspace {
         id: new_id(),
-        signup_token: "signup-token".to_owned(),
         ..Workspace::default()
     };
     store
@@ -210,6 +208,24 @@ pub(crate) async fn workspace_of(store: &Store, users: &[&str]) -> String {
             .expect("the user is let into the workspace");
     }
     workspace_id
+}
+
+/// Lets the user into the workspace as a member, unless they are in it: whom a board is
+/// stored for as its admin works in its workspace.
+pub(crate) async fn works_in(store: &Store, workspace_id: &str, user_id: &str) {
+    let found = store
+        .texts_unchecked(&format!(
+            "SELECT role FROM workspace_members \
+             WHERE workspace_id = '{workspace_id}' AND user_id = '{user_id}'"
+        ))
+        .await
+        .expect("the membership is looked for");
+    if found.is_empty() {
+        store
+            .add_workspace_member(workspace_id, user_id, fvoci_model::WorkspaceRole::Member)
+            .await
+            .expect("the user is let into the workspace");
+    }
 }
 
 /// `storetests.InsertBlocks`: inserts each block on its own.

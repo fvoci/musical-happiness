@@ -30,6 +30,7 @@ use crate::error::StoreError;
 use crate::file_info;
 use crate::file_refs::{self, NewImages};
 use crate::loose_objects;
+use crate::members;
 use crate::org_admin;
 use crate::users;
 
@@ -440,6 +441,71 @@ fn block_from_json(row: &Row, index: usize) -> Result<Block, StoreError> {
     Ok(block)
 }
 
+/// What becomes of a user's memberships of the boards of a workspace that are in the
+/// trash, when the user stops being what they were in the workspace.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TrashedRoles {
+    /// They go: for who leaves the workspace, and who comes into it anew, and is not to
+    /// find the roles of an earlier time on a board that is restored.
+    Forget,
+    /// An admin is an editor: for who becomes a guest of the workspace.
+    NoMoreThanEditor,
+}
+
+/// Holds the boards of a workspace that are in the trash, in the order of their
+/// identifiers, against whoever restores one or changes who it comes back with. Who
+/// also holds a membership of the workspace takes these first, as a restore does.
+pub(crate) async fn hold_deleted_boards(
+    scope: &mut Scope<'_>,
+    workspace_id: &str,
+) -> Result<(), StoreError> {
+    if scope.dialect() != Dialect::Postgres {
+        return Ok(());
+    }
+    let mut sql = scope.sql("SELECT id FROM deleted_boards WHERE workspace_id = ");
+    sql.bind(Id(workspace_id)).push(" ORDER BY id FOR UPDATE");
+    scope.fetch_all(sql).await?;
+    Ok(())
+}
+
+/// Changes the memberships of a user that the boards of a workspace in the trash would
+/// come back with, as `roles` says. The boards are held ([`hold_deleted_boards`]) from
+/// before they are read: what is written back is the whole list of a board's members.
+pub(crate) async fn change_member_of_deleted_boards(
+    scope: &mut Scope<'_>,
+    workspace_id: &str,
+    user_id: &str,
+    roles: TrashedRoles,
+) -> Result<(), StoreError> {
+    hold_deleted_boards(scope, workspace_id).await?;
+    let mut sql = scope.sql("SELECT id, members FROM deleted_boards WHERE workspace_id = ");
+    sql.bind(Id(workspace_id));
+    for row in scope.fetch_all(sql).await? {
+        let members: Vec<BoardMember> = from_json(&row, 1, "members")?;
+        let changes = |member: &BoardMember| {
+            member.user_id == user_id && (roles == TrashedRoles::Forget || member.scheme_admin)
+        };
+        if !members.iter().any(changes) {
+            continue;
+        }
+        let kept: Vec<BoardMember> = members
+            .into_iter()
+            .filter_map(|member| match roles {
+                _ if !changes(&member) => Some(member),
+                TrashedRoles::Forget => None,
+                TrashedRoles::NoMoreThanEditor => {
+                    Some(member.with_role(Some(fvoci_model::BoardRole::Editor)))
+                }
+            })
+            .collect();
+        let mut sql = scope.sql("UPDATE deleted_boards SET members = ");
+        sql.bind(Param::json(&kept)?)
+            .push_bind(" WHERE id = ", Id(&row.id(0)?));
+        scope.execute(sql).await?;
+    }
+    Ok(())
+}
+
 /// Reads a JSON column of the trash into the type it was written from.
 pub(crate) fn from_json<T: DeserializeOwned>(
     row: &Row,
@@ -718,6 +784,21 @@ pub(crate) async fn undelete_board(
         if known_users.has(scope, &member.user_id).await? {
             boards::save_member(scope, member).await?;
         }
+    }
+    // A board does not come back without an admin who can act as one: where those it
+    // had are gone from its workspace since, or are its guests now, who brings it back
+    // is its admin.
+    if !user_id.is_empty()
+        && members::has_no_admin(scope, board_id).await?
+        && members::works_in(scope, &board.workspace_id, user_id).await?
+    {
+        let admin = BoardMember {
+            board_id: board_id.to_owned(),
+            user_id: user_id.to_owned(),
+            ..BoardMember::default()
+        }
+        .with_role(Some(fvoci_model::BoardRole::Admin));
+        boards::save_member(scope, &admin).await?;
     }
     // Each user who still exists finds the board where they had filed it; a private
     // board, only those who are its members again (a member removed earlier keeps the

@@ -272,7 +272,6 @@ async fn abandoning_a_misbound_upload_keeps_another_organizations_file() {
 async fn another_organizations_board(ts: &TestServer) -> (Store, String) {
     let workspace = Workspace {
         id: new_id(),
-        signup_token: new_secret(),
         ..Workspace::default()
     };
     let org_id = ts

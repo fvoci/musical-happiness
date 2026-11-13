@@ -51,6 +51,10 @@ pub(super) fn unauthenticated_routes() -> OpenApiRouter<App> {
 /// nothing else. An identifier that names no organization in use answers as none
 /// (`organization` is `null`), and so does a server that takes in several
 /// organizations when none is named.
+///
+/// `registrationOpen` says whether `register` takes somebody without an invitation:
+/// always on a server where everybody starts an organization of their own, and until the first
+/// user registered on a server that holds one organization.
 #[utoipa::path(
     get,
     path = "/login-options",

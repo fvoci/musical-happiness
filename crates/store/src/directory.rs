@@ -1,7 +1,8 @@
 //! What is asked before the organization of a request is known, and what makes an
 //! organization: which workspaces a user has, whose a workspace or a shared board is,
 //! which other users a user sees, what a user is in an organization, which sign-in
-//! through a provider comes back and what a login page shows of an organization.
+//! through a provider comes back, what a login page shows of an organization, and which
+//! organization the token of an invitation leads into.
 //! And whether an object of the file storage is held, which is asked of every
 //! organization: an object's place is one across them.
 //!
@@ -18,14 +19,14 @@ use fvoci_model::{
 };
 use subtle::ConstantTimeEq as _;
 
-use crate::db::{Dialect, Id, Row, Scope, Sql, now_millis};
+use crate::db::{Dialect, Id, Row, Scope, Sql};
 use crate::error::StoreError;
 use crate::file_info;
 use crate::loose_objects::LooseState;
 use crate::oidc::{LoginFlow, flow_from_row};
 use crate::uploads::{OpenUploads, UploadUsage};
 use crate::{Store, Tenant};
-use crate::{users, workspaces};
+use crate::{invitations, users, workspaces};
 
 /// The organization that holds what the server ships with and is nobody's: the
 /// built-in templates. The schema makes it, under this identifier.
@@ -618,6 +619,38 @@ impl Store {
 }
 
 impl Store {
+    /// The organization of the live link whose token has the digest `token_hash`, at
+    /// `now`: one that is not revoked, has not ended and was not used as often as it
+    /// may be, into a workspace and an organization in use. `None` for any other, and
+    /// for no link at all: one read, the same whatever is wrong with a link.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn org_of_live_invitation(
+        &self,
+        token_hash: &str,
+        now: i64,
+    ) -> Result<Option<String>, StoreError> {
+        self.system()
+            .with_conn(async |scope| {
+                let mut sql = scope.sql(
+                    "SELECT i.org_id FROM invitations AS i \
+                     JOIN workspaces AS t ON t.id = i.workspace_id \
+                     JOIN organizations AS o ON o.id = t.org_id WHERE i.token_hash = ",
+                );
+                sql.bind(token_hash);
+                invitations::push_live(&mut sql, now);
+                sql.push(IN_USE)
+                    .push(&scope.same_organization(&[("i", "t")]));
+                match scope.fetch_optional(sql).await? {
+                    Some(row) => row.id(0).map(Some),
+                    None => Ok(None),
+                }
+            })
+            .await
+    }
+
     /// The workspaces of every organization that were put in the trash before
     /// `deleted_before`, by organization and identifier: what the housekeeping removes
     /// for good, each in its organization ([`Store::purge_workspace`]).
@@ -811,21 +844,7 @@ async fn create_organization(
     workspace: &Workspace,
 ) -> Result<String, StoreError> {
     let id = new_id();
-    let now = now_millis();
-    let mut sql =
-        scope.sql("INSERT INTO organizations (id, name, settings, create_at, update_at) VALUES (");
-    sql.bind(Id(&id))
-        .push_bind(", ", name)
-        .push(", '{}'")
-        .push_bind(", ", now)
-        .push_bind(", ", now)
-        .push(")");
-    scope.execute(sql).await?;
-    workspaces::insert_workspace(scope, workspace, Id(&id)).await?;
-    let mut sql = scope.sql("UPDATE organizations SET default_workspace_id = ");
-    sql.bind(Id(&workspace.id))
-        .push_bind(" WHERE id = ", Id(&id));
-    scope.execute(sql).await?;
+    workspaces::insert_organization(scope, Id(&id), name, workspace).await?;
     Ok(id)
 }
 

@@ -20,6 +20,7 @@
   import PlusIcon from '@lucide/svelte/icons/plus';
   import SearchIcon from '@lucide/svelte/icons/search';
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
+  import UsersIcon from '@lucide/svelte/icons/users';
   import XIcon from '@lucide/svelte/icons/x';
 
   import Avatar from '$lib/components/avatar/Avatar.svelte';
@@ -29,7 +30,10 @@
   import type { BoardPlace } from '$lib/logic/urls.ts';
   import type { Board } from '$lib/logic/wire.ts';
   import {
+    administers,
     boardTrash,
+    isGuest,
+    peopleOf,
     whileHere,
     type Category,
     type Trash,
@@ -39,6 +43,7 @@
 
   import { BoardSearch } from './board-search.svelte.ts';
   import CategoryNameDialog from './CategoryNameDialog.svelte';
+  import PeopleDialog from './PeopleDialog.svelte';
   import SidebarList from './SidebarList.svelte';
   import TrashDialog from './TrashDialog.svelte';
   import WorkspaceSwitcher from './WorkspaceSwitcher.svelte';
@@ -75,14 +80,17 @@
 
   let query = $state('');
   /**
-   * What the backend finds for the query beyond what the sidebar shows. The
-   * server searches every workspace the reader is in, those they are a guest
-   * of too; only boards of one they can be taken to are offered.
+   * What the backend finds for the query beyond what the sidebar shows; only
+   * boards of a workspace the reader can be taken to are offered. A guest has
+   * the boards they are on in the sidebar already, and the server searches
+   * for those who work in the workspace: nothing is asked for them.
    */
   const boardSearch = new BoardSearch(async (text) =>
-    (await workspace.searchBoards(text)).filter((board) =>
-      workspace.workspaces.some((one) => one.id === board.workspaceId),
-    ),
+    isGuest(workspace)
+      ? []
+      : (await workspace.searchBoards(text)).filter((board) =>
+          workspace.workspaces.some((one) => one.id === board.workspaceId),
+        ),
   );
   onDestroy(() => {
     boardSearch.stop();
@@ -120,6 +128,9 @@
 
   // --------------------------------------------------------------- trash
 
+  /** Managing the people of the workspace, where the backend has that. */
+  const access = $derived(peopleOf(workspace));
+  let peopleOpen = $state(false);
   let trashOpen = $state(false);
   /** The deleted boards, read anew each time they are shown. */
   let trash = $state.raw<Trash | undefined>(undefined);
@@ -255,25 +266,42 @@
 </nav>
 
 <div class="shrink-0 border-t p-2 pb-[calc(0.5rem+var(--safe-bottom))]">
-  <button
-    type="button"
-    data-testid="add-board"
-    class="flex min-h-8 w-full items-center gap-2 rounded-md px-2 text-left hover:bg-sidebar-accent roomy:min-h-touch"
-    onclick={onAddBoard}
-  >
-    <PlusIcon class="size-5 shrink-0 p-0.5" aria-hidden="true" />
-    <span class="min-w-0 flex-1 truncate">{m.shell_add_board()}</span>
-  </button>
-  <button
-    type="button"
-    data-testid="open-trash"
-    aria-haspopup="dialog"
-    class="flex min-h-8 w-full items-center gap-2 rounded-md px-2 text-left hover:bg-sidebar-accent roomy:min-h-touch"
-    onclick={openTrash}
-  >
-    <Trash2Icon class="size-5 shrink-0 p-0.5" aria-hidden="true" />
-    <span class="min-w-0 flex-1 truncate">{m.shell_trash()}</span>
-  </button>
+  <!-- A guest is on the boards they were invited to: they make none, and bring none back. -->
+  {#if !isGuest(workspace)}
+    <button
+      type="button"
+      data-testid="add-board"
+      class="flex min-h-8 w-full items-center gap-2 rounded-md px-2 text-left hover:bg-sidebar-accent roomy:min-h-touch"
+      onclick={onAddBoard}
+    >
+      <PlusIcon class="size-5 shrink-0 p-0.5" aria-hidden="true" />
+      <span class="min-w-0 flex-1 truncate">{m.shell_add_board()}</span>
+    </button>
+    <button
+      type="button"
+      data-testid="open-trash"
+      aria-haspopup="dialog"
+      class="flex min-h-8 w-full items-center gap-2 rounded-md px-2 text-left hover:bg-sidebar-accent roomy:min-h-touch"
+      onclick={openTrash}
+    >
+      <Trash2Icon class="size-5 shrink-0 p-0.5" aria-hidden="true" />
+      <span class="min-w-0 flex-1 truncate">{m.shell_trash()}</span>
+    </button>
+  {/if}
+  {#if access && administers(workspace)}
+    <button
+      type="button"
+      data-testid="open-people"
+      aria-haspopup="dialog"
+      class="flex min-h-8 w-full items-center gap-2 rounded-md px-2 text-left hover:bg-sidebar-accent roomy:min-h-touch"
+      onclick={() => {
+        peopleOpen = true;
+      }}
+    >
+      <UsersIcon class="size-5 shrink-0 p-0.5" aria-hidden="true" />
+      <span class="min-w-0 flex-1 truncate">{m.people_title()}</span>
+    </button>
+  {/if}
   {#if orgHref}
     <a
       href={orgHref}
@@ -302,6 +330,15 @@
     <span class="min-w-0 flex-1 truncate">{myName}</span>
   </button>
 </div>
+
+{#if access}
+  <PeopleDialog
+    bind:open={peopleOpen}
+    {workspace}
+    people={access.people}
+    inviteLink={access.inviteLink}
+  />
+{/if}
 
 <TrashDialog
   bind:open={trashOpen}

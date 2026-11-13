@@ -1,27 +1,20 @@
-//! Login, logout, registration, password change and signup-token regeneration.
+//! Login, logout, registration and password change.
 
 use axum::body::Bytes;
 use axum::extract::{Extension, State};
 use axum::http::HeaderMap;
 use axum::http::header::{SET_COOKIE, USER_AGENT};
 use axum::response::Response;
-use fvoci_model::{
-    ChangePasswordRequest, LoginRequest, Problem, RegisterRequest, User, Workspace, display_name,
-};
+use fvoci_model::{ChangePasswordRequest, LoginRequest, Problem, RegisterRequest, User};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use super::contract::tag;
 
-use super::contract::params::WorkspaceId;
-use super::workspace::WorksIn;
-use super::{
-    ApiResult, RequiredSession, created, decode_object, json_response, no_content, require_admin,
-};
-use crate::app::{Admission, App};
-use crate::auth::tokens_match;
+use super::{ApiResult, RequiredSession, created, decode_object, no_content};
+use crate::app::App;
 use crate::client_address::ClientAddress;
-use crate::error::{AppError, Reason};
+use crate::error::AppError;
 
 /// The longest `User-Agent` kept with a session, in bytes. Browsers send a hundred or
 /// two; anything longer is cut, it is a label and nothing is decided by it.
@@ -46,7 +39,6 @@ pub(super) fn user_agent(headers: &HeaderMap) -> String {
 pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new()
         .routes(routes!(handle_logout))
-        .routes(routes!(handle_regenerate_signup_token))
         .routes(routes!(handle_change_password))
 }
 
@@ -150,17 +142,19 @@ pub(super) fn address_of(client: Option<Extension<ClientAddress>>) -> Option<std
 
 /// Register a user
 ///
-/// Makes an account. The first user of a server needs no signup token and becomes its
-/// administrator; everyone after needs the workspace's token, and is refused with 403 and
-/// the reason `signup_token_required` without it. A token that is not the workspace's is 403
-/// with the reason `signup_token_invalid`, for the first user too. A name or an email
-/// address that is taken is 409 with the reason `username_taken` or `email_taken`.
-/// Registering does not sign in.
+/// Makes an account and the organization it starts: `organizationName` names the
+/// organization and its first workspace, and the account administers both. On a server that takes one organization (`org_creation` is `first_user_only`)
+/// only the first user registers, and administers the server too; everybody after is
+/// refused with 403 and the reason `invitation_required`, whatever else the request
+/// says, and gets in by the link of an invitation (`acceptInvitation`). A name or an
+/// email address that is taken is 409 with the reason `username_taken` or
+/// `email_taken`. Registering does not sign in.
 ///
 /// The name and the email address must not be blank, the email address must look like
 /// one, the display name (`displayName`, may be left out) is read as `patchMe` reads it,
-/// and the password must have at least 8 characters and at most 1024 bytes; otherwise
-/// the request is 400, and `errors` names every member that is refused, each with
+/// the password must have at least 8 characters and at most 1024 bytes, and the organization
+/// name must not be blank, and is otherwise read as a display name is; otherwise the
+/// request is 400, and `errors` names every member that is refused, each with
 /// its `reason`: `required`, `invalid_format`, `too_short`, `too_long` or
 /// `invalid_characters`.
 #[utoipa::path(
@@ -186,64 +180,17 @@ async fn handle_register(
     client: Option<Extension<ClientAddress>>,
     body: Bytes,
 ) -> ApiResult {
-    let mut register: RegisterRequest = decode_object(&body)?;
-    register.email = register.email.trim().to_owned();
-    register.username = register.username.trim().to_owned();
-    // The name as it is stored. One that is refused stays as it was sent, and is
-    // refused below with whatever else is.
-    if let Ok(name) = display_name(&register.display_name) {
-        register.display_name = name;
+    let register: RegisterRequest = decode_object(&body)?;
+    // Asked first, so that a request that is refused whatever it says costs no
+    // password hash; whether a registration really is the first is decided where the
+    // user is stored.
+    if !app.takes_registrations().await? {
+        return Err(AppError::invitation_required());
     }
-
-    // The first user needs no signup token; everyone after needs the workspace's. Asked
-    // here so that a request without one costs no password hash; whether it really is
-    // the first is decided where the user is stored.
-    let admission = if register.token.is_empty() {
-        if app.store().is_bootstrapped().await? {
-            return Err(AppError::forbidden("registration needs the signup token")
-                .with_reason(Reason::SignupTokenRequired)
-                .with_field("token"));
-        }
-        Admission::FirstUserOnly
-    } else {
-        // TEMPORARY, with `only_organization_scope`: the root workspace stands in for what
-        // an invitation will name.
-        let workspace = app.root_workspace().await?;
-        if !tokens_match(&workspace.signup_token, &register.token) {
-            return Err(AppError::forbidden("the signup token is not valid")
-                .with_reason(Reason::SignupTokenInvalid)
-                .with_field("token"));
-        }
-        Admission::WithToken
-    };
+    let register = register.tidied();
     register.validate()?;
-
-    let user = app
-        .register_user(&register, admission, address_of(client))
-        .await?;
+    let user = app.sign_up(&register, address_of(client)).await?;
     Ok(created(&user))
-}
-
-/// Make a new signup token
-///
-/// Makes a new signup token for the workspace; the old one stops working. For
-/// administrators.
-#[utoipa::path(
-    post,
-    path = "/w/{workspaceId}/signup-token",
-    operation_id = "regenerateSignupToken",
-    tag = tag::WORKSPACES,
-    params(WorkspaceId),
-    responses((status = 200, description = "The workspace, with its new token.", body = Workspace)),
-)]
-async fn handle_regenerate_signup_token(WorksIn(ws): WorksIn) -> ApiResult {
-    require_admin(&ws.app, &ws.session.user_id).await?;
-    let workspace = ws
-        .app
-        .regenerate_signup_token(&ws.workspace_id, &ws.session.user_id)
-        .await?;
-    // The workspace with its new token: the one answer that carries it without being asked.
-    Ok(json_response(&workspace))
 }
 
 /// Change the password

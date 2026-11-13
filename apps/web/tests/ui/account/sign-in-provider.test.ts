@@ -22,13 +22,16 @@ function mount(
   start: (orgId: string) => Promise<void> = () => Promise.resolve(),
 ) {
   history.replaceState(null, '', address);
-  const organizationOf = vi.fn(async (_orgId: string | undefined) => found);
+  const organizationOf = vi.fn(async (_orgId: string | undefined) => ({
+    ...(found ? { organization: found } : {}),
+    registrationOpen: true,
+  }));
   const onOidcStart = vi.fn(start);
   render(SignInPage, {
     props: {
       onSignIn: vi.fn(() => Promise.resolve()),
       onRegister: vi.fn(() => Promise.resolve()),
-      organizationOf,
+      optionsOf: organizationOf,
       onOidcStart,
     },
   });
@@ -55,7 +58,7 @@ describe('the provider of the organization on the sign-in page', () => {
     );
     await fireEvent.click(await screen.findByRole('button', { name: 'Continue with Acme' }));
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      "Signing in through the provider did not work. Try again, or ask the organization's administrator.",
+      "Signing in through the provider did not work. Try again, or ask your team's administrator.",
     );
   });
 
@@ -87,12 +90,12 @@ describe('the provider of the organization on the sign-in page', () => {
   it('tells a refusal by its name, and one it does not know in general words', () => {
     mount('/login?oidc_error=oidc-join-closed', undefined);
     expect(screen.getByRole('alert')).toHaveTextContent(
-      'This organization does not let new people in through its provider. Ask its administrator for an invitation.',
+      'This team does not let new people in through its provider. Ask its administrator for an invitation.',
     );
     cleanup();
     mount('/login?oidc_error=<b>made-up</b>', undefined);
     expect(screen.getByRole('alert')).toHaveTextContent(
-      "Signing in through the provider did not work. Try again, or ask the organization's administrator.",
+      "Signing in through the provider did not work. Try again, or ask your team's administrator.",
     );
   });
 });

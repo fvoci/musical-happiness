@@ -16,7 +16,6 @@ use fvoci_store::{
 };
 
 use super::App;
-use crate::auth::secret::new_secret;
 use crate::error::{AppError, Reason};
 
 /// How many records or members one page holds when the request does not say.
@@ -227,7 +226,6 @@ impl App {
         let workspace = Workspace {
             id: new_id(),
             title: workspace_name(name)?.to_owned(),
-            signup_token: new_secret(),
             modified_by: actor_id.to_owned(),
             ..Workspace::default()
         };

@@ -63,11 +63,13 @@ export function userOf(user: Schemas['User']): User {
   };
 }
 
-/** The workspaces the reader works in, not those they are a guest of, in the server's order. */
+/** The workspaces the reader is in, those they are a guest of too, in the server's order. */
 export function workspacesOf(workspaces: Schemas['UserWorkspace'][]): WorkspaceInfo[] {
-  return workspaces
-    .filter((workspace) => workspace.role !== 'guest')
-    .map((workspace) => ({ id: workspace.id, title: workspace.name }));
+  return workspaces.map((workspace) => ({
+    id: workspace.id,
+    title: workspace.name,
+    role: workspace.role,
+  }));
 }
 
 export function boardOf(board: Schemas['Board']): Board {

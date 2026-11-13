@@ -9,7 +9,6 @@ use fvoci_model::{Board, OrgRole, UserWorkspace, Workspace, WorkspaceRole};
 use fvoci_store::{PublicBoards, Tenant};
 
 use super::{App, as_managed};
-use crate::auth::secret::new_secret;
 use crate::error::AppError;
 
 /// A workspace as a member of it enters it: the application behind the wall between
@@ -254,27 +253,5 @@ impl App {
     /// Returns the store's error if the query fails.
     pub async fn workspaces(&self) -> Result<Vec<Workspace>, AppError> {
         Ok(self.store().get_workspaces().await?)
-    }
-
-    /// Replaces a workspace's signup token with a fresh one, on behalf of a user, and
-    /// returns the workspace with it. The old token lets nobody in any more.
-    ///
-    /// # Errors
-    ///
-    /// Returns a 404 if there is no such workspace, and the store's error if the write fails.
-    pub async fn regenerate_signup_token(
-        &self,
-        workspace_id: &str,
-        user_id: &str,
-    ) -> Result<Workspace, AppError> {
-        match self
-            .store()
-            .set_workspace_signup_token(workspace_id, &new_secret(), user_id)
-            .await
-        {
-            Ok(()) => self.workspace(workspace_id).await,
-            Err(error) if error.is_not_found() => Err(AppError::not_found("workspace")),
-            Err(error) => Err(error.into()),
-        }
     }
 }
