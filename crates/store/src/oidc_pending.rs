@@ -5,7 +5,7 @@
 //! provider's. Until then the provider is signed in through as it was, so that settings
 //! that do not work lock nobody out. The provider and its sign-ins are in `oidc.rs`.
 
-use fvoci_model::{AuditAction, LoginOrigin, Session};
+use fvoci_model::{AuditAction, LoginOrigin, OrgRole, Session};
 
 use crate::Store;
 use crate::audit::{self, AuditEntry};
@@ -15,6 +15,7 @@ use crate::oidc::{
     self, Newcomers, OidcAccount, OidcRefusal, StoredProvider, hold_provider_of_organization,
     read_provider,
 };
+use crate::org_admin;
 use crate::sessions;
 
 /// The columns of pending settings, in the order [`pending_from_row`] reads them.
@@ -49,6 +50,42 @@ impl std::fmt::Debug for PendingProvider {
     }
 }
 
+impl PendingProvider {
+    /// `provider` with these settings' issuer, client and secret: what a trial signs in
+    /// through, and what the provider becomes when it ends well.
+    #[must_use]
+    pub fn applied_to(&self, provider: &StoredProvider) -> StoredProvider {
+        StoredProvider {
+            issuer: self.issuer.clone(),
+            client_id: self.client_id.clone(),
+            sealed_client_secret: self.sealed_client_secret.clone(),
+            ..provider.clone()
+        }
+    }
+}
+
+/// What an administrator saves aside of the provider's sign-in.
+#[derive(Clone, PartialEq, Eq)]
+pub struct PendingSettings {
+    /// The issuer, exactly as the provider names itself.
+    pub issuer: String,
+    /// The client identifier.
+    pub client_id: String,
+    /// The client secret as the server sealed it, for this issuer and client; empty for
+    /// none.
+    pub sealed_client_secret: String,
+}
+
+impl std::fmt::Debug for PendingSettings {
+    /// Leaves out the sealed secret.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PendingSettings")
+            .field("issuer", &self.issuer)
+            .field("client_id", &self.client_id)
+            .finish_non_exhaustive()
+    }
+}
+
 /// What a trial of the pending settings that ended well did.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Applied {
@@ -73,12 +110,14 @@ impl Store {
             .await
     }
 
-    /// Saves `pending` as the pending settings of the provider of the handle's
+    /// Saves `settings` as the pending settings of the provider of the handle's
     /// organization, in place of the ones there are, if the provider is still the one
     /// read, `read` (the same provider, last changed at the same time), and the
-    /// organization still takes no password; recorded as `actor_id`'s. Returns them as
-    /// stored, or `None` if the provider changed meanwhile, and nothing is stored.
-    /// `pending.provider_id` and `create_at` are the store's.
+    /// organization still takes no password; and in the same transaction stores
+    /// `kept`, the provider with what else the save changes (whether newcomers join),
+    /// if that differs. Both are recorded as `actor_id`'s. Returns the provider and
+    /// the pending settings as stored, or `None` if the provider changed meanwhile, and
+    /// nothing is stored.
     ///
     /// # Errors
     ///
@@ -86,19 +125,31 @@ impl Store {
     /// [`StoreError::Database`] if a statement fails.
     pub async fn put_oidc_pending_provider(
         &self,
-        pending: &PendingProvider,
+        settings: &PendingSettings,
+        kept: &StoredProvider,
         read: &StoredProvider,
         actor_id: &str,
-    ) -> Result<Option<PendingProvider>, StoreError> {
+    ) -> Result<Option<(StoredProvider, PendingProvider)>, StoreError> {
         self.transaction(async |scope| {
             hold_provider_of_organization(scope).await?;
-            let Some(provider) = read_provider(scope).await? else {
+            let Some(mut provider) = read_provider(scope).await? else {
                 return Ok(None);
             };
             if (&provider.id, provider.update_at) != (&read.id, read.update_at)
                 || !provider.sso_required
             {
                 return Ok(None);
+            }
+            if kept.auto_join != provider.auto_join {
+                let before = provider;
+                let kept = StoredProvider {
+                    auto_join: kept.auto_join,
+                    ..before.clone()
+                };
+                provider = oidc::write_provider(scope, Some(&before), &kept)
+                    .await?
+                    .provider;
+                oidc::record_provider_change(scope, actor_id, Some(&before), &provider).await?;
             }
             // Later than the settings before, also within one millisecond or when the
             // clock went back: a trial names one state of them.
@@ -111,9 +162,9 @@ impl Store {
             ));
             sql.bind(scope.org()?)
                 .push_bind(", ", Id(&provider.id))
-                .push_bind(", ", &pending.issuer)
-                .push_bind(", ", &pending.client_id)
-                .push_bind(", ", &pending.sealed_client_secret)
+                .push_bind(", ", &settings.issuer)
+                .push_bind(", ", &settings.client_id)
+                .push_bind(", ", &settings.sealed_client_secret)
                 .push_bind(", ", now)
                 .push(
                     ") ON CONFLICT (org_id) DO UPDATE SET provider_id = excluded.provider_id, \
@@ -130,7 +181,7 @@ impl Store {
                 &provider.org_id,
             );
             audit::record_entry(scope, &entry).await?;
-            Ok(Some(stored))
+            Ok(Some((provider, stored)))
         })
         .await
     }
@@ -164,9 +215,13 @@ impl Store {
     }
 
     /// Ends a trial of the pending settings saved at `pending_at` of the provider
-    /// `provider_id` of the handle's organization, in one transaction that holds the
-    /// provider: they must still be the provider's pending settings, and it must still
-    /// be on. Lets `account` in as a sign-in does (`Store::finish_oidc_sign_in`), makes
+    /// `provider_id` of the handle's organization, started by the administrator
+    /// `trier_id`, in one transaction that holds the provider: they must still be the
+    /// provider's pending settings, it must still be on, and `account` must be the
+    /// trier's own, who must still administer the organization (no account is made by
+    /// a trial: one that ended in a newcomer or another person would put settings in
+    /// use that no administrator can sign in through). Lets `account` in as a sign-in
+    /// does (`Store::finish_oidc_sign_in`), makes
     /// the pending settings the provider's, as a save of them would (another issuer
     /// ends the sessions of the one before), records that as the account's doing, and
     /// stores `session` under `token_digest`, made through the provider as it is then:
@@ -182,6 +237,7 @@ impl Store {
         &self,
         provider_id: &str,
         pending_at: i64,
+        trier_id: &str,
         account: OidcAccount<'_>,
         session: &mut Session,
         token_digest: &str,
@@ -200,6 +256,13 @@ impl Store {
             {
                 return Ok(Err(OidcRefusal::ProviderGone));
             }
+            let is_the_trier =
+                matches!(&account, OidcAccount::Known { user_id, .. } if *user_id == trier_id);
+            if !is_the_trier
+                || org_admin::org_role_of(scope, trier_id).await? != Some(OrgRole::Admin)
+            {
+                return Ok(Err(OidcRefusal::NotTheTrier));
+            }
             let subject = account.identity().subject.to_owned();
             let newcomers = Newcomers::from(&before);
             let joined = match oidc::admit(scope, account, newcomers, session).await? {
@@ -209,12 +272,7 @@ impl Store {
             let mut sql = scope.sql("DELETE FROM oidc_pending_providers WHERE org_id = ");
             sql.bind(scope.org()?);
             scope.execute(sql).await?;
-            let applied = StoredProvider {
-                issuer: pending.issuer,
-                client_id: pending.client_id,
-                sealed_client_secret: pending.sealed_client_secret,
-                ..before.clone()
-            };
+            let applied = pending.applied_to(&before);
             let provider = oidc::write_provider(scope, Some(&before), &applied)
                 .await?
                 .provider;

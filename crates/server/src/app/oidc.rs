@@ -255,7 +255,7 @@ impl App {
                     session_id: session_id.to_owned(),
                 },
             ),
-            Start::Trial => {
+            Start::Trial { user_id } => {
                 let pending = org
                     .store()
                     .oidc_pending_provider()
@@ -263,8 +263,15 @@ impl App {
                     .map_err(|error| AppError::from(error).context("reading the provider"))?
                     .ok_or_else(unavailable)?;
                 let pending_at = pending.create_at;
-                let trying = trying(&stored, pending).ok_or_else(unavailable)?;
-                (trying, FlowPurpose::Trial { pending_at })
+                let trying = trying(&stored, &pending).ok_or_else(unavailable)?;
+                let user_id = user_id.to_owned();
+                (
+                    trying,
+                    FlowPurpose::Trial {
+                        pending_at,
+                        user_id,
+                    },
+                )
             }
         };
         let discovery = provider::discover(self.oidc_fetcher(), &stored.issuer)
@@ -418,25 +425,7 @@ impl App {
         let org = self
             .enter_org_for_sign_in(&flow.org_id)
             .ok_or(unavailable)?;
-        let stored = org
-            .store()
-            .oidc_provider()
-            .await
-            .map_err(|error| logged(&error, "reading the provider"))?
-            .filter(|stored| stored.enabled && stored.id == flow.provider_id)
-            .ok_or(unavailable)?;
-        // A trial goes through the pending settings it was started for, and no other.
-        let stored = match &flow.purpose {
-            FlowPurpose::Trial { pending_at } => org
-                .store()
-                .oidc_pending_provider()
-                .await
-                .map_err(|error| logged(&error, "reading the provider"))?
-                .filter(|pending| pending.create_at == *pending_at)
-                .and_then(|pending| trying(&stored, pending))
-                .ok_or(unavailable)?,
-            FlowPurpose::SignIn | FlowPurpose::Link { .. } => stored,
-        };
+        let stored = org.provider_of_flow(flow).await?.ok_or(unavailable)?;
         let secret = self.open_client_secret(&stored)?;
         let discovery = provider::discover(self.oidc_fetcher(), &stored.issuer)
             .await
@@ -467,8 +456,12 @@ impl App {
                 return Ok(FinishedLogin::Linked);
             }
             FlowPurpose::SignIn => Ending::SignIn,
-            FlowPurpose::Trial { pending_at } => Ending::Trial {
+            FlowPurpose::Trial {
+                pending_at,
+                user_id,
+            } => Ending::Trial {
                 pending_at: *pending_at,
+                trier_id: user_id,
             },
         };
         let token = new_secret();
@@ -497,6 +490,34 @@ impl App {
             }
             None => FinishedLogin::SignedIn { token },
         })
+    }
+
+    /// The provider a sign-in that came back goes through, on the handle of its
+    /// organization: the one it was started through, still on; for a trial, with the
+    /// pending settings it was started for, and no other. `None` if that is gone.
+    async fn provider_of_flow(
+        &self,
+        flow: &LoginFlow,
+    ) -> Result<Option<StoredProvider>, LoginFailure> {
+        let Some(stored) = self
+            .store()
+            .oidc_provider()
+            .await
+            .map_err(|error| logged(&error, "reading the provider"))?
+            .filter(|stored| stored.enabled && stored.id == flow.provider_id)
+        else {
+            return Ok(None);
+        };
+        let FlowPurpose::Trial { pending_at, .. } = &flow.purpose else {
+            return Ok(Some(stored));
+        };
+        Ok(self
+            .store()
+            .oidc_pending_provider()
+            .await
+            .map_err(|error| logged(&error, "reading the provider"))?
+            .filter(|pending| pending.create_at == *pending_at)
+            .and_then(|pending| trying(&stored, &pending)))
     }
 
     /// Whether `org_id` names an organization in use that is not the system's: none
@@ -580,7 +601,7 @@ impl App {
         &self,
         claims: &IdClaims,
         stored: &StoredProvider,
-        ending: Ending,
+        ending: Ending<'_>,
         session: &mut Session,
         digest: &str,
     ) -> Result<Option<Applied>, LoginFailure> {
@@ -597,6 +618,12 @@ impl App {
             return self
                 .let_in(&user, identity, stored, ending, session, digest)
                 .await;
+        }
+        // A trial ends in the account of the administrator who started it, which the
+        // identity is not: no account is made for it.
+        if matches!(ending, Ending::Trial { .. }) {
+            tracing::info!(org_id = %stored.org_id, "a trial of pending settings signed in somebody without an account");
+            return Err(Reason::OidcTrialAccount.into());
         }
         // The identity of an account that is deleted: not let in, and not made anew.
         if self
@@ -640,7 +667,7 @@ impl App {
         user: &User,
         identity: Identity<'_>,
         stored: &StoredProvider,
-        ending: Ending,
+        ending: Ending<'_>,
         session: &mut Session,
         digest: &str,
     ) -> Result<Option<Applied>, LoginFailure> {
@@ -665,7 +692,7 @@ impl App {
     async fn finish_in_store(
         &self,
         stored: &StoredProvider,
-        ending: Ending,
+        ending: Ending<'_>,
         account: OidcAccount<'_>,
         session: &mut Session,
         digest: &str,
@@ -676,9 +703,12 @@ impl App {
                 .finish_oidc_sign_in(&stored.id, stored.revision, account, session, digest)
                 .await?
                 .map(|joined| (joined, None)),
-            Ending::Trial { pending_at } => self
+            Ending::Trial {
+                pending_at,
+                trier_id,
+            } => self
                 .store()
-                .finish_oidc_trial(&stored.id, pending_at, account, session, digest)
+                .finish_oidc_trial(&stored.id, pending_at, trier_id, account, session, digest)
                 .await?
                 .map(|applied| (applied.joined, Some(applied))),
         })
@@ -696,7 +726,7 @@ impl App {
         identity: Identity<'_>,
         email: &str,
         stored: &StoredProvider,
-        ending: Ending,
+        ending: Ending<'_>,
         session: &mut Session,
         digest: &str,
     ) -> Result<Option<Applied>, LoginFailure> {
@@ -769,31 +799,32 @@ pub(super) enum Start<'a> {
         /// The session it is started from.
         session_id: &'a str,
     },
-    /// To try the pending settings.
-    Trial,
+    /// To try the pending settings, by the administrator `user_id`.
+    Trial {
+        /// The administrator whose account alone the trial may end in.
+        user_id: &'a str,
+    },
 }
 
 /// How a sign-in that ends in a session is stored.
 #[derive(Debug, Clone, Copy)]
-enum Ending {
+enum Ending<'a> {
     /// Through the provider as it is.
     SignIn,
-    /// Through the pending settings saved at `pending_at`, which become the provider's.
+    /// Through the pending settings saved at `pending_at`, which become the provider's,
+    /// in the account of the administrator `trier_id` only.
     Trial {
         /// When they were saved.
         pending_at: i64,
+        /// The administrator who started it.
+        trier_id: &'a str,
     },
 }
 
 /// The provider as a trial signs in through it: with the pending settings' issuer,
 /// client and secret, if they are of this very provider.
-fn trying(stored: &StoredProvider, pending: PendingProvider) -> Option<StoredProvider> {
-    (pending.provider_id == stored.id).then(|| StoredProvider {
-        issuer: pending.issuer,
-        client_id: pending.client_id,
-        sealed_client_secret: pending.sealed_client_secret,
-        ..stored.clone()
-    })
+fn trying(stored: &StoredProvider, pending: &PendingProvider) -> Option<StoredProvider> {
+    (pending.provider_id == stored.id).then(|| pending.applied_to(stored))
 }
 
 /// The failure of a sign-in that the store refused at its end, logged.
@@ -804,6 +835,10 @@ fn refused(refusal: OidcRefusal, stored: &StoredProvider) -> LoginFailure {
             Reason::OidcUnavailable.into()
         }
         OidcRefusal::JoinClosed => Reason::OidcJoinClosed.into(),
+        OidcRefusal::NotTheTrier => {
+            tracing::info!(org_id = %stored.org_id, "a trial of pending settings ended in another account than its administrator's");
+            Reason::OidcTrialAccount.into()
+        }
         OidcRefusal::AccountChanged => {
             tracing::info!(org_id = %stored.org_id, "an account was deleted, given a password or unlinked from the identity while signing in through a provider");
             Reason::OidcUnavailable.into()

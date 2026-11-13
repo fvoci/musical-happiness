@@ -492,10 +492,13 @@ export interface paths {
          * @description Starts a sign-in through the pending settings (`pending` of the provider), as
          *     `startOidcLogin` starts one through the provider: it answers where the page sends
          *     the browser, with the cookie of the sign-in. When the browser comes back
-         *     (`finishOidcLogin`) and the sign-in ends well, in a session of whoever the provider
-         *     vouches for, the pending settings become the provider's, at a new revision that the
+         *     (`finishOidcLogin`) and the sign-in ends well, in the account of the administrator
+         *     who started it, the pending settings become the provider's, at a new revision that the
          *     new session proves (`canRequireSso`); another issuer ends the sessions of the one
-         *     before. A sign-in that fails changes nothing. 409 with the reason `oidc_unavailable`
+         *     before. A sign-in that fails changes nothing; one that ends in another account (the
+         *     provider vouches for an identity that is not tied to this administrator's account,
+         *     or they administer the organization no more) is refused with
+         *     `oidc_trial_account`, and makes no account. 409 with the reason `oidc_unavailable`
          *     if there are no pending settings, the provider is off, or their issuer cannot be
          *     reached; 429 when this address made too many sign-ins of late.
          */

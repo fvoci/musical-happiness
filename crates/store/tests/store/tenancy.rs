@@ -616,13 +616,12 @@ async fn sign_in_under_way(store: &Store, name: &str) {
         .expect("a provider is stored");
     store
         .put_oidc_pending_provider(
-            &fvoci_store::PendingProvider {
-                provider_id: String::new(),
+            &fvoci_store::PendingSettings {
                 issuer: "https://idp.example.com".to_owned(),
                 client_id: format!("fvoci of {name}"),
                 sealed_client_secret: String::new(),
-                create_at: 0,
             },
+            &provider,
             &provider,
             &fvoci_model::new_id(),
         )

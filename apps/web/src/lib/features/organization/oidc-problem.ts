@@ -15,8 +15,13 @@ export function pendingOutcome(
   }
   const name = address.get('oidc_pending_error');
   if (name === null) return undefined;
-  // The provider's answer is what a trial tests; the rest is said as a sign-in says it.
-  const why = name === 'oidc-token-refused' ? m.org_sso_pending_refused() : m.account_oidc_failed();
+  // The provider's answer and the account are what a trial tests; the rest is said as a
+  // sign-in says it.
+  const said: Record<string, () => string> = {
+    'oidc-token-refused': m.org_sso_pending_refused,
+    'oidc-trial-account': m.org_sso_pending_other_account,
+  };
+  const why = (said[name] ?? m.account_oidc_failed)();
   return { applied: false, words: `${m.org_sso_pending_failed()} ${why}` };
 }
 

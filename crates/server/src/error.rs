@@ -253,6 +253,9 @@ reasons! {
     /// The email address a provider vouches for is not the one of the account it was
     /// to be linked to: it is not linked.
     OidcEmailMismatch => "oidc_email_mismatch", "Email address of the provider not the account's";
+    /// A trial of a provider's pending settings ended in another account than the one
+    /// of the administrator who started it: nothing is changed.
+    OidcTrialAccount => "oidc_trial_account", "Trial in another account";
     /// The account has no password to confirm with.
     PasswordNotSet => "password_not_set", "Account without a password";
     /// The identity is the only way in to an account without a password.

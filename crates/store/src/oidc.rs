@@ -20,7 +20,7 @@ use crate::users::InstanceRole;
 /// The columns of a sign-in under way, in the order [`flow_from_row`] reads them.
 pub(crate) const FLOW_COLUMNS: &str = "state_hash, browser_hash, nonce, pkce_verifier, org_id, \
                                        provider_id, create_at, expires_at, link_session_id, \
-                                       pending_at";
+                                       pending_at, pending_by";
 
 /// The columns of a provider, in the order [`provider_from_row`] reads them.
 const PROVIDER_COLUMNS: &str = "id, org_id, issuer, client_id, client_secret, auto_join, enabled, \
@@ -123,10 +123,13 @@ pub enum FlowPurpose {
         session_id: String,
     },
     /// To sign in through the pending settings saved at `pending_at`, which become the
-    /// provider's when it ends well.
+    /// provider's when it ends well: in the account of the administrator who started
+    /// it, and no other.
     Trial {
         /// When the pending settings it tries were saved: their state.
         pending_at: i64,
+        /// The administrator who started it.
+        user_id: String,
     },
 }
 
@@ -334,12 +337,16 @@ impl Store {
         self.with_conn(async |scope| {
             let mut sql = scope.sql(
                 "INSERT INTO oidc_login_flows (state_hash, browser_hash, nonce, pkce_verifier, \
-                 org_id, provider_id, create_at, expires_at, link_session_id, pending_at) SELECT ",
+                 org_id, provider_id, create_at, expires_at, link_session_id, pending_at, \
+                 pending_by) SELECT ",
             );
-            let (link_session_id, pending_at) = match &flow.purpose {
-                FlowPurpose::SignIn => ("", None),
-                FlowPurpose::Link { session_id } => (session_id.as_str(), None),
-                FlowPurpose::Trial { pending_at } => ("", Some(*pending_at)),
+            let (link_session_id, pending_at, pending_by) = match &flow.purpose {
+                FlowPurpose::SignIn => ("", None, ""),
+                FlowPurpose::Link { session_id } => (session_id.as_str(), None, ""),
+                FlowPurpose::Trial {
+                    pending_at,
+                    user_id,
+                } => ("", Some(*pending_at), user_id.as_str()),
             };
             sql.bind(&flow.state_hash)
                 .push_bind(", ", &flow.browser_hash)
@@ -350,6 +357,7 @@ impl Store {
                 .push_bind(", ", flow.expires_at)
                 .push_bind(", ", OptId(link_session_id))
                 .push_bind(", ", Param::OptInt(pending_at))
+                .push_bind(", ", OptId(pending_by))
                 .push_bind(" FROM oidc_providers WHERE id = ", Id(&flow.provider_id))
                 .push_bind(" AND org_id = ", scope.org()?);
             if let Some(pending_at) = pending_at {
@@ -693,7 +701,7 @@ pub enum Removal {
 /// Records what this save changed from `before`, in the transaction that stores it:
 /// the provider's settings, and the switch of enforcement, each when it changed. A
 /// save that changes nothing records nothing.
-async fn record_provider_change(
+pub(crate) async fn record_provider_change(
     scope: &mut Scope<'_>,
     actor_id: &str,
     before: Option<&StoredProvider>,
@@ -787,6 +795,10 @@ pub enum OidcRefusal {
     /// The account was deleted, given a password, or its identity unlinked, while
     /// signing in.
     AccountChanged,
+    /// A trial of the pending settings ended in another account than the one of the
+    /// administrator who started it, or that one administers the organization no
+    /// more.
+    NotTheTrier,
 }
 
 /// Whether the identity is still the account's.
@@ -896,7 +908,10 @@ pub(crate) fn flow_from_row(row: &Row) -> Result<LoginFlow, StoreError> {
         expires_at: row.int(7)?,
         purpose: match (row.id(8)?, row.opt_int(9)?) {
             (session_id, _) if !session_id.is_empty() => FlowPurpose::Link { session_id },
-            (_, Some(pending_at)) => FlowPurpose::Trial { pending_at },
+            (_, Some(pending_at)) => FlowPurpose::Trial {
+                pending_at,
+                user_id: row.id(10)?,
+            },
             (_, None) => FlowPurpose::SignIn,
         },
     })

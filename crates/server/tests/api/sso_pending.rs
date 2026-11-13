@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 use crate::common::{Client, ROOT_WORKSPACE_ID, Setup, TestServer};
 use crate::fake_oidc::{CLIENT_ID, CLIENT_SECRET, FakeProvider, NEXT_CLIENT_SECRET, Person};
 use crate::oidc::{Browser, org_of, server_for, set_provider, with_key_and_private_addresses};
-use crate::sso::{ADMIN_SUBJECT, Passwords, admin_through_provider, require_sso};
+use crate::sso::{ADMIN_SUBJECT, Passwords, admin_through_provider, require_sso, tie};
 
 /// A secret the fake provider does not take at its token endpoint.
 const WRONG_SECRET: &str = "a secret the provider never issued";
@@ -26,7 +26,19 @@ struct Tried {
 /// Tries the pending settings from `admin`'s browser, as the organization's page does,
 /// with the fake provider signing `user1` in.
 async fn try_pending(ts: &TestServer, fake: &FakeProvider, admin: &Client, org_id: &str) -> Tried {
-    fake.sign_in_as(Person::new(ADMIN_SUBJECT, "user1@example.com"));
+    try_as(ts, fake, admin, org_id, ADMIN_SUBJECT).await
+}
+
+/// Tries the pending settings as [`try_pending`] does, with the fake provider signing
+/// in the person `subject`.
+async fn try_as(
+    ts: &TestServer,
+    fake: &FakeProvider,
+    admin: &Client,
+    org_id: &str,
+    subject: &str,
+) -> Tried {
+    fake.sign_in_as(Person::new(subject, &format!("{subject}@example.com")));
     let http = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .tls_certs_merge([
@@ -171,8 +183,12 @@ async fn a_wrong_secret_waits_aside_and_locks_nobody_out() {
     assert_eq!(tried.token, None, "no session");
     assert_eq!(after.pending, saved.pending, "still aside");
     assert_eq!(after.update_at, before.update_at);
-    admin.get(&path).await.check_ok();
-    assert!(!format!("{after:?}").contains(WRONG_SECRET));
+    let answered = admin.get(&path).await;
+    assert!(
+        !answered.text().contains(WRONG_SECRET),
+        "{}",
+        answered.text()
+    );
     assert_eq!(
         recorded(&admin, &org_id).await[0],
         "oidc_provider_pending_saved"
@@ -339,6 +355,83 @@ async fn another_issuer_or_client_waits_aside_too() {
         .get(&format!("/w/{ROOT_WORKSPACE_ID}/boards"))
         .await
         .check_ok();
+    ts.teardown().await;
+    fake.stop();
+    other.stop();
+}
+
+/// A trial that ends in another account than the administrator's who started it puts
+/// nothing in use and makes no account: settings that let only a newcomer in would
+/// leave the organization without an administrator who signs in.
+#[tokio::test]
+async fn a_trial_in_another_account_changes_nothing() {
+    let fake = FakeProvider::start().await;
+    let (ts, org_id, admin) = enforced(&fake).await;
+    let path = format!("/org/{org_id}/oidc");
+    admin
+        .put(&path, &with_secret(&fake, NEXT_CLIENT_SECRET))
+        .await
+        .check_ok();
+    let users_before = ts.app.store().count_rows("users").await.expect("counted");
+
+    let tried = try_as(&ts, &fake, &admin, &org_id, "a-newcomer").await;
+    let read: OidcProvider = admin.get(&path).await.ok_json();
+    let users_after = ts.app.store().count_rows("users").await.expect("counted");
+
+    assert_eq!(
+        tried.location,
+        format!("/org/{org_id}?oidc_pending_error=oidc-trial-account")
+    );
+    assert_eq!(tried.token, None);
+    assert!(read.pending.is_some(), "still aside");
+    assert!(read.can_require_sso, "the provider as it was");
+    assert_eq!(users_after, users_before, "no account made");
+    ts.teardown().await;
+    fake.stop();
+}
+
+/// Another issuer is put in use by a trial in the account of the administrator, whose
+/// identity at it is tied: the sessions made through the issuer before end, the
+/// trial's goes on and proves the provider.
+#[tokio::test]
+async fn another_issuer_is_applied_by_its_administrators_trial() {
+    let fake = FakeProvider::start().await;
+    let other = FakeProvider::start().await;
+    let ts = Setup::native()
+        .trusting_oidc_provider(&fake.certificate_der)
+        .trusting_oidc_provider(&other.certificate_der)
+        .configure(with_key_and_private_addresses)
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let org_id = org_of(&ts).await;
+    set_provider(&ts, &org_id, &fake).await;
+    let admin = admin_through_provider(&ts, &fake, &org_id).await;
+    require_sso(&admin, &org_id, &fake, Passwords::Refused)
+        .await
+        .check_ok();
+    tie(&ts, &ts.client, &other, ADMIN_SUBJECT).await;
+    let path = format!("/org/{org_id}/oidc");
+    admin
+        .put(
+            &path,
+            &json!({ "issuer": other.issuer, "clientId": CLIENT_ID, "clientSecret": CLIENT_SECRET }),
+        )
+        .await
+        .check_ok();
+
+    let tried = try_pending(&ts, &other, &admin, &org_id).await;
+    let applied = ts.client_with_token(tried.token.as_deref().unwrap_or_default());
+    let read: OidcProvider = applied.get(&path).await.ok_json();
+
+    assert_eq!(
+        tried.location,
+        format!("/org/{org_id}?oidc_pending=applied")
+    );
+    assert_eq!(read.issuer, other.issuer);
+    assert!(read.sso_required && read.can_require_sso && read.pending.is_none());
+    admin.get("/users/me").await.check_unauthorized();
     ts.teardown().await;
     fake.stop();
     other.stop();

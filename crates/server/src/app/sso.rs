@@ -89,9 +89,8 @@ pub(crate) fn enforced() -> AppError {
 ///   is stored ([`proves`]), with a change that keeps what signing in takes
 ///   ([`StoredProvider::signs_in_like`]): who asks has shown that it lets them in. A
 ///   provider of another issuer, client or secret has not let anybody in yet.
-/// - While it is on and stays on, the provider is not switched off or set to another
-///   issuer or client. Switching it off (`ssoRequired` false) comes first, or with
-///   the change.
+/// - While it is on and stays on, the provider is not switched off. Switching it off
+///   (`ssoRequired` false) comes first, or with the change.
 ///
 /// # Errors
 ///
@@ -105,18 +104,15 @@ pub(crate) fn check_change(
     if !next.sso_required {
         return Ok(());
     }
-    if let Some(held) = existing.filter(|existing| existing.sso_required) {
-        // Named: what of the request would let nobody in.
-        let refused = if held.issuer != next.issuer {
-            "issuer"
-        } else if held.client_id != next.client_id {
-            "clientId"
-        } else if !next.enabled {
-            "enabled"
+    // Another issuer, client or secret of a provider that is held went aside as pending
+    // settings before this (`App::put_oidc_provider`): what is left to refuse is
+    // switching it off.
+    if existing.is_some_and(|existing| existing.sso_required) {
+        return if next.enabled {
+            Ok(())
         } else {
-            return Ok(());
+            Err(enforced().with_field("enabled"))
         };
-        return Err(enforced().with_field(refused));
     }
     let proven =
         existing.is_some_and(|existing| existing.signs_in_like(next) && proves(session, existing));

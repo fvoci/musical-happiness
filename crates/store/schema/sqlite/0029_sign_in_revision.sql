@@ -42,6 +42,7 @@ CREATE TABLE oidc_pending_providers (
 );
 
 ALTER TABLE oidc_login_flows ADD COLUMN pending_at BIGINT;
+ALTER TABLE oidc_login_flows ADD COLUMN pending_by TEXT;
 
 -- The records of the pending settings, and of the server operator setting a member's
 -- password or making a link to set it, as schema/postgres/0029_sign_in_revision.sql

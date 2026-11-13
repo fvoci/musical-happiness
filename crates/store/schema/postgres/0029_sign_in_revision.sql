@@ -42,8 +42,10 @@ CREATE POLICY org_wall ON oidc_pending_providers USING (
     OR (SELECT current_setting('fvoci.system', true)) = 'on');
 
 -- A sign-in under way that tries the pending settings saved at this time, in place of
--- the provider's; NULL for a sign-in through the provider as it is.
+-- the provider's, and the administrator who started it, whose account alone it may end
+-- in; NULL for a sign-in through the provider as it is.
 ALTER TABLE oidc_login_flows ADD COLUMN pending_at BIGINT;
+ALTER TABLE oidc_login_flows ADD COLUMN pending_by UUID;
 
 -- The records of the pending settings, and of the server operator setting a member's
 -- password or making a link to set it: each of the organization, of no workspace.

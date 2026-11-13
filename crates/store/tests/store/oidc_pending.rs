@@ -3,9 +3,10 @@
 //! the provider's, at a new revision, in its own transaction, and one of settings
 //! that were saved anew, thrown away or replaced makes nothing.
 
-use fvoci_model::{AuditAction, Session, User, new_id};
+use fvoci_model::{AuditAction, OrgRole, Session, User, new_id};
 use fvoci_store::{
-    AuditPlace, Identity, OidcAccount, OidcRefusal, Paging, PendingProvider, Store, StoredProvider,
+    AuditPlace, Identity, OidcAccount, OidcRefusal, Paging, PendingProvider, PendingSettings,
+    Store, StoredProvider,
 };
 
 use crate::common;
@@ -38,14 +39,26 @@ fn provider(passwords: Passwords) -> StoredProvider {
     }
 }
 
-fn pending(secret: &str) -> PendingProvider {
-    PendingProvider {
-        provider_id: String::new(),
+fn pending(secret: &str) -> PendingSettings {
+    PendingSettings {
         issuer: ISSUER.to_owned(),
         client_id: "client".to_owned(),
         sealed_client_secret: secret.to_owned(),
-        create_at: 0,
     }
+}
+
+/// Saves `secret` aside against the provider as `read`, as `user_id`.
+async fn set_aside(
+    store: &Store,
+    secret: &str,
+    read: &StoredProvider,
+    user_id: &str,
+) -> Option<PendingProvider> {
+    store
+        .put_oidc_pending_provider(&pending(secret), read, read, user_id)
+        .await
+        .expect("asked")
+        .map(|(_, pending)| pending)
 }
 
 /// A person whose identity at the issuer is tied, and their identifier.
@@ -58,6 +71,14 @@ async fn person(store: &Store) -> String {
         ..User::default()
     };
     store.create_user(&mut user).await.expect("stored");
+    store
+        .execute_unchecked(&format!(
+            "UPDATE organization_members SET role = '{}' WHERE user_id = '{}'",
+            OrgRole::Admin.as_str(),
+            user.id
+        ))
+        .await
+        .expect("an administrator of the organization");
     store
         .add_identity(&user.id, identity(), "")
         .await
@@ -93,7 +114,14 @@ async fn trial(
         identity: identity(),
     };
     store
-        .finish_oidc_trial(provider_id, pending_at, account, &mut session, digest)
+        .finish_oidc_trial(
+            provider_id,
+            pending_at,
+            user_id,
+            account,
+            &mut session,
+            digest,
+        )
         .await
         .expect("asked")
 }
@@ -127,24 +155,17 @@ async fn a_trial_of_the_last_settings_saved_applies_them() {
         .await
         .expect("stored")
         .expect("new");
-    let not_enforced = test
-        .put_oidc_pending_provider(&pending("another"), &open, &user)
-        .await
-        .expect("asked");
+    let not_enforced = set_aside(&test, "another", &open, &user).await;
     let enforced = test
         .put_oidc_provider_as_read(&provider(Passwords::Refused), Some(&open), &user)
         .await
         .expect("stored")
         .expect("as read");
-    let first = test
-        .put_oidc_pending_provider(&pending("first"), &enforced, &user)
+    let first = set_aside(&test, "first", &enforced, &user)
         .await
-        .expect("asked")
         .expect("set aside");
-    let second = test
-        .put_oidc_pending_provider(&pending("second"), &enforced, &user)
+    let second = set_aside(&test, "second", &enforced, &user)
         .await
-        .expect("asked")
         .expect("set aside");
     let stale = trial(&test, &enforced.id, first.create_at, &user, "stale").await;
     let applied = trial(&test, &enforced.id, second.create_at, &user, "applied").await;
@@ -193,10 +214,8 @@ async fn a_trial_of_settings_thrown_away_makes_nothing() {
         .await
         .expect("stored")
         .expect("new");
-    let thrown = test
-        .put_oidc_pending_provider(&pending("one"), &enforced, &user)
+    let thrown = set_aside(&test, "one", &enforced, &user)
         .await
-        .expect("asked")
         .expect("set aside");
     let discarded = test
         .discard_oidc_pending_provider(&user)
@@ -207,10 +226,8 @@ async fn a_trial_of_settings_thrown_away_makes_nothing() {
         .await
         .expect("asked");
     let after_discard = trial(&test, &enforced.id, thrown.create_at, &user, "one").await;
-    let replaced = test
-        .put_oidc_pending_provider(&pending("two"), &enforced, &user)
+    let replaced = set_aside(&test, "two", &enforced, &user)
         .await
-        .expect("asked")
         .expect("set aside");
     let mut released = provider(Passwords::Taken);
     released.sealed_client_secret = "three".to_owned();
@@ -236,4 +253,63 @@ async fn a_trial_of_settings_thrown_away_makes_nothing() {
         2,
         "thrown away, and gone with the change"
     );
+}
+
+/// A trial ends only in the account of the administrator who started it, while they
+/// administer the organization: one that ends in another account, or after they were
+/// made a member, changes nothing.
+#[tokio::test]
+async fn a_trial_ends_only_in_its_administrators_account() {
+    let test = common::setup().await;
+    let user = person(&test).await;
+    let enforced = test
+        .put_oidc_provider_as_read(&provider(Passwords::Refused), None, &user)
+        .await
+        .expect("stored")
+        .expect("new");
+    let pending = set_aside(&test, "next", &enforced, &user)
+        .await
+        .expect("set aside");
+    let started_by_another = new_id();
+    let mut session = Session {
+        id: new_id(),
+        created_at: 1,
+        expires_at: i64::MAX,
+        ..Session::default()
+    };
+    let account = OidcAccount::Known {
+        user_id: &user,
+        password_hash: HASH,
+        identity: identity(),
+    };
+    let another = test
+        .finish_oidc_trial(
+            &enforced.id,
+            pending.create_at,
+            &started_by_another,
+            account,
+            &mut session,
+            "another",
+        )
+        .await
+        .expect("asked");
+    test.execute_unchecked(&format!(
+        "UPDATE organization_members SET role = 'member' WHERE user_id = '{user}'"
+    ))
+    .await
+    .expect("made a member");
+    let no_longer = trial(&test, &enforced.id, pending.create_at, &user, "member").await;
+    let left = test.oidc_pending_provider().await.expect("read");
+    let read = test.oidc_provider().await.expect("read");
+    let made = [
+        test.get_session("another", 1, 0).await.is_ok(),
+        test.get_session("member", 1, 0).await.is_ok(),
+    ];
+    test.teardown().await;
+
+    assert_eq!(another.err(), Some(OidcRefusal::NotTheTrier));
+    assert_eq!(no_longer.err(), Some(OidcRefusal::NotTheTrier));
+    assert_eq!(left, Some(pending), "still aside");
+    assert_eq!(read, Some(enforced), "the provider as it was");
+    assert_eq!(made, [false, false], "no session");
 }
