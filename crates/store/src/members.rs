@@ -5,6 +5,7 @@
 
 use fvoci_model::{BoardType, OrgRole, WorkspaceRole};
 
+use crate::audit::Actor;
 use crate::db::{Dialect, Id, Scope, Sql, now_millis};
 use crate::error::StoreError;
 use crate::users::InstanceRole;
@@ -157,17 +158,17 @@ pub(crate) async fn follow_instance_role(
     scope: &mut Scope<'_>,
     user_id: &str,
     instance_role: InstanceRole,
-    actor_id: &str,
+    actor: Actor<'_>,
 ) -> Result<(), StoreError> {
     let org_role = org_role_of_instance(instance_role);
     let org = org_admin::lock_organization(scope).await?;
     match org_admin::org_role_of(scope, user_id).await? {
         Some(before) if before != org_role => {
-            org_admin::change_org_role(scope, &org.id, user_id, org_role, actor_id).await?;
+            org_admin::change_org_role(scope, &org.id, user_id, org_role, actor).await?;
         }
         // Already of that role; one who is no administrator has joined nothing to keep.
         _ if org_role != OrgRole::Admin => {
-            org_admin::revoke_joinings(scope, user_id, actor_id).await?;
+            org_admin::revoke_joinings(scope, user_id, actor).await?;
         }
         _ => {}
     }

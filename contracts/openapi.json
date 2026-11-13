@@ -86,7 +86,19 @@
           "workspace_deleted",
           "workspace_restored",
           "public_links_disabled",
-          "public_links_enabled"
+          "public_links_enabled",
+          "oidc_provider_configured",
+          "oidc_provider_removed",
+          "sso_required",
+          "sso_released"
+        ],
+        "type": "string"
+      },
+      "AuditActorKind": {
+        "description": "Whether a record was made by an account holder or through the local administration socket.",
+        "enum": [
+          "person",
+          "server_operator"
         ],
         "type": "string"
       },
@@ -121,8 +133,19 @@
             "description": "What was done."
           },
           "actor": {
-            "$ref": "#/components/schemas/AuditPerson",
-            "description": "Who did it."
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AuditPerson",
+                "description": "Who did it; absent only for a server operator."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "actorKind": {
+            "$ref": "#/components/schemas/AuditActorKind",
+            "description": "The origin of the action, independent of whether an account still exists."
           },
           "createAt": {
             "description": "When, in milliseconds since the epoch.",
@@ -159,6 +182,7 @@
         "required": [
           "action",
           "actor",
+          "actorKind",
           "createAt",
           "id",
           "subject",

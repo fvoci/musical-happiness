@@ -411,6 +411,22 @@ async fn the_administration_socket_releases_an_organization() {
     socket_request(&socket, "POST", &release, "")
         .await
         .check_no_content();
+    let records: Vec<Value> = ts
+        .client
+        .get(&format!("/org/{org_id}/audit"))
+        .await
+        .ok_json();
+    let operators: Vec<_> = records
+        .iter()
+        .filter(|record| record["actorKind"] == "server_operator")
+        .collect();
+    assert_eq!(
+        operators.len(),
+        1,
+        "only the effective socket release is recorded"
+    );
+    assert!(operators[0]["actor"].is_null());
+    assert_eq!(operators[0]["action"], "sso_released");
     for missing in [new_id(), "no-identifier".to_owned()] {
         socket_request(
             &socket,

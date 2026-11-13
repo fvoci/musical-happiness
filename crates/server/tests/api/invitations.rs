@@ -1234,7 +1234,7 @@ async fn a_guest_let_in_by_a_manager_who_does_not_read_the_board_is_on_the_recor
             .into_iter()
             .map(|entry| {
                 (
-                    entry.actor_id,
+                    entry.actor_id.unwrap_or_default(),
                     entry.action,
                     entry.target_id,
                     entry.subject_id,

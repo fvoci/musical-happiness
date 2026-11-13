@@ -159,7 +159,7 @@ async fn a_change_of_the_provider_made_from_an_old_reading_is_not_stored() {
         sso_required: false,
     };
     let none_read = test
-        .put_oidc_provider_as_read(&provider("first", ""), None)
+        .put_oidc_provider_as_read(&provider("first", ""), None, &new_id())
         .await
         .expect("stored")
         .expect("none was there, as read");
@@ -177,16 +177,16 @@ async fn a_change_of_the_provider_made_from_an_old_reading_is_not_stored() {
         none_read.update_at
     );
     let stale = test
-        .put_oidc_provider_as_read(&provider("first", ""), Some(&none_read))
+        .put_oidc_provider_as_read(&provider("first", ""), Some(&none_read), &new_id())
         .await
         .expect("asked");
     let stored = test.oidc_provider().await.expect("read").expect("stored");
     let fresh = test
-        .put_oidc_provider_as_read(&provider("third", ""), Some(&later))
+        .put_oidc_provider_as_read(&provider("third", ""), Some(&later), &new_id())
         .await
         .expect("asked");
     let none_stale = test
-        .put_oidc_provider_as_read(&provider("fourth", ""), None)
+        .put_oidc_provider_as_read(&provider("fourth", ""), None, &new_id())
         .await
         .expect("asked");
     test.teardown().await;
@@ -225,11 +225,11 @@ async fn a_removed_provider_is_not_brought_back_by_a_change_read_before() {
     };
     let read = test.put_oidc_provider(&provider).await.expect("stored");
     assert_eq!(
-        test.delete_oidc_provider().await.expect("removed"),
+        test.delete_oidc_provider(&new_id()).await.expect("removed"),
         Removal::Removed
     );
     let change = test
-        .put_oidc_provider_as_read(&provider, Some(&read))
+        .put_oidc_provider_as_read(&provider, Some(&read), &new_id())
         .await
         .expect("asked");
     let after = test.oidc_provider().await.expect("read");
@@ -241,7 +241,7 @@ async fn a_removed_provider_is_not_brought_back_by_a_change_read_before() {
         ..read.clone()
     };
     let change_again = test
-        .put_oidc_provider_as_read(&provider, Some(&of_the_removed))
+        .put_oidc_provider_as_read(&provider, Some(&of_the_removed), &new_id())
         .await
         .expect("asked");
     test.teardown().await;
@@ -280,7 +280,7 @@ enum Enforcement {
 async fn an_enforced_provider_is_not_removed_until_it_is_released() {
     let test = common::setup().await;
     assert_eq!(
-        test.delete_oidc_provider().await.expect("asked"),
+        test.delete_oidc_provider(&new_id()).await.expect("asked"),
         Removal::NoneThere
     );
     assert_eq!(test.release_sso().await.expect("asked"), None);
@@ -290,11 +290,11 @@ async fn an_enforced_provider_is_not_removed_until_it_is_released() {
         .expect("stored");
     assert!(enforced.sso_required);
 
-    let refused = test.delete_oidc_provider().await.expect("asked");
+    let refused = test.delete_oidc_provider(&new_id()).await.expect("asked");
     let still = test.oidc_provider().await.expect("read");
     let released = test.release_sso().await.expect("released");
     let again = test.release_sso().await.expect("asked");
-    let removed = test.delete_oidc_provider().await.expect("asked");
+    let removed = test.delete_oidc_provider(&new_id()).await.expect("asked");
     test.teardown().await;
 
     assert_eq!(refused, Removal::Enforced);
@@ -421,13 +421,17 @@ async fn enforcing_and_removing_at_once_leave_no_organization_without_its_provid
             let read = read.clone();
             tokio::spawn(async move {
                 store
-                    .put_oidc_provider_as_read(&provider_that(Enforcement::On), Some(&read))
+                    .put_oidc_provider_as_read(
+                        &provider_that(Enforcement::On),
+                        Some(&read),
+                        &new_id(),
+                    )
                     .await
             })
         };
         let removing = {
             let store = test.store.clone();
-            tokio::spawn(async move { store.delete_oidc_provider().await })
+            tokio::spawn(async move { store.delete_oidc_provider(&new_id()).await })
         };
         let enforced = enforcing.await.expect("joined").expect("asked");
         let removal = removing.await.expect("joined").expect("asked");
@@ -448,7 +452,7 @@ async fn enforcing_and_removing_at_once_leave_no_organization_without_its_provid
         }
         // For the next round.
         test.release_sso().await.expect("asked");
-        test.delete_oidc_provider().await.expect("asked");
+        test.delete_oidc_provider(&new_id()).await.expect("asked");
     }
     test.teardown().await;
 }

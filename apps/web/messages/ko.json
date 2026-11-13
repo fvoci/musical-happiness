@@ -1051,5 +1051,10 @@
   "org_sso_key_required": "공급자를 저장하려면 서버 운영자가 비밀 값 암호화 키를 먼저 설정해야 합니다.",
   "org_sso_invalid": "HTTPS issuer 주소와 client ID를 확인하세요. 둘 중 하나를 바꿨다면 client secret을 다시 입력하세요.",
   "org_sso_conflict": "그사이에 설정이 바뀌었습니다. 화면을 새로 고침하고 다시 시도하세요.",
-  "org_sso_failed": "SSO 설정을 읽거나 저장하지 못했습니다. 다시 시도하세요."
+  "org_sso_failed": "SSO 설정을 읽거나 저장하지 못했습니다. 다시 시도하세요.",
+  "audit_server_operator": "서버 운영자",
+  "audit_oidc_configured": "{actor} 님이 조직의 로그인 공급자를 설정했습니다",
+  "audit_oidc_removed": "{actor} 님이 조직의 로그인 공급자를 삭제했습니다",
+  "audit_sso_required": "{actor} 님이 조직의 통합 로그인을 강제했습니다",
+  "audit_sso_released": "{actor} 님이 조직의 통합 로그인 강제를 해제했습니다"
 }

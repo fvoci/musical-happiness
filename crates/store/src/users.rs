@@ -14,6 +14,7 @@ use fvoci_model::{
 };
 
 use crate::Store;
+use crate::audit::Actor;
 use crate::db::{Dialect, Id, Row, Scope, Sql, now_millis};
 use crate::error::{StoreError, Taken};
 use crate::members;
@@ -187,7 +188,7 @@ impl Store {
     /// Makes the user an administrator of the instance on the operator's word, as
     /// [`Store::set_user_admin`] does but asked by no administrator: for the
     /// administration socket, the way back in when no administrator can sign in. The
-    /// change is recorded as the user's own.
+    /// change is recorded as the server operator's.
     ///
     /// # Errors
     ///
@@ -206,6 +207,11 @@ impl Store {
         asker: Asker,
     ) -> Result<AdminChange, StoreError> {
         let is_admin = role == InstanceRole::Administrator;
+        let follows = self.is_the_instances_organization().await?;
+        let actor = match asker {
+            Asker::Administrator => Actor::Person(actor_id),
+            Asker::Operator => Actor::ServerOperator,
+        };
         self.transaction(async |scope| {
             lock_instance(scope).await?;
 
@@ -229,7 +235,7 @@ impl Store {
                 if scope.fetch_optional(sql).await?.is_none() {
                     return Ok(AdminChange::LastAdmin);
                 }
-                if scope.has_org() && crate::org_admin::is_last_org_admin(scope, user_id).await? {
+                if follows && crate::org_admin::is_last_org_admin(scope, user_id).await? {
                     return Ok(AdminChange::LastAdmin);
                 }
             }
@@ -239,8 +245,8 @@ impl Store {
                     .push_bind(", update_at = ", now_millis())
                     .push_bind(" WHERE id = ", Id(user_id));
                 scope.execute(sql).await?;
-                if scope.has_org() {
-                    members::follow_instance_role(scope, user_id, role, actor_id).await?;
+                if follows {
+                    members::follow_instance_role(scope, user_id, role, actor).await?;
                 }
             }
             let user = get_user_by_id(scope, user_id).await?;

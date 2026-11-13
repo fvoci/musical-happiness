@@ -16,6 +16,10 @@ export const AUDIT_ACTIONS = [
   'workspace_restored',
   'public_links_disabled',
   'public_links_enabled',
+  'oidc_provider_configured',
+  'oidc_provider_removed',
+  'sso_required',
+  'sso_released',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
@@ -31,7 +35,8 @@ export interface AuditPerson {
 export interface AuditRecord {
   id: string;
   action: AuditAction;
-  actor: AuditPerson;
+  actor: AuditPerson | null;
+  actorKind: 'person' | 'server_operator';
   subject: AuditPerson | null;
   targetId: string;
   /** The board's title where the reader sees the board, the workspace's name; null otherwise. */

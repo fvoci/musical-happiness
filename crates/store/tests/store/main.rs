@@ -20,6 +20,7 @@ mod invitations;
 mod loose_objects;
 mod observe;
 mod oidc;
+mod oidc_audit;
 mod order;
 mod org_admin;
 mod registration;

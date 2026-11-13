@@ -119,12 +119,19 @@ impl Running {
         let database = TestDatabase::create(&directory).await;
         let key = base64::engine::general_purpose::STANDARD.encode([9_u8; 32]);
         let config = Configuration {
+            enable_local_mode: cfg!(unix),
+            local_mode_socket_location: std::env::temp_dir()
+                .join(format!("fvoci-operator-{}.sock", new_id()))
+                .display()
+                .to_string(),
             db_type: database.db_type().as_str().to_owned(),
             db_config: database.dbconfig().to_owned(),
             files_driver: "local".to_owned(),
             files_path: directory.join("uploads").display().to_string(),
             skip_template_init: true,
             login_address_attempts_per_minute: 0,
+            password_hash_concurrency: 1,
+            password_hash_queue: 0,
             secret_key: Some(SecretKey::from_base64(&key).expect("a key")),
             oidc_allow_private_addresses: true,
             oidc_extra_root_certificates: vec![fake.certificate_der.clone()],
@@ -329,6 +336,191 @@ async fn switching_on_switching_off_and_the_operators_release_are_recorded() {
         "nobody's account: {}",
         record[3]
     );
+    #[cfg(unix)]
+    global_commands_stay_out_of_the_organizations_log(
+        &server,
+        &captured,
+        &org_id,
+        &me,
+        &[&token, &through, CLIENT_SECRET],
+    )
+    .await;
     server.stop().await;
     fake.stop();
+}
+
+#[cfg(unix)]
+async fn global_commands_stay_out_of_the_organizations_log(
+    server: &Running,
+    captured: &Captured,
+    org_id: &str,
+    me: &User,
+    secrets: &[&str],
+) {
+    let store = server.app.store().for_org(org_id).expect("organization");
+    let paging = fvoci_store::Paging {
+        page: 0,
+        per_page: 100,
+    };
+    let before = store
+        .audit_records(fvoci_store::AuditPlace::Organization, paging)
+        .await
+        .expect("records");
+    let http = reqwest::Client::builder()
+        .unix_socket(server.app.config().local_mode_socket_location.as_str())
+        .timeout(Duration::from_secs(10))
+        .build()
+        .expect("socket client");
+    let other = if fvoci_store::testing::db_type_of_the_tests() == fvoci_store::DbType::Postgres {
+        let workspace = fvoci_model::Workspace {
+            id: new_id(),
+            ..fvoci_model::Workspace::default()
+        };
+        let org = store
+            .system()
+            .create_organization("Other", &workspace)
+            .await
+            .expect("another organization");
+        Some(store.for_org(&org).expect("organization"))
+    } else {
+        None
+    };
+    let password = "operator-private-replacement-password";
+    for (route, body, status) in [
+        (
+            format!("users/{}/password", me.username),
+            json!({"password":password}),
+            204,
+        ),
+        (format!("users/{}/admin", me.username), json!({}), 204),
+        (
+            "files/reconcile".to_owned(),
+            json!({"removeUnrecorded":false}),
+            200,
+        ),
+        (
+            "users/absent-operator-target/password".to_owned(),
+            json!({"password":password}),
+            404,
+        ),
+    ] {
+        assert_eq!(operator_post(&http, &route, &body).await, status, "{route}");
+    }
+    assert_eq!(
+        store
+            .audit_records(fvoci_store::AuditPlace::Organization, paging)
+            .await
+            .expect("records"),
+        before,
+        "global commands add nothing to the organization's records"
+    );
+    for (route, body) in [
+        (
+            format!("users/{}/password", me.username),
+            json!({"password":"x"}),
+        ),
+        (
+            "files/reconcile".to_owned(),
+            json!({"unknownSecret":"never-log-this-link"}),
+        ),
+    ] {
+        assert_eq!(operator_post(&http, &route, &body).await, 400, "{route}");
+    }
+    let attempts = (0..24).map(|_| {
+        http.post(format!(
+            "http://localhost/api/v1/admin/users/{}/password",
+            me.username
+        ))
+        .json(&json!({"password":password}))
+        .send()
+    });
+    let answers = futures_util::future::join_all(attempts).await;
+    let refused = answers
+        .iter()
+        .filter(|answer| answer.as_ref().expect("answer").status().as_u16() == 429)
+        .count();
+    assert!(refused > 0, "a queue of zero refuses concurrent hashing");
+    if let Some(other) = other {
+        assert_eq!(
+            other
+                .audit_records(fvoci_store::AuditPlace::Organization, paging)
+                .await
+                .expect("other records"),
+            [],
+            "nor to another organization's"
+        );
+    }
+    operator_lines_name_no_secret(captured, me, secrets, password, refused);
+}
+
+/// Sends one command to the administration socket and answers its status.
+#[cfg(unix)]
+async fn operator_post(http: &reqwest::Client, route: &str, body: &serde_json::Value) -> u16 {
+    http.post(format!("http://localhost/api/v1/admin/{route}"))
+        .json(body)
+        .send()
+        .await
+        .expect("socket answers")
+        .status()
+        .as_u16()
+}
+
+/// The structured lines of the global commands: one per command, with its outcome and
+/// target, and none of what was sent with it.
+#[cfg(unix)]
+fn operator_lines_name_no_secret(
+    captured: &Captured,
+    me: &User,
+    secrets: &[&str],
+    password: &str,
+    refused: usize,
+) {
+    let record = captured.record();
+    let operator: Vec<_> = record
+        .iter()
+        .filter(|line| line.contains("actor=\"operator\""))
+        .collect();
+    assert_eq!(operator.len(), 30, "{record:#?}");
+    for (line, command) in operator[..4].iter().zip([
+        "reset_password",
+        "make_admin",
+        "reconcile_files",
+        "reset_password",
+    ]) {
+        assert!(line.contains(&format!("command=\"{command}\"")), "{line}");
+        assert!(!line.contains(password), "no password in the record");
+        for secret in secrets {
+            assert!(
+                !line.contains(secret),
+                "no token or client secret in the record"
+            );
+        }
+    }
+    for line in &operator[..2] {
+        assert!(
+            line.contains(&me.id) && line.contains("result=\"succeeded\""),
+            "{line}"
+        );
+    }
+    assert!(operator[3].contains("result=\"failed\""), "{}", operator[3]);
+    assert_eq!(
+        operator
+            .iter()
+            .filter(|line| line.contains("status=429"))
+            .count(),
+        refused,
+        "every refused hashing is a line"
+    );
+    for line in &operator {
+        assert!(
+            !line.contains(password) && !line.contains("never-log-this-link"),
+            "no secrets"
+        );
+    }
+    for line in &operator[4..6] {
+        assert!(
+            line.contains("status=400") && line.contains("result=\"failed\""),
+            "{line}"
+        );
+    }
 }

@@ -239,6 +239,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("AuditAction", Members::AsWritten),
     ("AuditPerson", Members::All),
     ("AuditRecord", Members::All),
+    ("AuditActorKind", Members::AsWritten),
     ("Organization", Members::All),
     ("OrgMember", Members::All),
     ("OrgWorkspace", Members::All),

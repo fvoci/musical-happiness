@@ -1051,5 +1051,10 @@
   "org_sso_key_required": "The server operator must configure a secret encryption key before a provider can be saved.",
   "org_sso_invalid": "Check the HTTPS issuer URL and client ID. When changing either, enter the client secret again.",
   "org_sso_conflict": "The settings changed meanwhile. Reload the page and try again.",
-  "org_sso_failed": "Could not read or save the SSO settings. Try again."
+  "org_sso_failed": "Could not read or save the SSO settings. Try again.",
+  "audit_server_operator": "Server operator",
+  "audit_oidc_configured": "{actor} saved the organization's sign-in provider",
+  "audit_oidc_removed": "{actor} removed the organization's sign-in provider",
+  "audit_sso_required": "{actor} required single sign-on for the organization",
+  "audit_sso_released": "{actor} released the organization's single sign-on requirement"
 }

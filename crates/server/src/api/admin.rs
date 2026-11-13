@@ -70,16 +70,17 @@ async fn handle_admin_set_password(
     Path(username): Path<String>,
     body: Bytes,
 ) -> ApiResult {
-    // A body of `null` decodes to nothing in the original and so to an empty password.
-    let data: Option<AdminSetPasswordData> = decode_json(&body)?;
-    let password = data.and_then(|data| data.password).unwrap_or_default();
-
-    // The rules for a password are the same whoever sets it.
-    fvoci_model::check_new_password(&password)?;
-
-    app.reset_user_password(&username, &password).await?;
-    tracing::debug!(username, "AdminSetPassword");
-    Ok(no_content())
+    let user_id = app.operator_user_id(&username).await;
+    let result = async {
+        // A body of `null` decodes to nothing, as in the original.
+        let data: Option<AdminSetPasswordData> = decode_json(&body)?;
+        let password = data.and_then(|data| data.password).unwrap_or_default();
+        fvoci_model::check_new_password(&password)?;
+        app.reset_user_password(&username, &password).await?;
+        Ok(no_content())
+    }
+    .await;
+    record_operator("reset_password", user_id.as_deref(), result)
 }
 
 /// Makes a user an administrator of the instance: the way back in when no
@@ -88,9 +89,12 @@ async fn handle_admin_make_admin(
     State(app): State<App>,
     Path(username): Path<String>,
 ) -> ApiResult {
-    let user = app.make_admin_by_username(&username).await?;
-    tracing::info!(user_id = %user.id, "made an administrator through the administration socket");
-    Ok(no_content())
+    let user_id = app.operator_user_id(&username).await;
+    let result = app
+        .make_admin_by_username(&username)
+        .await
+        .map(|_| no_content());
+    record_operator("make_admin", user_id.as_deref(), result)
 }
 
 /// Releases an organization from taking no password (`ssoRequired` of its provider):
@@ -125,21 +129,36 @@ struct ReconcileFilesData {
 /// to be this database's alone: another server's objects there are named by nothing
 /// here.
 async fn handle_reconcile_files(State(app): State<App>, body: Bytes) -> ApiResult {
-    let data: Option<ReconcileFilesData> = if body.is_empty() {
-        None
-    } else {
-        decode_json(&body)?
+    let result = async {
+        let data: Option<ReconcileFilesData> = if body.is_empty() {
+            None
+        } else {
+            decode_json(&body)?
+        };
+        let unrecorded = if data.is_some_and(|data| data.remove_unrecorded) {
+            Unrecorded::Doom
+        } else {
+            Unrecorded::Report
+        };
+        let report = app
+            .housekeeping()
+            .reconcile_files(unrecorded, now_millis())
+            .await?;
+        Ok(json_response(&report))
+    }
+    .await;
+    record_operator("reconcile_files", None, result)
+}
+
+/// Every executed command has one outcome, including validation and hashing failures.
+fn record_operator(command: &str, user_id: Option<&str>, result: ApiResult) -> ApiResult {
+    let status = match &result {
+        Ok(response) => response.status().as_u16(),
+        Err(error) => error.status(),
     };
-    let unrecorded = if data.is_some_and(|data| data.remove_unrecorded) {
-        Unrecorded::Doom
-    } else {
-        Unrecorded::Report
-    };
-    let report = app
-        .housekeeping()
-        .reconcile_files(unrecorded, now_millis())
-        .await?;
-    Ok(json_response(&report))
+    tracing::info!(target: "audit", actor = "operator", command, user_id = user_id.unwrap_or_default(),
+        result = if result.is_ok() { "succeeded" } else { "failed" }, status);
+    result
 }
 
 #[cfg(test)]

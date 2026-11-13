@@ -129,11 +129,19 @@ pub enum AuditAction {
     PublicLinksDisabled,
     /// Public links were turned on for the organization (the target).
     PublicLinksEnabled,
+    /// The organization's provider settings were stored.
+    OidcProviderConfigured,
+    /// The organization's provider was removed.
+    OidcProviderRemoved,
+    /// The organization began requiring its provider's sign-in.
+    SsoRequired,
+    /// The organization began accepting password sessions again.
+    SsoReleased,
 }
 
 impl AuditAction {
     /// Every action, in the order of the declaration.
-    pub const ALL: [Self; 13] = [
+    pub const ALL: [Self; 17] = [
         Self::SelfAddedToBoard,
         Self::AddedToBoard,
         Self::OrgAdminJoined,
@@ -147,6 +155,10 @@ impl AuditAction {
         Self::WorkspaceRestored,
         Self::PublicLinksDisabled,
         Self::PublicLinksEnabled,
+        Self::OidcProviderConfigured,
+        Self::OidcProviderRemoved,
+        Self::SsoRequired,
+        Self::SsoReleased,
     ];
 
     /// The wire and database form.
@@ -166,6 +178,10 @@ impl AuditAction {
             Self::WorkspaceRestored => "workspace_restored",
             Self::PublicLinksDisabled => "public_links_disabled",
             Self::PublicLinksEnabled => "public_links_enabled",
+            Self::OidcProviderConfigured => "oidc_provider_configured",
+            Self::OidcProviderRemoved => "oidc_provider_removed",
+            Self::SsoRequired => "sso_required",
+            Self::SsoReleased => "sso_released",
         }
     }
 }
@@ -183,6 +199,27 @@ impl FromStr for AuditAction {
             .into_iter()
             .find(|action| action.as_str() == text)
             .ok_or_else(|| UnknownAuditAction(text.to_owned()))
+    }
+}
+
+/// Whether a record was made by an account holder or through the local administration socket.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AuditActorKind {
+    /// A signed-in person, whose identifier remains in the record.
+    Person,
+    /// The server operator, who acts without an account.
+    ServerOperator,
+}
+
+impl AuditActorKind {
+    /// The database and wire spelling.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Person => "person",
+            Self::ServerOperator => "server_operator",
+        }
     }
 }
 
@@ -206,8 +243,10 @@ pub struct AuditRecord {
     pub id: String,
     /// What was done.
     pub action: AuditAction,
-    /// Who did it.
-    pub actor: AuditPerson,
+    /// Who did it; absent only for a server operator.
+    pub actor: Option<AuditPerson>,
+    /// The origin of the action, independent of whether an account still exists.
+    pub actor_kind: AuditActorKind,
     /// Whom it was done to, for an action that names somebody; `null` otherwise.
     pub subject: Option<AuditPerson>,
     /// What it was done to: a board, a workspace or the organization.

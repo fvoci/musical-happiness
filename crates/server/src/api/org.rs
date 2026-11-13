@@ -174,6 +174,6 @@ async fn handle_put_oidc_provider(org: OrgAdmin, body: Bytes) -> ApiResult {
     responses((status = 204, description = "The organization has no provider.")),
 )]
 async fn handle_delete_oidc_provider(org: OrgAdmin) -> ApiResult {
-    org.app.delete_oidc_provider().await?;
+    org.app.delete_oidc_provider(&org.session.user_id).await?;
     Ok(no_content())
 }

@@ -68,6 +68,17 @@ impl App {
         }
     }
 
+    /// Resolves an operator log's target without exposing a name or request body.
+    /// A missing account or unavailable lookup leaves the identifier absent; the command
+    /// still performs its own checks and returns their outcome.
+    pub(crate) async fn operator_user_id(&self, username: &str) -> Option<String> {
+        self.store()
+            .get_user_by_username(username)
+            .await
+            .ok()
+            .map(|user| user.id)
+    }
+
     /// Makes the user with the given name, in any letter case, an administrator of the
     /// instance. For the administration socket: the way back in when no administrator
     /// can sign in.

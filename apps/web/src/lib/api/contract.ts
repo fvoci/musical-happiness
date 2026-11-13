@@ -2503,7 +2503,12 @@ export interface components {
          * @description What a record of the audit log says was done.
          * @enum {string}
          */
-        AuditAction: "self_added_to_board" | "added_to_board" | "org_admin_joined" | "org_admin_left" | "org_admin_revoked" | "org_admin_granted" | "org_admin_removed" | "workspace_created" | "workspace_renamed" | "workspace_deleted" | "workspace_restored" | "public_links_disabled" | "public_links_enabled";
+        AuditAction: "self_added_to_board" | "added_to_board" | "org_admin_joined" | "org_admin_left" | "org_admin_revoked" | "org_admin_granted" | "org_admin_removed" | "workspace_created" | "workspace_renamed" | "workspace_deleted" | "workspace_restored" | "public_links_disabled" | "public_links_enabled" | "oidc_provider_configured" | "oidc_provider_removed" | "sso_required" | "sso_released";
+        /**
+         * @description Whether a record was made by an account holder or through the local administration socket.
+         * @enum {string}
+         */
+        AuditActorKind: "person" | "server_operator";
         /** @description A user as a record of the audit log names them. */
         AuditPerson: {
             /** @description The name the user shows; empty for none. */
@@ -2517,8 +2522,9 @@ export interface components {
         AuditRecord: {
             /** @description What was done. */
             action: components["schemas"]["AuditAction"];
-            /** @description Who did it. */
-            actor: components["schemas"]["AuditPerson"];
+            actor: components["schemas"]["AuditPerson"] | null;
+            /** @description The origin of the action, independent of whether an account still exists. */
+            actorKind: components["schemas"]["AuditActorKind"];
             /**
              * Format: int64
              * @description When, in milliseconds since the epoch.

@@ -231,7 +231,7 @@ impl App {
         sso::check_change(session, existing.as_ref(), &next)?;
         let stored = self
             .store()
-            .put_oidc_provider_as_read(&next, existing.as_ref())
+            .put_oidc_provider_as_read(&next, existing.as_ref(), &session.user_id)
             .await?
             // Changed by another request since it was read here: what was kept from it
             // may be kept no more.
@@ -261,8 +261,8 @@ impl App {
     ///
     /// Returns 409 with the reason `sso_enforced` while the organization takes no
     /// password, and the store's error.
-    pub async fn delete_oidc_provider(&self) -> Result<(), AppError> {
-        match self.store().delete_oidc_provider().await? {
+    pub async fn delete_oidc_provider(&self, actor_id: &str) -> Result<(), AppError> {
+        match self.store().delete_oidc_provider(actor_id).await? {
             Removal::Removed => tracing::info!("the provider of an organization was removed"),
             Removal::NoneThere => {}
             Removal::Enforced => return Err(sso::enforced()),

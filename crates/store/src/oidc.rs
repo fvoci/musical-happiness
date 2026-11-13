@@ -6,10 +6,11 @@
 //! is nobody's. What is asked before the organization is known (which sign-in comes
 //! back, which organization a login page is for) is in `directory.rs`.
 
-use fvoci_model::{LinkedIdentity, OrgRole, Session, User, WorkspaceRole, new_id};
+use fvoci_model::{AuditAction, LinkedIdentity, OrgRole, Session, User, WorkspaceRole, new_id};
 
 use crate::Store;
 use crate::accounts::{self, Which};
+use crate::audit::{self, AuditEntry};
 use crate::db::{Dialect, Id, OptId, Row, Scope, now_millis};
 use crate::error::StoreError;
 use crate::sessions;
@@ -147,7 +148,7 @@ impl Store {
         &self,
         provider: &StoredProvider,
     ) -> Result<StoredProvider, StoreError> {
-        self.put_provider(provider, AsRead::Whatever)
+        self.put_provider(provider, AsRead::Whatever, None)
             .await?
             .ok_or(StoreError::NoRows)
     }
@@ -172,24 +173,34 @@ impl Store {
         &self,
         provider: &StoredProvider,
         read: Option<&StoredProvider>,
+        actor_id: &str,
     ) -> Result<Option<StoredProvider>, StoreError> {
         let read = read.map(|read| (read.id.clone(), read.update_at));
-        self.put_provider(provider, AsRead::Was(read)).await
+        self.put_provider(provider, AsRead::Was(read), Some(actor_id))
+            .await
     }
 
     async fn put_provider(
         &self,
         provider: &StoredProvider,
         as_read: AsRead,
+        actor_id: Option<&str>,
     ) -> Result<Option<StoredProvider>, StoreError> {
         self.transaction(async |scope| {
             hold_provider_of_organization(scope).await?;
-            let mut sql = scope.sql("SELECT id, update_at FROM oidc_providers WHERE org_id = ");
+            let mut sql =
+                scope.sql("SELECT id, update_at, sso_required FROM oidc_providers WHERE org_id = ");
             sql.bind(scope.org()?);
-            let there = match scope.fetch_optional(sql).await? {
-                Some(row) => Some((row.id(0)?, row.int(1)?)),
-                None => None,
-            };
+            let row = scope.fetch_optional(sql).await?;
+            let previously_required = row
+                .as_ref()
+                .map(|row| row.bool(2))
+                .transpose()?
+                .unwrap_or(false);
+            let there = row
+                .as_ref()
+                .map(|row| Ok::<_, StoreError>((row.id(0)?, row.int(1)?)))
+                .transpose()?;
             if let AsRead::Was(read) = &as_read
                 && there != *read
             {
@@ -228,7 +239,18 @@ impl Store {
                 )
                 .push(&format!(" RETURNING {PROVIDER_COLUMNS}"));
             let row = scope.fetch_optional(sql).await?.ok_or(StoreError::NoRows)?;
-            provider_from_row(&row).map(Some)
+            let stored = provider_from_row(&row)?;
+            if let Some(actor_id) = actor_id {
+                let enforcement_change = (previously_required != stored.sso_required).then_some(
+                    if stored.sso_required {
+                        AuditAction::SsoRequired
+                    } else {
+                        AuditAction::SsoReleased
+                    },
+                );
+                record_provider_change(scope, actor_id, enforcement_change, &stored).await?;
+            }
+            Ok(Some(stored))
         })
         .await
     }
@@ -243,7 +265,8 @@ impl Store {
     ///
     /// Returns [`StoreError::NoOrganization`] if the handle names none, and
     /// [`StoreError::Database`] if a statement fails.
-    pub async fn delete_oidc_provider(&self) -> Result<Removal, StoreError> {
+    pub async fn delete_oidc_provider(&self, actor_id: &str) -> Result<Removal, StoreError> {
+        let org_id = self.tenant().org_id().ok_or(StoreError::NoOrganization)?;
         self.transaction(async |scope| {
             hold_provider_of_organization(scope).await?;
             let mut sql = scope.sql("SELECT sso_required FROM oidc_providers WHERE org_id = ");
@@ -256,6 +279,8 @@ impl Store {
             let mut sql = scope.sql("DELETE FROM oidc_providers WHERE org_id = ");
             sql.bind(scope.org()?);
             scope.execute(sql).await?;
+            let entry = AuditEntry::new("", actor_id, AuditAction::OidcProviderRemoved, &org_id);
+            audit::record_entry(scope, &entry).await?;
             Ok(Removal::Removed)
         })
         .await
@@ -287,7 +312,10 @@ impl Store {
                 .push_bind(" WHERE org_id = ", scope.org()?)
                 .push(&format!(" RETURNING {PROVIDER_COLUMNS}"));
             let row = scope.fetch_optional(sql).await?.ok_or(StoreError::NoRows)?;
-            provider_from_row(&row).map(Some)
+            let stored = provider_from_row(&row)?;
+            let entry = AuditEntry::by_operator(AuditAction::SsoReleased, &stored.org_id);
+            audit::record_entry(scope, &entry).await?;
+            Ok(Some(stored))
         })
         .await
     }
@@ -716,6 +744,27 @@ pub enum Removal {
     NoneThere,
     /// It stays: the organization takes only sessions made through it.
     Enforced,
+}
+
+/// Records what this save changed, in the transaction that stores it.
+async fn record_provider_change(
+    scope: &mut Scope<'_>,
+    actor_id: &str,
+    enforcement_change: Option<AuditAction>,
+    stored: &StoredProvider,
+) -> Result<(), StoreError> {
+    let entry = AuditEntry::new(
+        "",
+        actor_id,
+        AuditAction::OidcProviderConfigured,
+        &stored.org_id,
+    );
+    audit::record_entry(scope, &entry).await?;
+    if let Some(action) = enforcement_change {
+        let entry = AuditEntry::new("", actor_id, action, &stored.org_id);
+        audit::record_entry(scope, &entry).await?;
+    }
+    Ok(())
 }
 
 /// What a provider that is replaced must still be.
