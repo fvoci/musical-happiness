@@ -113,6 +113,7 @@ mod tests {
         Answer {
             status,
             retry_after: None,
+            error_type: None,
             body: body.as_bytes().to_vec(),
         }
     }

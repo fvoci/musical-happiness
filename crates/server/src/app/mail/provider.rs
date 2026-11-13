@@ -3,7 +3,10 @@
 //! body on top of that. Nothing of an answer is kept but its status, how long it asked
 //! to be left alone, and what its body says of the attempt: never its text.
 
+mod clock;
 pub(super) mod cloudflare;
+pub(super) mod ses;
+mod sigv4;
 
 use std::time::Duration;
 
@@ -36,6 +39,8 @@ pub(super) struct Answer {
     pub(super) status: u16,
     /// `Retry-After` in seconds, if the answer had one.
     pub(super) retry_after: Option<Duration>,
+    /// `X-Amzn-ErrorType` up to its first `:`, by which Amazon's APIs name an error.
+    pub(super) error_type: Option<String>,
     /// The body, up to [`MOST_BODY`].
     pub(super) body: Vec<u8>,
 }
@@ -78,6 +83,8 @@ pub(super) async fn send(request: reqwest::RequestBuilder) -> Result<Answer, Out
     let retry_after = header("retry-after")
         .and_then(|text| text.trim().parse::<u64>().ok())
         .map(Duration::from_secs);
+    let error_type = header("x-amzn-errortype")
+        .map(|text| text.split(':').next().unwrap_or_default().trim().to_owned());
     let mut body = Vec::new();
     // A body cut off, or longer than is read, still has its status.
     while let Ok(Some(chunk)) = response.chunk().await {
@@ -90,6 +97,7 @@ pub(super) async fn send(request: reqwest::RequestBuilder) -> Result<Answer, Out
     Ok(Answer {
         status,
         retry_after,
+        error_type,
         body,
     })
 }
@@ -116,6 +124,21 @@ pub(super) fn outcome_of(answer: &Answer) -> Outcome {
     }
 }
 
+/// The host of `url` as a `Host` header names it: with its port when it is not the
+/// scheme's own.
+///
+/// # Errors
+/// Returns an error for a URL without a host.
+pub(super) fn host_of(url: &reqwest::Url) -> anyhow::Result<String> {
+    let host = url
+        .host_str()
+        .ok_or_else(|| anyhow::anyhow!("a provider's address without a host"))?;
+    Ok(match url.port() {
+        Some(port) => format!("{host}:{port}"),
+        None => host.to_owned(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -124,6 +147,7 @@ mod tests {
         Answer {
             status,
             retry_after: Some(Duration::from_secs(7)),
+            error_type: None,
             body: Vec::new(),
         }
     }
@@ -156,5 +180,16 @@ mod tests {
                 "{status}"
             );
         }
+    }
+
+    #[test]
+    fn the_host_header_names_a_port_that_is_not_the_schemes() {
+        let host = |url: &str| host_of(&reqwest::Url::parse(url).expect("a URL")).expect("host");
+        assert_eq!(
+            host("https://email.us-east-1.amazonaws.com"),
+            "email.us-east-1.amazonaws.com"
+        );
+        assert_eq!(host("https://example.test:443/x"), "example.test");
+        assert_eq!(host("http://127.0.0.1:8025"), "127.0.0.1:8025");
     }
 }

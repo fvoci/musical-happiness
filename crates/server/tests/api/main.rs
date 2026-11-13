@@ -44,6 +44,7 @@ mod mail_limits;
 mod mail_path;
 mod mail_reset;
 mod mail_reset_review;
+mod mail_ses;
 mod metrics;
 mod metrics_accounts;
 mod metrics_listener;

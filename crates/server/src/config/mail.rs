@@ -11,16 +11,19 @@ use serde_json::{Map, Value};
 
 use super::smtp::SmtpSettings;
 
-pub(super) const ENV_KEYS: [(&str, super::EnvKind); 4] = [
+pub(super) const ENV_KEYS: [(&str, super::EnvKind); 7] = [
     ("mail_transport", super::EnvKind::Text),
     ("mail_api_endpoint", super::EnvKind::Text),
     ("cloudflare_account_id", super::EnvKind::Text),
     ("cloudflare_api_token", super::EnvKind::Text),
+    ("ses_region", super::EnvKind::Text),
+    ("ses_access_key_id", super::EnvKind::Text),
+    ("ses_secret_access_key", super::EnvKind::Text),
 ];
 
 /// The keys whose values are secrets: a value of the wrong type is refused without
 /// the error repeating it.
-const SECRET_KEYS: [&str; 1] = ["cloudflare_api_token"];
+const SECRET_KEYS: [&str; 2] = ["cloudflare_api_token", "ses_secret_access_key"];
 
 /// The way mail leaves the server; a value that is none of these is refused when the
 /// configuration is read.
@@ -32,6 +35,8 @@ pub enum MailTransport {
     Smtp,
     /// Cloudflare Email Service's REST API (`cloudflare_*`).
     Cloudflare,
+    /// Amazon SES's API v2 (`ses_*`).
+    Ses,
 }
 
 impl MailTransport {
@@ -40,6 +45,7 @@ impl MailTransport {
         match self {
             Self::Smtp => "smtp",
             Self::Cloudflare => "cloudflare",
+            Self::Ses => "ses",
         }
     }
 }
@@ -49,7 +55,7 @@ impl MailTransport {
 #[cfg_attr(test, derive(serde::Serialize))]
 #[serde(default)]
 pub struct MailSettings {
-    /// `smtp` or `cloudflare`; empty for SMTP when `smtp_host` is set and
+    /// `smtp`, `cloudflare` or `ses`; empty for SMTP when `smtp_host` is set and
     /// no mail otherwise.
     #[serde(deserialize_with = "transport_or_none")]
     #[cfg_attr(test, serde(serialize_with = "transport_as_text"))]
@@ -61,6 +67,12 @@ pub struct MailSettings {
     pub cloudflare_account_id: String,
     /// The API token; omitted from debug output.
     pub cloudflare_api_token: String,
+    /// The AWS region whose SES sends (`us-east-1`).
+    pub ses_region: String,
+    /// The access key of the IAM user or role that may `ses:SendEmail`.
+    pub ses_access_key_id: String,
+    /// Its secret access key; omitted from debug output.
+    pub ses_secret_access_key: String,
 }
 
 impl fmt::Debug for MailSettings {
@@ -72,6 +84,8 @@ impl fmt::Debug for MailSettings {
                 &shown_endpoint(&self.mail_api_endpoint),
             )
             .field("cloudflare_account_id", &self.cloudflare_account_id)
+            .field("ses_region", &self.ses_region)
+            .field("ses_access_key_id", &self.ses_access_key_id)
             .finish_non_exhaustive()
     }
 }
@@ -127,6 +141,20 @@ pub struct CloudflareKeys {
     pub api_token: Secret,
 }
 
+/// What Amazon SES needs.
+#[derive(Debug, Clone)]
+pub struct SesKeys {
+    /// Where the requests go: `https://email.{region}.amazonaws.com`, or
+    /// `mail_api_endpoint`.
+    pub endpoint: String,
+    /// `ses_region`, which the signature names too.
+    pub region: String,
+    /// `ses_access_key_id`.
+    pub access_key_id: String,
+    /// `ses_secret_access_key`.
+    pub secret_access_key: Secret,
+}
+
 /// The way mail leaves, with what it needs, as [`MailSettings::way`] reads it.
 #[derive(Debug, Clone)]
 pub enum Way {
@@ -134,6 +162,8 @@ pub enum Way {
     Smtp,
     /// Cloudflare Email Service.
     Cloudflare(CloudflareKeys),
+    /// Amazon SES.
+    Ses(SesKeys),
 }
 
 impl MailSettings {
@@ -143,7 +173,7 @@ impl MailSettings {
     }
 
     /// Each provider's keys, with the transport that reads them and their values.
-    fn provider_keys(&self) -> [(MailTransport, &'static str, &str); 2] {
+    fn provider_keys(&self) -> [(MailTransport, &'static str, &str); 5] {
         [
             (
                 MailTransport::Cloudflare,
@@ -154,6 +184,17 @@ impl MailSettings {
                 MailTransport::Cloudflare,
                 "cloudflare_api_token",
                 &self.cloudflare_api_token,
+            ),
+            (MailTransport::Ses, "ses_region", &self.ses_region),
+            (
+                MailTransport::Ses,
+                "ses_access_key_id",
+                &self.ses_access_key_id,
+            ),
+            (
+                MailTransport::Ses,
+                "ses_secret_access_key",
+                &self.ses_secret_access_key,
             ),
         ]
     }
@@ -210,6 +251,24 @@ impl MailSettings {
                     endpoint: self.endpoint("https://api.cloudflare.com".to_owned())?,
                     account_id: account_id.to_owned(),
                     api_token: Secret(api_token.to_owned()),
+                })
+            }
+            MailTransport::Ses => {
+                refuse_relay(smtp, transport)?;
+                let region = needed("ses_region", &self.ses_region)?;
+                let access_key_id = needed("ses_access_key_id", &self.ses_access_key_id)?;
+                let secret_access_key =
+                    needed("ses_secret_access_key", &self.ses_secret_access_key)?;
+                shaped("ses_region", region, is_region_char)?;
+                shaped("ses_access_key_id", access_key_id, |c| {
+                    c.is_ascii_alphanumeric()
+                })?;
+                secret_shaped("ses_secret_access_key", secret_access_key)?;
+                Way::Ses(SesKeys {
+                    endpoint: self.endpoint(format!("https://email.{region}.amazonaws.com"))?,
+                    region: region.to_owned(),
+                    access_key_id: access_key_id.to_owned(),
+                    secret_access_key: Secret(secret_access_key.to_owned()),
                 })
             }
         }))
@@ -282,6 +341,12 @@ fn shown_endpoint(endpoint: &str) -> &str {
         _ if endpoint.contains('@') => "<hidden>",
         _ => endpoint,
     }
+}
+
+/// Whether `c` may be in the name of a region (`us-east-1`), which becomes a part of a
+/// host name.
+fn is_region_char(c: char) -> bool {
+    c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'
 }
 
 /// Refuses a value with a character `allowed` does not take: these become parts of a
@@ -520,6 +585,58 @@ mod tests {
             .to_string();
         assert!(!error.contains("1234567890"), "{error}");
         assert!(error.contains("cloudflare_api_token"), "{error}");
+    }
+
+    const SES_SECRET: &str = "private/ses+secret0123456789";
+
+    fn ses() -> Value {
+        json!({
+            "mail_transport": "ses",
+            "ses_region": "eu-west-2",
+            "ses_access_key_id": "AKIDEXAMPLE",
+            "ses_secret_access_key": SES_SECRET,
+            "smtp_from": "sender@example.test",
+        })
+    }
+
+    #[test]
+    fn ses_needs_its_region_and_keys_and_names_its_host_by_the_region() {
+        let Ok(Some(Way::Ses(keys))) = checked(&ses()) else {
+            panic!("SES");
+        };
+        assert_eq!(keys.endpoint, "https://email.eu-west-2.amazonaws.com");
+        assert_eq!(keys.region, "eu-west-2");
+        assert_eq!(keys.secret_access_key.expose(), SES_SECRET);
+        assert!(!format!("{keys:?}").contains(SES_SECRET));
+        for key in ["ses_region", "ses_access_key_id", "ses_secret_access_key"] {
+            let mut keys = ses();
+            keys.as_object_mut().expect("an object").remove(key);
+            let error = checked(&keys).expect_err("a missing key");
+            assert!(error.contains(key), "{key}: {error}");
+            assert!(!error.contains(SES_SECRET), "{error}");
+        }
+        for (key, value) in [
+            ("ses_region", "eu-west-2.evil.test/"),
+            ("ses_region", "EU-WEST-2"),
+            ("ses_access_key_id", "AKID/x"),
+            ("ses_secret_access_key", "two words"),
+        ] {
+            let mut keys = ses();
+            keys[key] = Value::from(value);
+            let error = checked(&keys).expect_err(value);
+            assert!(error.contains(key), "{key}: {error}");
+            assert!(!error.contains(value), "{error}");
+        }
+        let mut both = ses();
+        both["cloudflare_api_token"] = Value::from(TOKEN);
+        let error = checked(&both).expect_err("a key of Cloudflare");
+        assert!(error.contains("cloudflare_api_token"), "{error}");
+        let config = Configuration::parse(&ses().to_string(), |_| None).expect("parse");
+        assert!(!format!("{config:?}").contains(SES_SECRET));
+        let error = Configuration::parse(r#"{"ses_secret_access_key": 1234567890}"#, |_| None)
+            .expect_err("a number is no secret")
+            .to_string();
+        assert!(!error.contains("1234567890"), "{error}");
     }
 
     /// Environment variables for [`Configuration::parse`].

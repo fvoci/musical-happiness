@@ -2,6 +2,7 @@
 //! pace for all, and bounded attempts. How a message leaves is the [`Outbound`]'s.
 
 mod content;
+mod mime;
 mod outbound;
 mod pace;
 mod provider;
@@ -115,6 +116,10 @@ impl Mailer {
                 keys,
                 provider::client(ATTEMPT_TIMEOUT)?,
             ))),
+            Some(Way::Ses(keys)) => Some(Arc::new(provider::ses::Ses::new(
+                keys,
+                provider::client(ATTEMPT_TIMEOUT)?,
+            )?)),
         };
         Self::with_outbound(settings, outbound, metrics)
     }

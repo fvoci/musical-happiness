@@ -4,13 +4,11 @@ use std::future::Future;
 use std::pin::Pin;
 use std::time::Duration;
 
-use anyhow::Context as _;
 use lettre::address::Envelope;
 use lettre::transport::smtp::authentication::Credentials;
 use lettre::{Address, AsyncSmtpTransport, AsyncTransport as _, Tokio1Executor};
-use mail_builder::MessageBuilder;
-use mail_builder::headers::raw::Raw;
 
+use super::mime;
 use super::outbound::{Outbound, Outcome, Outgoing};
 use crate::config::smtp::{SmtpSettings, SmtpTls};
 
@@ -120,18 +118,7 @@ fn outcome_of(reply: Option<u16>) -> Outcome {
 fn build(message: &Outgoing) -> anyhow::Result<(Envelope, Vec<u8>)> {
     let from: Address = message.from.parse()?;
     let envelope = Envelope::new(Some(from), vec![message.to.parse()?])?;
-    let domain = message.from.split_once('@').context("invalid sender")?.1;
-    let message_id = format!("{}@{domain}", crate::auth::secret::new_secret());
-    let bytes = MessageBuilder::new()
-        .from(message.from.as_str())
-        .to(message.to.as_str())
-        .message_id(message_id)
-        .header("Content-Language", Raw::new(message.language.tag()))
-        .subject(message.subject)
-        .text_body(message.plain.as_str())
-        .html_body(message.html.as_str())
-        .write_to_vec()?;
-    Ok((envelope, bytes))
+    Ok((envelope, mime::message(message)?))
 }
 
 #[cfg(test)]
