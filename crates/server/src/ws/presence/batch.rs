@@ -26,14 +26,27 @@ struct Batch {
     revision: u64,
     /// An access change reached the visit since the last batch took this.
     recheck: bool,
-    entry: u64,
-    renewed: Option<Instant>,
+    /// The store is asked anew what the reader may see.
+    due: bool,
     user_id: String,
     provider: Option<String>,
     /// The board's roster before the reader's sight, and the number of its board's
     /// latest change.
     raw: Snapshot,
     changed: Option<u64>,
+}
+
+/// What a batch found of the connection.
+enum Taken {
+    /// No visit: the connection is not on a board, or is gone.
+    Away,
+    /// The visit was not renewed in time; it ends unless a command came since.
+    Expired {
+        revision: u64,
+    },
+    /// Nothing to do: the board's visits did not change and no check is due.
+    Unchanged,
+    Batch(Box<Batch>),
 }
 
 /// What the loop keeps of a reader between batches, for one entry into a board.
@@ -147,29 +160,19 @@ impl Hub {
     }
 
     async fn batch(&self, app: &App, id: ListenerId, reader: &mut Reader) {
-        let Some(batch) = self.take_batch(id) else {
-            *reader = Reader::default();
-            return;
+        let batch = match self.take_batch(id, reader) {
+            Taken::Batch(batch) => batch,
+            Taken::Unchanged => return,
+            Taken::Expired { revision } => {
+                self.clear_presence(id, Some(revision));
+                return;
+            }
+            Taken::Away => {
+                *reader = Reader::default();
+                return;
+            }
         };
-        if batch
-            .renewed
-            .is_none_or(|renewed| renewed.elapsed() >= LEASE)
-        {
-            self.clear_presence(id, Some(batch.revision));
-            return;
-        }
-        if reader.entry != Some(batch.entry) {
-            *reader = Reader {
-                entry: Some(batch.entry),
-                ..Reader::default()
-            };
-        }
-        let due = batch.recheck
-            || reader.sight.is_none()
-            || reader.next_check.is_none_or(|at| Instant::now() >= at);
-        if !due && reader.seen == batch.changed {
-            return;
-        }
+        let due = batch.due;
         let looked = if due {
             tokio::time::timeout(LOOKUP_WAIT, read_anew(app, &batch, reader)).await
         } else {
@@ -187,7 +190,7 @@ impl Hub {
             self.clear_presence(id, Some(batch.revision));
             return;
         }
-        if !self.still_current(id, &batch, &looked) {
+        if !self.settle(id, &batch, &looked) {
             return;
         }
         if due {
@@ -209,35 +212,63 @@ impl Hub {
         }
     }
 
-    /// Reads the connection's visit and its board's roster, and takes the recheck
-    /// flag, under one lock.
-    fn take_batch(&self, id: ListenerId) -> Option<Batch> {
-        let mut listeners = self.listeners();
-        let listener = listeners.by_id.get_mut(&id)?;
+    /// Reads the connection's visit and, if the batch has anything to do, its board's
+    /// roster, and takes the recheck flag, under one lock. The roster is built only
+    /// when the board's visits changed since the reader's last projection or the
+    /// store is to be asked again: an idle board costs a lookup of its number.
+    fn take_batch(&self, id: ListenerId, reader: &mut Reader) -> Taken {
+        let mut guard = self.listeners();
+        let listeners = &mut *guard;
+        let Some(listener) = listeners.by_id.get_mut(&id) else {
+            return Taken::Away;
+        };
         let state = &mut listener.presence;
-        let recheck = std::mem::take(&mut state.recheck);
-        let visit = state.visit.clone()?;
-        let (revision, entry, renewed) = (state.revision, state.entry, state.renewed);
-        let (user_id, provider) = (listener.user_id.clone(), listener.login_provider.clone());
-        let raw = snapshot(&visit, &listeners);
+        let Some(visit) = state.visit.as_ref() else {
+            return Taken::Away;
+        };
+        if state
+            .renewed
+            .is_none_or(|renewed| renewed.elapsed() >= LEASE)
+        {
+            return Taken::Expired {
+                revision: state.revision,
+            };
+        }
+        if reader.entry != Some(state.entry) {
+            *reader = Reader {
+                entry: Some(state.entry),
+                ..Reader::default()
+            };
+        }
         let changed = listeners.visits.changed(&visit.board());
-        Some(Batch {
+        let due = state.recheck
+            || reader.sight.is_none()
+            || reader.next_check.is_none_or(|at| Instant::now() >= at);
+        if !due && reader.seen == changed {
+            return Taken::Unchanged;
+        }
+        let visit = visit.clone();
+        let recheck = std::mem::take(&mut state.recheck);
+        let revision = state.revision;
+        let (user_id, provider) = (listener.user_id.clone(), listener.login_provider.clone());
+        let raw = snapshot(&visit, listeners);
+        Taken::Batch(Box::new(Batch {
             visit,
             revision,
             recheck,
-            entry,
-            renewed,
+            due,
             user_id,
             provider,
             raw,
             changed,
-        })
+        }))
     }
 
-    /// Whether what the batch read still stands: no command came meanwhile, no access
-    /// change reached the visit while the store was asked, and the open card was not
-    /// deleted. Otherwise the next batch reads again.
-    fn still_current(&self, id: ListenerId, batch: &Batch, looked: &Looked) -> bool {
+    /// Whether what the batch read stands, to be sent: no command came meanwhile and
+    /// no access change reached the visit while the store was asked. If the open
+    /// card is gone, the visit is moved to the board with no card, and the next
+    /// batch, which builds the roster again, sends.
+    fn settle(&self, id: ListenerId, batch: &Batch, looked: &Looked) -> bool {
         let mut listeners = self.listeners();
         let Some(listener) = listeners.by_id.get_mut(&id) else {
             return false;

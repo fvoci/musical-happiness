@@ -275,3 +275,23 @@ fn the_boards_index_follows_every_visit_and_forgets_a_connection_that_went_away(
         "no board keeps a connection that went away"
     );
 }
+
+#[test]
+fn a_lapsed_visit_renewed_moves_its_board_so_the_rosters_built_without_it_are_built_again() {
+    let mut listeners = two_boards();
+    let board = visit("board", "", "").board();
+    let before = listeners.visits.changed(&board);
+    listeners.visits.touch(&board);
+    assert_ne!(
+        listeners.visits.changed(&board),
+        before,
+        "a reader that saw the board before builds its roster again"
+    );
+    let gone = visit("gone", "", "").board();
+    listeners.visits.touch(&gone);
+    assert_eq!(
+        listeners.visits.changed(&gone),
+        None,
+        "a board nobody is on is not made by touching it"
+    );
+}

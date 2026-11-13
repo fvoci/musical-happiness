@@ -119,6 +119,15 @@ impl Boards {
         on.changed = self.changes;
     }
 
+    /// Counts a change of `board`'s roster that changed no visit (a lapsed visit
+    /// renewed: the rosters built meanwhile left it out).
+    fn touch(&mut self, board: &BoardKey) {
+        self.changes += 1;
+        if let Some(on) = self.by_board.get_mut(board) {
+            on.changed = self.changes;
+        }
+    }
+
     fn leave(&mut self, board: &BoardKey, id: ListenerId) {
         self.changes += 1;
         if let Some(on) = self.by_board.get_mut(board) {
@@ -280,10 +289,17 @@ impl Hub {
         }) {
             state.entry = state.entry.wrapping_add(1);
         }
+        let lapsed = state
+            .renewed
+            .is_some_and(|renewed| renewed.elapsed() >= LEASE);
         state.renewed = Some(Instant::now());
         state.revision = state.revision.wrapping_add(1);
         state.recheck |= read_too_early;
+        let board = visit.board();
         listeners.place(id, Some(visit));
+        if lapsed {
+            listeners.visits.touch(&board);
+        }
     }
 
     /// Starts, once for the hub, the task that flags the visits access changes reach

@@ -70,14 +70,13 @@ test('a board of the server is listed and opens with its views, cards and member
   await expect(column('Done').locator('[data-card]')).toHaveCount(1);
   await expect(column('Done').getByText('Build a fence')).toBeVisible();
 
-  // Both people are members; the reader may only look.
-  const members = page.getByTestId('board-members');
-  await expect(members.locator('li')).toHaveCount(2);
-  // By name, though neither is on the server's list of the workspace: the
-  // board's members are read by their identifiers.
+  // Both members' names are asked for by their identifiers, though neither is on
+  // the server's list of the workspace; the reader may only look. The header shows
+  // who else is here now (nobody; presence.spec.ts has people come and go).
   expect(((await byId).postDataJSON() as string[]).length).toBe(2);
-  await expect(members.getByLabel(owner.username)).toBeVisible();
-  await expect(members.getByLabel(reader.username)).toBeVisible();
+  await expect(page.getByTestId('board-presence')).toHaveAccessibleName(
+    'People viewing this board: 0',
+  );
   await expect(page.getByTestId('read-only')).toBeVisible();
 
   // A reload opens the same board from its address.
