@@ -113,7 +113,7 @@ impl Rooms {
             frames_per_second: settings.collab_frames_per_second,
             queue_messages: as_count(settings.collab_queue_messages),
             next_connection: AtomicU64::new(0),
-            walls: walls::Walls::default(),
+            walls: walls::Walls::new(Duration::from_secs(settings.collab_recheck_seconds)),
             #[cfg(feature = "test-util")]
             pauses: pauses::Pauses::default(),
             stopping: CancellationToken::new(),

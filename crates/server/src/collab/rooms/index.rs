@@ -28,10 +28,13 @@ impl Index {
         self.by_tenant.get(&tenant)?.by_card.get(card_id)
     }
 
-    /// Counts `room` among the rooms of `tenant`, in place of any of its card (on
-    /// whatever board that one was).
+    /// Counts `room` among the rooms of `tenant`: of a card that has none.
     pub(super) fn insert(&mut self, tenant: Tenant, room: Arc<Room>) {
-        self.remove(tenant, &room.card_id);
+        debug_assert!(
+            self.get(tenant, &room.card_id).is_none(),
+            "a card has one room at most: {}",
+            room.card_id
+        );
         let of_tenant = self.by_tenant.entry(tenant).or_default();
         of_tenant
             .by_board

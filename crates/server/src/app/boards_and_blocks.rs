@@ -238,9 +238,11 @@ impl App {
             )
             .await?;
 
-        self.collab()
-            .recheck_access(self, AccessScope::boards(&request.boards))
-            .await;
+        if !request.boards.is_empty() {
+            self.collab()
+                .recheck_access(self, AccessScope::boards(&request.boards))
+                .await;
+        }
         for (block_id, board_id) in &deleted_blocks {
             // A block of a board the request does not list was refused by the store.
             let members = former_members

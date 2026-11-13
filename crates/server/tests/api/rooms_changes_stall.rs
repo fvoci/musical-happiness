@@ -24,8 +24,8 @@ fn slow_store_deadline() -> Setup {
 
 /// The member's role is changed and the store does not answer for them; the owner,
 /// whom the change does not concern, types meanwhile in the same room. Their update
-/// waits for the room's turn, which the immediate check holds across its store read
-/// until the deadline (one recheck interval: 30 seconds by default).
+/// is taken at once: the store is read outside the room's turn, and only the member
+/// it is read for waits.
 #[tokio::test]
 async fn a_slow_permission_read_for_one_member_does_not_hold_the_others_typing() {
     let th = slow_store_deadline().start().await.init_basic().await;
@@ -52,8 +52,7 @@ async fn a_slow_permission_read_for_one_member_does_not_hold_the_others_typing()
 }
 
 /// The same slow read, and a change on another board of the organization that no room
-/// is open on: its request waits for the organization's turn of immediate checks, held
-/// by the slow one until its deadline.
+/// is open on: its request answers at once, without waiting for the slow check.
 #[tokio::test]
 async fn a_slow_permission_read_does_not_hold_other_changes_of_the_organization() {
     let th = slow_store_deadline().start().await.init_basic().await;
@@ -91,10 +90,9 @@ async fn left(peer: &mut Peer) -> Vec<serde_json::Value> {
 }
 
 /// A change of the whole board (its minimum role) that leaves both members' roles as
-/// they are, and the store slow for one of them only. The read that is slow passes the
-/// pass's one deadline; every read after it in the pass has no time left and its
-/// member is put out with `document_unavailable` although the store would have
-/// answered at once that they may stay: here the board's admin, in their own card.
+/// they are, and the store slow for one of them only. Each read has a deadline of its
+/// own: the slow one puts out its member alone, and the other, answered at once, stays
+/// (here the board's admin, in their own card).
 #[tokio::test]
 async fn a_slow_permission_read_puts_out_nobody_whose_read_was_not_slow() {
     let th = slow_store_deadline().start().await.init_basic().await;

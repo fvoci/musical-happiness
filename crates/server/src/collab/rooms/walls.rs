@@ -11,24 +11,31 @@ use tokio::time::Instant;
 
 use super::{AccessScope, Room};
 
-/// How long a change is remembered: much longer than an admission or a periodic
-/// check reads. What was read before a change no longer remembered is asked again,
-/// whatever the change reached.
+/// How long a change is remembered at least. What was read before a change no longer
+/// remembered is asked again, whatever the change reached.
 const REMEMBERED_FOR: Duration = Duration::from_mins(10);
+
+/// How many intervals of the periodic check a change is remembered at least: longer
+/// than a periodic check reads (two intervals, and a little), and than an immediate
+/// one (two).
+const REMEMBERED_INTERVALS: u32 = 3;
 
 /// How many changes of one organization are remembered at most, the latest.
 const REMEMBERED_AT_MOST: usize = 1024;
 
-/// Every how many changes those of every organization older than
-/// [`REMEMBERED_FOR`] are forgotten, and organizations with none left with them.
+/// Every how many changes those of every organization no longer remembered are
+/// forgotten, and organizations with none left with them.
 const SWEPT_EVERY: u64 = 64;
 
 /// The changes of access facts, numbered in one sequence for the whole server: an
 /// admission that does not know its organization yet can be measured against the
 /// change of any.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(super) struct Walls {
     changes: Mutex<Changes>,
+    /// How long a change is remembered: [`REMEMBERED_FOR`], or longer for a long
+    /// interval of the periodic check ([`REMEMBERED_INTERVALS`]).
+    remembered_for: Duration,
 }
 
 #[derive(Debug, Default)]
@@ -92,6 +99,14 @@ impl Since {
 }
 
 impl Walls {
+    /// No change yet, for rooms asked about again every `recheck`.
+    pub(super) fn new(recheck: Duration) -> Self {
+        Self {
+            changes: Mutex::default(),
+            remembered_for: REMEMBERED_FOR.max(recheck.saturating_mul(REMEMBERED_INTERVALS)),
+        }
+    }
+
     /// The number of the latest change of any organization: what is read from now on
     /// is measured against it.
     pub(super) fn now(&self) -> u64 {
@@ -104,8 +119,13 @@ impl Walls {
         let mut changes = self.changes();
         changes.now += 1;
         let (number, at) = (changes.now, Instant::now());
-        let before = at.checked_sub(REMEMBERED_FOR).unwrap_or(at);
-        let kept = changes.by_tenant.entry(tenant).or_default();
+        let before = at.checked_sub(self.remembered_for).unwrap_or(at);
+        // An organization swept away comes back with what was forgotten of it then.
+        let forgotten = changes.forgotten;
+        let kept = changes.by_tenant.entry(tenant).or_insert_with(|| Kept {
+            forgotten,
+            changes: VecDeque::new(),
+        });
         kept.changes.push_back(Change {
             number,
             at,
@@ -182,7 +202,7 @@ mod tests {
 
     #[test]
     fn what_was_read_is_measured_against_the_changes_after_it() {
-        let walls = Walls::default();
+        let walls = Walls::new(Duration::from_secs(30));
         let before = walls.now();
         raise(&walls);
         let between = walls.now();
@@ -194,7 +214,7 @@ mod tests {
 
     #[test]
     fn what_was_read_before_a_change_no_longer_remembered_is_read_again() {
-        let walls = Walls::default();
+        let walls = Walls::new(Duration::from_secs(30));
         let before = walls.now();
         for _ in 0..=REMEMBERED_AT_MOST {
             raise(&walls);
@@ -205,7 +225,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn changes_are_forgotten_with_time() {
-        let walls = Walls::default();
+        let walls = Walls::new(Duration::from_secs(30));
         let before = walls.now();
         raise(&walls);
         tokio::time::advance(REMEMBERED_FOR + Duration::from_secs(1)).await;
@@ -220,7 +240,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn an_organization_whose_changes_are_all_forgotten_is_swept_away() {
-        let walls = Walls::default();
+        let walls = Walls::new(Duration::from_secs(30));
         let before = walls.now();
         raise(&walls);
         tokio::time::advance(REMEMBERED_FOR + Duration::from_secs(1)).await;

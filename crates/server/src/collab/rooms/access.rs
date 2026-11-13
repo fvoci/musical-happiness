@@ -333,7 +333,7 @@ impl Collab {
 
     /// The room's turn for what the member `doc` of `connection` sent, once no
     /// immediate check holds them, or the server stops (and refuses it); `None` if
-    /// they are no member of the room (any more).
+    /// they are no member of the room (any more), or it is gone.
     pub(super) async fn turn_to_send<'room>(
         &self,
         room: &'room Room,
@@ -352,6 +352,8 @@ impl Collab {
             tokio::select! {
                 () = checked => {}
                 () = self.inner.rooms.stopping.cancelled() => return Some(room.turn.lock().await),
+                // Deleted: its members are put out, and what they sent is taken by no room.
+                () = room.gone.cancelled() => return None,
             }
         }
     }

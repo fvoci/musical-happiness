@@ -18,8 +18,10 @@ async function openAlpha() {
   return { ...made, card, cardId: alpha.id };
 }
 
-/** Alpha open with its body in its room, and a way to have the reader taken off the board. */
-/** The reader in the card's room; each state of the room is put on `statuses` as it comes. */
+/**
+ * Alpha open with its body in its room, and a way to have the reader taken
+ * off the board; each state of the room is put on `statuses` as it comes.
+ */
 async function inTheRoom(statuses: string[] = []) {
   const made = await openAlpha();
   const { card, board, backend, world } = made;

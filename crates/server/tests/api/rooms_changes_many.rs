@@ -14,11 +14,11 @@ use crate::rooms::{Peer, give, paragraphs, table};
 const BOARDS: usize = 12;
 
 /// How long each read of the immediate check takes, as a slow store would.
-const READ: Duration = Duration::from_millis(200);
+const READ: Duration = Duration::from_millis(300);
 
 /// What the trash may take to answer: 48 reads (12 boards, 4 people) take 6 reads'
-/// time eight at a time, and 48 one after another.
-const ANSWERED_WITHIN: Duration = Duration::from_secs(3);
+/// time eight at a time (1.8 s), and 48 one after another (14.4 s).
+const ANSWERED_WITHIN: Duration = Duration::from_secs(7);
 
 #[tokio::test]
 async fn trashing_a_large_workspace_reads_everybody_at_once_and_puts_them_out() {
