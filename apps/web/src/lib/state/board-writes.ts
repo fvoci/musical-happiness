@@ -8,16 +8,17 @@
  * stored already says everything the write said, the write was stored, and
  * that reading is its answer. A refusal the server answered is a refusal.
  * What is stored may say the same because somebody else wrote the same
- * meanwhile; the write is then taken for stored too, which is what the
- * screen shows either way.
+ * meanwhile, and a value a later change replaced cannot be told apart: the
+ * write is then taken for stored, and its undo writes back a value the
+ * reader did make.
  */
-import type { BlockPatch, Board, BoardPatch } from '../logic/wire.ts';
+import type { BlockPatch, Board, BoardPatch, BoardView } from '../logic/wire.ts';
 
-import { isBackendError, type Backend, type CardPatch, type CardSummary } from './backend.ts';
+import { isBackendError, type CardPatch, type CardSummary } from './backend.ts';
 import type { BoardStore } from './board.svelte.ts';
 import { InverseValues, sameValue } from './inverse-values.ts';
 import { Inverses } from './inverses.ts';
-import { applyBoardPatch, applyCardPatch, applyViewPatch } from './patches.ts';
+import { applyBoardPatch } from './patches.ts';
 import { PendingWrites } from './write.ts';
 
 export class BoardWrites {
@@ -52,7 +53,7 @@ export class BoardWrites {
         host.boardId,
         written,
         reverse,
-        () => patchBoardOrStored(host.workspace.backend, host.boardId, written),
+        () => patchBoardOrStored(host, written),
         (refused) => {
           restore = refused;
         },
@@ -81,59 +82,100 @@ export class BoardWrites {
   }
 }
 
-/** `send`'s answer, or, when it was lost, what `read` finds if `says` it holds the write. */
-export async function answeredOrStored<T>(
-  send: () => Promise<T>,
-  read: () => Promise<T | undefined>,
-  says: (stored: T) => boolean,
+/** A thing as the values a patch of it names (`InverseValues`). */
+type AsPatch<T> = (thing: T) => Record<string, unknown>;
+
+/**
+ * `send`'s answer, or, when it was lost, what `read` finds if it holds the
+ * write: every value of `patch` that the screen still shows as the write
+ * left it (`shown`) is stored. A value that a later change has replaced on
+ * the screen meanwhile is not asked for: that change may have been stored
+ * over it before the reading.
+ */
+async function answeredOrStored<T>(
+  patch: object,
+  values: InverseValues,
+  as: AsPatch<T>,
+  ways: { send: () => Promise<T>; read: () => Promise<T | undefined>; shown: () => T | undefined },
 ): Promise<T> {
   try {
-    return await send();
+    return await ways.send();
   } catch (error) {
     if (!isBackendError(error) || error.status !== 0) throw error;
-    const stored = await read().catch(() => undefined);
-    if (stored !== undefined && says(stored)) return stored;
-    throw error;
+    const stored = await ways.read().catch(() => undefined);
+    const now = ways.shown();
+    if (stored === undefined || now === undefined) throw error;
+    const storedValues = values.read(as(stored));
+    const shownValues = values.read(as(now));
+    for (const [key, value] of values.read(patch as Record<string, unknown>)) {
+      if (sameValue(shownValues.get(key), value) && !sameValue(storedValues.get(key), value)) {
+        throw error;
+      }
+    }
+    return stored;
   }
 }
 
-export function patchBoardOrStored(
-  backend: Backend,
-  boardId: string,
-  patch: BoardPatch,
-): Promise<Board> {
+const boardValues = new InverseValues('updatedProperties', 'deletedProperties');
+const viewValues = new InverseValues('updatedFields', 'deletedFields');
+
+export function patchBoardOrStored(store: BoardStore, patch: BoardPatch): Promise<Board> {
+  const { backend } = store.workspace;
   return answeredOrStored(
-    () => backend.patchBoard(boardId, patch),
-    () => backend.board(boardId),
-    (stored) => sameValue(applyBoardPatch(stored, patch), stored),
+    patch,
+    boardValues,
+    (board: Board) => ({
+      ...board,
+      updatedProperties: board.properties,
+      updatedCardProperties: board.cardProperties,
+    }),
+    {
+      send: () => backend.patchBoard(store.boardId, patch),
+      read: () => backend.board(store.boardId),
+      shown: () => store.board,
+    },
   );
 }
 
 export function patchCardOrStored(
-  backend: Backend,
-  boardId: string,
+  store: BoardStore,
   cardId: string,
   patch: CardPatch,
 ): Promise<CardSummary> {
+  const { backend } = store.workspace;
   return answeredOrStored(
-    () => backend.patchCard(boardId, cardId, patch),
-    async () => {
-      const { body: _body, ...card } = await backend.card(boardId, cardId);
-      return card;
+    patch,
+    boardValues,
+    (card: CardSummary) => ({
+      title: card.title,
+      icon: card.fields.icon,
+      updatedProperties: card.fields.properties,
+    }),
+    {
+      send: () => backend.patchCard(store.boardId, cardId, patch),
+      read: async () => {
+        const { body: _body, ...card } = await backend.card(store.boardId, cardId);
+        return card;
+      },
+      shown: () => store.card(cardId),
     },
-    (stored) => sameValue(applyCardPatch(stored, patch), stored),
   );
 }
 
 export function patchViewOrStored(
-  backend: Backend,
-  boardId: string,
+  store: BoardStore,
   viewId: string,
   patch: BlockPatch,
-) {
+): Promise<BoardView> {
+  const { backend } = store.workspace;
   return answeredOrStored(
-    () => backend.patchView(boardId, viewId, patch),
-    async () => (await backend.views(boardId)).find((view) => view.id === viewId),
-    (stored) => sameValue(applyViewPatch(stored, patch), stored),
+    patch,
+    viewValues,
+    (view: BoardView) => ({ title: view.title, updatedFields: view.fields }),
+    {
+      send: () => backend.patchView(store.boardId, viewId, patch),
+      read: async () => (await backend.views(store.boardId)).find((view) => view.id === viewId),
+      shown: () => store.view(viewId),
+    },
   );
 }

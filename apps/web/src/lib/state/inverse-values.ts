@@ -1,8 +1,19 @@
 /** Named values of a patch, including clears and board property definitions by identifier. */
 type Patch = Record<string, unknown>;
 
+/** The same value, whatever the order of the keys of its objects (the server sorts them). */
 export function sameValue(first: unknown, second: unknown): boolean {
-  return first === second || JSON.stringify(first) === JSON.stringify(second);
+  return first === second || JSON.stringify(sorted(first)) === JSON.stringify(sorted(second));
+}
+
+function sorted(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sorted);
+  if (typeof value !== 'object' || value === null) return value;
+  return Object.fromEntries(
+    Object.keys(value)
+      .sort()
+      .map((key) => [key, sorted((value as Record<string, unknown>)[key])]),
+  );
 }
 
 export class InverseValues {

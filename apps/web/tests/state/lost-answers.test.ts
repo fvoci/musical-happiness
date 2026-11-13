@@ -80,3 +80,74 @@ describe.each(['patchBoard', 'patchCard', 'patchView'] as const)('%s', (method) 
     }
   });
 });
+
+/** `value` with the keys of its objects in order, as the server's JSON has them. */
+function sortedKeys<T>(value: T): T {
+  if (Array.isArray(value)) return value.map(sortedKeys) as T;
+  if (typeof value !== 'object' || value === null) return value;
+  const entries = Object.keys(value)
+    .sort()
+    .map((key) => [key, sortedKeys((value as Record<string, unknown>)[key])]);
+  return Object.fromEntries(entries) as T;
+}
+
+describe('a lost answer on the real server (found by a review of b0dec09e)', () => {
+  it('finds a definition stored though the server orders its keys', async () => {
+    const { board, backend, workspace } = await cases();
+    const read = backend.board.bind(backend);
+    vi.spyOn(backend, 'board').mockImplementation(async (boardId) =>
+      sortedKeys(await read(boardId)),
+    );
+    const report = vi.spyOn(workspace, 'report');
+    try {
+      loseAnswer(backend, 'patchBoard', true);
+      const added = { id: 'added', name: 'Added', type: 'select' as const, options: [] };
+      await board.changeBoard((current) => ({
+        ...current,
+        cardProperties: [
+          ...current.cardProperties,
+          { ...added, options: [{ id: 'o', value: 'One', color: 'propColorRed' }] },
+        ],
+      }));
+      expect(board.board?.cardProperties.map((property) => property.id)).toContain('added');
+      expect(report).not.toHaveBeenCalled();
+      expect(workspace.undo.canUndo).toBe(true);
+    } finally {
+      workspace.close();
+    }
+  });
+
+  it('takes a write for stored when a later change of its field was stored before the reading', async () => {
+    const { board, backend, workspace, kinds } = await cases();
+    const card = board.realCards[0];
+    if (!card) throw new Error('no card');
+    const report = vi.spyOn(workspace, 'report');
+    let lose = (): void => undefined;
+    const real = backend.patchCard.bind(backend);
+    vi.spyOn(backend, 'patchCard').mockImplementationOnce(async (...args) => {
+      await real(...args);
+      // The answer is lost only once the later write is stored.
+      await new Promise<void>((resolve) => {
+        lose = resolve;
+      });
+      throw new BackendError(0, { detail: 'no answer' });
+    });
+    try {
+      const first = board.setCardTitle(card.id, 'X');
+      await board.setCardTitle(card.id, 'Y');
+      lose();
+      await first;
+      expect(report).not.toHaveBeenCalled();
+      await workspace.undoLast();
+      expect([kinds.patchCard.shown(), await kinds.patchCard.stored()]).toEqual(['X', 'X']);
+      await workspace.undoLast();
+      expect([kinds.patchCard.shown(), await kinds.patchCard.stored()]).toEqual([
+        card.title,
+        card.title,
+      ]);
+    } finally {
+      lose();
+      workspace.close();
+    }
+  });
+});
