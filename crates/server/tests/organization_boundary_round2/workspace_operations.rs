@@ -262,8 +262,10 @@ async fn every_contract_operation_is_exercised_by_both_founders() {
         return;
     }
     let fake = super::fake_oidc::FakeProvider::start().await;
+    let smtp = super::fake_smtp::FakeSmtp::start_on(0).await;
     let server = Setup::local_mode()
         .trusting_oidc_provider(&fake.certificate_der)
+        .smtp(smtp.settings())
         .configure(open)
         .configure(identity::configure)
         .on_an_empty_database()
@@ -272,11 +274,11 @@ async fn every_contract_operation_is_exercised_by_both_founders() {
         .await;
     let mut first = Case::founder(&server, "parity-first", Vec::new()).await;
     actions::exercise(&mut first).await;
-    service::exercise(&mut first, &server, &fake).await;
+    service::exercise(&mut first, &server, &fake, &smtp).await;
     first.assert_complete();
     let mut second = Case::founder(&server, "parity-other", first.identifiers).await;
     actions::exercise(&mut second).await;
-    service::exercise(&mut second, &server, &fake).await;
+    service::exercise(&mut second, &server, &fake, &smtp).await;
     second.assert_complete();
     assert_eq!(
         first.seen.remove("setUserAdmin"),
@@ -299,6 +301,7 @@ async fn every_contract_operation_is_exercised_by_both_founders() {
         );
     }
     server.teardown().await;
+    smtp.stop().await;
 }
 
 /// Keep response semantics while replacing generated identifiers, times and the

@@ -242,6 +242,21 @@ fn describe_reason(reason: Reason) -> &'static str {
         | Reason::DefaultWorkspace
         | Reason::LastOrgAdmin
         | Reason::PublicLinksOff => describe_organization(reason).unwrap_or_default(),
+        Reason::TooManyRecipients => {
+            "Status 400. An invitation mail request names more recipients than \
+             `invitation_mail_recipients` allows (20 unless configured), which `limit` \
+             tells. `errors` names `/recipients`. Nothing was sent: send fewer at a time."
+        }
+        Reason::InvitationMailLimit => {
+            "Status 429. The workspace queued as many invitation messages within the last \
+             hour as `invitation_mail_per_hour` allows (100 unless configured), counting the \
+             recipients of this request. Nothing of it was sent. `Retry-After` and \
+             `retryAfter` say when enough of the earlier messages are an hour old."
+        }
+        Reason::MailQueueFull => {
+            "Status 503. The server holds as many invitation messages waiting to be sent as \
+             `mail_invitation_queue` allows. Nothing of this request was sent. Try again later."
+        }
         // The rest are the reasons of a body edited together, which the two functions
         // below name one by one: a reason that is none of theirs fails the tests.
         _ => describe_editing_together(reason),

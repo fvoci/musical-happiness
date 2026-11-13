@@ -37,6 +37,13 @@ export interface Invitation {
   token?: string;
 }
 
+/** Optional delivery of existing links through the server. */
+export interface InvitationMail {
+  available(): Promise<boolean>;
+  /** Queues separate messages with one existing link; expiry and uses stay unchanged. */
+  send(workspaceId: string, token: string, recipients: string[], language: string): Promise<void>;
+}
+
 /**
  * Managing who is in a workspace, where a backend has that: the server has,
  * the one in memory has not. Every request is refused (403) to who is no
@@ -44,6 +51,8 @@ export interface Invitation {
  * admins make and see.
  */
 export interface People {
+  /** Present when the backend supports outgoing invitation mail. */
+  mail?: InvitationMail;
   members(workspaceId: string): Promise<WorkspaceMember[]>;
   /** A change that is not made so (a guest to a member) is 400; the last administrator stays one (409, `last_admin`). */
   setRole(workspaceId: string, userId: string, role: WorkspaceRole): Promise<WorkspaceMember>;

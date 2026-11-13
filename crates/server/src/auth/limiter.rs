@@ -16,8 +16,10 @@
 //! both, each counted for itself. Whether such an account exists makes no difference to
 //! what is counted or answered, and nothing here is asked after the account was looked
 //! up: a limit that knew the account from the name would tell, by who has to wait,
-//! which names are accounts. The price is that an account that is tried by its name and
-//! by its email address has the failures of each for itself.
+//! which names are accounts. (The one exception ends a lock: after a reset link proved
+//! the account, `LoginLimiter::forget_account`; its token tells as much already.) The
+//! price is that an account that is tried by its name and by its email address has the
+//! failures of each for itself.
 //!
 //! The records are forgotten when the process ends, and the oldest go when there are
 //! too many.
@@ -150,6 +152,13 @@ pub struct LoginLimiter {
     metrics: Metrics,
 }
 
+/// A request that was counted against its address and may go ahead; dropping it frees
+/// the address for the next.
+#[derive(Debug)]
+pub struct AddressTurn {
+    _attempt: Attempt,
+}
+
 /// An attempt that may go ahead. Whoever holds it says how it ended; an attempt that is
 /// dropped without that counts as neither a failure nor a success, and frees its
 /// address for the next attempt either way.
@@ -258,6 +267,38 @@ impl LoginLimiter {
             accounts: Vec::new(),
             address,
         })
+    }
+
+    /// Asks whether a request from `address` that names no account to count may go
+    /// ahead at `now`, and counts it against the address as it is admitted. The turn it
+    /// returns has no ending to tell: dropping it frees the address for the next.
+    ///
+    /// # Errors
+    ///
+    /// Returns how long to wait if the address has made too many attempts or has one in
+    /// progress.
+    pub fn admit_from_address(
+        &self,
+        address: Option<IpAddr>,
+        now: Instant,
+    ) -> Result<AddressTurn, RetryAfter> {
+        self.admit_registration(address, now)
+            .map(|attempt| AddressTurn { _attempt: attempt })
+    }
+
+    /// Ends the lock of each of `names`, and the wait of `address` at them. For the
+    /// owner who proved the account another way (a reset link) and chose the only
+    /// password that opens it now. What other addresses wait for at those names stays,
+    /// as it does when the owner signs in: no reason to let a guesser go on.
+    pub fn forget_account(&self, names: &[&str], address: Option<IpAddr>) {
+        let address = address.map(AddressKey::from);
+        let mut records = self.records();
+        for account in names.iter().map(|name| account_key(name)) {
+            records.accounts.remove(&account);
+            if let Some(address) = address {
+                records.pairs.remove(&(account, address));
+            }
+        }
     }
 
     /// Counts an attempt against its address and marks the address as busy.
@@ -881,6 +922,42 @@ mod tests {
             wait_of(&limiter, "alice", "203.0.113.7", now),
             Some(LONGEST_WAIT.as_secs()),
             "no panic, and the longest wait there is"
+        );
+    }
+
+    #[test]
+    fn forgetting_an_account_ends_its_lock_and_the_wait_of_one_address_only() {
+        let limiter = LoginLimiter::new(Limits {
+            pair_free_failures: 2,
+            account_max_failures: 12,
+            ..LIMITS
+        });
+        let now = Instant::now();
+        for _ in 0..3 {
+            fail(&limiter, "alice", "203.0.113.200", now);
+            fail(&limiter, "alice@example.com", "203.0.113.9", now);
+            fail(&limiter, "bob", "203.0.113.200", now);
+        }
+        for last in 1..=9 {
+            fail(&limiter, "alice", &format!("203.0.113.{last}"), now);
+        }
+        assert!(
+            wait_of(&limiter, "alice", "198.51.100.1", now).is_some(),
+            "locked"
+        );
+        limiter.forget_account(
+            &["Alice", "alice@example.com"],
+            Some(address("203.0.113.200")),
+        );
+        assert_eq!(wait_of(&limiter, "alice", "198.51.100.1", now), None);
+        assert_eq!(wait_of(&limiter, "alice", "203.0.113.200", now), None);
+        assert!(
+            wait_of(&limiter, "alice@example.com", "203.0.113.9", now).is_some(),
+            "a guesser elsewhere still waits"
+        );
+        assert!(
+            wait_of(&limiter, "bob", "203.0.113.200", now).is_some(),
+            "another account keeps what was counted"
         );
     }
 }

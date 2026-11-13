@@ -24,6 +24,8 @@ pub mod collab;
 mod keys;
 mod scrapes;
 mod secret_key;
+pub mod smtp;
+mod upload_limits;
 
 pub use scrapes::{MetricsAddress, MetricsToken};
 pub use secret_key::{ENV_ONLY, SECRET_KEY_ENV};
@@ -275,6 +277,9 @@ pub struct Configuration {
     /// The keys `collab_*` (editing a body together).
     #[serde(flatten)]
     pub collab: collab::CollabSettings,
+    /// SMTP transport settings; an empty host disables outgoing mail.
+    #[serde(flatten)]
+    pub smtp: smtp::SmtpSettings,
     /// Whether to skip importing the built-in templates at startup. Not a configuration
     /// file key; the test harness sets it so a server that does not need templates
     /// starts quickly, as the original's `SkipTemplateInit` does.
@@ -341,6 +346,7 @@ impl Default for Configuration {
             password_hash_queue: 16,
             password_hash_queue_seconds: 5,
             collab: collab::CollabSettings::default(),
+            smtp: smtp::SmtpSettings::default(),
             skip_template_init: false,
         }
     }
@@ -350,6 +356,7 @@ impl std::fmt::Debug for Configuration {
     /// Leaves out the database connection string, which may hold a password.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Configuration")
+            .field("smtp", &self.smtp)
             .field("server_root", &self.server_root)
             .field("port", &self.port)
             .field("db_type", &self.db_type)
@@ -686,7 +693,11 @@ impl Configuration {
             Some(_) => bail!("filess3config must be a JSON object"),
         }
 
-        for (key, kind) in ENV_KEYS.into_iter().chain(collab::ENV_KEYS) {
+        for (key, kind) in ENV_KEYS
+            .into_iter()
+            .chain(collab::ENV_KEYS)
+            .chain(smtp::ENV_KEYS)
+        {
             let name = env_name(key);
             if let Some(text) = env(&name)
                 && !scrapes::is_unset_token(key, &text)
@@ -714,6 +725,7 @@ impl Configuration {
         }
 
         scrapes::check_token_is_text(&keys)?;
+        smtp::check_password_is_text(&keys)?;
         let secret_key = secret_key::read(&keys, &env, is_unset)?;
         let mut config: Self = serde_json::from_value(Value::Object(keys))
             .context("a key has a value of the wrong type")?;
@@ -755,77 +767,6 @@ impl Configuration {
     /// How long a start waits for the lock of the server (`server_lock_wait_seconds`).
     pub fn server_lock_wait(&self) -> std::time::Duration {
         std::time::Duration::from_secs(self.server_lock_wait_seconds)
-    }
-
-    /// Checks the limits on uploads: none turns a limit off, and they fit together.
-    fn check_upload_limits(&self) -> anyhow::Result<()> {
-        // An S3 multipart upload takes no smaller part but the last, and none larger.
-        if !(MIN_UPLOAD_PART_BYTES..=MAX_UPLOAD_PART_BYTES).contains(&self.upload_part_bytes) {
-            bail!(
-                "upload_part_bytes must be {MIN_UPLOAD_PART_BYTES} (5 MiB) to \
-                 {MAX_UPLOAD_PART_BYTES} (5 GiB)"
-            );
-        }
-        // Zero once meant "no limit"; a server without one is not something to end up
-        // with by leaving a number at what it was (`docs/s6-design.md` 4.2).
-        let largest = self
-            .upload_part_bytes
-            .saturating_mul(u64::try_from(fvoci_model::MAX_UPLOAD_PARTS).unwrap_or(0));
-        if u64::try_from(self.max_file_size).map_or(true, |size| size == 0 || size > largest) {
-            bail!(
-                "maxfilesize must be 1 to {largest} bytes (upload_part_bytes times 10,000 \
-                 parts), not {}",
-                self.max_file_size
-            );
-        }
-        // Less would refuse the largest file with 429 every time, as if it might fit later.
-        // Positive, as checked above.
-        let max_file_size = u64::try_from(self.max_file_size).unwrap_or(0);
-        if self.max_pending_upload_bytes < max_file_size {
-            bail!(
-                "max_pending_upload_bytes must be at least maxfilesize ({max_file_size}), \
-                 not {}",
-                self.max_pending_upload_bytes
-            );
-        }
-        // An archive comes as an upload in parts too.
-        if self.max_import_bytes == 0 || self.max_import_bytes > largest {
-            bail!(
-                "max_import_bytes must be 1 to {largest} bytes (upload_part_bytes times \
-                 10,000 parts), not {}",
-                self.max_import_bytes
-            );
-        }
-        if self.max_pending_upload_bytes < self.max_import_bytes {
-            bail!(
-                "max_pending_upload_bytes must be at least max_import_bytes ({}), not {}",
-                self.max_import_bytes,
-                self.max_pending_upload_bytes
-            );
-        }
-        // Zero would keep not even the text a comment was posted with.
-        if self.max_comment_versions == 0 {
-            bail!("max_comment_versions must be at least 1");
-        }
-        // Zero would refuse every export or import.
-        if self.max_concurrent_exports == 0 {
-            bail!("max_concurrent_exports must be at least 1");
-        }
-        if self.max_concurrent_imports == 0 {
-            bail!("max_concurrent_imports must be at least 1");
-        }
-        // Zero would take no reader of a public link at all: sharing is turned off for that.
-        if self.public_link_connections_per_board == 0 {
-            bail!("public_link_connections_per_board must be at least 1");
-        }
-        if self.public_link_connections_per_address == 0 {
-            bail!("public_link_connections_per_address must be at least 1");
-        }
-        // Zero would give up every download before its first piece.
-        if self.export_stall_seconds == 0 {
-            bail!("export_stall_seconds must be at least 1");
-        }
-        self.collab.check()
     }
 
     /// Checks that the configuration only asks for what this server supports.
@@ -886,6 +827,7 @@ impl Configuration {
             bail!("trash_retention_days must be at least 1");
         }
         self.check_upload_limits()?;
+        self.smtp.check()?;
         self.metrics_address()?;
         self.check_metrics_token()?;
         match self.files_driver.as_str() {

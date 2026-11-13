@@ -1,0 +1,298 @@
+//! The pace of all outgoing mail: `mail_per_second` attempts, recovery first, and
+//! invitations held back while the way keeps asking for later.
+
+use std::pin::pin;
+use std::sync::Mutex;
+use std::time::Duration;
+
+use tokio::sync::Notify;
+use tokio::time::Instant;
+
+use super::outbound::Outcome;
+use crate::metrics::MailKind;
+
+/// How many attempts in a row the way asks to try later before invitations are held
+/// back: one could be a busy moment; this many look like the provider's daily limit.
+const LATER_STREAK: u32 = 3;
+/// How long invitations are held back when the way did not say for how long.
+const PAUSE: Duration = Duration::from_mins(1);
+/// The longest invitations are held back for at once, whatever the way asked: the
+/// next attempt of a recovery message, or the end of this, finds out again.
+const LONGEST_PAUSE: Duration = Duration::from_mins(15);
+
+/// The turns of the attempts to send, shared by every message.
+#[derive(Debug)]
+pub(super) struct Pace {
+    /// The time between two attempts.
+    interval: Duration,
+    state: Mutex<State>,
+    /// Told whenever a turn is taken or the pause changes.
+    changed: Notify,
+}
+
+#[derive(Debug)]
+struct State {
+    /// When the next attempt may start.
+    next: Instant,
+    /// How many recovery messages wait for a turn: invitations wait until none does.
+    resets_waiting: usize,
+    /// The attempts in a row that the way asked to try later.
+    later_streak: u32,
+    /// Until when invitations wait, while the way keeps asking for later.
+    invitations_paused_until: Option<Instant>,
+}
+
+/// What a message of a kind waits for.
+enum Wait {
+    /// Nothing: it takes the turn.
+    Nothing,
+    /// The time when it may.
+    Until(Instant),
+    /// Another message: a recovery message that waits.
+    Others,
+}
+
+impl Pace {
+    /// A pace of `per_second` attempts a second; at least one.
+    pub(super) fn new(per_second: u32) -> Self {
+        Self {
+            interval: Duration::from_secs(1) / per_second.max(1),
+            state: Mutex::new(State {
+                next: Instant::now(),
+                resets_waiting: 0,
+                later_streak: 0,
+                invitations_paused_until: None,
+            }),
+            changed: Notify::new(),
+        }
+    }
+
+    fn state(&self) -> std::sync::MutexGuard<'_, State> {
+        self.state
+            .lock()
+            .expect("the mail pace is never held across a panic")
+    }
+
+    /// Waits until a message of `kind` may make an attempt, and takes that turn.
+    pub(super) async fn turn(&self, kind: MailKind) {
+        let _waiting = (kind == MailKind::PasswordReset).then(|| ResetWaiting::new(self));
+        loop {
+            let mut changed = pin!(self.changed.notified());
+            changed.as_mut().enable();
+            let wait = {
+                let mut state = self.state();
+                let now = Instant::now();
+                let wait = state.wait_of(kind, now);
+                if matches!(wait, Wait::Nothing) {
+                    state.next = state.next.max(now) + self.interval;
+                }
+                wait
+            };
+            match wait {
+                Wait::Nothing => break,
+                Wait::Until(at) => {
+                    tokio::select! {
+                        () = &mut changed => {}
+                        () = tokio::time::sleep_until(at) => {}
+                    }
+                }
+                Wait::Others => changed.await,
+            }
+        }
+        self.changed.notify_waiters();
+    }
+
+    /// Learns from what an attempt became: the way asking for later, again and again,
+    /// holds invitations back; a message it took lets them go again.
+    pub(super) fn observe(&self, outcome: Outcome) {
+        let mut state = self.state();
+        match outcome {
+            Outcome::Sent => {
+                state.later_streak = 0;
+                state.invitations_paused_until = None;
+            }
+            Outcome::Later { after, .. } => {
+                state.later_streak = state.later_streak.saturating_add(1);
+                if state.later_streak >= LATER_STREAK {
+                    let pause = after.map_or(PAUSE, |after| after.clamp(PAUSE, LONGEST_PAUSE));
+                    let now = Instant::now();
+                    let until = now + pause;
+                    if state
+                        .invitations_paused_until
+                        .is_none_or(|paused| paused <= now)
+                    {
+                        tracing::warn!(
+                            seconds = pause.as_secs(),
+                            "mail keeps being deferred: invitations wait, recovery goes on"
+                        );
+                    }
+                    // A longer pause the way asked for stays.
+                    state.invitations_paused_until = Some(
+                        state
+                            .invitations_paused_until
+                            .map_or(until, |paused| paused.max(until)),
+                    );
+                }
+            }
+            // One message refused says nothing of the way's limits.
+            Outcome::Refused { .. } => return,
+        }
+        drop(state);
+        self.changed.notify_waiters();
+    }
+}
+
+impl State {
+    fn wait_of(&self, kind: MailKind, now: Instant) -> Wait {
+        if kind == MailKind::Invitation {
+            if self.resets_waiting > 0 {
+                return Wait::Others;
+            }
+            if let Some(until) = self.invitations_paused_until
+                && until > now
+            {
+                return Wait::Until(until);
+            }
+        }
+        if self.next > now {
+            Wait::Until(self.next)
+        } else {
+            Wait::Nothing
+        }
+    }
+}
+
+/// A recovery message waiting for its turn, counted while it waits.
+struct ResetWaiting<'a>(&'a Pace);
+
+impl<'a> ResetWaiting<'a> {
+    fn new(pace: &'a Pace) -> Self {
+        pace.state().resets_waiting += 1;
+        Self(pace)
+    }
+}
+
+impl Drop for ResetWaiting<'_> {
+    fn drop(&mut self) {
+        if let Ok(mut state) = self.0.state.lock() {
+            state.resets_waiting -= 1;
+        }
+        self.0.changed.notify_waiters();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use super::*;
+
+    /// When each of `kinds`, all asking at once, took its turn, from now, in seconds.
+    async fn turns(pace: &Arc<Pace>, kinds: &[MailKind]) -> Vec<(MailKind, u64)> {
+        let start = Instant::now();
+        let order = Arc::new(Mutex::new(Vec::new()));
+        let mut tasks = tokio::task::JoinSet::new();
+        for &kind in kinds {
+            let pace = Arc::clone(pace);
+            let order = Arc::clone(&order);
+            tasks.spawn(async move {
+                pace.turn(kind).await;
+                let at = start.elapsed().as_secs();
+                order.lock().expect("order").push((kind, at));
+            });
+        }
+        tasks.join_all().await;
+        Arc::try_unwrap(order)
+            .expect("the tasks are done")
+            .into_inner()
+            .expect("order")
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn all_mail_keeps_one_pace_and_recovery_overtakes_waiting_invitations() {
+        let pace = Arc::new(Pace::new(1));
+        pace.turn(MailKind::Invitation).await;
+        let taken = turns(
+            &pace,
+            &[
+                MailKind::Invitation,
+                MailKind::Invitation,
+                MailKind::PasswordReset,
+                MailKind::PasswordReset,
+            ],
+        )
+        .await;
+        assert_eq!(
+            taken,
+            [
+                (MailKind::PasswordReset, 1),
+                (MailKind::PasswordReset, 2),
+                (MailKind::Invitation, 3),
+                (MailKind::Invitation, 4),
+            ],
+            "one a second, recovery first"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn deferred_attempts_in_a_row_hold_invitations_back_but_not_recovery() {
+        let pace = Arc::new(Pace::new(10));
+        let later = Outcome::Later {
+            after: None,
+            code: Some(451),
+        };
+        for _ in 0..LATER_STREAK - 1 {
+            pace.observe(later);
+        }
+        assert_eq!(
+            turns(&pace, &[MailKind::Invitation]).await[0].1,
+            0,
+            "not yet"
+        );
+        pace.observe(Outcome::Refused { code: Some(550) });
+        pace.observe(later);
+        let taken = turns(&pace, &[MailKind::Invitation, MailKind::PasswordReset]).await;
+        assert_eq!(
+            taken,
+            [
+                (MailKind::PasswordReset, 0),
+                (MailKind::Invitation, PAUSE.as_secs())
+            ]
+        );
+
+        for _ in 0..LATER_STREAK {
+            pace.observe(Outcome::Later {
+                after: Some(Duration::from_hours(24)),
+                code: Some(421),
+            });
+        }
+        let invitation = {
+            let pace = Arc::clone(&pace);
+            tokio::spawn(async move { turns(&pace, &[MailKind::Invitation]).await })
+        };
+        tokio::time::sleep(Duration::from_mins(2)).await;
+        assert!(
+            !invitation.is_finished(),
+            "the way asked for a day: at most a while"
+        );
+        pace.observe(Outcome::Sent);
+        let taken = invitation.await.expect("the invitation's turn");
+        assert_eq!(
+            taken[0].1, 120,
+            "a message the way took lets invitations go"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_pause_ends_by_itself_at_its_longest() {
+        let pace = Arc::new(Pace::new(10));
+        for _ in 0..LATER_STREAK {
+            pace.observe(Outcome::Later {
+                after: Some(Duration::from_hours(24)),
+                code: None,
+            });
+        }
+        let taken = turns(&pace, &[MailKind::Invitation]).await;
+        assert_eq!(taken[0].1, LONGEST_PAUSE.as_secs());
+    }
+}

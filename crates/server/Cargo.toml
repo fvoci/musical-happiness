@@ -28,6 +28,8 @@ futures-util.workspace = true
 getrandom.workspace = true
 httpdate.workspace = true
 jsonwebtoken.workspace = true
+lettre.workspace = true
+mail-builder.workspace = true
 object_store.workspace = true
 prometheus.workspace = true
 reqwest.workspace = true
@@ -56,6 +58,7 @@ libc.workspace = true
 test-util = []
 
 [dev-dependencies]
+mail-parser.workspace = true
 brotli.workspace = true
 fvoci-collab = { workspace = true, features = ["test-util"] }
 fvoci-server = { path = ".", features = ["test-util"] }
