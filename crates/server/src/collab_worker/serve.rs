@@ -209,7 +209,7 @@ impl Worker {
             .count();
         let limit = match share {
             Share::Kept => self.limits.documents,
-            Share::Aside => ASIDE_DOCUMENTS,
+            Share::Aside => u64::try_from(ASIDE_DOCUMENTS).unwrap_or(u64::MAX),
         };
         if u64::try_from(of_share).unwrap_or(u64::MAX) >= limit {
             return Err(refused(
@@ -360,9 +360,9 @@ mod tests {
             source: Source::Body(None),
             share,
         };
-        let aside = ASIDE_DOCUMENTS;
+        let aside: Vec<DocNumber> = (10..).take(ASIDE_DOCUMENTS + 1).collect();
         let mut requests = vec![open(1, Share::Kept)];
-        requests.extend((0..=aside).map(|index| open(10 + index, Share::Aside)));
+        requests.extend(aside.iter().map(|doc| open(*doc, Share::Aside)));
         requests.extend([
             Request::Close(10),
             open(30, Share::Aside),
@@ -370,23 +370,35 @@ mod tests {
         ]);
         let got = answers(&requests);
         let refused = |index: usize| got[index].as_ref().map_err(|refused| refused.refusal).err();
-        let aside = usize::try_from(aside).expect("a few");
-        assert!((0..=aside).all(|index| refused(index).is_none()), "{got:?}");
+        let last = ASIDE_DOCUMENTS;
+        assert!((0..=last).all(|index| refused(index).is_none()), "{got:?}");
         assert_eq!(
-            refused(aside + 1),
+            refused(last + 1),
             Some(Refusal::TooManyDocuments),
             "past the share aside"
         );
+        assert_eq!(refused(last + 3), None, "one closed aside makes room aside");
         assert_eq!(
-            refused(aside + 3),
-            None,
-            "one closed aside makes room aside"
-        );
-        assert_eq!(
-            refused(aside + 4),
+            refused(last + 4),
             Some(Refusal::TooManyDocuments),
             "none kept past the limit"
         );
+    }
+
+    #[test]
+    fn documents_aside_leave_the_kept_share_alone() {
+        let open = |doc: DocNumber, share: Share| Request::Open {
+            doc,
+            source: Source::Body(None),
+            share,
+        };
+        let mut requests: Vec<Request> = (10..)
+            .take(ASIDE_DOCUMENTS)
+            .map(|doc| open(doc, Share::Aside))
+            .collect();
+        requests.push(open(1, Share::Kept));
+        let got = answers(&requests);
+        assert!(got.iter().all(Result::is_ok), "{got:?}");
     }
 
     #[test]

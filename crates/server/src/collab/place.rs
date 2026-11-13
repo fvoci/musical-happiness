@@ -225,8 +225,14 @@ impl Collab {
             {
                 Ok((_, answer)) => return Ok(answer),
                 Err(CallError::Lost) => {
+                    let aside = open.aside.is_some();
                     self.lost(slot);
                     self.tell(app, card_id, DocChange::Reopened);
+                    if aside {
+                        // Opened aside for its log alone: not opened again in the kept
+                        // share, which may be full; the log stays for the next try.
+                        return Err(refusals::unavailable());
+                    }
                 }
                 Err(CallError::Refused(refused)) => {
                     return Err(refusals::refused(&refused, &self.inner.limits));
@@ -261,10 +267,7 @@ impl Collab {
         if slot.open.is_some() {
             return Ok(());
         }
-        if slot
-            .closed_until
-            .is_some_and(|until| until > Instant::now())
-        {
+        if closed_for_a_while(slot) {
             return Err(refusals::unavailable());
         }
         let error = match self.open_stored(app, card_id, None).await {
@@ -307,10 +310,7 @@ impl Collab {
         card_id: &str,
         slot: &mut Held,
     ) -> Result<(), AppError> {
-        if slot
-            .closed_until
-            .is_some_and(|until| until > Instant::now())
-        {
+        if closed_for_a_while(slot) {
             return Err(refusals::unavailable());
         }
         let place = Arc::clone(&self.inner.aside)
@@ -365,6 +365,12 @@ impl Collab {
             change,
         });
     }
+}
+
+/// Whether the document is closed for a while, after its worker ended over it.
+fn closed_for_a_while(slot: &Slot) -> bool {
+    slot.closed_until
+        .is_some_and(|until| until > Instant::now())
 }
 
 /// Counts a death of the worker over the document, and closes the document for a

@@ -255,8 +255,9 @@ impl Collab {
         self.close_number(open.worker, open.generation, open.number)
             .await;
         let number = self.next_number();
-        let (generation, state, state_bytes) =
-            self.open_from_body(open.worker, number, body).await?;
+        let (generation, state, state_bytes) = self
+            .open_from_body(open.worker, number, body, open.share())
+            .await?;
         open.generation = generation;
         open.number = number;
         let digest = digest_of(body);

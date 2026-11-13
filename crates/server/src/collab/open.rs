@@ -60,7 +60,7 @@ impl Collab {
         number: DocNumber,
     ) -> Result<OpenDoc, Opening> {
         let (generation, state, state_bytes) = self
-            .open_from_body(worker, number, block.body.as_ref())
+            .open_from_body(worker, number, block.body.as_ref(), Share::Kept)
             .await?;
         let digest = upkeep::digest_of(block.body.as_ref());
         if let Err(error) = app
@@ -251,12 +251,14 @@ impl Collab {
         Ok(())
     }
 
-    /// Opens a document made from a body in a worker: its generation, state and size.
+    /// Opens a document made from a body in a worker, counted in `share`: its
+    /// generation, state and size.
     pub(super) async fn open_from_body(
         &self,
         worker: usize,
         number: DocNumber,
         body: Option<&Body>,
+        share: Share,
     ) -> Result<(u64, Vec<u8>, u64), Opening> {
         let json = body
             .map(|body| serde_json::to_vec(body.document()))
@@ -265,7 +267,7 @@ impl Collab {
         let request = Request::Open {
             doc: number,
             source: Source::Body(json),
-            share: Share::Kept,
+            share,
         };
         match self.call(worker, None, &request).await? {
             (

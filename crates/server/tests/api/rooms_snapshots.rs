@@ -188,7 +188,8 @@ async fn copying_a_card_or_template_includes_pending_bodies_of_child_cards() {
 
 /// A server that holds as many documents as it may (one worker of one document, open
 /// in a room): a copy and an export still write the log of a card whose document is
-/// not open, in the worker's share aside, and copy what the editors typed.
+/// not open, in the worker's share aside, and copy what the editors typed. Each has a
+/// card of its own whose log is not written yet: the copy's card, then the export's.
 #[tokio::test]
 async fn a_full_server_still_writes_a_closed_documents_log_before_a_copy_or_an_export() {
     let th = Setup::native()
@@ -208,33 +209,41 @@ async fn a_full_server_still_writes_a_closed_documents_log_before_a_copy_or_an_e
         .await
         .expect("the card")
         .board_id;
-    let (editor, epoch) = crate::collab::joined(e.app.collab(), &e.app, &e.card_id, 102).await;
-    e.app
-        .collab()
-        .take(
-            &e.app,
-            &e.card_id,
-            epoch,
-            &e.user1,
-            &editor.append_paragraph("logged, and its document closed"),
-        )
-        .await
-        .expect("logged");
-    let wanted = editor.body().map(|body| body.document().clone());
-    e.app.collab().abandon().await;
-    let card_in_board = |title: &str| {
+    let card_in_board = |title: &str, body: Option<Value>| {
         let path = format!("/w/{TEST_WORKSPACE_ID}/boards/{board_id}/cards");
-        let body = serde_json::json!({ "title": title });
+        let body = serde_json::json!({ "title": title, "body": body });
         let client = &th.client;
         async move {
             let card: fvoci_model::Card = client.post(&path, &body).await.created_json();
             card.id
         }
     };
-    let (open, refused) = (card_in_board("Open").await, card_in_board("Refused").await);
-    let mut holder = Peer::connect(&th.client, 103).await;
+    let exported = card_in_board("Exported", Some(paragraphs(&["first"]))).await;
+    let mut wanted = Vec::new();
+    for (card_id, client) in [(&e.card_id, 102), (&exported, 103)] {
+        let (editor, epoch) = crate::collab::joined(e.app.collab(), &e.app, card_id, client).await;
+        e.app
+            .collab()
+            .take(
+                &e.app,
+                card_id,
+                epoch,
+                &e.user1,
+                &editor.append_paragraph("logged, and its document closed"),
+            )
+            .await
+            .expect("logged");
+        wanted.push(editor.body().map(|body| body.document().clone()));
+        // Its document closed without its body written: only the log has the update.
+        e.app.collab().abandon().await;
+    }
+    let (open, refused) = (
+        card_in_board("Open", None).await,
+        card_in_board("Refused", None).await,
+    );
+    let mut holder = Peer::connect(&th.client, 104).await;
     holder.joined(TEST_WORKSPACE_ID, &open).await;
-    let mut other = Peer::connect(&th.client, 104).await;
+    let mut other = Peer::connect(&th.client, 105).await;
     let answer = other.join(TEST_WORKSPACE_ID, &refused).await;
     assert_eq!(
         (&answer["action"], &answer["reason"]),
@@ -244,11 +253,19 @@ async fn a_full_server_still_writes_a_closed_documents_log_before_a_copy_or_an_e
         ),
         "the server holds as many documents as it may: {answer}"
     );
-    let table = Table {
-        board_id,
-        card_id: e.card_id,
-    };
-    for operation in ["archive", "card"] {
+    for ((operation, card_id), wanted) in [("card", &e.card_id), ("archive", &exported)]
+        .into_iter()
+        .zip(wanted)
+    {
+        assert_ne!(
+            body_of(&card(&th.client, card_id).await),
+            wanted,
+            "{operation}: only the log has the update"
+        );
+        let table = Table {
+            board_id: board_id.clone(),
+            card_id: card_id.clone(),
+        };
         assert_eq!(
             snapshot(&th, &table, operation).await,
             wanted,

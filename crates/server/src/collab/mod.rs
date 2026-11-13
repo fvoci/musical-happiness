@@ -226,9 +226,7 @@ impl Collab {
                     .map(|_| Worker::new(worker_settings.clone()))
                     .collect(),
                 loads: (0..count).map(|_| AtomicUsize::new(0)).collect(),
-                aside: Arc::new(tokio::sync::Semaphore::new(
-                    usize::try_from(ASIDE_DOCUMENTS).unwrap_or(1),
-                )),
+                aside: Arc::new(tokio::sync::Semaphore::new(ASIDE_DOCUMENTS)),
                 slots: Mutex::new(HashMap::new()),
                 numbers: AtomicU64::new(1),
                 limits,

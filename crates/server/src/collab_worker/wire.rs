@@ -50,7 +50,7 @@ pub type DocNumber = u64;
 /// How many documents a worker holds at once besides its `documents`, opened only to
 /// write what their log holds to their card and closed at once ([`Share::Aside`]): a
 /// worker that holds as many documents as it may still writes a log so.
-pub const ASIDE_DOCUMENTS: u64 = 4;
+pub const ASIDE_DOCUMENTS: usize = 4;
 
 /// Which of a worker's shares of documents an opened document is counted in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
