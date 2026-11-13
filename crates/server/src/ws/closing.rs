@@ -109,7 +109,7 @@ impl Hub {
             }
             let role = self
                 .audience
-                .workspace_access(user_id, &workspace_id)
+                .current_workspace_access(user_id, &workspace_id)
                 .await
                 .map(|access| access.workspace_role);
             if role.is_some() && role == subscribed_role {

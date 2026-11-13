@@ -263,9 +263,12 @@ impl Store {
     /// [`StoreError::Database`] if the database cannot be reached.
     pub async fn open(db_type: DbType, dbconfig: &str) -> Result<Self, StoreError> {
         let mut lock_file = None;
+        // What an abandoned write may still take to land (`visibility::settle_after`).
+        let mut longest_wait = Duration::ZERO;
         let pool = match db_type {
             DbType::Sqlite => {
                 let settings = connect::sqlite_settings(dbconfig)?;
+                longest_wait = settings.busy_timeout;
                 let database =
                     (!settings.in_memory).then(|| settings.options.get_filename().to_path_buf());
                 let options = if settings.in_memory {
@@ -304,7 +307,9 @@ impl Store {
                         .unwrap_or(usize::MAX),
                 ),
                 observer: std::sync::OnceLock::new(),
-                visibility: visibility::Visibility::default(),
+                visibility: visibility::Visibility::settling_for(visibility::settle_after(
+                    longest_wait,
+                )),
                 other_spellings: tokio::sync::OnceCell::new(),
                 lock_file,
             }),

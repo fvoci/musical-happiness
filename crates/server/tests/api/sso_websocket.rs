@@ -106,7 +106,11 @@ async fn a_connection_follows_a_workspace_only_with_a_session_that_opens_it() {
         .await
         .check_ok();
 
-    assert!(ends(&mut with_password).await, "the password's is closed");
+    assert_eq!(
+        with_password.close_frame(PATIENCE).await,
+        Some((1008, "sso required".to_owned())),
+        "the password's is closed, saying why"
+    );
     assert!(ends(&mut of_user2).await, "and another member's");
     let closed = |body: &str| {
         sample(
@@ -244,9 +248,10 @@ async fn a_subscription_checked_before_the_wall_is_not_made_after_it() {
         .check_ok();
     pause.resume();
 
-    assert!(
-        ends(&mut with_password).await,
-        "the subscription checked before the wall ends the connection"
+    assert_eq!(
+        with_password.close_frame(PATIENCE).await,
+        Some((1008, "sso required".to_owned())),
+        "the subscription checked before the wall ends the connection, saying why"
     );
     ts.teardown().await;
     fake.stop();

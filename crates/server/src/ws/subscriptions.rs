@@ -134,7 +134,7 @@ impl Hub {
     ) -> Result<WorkspaceRole, Disconnect> {
         let access = self
             .audience
-            .workspace_access(user_id, workspace)
+            .current_workspace_access(user_id, workspace)
             .await
             .ok_or(Disconnect::AccessEnded)?;
         let listeners = self.listeners();

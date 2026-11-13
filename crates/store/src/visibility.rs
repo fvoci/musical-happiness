@@ -8,8 +8,9 @@
 //!
 //! A write abandoned before its outcome was known (its future was dropped between its
 //! first authorization statement and its commit or rollback) may still land. For
-//! [`SETTLE`] after that nothing is cached: every check reads the store anew, and a
-//! dispatch is still checked against concurrent writers, but none is refused for it.
+//! a while after that ([`settle_after`]) nothing of its scope is cached: every check
+//! reads the store anew, and a dispatch is still checked against concurrent writers,
+//! but none is refused for it.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -21,18 +22,26 @@ use tokio::sync::watch;
 
 use crate::{Store, Tenant};
 
-/// How long after an abandoned authorization write reads are not cached. Longer than
-/// the store's busy timeout on SQLite (five seconds by default) and than what a commit
-/// that was already sent takes on PostgreSQL: the write has landed or never will by
-/// then. A delayed commit later than that would not be seen until the next write of
-/// the same organization moves its revision on.
+/// The least time after an abandoned authorization write that reads are not cached:
+/// longer than a commit that was already sent takes on PostgreSQL with asynchronous
+/// or local commit (a synchronous standby that stalls can hold it longer).
 const SETTLE: Duration = Duration::from_secs(60);
 
-/// Writers of a part of the data, and its revision.
+/// How long after an abandoned authorization write reads are not cached, for a store
+/// whose statements may wait up to `longest_wait` for another writer (SQLite's busy
+/// timeout): by then the write has landed or never will. A commit later than that
+/// is not seen until the next write of the same scope moves its revision on.
+pub(crate) fn settle_after(longest_wait: Duration) -> Duration {
+    SETTLE.max(longest_wait.saturating_mul(2))
+}
+
+/// Writers of a part of the data, its revision, and until when its reads are not
+/// cached after one of its writes was abandoned.
 #[derive(Debug, Default, Clone, Copy)]
 struct Count {
     revision: u64,
     writers: usize,
+    unsettled_until: Option<Instant>,
 }
 
 impl Count {
@@ -45,6 +54,10 @@ impl Count {
         self.writers -= 1;
         self.revision = self.revision.wrapping_add(1);
     }
+
+    fn settled_at(self, now: Instant) -> bool {
+        self.unsettled_until.is_none_or(|until| now >= until)
+    }
 }
 
 #[derive(Debug, Default)]
@@ -53,34 +66,39 @@ struct State {
     shared: Count,
     /// Every write, for readers of no organization.
     every: Count,
-    /// Writes of one organization, by its identifier.
+    /// Writes of one organization, by its identifier. Only written ones are kept: a
+    /// reader of an organization nobody wrote takes the default.
     orgs: HashMap<Uuid, Count>,
-    /// Until when reads are not cached, after an abandoned write.
-    unsettled_until: Option<Instant>,
 }
 
 impl State {
-    fn counts(&mut self, reach: Reach) -> [Count; 2] {
+    fn counts(&self, reach: Reach) -> [Count; 2] {
         match reach {
-            Reach::Org(org) => [self.shared, *self.orgs.entry(org).or_default()],
+            Reach::Org(org) => [
+                self.shared,
+                self.orgs.get(&org).copied().unwrap_or_default(),
+            ],
             Reach::Every => [self.every, self.every],
         }
     }
 
-    fn writers_of(&mut self, reach: Reach) -> usize {
+    fn writers_of(&self, reach: Reach) -> usize {
         self.counts(reach).iter().map(|count| count.writers).sum()
     }
 
-    fn version(&mut self, reach: Reach, now: Instant) -> VisibilityVersion {
+    fn version(&self, reach: Reach, now: Instant) -> VisibilityVersion {
         let [shared, own] = self.counts(reach);
         VisibilityVersion {
             reach,
             shared: shared.revision,
             own: own.revision,
-            cacheable: self.unsettled_until.is_none_or(|until| now >= until),
+            cacheable: shared.settled_at(now) && own.settled_at(now),
         }
     }
 
+    /// Applies `change` to what a write of `reach` moves: its organization's count
+    /// (the shared one for a write of no or every organization), and the count of
+    /// every write.
     fn change(&mut self, reach: Reach, change: impl Fn(&mut Count)) {
         change(&mut self.every);
         match reach {
@@ -120,7 +138,7 @@ impl Default for Visibility {
 }
 
 impl Visibility {
-    fn settling_for(settle: Duration) -> Self {
+    pub(crate) fn settling_for(settle: Duration) -> Self {
         Self {
             state: Mutex::default(),
             changed: watch::channel(0).0,
@@ -142,7 +160,7 @@ impl Visibility {
     }
 
     fn if_current(&self, version: VisibilityVersion, send: impl FnOnce()) -> bool {
-        let mut state = self.state();
+        let state = self.state();
         let now = state.version(version.reach, Instant::now());
         if state.writers_of(version.reach) != 0
             || (now.shared, now.own) != (version.shared, version.own)
@@ -158,7 +176,7 @@ impl Visibility {
         let mut changes = self.changed.subscribe();
         loop {
             {
-                let mut state = self.state();
+                let state = self.state();
                 if state.writers_of(reach) == 0 {
                     return state.version(reach, Instant::now());
                 }
@@ -253,20 +271,25 @@ impl Drop for Writing<'_> {
             return;
         }
         let mut state = self.visibility.state();
-        state.change(self.reach, Count::end);
-        if !self.finished.load(Ordering::Relaxed) {
-            state.unsettled_until = Some(Instant::now() + self.visibility.settle);
-        }
+        let unsettled = (!self.finished.load(Ordering::Relaxed))
+            .then(|| Instant::now() + self.visibility.settle);
+        state.change(self.reach, |count| {
+            count.end();
+            if unsettled.is_some() {
+                count.unsettled_until = unsettled;
+            }
+        });
         self.visibility.changed.send_replace(state.every.revision);
     }
 }
 
-/// Every statement is built by the store. Treat any write mentioning these tables
-/// conservatively, including writes with subqueries and the test-only raw SQL path.
+/// Every statement is built by the store. `users` is not among the tables: no cached
+/// read depends on a user's row, and a user who goes has their connections closed.
+/// Treat any write mentioning these tables conservatively, including writes with subqueries and the test-only raw SQL path.
 /// Ordinary card/body writes stay cacheable; type changes invalidate explicitly,
 /// and deleting or restoring cards changes their visibility through the trash.
 fn affects_visibility(text: &str) -> bool {
-    const TABLES: [&str; 11] = [
+    const TABLES: [&str; 10] = [
         "workspace_members",
         "organization_members",
         "board_members",
@@ -274,7 +297,6 @@ fn affects_visibility(text: &str) -> bool {
         "workspaces",
         "organizations",
         "boards",
-        "users",
         "deleted_boards",
         "deleted_blocks",
         // Which provider an organization takes sessions of (`sso_required`).
@@ -378,6 +400,36 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn an_abandoned_write_unsettles_its_own_organization_only() {
+        let visibility = Visibility::settling_for(Duration::from_secs(60));
+        let writing = visibility.writing(org(1));
+        writing.statement("DELETE FROM board_members");
+        drop(writing);
+        assert!(!visibility.version(org(1)).await.cacheable());
+        assert!(!visibility.version(Tenant::Unset).await.cacheable());
+        assert!(
+            visibility.version(org(2)).await.cacheable(),
+            "another organization keeps its cache"
+        );
+        let writing = visibility.writing(Tenant::System);
+        writing.statement("UPDATE organizations SET delete_at = 1");
+        drop(writing);
+        assert!(
+            !visibility.version(org(2)).await.cacheable(),
+            "an abandoned write of every organization unsettles each"
+        );
+    }
+
+    #[test]
+    fn the_settle_time_outlasts_the_longest_wait() {
+        assert_eq!(settle_after(Duration::from_secs(5)), SETTLE);
+        assert_eq!(
+            settle_after(Duration::from_secs(120)),
+            Duration::from_secs(240)
+        );
+    }
+
     #[test]
     fn authorization_writers_cannot_enter_a_checked_dispatch() {
         let visibility = Visibility::default();
@@ -425,7 +477,7 @@ mod tests {
             .expect("test store");
         let error: Result<(), StoreError> = store
             .transaction(async |scope| {
-                let write = scope.sql("UPDATE users SET username = username");
+                let write = scope.sql("UPDATE boards SET title = title");
                 scope.execute(write).await?;
                 let invalid = scope.sql("SELECT missing_visibility_test_column FROM users");
                 scope.fetch_optional(invalid).await?;
@@ -439,7 +491,7 @@ mod tests {
         );
         let reached = tokio::sync::Notify::new();
         let mut writing = Box::pin(store.transaction(async |scope| {
-            let write = scope.sql("UPDATE users SET username = username");
+            let write = scope.sql("UPDATE boards SET title = title");
             scope.execute(write).await?;
             reached.notify_one();
             std::future::pending::<Result<(), StoreError>>().await

@@ -94,14 +94,17 @@ impl Audience {
     /// who is no member. What a subscription of the workspace is told of a board goes
     /// to the board's members only, so a guest hears the boards they were invited to
     /// and no other. A membership that cannot be read is no membership here: the
-    /// connection is not subscribed. Cached at the store's visibility revision, which a
-    /// change of a membership or of an organization's provider moves on.
+    /// connection is not subscribed.
+    ///
+    /// Cached at the visibility revision of this audience's organization, which a
+    /// change of a membership or of the organization's provider moves on: for a
+    /// workspace of that organization, as a change it writes is sent.
     pub async fn workspace_access(
         &self,
         user_id: &str,
         workspace_id: &str,
     ) -> Option<WorkspaceAccess> {
-        match self
+        let read = self
             .cache
             .workspaces
             .read(
@@ -109,14 +112,30 @@ impl Audience {
                 (user_id.to_owned(), workspace_id.to_owned()),
                 || async { self.store.resolve_workspace(user_id, workspace_id).await },
             )
-            .await
-        {
-            Ok(access) => access,
-            Err(error) => {
-                tracing::error!(%error, workspace_id, "websocket: reading a workspace's membership failed");
-                None
-            }
-        }
+            .await;
+        Self::access_or_none(read, workspace_id)
+    }
+
+    /// As [`Self::workspace_access`], read from the store and not cached: for what is
+    /// asked of a workspace of any organization (a subscription, what is left of a
+    /// user's after their roles change), which no one organization's revision covers.
+    pub async fn current_workspace_access(
+        &self,
+        user_id: &str,
+        workspace_id: &str,
+    ) -> Option<WorkspaceAccess> {
+        let read = self.store.resolve_workspace(user_id, workspace_id).await;
+        Self::access_or_none(read, workspace_id)
+    }
+
+    fn access_or_none(
+        read: Result<Option<WorkspaceAccess>, StoreError>,
+        workspace_id: &str,
+    ) -> Option<WorkspaceAccess> {
+        read.unwrap_or_else(|error| {
+            tracing::error!(%error, workspace_id, "websocket: reading a workspace's membership failed");
+            None
+        })
     }
 
     /// The members of the board.

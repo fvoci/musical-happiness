@@ -71,6 +71,27 @@ impl Socket {
         }
     }
 
+    /// The code and reason of the close frame the server ends the connection with,
+    /// skipping what comes before it; `None` if it ends without one or not within
+    /// `wait`.
+    pub(crate) async fn close_frame(&mut self, wait: Duration) -> Option<(u16, String)> {
+        tokio::time::timeout(wait, async {
+            loop {
+                match self.stream.next().await {
+                    Some(Ok(Message::Close(frame))) => {
+                        return frame
+                            .map(|frame| (u16::from(frame.code), frame.reason.to_string()));
+                    }
+                    None | Some(Err(_)) => return None,
+                    Some(Ok(_)) => {}
+                }
+            }
+        })
+        .await
+        .ok()
+        .flatten()
+    }
+
     /// The next JSON message, skipping pings.
     pub(crate) async fn next_json(&mut self, wait: Duration) -> Option<Value> {
         loop {

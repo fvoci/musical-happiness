@@ -469,6 +469,78 @@ async fn stored_card(ts: &TestServer, board: &str, user: &str) -> Block {
     block
 }
 
+/// Two hundred dispatches with the cache warm read nothing of the store; how long they
+/// take is printed for the report.
+#[expect(clippy::print_stdout, reason = "the measurement is for the report")]
+async fn warm_dispatch_reads_nothing(
+    ts: &TestServer,
+    reads: &Reads,
+    block: &Block,
+    [member, reader]: [&mut Socket; 2],
+) {
+    use std::sync::atomic::Ordering;
+    reads.0.store(0, Ordering::Relaxed);
+    let started = std::time::Instant::now();
+    let mut dispatch_time = Duration::ZERO;
+    for _ in 0..200 {
+        let dispatch = std::time::Instant::now();
+        ts.app
+            .ws()
+            .broadcast_block_change(ROOT_WORKSPACE_ID, block)
+            .await;
+        dispatch_time += dispatch.elapsed();
+        updated(member, "member").await;
+        updated(reader, "reader").await;
+    }
+    let count = reads.0.load(Ordering::Relaxed);
+    println!(
+        "dispatch measurement: db={:?}, messages=200, recipients=2, reads={count}, dispatch_us={}, elapsed_us={}",
+        ts.app.store().db_type(),
+        dispatch_time.as_micros(),
+        started.elapsed().as_micros()
+    );
+    assert_eq!(count, 0, "warm dispatch performs no database round trips");
+}
+
+/// Another organization's authorization write leaves this one's revision, and a
+/// dispatch after it reads nothing of the store.
+async fn another_organizations_write_reads_nothing(
+    ts: &TestServer,
+    revision: fvoci_store::VisibilityVersion,
+    reads: &Reads,
+    block: &Block,
+    [member, reader]: [&mut Socket; 2],
+) {
+    use std::sync::atomic::Ordering;
+    ts.app
+        .store()
+        .for_org(&new_id())
+        .expect("an identifier")
+        .execute_unchecked(&format!(
+            "UPDATE boards SET title = title WHERE id = '{}'",
+            new_id()
+        ))
+        .await
+        .expect("a write of another organization");
+    assert_eq!(
+        revision,
+        ts.app.store().visibility_version().await,
+        "another organization's write is not this one's revision"
+    );
+    reads.0.store(0, Ordering::Relaxed);
+    ts.app
+        .ws()
+        .broadcast_block_change(ROOT_WORKSPACE_ID, block)
+        .await;
+    updated(member, "member").await;
+    updated(reader, "reader").await;
+    assert_eq!(
+        reads.0.load(Ordering::Relaxed),
+        0,
+        "dispatch after another organization's write reads nothing"
+    );
+}
+
 #[tokio::test]
 async fn dispatch_reuses_authorization_reads_until_visibility_changes() {
     use std::sync::atomic::Ordering;
@@ -524,27 +596,15 @@ async fn dispatch_reuses_authorization_reads_until_visibility_changes() {
     // A real card write, including its history, must not flush permission caches.
     let _next = stored_card(&ts, &board.id, &user).await;
     assert_eq!(revision, ts.app.store().visibility_version().await);
-    reads.0.store(0, Ordering::Relaxed);
-    let started = std::time::Instant::now();
-    let mut dispatch_time = Duration::ZERO;
-    for _ in 0..200 {
-        let dispatch = std::time::Instant::now();
-        ts.app
-            .ws()
-            .broadcast_block_change(ROOT_WORKSPACE_ID, &block)
-            .await;
-        dispatch_time += dispatch.elapsed();
-        updated(&mut member, "member").await;
-        updated(&mut reader, "reader").await;
-    }
-    let count = reads.0.load(Ordering::Relaxed);
-    println!(
-        "dispatch measurement: db={:?}, messages=200, recipients=2, reads={count}, dispatch_us={}, elapsed_us={}",
-        ts.app.store().db_type(),
-        dispatch_time.as_micros(),
-        started.elapsed().as_micros()
-    );
-    assert_eq!(count, 0, "warm dispatch performs no database round trips");
+    warm_dispatch_reads_nothing(&ts, &reads, &block, [&mut member, &mut reader]).await;
+    another_organizations_write_reads_nothing(
+        &ts,
+        revision,
+        &reads,
+        &block,
+        [&mut member, &mut reader],
+    )
+    .await;
     ts.app.store().execute_unchecked(&format!("DELETE FROM workspace_members WHERE user_id = '{user}' AND workspace_id = '{ROOT_WORKSPACE_ID}'")).await.expect("membership revoked below app hooks");
     assert_ne!(revision, ts.app.store().visibility_version().await);
     // User-directed messages must also recheck, not only board updates.
