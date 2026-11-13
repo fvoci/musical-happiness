@@ -336,7 +336,7 @@ async fn unrelated_admin_withdrawal_does_not_close_pending_document_admission() 
 }
 
 #[tokio::test]
-async fn an_unchecked_admission_uses_permissions_after_admin_revocation() {
+async fn an_admission_read_before_admin_revocation_is_asked_again() {
     for demote in [false, true] {
         let ts = server().await;
         let org = org_of(&ts).await;
@@ -377,7 +377,7 @@ async fn an_unchecked_admission_uses_permissions_after_admin_revocation() {
             .expect("join sent");
         tokio::time::timeout(WAIT, reached.notified())
             .await
-            .expect("admission has not checked access");
+            .expect("admission was read, room not yet held");
         if demote {
             let user = ts.client.me().await.id;
             ts.client2

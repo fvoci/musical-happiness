@@ -31,7 +31,8 @@ async fn card_in(th: &TestServer, workspace_id: &str) -> (String, String) {
 }
 
 /// A workspace put in the trash is not there for its members: who is in the room of
-/// one of its cards has its connection closed as part of the workspace operation.
+/// one of its cards is put out of the room before the operation answers, and keeps
+/// its connection.
 /// Brought back, the card is as it was, with what was typed. Removed for good while
 /// its room is open, it empties the room the same, and the server goes on with the
 /// rooms of other workspaces.
@@ -60,9 +61,9 @@ async fn a_workspace_in_the_trash_or_removed_for_good_empties_the_rooms_of_its_c
     for peer in [&mut one, &mut two] {
         let left = peer.text("DOC_LEFT").await;
         assert_eq!(
-            left["reason"],
-            json!("not_found"),
-            "workspace trash puts out of the room: {left}"
+            left,
+            json!({"action": "DOC_LEFT", "doc": peer.doc, "reason": "not_found"}),
+            "workspace trash puts out of the room"
         );
     }
     for peer in [&mut one, &mut two] {
@@ -114,7 +115,8 @@ async fn a_workspace_in_the_trash_or_removed_for_good_empties_the_rooms_of_its_c
 /// An administrator of the organization joins a workspace as its administrator, gives
 /// themselves a role on one of its boards and writes a card's body there with a
 /// member. When they leave the workspace again, the role goes with the joining: they
-/// have their connection closed, and the member writes on.
+/// are put out of the room before the operation answers, keep their connection, and
+/// the member writes on.
 #[tokio::test]
 async fn an_org_admin_who_leaves_a_workspace_they_joined_is_put_out_of_its_rooms() {
     let th = asking_often().start().await.init_basic().await;
@@ -171,9 +173,9 @@ async fn an_org_admin_who_leaves_a_workspace_they_joined_is_put_out_of_its_rooms
         .check_ok();
     let left = joined.text("DOC_LEFT").await;
     assert_eq!(
-        left["reason"],
-        json!("not_found"),
-        "leaving puts out of the room: {left}"
+        left,
+        json!({"action": "DOC_LEFT", "doc": joined.doc, "reason": "not_found"}),
+        "leaving puts out of the room"
     );
     let refused = joined.join(&workspace, &card.id).await;
     assert_eq!(refused["reason"], json!("not_found"), "{refused}");

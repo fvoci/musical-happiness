@@ -346,10 +346,14 @@ impl App {
             .join_workspace_as_org_admin(workspace_id, user_id)
             .await?
         {
-            joining @ (Joining::Joined | Joining::Already) => {
-                if matches!(joining, Joining::Joined) {
-                    self.ws().workspace_role_changed(workspace_id, user_id);
-                }
+            Joining::Joined => {
+                self.ws().workspace_role_changed(workspace_id, user_id);
+                self.collab()
+                    .recheck_access(self, AccessScope::workspace(workspace_id).of_user(user_id))
+                    .await;
+                self.org_workspace(user_id, workspace_id).await
+            }
+            Joining::Already => {
                 self.collab()
                     .recheck_access(self, AccessScope::workspace(workspace_id).of_user(user_id))
                     .await;
