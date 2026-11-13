@@ -29,42 +29,18 @@
  * `redo` and `undo` must not perform changes themselves.
  */
 
-interface Step {
-  undo: (value?: unknown) => Promise<void>;
-  redo: () => Promise<unknown>;
-  description: string | undefined;
-  value: unknown;
-}
-
-interface Entry {
-  checkpoint: number;
-  groupId: string | undefined;
-  /** In the order they were made. */
-  steps: Step[];
-  /** The writes of changes of this step that have not come back. */
-  making: Set<Promise<unknown>>;
-  /** The undo or redo of this step being carried out. */
-  carrying: Promise<unknown> | undefined;
-  /** The gesture of a `group`, while it is under way. */
-  gesture: Gesture | undefined;
-  /** What could be redone when this step was made: back if it ends with no change. */
-  cut: Entry[];
-}
-
-/** A gesture under way, and its step once it has made a change. */
-interface Gesture {
-  over: Promise<void>;
-  /** A caller must not open a result that was already asked to be taken back. */
-  undoRequested: boolean;
-  /** The step its next change joins. */
-  entry: Entry | undefined;
-  /** Every step it made: more than one where a change of the person came between its own. */
-  entries: Entry[];
-  /** The history it was begun in (`clear` begins another). */
-  history: number;
-}
-
-type Action = 'undo' | 'redo';
+import {
+  call,
+  deferred,
+  detached,
+  replaceCut,
+  settled,
+  type Action,
+  type Asked,
+  type Entry,
+  type Gesture,
+  type Step,
+} from './undo-parts.ts';
 
 let groupCounter = 0;
 
@@ -72,11 +48,12 @@ export class UndoManager {
   /** Called whenever what can be undone or redone, or `busy`, has changed. */
   onStateDidChange?: () => void;
 
+  /** The steps, in the order they were made; undone ones stay until a change cuts them. */
   #entries: Entry[] = [];
-  /** The step undo takes back next, as asked for. */
-  #index = -1;
-  /** The same, as far as undos and redos have begun: the last step in force. */
-  #inForce = -1;
+  /** Undos and redos asked for and not yet over, in the order asked. */
+  #asks: Asked[] = [];
+  /** How many undos and redos were asked for: the number of the last one. */
+  #asked = 0;
   /** Gestures still under way, by group. */
   readonly #gestures = new Map<string, Gesture>();
   /** The turn the next undo or redo waits for. */
@@ -85,12 +62,36 @@ export class UndoManager {
   #carried: Promise<unknown> = Promise.resolve();
   /** Undos and redos asked for and not yet over. */
   #waiting = 0;
-  /** Raised when what is asked for is dropped: by a new change, a failure, `clear`. */
-  #generation = 0;
-  /** Settles when the asks of this generation are dropped. */
-  #dropped = deferred();
   /** Times the history was cleared. */
   #history = 0;
+
+  /** Whether each step is to be in force: what has begun, then the asks not dropped, in order. */
+  #requested(): Map<Entry, boolean> {
+    const wanted = new Map(this.#entries.map((entry) => [entry, entry.inForce]));
+    for (const ask of this.#asks) {
+      if (!ask.cancelled && wanted.has(ask.entry)) wanted.set(ask.entry, ask.action === 'redo');
+    }
+    return wanted;
+  }
+
+  get #index(): number {
+    return [...this.#requested().values()].lastIndexOf(true);
+  }
+
+  get #inForce(): number {
+    return this.#entries.map((entry) => entry.inForce && entry.steps.length > 0).lastIndexOf(true);
+  }
+
+  get #redoEntry(): Entry | undefined {
+    return this.#entries
+      .slice(this.#index + 1)
+      .find(
+        (entry) =>
+          !this.#entries.some(
+            (other) => other.reservedAt !== undefined && other.hidden.includes(entry),
+          ),
+      );
+  }
 
   /** When the change that would be undone next was made; 0 without one. */
   get currentCheckpoint(): number {
@@ -102,7 +103,7 @@ export class UndoManager {
   }
 
   get redoDescription(): string | undefined {
-    return this.#entries[this.#index + 1]?.steps[0]?.description;
+    return this.#redoEntry?.steps[0]?.description;
   }
 
   get canUndo(): boolean {
@@ -110,7 +111,7 @@ export class UndoManager {
   }
 
   get canRedo(): boolean {
-    return this.#index < this.#entries.length - 1;
+    return this.#redoEntry !== undefined;
   }
 
   /** Whether an undo or redo is waiting for a write, or being carried out. */
@@ -164,7 +165,9 @@ export class UndoManager {
    * its start (a gesture that reads before it changes anything: an undo
    * asked for during the reading is of it, and it is of the history it was
    * begun in). An undo asked for while the gesture is under way waits for
-   * its end. A gesture that changes nothing leaves the history as it was.
+   * its end. A gesture that changes nothing leaves the history as it was:
+   * a step placed at once is no change until its first one, so the undos
+   * and redos asked for before it are dropped then, not when it is placed.
    */
   async group<T>(gesture: (groupId: string) => Promise<T>, placedAtOnce = false): Promise<T> {
     groupCounter += 1;
@@ -179,7 +182,7 @@ export class UndoManager {
     };
     this.#gestures.set(groupId, record);
     if (placedAtOnce) {
-      this.#begin(record, groupId, false);
+      this.#begin(record, groupId, false, true);
       this.onStateDidChange?.();
     }
     try {
@@ -203,16 +206,14 @@ export class UndoManager {
     const entry = this.#entries[this.#index];
     if (!entry) return this;
     if (entry.gesture) entry.gesture.undoRequested = true;
-    this.#index -= 1;
     await this.#ask(entry, 'undo');
     return this;
   }
 
   /** Does again the step undone last; as `undo`, the other way. */
   async redo(): Promise<this> {
-    const entry = this.#entries[this.#index + 1];
+    const entry = this.#redoEntry;
     if (!entry) return this;
-    this.#index += 1;
     await this.#ask(entry, 'redo');
     return this;
   }
@@ -230,8 +231,6 @@ export class UndoManager {
     this.#waiting = 0;
     const hadEntries = this.#entries.length > 0;
     this.#entries = [];
-    this.#index = -1;
-    this.#inForce = -1;
     this.#drop();
     if (hadEntries) this.onStateDidChange?.();
   }
@@ -248,16 +247,24 @@ export class UndoManager {
     entry ??= gesture
       ? this.#begin(gesture, groupId, isDiscardable)
       : this.#push(groupId, isDiscardable);
+    this.#commitReservation(entry);
     entry.steps.push(step);
     this.onStateDidChange?.();
     return entry;
   }
 
   /** A new step of `gesture`. */
-  #begin(gesture: Gesture, groupId: string | undefined, isDiscardable: boolean): Entry {
+  #begin(
+    gesture: Gesture,
+    groupId: string | undefined,
+    isDiscardable: boolean,
+    reserve = false,
+  ): Entry {
     // A gesture begun in a history since cleared is of that history: its step is in none.
     const entry =
-      gesture.history !== this.#history ? detached(groupId) : this.#push(groupId, isDiscardable);
+      gesture.history !== this.#history
+        ? detached(groupId)
+        : this.#push(groupId, isDiscardable, reserve);
     gesture.entry = entry;
     gesture.entries.push(entry);
     entry.gesture = gesture;
@@ -285,18 +292,39 @@ export class UndoManager {
    * A new step after the last one in force. Undos and redos that wait are
    * dropped; what could be redone is gone (kept in `cut`).
    */
-  #push(groupId: string | undefined, isDiscardable: boolean): Entry {
-    if (this.#waiting > 0) {
-      this.#drop();
-      this.#index = this.#inForce;
-    }
-    const cut = this.#entries.splice(this.#index + 1);
+  #push(groupId: string | undefined, isDiscardable: boolean, reserve = false): Entry {
+    // A reservation can still end without a change: it must not discard requests or redo yet.
+    if (!reserve) this.#drop();
+    const requested = this.#requested();
+    const hidden = reserve ? this.#entries.filter((entry) => !requested.get(entry)) : [];
+    const cut = reserve ? [] : this.#entries.filter((entry) => !entry.inForce);
+    if (!reserve) this.#entries = this.#entries.filter((entry) => entry.inForce);
     const checkpoint = isDiscardable ? (this.#entries.at(-1)?.checkpoint ?? 0) : Date.now();
-    const entry: Entry = { ...detached(groupId), checkpoint, cut };
+    const entry: Entry = {
+      ...detached(groupId),
+      checkpoint,
+      cut,
+      hidden,
+      reservedAt: reserve ? this.#asked : undefined,
+    };
     this.#entries.push(entry);
-    this.#index = this.#entries.length - 1;
-    this.#inForce = this.#index;
     return entry;
+  }
+
+  /**
+   * The first change of a step placed at once: the undos and redos asked for
+   * before it are dropped and what could be redone then is cut, as by any
+   * change; those asked for since (of this gesture) stay.
+   */
+  #commitReservation(entry: Entry): void {
+    if (entry.reservedAt === undefined) return;
+    this.#drop(entry.reservedAt);
+    const at = this.#entries.indexOf(entry);
+    const cut = this.#entries.slice(0, at).filter((other) => !other.inForce);
+    this.#entries = this.#entries.filter((other) => !cut.includes(other));
+    entry.cut.push(...cut);
+    entry.hidden = [];
+    entry.reservedAt = undefined;
   }
 
   /**
@@ -313,37 +341,41 @@ export class UndoManager {
     const next = this.#entries[at];
     if (!next) this.#entries.push(...entry.cut.filter((other) => other.steps.length > 0));
     else if (next.cut.length === 0) next.cut = entry.cut;
-    if (at <= this.#index) this.#index -= 1;
-    if (at <= this.#inForce) this.#inForce -= 1;
     this.onStateDidChange?.();
   }
 
   /** Drops the undos and redos asked for and not yet begun. */
-  #drop(): void {
-    this.#generation += 1;
-    this.#dropped.resolve();
-    this.#dropped = deferred();
+  #drop(through = Infinity): void {
+    for (const ask of this.#asks) {
+      if (ask.number > through) continue;
+      ask.cancelled = true;
+      ask.dropped.resolve();
+    }
   }
 
   /** Queues an undo or redo of `entry`, and waits for it to be over. */
   async #ask(entry: Entry, action: Action): Promise<void> {
-    const generation = this.#generation;
-    const dropped = this.#dropped.promise;
-    const current = (): boolean => generation === this.#generation;
+    this.#asked += 1;
+    const ask: Asked = {
+      number: this.#asked,
+      entry,
+      action,
+      cancelled: false,
+      dropped: deferred(),
+    };
+    this.#asks.push(ask);
+    const current = (): boolean => !ask.cancelled;
     const history = this.#history;
     this.#waiting += 1;
     this.onStateDidChange?.();
     const turn = this.#queue.then(async () => {
       if (!current()) return;
-      // Waits for the writes of the step, or for being dropped (a write may never end).
-      await Promise.race([settled(entry), dropped]);
+      await Promise.race([settled(entry), ask.dropped.promise]);
       if (!current()) return;
-      // One undo or redo at a time, in the order asked for: two writes of one thing never cross.
+      // A dropped queue can move on, but a write already being carried out still comes first.
       await this.#carried;
-      const at = this.#entries.indexOf(entry);
-      // Dropped, or every change of the step was refused.
-      if (!current() || at === -1) return;
-      this.#inForce = action === 'undo' ? at - 1 : at;
+      if (!current() || !this.#entries.includes(entry)) return;
+      entry.inForce = action === 'redo';
       const carrying = this.#carryOut(entry, action);
       entry.carrying = carrying.catch(() => undefined);
       this.#carried = entry.carrying;
@@ -353,12 +385,11 @@ export class UndoManager {
         entry.carrying = undefined;
       }
     });
-    // The next waits for this one, unless what is asked for is dropped meanwhile.
-    this.#queue = Promise.race([turn.catch(() => undefined), dropped]);
+    this.#queue = Promise.race([turn.catch(() => undefined), ask.dropped.promise]);
     try {
       await turn;
     } finally {
-      // One of a history since cleared was let go of by `clear`.
+      this.#asks = this.#asks.filter((other) => other !== ask);
       if (history === this.#history) this.#waiting -= 1;
       this.onStateDidChange?.();
     }
@@ -394,16 +425,19 @@ export class UndoManager {
    * unless the step was undone and a newer change has taken its place.
    */
   #failed(entry: Entry, done: number): void {
-    const piece = (steps: Step[]): Entry => ({
+    const piece = (steps: Step[], inForce: boolean): Entry => ({
       ...entry,
       steps,
+      inForce,
+      reservedAt: undefined,
+      hidden: [],
       making: new Set(),
       carrying: undefined,
       gesture: undefined,
       cut: [],
     });
-    const inForce = piece(entry.steps.slice(0, done));
-    const notInForce = piece(entry.steps.slice(done));
+    const inForce = piece(entry.steps.slice(0, done), true);
+    const notInForce = piece(entry.steps.slice(done), false);
     const at = this.#entries.indexOf(entry);
     if (at === -1) {
       // A change made while it was undone took its place (perhaps in what it cut in
@@ -412,73 +446,22 @@ export class UndoManager {
       const rest = notInForce.steps.length > 0 ? notInForce : undefined;
       const host = this.#entries.findIndex((other) => replaceCut(other, entry, rest));
       if (host === -1) return;
+      const asked = this.#index;
       this.#entries.splice(host, 0, inForce);
-      if (host <= this.#inForce) this.#inForce += 1;
       // Undos asked for down to the newer change still hold; one asked for below it did not
       // know that this step stays.
-      if (this.#index >= host - 1) {
-        this.#index += 1;
+      if (asked >= host - 1) {
         this.onStateDidChange?.();
         return;
       }
     } else if (this.#inForce > at) {
       // A change made while it was redone comes after it: what is not in force is gone.
       this.#entries.splice(at, 1, ...(inForce.steps.length > 0 ? [inForce] : []));
-      if (inForce.steps.length === 0) this.#inForce -= 1;
     } else {
       const pieces = [inForce, notInForce].filter((piece) => piece.steps.length > 0);
       this.#entries.splice(at, 1, ...pieces);
-      this.#inForce = inForce.steps.length > 0 ? at : at - 1;
     }
-    this.#index = this.#inForce;
     this.#drop();
     this.onStateDidChange?.();
-  }
-}
-
-/** A step in no history. */
-function detached(groupId: string | undefined): Entry {
-  return {
-    checkpoint: 0,
-    groupId,
-    steps: [],
-    making: new Set(),
-    carrying: undefined,
-    gesture: undefined,
-    cut: [],
-  };
-}
-
-/**
- * Puts `by` in place of `entry` in what `holder` cut, however deep (takes it
- * out without `by`: nothing of it can be redone); whether it was there.
- */
-function replaceCut(holder: Entry, entry: Entry, by: Entry | undefined): boolean {
-  const at = holder.cut.indexOf(entry);
-  if (at !== -1) {
-    if (by) holder.cut[at] = by;
-    else holder.cut.splice(at, 1);
-    return true;
-  }
-  return holder.cut.some((other) => replaceCut(other, entry, by));
-}
-
-/** Calls `run` now, turning a throw into a rejection. */
-async function call<T>(run: () => Promise<T>): Promise<T> {
-  return run();
-}
-
-function deferred(): { promise: Promise<void>; resolve: () => void } {
-  let resolve = (): void => undefined;
-  const promise = new Promise<void>((done) => {
-    resolve = done;
-  });
-  return { promise, resolve };
-}
-
-/** Waits until the gesture of `entry` is over and its writes, and an undo or redo of it, are done. */
-async function settled(entry: Entry): Promise<void> {
-  while (entry.gesture || entry.making.size > 0 || entry.carrying) {
-    await Promise.allSettled([entry.gesture?.over, entry.carrying, ...entry.making]);
   }
 }
