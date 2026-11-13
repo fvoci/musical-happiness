@@ -21,6 +21,7 @@ use super::auth::account_error;
 use super::{App, Asker, BoardAccess};
 use crate::auth::now_millis;
 use crate::auth::secret::{new_secret, token_digest};
+use crate::collab::AccessScope;
 use crate::error::AppError;
 use crate::permissions::{self, Actor, BoardScope, WorkspacePermission};
 
@@ -407,6 +408,9 @@ impl App {
                 })?;
             match acceptance {
                 Acceptance::Accepted(accepted) => {
+                    app.collab()
+                        .recheck_access(&app, AccessScope::Workspace(accepted.workspace_id.clone()))
+                        .await;
                     settled = Some((app, accepted));
                     break;
                 }

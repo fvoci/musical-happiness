@@ -56,6 +56,7 @@ mod relation_copies;
 mod relations;
 mod rooms;
 mod rooms_access;
+mod rooms_changes;
 mod rooms_contract;
 mod rooms_epochs;
 mod rooms_limits;

@@ -16,6 +16,7 @@ use fvoci_store::{
 };
 
 use super::App;
+use crate::collab::AccessScope;
 use crate::error::{AppError, Reason};
 
 /// How many records or members one page holds when the request does not say.
@@ -171,6 +172,9 @@ impl App {
         }
         match self.store().set_org_role(user_id, role, actor_id).await {
             Ok(OrgRoleChange::Done) => {
+                self.collab()
+                    .recheck_access(self, AccessScope::Organization)
+                    .await;
                 if role == OrgRole::Member {
                     // What they joined is theirs no more, and what happens there neither.
                     self.ws().follow_only_own_workspaces(user_id).await;
@@ -282,6 +286,9 @@ impl App {
         known_workspace(workspace_id)?;
         match self.store().trash_workspace(workspace_id, actor_id).await {
             Ok(WorkspaceTrashing::Done) => {
+                self.collab()
+                    .recheck_access(self, AccessScope::Workspace(workspace_id.to_owned()))
+                    .await;
                 self.ws().stop_following_workspace(workspace_id);
                 self.close_shared_readers(Some(workspace_id)).await?;
                 Ok(())
@@ -337,7 +344,12 @@ impl App {
             .join_workspace_as_org_admin(workspace_id, user_id)
             .await?
         {
-            Joining::Joined | Joining::Already => self.org_workspace(user_id, workspace_id).await,
+            Joining::Joined | Joining::Already => {
+                self.collab()
+                    .recheck_access(self, AccessScope::Workspace(workspace_id.to_owned()))
+                    .await;
+                self.org_workspace(user_id, workspace_id).await
+            }
             Joining::NotFound => Err(workspace_not_found()),
             Joining::NoOrgAdmin => Err(AppError::not_found("organization")),
         }
@@ -361,6 +373,9 @@ impl App {
             .leave_workspace_as_org_admin(workspace_id, user_id)
             .await?
         {
+            self.collab()
+                .recheck_access(self, AccessScope::Workspace(workspace_id.to_owned()))
+                .await;
             self.ws().follow_only_own_workspaces(user_id).await;
         }
         self.org_workspace(user_id, workspace_id).await

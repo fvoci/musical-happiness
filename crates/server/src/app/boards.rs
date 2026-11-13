@@ -9,6 +9,7 @@ use fvoci_store::{
 };
 
 use super::{App, BoardAccess, DEFAULT_CATEGORY_BOARDS};
+use crate::collab::AccessScope;
 use crate::error::{AppError, Reason};
 
 /// The message of the refusal to remove or demote a board's only admin.
@@ -180,6 +181,9 @@ impl App {
         }
 
         let updated = self.store().patch_board(board_id, patch, user_id).await?;
+        self.collab()
+            .recheck_access(self, AccessScope::Board(board_id.to_owned()))
+            .await;
 
         let app = self.clone();
         let board = updated.clone();
@@ -292,6 +296,9 @@ impl App {
         // The memberships go with the board; who is told is who was a member.
         let members = self.store().get_members_for_board(board_id).await?;
         self.store().delete_board(board_id, user_id).await?;
+        self.collab()
+            .recheck_access(self, AccessScope::Board(board_id.to_owned()))
+            .await;
 
         self.ws()
             .broadcast_board_delete(&board.workspace_id, &board.id, &members);
@@ -622,6 +629,9 @@ impl App {
             return Ok(Some(existing));
         }
 
+        self.collab()
+            .recheck_access(self, AccessScope::Board(board.id.clone()))
+            .await;
         // The membership is stored: it is announced whatever becomes of the filing.
         self.broadcast_member_change_in_background(board.workspace_id.clone(), member.clone());
         if !board.is_template {
@@ -654,6 +664,9 @@ impl App {
         };
         match joined {
             Joined::New(member) => {
+                self.collab()
+                    .recheck_access(self, AccessScope::Board(board.id.clone()))
+                    .await;
                 // The membership is stored: it is announced whatever becomes of the
                 // filing.
                 self.broadcast_member_change_in_background(
@@ -671,6 +684,9 @@ impl App {
                 Ok(member)
             }
             Joined::Raised(member) => {
+                self.collab()
+                    .recheck_access(self, AccessScope::Board(board.id.clone()))
+                    .await;
                 self.broadcast_member_change_in_background(board.workspace_id, member.clone());
                 Ok(member)
             }
@@ -766,6 +782,9 @@ impl App {
             }
         }
 
+        self.collab()
+            .recheck_access(self, AccessScope::Board(board.id.clone()))
+            .await;
         self.broadcast_member_change_in_background(board.workspace_id, member.clone());
         Ok(Some(member.clone()))
     }
@@ -805,6 +824,9 @@ impl App {
             }
         }
 
+        self.collab()
+            .recheck_access(self, AccessScope::Board(board_id.to_owned()))
+            .await;
         // The original announces a membership through a channel in place of the removed
         // one, if the user has one; a standalone server has no such memberships.
         let app = self.clone();

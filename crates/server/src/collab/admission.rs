@@ -10,6 +10,7 @@ use crate::permissions::{DocMode, doc_mode};
 pub(super) struct Admitted {
     /// The application as the card's organization reaches it.
     pub(super) app: App,
+    pub(super) board_id: String,
     /// How the user is in the room.
     pub(super) mode: DocMode,
 }
@@ -67,7 +68,11 @@ pub(super) async fn admit(
         // to edit: it has no room.
         .filter(|access| !access.board.is_builtin)
         .and_then(|access| doc_mode(access.grant));
-    Ok(board_id.zip(mode).map(|(_, mode)| Admitted { app, mode }))
+    Ok(board_id.zip(mode).map(|(board_id, mode)| Admitted {
+        app,
+        board_id,
+        mode,
+    }))
 }
 
 /// How a connection of `asker` is let into the room of a card ([`admit`]), refused as
@@ -85,4 +90,27 @@ pub(super) async fn let_in(
     admit(home, asker, workspace_id, card_id)
         .await?
         .ok_or_else(|| AppError::not_found("card"))
+}
+
+/// Reads the same board permission as admission, without reading every card's board
+/// again: immediate notifications already know which board each room belongs to.
+pub(super) async fn board_mode(
+    home: &App,
+    asker: Asker<'_>,
+    workspace_id: &str,
+    board_id: &str,
+) -> Result<Option<DocMode>, AppError> {
+    let entered = match home.enter_workspace_as(asker, workspace_id).await {
+        Ok(Some(entered)) => entered,
+        Ok(None) => return Ok(None),
+        Err(error) if error.reason() == Some(Reason::SsoRequired) => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    Ok(entered
+        .app
+        .in_workspace(workspace_id)
+        .board_access(asker.user_id, board_id)
+        .await?
+        .filter(|access| !access.board.is_builtin)
+        .and_then(|access| doc_mode(access.grant)))
 }

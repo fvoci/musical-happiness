@@ -8,6 +8,7 @@ use fvoci_store::NewImages;
 
 use super::App;
 use super::boards::CreatorMembership;
+use crate::collab::AccessScope;
 use crate::error::AppError;
 
 impl App {
@@ -68,6 +69,11 @@ impl App {
             }
         };
 
+        for board in &created.boards {
+            self.collab()
+                .recheck_access(self, AccessScope::Board(board.id.clone()))
+                .await;
+        }
         self.announce_created(&created, &members).await;
 
         for board in &created.boards {
@@ -152,6 +158,11 @@ impl App {
                 .await?
         };
 
+        for board in &result.boards {
+            self.collab()
+                .recheck_access(self, AccessScope::Board(board.id.clone()))
+                .await;
+        }
         let app = self.clone();
         let broadcast = result.clone();
         self.spawn_background(async move {
@@ -209,6 +220,11 @@ impl App {
             .delete_boards_and_blocks(request, user_id)
             .await?;
 
+        for board_id in &request.boards {
+            self.collab()
+                .recheck_access(self, AccessScope::Board(board_id.clone()))
+                .await;
+        }
         for (block_id, board_id) in &deleted_blocks {
             // A block of a board the request does not list was refused by the store.
             let members = former_members

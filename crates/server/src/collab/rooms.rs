@@ -12,13 +12,18 @@
 //! document is sent to everyone in the room anew. Another asks again, every
 //! `collab_recheck_seconds`, whether each connection may be in the room, and how
 //! ([`admission::admit`]): who may no longer read is put out, and who may no longer
-//! write reads from then on. When an organization begins to take only sessions made
+//! write reads from then on. Permission-changing operations also ask immediately
+//! ([`Collab::recheck_access`]). When an organization begins to take only sessions made
 //! through its provider, whoever it shuts out is put out of its rooms at once
 //! ([`Collab::put_out_shut_out`]).
 //!
 //! Every step of a room runs in a task of its own that the caller waits for
 //! (`Seat`): a connection that ends while its update is taken leaves the update
 //! logged and sent to the others, never logged and not sent.
+
+mod access;
+
+pub(crate) use access::AccessScope;
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -79,9 +84,15 @@ pub(super) struct Rooms {
     queue_messages: usize,
     /// The number of the next connection.
     next_connection: AtomicU64,
-    /// How many times an organization began to take only sessions made through its
-    /// provider: a connection let in before that is asked again as it comes in.
+    /// The revision of access facts: admissions and periodic answers of an earlier
+    /// revision cannot survive an immediate check.
     walls_raised: AtomicU64,
+    /// Immediate checks are serialized; their answers never overtake a later change.
+    access_turn: tokio::sync::Mutex<()>,
+    #[cfg(feature = "test-util")]
+    recheck_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
+    #[cfg(feature = "test-util")]
+    access_stall: Mutex<Option<Arc<tokio::sync::Notify>>>,
     /// Cancelled when the server stops: nobody comes in any more, no update is taken,
     /// and the tasks of the rooms end.
     stopping: CancellationToken,
@@ -100,6 +111,11 @@ impl Rooms {
             queue_messages: as_count(settings.collab_queue_messages),
             next_connection: AtomicU64::new(0),
             walls_raised: AtomicU64::new(0),
+            access_turn: tokio::sync::Mutex::new(()),
+            #[cfg(feature = "test-util")]
+            recheck_pause: Mutex::new(None),
+            #[cfg(feature = "test-util")]
+            access_stall: Mutex::new(None),
             stopping: CancellationToken::new(),
         }
     }
@@ -198,6 +214,8 @@ pub(super) struct Room {
     /// Its key among the rooms: the card's place ([`place::key_of`]).
     key: String,
     card_id: String,
+    board_id: String,
+    workspace_id: String,
     /// The application as the card's organization reaches it.
     app: App,
     turn: tokio::sync::Mutex<Turn>,
@@ -402,7 +420,8 @@ impl Collab {
     /// The room of a card of `app`'s organization, made if there is none, with its
     /// two tasks: the one that hears what happens to its document, and the one that
     /// asks again whether its members may be in it.
-    fn room(&self, app: &App, card_id: &str) -> Arc<Room> {
+    fn room(&self, admitted: &admission::Admitted, workspace_id: &str, card_id: &str) -> Arc<Room> {
+        let app = &admitted.app;
         let key = place::key_of(app.store().tenant(), card_id);
         let mut rooms = self
             .inner
@@ -416,6 +435,8 @@ impl Collab {
         let room = Arc::new(Room {
             key: key.clone(),
             card_id: card_id.to_owned(),
+            board_id: admitted.board_id.clone(),
+            workspace_id: workspace_id.to_owned(),
             app: app.clone(),
             turn: tokio::sync::Mutex::new(Turn::default()),
             gone: CancellationToken::new(),
@@ -540,118 +561,6 @@ impl Collab {
         }
     }
 
-    /// Asks again whether each member of a room may be in it, and how: who may no
-    /// longer read the card's board is put out, and who is to be in the room otherwise
-    /// than they are is told so (`DOC_MODE`). Nobody stays unasked: a member the store
-    /// could not be asked about, or was not asked about within the time of one
-    /// asking, is asked about once more two seconds later, and put out if the store
-    /// does not answer then either. The store is asked while the room is not held; what
-    /// a member sent meanwhile was taken as they were.
-    async fn recheck(&self, room: &Arc<Room>) {
-        let asked: Vec<Asked> = {
-            let turn = room.turn.lock().await;
-            turn.members
-                .iter()
-                .map(|member| Asked {
-                    connection: member.connection.id,
-                    doc: member.doc,
-                    who: Who {
-                        user_id: member.connection.user_id.clone(),
-                        made_through: member.connection.made_through.clone(),
-                        workspace_id: member.workspace_id.clone(),
-                    },
-                })
-                .collect()
-        };
-        // Each user once, however many connections they have in the room.
-        let mut users: Vec<Who> = asked.iter().map(|asked| asked.who.clone()).collect();
-        users.sort_unstable();
-        users.dedup();
-        let mut answers = self.answers(room, users.clone()).await;
-        // Whom the store did not answer of is asked once more, a little later: a store
-        // that fails for a moment empties no room. Who is still not answered of then
-        // is put out.
-        users.retain(|who| !matches!(answers.get(who), Some(Ok(_))));
-        if !users.is_empty() {
-            tokio::time::sleep(ASKED_ONCE_MORE_AFTER).await;
-            answers.extend(self.answers(room, users).await);
-        }
-        let mut turn = room.turn.lock().await;
-        if turn.closed || self.rooms_ended() {
-            return;
-        }
-        for Asked {
-            connection,
-            doc,
-            who,
-        } in asked
-        {
-            let is_asked =
-                |member: &Member| member.connection.id == connection && member.doc == doc;
-            let Some(index) = turn.members.iter().position(is_asked) else {
-                continue;
-            };
-            match answers.get(&who) {
-                Some(Ok(Some(mode))) if *mode == turn.members[index].mode => {}
-                Some(Ok(Some(mode))) => {
-                    let mode = *mode;
-                    turn.members[index].mode = mode;
-                    turn.send(is_asked, |_| [Queued::text(doc, messages::mode(doc, mode))]);
-                }
-                Some(Ok(None)) => turn.put_out(index, &reason_of(&AppError::not_found("card"))),
-                Some(Err(reason)) => turn.put_out(index, reason),
-                None => turn.put_out(index, &reason_of(&refusals::unavailable())),
-            }
-        }
-        self.shut_if_empty(room, &mut turn).await;
-    }
-
-    /// What the store answers of each of `users`: how they are in the room, `None` for who is not
-    /// let in, or the reason the store could not be asked, which is logged. Some at
-    /// a time, and all within the time between two askings: who is not answered by
-    /// then has no answer.
-    async fn answers(&self, room: &Room, users: Vec<Who>) -> HashMap<Who, Answer> {
-        use futures_util::StreamExt as _;
-
-        let (app, card_id) = (room.app.clone(), room.card_id.clone());
-        let asking = futures_util::stream::iter(users)
-            .map(move |who| {
-                let (app, card_id) = (app.clone(), card_id.clone());
-                async move {
-                    let admitted =
-                        admission::admit(&app, who.asker(), &who.workspace_id, &card_id).await;
-                    let answer = match admitted {
-                        Ok(admitted) => Ok(admitted.map(|admitted| admitted.mode)),
-                        Err(error) => {
-                            error.log();
-                            Err(reason_of(&error))
-                        }
-                    };
-                    (who, answer)
-                }
-            })
-            .buffer_unordered(ASKED_AT_ONCE);
-        tokio::pin!(asking);
-        let late = tokio::time::sleep(self.inner.rooms.recheck);
-        tokio::pin!(late);
-        let mut answers = HashMap::new();
-        loop {
-            tokio::select! {
-                answer = asking.next() => match answer {
-                    Some((who, answer)) => {
-                        answers.insert(who, answer);
-                    }
-                    None => break,
-                },
-                () = &mut late => {
-                    tracing::warn!(card_id = room.card_id, "who is in a room was not asked about in time");
-                    break;
-                }
-            }
-        }
-        answers
-    }
-
     /// Lets a connection into the room of a card of a board of `workspace_id`, to be
     /// known there as `doc`, and sends it `DOC_JOINED` and the whole document. A
     /// connection that is in the room already is in it anew: what it knew the room
@@ -684,14 +593,13 @@ impl Collab {
             admission::let_in(home, connection.asker(), workspace_id, card_id).await?;
         let mut admissions = 1;
         loop {
-            let room = self.room(&admitted.app, card_id);
+            let room = self.room(&admitted, workspace_id, card_id);
             let mut turn = room.turn.lock().await;
             if turn.closed {
                 continue;
             }
-            // An organization began to take only its provider's sessions since the
-            // connection was admitted, and its rooms may have put out whom it shuts out
-            // already: the connection is admitted again.
+            // Access changed since admission; its immediate check may have passed
+            // this room already. Ask again before adding the connection.
             let now = limits.walls_raised.load(Ordering::SeqCst);
             if now != raised {
                 self.shut_if_empty(&room, &mut turn).await;
