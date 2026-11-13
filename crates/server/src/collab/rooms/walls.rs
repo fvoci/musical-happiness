@@ -65,10 +65,8 @@ mod tests {
     #[test]
     fn a_change_is_seen_by_its_organization_alone() {
         let walls = Walls::default();
-        let (one, other) = (
-            Tenant::Org(uuid::Uuid::nil()),
-            Tenant::Org(uuid::Uuid::max()),
-        );
+        // Two tenants that differ: which they are does not matter here.
+        let (one, other) = (Tenant::System, Tenant::Unset);
         let before = walls.now();
         walls.raise(one);
         assert!(walls.raised_since(one, before));
