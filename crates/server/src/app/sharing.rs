@@ -55,7 +55,7 @@ impl App {
                 // A token that no longer opens the board no longer feeds a connection:
                 // whoever followed the board's blocks with the old link is cut off.
                 if change != SharingChange::On {
-                    self.ws().close_readers_of_board(board_id);
+                    self.ws().end_readers_of_board(board_id);
                 }
                 Ok(sharing)
             }

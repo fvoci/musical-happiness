@@ -184,11 +184,25 @@ async fn org_creation_is_one_of_two_words_and_open_needs_postgresql() {
     );
 }
 
-/// A server that starts on an empty database has one organization and one workspace by
-/// itself: the first user who registers is in the workspace, as its administrator, and
-/// it is the workspace the routes that name no workspace work in.
+/// A server that starts on an empty database makes no organization: the first user who
+/// signs up founds it, with one workspace named as it is, which they administer and
+/// work in. A second start of the server on the same database finds that organization,
+/// and makes none.
 #[tokio::test]
-async fn a_first_start_makes_the_organization_and_its_workspace() {
+async fn the_first_signup_makes_the_organization_and_a_second_start_finds_it() {
+    let empty = Setup::native().on_an_empty_database().start().await;
+    assert_eq!(
+        empty
+            .app
+            .store()
+            .instance_organization()
+            .await
+            .expect("the directory is read"),
+        None,
+        "a start makes no organization"
+    );
+    empty.teardown().await;
+
     let ts = Setup::one_user().on_an_empty_database().start().await;
     let workspaces: Vec<fvoci_model::UserWorkspace> =
         ts.client.get("/users/me/workspaces").await.ok_json();
@@ -206,22 +220,38 @@ async fn a_first_start_makes_the_organization_and_its_workspace() {
     );
     // And it is there to work in.
     let board = ts.create_board(&workspace.id, BoardType::Private).await;
+    let organizations = |ts: &crate::common::TestServer| {
+        let system = ts.app.store().system();
+        async move {
+            system
+                .count_rows("organizations")
+                .await
+                .expect("the organizations are counted")
+        }
+    };
+    let before = organizations(&ts).await;
+
+    let ts = ts.killed_and_started_again(async |_| {}).await;
+    assert_eq!(
+        ts.app
+            .store()
+            .instance_organization()
+            .await
+            .expect("the directory is read"),
+        Some(workspaces[0].org_id.clone()),
+        "the second start finds the organization the first sign-up made"
+    );
+    assert_eq!(organizations(&ts).await, before, "and makes none");
+    let again: Vec<fvoci_model::UserWorkspace> =
+        ts.client.get("/users/me/workspaces").await.ok_json();
+    assert_eq!(again, workspaces, "the same workspace, as it was");
     let boards: Vec<fvoci_model::Board> = ts
         .client
-        .get(&format!("/w/{}/boards", workspaces[0].id))
+        .get(&format!("/w/{}/boards", workspace.id))
         .await
         .ok_json();
     assert_eq!(boards.len(), 1, "{boards:?}");
-    assert_eq!(boards[0].id, board.id);
-
-    // A second start finds what the first made.
-    let again = ts
-        .app
-        .store()
-        .only_organization(&fvoci_model::Workspace::default())
-        .await
-        .expect("the organization");
-    assert_eq!(again, workspaces[0].org_id);
+    assert_eq!(boards[0].id, board.id, "with what was made in it");
     ts.teardown().await;
 }
 

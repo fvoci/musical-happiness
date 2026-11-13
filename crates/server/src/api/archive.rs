@@ -17,16 +17,13 @@ use super::body::decode_object;
 use super::contract::bodies::Binary;
 use super::contract::params::{BoardId, MemberWorkspaceId, WorkspaceId};
 use super::contract::tag;
+use super::require_board_permission;
 use super::workspace::Ws;
 use super::{ApiResult, RequiredSession, json_response};
-use super::{require_board_permission, user_is_guest};
 use crate::app::{App, ExportedArchive, Slot, download};
 use crate::connection::{Breaker, Connection};
 use crate::error::AppError;
 use crate::permissions::BoardPermission;
-
-/// What is refused to a user who may not import into the workspace.
-const IMPORT_DENIAL: &str = "access denied to create board";
 
 /// An archive to import: one sent in parts with `createImportUpload`.
 #[derive(Debug, Deserialize, ToSchema)]
@@ -54,31 +51,19 @@ pub(super) fn routes() -> OpenApiRouter<App> {
         .routes(routes!(handle_import))
 }
 
-/// The workspace for a user who may import into it: any signed-in user who works in it
-/// ([`Ws::require_works_there`]) and is no guest of the server.
+/// Enters the named workspace for a member who may import into it.
 ///
 /// # Errors
 ///
-/// Returns the refusal: 404 for a user who does not work in the workspace, to whom it
-/// is not there, and 403 for a guest of the server.
+/// Returns 404 when the user is not a member or is a guest of the workspace.
 pub(super) async fn require_import_access(
     app: &App,
     session: Session,
     workspace_id: String,
 ) -> Result<Ws, AppError> {
-    let ws = Ws::enter(app, session, workspace_id)
+    Ws::enter(app, session, workspace_id)
         .await?
-        .require_works_there()?;
-    admit_import(ws).await
-}
-
-/// The workspace entered, if the user may import into it: who is no guest of the
-/// instance (who works there is asked before, `Ws::require_works_there`).
-async fn admit_import(ws: Ws) -> Result<Ws, AppError> {
-    if user_is_guest(&ws.app, &ws.session.user_id).await? {
-        return Err(AppError::forbidden(IMPORT_DENIAL));
-    }
-    Ok(ws)
+        .require_no_guest()
 }
 
 /// Export a board
@@ -228,31 +213,17 @@ async fn handle_export_workspace(
     )),
 )]
 async fn handle_import(ws: Ws, body: Bytes) -> ApiResult {
-    let ws = ws.require_works_there()?;
+    let ws = ws.require_no_guest()?;
     let user_id = ws.session.user_id.clone();
-    // The workspace is entered, and the user works there, before the body is read; the
-    // upload is one of the workspace (`App::workspace_upload`), and a guest of the
-    // instance is refused after the upload is looked at, with the upload thrown away.
-    let reach = ws.app.clone();
+    // Membership is checked before reading the body; the upload belongs to this workspace.
     let ImportRequest { upload_id } = decode_object(&body)?;
-    let (upload, _) = reach.workspace_upload(&upload_id, &user_id).await?;
+    let (upload, _) = ws.app.workspace_upload(&upload_id, &user_id).await?;
     if upload.purpose != UploadPurpose::Import {
         return Err(AppError::bad_request(
             "the upload is of a file; complete it with completeUpload",
         )
         .with_field("uploadId"));
     }
-    let ws = match admit_import(ws).await {
-        Ok(ws) => ws,
-        Err(refusal) => {
-            // As for a completion (design 5.6, 2): the upload cannot be imported any
-            // more.
-            if refusal.is_client_error() {
-                reach.discard_upload(&upload).await;
-            }
-            return Err(refusal);
-        }
-    };
     // Refused, the upload stays: the import can be asked for again.
     let _slot = ws.app.start_import(&user_id)?;
     // What is refused of the archive's boards and blocks is in the archive, not in the

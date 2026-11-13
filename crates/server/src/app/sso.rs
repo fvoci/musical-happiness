@@ -2,10 +2,12 @@
 //! organization's passes, and what switches it on and off.
 //!
 //! The check is [`require_session_opens`]. A workspace is entered through it
-//! (`App::enter_workspace`), an organization (`App::enter_org_as_admin`), and the
-//! organization the two routes that name neither work in
-//! (`App::require_session_opens_here`), and the organization the link of an
-//! invitation leads into (`App::require_session_opens_organization`). It is asked of
+//! (`App::enter_workspace`), an organization (`App::enter_org_as_admin`), the
+//! instance's own organization for what changes who administers the instance
+//! (`App::require_session_opens_instance`), and the organization the link of an
+//! invitation leads into (`App::require_session_opens_organization`). The boards a
+//! user lists across organizations leave out those of an organization the session
+//! does not open (`Store::board_memberships_of_user`). It is asked of
 //! every request: the sessions stay, and one that does not open an organization still
 //! opens the others.
 
@@ -41,10 +43,7 @@ impl SsoChange {
 /// place it is recorded. `user_id` is the administrator who did it, `None` for who
 /// runs the server.
 ///
-/// TEMPORARY: a line of the log, under the target `audit`. Its place is the
-/// organization's records (`audit_log`), which take it once a record may be of who
-/// runs the server: `actor_id` is a user's there, and a release on the administration
-/// socket has none.
+/// A log line (`audit`), not an `audit_log` record: who runs the server is no user.
 fn record(provider: &StoredProvider, change: SsoChange, user_id: Option<&str>) {
     tracing::info!(
         target: "audit",
@@ -226,26 +225,27 @@ impl App {
         Ok(())
     }
 
-    /// Closes the websocket connections that the handle's organization shuts out as it
-    /// takes only sessions made through `provider`: what a connection follows of a
-    /// workspace was asked when it subscribed. For after that is stored; also when it
-    /// was on already, which closes again what a failure may have left.
+    /// Stops what the websocket connections that the handle's organization shuts out as
+    /// it takes only sessions made through `provider` follow of its workspaces, and
+    /// tells them: what a connection follows of a workspace was asked when it
+    /// subscribed. For after that is stored; also when it was on already, which ends
+    /// again what a failure may have left.
     ///
-    /// If the organization's workspaces cannot be read, every connection that follows a
-    /// workspace with a session made otherwise is closed, whose workspace it may be:
-    /// the pages connect again, and are asked then.
-    pub(crate) async fn close_connections_shut_out(&self, provider: &StoredProvider) {
+    /// If the organization's workspaces cannot be read, every workspace followed with
+    /// a session made otherwise is stopped, whose it may be: the pages follow them
+    /// again, and are asked then.
+    pub(crate) async fn end_subscriptions_shut_out(&self, provider: &StoredProvider) {
         match self.store().get_workspaces().await {
             Ok(workspaces) => {
                 let ids: Vec<String> = workspaces
                     .into_iter()
                     .map(|workspace| workspace.id)
                     .collect();
-                self.ws().close_sessions_closed_out(&ids, &provider.id);
+                self.ws().end_subscriptions_shut_out(&ids, &provider.id);
             }
             Err(error) => {
                 tracing::warn!(%error, org_id = %provider.org_id, "unable to read the workspaces of an organization that takes no password");
-                self.ws().close_sessions_made_otherwise(&provider.id);
+                self.ws().end_subscriptions_made_otherwise(&provider.id);
             }
         }
     }
@@ -277,25 +277,23 @@ impl App {
         require_session_opens(asker, &org_id, required.as_deref())
     }
 
-    /// Refuses a session that does not open what is the organization this handle
-    /// stands in: the one of the routes that name no workspace and no organization and
-    /// still read or change an organization's (`getMyMemberships`, `setUserAdmin`).
-    /// `Ok` for a session that opens it, and for a user who has no place in that
-    /// organization, who finds nothing of it anyway.
-    ///
-    /// TEMPORARY, with `only_organization_scope`: a route that names its workspace or
-    /// its organization is asked where that is entered.
+    /// Refuses a session that does not open the instance's own organization (the
+    /// oldest one in use, `Store::instance_organization`), whose administrators follow
+    /// who administers the instance (`setUserAdmin`). `Ok` while there is no
+    /// organization, and for a user who has no place in it, who finds nothing of it
+    /// anyway.
     ///
     /// # Errors
     ///
-    /// Returns 401 with the reason `sso_required`; the store's error if the
-    /// organization's provider cannot be read, which is no "yes"; and a server error
-    /// for a handle that stands in no organization.
-    pub(crate) async fn require_session_opens_here(
+    /// Returns 401 with the reason `sso_required`, and the store's error if the
+    /// organization or its provider cannot be read, which is no "yes".
+    pub(crate) async fn require_session_opens_instance(
         &self,
         session: &Session,
     ) -> Result<(), AppError> {
-        let org_id = self.org_of_handle()?;
+        let Some(org_id) = self.store().instance_organization().await? else {
+            return Ok(());
+        };
         let required = self
             .store()
             .required_provider_for(&session.user_id, &org_id)

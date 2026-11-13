@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use fvoci_model::{BoardType, Card, FileInfo, new_id};
 use fvoci_server::Server;
-use fvoci_server::app::ChangeNotification;
+use fvoci_server::app::{App, ChangeNotification};
 use fvoci_server::auth::now_millis;
 use fvoci_server::storage::WRITING_DIR;
 use fvoci_store::{Access, Call, DbType, Observer, Store};
@@ -109,19 +109,16 @@ impl Observer for AfterHoldQuery {
 }
 
 /// The next server removes the original's job and records a replacement at its place.
-async fn replace_as_the_next_server(next: &Server, file: FileInfo) -> FileInfo {
-    next.app()
-        .housekeeping()
+async fn replace_as_the_next_server(next: &App, file: FileInfo) -> FileInfo {
+    next.housekeeping()
         .remove_doomed_objects(now_millis())
         .await
         .expect("the next holder removes the original job");
-    next.app()
-        .store()
+    next.store()
         .mark_writing(&file.path, i64::MAX)
         .await
         .expect("marked");
     let size = next
-        .app()
         .files()
         .write(&file.path, &mut &b"replacement bytes"[..])
         .await
@@ -133,8 +130,7 @@ async fn replace_as_the_next_server(next: &Server, file: FileInfo) -> FileInfo {
         ..file
     };
     assert!(
-        next.app()
-            .store()
+        next.store()
             .record_written_file(&replacement)
             .await
             .expect("recorded"),
@@ -209,13 +205,13 @@ async fn a_worker_that_observed_lock_loss_cannot_delete_the_new_holders_file() {
     let next = Server::new(config, "")
         .await
         .expect("the next server takes the lock");
-    let replacement = replace_as_the_next_server(&next, file).await;
+    let next_app = next.app().scoped(ts.app.store().tenant());
+    let replacement = replace_as_the_next_server(&next_app, file).await;
     resume
         .send(())
         .expect("the old worker resumes after observed loss");
     let removed = removing.await.expect("the old worker returns");
-    let still_recorded = next
-        .app()
+    let still_recorded = next_app
         .store()
         .get_file_info(&replacement.board_id, &replacement.stored_name)
         .await
@@ -255,6 +251,7 @@ async fn shutdown_cannot_release_the_server_lock_before_an_old_write_commits() {
     let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
     let user = ts.client.me().await.id;
     let mut config = ts.app.config().clone();
+    let tenant = ts.app.store().tenant();
     let kept = ts.stop_keeping_data().await;
     let server = Server::new(config.clone(), "")
         .await
@@ -272,7 +269,7 @@ async fn shutdown_cannot_release_the_server_lock_before_an_old_write_commits() {
             .await
     });
     wait_for_table_lock(&independent, TableLock::Held).await;
-    let app = server.app().clone();
+    let app = server.app().scoped(tenant);
     let board_id = board.id.clone();
     let (completed, mut writing) = oneshot::channel();
     server.app().spawn_background(async move {
@@ -315,7 +312,12 @@ async fn shutdown_cannot_release_the_server_lock_before_an_old_write_commits() {
         .expect("the table lock is released");
     let card = written.expect("the old write commits under the old server's lock");
     assert!(
-        next.app().store().get_block(&card.id).await.is_ok(),
+        next.app()
+            .scoped(tenant)
+            .store()
+            .get_block(&card.id)
+            .await
+            .is_ok(),
         "what the old server committed under its lock is there"
     );
     next.shutdown().await;

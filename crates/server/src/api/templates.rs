@@ -9,10 +9,9 @@ use utoipa_axum::routes;
 use super::contract::params::WorkspaceId;
 use super::contract::tag;
 
-use super::workspace::WorksIn;
-use super::{ApiResult, json_response, user_is_guest};
+use super::workspace::TextWs;
+use super::{ApiResult, json_response};
 use crate::app::{App, as_managed};
-use crate::error::AppError;
 
 pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new().routes(routes!(handle_get_templates))
@@ -30,12 +29,9 @@ pub(super) fn routes() -> OpenApiRouter<App> {
     params(WorkspaceId),
     responses((status = 200, description = "The templates.", body = Vec<Board>)),
 )]
-async fn handle_get_templates(WorksIn(ws): WorksIn) -> ApiResult {
+async fn handle_get_templates(TextWs(ws): TextWs) -> ApiResult {
+    let ws = ws.require_no_guest()?;
     let (app, user_id, workspace_id) = (&ws.app, ws.session.user_id.as_str(), &ws.workspace_id);
-    if user_is_guest(app, user_id).await? {
-        return Err(AppError::forbidden("access denied to templates"));
-    }
-
     let boards = app.template_boards(workspace_id, user_id, ws.role).await?;
     let mut results: Vec<Board> = Vec::with_capacity(boards.len());
     for board in boards {

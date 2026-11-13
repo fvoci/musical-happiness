@@ -67,8 +67,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 async fn handle_create_boards_and_blocks(ws: Ws, body: Bytes) -> ApiResult {
     let user_id = &ws.session.user_id;
     // Whoever works in the workspace makes boards in it.
-    ws.require_board_maker("access denied to create board")
-        .await?;
+    ws.require_board_maker("access denied to create board")?;
     let (mut request, (invalid, bodies)): (BoardsAndBlocks, _) =
         decode_object_with(&body, |body| {
             let invalid: Option<InvalidBoardMember> = objects_mut(body, "boards")
