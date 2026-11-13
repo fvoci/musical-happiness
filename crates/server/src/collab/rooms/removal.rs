@@ -14,7 +14,10 @@ impl Collab {
         app: &App,
         card_ids: &[String],
     ) -> Vec<Arc<Room>> {
-        self.inner.rooms.walls.raise(app.store().tenant());
+        self.inner
+            .rooms
+            .walls
+            .raise(app.store().tenant(), super::AccessScope::cards(card_ids));
         let mut rooms = self
             .inner
             .rooms

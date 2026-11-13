@@ -37,6 +37,8 @@ pub(crate) struct AccessScope {
 #[derive(Debug, Clone)]
 enum Place {
     Board(String),
+    /// The cards themselves: who may be in their rooms changes as they are deleted.
+    Cards(Vec<String>),
     Workspace(String),
     Organization,
 }
@@ -45,6 +47,11 @@ impl AccessScope {
     /// One board, including all its cards.
     pub(crate) fn board(board_id: &str) -> Self {
         Self::of(Place::Board(board_id.to_owned()))
+    }
+
+    /// The rooms of these cards, as they are deleted.
+    pub(super) fn cards(card_ids: &[String]) -> Self {
+        Self::of(Place::Cards(card_ids.to_vec()))
     }
 
     /// Every board of a workspace.
@@ -73,15 +80,18 @@ impl AccessScope {
         }
     }
 
-    fn contains(&self, room: &Room) -> bool {
+    /// Whether the change reached the room of `room`'s card.
+    pub(super) fn contains(&self, room: &Room) -> bool {
         match &self.place {
             Place::Board(id) => room.board_id == *id,
+            Place::Cards(ids) => ids.contains(&room.card_id),
             Place::Workspace(id) => room.workspace_id == *id,
             Place::Organization => true,
         }
     }
 
-    fn concerns(&self, user_id: &str) -> bool {
+    /// Whether the change concerns `user_id`'s facts.
+    pub(super) fn concerns(&self, user_id: &str) -> bool {
         self.user_id
             .as_deref()
             .is_none_or(|changed| changed == user_id)
@@ -236,7 +246,7 @@ impl Collab {
         let rooms = &self.inner.rooms;
         let tenant = app.store().tenant();
         // Admissions that began before this change must read the new facts.
-        let change = rooms.walls.raise(tenant);
+        let change = rooms.walls.raise(tenant, scope.clone());
         let holds = self.hold(tenant, &scope, change).await;
         // Each board and user once, however many rooms and connections they have.
         let mut asked: HashMap<(String, Who), App> = HashMap::new();
@@ -327,36 +337,6 @@ impl Collab {
         }
     }
 
-    /// Leaves the next immediate permission read unanswered, to exercise its deadline.
-    #[cfg(feature = "test-util")]
-    #[doc(hidden)]
-    #[must_use]
-    pub fn stall_next_access_check(&self) -> Arc<tokio::sync::Notify> {
-        let waiting = Arc::new(tokio::sync::Notify::new());
-        *self
-            .inner
-            .rooms
-            .access_stall
-            .lock()
-            .expect("the access stall is not poisoned") = Some(Arc::clone(&waiting));
-        waiting
-    }
-
-    #[cfg(feature = "test-util")]
-    async fn stalled_access(&self) {
-        let waiting = self
-            .inner
-            .rooms
-            .access_stall
-            .lock()
-            .expect("the access stall is not poisoned")
-            .take();
-        if let Some(waiting) = waiting {
-            waiting.notify_one();
-            std::future::pending::<()>().await;
-        }
-    }
-
     /// Asks again whether each member of a room may be in it, and how: who may no
     /// longer read the card's board is put out, and who is to be in the room otherwise
     /// than they are is told so (`DOC_MODE`). Nobody stays unasked: a member the store
@@ -388,15 +368,18 @@ impl Collab {
             answers.extend(self.answers(room, users).await);
         }
         #[cfg(feature = "test-util")]
-        self.paused_after_recheck().await;
+        self.paused(super::pauses::Pause::AfterRecheck).await;
         let mut turn = room.turn.lock().await;
-        if turn.closed
-            || self.rooms_ended()
-            || self.inner.rooms.walls.raised_since(tenant, revision)
-        {
+        if turn.closed || self.rooms_ended() {
             return;
         }
+        // A change since that reaches a member was asked about again by its own check:
+        // what was read before it is stale for them. The others are answered.
+        let changed = self.inner.rooms.walls.since(tenant, revision);
         for asked in asked {
+            if changed.reaches(room, &asked.who.user_id) {
+                continue;
+            }
             if let Some(index) = turn.members.iter().position(|member| asked.is(member)) {
                 turn.settle(index, answers.get(&asked.who));
             }
@@ -417,39 +400,6 @@ impl Collab {
             })
         })
         .await
-    }
-
-    /// Pauses the next periodic check after its reads, before applying its answers.
-    #[cfg(feature = "test-util")]
-    #[doc(hidden)]
-    #[must_use]
-    pub fn pause_next_recheck(&self) -> (Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>) {
-        let pause = (
-            Arc::new(tokio::sync::Notify::new()),
-            Arc::new(tokio::sync::Notify::new()),
-        );
-        *self
-            .inner
-            .rooms
-            .recheck_pause
-            .lock()
-            .expect("the recheck pause is not poisoned") = Some(pause.clone());
-        pause
-    }
-
-    #[cfg(feature = "test-util")]
-    async fn paused_after_recheck(&self) {
-        let pause = self
-            .inner
-            .rooms
-            .recheck_pause
-            .lock()
-            .expect("the recheck pause is not poisoned")
-            .take();
-        if let Some((waiting, go)) = pause {
-            waiting.notify_one();
-            go.notified().await;
-        }
     }
 }
 

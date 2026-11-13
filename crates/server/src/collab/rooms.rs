@@ -22,6 +22,8 @@
 //! logged and sent to the others, never logged and not sent.
 
 mod access;
+#[cfg(feature = "test-util")]
+mod pauses;
 mod removal;
 mod walls;
 
@@ -55,9 +57,9 @@ const SEND_ANEW_AGAIN: Duration = Duration::from_secs(2);
 /// them once more, before they are put out.
 const ASKED_ONCE_MORE_AFTER: Duration = Duration::from_secs(2);
 
-/// How many times a connection coming into a room is admitted again because an
-/// organization began to take only its provider's sessions meanwhile, before it is
-/// refused as when the document cannot be worked on.
+/// How many times a connection coming into a room is admitted again because a change
+/// that reaches the room and its user came meanwhile, before it is refused as when the
+/// document cannot be worked on.
 const ADMITTED_AT_MOST: usize = 3;
 
 /// How many users of a room the store is asked about at once, when the room asks
@@ -89,10 +91,9 @@ pub(super) struct Rooms {
     /// When access facts changed: admissions and periodic answers read before a
     /// change of their organization cannot survive its immediate check.
     walls: walls::Walls,
+    /// Where the tests stop the rooms.
     #[cfg(feature = "test-util")]
-    recheck_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
-    #[cfg(feature = "test-util")]
-    access_stall: Mutex<Option<Arc<tokio::sync::Notify>>>,
+    pauses: pauses::Pauses,
     /// Cancelled when the server stops: nobody comes in any more, no update is taken,
     /// and the tasks of the rooms end.
     stopping: CancellationToken,
@@ -112,9 +113,7 @@ impl Rooms {
             next_connection: AtomicU64::new(0),
             walls: walls::Walls::default(),
             #[cfg(feature = "test-util")]
-            recheck_pause: Mutex::new(None),
-            #[cfg(feature = "test-util")]
-            access_stall: Mutex::new(None),
+            pauses: pauses::Pauses::default(),
             stopping: CancellationToken::new(),
         }
     }
@@ -541,7 +540,7 @@ impl Collab {
         let rooms = &self.inner.rooms;
         let tenant = app.store().tenant();
         // Before the rooms are read: a connection that comes into one later sees it.
-        rooms.walls.raise(tenant);
+        rooms.walls.raise(tenant, AccessScope::organization());
         let of_organization: Vec<Arc<Room>> = rooms
             .by_key
             .lock()
@@ -605,14 +604,22 @@ impl Collab {
             admission::let_in(home, connection.asker(), workspace_id, card_id).await?;
         let mut admissions = 1;
         loop {
+            #[cfg(feature = "test-util")]
+            self.paused(pauses::Pause::AfterAdmission).await;
             let room = self.room(&admitted, workspace_id, card_id);
             let mut turn = room.turn.lock().await;
             if turn.closed || room.gone.is_cancelled() {
                 continue;
             }
-            // Access changed since admission; its immediate check may have passed
-            // this room already. Ask again before adding the connection.
-            if limits.walls.raised_since(room.app.store().tenant(), raised) {
+            // A change since admission that reaches this room and user; its immediate
+            // check may have passed the room already. Ask again before adding the
+            // connection.
+            let tenant = room.app.store().tenant();
+            if limits
+                .walls
+                .since(tenant, raised)
+                .reaches(&room, &connection.user_id)
+            {
                 self.shut_if_empty(&room, &mut turn).await;
                 drop(turn);
                 if admissions == ADMITTED_AT_MOST {
