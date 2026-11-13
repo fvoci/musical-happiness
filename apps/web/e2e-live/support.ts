@@ -10,6 +10,7 @@
  */
 import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { request as httpRequest } from 'node:http';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
@@ -304,12 +305,39 @@ function newId(): string {
   ].join('-');
 }
 
-/** The database of the live server on the port of `baseURL` (`tools/live-server.ts`). */
-function serverDatabase(baseURL: string): DatabaseSync {
+/** Where the live server on the port of `baseURL` keeps its data and its socket. */
+function serverPlaces(baseURL: string): { data: string; socket: string } {
   const port = new URL(baseURL).port;
   const pointer = path.resolve(import.meta.dirname, `../../../target/web-live/server-${port}.json`);
-  const { data } = JSON.parse(readFileSync(pointer, 'utf8')) as { data: string };
+  return JSON.parse(readFileSync(pointer, 'utf8')) as { data: string; socket: string };
+}
+
+/** The database of the live server on the port of `baseURL` (`tools/live-server.ts`). */
+function serverDatabase(baseURL: string): DatabaseSync {
+  const { data } = serverPlaces(baseURL);
   return new DatabaseSync(path.join(data, 'fvoci.db'), { timeout: 10_000 });
+}
+
+/**
+ * Sends a command to the live server's administration socket, as the person
+ * who runs the server does (`POST /api/v1/admin/…`), and answers its status.
+ */
+export async function operator(baseURL: string, command: string): Promise<number> {
+  const { socket } = serverPlaces(baseURL);
+  return new Promise((answered, failed) => {
+    const asked = httpRequest(
+      { socketPath: socket, path: `/api/v1/admin/${command}`, method: 'POST', timeout: 10_000 },
+      (response) => {
+        response.resume();
+        response.on('end', () => {
+          answered(response.statusCode ?? 0);
+        });
+      },
+    );
+    asked.on('timeout', () => asked.destroy(new Error('the socket did not answer')));
+    asked.on('error', failed);
+    asked.end();
+  });
 }
 
 /**

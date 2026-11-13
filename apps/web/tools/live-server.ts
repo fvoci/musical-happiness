@@ -15,9 +15,11 @@
  * the server is started to reach it: with a key to seal its client secret,
  * private addresses allowed, and its certificate as the one it trusts.
  *
- * Where the data folder of the server on a port is, is written to
- * `target/web-live/server-<port>.json` (`{ "data": … }`), for a test that
- * must set up what no request can (a second workspace, `e2e-live/support.ts`).
+ * Where the data folder of the server on a port is, and its administration
+ * socket, is written to `target/web-live/server-<port>.json` (`{ "data": …,
+ * "socket": … }`), for a test that must set up what no request can (a second
+ * workspace) or act as the server's operator (`e2e-live/support.ts`). The
+ * socket is in the system's temporary folder: a socket's path is short.
  *
  * When this process is asked to stop, or ends, the server is stopped too.
  * The data folder stays, with the server's log (`server.log`), for looking
@@ -26,6 +28,7 @@
  */
 import { spawn } from 'node:child_process';
 import { createWriteStream, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
 
@@ -58,9 +61,10 @@ if (!existsSync(fakeOidc)) {
 const stamp = new Date().toISOString().replace(/[:.]/g, '-');
 const data = path.join(REPO_ROOT, 'target/web-live', `${stamp}-${port}`);
 mkdirSync(path.join(data, 'files'), { recursive: true });
+const socket = path.join(tmpdir(), `fvoci-live-${port}.socket`);
 writeFileSync(
   path.join(REPO_ROOT, 'target/web-live', `server-${port}.json`),
-  JSON.stringify({ data }),
+  JSON.stringify({ data, socket }),
 );
 const origin = `http://127.0.0.1:${port}`;
 writeFileSync(
@@ -83,6 +87,9 @@ writeFileSync(
       upload_part_bytes: 5 * 1024 * 1024,
       // A board shared by a read token, to see what an anonymous reader gets.
       enablepublicsharedboards: true,
+      // The operator's commands (`e2e-live/sso-operator.spec.ts`).
+      enablelocalmode: true,
+      localmodesocketlocation: socket,
     },
     null,
     2,
