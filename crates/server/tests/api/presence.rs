@@ -279,3 +279,42 @@ async fn visits_never_cross_a_workspace_or_organization_wall() {
     }
     th.teardown().await;
 }
+
+#[tokio::test]
+async fn a_member_put_out_of_the_board_leaves_the_roster_before_the_periodic_check() {
+    // The periodic check is a minute away: only the change itself can put them out.
+    let th = Setup::native()
+        .configure(|c| c.collab.collab_recheck_seconds = 60)
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let t = table(&th, &paragraphs(&["hello"])).await;
+    let other = th.client2.me().await.id;
+    give(&th, &t.board_id, &other, "viewer").await;
+    let mut one = Socket::connect_as(&th.client).await;
+    let mut two = Socket::connect_as(&th.client2).await;
+    visit(&mut one, &t.board_id, "").await;
+    visit(&mut two, &t.board_id, &t.card_id).await;
+    let _ = people(&mut one, 2).await;
+    let _ = people(&mut two, 2).await;
+    let removed_at = tokio::time::Instant::now();
+    th.client
+        .delete(&format!("{TEST_WS}/boards/{}/members/{other}", t.board_id))
+        .await
+        .check_no_content();
+    let roster = people(&mut one, 1).await;
+    assert!(
+        removed_at.elapsed() < std::time::Duration::from_secs(2),
+        "the change put them out, not the periodic check"
+    );
+    assert!(
+        !roster.to_string().contains(&other),
+        "the removed member is gone from the roster"
+    );
+    assert!(
+        two.next_json(QUIET).await.is_none(),
+        "the removed member receives nothing more"
+    );
+    th.teardown().await;
+}

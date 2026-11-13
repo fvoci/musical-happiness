@@ -29,6 +29,7 @@ mod removal;
 mod walls;
 
 pub(crate) use access::AccessScope;
+pub(crate) use walls::{AccessChange, Wall};
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};

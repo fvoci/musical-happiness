@@ -11,6 +11,7 @@ fn visit(board: &str, card: &str, token: &str) -> Visit {
         board_id: board.to_owned(),
         card_id: card.to_owned(),
         read_token: token.to_owned(),
+        wall: Wall::for_tests(),
     }
 }
 
@@ -116,4 +117,116 @@ fn fifty_visits_hold_only_bounded_identifiers_in_the_connection_table() {
         "fifty active visit states hold {bytes} bytes before allocator overhead"
     );
     writeln!(std::io::stdout(), "presence table: 50 visits, {bytes} bytes (State plus owned identifier capacities; excludes existing sockets, allocator overhead and outgoing snapshot caches)").expect("the measurement is written");
+}
+
+/// Which users' visits `flag_reached` flagged, sorted.
+fn flagged(listeners: &Listeners) -> Vec<&str> {
+    let mut users: Vec<&str> = listeners
+        .by_id
+        .values()
+        .filter(|listener| listener.presence.recheck)
+        .map(|listener| listener.user_id.as_str())
+        .collect();
+    users.sort_unstable();
+    users
+}
+
+/// Two people on `board`, one on `other-board`, all unflagged.
+fn two_boards() -> Listeners {
+    let mut listeners = Listeners::default();
+    for (user, board) in [("one", "board"), ("two", "board"), ("three", "other-board")] {
+        add(&mut listeners, user, visit(board, "", ""), Duration::ZERO);
+    }
+    listeners
+}
+
+#[test]
+fn a_change_flags_the_rosters_of_the_people_it_concerns_and_nothing_else() {
+    use crate::collab::AccessScope;
+
+    let here = Wall::for_tests();
+    let cases = [
+        (
+            Some(AccessScope::board("board").of_user("two")),
+            here,
+            vec!["one", "two"],
+            "a present person's change: the whole roster asks again",
+        ),
+        (
+            Some(AccessScope::board("board").of_user("absent")),
+            here,
+            vec![],
+            "somebody not present changes no roster",
+        ),
+        (
+            Some(AccessScope::workspace("workspace")),
+            here,
+            vec!["one", "three", "two"],
+            "everybody's change in the workspace reaches every board of it",
+        ),
+        (
+            Some(AccessScope::board("board")),
+            Wall::other_for_tests(),
+            vec![],
+            "another organization's change reaches nobody here",
+        ),
+        (
+            Some(AccessScope::organization().of_user("three")),
+            here,
+            vec!["three"],
+            "a user's change in the organization reaches only the boards they are on",
+        ),
+        (
+            None,
+            here,
+            vec!["one", "three", "two"],
+            "missed changes may have reached anybody",
+        ),
+    ];
+    for (scope, wall, want, why) in cases {
+        let mut listeners = two_boards();
+        let change = scope.map(|scope| AccessChange::for_tests(scope, wall));
+        flag_reached(&mut listeners, change.as_ref());
+        assert_eq!(flagged(&listeners), want, "{why}");
+    }
+}
+
+#[test]
+fn an_admission_read_before_a_change_that_reaches_it_is_asked_again() {
+    use crate::collab::AccessScope;
+
+    let here = visit("board", "", "");
+    let (sender, mut changes) = broadcast::channel(2);
+    assert!(!changed_meanwhile(&mut changes, &here), "nothing changed");
+    for (scope, wall) in [
+        (AccessScope::board("other-board"), Wall::for_tests()),
+        (AccessScope::board("board"), Wall::other_for_tests()),
+    ] {
+        sender
+            .send(AccessChange::for_tests(scope, wall))
+            .expect("the receiver listens");
+    }
+    assert!(
+        !changed_meanwhile(&mut changes, &here),
+        "another board's or organization's change leaves the admission be"
+    );
+    sender
+        .send(AccessChange::for_tests(
+            AccessScope::board("board"),
+            Wall::for_tests(),
+        ))
+        .expect("the receiver listens");
+    assert!(changed_meanwhile(&mut changes, &here), "this board changed");
+    for _ in 0..3 {
+        sender
+            .send(AccessChange::for_tests(
+                AccessScope::board("other-board"),
+                Wall::for_tests(),
+            ))
+            .expect("the receiver listens");
+    }
+    assert!(
+        changed_meanwhile(&mut changes, &here),
+        "changes missed by a lagging listener may have reached the admission"
+    );
 }

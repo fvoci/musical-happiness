@@ -263,6 +263,8 @@ struct HubInner {
     auth: Authenticator,
     ping_interval: Option<Duration>,
     metrics: Metrics,
+    /// Whether the task that tells visits of access changes started (`presence`).
+    watching_access: std::sync::Once,
 }
 
 impl Hub {
@@ -280,6 +282,7 @@ impl Hub {
                 auth,
                 ping_interval,
                 metrics,
+                watching_access: std::sync::Once::new(),
             }),
             audience,
         }

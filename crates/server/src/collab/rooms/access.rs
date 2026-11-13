@@ -93,7 +93,7 @@ impl AccessScope {
 
     /// Whether the change reached the card `card_id` of the board `board_id` of the
     /// workspace `workspace_id`.
-    fn reaches(&self, card_id: &str, board_id: &str, workspace_id: &str) -> bool {
+    pub(super) fn reaches(&self, card_id: &str, board_id: &str, workspace_id: &str) -> bool {
         match &self.place {
             Place::Boards(ids) => ids.iter().any(|id| id == board_id),
             Place::Cards(ids) => ids.iter().any(|id| id == card_id),

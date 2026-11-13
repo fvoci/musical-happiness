@@ -7,9 +7,12 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use fvoci_store::Tenant;
+use tokio::sync::broadcast;
 use tokio::time::Instant;
 
+use super::super::Collab;
 use super::{AccessScope, Room};
+use crate::app::App;
 
 /// How long a change is remembered at least. What was read before a change no longer
 /// remembered is asked again, whatever the change reached.
@@ -19,6 +22,10 @@ const REMEMBERED_FOR: Duration = Duration::from_mins(10);
 /// than a periodic check reads (two intervals, and a little), and than an immediate
 /// one (two).
 const REMEMBERED_INTERVALS: u32 = 3;
+
+/// How many changes a listener outside the rooms may fall behind; one further behind
+/// is told it lagged, and takes everything as changed.
+const ANNOUNCED_AT_MOST: usize = 256;
 
 /// How many changes of one organization are remembered at most, the latest.
 const REMEMBERED_AT_MOST: usize = 1024;
@@ -36,6 +43,75 @@ pub(super) struct Walls {
     /// How long a change is remembered: [`REMEMBERED_FOR`], or longer for a long
     /// interval of the periodic check ([`REMEMBERED_INTERVALS`]).
     remembered_for: Duration,
+    /// Each change as it is raised, for what keeps access read outside the rooms.
+    announced: broadcast::Sender<AccessChange>,
+}
+
+/// The organization a place is in, as access changes are told apart by.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct Wall(Tenant);
+
+impl Wall {
+    /// The organization `app` reaches.
+    pub(crate) fn of(app: &App) -> Self {
+        Self(app.store().tenant())
+    }
+
+    /// An organization for the tests.
+    #[cfg(test)]
+    pub(crate) fn for_tests() -> Self {
+        Self(Tenant::default())
+    }
+
+    /// Another organization than [`Wall::for_tests`].
+    #[cfg(test)]
+    pub(crate) fn other_for_tests() -> Self {
+        Self(Tenant::System)
+    }
+}
+
+/// A change of access facts, announced as it is raised to what holds access read
+/// before it outside the rooms (who is on a board).
+#[derive(Debug, Clone)]
+pub(crate) struct AccessChange {
+    tenant: Tenant,
+    scope: Arc<AccessScope>,
+}
+
+impl AccessChange {
+    /// Whether the change may have reached the card `card_id` (none if empty) of the
+    /// board `board_id` of the workspace `workspace_id`, behind `wall`; for anybody
+    /// there, whichever user's facts it was about.
+    pub(crate) fn reaches(
+        &self,
+        wall: Wall,
+        workspace_id: &str,
+        board_id: &str,
+        card_id: &str,
+    ) -> bool {
+        self.tenant == wall.0 && self.scope.reaches(card_id, board_id, workspace_id)
+    }
+
+    /// Whether the change is about `user_id`'s facts (or everybody's).
+    pub(crate) fn concerns(&self, user_id: &str) -> bool {
+        self.scope.concerns(user_id)
+    }
+
+    /// A change of `scope` behind `wall`.
+    #[cfg(test)]
+    pub(crate) fn for_tests(scope: AccessScope, wall: Wall) -> Self {
+        Self {
+            tenant: wall.0,
+            scope: Arc::new(scope),
+        }
+    }
+}
+
+impl Collab {
+    /// The access changes raised from now on, of every organization.
+    pub(crate) fn access_changes(&self) -> broadcast::Receiver<AccessChange> {
+        self.inner.rooms.walls.announced.subscribe()
+    }
 }
 
 #[derive(Debug, Default)]
@@ -104,6 +180,7 @@ impl Walls {
         Self {
             changes: Mutex::default(),
             remembered_for: REMEMBERED_FOR.max(recheck.saturating_mul(REMEMBERED_INTERVALS)),
+            announced: broadcast::Sender::new(ANNOUNCED_AT_MOST),
         }
     }
 
@@ -126,15 +203,19 @@ impl Walls {
             forgotten,
             changes: VecDeque::new(),
         });
+        let scope = Arc::new(scope);
         kept.changes.push_back(Change {
             number,
             at,
-            scope: Arc::new(scope),
+            scope: Arc::clone(&scope),
         });
         kept.forget(before);
         if number.is_multiple_of(SWEPT_EVERY) {
             changes.sweep(before);
         }
+        drop(changes);
+        // Nobody listening is no error: there is nothing outside the rooms to recheck.
+        let _ = self.announced.send(AccessChange { tenant, scope });
         number
     }
 

@@ -3,6 +3,7 @@
 use fvoci_model::{BlockType, WorkspaceRole};
 
 use super::{App, Asker};
+use crate::collab::Wall;
 use crate::error::AppError;
 
 /// A visit checked behind its organization's wall. A token reader has no named role.
@@ -11,6 +12,8 @@ pub(crate) struct PresenceAccess {
     pub(crate) app: App,
     pub(crate) workspace_id: String,
     pub(crate) role: Option<WorkspaceRole>,
+    /// The board's organization, as its access changes are told.
+    pub(crate) wall: Wall,
 }
 
 impl App {
@@ -58,6 +61,7 @@ impl App {
             }
         }
         Ok(Some(PresenceAccess {
+            wall: Wall::of(&app),
             app,
             workspace_id: access.board.workspace_id,
             role,

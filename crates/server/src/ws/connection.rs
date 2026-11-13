@@ -29,6 +29,7 @@ impl Hub {
         let (mut docs, docs_outbox) = app.collab().seat(app, who.asker());
         let token = who.token;
         let docs_overrun = docs.overrun();
+        self.watch_access_changes(app);
 
         let id = {
             let mut listeners = self.listeners();

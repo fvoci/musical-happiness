@@ -45,7 +45,7 @@ pub use queue::Outgoing;
 pub(crate) use removal::Deletion;
 #[cfg(feature = "test-util")]
 pub use removal::DeletionStage;
-pub(crate) use rooms::AccessScope;
+pub(crate) use rooms::{AccessChange, AccessScope, Wall};
 pub use seat::{Outbox, Seat};
 pub use whole::cards_written_whole;
 

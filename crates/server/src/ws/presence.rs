@@ -1,14 +1,17 @@
 //! One visit per connection, coalesced every 250 ms and projected for each reader.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::sync::{Arc, Weak};
 use std::time::Duration;
 
 use serde::Serialize;
+use tokio::sync::broadcast::{self, error::RecvError, error::TryRecvError};
 use tokio::time::Instant;
 
-use super::{Command, Hub, ListenerId, Outgoing};
+use super::{Command, Hub, HubInner, ListenerId, Listeners, Outgoing};
 use crate::app::{App, Asker};
 use crate::auth::secret::SECRET_LENGTH;
+use crate::collab::{AccessChange, Wall};
 
 const BATCH: Duration = Duration::from_millis(250);
 /// A page renews its visit every 30 seconds; a stopped page disappears too.
@@ -23,6 +26,23 @@ struct Visit {
     board_id: String,
     card_id: String,
     read_token: String,
+    /// The board's organization, as access changes are told apart by.
+    wall: Wall,
+}
+
+impl Visit {
+    /// Whether `change` may have changed who is let in here or who sees whom; a
+    /// change not told (`None`, the listener lagged) may have.
+    fn reached_by(&self, change: Option<&AccessChange>) -> bool {
+        change.is_none_or(|change| {
+            change.reaches(self.wall, &self.workspace_id, &self.board_id, &self.card_id)
+        })
+    }
+
+    /// The board, as the visits of one roster share it.
+    fn board(&self) -> (Wall, String, String) {
+        (self.wall, self.workspace_id.clone(), self.board_id.clone())
+    }
 }
 
 impl std::fmt::Debug for Visit {
@@ -42,6 +62,9 @@ pub(super) struct State {
     revision: u64,
     entry: u64,
     rate: Option<Rate>,
+    /// An access change reached the visit since its roster was last projected: the
+    /// next batch asks again whatever the interval of the periodic check.
+    recheck: bool,
 }
 
 impl State {
@@ -131,24 +154,20 @@ impl Hub {
         {
             return;
         }
-        let visit = Visit {
-            workspace_id: command.workspace_id,
-            board_id: command.board_id,
-            card_id: command.card_id,
-            read_token: command.read_token,
-        };
         let asker = Asker {
             user_id: &identity.0,
             made_through: identity.1.as_deref(),
         };
+        // Changes made while the lookup runs may not be in what it read.
+        let mut meanwhile = app.collab().access_changes();
         let access = tokio::time::timeout(
             LOOKUP_WAIT,
             app.presence_access(
                 asker,
-                &visit.workspace_id,
-                &visit.board_id,
-                &visit.card_id,
-                &visit.read_token,
+                &command.workspace_id,
+                &command.board_id,
+                &command.card_id,
+                &command.read_token,
             ),
         )
         .await;
@@ -165,21 +184,40 @@ impl Hub {
                 return;
             }
         };
+        let visit = Visit {
+            workspace_id: access.workspace_id,
+            board_id: command.board_id,
+            card_id: command.card_id,
+            read_token: command.read_token,
+            wall: access.wall,
+        };
         let mut listeners = self.listeners();
+        // Drained under the lock: a change raised later is flagged by the watcher
+        // (`watch_access`), which takes the same lock, against this visit.
+        let read_too_early = changed_meanwhile(&mut meanwhile, &visit);
         let Some(listener) = listeners.by_id.get_mut(&id) else {
             return;
         };
-        if listener.presence.visit.as_ref().is_none_or(|before| {
+        let state = &mut listener.presence;
+        if state.visit.as_ref().is_none_or(|before| {
             before.board_id != visit.board_id || before.read_token != visit.read_token
         }) {
-            listener.presence.entry = listener.presence.entry.wrapping_add(1);
+            state.entry = state.entry.wrapping_add(1);
         }
-        listener.presence.visit = Some(Visit {
-            workspace_id: access.workspace_id,
-            ..visit
+        state.visit = Some(visit);
+        state.renewed = Some(Instant::now());
+        state.revision = state.revision.wrapping_add(1);
+        state.recheck |= read_too_early;
+    }
+
+    /// Starts, once for the hub, the task that flags the visits access changes reach
+    /// (`watch_access`). `app` is any application of the server: they share the rooms
+    /// that raise the changes.
+    pub(super) fn watch_access_changes(&self, app: &App) {
+        self.inner.watching_access.call_once(|| {
+            let changes = app.collab().access_changes();
+            tokio::spawn(watch_access(Arc::downgrade(&self.inner), changes));
         });
-        listener.presence.renewed = Some(Instant::now());
-        listener.presence.revision = listener.presence.revision.wrapping_add(1);
     }
 
     fn clear_presence(&self, id: ListenerId, revision: Option<u64>) {
@@ -201,20 +239,29 @@ impl Hub {
         let mut next_check = Instant::now();
         loop {
             ticks.tick().await;
-            let current = self.listeners().by_id.get(&id).and_then(|listener| {
-                let state = &listener.presence;
-                state.visit.clone().map(|visit| {
-                    (
-                        visit,
-                        state.revision,
-                        state.entry,
-                        state.renewed,
-                        listener.user_id.clone(),
-                        listener.login_provider.clone(),
-                    )
+            let current = self.listeners().by_id.get_mut(&id).and_then(|listener| {
+                let state = &mut listener.presence;
+                let recheck = std::mem::take(&mut state.recheck);
+                state.visit.clone().map(|visit| Batch {
+                    visit,
+                    revision: state.revision,
+                    recheck,
+                    entry: state.entry,
+                    renewed: state.renewed,
+                    user_id: listener.user_id.clone(),
+                    provider: listener.login_provider.clone(),
                 })
             });
-            let Some((visit, revision, entry, renewed, user_id, provider)) = current else {
+            let Some(Batch {
+                visit,
+                revision,
+                recheck,
+                entry,
+                renewed,
+                user_id,
+                provider,
+            }) = current
+            else {
                 raw_before = None;
                 sent_before = None;
                 continue;
@@ -229,7 +276,7 @@ impl Hub {
                 sent_before = None;
             }
             let raw = snapshot(&visit, &self.listeners());
-            if raw_before.as_ref() == Some(&raw) && Instant::now() < next_check {
+            if raw_before.as_ref() == Some(&raw) && !recheck && Instant::now() < next_check {
                 continue;
             }
             let result = tokio::time::timeout(
@@ -237,16 +284,23 @@ impl Hub {
                 self.project_presence(app, &visit, &user_id, provider.as_deref(), raw.clone()),
             )
             .await;
-            // A later command supersedes a permission lookup that was in flight.
-            if self
-                .listeners()
-                .by_id
-                .get(&id)
-                .is_none_or(|listener| listener.presence.revision != revision)
-            {
-                continue;
-            }
+            // A later command supersedes a permission lookup that was in flight; a
+            // recheck it was for is still owed to the roster's other people.
+            let changed_meanwhile = {
+                let mut listeners = self.listeners();
+                let Some(listener) = listeners.by_id.get_mut(&id) else {
+                    continue;
+                };
+                if listener.presence.revision != revision {
+                    listener.presence.recheck |= recheck;
+                    continue;
+                }
+                listener.presence.recheck
+            };
             match result {
+                // An access change during the lookup may not be in what it read: the
+                // roster waits for the next batch, which asks again (still flagged).
+                Ok(Ok(Some(_))) if changed_meanwhile => {}
                 Ok(Ok(Some(snapshot))) => {
                     if snapshot != sent_before {
                         if let Some(snapshot) = &snapshot {
@@ -315,7 +369,77 @@ impl Hub {
     }
 }
 
-fn snapshot(visit: &Visit, listeners: &super::Listeners) -> Snapshot {
+/// What a batch of a connection's loop reads of its visit, under the lock.
+struct Batch {
+    visit: Visit,
+    revision: u64,
+    /// An access change reached the visit since the last batch took this.
+    recheck: bool,
+    entry: u64,
+    renewed: Option<Instant>,
+    user_id: String,
+    provider: Option<String>,
+}
+
+/// Flags, for each access change, the visits whose roster it may have changed, until
+/// nothing raises changes any more or the hub is gone.
+async fn watch_access(hub: Weak<HubInner>, mut changes: broadcast::Receiver<AccessChange>) {
+    loop {
+        let change = match changes.recv().await {
+            Ok(change) => Some(change),
+            Err(RecvError::Lagged(_)) => None,
+            Err(RecvError::Closed) => return,
+        };
+        let Some(hub) = hub.upgrade() else { return };
+        let mut listeners = hub
+            .listeners
+            .lock()
+            .expect("the listener table lock is never held across a panic");
+        flag_reached(&mut listeners, change.as_ref());
+    }
+}
+
+/// Flags the visits `change` reached (all of them if it is `None`: changes were
+/// missed) on the boards where somebody it concerns is: a roster is the reader's own
+/// access and whom the reader may see of those present, so a change of somebody's
+/// facts elsewhere changes no roster here.
+fn flag_reached(listeners: &mut Listeners, change: Option<&AccessChange>) {
+    let boards: HashSet<(Wall, String, String)> = listeners
+        .by_id
+        .values()
+        .filter_map(|listener| {
+            let visit = listener.presence.visit.as_ref()?;
+            let concerned = change.is_none_or(|change| change.concerns(&listener.user_id));
+            (concerned && visit.reached_by(change)).then(|| visit.board())
+        })
+        .collect();
+    if boards.is_empty() {
+        return;
+    }
+    for listener in listeners.by_id.values_mut() {
+        let state = &mut listener.presence;
+        if let Some(visit) = &state.visit
+            && visit.reached_by(change)
+            && boards.contains(&visit.board())
+        {
+            state.recheck = true;
+        }
+    }
+}
+
+/// Whether an access change told to `changes` may have reached `visit`.
+fn changed_meanwhile(changes: &mut broadcast::Receiver<AccessChange>, visit: &Visit) -> bool {
+    loop {
+        match changes.try_recv() {
+            Ok(change) if visit.reached_by(Some(&change)) => return true,
+            Ok(_) => {}
+            Err(TryRecvError::Lagged(_)) => return true,
+            Err(TryRecvError::Empty | TryRecvError::Closed) => return false,
+        }
+    }
+}
+
+fn snapshot(visit: &Visit, listeners: &Listeners) -> Snapshot {
     let mut people: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     let mut anonymous_count = 0;
     for listener in listeners.by_id.values() {
