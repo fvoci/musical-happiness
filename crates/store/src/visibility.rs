@@ -1,8 +1,8 @@
 //! Revisions for cached authorization reads, spanning the whole writing transaction.
 //!
 //! Each organization has a revision of its own, which its writes move on; a write of
-//! no organization or of every organization (the directory, users, the system's
-//! work) moves on a shared one that every organization's revision includes. So what
+//! no organization or of every organization (the directory, the system's work)
+//! moves on a shared one that every organization's revision includes. So what
 //! one organization writes does not empty another's cached reads. A reader that is of
 //! no organization takes a revision that every write moves on.
 //!
@@ -119,7 +119,8 @@ impl From<Tenant> for Reach {
     fn from(tenant: Tenant) -> Self {
         match tenant {
             Tenant::Org(org) => Self::Org(org),
-            Tenant::Unset | Tenant::System => Self::Every,
+            // No organization, or every one: what it writes may be of any.
+            _ => Self::Every,
         }
     }
 }
@@ -283,11 +284,12 @@ impl Drop for Writing<'_> {
     }
 }
 
-/// Every statement is built by the store. `users` is not among the tables: no cached
-/// read depends on a user's row, and a user who goes has their connections closed.
-/// Treat any write mentioning these tables conservatively, including writes with subqueries and the test-only raw SQL path.
+/// Every statement is built by the store. Treat any write mentioning these tables
+/// conservatively, including writes with subqueries and the test-only raw SQL path.
 /// Ordinary card/body writes stay cacheable; type changes invalidate explicitly,
 /// and deleting or restoring cards changes their visibility through the trash.
+/// A user's row is read by no cached check, so changing it (a name, a password) moves
+/// nothing; deleting one does, as it takes the user's memberships with it.
 fn affects_visibility(text: &str) -> bool {
     const TABLES: [&str; 10] = [
         "workspace_members",
@@ -303,15 +305,15 @@ fn affects_visibility(text: &str) -> bool {
         "oidc_providers",
     ];
     let mut deletes = false;
-    let mut blocks = false;
+    let mut cascading = false;
     for word in text.split(|c: char| !c.is_ascii_alphanumeric() && c != '_') {
         if TABLES.iter().any(|table| word.eq_ignore_ascii_case(table)) {
             return true;
         }
         deletes |= word.eq_ignore_ascii_case("delete");
-        blocks |= word.eq_ignore_ascii_case("blocks");
+        cascading |= word.eq_ignore_ascii_case("blocks") || word.eq_ignore_ascii_case("users");
     }
-    deletes && blocks
+    deletes && cascading
 }
 
 #[cfg(test)]
@@ -385,7 +387,7 @@ mod tests {
         assert_ne!(visibility.version(Tenant::Unset).await, of_everything);
         assert!(!visibility.if_current(of_everything, || panic!("everything moved on")));
 
-        let writing = visibility.writing(Tenant::System);
+        let writing = visibility.writing(Tenant::Unset);
         writing.statement("UPDATE organizations SET delete_at = 1");
         assert!(
             !visibility.if_current(of_second, || panic!("a shared writer is active")),
@@ -412,13 +414,44 @@ mod tests {
             visibility.version(org(2)).await.cacheable(),
             "another organization keeps its cache"
         );
-        let writing = visibility.writing(Tenant::System);
+        let writing = visibility.writing(Tenant::Unset);
         writing.statement("UPDATE organizations SET delete_at = 1");
         drop(writing);
         assert!(
             !visibility.version(org(2)).await.cacheable(),
             "an abandoned write of every organization unsettles each"
         );
+    }
+
+    #[test]
+    fn a_users_row_moves_the_revision_only_as_it_goes() {
+        assert!(!affects_visibility(
+            "UPDATE users SET props = $1 WHERE id = $2"
+        ));
+        assert!(!affects_visibility(
+            "UPDATE users SET password = $1 WHERE id = $2"
+        ));
+        assert!(affects_visibility("DELETE FROM users WHERE id = $1"));
+        assert!(affects_visibility("DELETE FROM blocks WHERE id = $1"));
+        assert!(!affects_visibility("UPDATE blocks SET title = $1"));
+    }
+
+    #[tokio::test]
+    async fn a_store_settles_for_twice_its_busy_timeout() {
+        let directory = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/visibility-tests")
+            .join(fvoci_model::new_id());
+        std::fs::create_dir_all(&directory).expect("a test directory");
+        let path = directory.join("settle.db");
+        let store = Store::open(
+            crate::DbType::Sqlite,
+            &format!("{}?_busy_timeout=120000", path.display()),
+        )
+        .await
+        .expect("a store");
+        assert_eq!(store.inner.visibility.settle, Duration::from_secs(240));
+        store.close().await;
+        std::fs::remove_dir_all(&directory).expect("the test directory goes");
     }
 
     #[test]

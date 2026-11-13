@@ -264,11 +264,13 @@ impl Store {
     pub async fn open(db_type: DbType, dbconfig: &str) -> Result<Self, StoreError> {
         let mut lock_file = None;
         // What an abandoned write may still take to land (`visibility::settle_after`).
-        let mut longest_wait = Duration::ZERO;
+        let longest_wait = match db_type {
+            DbType::Sqlite => connect::sqlite_settings(dbconfig)?.busy_timeout,
+            DbType::Postgres => Duration::ZERO,
+        };
         let pool = match db_type {
             DbType::Sqlite => {
                 let settings = connect::sqlite_settings(dbconfig)?;
-                longest_wait = settings.busy_timeout;
                 let database =
                     (!settings.in_memory).then(|| settings.options.get_filename().to_path_buf());
                 let options = if settings.in_memory {

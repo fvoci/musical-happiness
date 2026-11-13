@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use futures_util::{SinkExt as _, StreamExt as _};
-use fvoci_model::{Block, BlockType, BoardType, WorkspaceRole, new_id};
+use fvoci_model::{Block, BlockType, BoardType, OrgRole, WorkspaceRole, new_id};
 use fvoci_server::ws::SubscriptionPause;
 use serde_json::{Value, json};
 use tokio::net::TcpStream;
@@ -502,9 +502,9 @@ async fn warm_dispatch_reads_nothing(
     assert_eq!(count, 0, "warm dispatch performs no database round trips");
 }
 
-/// Another organization's authorization write leaves this one's revision, and a
-/// dispatch after it reads nothing of the store.
-async fn another_organizations_write_reads_nothing(
+/// Another organization's authorization write, and a user renaming themselves, leave
+/// this organization's revision, and a dispatch after them reads nothing of the store.
+async fn writes_elsewhere_read_nothing(
     ts: &TestServer,
     revision: fvoci_store::VisibilityVersion,
     reads: &Reads,
@@ -526,6 +526,15 @@ async fn another_organizations_write_reads_nothing(
         revision,
         ts.app.store().visibility_version().await,
         "another organization's write is not this one's revision"
+    );
+    ts.client
+        .patch("/users/me", &json!({"displayName": "renamed"}))
+        .await
+        .check_ok();
+    assert_eq!(
+        revision,
+        ts.app.store().visibility_version().await,
+        "a user's own row is no authorization"
     );
     reads.0.store(0, Ordering::Relaxed);
     ts.app
@@ -597,14 +606,7 @@ async fn dispatch_reuses_authorization_reads_until_visibility_changes() {
     let _next = stored_card(&ts, &board.id, &user).await;
     assert_eq!(revision, ts.app.store().visibility_version().await);
     warm_dispatch_reads_nothing(&ts, &reads, &block, [&mut member, &mut reader]).await;
-    another_organizations_write_reads_nothing(
-        &ts,
-        revision,
-        &reads,
-        &block,
-        [&mut member, &mut reader],
-    )
-    .await;
+    writes_elsewhere_read_nothing(&ts, revision, &reads, &block, [&mut member, &mut reader]).await;
     ts.app.store().execute_unchecked(&format!("DELETE FROM workspace_members WHERE user_id = '{user}' AND workspace_id = '{ROOT_WORKSPACE_ID}'")).await.expect("membership revoked below app hooks");
     assert_ne!(revision, ts.app.store().visibility_version().await);
     // User-directed messages must also recheck, not only board updates.
@@ -717,4 +719,48 @@ async fn revocation_between_dispatch_check_and_queue_is_rechecked() {
         }
         ts.teardown().await;
     }
+}
+
+/// What is left of a user's subscriptions after their roles change is asked of the
+/// store as it is now, also of a workspace of another organization than the one whose
+/// change asks: a membership that ended there is not answered from what this
+/// organization's revision keeps.
+#[tokio::test]
+async fn a_role_change_asks_another_organizations_workspace_anew() {
+    // An SQLite database holds one organization.
+    if fvoci_store::testing::db_type_of_the_tests() != fvoci_store::DbType::Postgres {
+        return;
+    }
+    let ts = Setup::local_mode().start().await.init_basic().await;
+    let user = ts.client.me().await.id;
+    let (theirs, their_workspace, _board) = crate::workspaces::another_organization(&ts).await;
+    theirs
+        .add_organization_member(&user, OrgRole::Member)
+        .await
+        .expect("the user joins their organization");
+    theirs
+        .add_workspace_member(&their_workspace, &user, WorkspaceRole::Member)
+        .await
+        .expect("the user is let into their workspace");
+    let mut socket = ts.client.connect_websocket().await;
+    subscribe(
+        &ts,
+        &mut socket,
+        json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": their_workspace}),
+        Moment::Registered,
+    )
+    .await;
+    // Asked from this organization while the user is still in their workspace.
+    ts.app.ws().follow_only_own_workspaces(&user).await;
+    barrier(&mut socket).await;
+    theirs
+        .execute_unchecked(&format!(
+            "DELETE FROM workspace_members WHERE user_id = '{user}' \
+             AND workspace_id = '{their_workspace}'"
+        ))
+        .await
+        .expect("the membership ends there, below the app's hooks");
+    ts.app.ws().follow_only_own_workspaces(&user).await;
+    closed(&mut socket).await;
+    ts.teardown().await;
 }

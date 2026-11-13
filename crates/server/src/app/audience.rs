@@ -133,7 +133,11 @@ impl Audience {
         workspace_id: &str,
     ) -> Option<WorkspaceAccess> {
         read.unwrap_or_else(|error| {
-            tracing::error!(%error, workspace_id, "websocket: reading a workspace's membership failed");
+            tracing::error!(
+                %error,
+                workspace_id,
+                "websocket: reading a workspace's membership failed"
+            );
             None
         })
     }
