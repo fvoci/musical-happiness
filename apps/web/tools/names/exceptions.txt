@@ -31,20 +31,6 @@ e2e/shell.spec.ts | 'Move to Team'
 e2e/sidebar.spec.ts | 'Team'
 e2e/sidebar.spec.ts | in Team.
 
-# On the way in (signing up, the page of an invitation) the screens call what somebody
-# starts or joins their team: nobody reads "organization" or "workspace" there (user
-# decision, 2026-11-12). The tests find the screens by those texts, and the test of the
-# first use is about them from end to end.
-e2e-live/first-use.spec.ts
-tests/ui/account/sign-in-provider.test.ts | your team's administrator
-tests/ui/account/sign-in-provider.test.ts | This team does not let
-tests/ui/account/invite-page.test.ts | Start a team
-tests/ui/account/invite-page.test.ts | Start team
-tests/ui/account/invite-page.test.ts | team name
-tests/ui/account/invite-page.test.ts | of your team
-e2e-live/account.spec.ts | of your team
-e2e-live/account.spec.ts | start a team
-
 # The documents of how the original's messages were taken over name them by their ids
 # and their English texts; the others name what the original had: its addresses, a
 # function of its utilities.

@@ -221,7 +221,7 @@
   "ShareBoard.copiedLink": "コピーしました!",
   "ShareBoard.copyLink": "リンクをコピー",
   "ShareBoard.regenerate": "トークンを再生成する",
-  "ShareBoard.workspacePermissionsText": "{teamName}チームの全員",
+  "ShareBoard.workspacePermissionsText": "{workspaceName}チームの全員",
   "ShareBoard.tokenRegenrated": "トークンが再生成されました",
   "ShareBoard.userPermissionsRemoveMemberText": "メンバーを削除する",
   "ShareBoard.userPermissionsYouText": "(あなた)",

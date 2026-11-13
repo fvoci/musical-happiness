@@ -221,7 +221,7 @@
   "ShareBoard.copiedLink": "Gekopieerd!",
   "ShareBoard.copyLink": "Link kopiëren",
   "ShareBoard.regenerate": "Token opnieuw genereren",
-  "ShareBoard.workspacePermissionsText": "Iedereen van team {teamName}",
+  "ShareBoard.workspacePermissionsText": "Iedereen van team {workspaceName}",
   "ShareBoard.tokenRegenrated": "Token opnieuw gegenereerd",
   "ShareBoard.userPermissionsRemoveMemberText": "Lid verwijderen",
   "ShareBoard.userPermissionsYouText": "(jij)",

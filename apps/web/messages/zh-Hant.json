@@ -221,7 +221,7 @@
   "ShareBoard.copiedLink": "已複製！",
   "ShareBoard.copyLink": "複製連結",
   "ShareBoard.regenerate": "重新產生權杖",
-  "ShareBoard.workspacePermissionsText": "在{teamName}的所有人",
+  "ShareBoard.workspacePermissionsText": "在{workspaceName}的所有人",
   "ShareBoard.tokenRegenrated": "已重新產生權杖",
   "ShareBoard.userPermissionsRemoveMemberText": "移除成員",
   "ShareBoard.userPermissionsYouText": "（你）",

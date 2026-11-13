@@ -228,7 +228,7 @@
   "ShareBoard.copiedLink": "Copiado!",
   "ShareBoard.copyLink": "Copiar link",
   "ShareBoard.regenerate": "Gerar token novamente",
-  "ShareBoard.workspacePermissionsText": "Todos no time {teamName}",
+  "ShareBoard.workspacePermissionsText": "Todos no time {workspaceName}",
   "ShareBoard.tokenRegenrated": "Token gerado novamente",
   "ShareBoard.userPermissionsRemoveMemberText": "Remover membro",
   "ShareBoard.userPermissionsYouText": "(Você)",

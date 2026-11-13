@@ -108,6 +108,8 @@
     },
   );
 
+  const workspaceName = $derived(workspace.info?.title || m.shell_workspace_unnamed());
+
   const uid = $props.id();
   let importField = $state<HTMLInputElement | null>(null);
   /**
@@ -365,7 +367,7 @@
         </div>
         {#if !isGuest(workspace)}
           <p id="{uid}-import-hint" class="text-xs text-muted-foreground">
-            {m.shell_import_hint()}
+            {m.shell_import_hint({ workspace: workspaceName })}
           </p>
         {/if}
         <!-- There before it says anything, so that what it says is announced. -->
@@ -374,7 +376,10 @@
           class={leftOutHere > 0 ? 'text-xs' : 'sr-only'}
           data-testid="import-left-out"
         >
-          {#if leftOutHere > 0}{m.shell_import_left_out({ count: leftOutHere })}{/if}
+          {#if leftOutHere > 0}{m.shell_import_left_out({
+              count: leftOutHere,
+              workspace: workspaceName,
+            })}{/if}
         </p>
       </section>
 

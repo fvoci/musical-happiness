@@ -220,7 +220,7 @@
   "ShareBoard.copiedLink": "Скопировано!",
   "ShareBoard.copyLink": "Скопировать ссылку",
   "ShareBoard.regenerate": "Восстановить токен",
-  "ShareBoard.workspacePermissionsText": "Все в команде {teamName}",
+  "ShareBoard.workspacePermissionsText": "Все в команде {workspaceName}",
   "ShareBoard.tokenRegenrated": "Токен пересоздан",
   "ShareBoard.userPermissionsRemoveMemberText": "Удалить участника",
   "ShareBoard.userPermissionsYouText": "(Вы)",

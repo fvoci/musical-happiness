@@ -59,6 +59,8 @@
 
   let { open = $bindable(), workspace, board, linkOf, membersOnly = false }: Props = $props();
 
+  const workspaceName = $derived(workspace.info?.title || m.shell_workspace_unnamed());
+
   const uid = $props.id();
   const compact = $derived(page.stage === 'compact');
 
@@ -218,9 +220,13 @@
       <!-- The workspace. -->
       {#if !membersOnly}
         <section class="grid gap-2" aria-labelledby="{uid}-workspace">
-          <h3 id="{uid}-workspace" class="font-medium">{m.share_workspace_title()}</h3>
+          <h3 id="{uid}-workspace" class="font-medium">
+            {m.share_workspace_title({ workspace: workspaceName })}
+          </h3>
           <label class="flex min-h-8 items-center gap-3 roomy:min-h-touch">
-            <span class="min-w-0 flex-1 text-muted-foreground">{m.share_workspace_open()}</span>
+            <span class="min-w-0 flex-1 text-muted-foreground"
+              >{m.share_workspace_open({ workspace: workspaceName })}</span
+            >
             <Switch
               checked={isOpen}
               data-testid="share-open"
@@ -328,7 +334,9 @@
         {/if}
         <!-- In the page from the start: a live region that appears with its words is often not read. -->
         <p class="text-muted-foreground empty:hidden" role="status">
-          {candidates.length === 0 && query.trim() !== '' ? m.share_nobody_found() : ''}
+          {candidates.length === 0 && query.trim() !== ''
+            ? m.share_nobody_found({ workspace: workspaceName })
+            : ''}
         </p>
       </section>
 

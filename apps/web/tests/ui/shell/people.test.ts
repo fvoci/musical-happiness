@@ -69,6 +69,8 @@ describe('the people of a workspace', () => {
   it('lists everybody with what they are, and offers each the roles a change can make', async () => {
     mount();
     const list = await screen.findByTestId('people-members');
+    expect(screen.getByRole('heading', { name: 'People in Acme' })).toBeVisible();
+    expect(screen.getByText(/Anyone who opens the link can join Acme/)).toBeVisible();
     const rows = within(list).getAllByRole('listitem');
     expect(rows.map((row) => row.textContent.includes('Ada (@ada)'))).toEqual([true, false, false]);
     const options = (name: string): string[] =>

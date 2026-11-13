@@ -561,6 +561,7 @@ fn resident_kib(pid: u32) -> u64 {
 }
 
 /// Whether the tests run in a debug build: the times they print are of that.
+#[cfg(target_os = "linux")]
 fn profile() -> &'static str {
     if cfg!(debug_assertions) {
         "debug build"
@@ -569,6 +570,7 @@ fn profile() -> &'static str {
     }
 }
 
+#[cfg(target_os = "linux")]
 #[expect(clippy::print_stderr, reason = "the measurements are for the report")]
 fn report(line: &str) {
     eprintln!("measured: {line}");

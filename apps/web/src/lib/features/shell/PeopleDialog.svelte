@@ -23,6 +23,8 @@
 
   let { open = $bindable(), workspace, people, inviteLink }: Props = $props();
 
+  const workspaceName = $derived(workspace.info?.title || m.shell_workspace_unnamed());
+
   // The back button closes it, as the other dialogs: the page under it stays.
   closeOnBack(
     () => open,
@@ -41,7 +43,8 @@
     <Dialog.Header class="flex-row items-center gap-2 border-b p-4">
       <div class="min-w-0 flex-1">
         <Dialog.Title>{m.people_title()}</Dialog.Title>
-        <Dialog.Description>{m.people_description()}</Dialog.Description>
+        <Dialog.Description>{m.people_description({ workspace: workspaceName })}</Dialog.Description
+        >
       </div>
       <Dialog.Close>
         {#snippet child({ props }: { props: Record<string, unknown> })}

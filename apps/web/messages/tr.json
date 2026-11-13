@@ -228,7 +228,7 @@
   "ShareBoard.copiedLink": "Kopyalandı!",
   "ShareBoard.copyLink": "Bağlantıyı kopyala",
   "ShareBoard.regenerate": "Kodu yeniden oluştur",
-  "ShareBoard.workspacePermissionsText": "{teamName} takımındaki herkes",
+  "ShareBoard.workspacePermissionsText": "{workspaceName} takımındaki herkes",
   "ShareBoard.tokenRegenrated": "Kod yeniden oluşturuldu",
   "ShareBoard.userPermissionsRemoveMemberText": "Üyelikten çıkar",
   "ShareBoard.userPermissionsYouText": "(Siz)",

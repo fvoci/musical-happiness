@@ -200,7 +200,7 @@
   "ShareBoard.copiedLink": "Copié !",
   "ShareBoard.copyLink": "Copier le lien",
   "ShareBoard.regenerate": "Régénérer le jeton",
-  "ShareBoard.workspacePermissionsText": "Tout le monde à l'équipe {teamName}",
+  "ShareBoard.workspacePermissionsText": "Tout le monde à l'équipe {workspaceName}",
   "ShareBoard.tokenRegenrated": "Le jeton a été recréé",
   "ShareBoard.userPermissionsRemoveMemberText": "Supprimer un membre",
   "ShareBoard.userPermissionsYouText": "(Vous)",

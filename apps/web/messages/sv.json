@@ -221,7 +221,7 @@
   "ShareBoard.copiedLink": "Kopierad!",
   "ShareBoard.copyLink": "Kopiera länk",
   "ShareBoard.regenerate": "Generera nytt Token",
-  "ShareBoard.workspacePermissionsText": "Alla i teamet {teamName}",
+  "ShareBoard.workspacePermissionsText": "Alla i teamet {workspaceName}",
   "ShareBoard.tokenRegenrated": "Åtkomstnyckel återskapad",
   "ShareBoard.userPermissionsRemoveMemberText": "Ta bort användare",
   "ShareBoard.userPermissionsYouText": "(du)",

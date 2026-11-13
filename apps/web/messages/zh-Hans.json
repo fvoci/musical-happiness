@@ -221,7 +221,7 @@
   "ShareBoard.copiedLink": "已复制！",
   "ShareBoard.copyLink": "复制链接",
   "ShareBoard.regenerate": "重新生成令牌",
-  "ShareBoard.workspacePermissionsText": "在{teamName}团队的每个人",
+  "ShareBoard.workspacePermissionsText": "在{workspaceName}团队的每个人",
   "ShareBoard.tokenRegenrated": "已重新产生令牌",
   "ShareBoard.userPermissionsRemoveMemberText": "移除成员",
   "ShareBoard.userPermissionsYouText": "(你)",

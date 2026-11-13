@@ -7,7 +7,7 @@
  * The server is the one built in this checkout (`cargo build -p
  * fvoci-server`, `target/debug/fvoci-server`; `FVOCI_SERVER_BIN` names
  * another). It runs on SQLite in a new folder under `target/web-live/`, on
- * 127.0.0.1 only, and serves this app's build (`dist/`), so that the page and
+ * localhost only, and serves this app's build (`dist/`), so that the page and
  * the API have one origin. It prints `live: <address>` once it answers.
  *
  * Beside it runs the fake OpenID Connect provider of the server's tests
@@ -62,7 +62,7 @@ writeFileSync(
   path.join(REPO_ROOT, 'target/web-live', `server-${port}.json`),
   JSON.stringify({ data }),
 );
-const origin = `http://127.0.0.1:${port}`;
+const origin = `http://localhost:${port}`;
 writeFileSync(
   path.join(data, 'config.json'),
   JSON.stringify(
