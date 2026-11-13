@@ -721,7 +721,8 @@ pub enum Removal {
 /// What a provider that is replaced must still be.
 #[derive(Debug, Clone)]
 enum AsRead {
-    /// Anything.
+    /// Anything: only for the tests, which set a provider without reading it first.
+    #[cfg(any(test, feature = "test-util"))]
     Whatever,
     /// The provider of this identifier, last changed at this time; or none for `None`.
     Was(Option<(String, i64)>),

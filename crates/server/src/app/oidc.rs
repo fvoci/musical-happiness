@@ -245,9 +245,9 @@ impl App {
                 .as_ref()
                 .is_some_and(|existing| existing.sso_required)
             {
-                // Begun now: the rooms of its cards' bodies ask who may be in them before
-                // the request answers. A connection in one may follow no workspace.
-                self.collab().ask_again_now(self).await;
+                // Begun now: who it shuts out is out of the rooms of its cards' bodies
+                // before the request answers. A connection in one may follow no workspace.
+                self.collab().put_out_shut_out(self, &stored.id).await;
             }
             self.close_connections_shut_out(&stored).await;
         }

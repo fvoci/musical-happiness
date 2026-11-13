@@ -148,6 +148,13 @@
   </form>
 {/snippet}
 
+<!-- Back from the provider, the browser may show the page as it left it: usable again. -->
+<svelte:window
+  onpageshow={(event: PageTransitionEvent) => {
+    if (event.persisted) working = false;
+  }}
+/>
+
 <section
   bind:this={section}
   tabindex="-1"

@@ -13,7 +13,8 @@
 //! `collab_recheck_seconds`, whether each connection may be in the room, and how
 //! ([`admission::admit`]): who may no longer read is put out, and who may no longer
 //! write reads from then on. When an organization begins to take only sessions made
-//! through its provider, its rooms ask at once ([`Collab::ask_again_now`]).
+//! through its provider, whoever it shuts out is put out of its rooms at once
+//! ([`Collab::put_out_shut_out`]).
 //!
 //! Every step of a room runs in a task of its own that the caller waits for
 //! (`Seat`): a connection that ends while its update is taken leaves the update
@@ -37,7 +38,7 @@ use super::{Collab, DocChange, DocEvent, Loaded, admission, place, refusals};
 use crate::app::{App, Asker};
 use crate::config::collab::CollabSettings;
 use crate::error::{AppError, Reason};
-use crate::permissions::DocMode;
+use crate::permissions::{DocMode, session_opens};
 
 /// How long after a room could not be sent its document anew, because the document
 /// cannot be worked on for now, it is tried again.
@@ -46,11 +47,6 @@ const SEND_ANEW_AGAIN: Duration = Duration::from_secs(2);
 /// How long after the store did not answer of somebody in a room it is asked of
 /// them once more, before they are put out.
 const ASKED_ONCE_MORE_AFTER: Duration = Duration::from_secs(2);
-
-/// How long a request that has the rooms of an organization ask again at once waits
-/// for their answers ([`Collab::ask_again_now`]): what is not answered by then is
-/// answered after, as the store answers.
-const ASKED_AGAIN_WITHIN: Duration = Duration::from_secs(5);
 
 /// How many times a connection coming into a room is admitted again because an
 /// organization began to take only its provider's sessions meanwhile, before it is
@@ -205,9 +201,6 @@ pub(super) struct Room {
     /// The application as the card's organization reaches it.
     app: App,
     turn: tokio::sync::Mutex<Turn>,
-    /// Held while the room asks again who may be in it: one asking at a time, so that
-    /// an answer older than another's is never told after it.
-    asking: tokio::sync::Mutex<()>,
     /// Cancelled when the room is closed: its task ends.
     gone: CancellationToken,
 }
@@ -425,7 +418,6 @@ impl Collab {
             card_id: card_id.to_owned(),
             app: app.clone(),
             turn: tokio::sync::Mutex::new(Turn::default()),
-            asking: tokio::sync::Mutex::new(()),
             gone: CancellationToken::new(),
         });
         rooms.insert(key, Arc::clone(&room));
@@ -503,14 +495,15 @@ impl Collab {
         }
     }
 
-    /// Asks again at once whether each member of the rooms of the organization of `app`
-    /// (a handle of one organization) may be in them, as it begins to take only
-    /// sessions made through its provider: who it shuts out is put out now, not at the
-    /// room's next asking. For after that is stored. Returns once the rooms have asked,
-    /// or after [`ASKED_AGAIN_WITHIN`]; the askings go on if the caller is given up. A
-    /// connection whose admission was answered before is admitted again as it comes
-    /// in ([`Self::enter`]), so none is let in past it.
-    pub(crate) async fn ask_again_now(&self, app: &App) {
+    /// Puts out of the rooms of the organization of `app` (a handle of one
+    /// organization) every connection whose session was not made through `provider_id`,
+    /// as the organization begins to take only sessions made through that provider: the
+    /// wall's own rule ([`session_opens`]), so nothing is asked of the store and nothing
+    /// waits. For after that is stored, and before the request that stored it answers:
+    /// what such a connection sends after that is taken by no room. A connection whose
+    /// admission was answered before is admitted again as it comes in
+    /// ([`Self::enter`]), so none is let in past it.
+    pub(crate) async fn put_out_shut_out(&self, app: &App, provider_id: &str) {
         let rooms = &self.inner.rooms;
         // Before the rooms are read: a connection that comes into one later sees it.
         rooms.walls_raised.fetch_add(1, Ordering::SeqCst);
@@ -523,26 +516,16 @@ impl Collab {
             .filter(|room| room.app.store().tenant() == tenant)
             .cloned()
             .collect();
-        let asking: Vec<_> = of_organization
-            .into_iter()
-            .map(|room| {
-                let (collab, stopping) = (self.clone(), rooms.stopping.clone());
-                tokio::spawn(async move {
-                    tokio::select! {
-                        () = stopping.cancelled() => {}
-                        () = collab.recheck(&room) => {}
-                    }
-                })
-            })
-            .collect();
-        let asked = futures_util::future::join_all(asking);
-        if tokio::time::timeout(ASKED_AGAIN_WITHIN, asked)
-            .await
-            .is_err()
-        {
-            tracing::warn!(
-                "the rooms of an organization that takes no password did not ask again in time"
-            );
+        // As for a card that is not there: the organization is told to nobody.
+        let reason = reason_of(&AppError::not_found("card"));
+        for room in of_organization {
+            let mut turn = room.turn.lock().await;
+            while let Some(index) = turn.members.iter().position(|member| {
+                !session_opens(Some(provider_id), member.connection.made_through.as_deref())
+            }) {
+                turn.put_out(index, &reason);
+            }
+            self.shut_if_empty(&room, &mut turn).await;
         }
     }
 
@@ -554,7 +537,6 @@ impl Collab {
     /// does not answer then either. The store is asked while the room is not held; what
     /// a member sent meanwhile was taken as they were.
     async fn recheck(&self, room: &Arc<Room>) {
-        let _asking = room.asking.lock().await;
         let asked: Vec<Asked> = {
             let turn = room.turn.lock().await;
             turn.members
