@@ -34,7 +34,9 @@ import {
   deferred,
   detached,
   replaceCut,
+  requested,
   settled,
+  targetOf,
   type Action,
   type Asked,
   type Entry,
@@ -65,13 +67,12 @@ export class UndoManager {
   /** Times the history was cleared. */
   #history = 0;
 
-  /** Whether each step is to be in force: what has begun, then the asks not dropped, in order. */
-  #requested(): Map<Entry, boolean> {
-    const wanted = new Map(this.#entries.map((entry) => [entry, entry.inForce]));
-    for (const ask of this.#asks) {
-      if (!ask.cancelled && wanted.has(ask.entry)) wanted.set(ask.entry, ask.action === 'redo');
-    }
-    return wanted;
+  #requested(asks: readonly Asked[] = this.#asks): Map<Entry, boolean> {
+    return requested(this.#entries, asks);
+  }
+
+  #target(wanted: Map<Entry, boolean>, action: Action): Entry | undefined {
+    return targetOf(this.#entries, wanted, action);
   }
 
   get #index(): number {
@@ -83,14 +84,7 @@ export class UndoManager {
   }
 
   get #redoEntry(): Entry | undefined {
-    return this.#entries
-      .slice(this.#index + 1)
-      .find(
-        (entry) =>
-          !this.#entries.some(
-            (other) => other.reservedAt !== undefined && other.hidden.includes(entry),
-          ),
-      );
+    return this.#target(this.#requested(), 'redo');
   }
 
   /** When the change that would be undone next was made; 0 without one. */
@@ -317,14 +311,40 @@ export class UndoManager {
    * change; those asked for since (of this gesture) stay.
    */
   #commitReservation(entry: Entry): void {
-    if (entry.reservedAt === undefined) return;
-    this.#drop(entry.reservedAt);
+    const { reservedAt } = entry;
+    if (reservedAt === undefined) return;
+    entry.hidden = [];
+    entry.reservedAt = undefined;
     const at = this.#entries.indexOf(entry);
+    // Of a history since cleared: the history in place is none of its business.
+    if (at === -1) return;
+    this.#drop(reservedAt);
     const cut = this.#entries.slice(0, at).filter((other) => !other.inForce);
     this.#entries = this.#entries.filter((other) => !cut.includes(other));
     entry.cut.push(...cut);
-    entry.hidden = [];
-    entry.reservedAt = undefined;
+    this.#reaim(reservedAt);
+  }
+
+  /**
+   * Aims again the undos and redos asked for after the ask numbered `after`
+   * and not begun: each was asked of the history as the asks before it were
+   * to leave it, and some of those were dropped. One left with no step to
+   * take is dropped.
+   */
+  #reaim(after: number): void {
+    const wanted = this.#requested(this.#asks.filter((ask) => ask.number <= after || ask.begun));
+    for (const ask of this.#asks) {
+      if (ask.cancelled || ask.begun || ask.number <= after) continue;
+      const target = this.#target(wanted, ask.action);
+      if (!target) {
+        ask.cancelled = true;
+        ask.dropped.resolve();
+        continue;
+      }
+      ask.entry = target;
+      if (ask.action === 'undo' && target.gesture) target.gesture.undoRequested = true;
+      wanted.set(target, ask.action === 'redo');
+    }
   }
 
   /**
@@ -354,13 +374,14 @@ export class UndoManager {
   }
 
   /** Queues an undo or redo of `entry`, and waits for it to be over. */
-  async #ask(entry: Entry, action: Action): Promise<void> {
+  async #ask(aimedAt: Entry, action: Action): Promise<void> {
     this.#asked += 1;
     const ask: Asked = {
       number: this.#asked,
-      entry,
+      entry: aimedAt,
       action,
       cancelled: false,
+      begun: false,
       dropped: deferred(),
     };
     this.#asks.push(ask);
@@ -369,12 +390,18 @@ export class UndoManager {
     this.#waiting += 1;
     this.onStateDidChange?.();
     const turn = this.#queue.then(async () => {
-      if (!current()) return;
-      await Promise.race([settled(entry), ask.dropped.promise]);
-      if (!current()) return;
-      // A dropped queue can move on, but a write already being carried out still comes first.
-      await this.#carried;
+      // Waits for the writes of its step, and of the one it is aimed at again meanwhile.
+      let target: Entry | undefined;
+      while (current() && target !== ask.entry) {
+        target = ask.entry;
+        await Promise.race([settled(target), ask.dropped.promise]);
+        if (!current()) return;
+        // A dropped queue can move on, but a write already being carried out still comes first.
+        await this.#carried;
+      }
+      const { entry } = ask;
       if (!current() || !this.#entries.includes(entry)) return;
+      ask.begun = true;
       entry.inForce = action === 'redo';
       const carrying = this.#carryOut(entry, action);
       entry.carrying = carrying.catch(() => undefined);

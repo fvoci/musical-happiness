@@ -42,12 +42,42 @@ export interface Gesture {
 
 export type Action = 'undo' | 'redo';
 
+/** An undo or redo asked for, until it is over. */
 export interface Asked {
+  /** The how-manieth ask it is. */
   number: number;
+  /** The step it takes back or does again: aimed again while it has not begun. */
   entry: Entry;
   action: Action;
+  /** Dropped: it does nothing. */
   cancelled: boolean;
+  /** Carried out (or being), on its step as it was then. */
+  begun: boolean;
   dropped: ReturnType<typeof deferred>;
+}
+
+/** Whether each step is to be in force: what has begun, then `asks` not dropped, in order. */
+export function requested(entries: readonly Entry[], asks: readonly Asked[]): Map<Entry, boolean> {
+  const wanted = new Map(entries.map((entry) => [entry, entry.inForce]));
+  for (const ask of asks) {
+    if (!ask.cancelled && wanted.has(ask.entry)) wanted.set(ask.entry, ask.action === 'redo');
+  }
+  return wanted;
+}
+
+/** The step an undo or redo asked for over `wanted` (of `entries`, in order) is of. */
+export function targetOf(
+  entries: readonly Entry[],
+  wanted: Map<Entry, boolean>,
+  action: Action,
+): Entry | undefined {
+  const index = [...wanted.values()].lastIndexOf(true);
+  if (action === 'undo') return entries[index];
+  // What a reservation hid is not to be redone while it may still change something.
+  const hidden = new Set(
+    entries.flatMap((entry) => (entry.reservedAt === undefined ? [] : entry.hidden)),
+  );
+  return entries.slice(index + 1).find((entry) => !hidden.has(entry));
 }
 
 /** A step in no history. */

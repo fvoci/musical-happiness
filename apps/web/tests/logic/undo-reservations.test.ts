@@ -227,3 +227,81 @@ it('cuts a failed redo retry when the reservation subsequently makes a change', 
   await manager.redo();
   expect(values).toEqual(['copy']);
 });
+
+it('aims the presses made after a reservation again when its change drops the one before', async () => {
+  const manager = new UndoManager();
+  const values: string[] = [];
+  await adding(manager, values, 'B');
+  const write = held();
+  const read = held();
+  const changing = adding(manager, values, 'A', undefined, write.promise);
+  const undoA = manager.undo();
+  const reservation = manager.group(async (groupId) => {
+    await read.promise;
+    await adding(manager, values, 'copy', groupId);
+  }, true);
+  const undoCopy = manager.undo();
+  const undoNext = manager.undo();
+  read.release();
+  await reservation;
+  write.release();
+  await Promise.all([changing, undoA, undoCopy, undoNext]);
+  // The press before the copy is dropped by it; the two after take back the copy, then A.
+  expect(values).toEqual(['B']);
+  expect(manager.undoDescription).toBe('B');
+});
+
+it('aims a press made after a reservation past a redo the reservation drops', async () => {
+  const manager = new UndoManager();
+  const values: string[] = [];
+  const started = held();
+  const undoing = held();
+  await adding(manager, values, 'B');
+  await manager.perform(
+    async () => {
+      values.push('A');
+    },
+    async () => {
+      started.release();
+      await undoing.promise;
+      values.splice(values.indexOf('A'), 1);
+    },
+    'A',
+  );
+  const undoA = manager.undo();
+  // The undo of A is being carried out: A shows undone, and stays so.
+  await started.promise;
+  const redoA = manager.redo();
+  const read = held();
+  const reservation = manager.group(async (groupId) => {
+    await read.promise;
+    await adding(manager, values, 'copy', groupId);
+  }, true);
+  const first = manager.undo();
+  const second = manager.undo();
+  read.release();
+  await reservation;
+  undoing.release();
+  await Promise.all([undoA, redoA, first, second]);
+  expect(values).toEqual([]);
+  expect(manager.canUndo).toBe(false);
+});
+
+it('leaves the history begun by clear alone when a reservation of the one before makes its change', async () => {
+  const manager = new UndoManager();
+  const values: string[] = [];
+  const read = held();
+  const reservation = manager.group(async (groupId) => {
+    await read.promise;
+    await adding(manager, values, 'copy', groupId);
+  }, true);
+  manager.clear();
+  for (const value of ['X', 'Y', 'Z']) await adding(manager, values, value);
+  await manager.undo();
+  await manager.undo();
+  read.release();
+  await reservation;
+  expect(manager.redoDescription).toBe('Y');
+  await manager.redo();
+  expect(values).toEqual(['X', 'copy', 'Y']);
+});
