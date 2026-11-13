@@ -2162,8 +2162,11 @@ export interface paths {
          * @description Queues a separate message for each unique email address with an existing link.
          *     The token must name a live invitation of this workspace, and the sender must
          *     still be allowed to make that kind of invitation. The same checks are repeated
-         *     before each delivery. Member and one-use guest links retain their original
-         *     expiry and use limits. Invalid recipients reject the whole request before sending.
+         *     before each delivery. A member link is sent as it is, its expiry and uses unchanged.
+         *     A guest link lets one person in once, so it is not sent: each recipient gets a
+         *     one-use guest link of their own, to the same board in the same role and ending
+         *     with it, made by the sender as their message leaves; the named link is left as it
+         *     is. Invalid recipients reject the whole request before sending.
          *     Each message is in the recipient's language when the mail is written in it, else the
          *     sender's setting, else `language`, else English. No SMTP means 404.
          *     A request names at most `invitation_mail_recipients` addresses, repeats counted

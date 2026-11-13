@@ -146,7 +146,7 @@ async fn invitation_mail_sends_guest_links_and_stops_when_guests_are_disabled() 
         .await
         .check_no_content();
     let mail = smtp.received(1).await;
-    assert!(mail[0].decoded.contains("one person"));
+    assert!(mail[0].decoded.contains("used once"));
     assert!(!mail[0].decoded.contains(&board.id));
     assert_eq!(link.max_uses, Some(1));
     th.client
@@ -330,6 +330,95 @@ async fn invitation_mail_without_the_recipients_language_is_written_in_the_sende
         messages[2].decoded.contains("lang=\"ko\""),
         "with no setting of either, the screen's language"
     );
+    th.teardown().await;
+    smtp.stop().await;
+}
+
+/// The tokens of the invitation links in `message`, in the order they appear.
+fn invite_tokens(message: &crate::fake_smtp::Received) -> Vec<String> {
+    let mut tokens: Vec<String> = message
+        .decoded
+        .split("/invite/")
+        .skip(1)
+        .map(|rest| {
+            rest.chars()
+                .take_while(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
+                .collect()
+        })
+        .collect();
+    tokens.dedup();
+    tokens
+}
+
+#[tokio::test]
+async fn guest_invitation_mail_gives_each_recipient_a_one_use_link_of_their_own() {
+    let smtp = FakeSmtp::start_on(0).await;
+    let th = Setup::native()
+        .smtp(smtp.settings())
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let board = th
+        .create_board(ROOT_WORKSPACE_ID, fvoci_model::BoardType::Open)
+        .await;
+    let path = format!("/w/{ROOT_WORKSPACE_ID}/invitations");
+    let link: Invitation = th
+        .client
+        .post(
+            &path,
+            &json!({"role":"guest","boardId":board.id,"boardRole":"commenter"}),
+        )
+        .await
+        .created_json();
+    let original = link.token.clone().expect("token");
+    th.client
+        .post(
+            &format!("{path}/mail"),
+            &json!({"token":original,"recipients":["g1@example.test","g2@example.test","g3@example.test"]}),
+        )
+        .await
+        .check_no_content();
+    let messages = smtp.received(3).await;
+    assert!(th.app.finish_background(Duration::from_secs(10)).await);
+    let mut tokens: Vec<String> = messages
+        .iter()
+        .map(|message| {
+            let tokens = invite_tokens(message);
+            assert_eq!(tokens.len(), 1, "one link in each message: {tokens:?}");
+            tokens[0].clone()
+        })
+        .collect();
+    tokens.sort();
+    tokens.dedup();
+    assert_eq!(tokens.len(), 3, "every recipient has a link of their own");
+    assert!(
+        !tokens.contains(&original),
+        "the link that was made stays its maker's"
+    );
+    for token in tokens.iter().chain([&original]) {
+        th.anonymous()
+            .post("/invitations/preview", &json!({"token":token}))
+            .await
+            .check_status(StatusCode::OK);
+    }
+    let links: Vec<Invitation> = th.client.get(&path).await.ok_json();
+    let made: Vec<&Invitation> = links
+        .iter()
+        .filter(|other| other.role == fvoci_model::WorkspaceRole::Guest && other.id != link.id)
+        .collect();
+    assert_eq!(made.len(), 3, "{links:?}");
+    for other in made {
+        assert_eq!(other.role, fvoci_model::WorkspaceRole::Guest);
+        assert_eq!(other.board_id.as_deref(), Some(board.id.as_str()));
+        assert_eq!(other.board_role, link.board_role);
+        assert_eq!(other.max_uses, Some(1));
+        assert_eq!(
+            other.expires_at, link.expires_at,
+            "the invitation's own end"
+        );
+        assert_eq!(other.uses, 0);
+    }
     th.teardown().await;
     smtp.stop().await;
 }

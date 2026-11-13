@@ -149,11 +149,17 @@ test('emails a guest invitation from the share dialog', async ({ page, baseURL }
   const link = await share.getByTestId('share-guest-link').inputValue();
   const recipient = person('mail-guest').email;
   await share.getByLabel('Email invitation to').fill(recipient);
+  await expect(share.getByLabel('Email invitation to')).toHaveAccessibleDescription(
+    /their own one-use link/,
+  );
   await mailShot(page, 'guest-invitation');
   await share.getByRole('button', { name: 'Send invitation email' }).click();
   await expect(share.getByRole('status')).toContainText('Invitation mail queued');
-  await expect
-    .poll(async () => (await inbox(baseURL)).find((mail) => mail.recipient === recipient)?.decoded)
-    .toContain(link);
+  const received = async () =>
+    (await inbox(baseURL)).find((mail) => mail.recipient === recipient)?.decoded ?? '';
+  await expect.poll(received).toContain('/invite/');
+  // A guest link lets one person in once: the recipient has one of their own, and
+  // the link that was made stays its maker's.
+  expect(await received()).not.toContain(link);
   await api.dispose();
 });

@@ -80,10 +80,10 @@ impl Content {
         };
         let ending = match (language, role) {
             (Language::English, fvoci_model::WorkspaceRole::Guest) => {
-                "This link invites one person to a board and can be used once. It keeps its original expiry."
+                "This link is yours alone: it brings you to one board and can be used once. It ends when the invitation does."
             }
             (Language::Korean, fvoci_model::WorkspaceRole::Guest) => {
-                "이 링크로 한 사람을 보드에 초대합니다. 한 번만 쓸 수 있으며 원래 만료일을 유지합니다."
+                "이 링크는 받는 분만을 위한 것으로, 보드 하나에 한 번 들어올 수 있습니다. 초대가 끝나면 함께 끝납니다."
             }
             (Language::English, _) => {
                 "This link invites members to a workspace. It keeps its original expiry."

@@ -2,11 +2,13 @@
 
 use std::collections::BTreeSet;
 
-use fvoci_model::{Invitation, InvitationMail};
+use fvoci_model::{BoardRole, GUEST_INVITATION_USES, Invitation, InvitationMail, WorkspaceRole};
+use fvoci_store::NewLink;
 
 use super::super::mail::{Content, InvitationRefusal, Language, Letter, Queued};
 use super::App;
-use crate::auth::{now_millis, secret::token_digest};
+use crate::auth::now_millis;
+use crate::auth::secret::{new_secret, token_digest};
 use crate::error::{AppError, Reason};
 use fvoci_store::Tenant;
 
@@ -157,11 +159,7 @@ impl App {
         let sender_language =
             Language::written_in(self.user_settings(sender).await?.language.as_str());
         let requested = Language::written_in(&request.language);
-        let link = format!(
-            "{}/invite/{}",
-            self.config().server_root.trim_end_matches('/'),
-            request.token
-        );
+        let root = self.config().server_root.trim_end_matches('/');
         for (recipient, place) in request.recipients.into_iter().zip(queued) {
             place
                 .deliver(&self.inner.mail, || async {
@@ -179,6 +177,16 @@ impl App {
                     };
                     let language =
                         Language::first_of([recipient_language, sender_language, requested]);
+                    // A guest link lets one person in once: each recipient has their
+                    // own, made as their message leaves. Members share the one link.
+                    let token = match (invitation.board_id.as_deref(), invitation.board_role) {
+                        (Some(board_id), Some(role)) if invitation.role == WorkspaceRole::Guest => {
+                            self.guest_link_like(&invitation, board_id, role, sender)
+                                .await?
+                        }
+                        _ => request.token.clone(),
+                    };
+                    let link = format!("{root}/invite/{token}");
                     Ok(Some(Letter {
                         content: Content::invitation(&link, language, invitation.role),
                         to: recipient,
@@ -187,6 +195,46 @@ impl App {
                 .await?;
         }
         Ok(())
+    }
+}
+
+impl App {
+    /// A new one-use guest link like `invitation` (its board, its role on it and its
+    /// end), made by `sender` for one recipient of its mail; returns its token. The
+    /// caller has asked whether `sender` may make such a link.
+    async fn guest_link_like(
+        &self,
+        invitation: &Invitation,
+        board_id: &str,
+        role: BoardRole,
+        sender: &str,
+    ) -> Result<String, AppError> {
+        let token = new_secret();
+        let link = NewLink {
+            workspace_id: &invitation.workspace_id,
+            guest_of: Some((board_id, role)),
+            token_hash: &token_digest(&token),
+            created_by: sender,
+            now: now_millis(),
+            expires_at: invitation.expires_at,
+            max_uses: Some(GUEST_INVITATION_USES),
+        };
+        let made = match self.store().create_invitation(&link).await {
+            Ok(made) => made,
+            Err(error) if error.is_not_found() => return Err(AppError::not_found("board")),
+            Err(error) => {
+                return Err(AppError::from(error).context("unable to store an invitation"));
+            }
+        };
+        tracing::info!(
+            invitation_id = %made.id,
+            from_invitation_id = %invitation.id,
+            workspace_id = %invitation.workspace_id,
+            board_id,
+            user_id = sender,
+            "a guest link was made for one recipient of invitation mail"
+        );
+        Ok(token)
     }
 }
 

@@ -1031,6 +1031,7 @@
   "reset_unavailable": "Email recovery is unavailable. Contact your server administrator for a reset link.",
   "mail_addresses": "Email invitation to",
   "mail_addresses_hint": "Separate addresses with commas or new lines. Each person receives a separate email with this same link.",
+  "mail_guest_addresses_hint": "Separate addresses with commas or new lines. Each person receives their own one-use link to this board; the link above stays yours to share.",
   "mail_addresses_invalid": "Enter valid email addresses, separated by commas or new lines.",
   "mail_queued": "Invitation mail queued.",
   "mail_send": "Send invitation email",

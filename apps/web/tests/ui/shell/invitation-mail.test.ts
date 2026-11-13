@@ -12,6 +12,7 @@ it('hides email delivery when SMTP is unavailable', async () => {
     workspaceId: 'workspace',
     token: 'secret',
     language: 'en',
+    hint: 'Each person receives a link of their own.',
   });
   await waitFor(() => {
     expect(available).toHaveBeenCalledOnce();
@@ -26,6 +27,7 @@ it('sends addresses separately with the existing token and acknowledges queuing'
     workspaceId: 'workspace',
     token: 'secret',
     language: 'ko',
+    hint: 'Each person receives a link of their own.',
   });
   await fireEvent.input(await screen.findByLabelText('Email invitation to'), {
     target: { value: ' one@example.test,\ntwo@example.test ' },
@@ -38,6 +40,9 @@ it('sends addresses separately with the existing token and acknowledges queuing'
     'ko',
   );
   expect(await screen.findByRole('status')).toHaveTextContent('Invitation mail queued');
+  expect(screen.getByLabelText('Email invitation to')).toHaveAccessibleDescription(
+    'Each person receives a link of their own.',
+  );
 });
 
 it('explains invalid addresses without showing server details', async () => {
@@ -53,6 +58,7 @@ it('explains invalid addresses without showing server details', async () => {
     workspaceId: 'workspace',
     token: 'secret',
     language: 'en',
+    hint: 'Each person receives a link of their own.',
   });
   await fireEvent.input(await screen.findByLabelText('Email invitation to'), {
     target: { value: 'bad address' },
@@ -90,6 +96,7 @@ it.each([
     workspaceId: 'workspace',
     token: 'secret',
     language: 'en',
+    hint: 'Each person receives a link of their own.',
   });
   await fireEvent.input(await screen.findByLabelText('Email invitation to'), {
     target: { value: 'one@example.test' },

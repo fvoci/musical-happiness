@@ -203,7 +203,13 @@
             note={m.people_invite_note()}
             testId="people-link"
             delivery={people.mail && workspaceId
-              ? { mail: people.mail, workspaceId, token: made.token, language: workspace.locale }
+              ? {
+                  mail: people.mail,
+                  workspaceId,
+                  token: made.token,
+                  language: workspace.locale,
+                  hint: m.mail_addresses_hint(),
+                }
               : undefined}
           />
         {/key}

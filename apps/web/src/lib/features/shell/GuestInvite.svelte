@@ -96,6 +96,7 @@
             workspaceId: workspace.info.id,
             token: made.token,
             language: workspace.locale,
+            hint: m.mail_guest_addresses_hint(),
           }
         : undefined}
     />

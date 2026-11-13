@@ -9,11 +9,14 @@
     workspaceId,
     token,
     language,
+    hint,
   }: {
     mail: InvitationMail;
     workspaceId: string;
     token: string;
     language: string;
+    /** What the addresses get: the same link, or a link of their own each. */
+    hint: string;
   } = $props();
   const uid = $props.id();
   const available = $derived(mail.available().catch(() => false));
@@ -79,7 +82,7 @@
         aria-describedby="{uid}-hint"
         class="w-full rounded-md border border-input-border bg-background px-3 py-2 text-sm roomy:text-base"
       ></textarea>
-      <p id="{uid}-hint" class="text-xs text-muted-foreground">{m.mail_addresses_hint()}</p>
+      <p id="{uid}-hint" class="text-xs text-muted-foreground">{hint}</p>
       {#if problem}<p class="text-sm text-destructive" role="alert">{problem}</p>{/if}
       {#if queued}<p class="text-sm" role="status">{m.mail_queued()}</p>{/if}
       <Button

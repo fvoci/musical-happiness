@@ -19,7 +19,13 @@
     /** What is said under the field: for whom the link is, and for how long. */
     note: string;
     testId: string;
-    delivery?: { mail: InvitationMail; workspaceId: string; token: string; language: string };
+    delivery?: {
+      mail: InvitationMail;
+      workspaceId: string;
+      token: string;
+      language: string;
+      hint: string;
+    };
   }
 
   let { link, label, note, testId, delivery }: Props = $props();
