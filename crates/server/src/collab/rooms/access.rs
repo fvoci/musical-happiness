@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use fvoci_store::Tenant;
 use tokio::sync::MutexGuard;
+use tokio::time::Instant;
 
 use super::super::messages::reason_of;
 use super::super::queue::Queued;
@@ -18,6 +19,11 @@ use super::{
 use crate::app::App;
 use crate::error::AppError;
 use crate::permissions::DocMode;
+
+/// How many intervals of the periodic check (`collab_recheck_seconds`) an immediate
+/// check may take in all, each read being given one: past that, whom it did not
+/// answer of yet is put out as not answered of.
+const IMMEDIATE_PASS_INTERVALS: u32 = 2;
 
 /// The facts changed in this part of the application's organization, for everybody
 /// or for one user.
@@ -98,19 +104,22 @@ struct Holds {
 impl Holds {
     /// Lets go of every member held, each with what `answer_of` says of them (`None`:
     /// not answered of), and closes a room that nobody is left in.
-    async fn let_go(mut self, answer_of: impl Fn(&Room, &Who) -> Option<Answer>) {
-        // Taken from the holds once a room is done: a room not done stays held, for
-        // the drop.
-        while let Some((room, _)) = self.rooms.last() {
+    async fn let_go<'answers>(
+        mut self,
+        answer_of: impl Fn(&Room, &Who) -> Option<&'answers Answer>,
+    ) {
+        // Taken from the holds once its members are let go of: a room not done stays
+        // held, for the drop (letting go of a member twice does nothing).
+        while let Some((room, members)) = self.rooms.last() {
             let room = Arc::clone(room);
             let mut turn = room.turn.lock().await;
-            let (_, members) = self.rooms.pop().expect("the room just looked at");
             for member in members {
-                if let Some(index) = turn.let_go(&member, self.change) {
-                    turn.settle(index, answer_of(&room, &member.who).as_ref());
+                if let Some(index) = turn.let_go(member, self.change) {
+                    turn.settle(index, answer_of(&room, &member.who));
                 }
             }
             room.checked.notify_waiters();
+            self.rooms.pop();
             self.collab.shut_if_empty(&room, &mut turn).await;
         }
     }
@@ -176,16 +185,16 @@ impl Turn {
         }
     }
 
-    /// Holds the members `scope` concerns for the check of `change`, unless a later
-    /// change's check holds them already; who is held, to be asked about.
+    /// Holds the members `scope` concerns for the check of `change`, but those a later
+    /// change's check holds already: that check answers of them. Whom it holds, to be
+    /// asked about.
     fn hold(&mut self, scope: &AccessScope, change: u64) -> Vec<Asked> {
         self.members
             .iter_mut()
             .filter(|member| scope.concerns(&member.connection.user_id))
+            .filter(|member| member.checking.is_none_or(|held| held < change))
             .map(|member| {
-                if member.checking.is_none_or(|held| held < change) {
-                    member.checking = Some(change);
-                }
+                member.checking = Some(change);
                 Asked::of(member)
             })
             .collect()
@@ -238,18 +247,26 @@ impl Collab {
                     .or_insert_with(|| room.app.clone());
             }
         }
-        let questions: Vec<(String, Who)> = asked.keys().cloned().collect();
-        let answers = answered(questions, rooms.recheck, |(board_id, who)| {
-            let app = asked[&(board_id.clone(), who.clone())].clone();
-            async move {
+        let until = Instant::now() + rooms.recheck * IMMEDIATE_PASS_INTERVALS;
+        let asking = answered(asked, rooms.recheck, until, |(key, app)| {
+            let (board_id, who) = key.clone();
+            (key, async move {
                 #[cfg(feature = "test-util")]
                 self.stalled_access().await;
                 admission::board_mode(&app, who.asker(), &who.workspace_id, &board_id).await
-            }
-        })
-        .await;
+            })
+        });
+        // Given up when the server stops: whom it holds is put out, as not answered of.
+        let answers = tokio::select! {
+            answers = asking => answers,
+            () = rooms.stopping.cancelled() => HashMap::new(),
+        };
+        let mut by_board: HashMap<String, HashMap<Who, Answer>> = HashMap::new();
+        for ((board_id, who), answer) in answers {
+            by_board.entry(board_id).or_default().insert(who, answer);
+        }
         holds
-            .let_go(|room, who| answers.get(&(room.board_id.clone(), who.clone())).cloned())
+            .let_go(|room, who| by_board.get(&room.board_id)?.get(who))
             .await;
     }
 
@@ -286,8 +303,8 @@ impl Collab {
     }
 
     /// The room's turn for what the member `doc` of `connection` sent, once no
-    /// immediate check holds them; `None` if they are no member of the room (any
-    /// more), or the server stops.
+    /// immediate check holds them, or the server stops (and refuses it); `None` if
+    /// they are no member of the room (any more).
     pub(super) async fn turn_to_send<'room>(
         &self,
         room: &'room Room,
@@ -305,7 +322,7 @@ impl Collab {
             drop(turn);
             tokio::select! {
                 () = checked => {}
-                () = self.inner.rooms.stopping.cancelled() => return None,
+                () = self.inner.rooms.stopping.cancelled() => return Some(room.turn.lock().await),
             }
         }
     }
@@ -388,14 +405,16 @@ impl Collab {
     }
 
     /// What the store answers of each of `users` in a room: how they are in it, `None`
-    /// for who is not let in, or the reason the store could not be asked. Each within
-    /// the time between two askings: who is not answered of by then is answered as
-    /// one the store could not be asked about.
+    /// for who is not let in, or the reason the store could not be asked. All within
+    /// the time between two askings: who is not answered of by then has no answer.
     async fn answers(&self, room: &Room, users: Vec<Who>) -> HashMap<Who, Answer> {
         let (app, card_id) = (&room.app, room.card_id.as_str());
-        answered(users, self.inner.rooms.recheck, |who| async move {
-            let admitted = admission::admit(app, who.asker(), &who.workspace_id, card_id).await;
-            admitted.map(|admitted| admitted.map(|admitted| admitted.mode))
+        let recheck = self.inner.rooms.recheck;
+        answered(users, recheck, Instant::now() + recheck, |who| {
+            (who.clone(), async move {
+                let admitted = admission::admit(app, who.asker(), &who.workspace_id, card_id).await;
+                admitted.map(|admitted| admitted.map(|admitted| admitted.mode))
+            })
         })
         .await
     }
@@ -434,43 +453,139 @@ impl Collab {
     }
 }
 
-/// Asks the store each of `questions` with `ask`, some at a time ([`ASKED_AT_ONCE`]),
-/// each within `deadline` of its asking: a slow one costs the others no time. One not
-/// answered in time is answered `document_unavailable`; a reason the store could not
-/// be asked is logged, and answered as the reason.
-async fn answered<K, A, F>(
-    questions: impl IntoIterator<Item = K>,
-    deadline: Duration,
+/// Asks the store each of `questions` with `ask`, which says what its answer is
+/// kept under, some at a time ([`ASKED_AT_ONCE`]), each within `per_read` of its
+/// asking: a slow one costs the others none of their time. One not answered in time
+/// is answered `document_unavailable`; a reason the store could not be asked is
+/// logged, and answered as the reason. Whatever is not answered by `until` has no
+/// answer.
+async fn answered<Q, K, A, F>(
+    questions: impl IntoIterator<Item = Q>,
+    per_read: Duration,
+    until: Instant,
     mut ask: A,
 ) -> HashMap<K, Answer>
 where
-    K: Clone + Eq + Hash,
-    A: FnMut(K) -> F,
+    K: Eq + Hash,
+    A: FnMut(Q) -> (K, F),
     F: Future<Output = Result<Option<DocMode>, AppError>>,
 {
     use futures_util::StreamExt as _;
 
-    futures_util::stream::iter(questions)
-        .map(|key: K| {
-            let asking = ask(key.clone());
+    let asking = futures_util::stream::iter(questions)
+        .map(|question| {
+            let (key, asking) = ask(question);
             async move {
-                let answer = tokio::time::timeout(deadline, asking)
-                    .await
-                    .unwrap_or_else(|_| {
+                let answer = match tokio::time::timeout(per_read, asking).await {
+                    Ok(Ok(mode)) => Ok(mode),
+                    Ok(Err(error)) => {
+                        error.log();
+                        Err(reason_of(&error))
+                    }
+                    Err(_) => {
                         tracing::warn!(
-                            ?deadline,
+                            ?per_read,
                             "the store did not answer of a member of a room in time"
                         );
-                        Err(refusals::unavailable())
-                    });
-                let answer = answer.map_err(|error| {
-                    error.log();
-                    reason_of(&error)
-                });
+                        Err(reason_of(&refusals::unavailable()))
+                    }
+                };
                 (key, answer)
             }
         })
-        .buffer_unordered(ASKED_AT_ONCE)
-        .collect()
-        .await
+        .buffer_unordered(ASKED_AT_ONCE);
+    tokio::pin!(asking);
+    let mut answers = HashMap::new();
+    loop {
+        tokio::select! {
+            answer = asking.next() => match answer {
+                Some((key, answer)) => {
+                    answers.insert(key, answer);
+                }
+                None => return answers,
+            },
+            () = tokio::time::sleep_until(until) => {
+                tracing::warn!(answered = answers.len(), "the store was not asked about everybody in a room in time");
+                return answers;
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Mutex;
+
+    use super::super::{Joined, Turn};
+    use super::*;
+    use crate::collab::queue::{Capacity, Queue};
+
+    /// A room with one member, `user`'s connection.
+    fn turn_of(user: &str) -> Turn {
+        let connection = Arc::new(Connection {
+            id: 1,
+            user_id: user.to_owned(),
+            made_through: None,
+            queue: Queue::new(Capacity {
+                messages: 8,
+                bytes: 1024,
+            }),
+            joined: Mutex::new(Joined::default()),
+        });
+        Turn {
+            members: vec![Member {
+                connection,
+                doc: 1,
+                workspace_id: "workspace".to_owned(),
+                mode: DocMode::Write,
+                checking: None,
+            }],
+            ..Turn::default()
+        }
+    }
+
+    fn change_of(user: &str) -> AccessScope {
+        AccessScope::board("board").of_user(user)
+    }
+
+    #[test]
+    fn of_two_checks_held_in_order_the_later_answers() {
+        let mut turn = turn_of("user");
+        let earlier = turn.hold(&change_of("user"), 1);
+        let later = turn.hold(&change_of("user"), 2);
+        assert_eq!((earlier.len(), later.len()), (1, 1));
+        assert_eq!(
+            turn.let_go(&earlier[0], 1),
+            None,
+            "the earlier answer is dropped"
+        );
+        assert_eq!(turn.let_go(&later[0], 2), Some(0));
+        assert_eq!(turn.members[0].checking, None);
+    }
+
+    #[test]
+    fn an_earlier_check_held_after_a_later_one_neither_holds_nor_answers() {
+        let mut turn = turn_of("user");
+        let later = turn.hold(&change_of("user"), 2);
+        assert!(turn.hold(&change_of("user"), 1).is_empty());
+        assert_eq!(turn.members[0].checking, Some(2));
+        assert_eq!(turn.let_go(&later[0], 2), Some(0));
+    }
+
+    #[test]
+    fn a_check_answered_before_the_next_is_held_lets_the_next_hold() {
+        let mut turn = turn_of("user");
+        let earlier = turn.hold(&change_of("user"), 1);
+        assert_eq!(turn.let_go(&earlier[0], 1), Some(0));
+        let later = turn.hold(&change_of("user"), 2);
+        assert_eq!(turn.let_go(&earlier[0], 1), None, "an answer is taken once");
+        assert_eq!(turn.let_go(&later[0], 2), Some(0));
+    }
+
+    #[test]
+    fn a_change_of_another_user_holds_nobody_here() {
+        let mut turn = turn_of("user");
+        assert!(turn.hold(&change_of("somebody else"), 1).is_empty());
+        assert_eq!(turn.members[0].checking, None);
+    }
 }
