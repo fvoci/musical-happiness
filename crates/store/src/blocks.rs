@@ -709,6 +709,9 @@ async fn insert_block_at(
     comment_places::check(scope, block, parent_type.as_ref(), existing.as_ref()).await?;
     let named = card_values::check_written(scope, block, existing.as_ref()).await?;
     if let Some(existing) = existing {
+        if block.block_type != existing.block_type {
+            scope.invalidate_visibility();
+        }
         // Every change of a block moves its `updateAt` on, also within one millisecond
         // and when the clock steps back: a writer that read the block before this
         // change is told so (`readAt`).

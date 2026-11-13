@@ -436,6 +436,9 @@ const OPEN_TO_ANY_SESSION: &[&str] = &[
     "getLoginOptions",
     "getMe",
     "getMyIdentities",
+    // Lists across organizations, leaving out the boards of one the session does not
+    // open: asked below.
+    "getMyMemberships",
     "getMyWorkspaces",
     "getSharedBlocks",
     "getSharedBoard",
@@ -672,6 +675,23 @@ async fn nothing_of_the_organization_is_reached_around_the_wall() {
         .await
         .ok_json();
     assert_eq!(cards.len(), 1, "{cards:?}");
+
+    // The boards a user lists across organizations leave out the walled one's.
+    let boards_of = async |client: &Client| -> Vec<String> {
+        let memberships: Vec<Value> = client.get("/users/me/memberships").await.ok_json();
+        memberships
+            .iter()
+            .map(|member| member["boardId"].as_str().unwrap_or_default().to_owned())
+            .collect()
+    };
+    assert!(
+        !boards_of(&ts.client).await.contains(&named.board.id),
+        "a password session lists no board of the organization"
+    );
+    assert!(
+        boards_of(&admin).await.contains(&named.board.id),
+        "the provider's session lists its boards"
+    );
 
     // It was the wall that answered, not what the requests lack: the session the
     // organization takes is told of none of them that it is not signed in.

@@ -42,6 +42,7 @@ pub mod testing;
 mod trash;
 mod uploads;
 mod users;
+mod visibility;
 mod workspace_membership;
 mod workspaces;
 
@@ -78,6 +79,7 @@ pub use sharing::SharingChange;
 pub use trash::{DeletedBlock, DeletedBoard, Purged};
 pub use uploads::{OpenUploads, PartRecord, UploadUsage};
 pub use users::{AdminChange, InstanceRole, Preference};
+pub use visibility::{VisibilityScope, VisibilityVersion};
 pub use workspace_membership::MembershipChange;
 
 use db::{ConnRef, Scope};
@@ -198,6 +200,7 @@ struct Inner {
     comment_versions_kept: std::sync::atomic::AtomicUsize,
     /// Who is told about the calls; see [`Store::observe`].
     observer: std::sync::OnceLock<Box<dyn Observer>>,
+    visibility: visibility::Visibility,
     /// Whether rows name places of the file storage otherwise than the one way, once
     /// asked ([`Store::other_spellings_stored`]).
     other_spellings: tokio::sync::OnceCell<bool>,
@@ -260,6 +263,11 @@ impl Store {
     /// [`StoreError::Database`] if the database cannot be reached.
     pub async fn open(db_type: DbType, dbconfig: &str) -> Result<Self, StoreError> {
         let mut lock_file = None;
+        // What an abandoned write may still take to land (`visibility::settle_after`).
+        let longest_wait = match db_type {
+            DbType::Sqlite => connect::sqlite_settings(dbconfig)?.busy_timeout,
+            DbType::Postgres => Duration::ZERO,
+        };
         let pool = match db_type {
             DbType::Sqlite => {
                 let settings = connect::sqlite_settings(dbconfig)?;
@@ -301,6 +309,9 @@ impl Store {
                         .unwrap_or(usize::MAX),
                 ),
                 observer: std::sync::OnceLock::new(),
+                visibility: visibility::Visibility::settling_for(visibility::settle_after(
+                    longest_wait,
+                )),
                 other_spellings: tokio::sync::OnceCell::new(),
                 lock_file,
             }),
@@ -488,7 +499,9 @@ impl Store {
         operation: impl AsyncFnOnce(&mut Scope<'_>) -> Result<T, StoreError>,
     ) -> Result<T, StoreError> {
         let watch = self.watch(Access::Read);
-        let (result, access) = self.on_conn(watch.as_ref(), operation).await;
+        let visibility = self.inner.visibility.writing(self.tenant);
+        let (result, access) = self.on_conn(watch.as_ref(), &visibility, operation).await;
+        drop(visibility);
         if let Some(watch) = watch {
             watch.finish(access, &result);
         }
@@ -499,6 +512,7 @@ impl Store {
     async fn on_conn<T>(
         &self,
         watch: Option<&Watch<'_>>,
+        visibility: &visibility::Writing<'_>,
         operation: impl AsyncFnOnce(&mut Scope<'_>) -> Result<T, StoreError>,
     ) -> (Result<T, StoreError>, Access) {
         let kept = self.comment_versions_kept();
@@ -509,8 +523,10 @@ impl Store {
                     Err(error) => return (Err(error.into()), Access::Read),
                 };
                 let mut scope = Scope::new(ConnRef::Sqlite(&mut conn), self.tenant, kept)
-                    .reporting_writes_to(watch.map(Watch::writes));
+                    .reporting_writes_to(watch.map(Watch::writes))
+                    .tracking_visibility(visibility);
                 let result = operation(&mut scope).await;
+                visibility.settled();
                 (result, Access::of(&scope))
             }
             Pool::Postgres(pool) => {
@@ -523,11 +539,12 @@ impl Store {
                     Err(error) => return (Err(error.into()), Access::Read),
                 };
                 let mut scope = Scope::new(ConnRef::Postgres(&mut tx), self.tenant, kept)
-                    .reporting_writes_to(watch.map(Watch::writes));
+                    .reporting_writes_to(watch.map(Watch::writes))
+                    .tracking_visibility(visibility);
                 let result = operation(&mut scope).await;
                 let access = Access::of(&scope);
                 if access == Access::Write {
-                    (finish(result, tx).await, access)
+                    (finish(result, tx, visibility).await, access)
                 } else {
                     // Nothing to keep or to undo, so nothing to wait for. The dropped
                     // transaction is rolled back with the check the pool makes of
@@ -548,7 +565,11 @@ impl Store {
         operation: impl AsyncFnOnce(&mut Scope<'_>) -> Result<T, StoreError>,
     ) -> Result<T, StoreError> {
         let watch = self.watch(Access::Write);
-        let result = self.in_transaction(watch.as_ref(), operation).await;
+        let visibility = self.inner.visibility.writing(self.tenant);
+        let result = self
+            .in_transaction(watch.as_ref(), &visibility, operation)
+            .await;
+        drop(visibility);
         if let Some(watch) = watch {
             watch.finish(Access::Write, &result);
         }
@@ -559,6 +580,7 @@ impl Store {
     async fn in_transaction<T>(
         &self,
         watch: Option<&Watch<'_>>,
+        visibility: &visibility::Writing<'_>,
         operation: impl AsyncFnOnce(&mut Scope<'_>) -> Result<T, StoreError>,
     ) -> Result<T, StoreError> {
         let kept = self.comment_versions_kept();
@@ -576,20 +598,22 @@ impl Store {
                 // the same, and no busy timeout can resolve that.
                 let mut conn = Watch::acquire(watch, pool).await?;
                 let mut tx = conn.begin_with("BEGIN IMMEDIATE").await?;
-                let result =
-                    operation(&mut Scope::new(ConnRef::Sqlite(&mut tx), self.tenant, kept)).await;
-                finish(result, tx).await
+                let result = operation(
+                    &mut Scope::new(ConnRef::Sqlite(&mut tx), self.tenant, kept)
+                        .tracking_visibility(visibility),
+                )
+                .await;
+                finish(result, tx, visibility).await
             }
             Pool::Postgres(pool) => {
                 let mut conn = Watch::acquire(watch, pool).await?;
                 let mut tx = conn.begin_with(self.tenant.begin_on_postgres()).await?;
-                let result = operation(&mut Scope::new(
-                    ConnRef::Postgres(&mut tx),
-                    self.tenant,
-                    kept,
-                ))
+                let result = operation(
+                    &mut Scope::new(ConnRef::Postgres(&mut tx), self.tenant, kept)
+                        .tracking_visibility(visibility),
+                )
                 .await;
-                finish(result, tx).await
+                finish(result, tx, visibility).await
             }
         }
     }
@@ -599,16 +623,26 @@ impl Store {
 async fn finish<T, DB: sqlx::Database>(
     result: Result<T, StoreError>,
     tx: sqlx::Transaction<'_, DB>,
+    visibility: &visibility::Writing<'_>,
 ) -> Result<T, StoreError> {
     match result {
         Ok(value) => {
             tx.commit().await?;
+            visibility.settled();
             Ok(value)
         }
         Err(error) => {
             if let Err(rollback_error) = tx.rollback().await {
-                tracing::error!(error = %rollback_error, "transaction rollback failed");
+                // The operation's own error says why it failed; the rollback's is
+                // logged with it, and leaves the write unsettled.
+                tracing::error!(
+                    error = %rollback_error,
+                    cause = %error,
+                    "transaction rollback failed"
+                );
+                return Err(error);
             }
+            visibility.settled();
             Err(error)
         }
     }

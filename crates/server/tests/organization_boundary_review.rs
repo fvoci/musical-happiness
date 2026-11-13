@@ -300,24 +300,48 @@ async fn a_valid_shared_link_reads_the_board_in_its_own_organization() {
     );
 }
 
-#[tokio::test]
-#[ignore = "O5c: a subscription is moved to its workspace and the membership is asked when a change is sent, not only when the connection subscribes"]
-async fn removing_workspace_membership_stops_websocket_content_from_that_organization() {
-    if db_type_of_the_tests() != DbType::Postgres {
-        return;
+async fn websocket_organization(ts: &TestServer) -> (Store, Workspace, User, Board) {
+    if db_type_of_the_tests() == DbType::Postgres {
+        other_organization(ts).await
+    } else {
+        (
+            ts.app.store().clone(),
+            Workspace {
+                id: ROOT_WORKSPACE_ID.to_owned(),
+                ..Workspace::default()
+            },
+            ts.client.me().await,
+            ts.create_board(ROOT_WORKSPACE_ID, BoardType::Private).await,
+        )
     }
-    let ts = Setup::native()
-        .configure(open)
-        .start()
+}
+
+async fn admit_workspace_member(store: &Store, workspace_id: &str, user_id: &str) {
+    if store
+        .resolve_workspace(user_id, workspace_id)
         .await
-        .init_basic()
-        .await;
-    let (store, workspace, owner, board) = other_organization(&ts).await;
+        .expect("workspace lookup")
+        .is_none()
+    {
+        store
+            .add_workspace_member(workspace_id, user_id, WorkspaceRole::Member)
+            .await
+            .expect("initial workspace membership");
+    }
+}
+
+#[tokio::test]
+async fn removing_workspace_membership_stops_websocket_content_from_that_organization() {
+    let setup = Setup::native();
+    let setup = if db_type_of_the_tests() == DbType::Postgres {
+        setup.configure(open)
+    } else {
+        setup
+    };
+    let ts = setup.start().await.init_basic().await;
+    let (store, workspace, owner, board) = websocket_organization(&ts).await;
     let user_id = ts.client2.me().await.id;
-    store
-        .add_workspace_member(&workspace.id, &user_id, WorkspaceRole::Member)
-        .await
-        .expect("initial workspace membership");
+    admit_workspace_member(&store, &workspace.id, &user_id).await;
     store
         .save_member(&BoardMember {
             user_id: user_id.clone(),
