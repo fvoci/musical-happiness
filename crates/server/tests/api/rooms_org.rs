@@ -33,9 +33,10 @@ async fn card_in(th: &TestServer, workspace_id: &str) -> (String, String) {
 /// A workspace put in the trash is not there for its members: who is in the room of
 /// one of its cards is put out of the room before the operation answers, and keeps
 /// its connection.
-/// Brought back, the card is as it was, with what was typed. Removed for good while
-/// its room is open, it empties the room the same, and the server goes on with the
-/// rooms of other workspaces.
+/// Brought back, the card is as it was, with what was typed. Put in the trash again,
+/// its room empties again before the operation answers, and removing it for good
+/// later finds no room of it, while the server goes on with the rooms of other
+/// workspaces.
 #[tokio::test]
 async fn a_workspace_in_the_trash_or_removed_for_good_empties_the_rooms_of_its_cards() {
     let th = asking_often().start().await.init_basic().await;
@@ -80,8 +81,17 @@ async fn a_workspace_in_the_trash_or_removed_for_good_empties_the_rooms_of_its_c
     two.joined(&workspace, &card_id).await;
     assert_eq!(one.lines(), ["first", "typed"], "as it was");
 
-    // For good, with the room open: the trash emptied of it before the next asking.
+    // In the trash again: its room empties as the operation answers, and then for
+    // good, which finds the room gone already.
     th.client.delete(&place).await.check_no_content();
+    for peer in [&mut one, &mut two] {
+        let left = peer.text("DOC_LEFT").await;
+        assert_eq!(
+            left,
+            json!({"action": "DOC_LEFT", "doc": peer.doc, "reason": "not_found"}),
+            "the trash again puts out of the room"
+        );
+    }
     th.app
         .store()
         .execute_unchecked(&format!(
@@ -90,14 +100,6 @@ async fn a_workspace_in_the_trash_or_removed_for_good_empties_the_rooms_of_its_c
         .await
         .expect("the deletion is made an old one");
     fvoci_server::keep_house(&th.app).await;
-    for peer in [&mut one, &mut two] {
-        let left = peer.text("DOC_LEFT").await;
-        assert_eq!(
-            left["reason"],
-            json!("not_found"),
-            "the trash puts out of the room: {left}"
-        );
-    }
     for peer in [&mut one, &mut two] {
         let refused = peer.join(&workspace, &card_id).await;
         assert_eq!(refused["reason"], json!("not_found"), "{refused}");
