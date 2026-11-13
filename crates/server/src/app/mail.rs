@@ -13,6 +13,7 @@ use lettre::{Address, AsyncSmtpTransport, AsyncTransport as _, Tokio1Executor};
 use mail_builder::MessageBuilder;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
+use crate::auth::limiter::RetryAfter;
 use crate::config::smtp::SmtpSettings;
 
 pub(super) use content::{Content, Language};
@@ -33,7 +34,7 @@ struct Transport {
 
 /// What a queued message is, which decides its queue and the connections it may use.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Kind {
+enum Kind {
     PasswordReset,
     Invitation,
 }
@@ -120,17 +121,24 @@ impl Mailer {
 
     /// Takes the places of all `messages` of one invitation request, or none of them:
     /// the queue must hold them all and the workspace's hourly limit must allow them.
+    /// The hourly limit is asked first, so a workspace past it is told when to come
+    /// back even while the queue is full.
     pub(super) fn queue_invitations(
         &self,
         workspace_id: &str,
         messages: u32,
     ) -> Result<Vec<Queued>, Refused> {
-        let mut places = Arc::clone(&self.invitation_queue)
-            .try_acquire_many_owned(messages)
-            .map_err(|_| Refused::QueueFull)?;
-        self.invitation_quota
-            .take(workspace_id, messages, Instant::now())
-            .map_err(Refused::HourlyLimit)?;
+        let mut places = self
+            .invitation_quota
+            .take(workspace_id, messages, Instant::now(), || {
+                Arc::clone(&self.invitation_queue)
+                    .try_acquire_many_owned(messages)
+                    .ok()
+            })
+            .map_err(|refused| match refused {
+                quota::Refused::Limit(RetryAfter(wait)) => Refused::HourlyLimit(wait),
+                quota::Refused::Unplaced => Refused::QueueFull,
+            })?;
         let mut queued = Vec::new();
         while let Some(place) = places.split(1) {
             queued.push(Queued {
@@ -174,16 +182,22 @@ impl Queued {
             .context("mail transport is closed")?;
         Ok(Delivery {
             transport,
-            _permits: [Some(self.place), share, Some(connection)],
+            _connection: connection,
+            _share: share,
+            _place: self.place,
         })
     }
 }
 
 /// A reserved SMTP connection, retained through all attempts and released on drop,
 /// with the message's place in its queue and, for invitations, their share of connections.
+/// Fields drop in order: the connection is free again before the share that let an
+/// invitation take it, so invitations never hold all four at once.
 pub(super) struct Delivery {
     transport: Arc<Transport>,
-    _permits: [Option<OwnedSemaphorePermit>; 3],
+    _connection: OwnedSemaphorePermit,
+    _share: Option<OwnedSemaphorePermit>,
+    _place: OwnedSemaphorePermit,
 }
 
 impl Delivery {

@@ -40,13 +40,14 @@ async fn invitations_never_take_the_last_connection_from_recovery() {
     smtp.hold("@held.test");
     let th = Setup::native()
         .smtp(smtp.settings())
+        .configure(|config| config.smtp.mail_invitation_queue = 20)
         .start()
         .await
         .init_basic()
         .await;
     let token = member_link(&th).await;
     // Four requests deliver one message at a time each: more than the connections
-    // invitations may use.
+    // invitations may use, and as many messages as their queue holds.
     for batch in 0..4 {
         th.client
             .post(
@@ -63,6 +64,13 @@ async fn invitations_never_take_the_last_connection_from_recovery() {
         3,
         "invitations hold three connections at most"
     );
+    th.client
+        .post(
+            &mail_path(),
+            &json!({"token":token,"recipients":["more@held.test"]}),
+        )
+        .await
+        .check_status(StatusCode::SERVICE_UNAVAILABLE);
 
     th.anonymous()
         .post(
@@ -107,6 +115,7 @@ async fn an_invitation_mail_request_names_at_most_its_recipients_limit() {
     let body: Value = serde_json::from_slice(&refused.body).expect("problem");
     assert_eq!(body["type"], "/problems/too-many-recipients", "{body}");
     assert_eq!(body["reason"], "too_many_recipients", "{body}");
+    assert_eq!(body["limit"], 20, "{body}");
     assert!(body.to_string().contains("recipients"), "{body}");
     assert!(th.app.finish_background(Duration::from_secs(5)).await);
     assert!(smtp.messages().await.is_empty(), "nothing of it is sent");

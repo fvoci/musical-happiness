@@ -33,7 +33,8 @@ impl App {
                 "at most {limit} recipients may be named at once"
             ))
             .with_field("recipients")
-            .with_reason(Reason::TooManyRecipients));
+            .with_reason(Reason::TooManyRecipients)
+            .with_limit(u64::from(limit)));
         }
         let mut recipients = BTreeSet::new();
         for recipient in &request.recipients {
@@ -47,7 +48,7 @@ impl App {
                 )
                 .with_field("recipients"));
             }
-            recipients.insert(normalized);
+            recipients.insert(with_lowercase_domain(&normalized));
         }
         if recipients.is_empty() {
             return Err(AppError::bad_request("at least one recipient is required")
@@ -62,9 +63,11 @@ impl App {
             .mail
             .queue_invitations(workspace_id, count)
             .map_err(|refused| match refused {
-                Refused::HourlyLimit(wait) => {
-                    AppError::rate_limited(wait).with_reason(Reason::InvitationMailLimit)
-                }
+                Refused::HourlyLimit(wait) => AppError::quota_reached(
+                    "the workspace sent its hourly invitation mail; try again later",
+                    Reason::InvitationMailLimit,
+                    wait,
+                ),
                 Refused::QueueFull => {
                     AppError::service_unavailable("too much mail is waiting; try again later")
                         .with_reason(Reason::MailQueueFull)
@@ -164,5 +167,14 @@ impl App {
             }
         }
         Ok(())
+    }
+}
+
+/// The address with its domain in lower case, which names the same mailbox; the local
+/// part keeps its case, which a mail server may tell apart.
+fn with_lowercase_domain(address: &str) -> String {
+    match address.rsplit_once('@') {
+        Some((local, domain)) => format!("{local}@{}", domain.to_lowercase()),
+        None => address.to_owned(),
     }
 }

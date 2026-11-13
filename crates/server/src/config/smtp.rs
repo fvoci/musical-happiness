@@ -164,6 +164,39 @@ mod tests {
     }
 
     #[test]
+    fn mail_limits_hold_a_whole_request_with_or_without_smtp() {
+        for (key, value) in [
+            ("mail_reset_queue", 0),
+            ("invitation_mail_recipients", 0),
+            ("mail_invitation_queue", 19),
+            ("invitation_mail_per_hour", 19),
+        ] {
+            for host in ["", "smtp.example.test"] {
+                let mut json = serde_json::json!({"smtp_host": host});
+                if !host.is_empty() {
+                    json["smtp_from"] = Value::from("sender@example.test");
+                }
+                json[key] = Value::from(value);
+                let error = Configuration::parse(&json.to_string(), |_| None)
+                    .expect("parse")
+                    .check()
+                    .expect_err("a limit that cannot hold a request");
+                assert!(error.to_string().contains(key), "{key}: {error}");
+            }
+        }
+        let fits = serde_json::json!({
+            "invitation_mail_recipients": 1,
+            "invitation_mail_per_hour": 1,
+            "mail_invitation_queue": 1,
+            "mail_reset_queue": 1,
+        });
+        Configuration::parse(&fits.to_string(), |_| None)
+            .expect("parse")
+            .check()
+            .expect("the smallest limits that hold a request");
+    }
+
+    #[test]
     fn smtp_credentials_never_appear_in_debug_or_type_errors() {
         let text = r#"{"smtp_password":1234567890}"#;
         let error = Configuration::parse(text, |_| None)

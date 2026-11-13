@@ -244,8 +244,8 @@ fn describe_reason(reason: Reason) -> &'static str {
         | Reason::PublicLinksOff => describe_organization(reason).unwrap_or_default(),
         Reason::TooManyRecipients => {
             "Status 400. An invitation mail request names more recipients than \
-             `invitation_mail_recipients` allows (20 unless configured). `errors` names \
-             `/recipients`. Nothing was sent: send fewer at a time."
+             `invitation_mail_recipients` allows (20 unless configured), which `limit` \
+             tells. `errors` names `/recipients`. Nothing was sent: send fewer at a time."
         }
         Reason::InvitationMailLimit => {
             "Status 429. The workspace queued as many invitation messages within the last \

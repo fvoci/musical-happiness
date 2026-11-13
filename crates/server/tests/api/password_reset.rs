@@ -114,31 +114,48 @@ async fn only_the_unix_socket_can_issue_reset_links() {
 }
 
 /// Who belongs only to an organization that takes no password may still reset their
-/// password: every session ends, the new password signs in, and the organization opens
-/// for its provider's sessions only, as before.
+/// password by mail: every session ends, the new password signs in, and the
+/// organization opens for its provider's sessions only, as before.
 #[tokio::test]
 async fn a_reset_password_does_not_open_an_organization_that_takes_none() {
     use crate::common::{ROOT_WORKSPACE_ID, USER1_USERNAME};
     use crate::fake_oidc::FakeProvider;
-    use crate::oidc::{org_of, server_for, set_provider};
+    use crate::fake_smtp::FakeSmtp;
+    use crate::oidc::{org_of, set_provider, with_key_and_private_addresses};
     use crate::sso::{
         ADMIN_SUBJECT, Passwords, admin_through_provider, require_sso, through_provider,
     };
 
     let fake = FakeProvider::start().await;
-    let ts = server_for(&fake).await;
+    let smtp = FakeSmtp::start_on(0).await;
+    let ts = Setup::native()
+        .trusting_oidc_provider(&fake.certificate_der)
+        .configure(with_key_and_private_addresses)
+        .smtp(smtp.settings())
+        .start()
+        .await
+        .init_basic()
+        .await;
     let org_id = org_of(&ts).await;
     set_provider(&ts, &org_id, &fake).await;
     let admin = admin_through_provider(&ts, &fake, &org_id).await;
     require_sso(&admin, &org_id, &fake, Passwords::Refused)
         .await
         .check_ok();
-    let url = ts
-        .app
-        .password_reset_link(USER1_USERNAME)
+    ts.anonymous()
+        .post(
+            "/password-reset/request",
+            &json!({"email": "user1@sample.com"}),
+        )
         .await
-        .expect("the account has a password");
-    let token = url.split_once('#').expect("a fragment").1;
+        .check_no_content();
+    let mail = smtp.received(1).await;
+    let link = mail[0]
+        .decoded
+        .lines()
+        .find(|line| line.starts_with("http") && line.contains("/reset-password#"))
+        .expect("the mail has the link");
+    let token = link.split_once('#').expect("a fragment").1.trim();
     ts.anonymous()
         .post(
             "/password-reset/complete",
@@ -165,5 +182,6 @@ async fn a_reset_password_does_not_open_an_organization_that_takes_none() {
         .await
         .check_ok();
     ts.teardown().await;
+    smtp.stop().await;
     fake.stop();
 }

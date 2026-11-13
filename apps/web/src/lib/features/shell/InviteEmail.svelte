@@ -27,7 +27,9 @@
     if (!isBackendError(error)) return m.people_failed();
     switch (error.reason) {
       case 'too_many_recipients':
-        return m.mail_too_many_recipients();
+        return error.limit === undefined
+          ? m.mail_too_many_recipients()
+          : m.mail_too_many_recipients_limit({ limit: error.limit });
       case 'invitation_mail_limit':
         return m.mail_hourly_limit({
           minutes: Math.max(1, Math.ceil((error.retryAfter ?? 0) / 60)),

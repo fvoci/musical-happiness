@@ -1,5 +1,6 @@
 //! The metrics of the accounts: how logins ended, how many users registered, how many
-//! recovery messages were dropped, and how many sessions are live. No label names a user, an address or a session.
+//! recovery messages were dropped, and how many sessions are live. No label names a
+//! user, an address or a session.
 
 use prometheus::{IntCounter, IntCounterVec, IntGauge, Opts, Registry};
 

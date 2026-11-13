@@ -253,7 +253,7 @@ async fn invitation_mail_preserves_distinct_case_sensitive_mailboxes() {
             &format!("{path}/mail"),
             &json!({
                 "token":link.token,
-                "recipients":["Smith@example.test", "smith@example.test", " Smith@example.test "]
+                "recipients":["Smith@example.test", "smith@example.test", " Smith@example.test ", "smith@EXAMPLE.test"]
             }),
         )
         .await
@@ -270,7 +270,7 @@ async fn invitation_mail_preserves_distinct_case_sensitive_mailboxes() {
     assert_eq!(
         recipients,
         ["Smith@example.test", "smith@example.test"],
-        "local-part case identifies a mailbox; only exact duplicates collapse"
+        "local-part case identifies a mailbox; a domain is the same in any case"
     );
     th.teardown().await;
     smtp.stop().await;

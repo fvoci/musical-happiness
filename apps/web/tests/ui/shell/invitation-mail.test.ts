@@ -71,6 +71,14 @@ it.each([
     'Too many addresses for one sending',
   ],
   [
+    new BackendError(400, {
+      reason: 'too_many_recipients',
+      limit: 20,
+      errors: [{ pointer: '/recipients', reason: 'too_many_recipients', detail: 'private detail' }],
+    }),
+    'Send to at most 20 addresses at a time',
+  ],
+  [
     new BackendError(429, { reason: 'invitation_mail_limit', retryAfter: 3540 }),
     'try again in 59 min',
   ],

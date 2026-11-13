@@ -446,6 +446,18 @@ impl AppError {
         error
     }
 
+    /// A 429 error for a quota of what is done within a time: `message` says which, and
+    /// `wait` is told as [`AppError::rate_limited`] tells it.
+    pub fn quota_reached(
+        message: impl std::fmt::Display,
+        reason: Reason,
+        wait: std::time::Duration,
+    ) -> Self {
+        let mut error = Self::rate_limited(wait).with_reason(reason);
+        error.message = message.to_string();
+        error
+    }
+
     /// A 429 error for a limit on what is held at once, rather than on attempts: no
     /// wait is told, since what frees room is the client's own doing or another's.
     pub fn limited(message: impl std::fmt::Display, reason: Reason) -> Self {
