@@ -29,3 +29,19 @@ it('puts a refused role back in its select, with the reason', async () => {
     expect(select.value).toBe('viewer');
   });
 });
+
+it('takes a team off the board by the × named after it', async () => {
+  const unassign = vi.fn<Teams['unassign']>(() => Promise.resolve());
+  const teams = {
+    list: vi.fn<Teams['list']>(() => Promise.resolve([DESIGN])),
+    onBoard: vi.fn<Teams['onBoard']>(() => Promise.resolve([{ team: DESIGN, role: 'editor' }])),
+    unassign,
+  } as Partial<Teams> as Teams;
+  const workspace = { info: { id: 'w1' } } as unknown as Workspace;
+  const board = { boardId: 'b1', members: [] } as unknown as BoardStore;
+  render(BoardTeams, { workspace, board, teams });
+  const remove = await screen.findByRole('button', { name: 'Remove Design from board' });
+  expect(remove).not.toHaveTextContent('Design');
+  await fireEvent.click(remove);
+  expect(unassign).toHaveBeenCalledWith('w1', 'b1', 't1');
+});

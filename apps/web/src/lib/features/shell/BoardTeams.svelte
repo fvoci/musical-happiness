@@ -88,8 +88,10 @@
     {#each assigned as item (item.team.id)}
       <li class="flex items-start gap-2" data-board-team={item.team.name}>
         <details class="group min-w-0 flex-1">
-          <summary class="flex min-h-8 cursor-pointer items-center gap-2 roomy:min-h-touch">
-            <!-- A summary laid out as a row shows no marker of its own. -->
+          <summary
+            class="flex min-h-8 cursor-pointer list-none items-center gap-2 roomy:min-h-touch [&::-webkit-details-marker]:hidden"
+          >
+            <!-- The chevron is the marker: WebKit would draw its own beside it. -->
             <ChevronRightIcon
               class="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-90"
               aria-hidden="true"
@@ -99,7 +101,7 @@
           </summary>
           <ul class="grid gap-1 pb-1 pl-6 text-sm">
             {#each item.team.members as person (person.userId)}
-              <li class="truncate" translate="no">{person.displayName || person.username}</li>
+              <li class="break-words" translate="no">{person.displayName || person.username}</li>
             {/each}
           </ul>
         </details>
