@@ -12,6 +12,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 import { primaryKey, primaryName, tabKey } from './keyboard.support.ts';
 import { boardPath } from './address.ts';
 import { screensDir } from './screens.ts';
+import { touchScreen } from './touch.support.ts';
 
 interface StoredView {
   id: string;
@@ -1004,7 +1005,7 @@ test.describe('moving rows', () => {
     if (!first || !third || !fourth) throw new Error('the board has fewer rows than expected');
 
     // Touch events as a touch screen sends them: the mouse of the test runner is not a finger.
-    const client = await page.context().newCDPSession(page);
+    const client = await touchScreen(page);
     const touch = (type: 'touchStart' | 'touchMove' | 'touchEnd', at?: { x: number; y: number }) =>
       client.send('Input.dispatchTouchEvent', {
         type,

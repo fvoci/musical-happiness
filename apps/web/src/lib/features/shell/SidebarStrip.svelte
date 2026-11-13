@@ -33,7 +33,7 @@
     /** Behind the open drawer: neither pressed nor reached with the keyboard. */
     inert: boolean;
     onOpenBoard: (board: BoardPlace) => void;
-    onExpand: () => void;
+    onExpand: (event: MouseEvent) => void;
     onAddBoard: () => void;
     onOpenSettings: () => void;
   }

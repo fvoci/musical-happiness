@@ -11,6 +11,7 @@ import { expect, test } from '@playwright/test';
 
 import {
   CALENDAR_PAGE,
+  crowdable,
   dayButton,
   dueOf,
   focused,
@@ -18,9 +19,8 @@ import {
   openCalendar,
   setDates,
   tabTo,
-  wide,
 } from './calendar.support.ts';
-import { fitPane, touch } from './kanban.support.ts';
+import { touch } from './kanban.support.ts';
 
 test.use(CALENDAR_PAGE);
 
@@ -65,7 +65,7 @@ test('"+N" opens every card of its day, each with its "…", reached by the keys
   page,
 }, info) => {
   await openCalendar(page, info);
-  if (!wide(info)) await fitPane(page, 700);
+  await crowdable(page, info);
   const lanes = Number(await grid(page).getAttribute('data-lanes'));
   const crowd = [
     'Manage tasks with cards',

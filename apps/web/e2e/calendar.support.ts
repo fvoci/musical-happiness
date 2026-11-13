@@ -6,7 +6,7 @@
  */
 import { expect, type Locator, type Page, type TestInfo } from '@playwright/test';
 
-import { openView } from './kanban.support.ts';
+import { fitPane, nextFrame, openView } from './kanban.support.ts';
 import { tabKey } from './keyboard.support.ts';
 
 /** The page's time zone and language: Seoul, and English, whose weeks start on Sunday. */
@@ -24,6 +24,22 @@ export const bars = (page: Page, title: string): Locator =>
   grid(page).locator('[data-bar]').filter({ hasText: title });
 export const dayList = (page: Page): Locator => page.getByTestId('day-list');
 export const wide = (info: TestInfo): boolean => info.project.name !== 'mobile';
+
+/**
+ * The calendar the tests of "+N" are written for: a phone's made 700 wide, and
+ * no taller than 890, so that a day has at most six rows, which the welcome
+ * board has the cards to fill (a tablet held upright has a seventh).
+ */
+export async function crowdable(page: Page, info: TestInfo): Promise<void> {
+  const size = page.viewportSize();
+  if (size && size.height > 890) {
+    await page.setViewportSize({ width: size.width, height: 890 });
+    // The rows measure their room after the frame's own callbacks: the next frame has their lanes.
+    await nextFrame(page);
+    await nextFrame(page);
+  }
+  if (!wide(info)) await fitPane(page, 700);
+}
 
 /** A date value as the wire has it: a day as text, a moment as milliseconds. */
 export type Stored = { from: string | number; to?: string | number } | undefined;

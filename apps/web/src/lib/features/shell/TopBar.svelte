@@ -43,7 +43,7 @@
     sharedHref: (boardId: string, readToken: string) => string;
     /** Show the button that opens the drawer. */
     menuButton: boolean;
-    onOpenSidebar: () => void;
+    onOpenSidebar: (event: MouseEvent) => void;
   }
 
   let { workspace, boardId, sharedHref, menuButton, onOpenSidebar }: Props = $props();

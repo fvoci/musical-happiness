@@ -10,6 +10,7 @@
 import { expect, type CDPSession, type Locator, type Page } from '@playwright/test';
 
 import { SETTLED } from './address.ts';
+import { touchScreen } from './touch.support.ts';
 
 export type Stage = 'compact' | 'medium' | 'expanded';
 
@@ -144,7 +145,7 @@ export class Finger {
   }
 
   static async on(page: Page): Promise<Finger> {
-    return new Finger(await page.context().newCDPSession(page), page);
+    return new Finger(await touchScreen(page), page);
   }
 
   async #send(type: 'touchStart' | 'touchMove', at: Point): Promise<void> {

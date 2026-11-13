@@ -24,6 +24,8 @@ export class Paging {
   /** The panel that is looked at, by its place in the row. */
   current = $state(0);
   readonly #one: () => boolean;
+  /** The width of the board when the panel looked at was last placed. */
+  #width = 0;
 
   /**
    * Call while a component is being set up. `one`: the pane fits one column
@@ -31,19 +33,43 @@ export class Paging {
    */
   constructor(one: () => boolean, count: () => number) {
     this.#one = one;
+    /** The widths last seen of the board and its panels. */
+    const widths = new WeakMap<Element, number>();
     $effect(() => {
       const within = this.scroller;
       const snapping = one();
       if (!within) return;
+      const place = (): void => {
+        untrack(() => {
+          const element = this.#panels()[this.current];
+          if (!element) return;
+          if (snapping) within.scrollLeft = this.#restOf(element, within);
+          else if (!this.#wholeInView(element, within)) {
+            within.scrollLeft = element.offsetLeft - LEFT_MARGIN;
+          }
+        });
+      };
       // On the first frame too, with no animation to wait for.
-      untrack(() => {
-        const element = this.#panels()[this.current];
-        if (!element) return;
-        if (snapping) within.scrollLeft = this.#restOf(element, within);
-        else if (!this.#wholeInView(element, within)) {
-          within.scrollLeft = element.offsetLeft - LEFT_MARGIN;
+      this.#width = within.clientWidth;
+      place();
+      // WebKit gives the columns their new widths from container queries after this, and
+      // snaps the board anew on the way: the panel looked at is placed again once they have.
+      const observer = new ResizeObserver((entries) => {
+        let changed = false;
+        for (const { target, contentRect } of entries) {
+          const seen = widths.get(target);
+          if (seen !== undefined && seen !== contentRect.width) changed = true;
+          widths.set(target, contentRect.width);
         }
+        if (!changed) return;
+        this.#width = within.clientWidth;
+        place();
       });
+      observer.observe(within);
+      for (const panel of untrack(() => this.#panels())) observer.observe(panel);
+      return () => {
+        observer.disconnect();
+      };
     });
     // A panel that went away (a column hidden or deleted) leaves the one before it looked at.
     $effect(() => {
@@ -85,6 +111,9 @@ export class Paging {
   readonly onScroll = (): void => {
     const within = this.scroller;
     if (!within) return;
+    // A scroll at a width the panel has not been placed at is the browser fitting the board
+    // to it (WebKit snaps it anew before the columns have their new widths), not the reader.
+    if (within.clientWidth !== this.#width) return;
     const all = this.#panels();
     if (this.#one()) {
       this.current = nearestRest(

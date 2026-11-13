@@ -19,6 +19,7 @@ import {
   bars,
   calendar,
   CALENDAR_PAGE,
+  crowdable,
   day,
   dayList,
   grid,
@@ -123,7 +124,7 @@ test('a day with more cards than rows says "+N", and the day lists them all', as
   page,
 }, info) => {
   await openCalendar(page, info);
-  if (!wide(info)) await fitPane(page, 700);
+  await crowdable(page, info);
   // As many more cards as the cells have rows: two cards on the day are already there.
   const lanes = Number(await grid(page).getAttribute('data-lanes'));
   const crowd = [
