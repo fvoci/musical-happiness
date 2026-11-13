@@ -216,7 +216,7 @@ impl App {
             return Err(not_found());
         }
         let org = self.enter_org_for_sign_in(org_id).ok_or_else(not_found)?;
-        if let Some(provider) = org.store().release_sso().await? {
+        if let Some(provider) = org.store().release_sso_by_operator().await? {
             record(&provider, SsoChange::ReleasedByOperator, None);
         }
         Ok(())

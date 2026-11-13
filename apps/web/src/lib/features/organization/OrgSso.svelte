@@ -32,12 +32,13 @@
   let notice = $state('');
   let confirmRemove = $state(false);
   const enforced = $derived(provider?.ssoRequired ?? false);
-  const proven = $derived(
-    provider?.canRequireSso === true &&
-      enabled &&
-      issuer === provider.issuer &&
-      clientId === provider.clientId,
+  /** Another issuer or client than the stored one: the server asks for its secret anew. */
+  const changed = $derived(
+    provider !== undefined &&
+      (issuer.trim() !== provider.issuer || clientId.trim() !== provider.clientId),
   );
+  const askSecret = $derived(replaceSecret || changed);
+  const proven = $derived(provider?.canRequireSso === true && enabled && !changed);
 
   function accept(value: OidcProvider | undefined): void {
     provider = value;
@@ -75,12 +76,12 @@
     try {
       accept(
         await save({
-          issuer,
-          clientId,
+          issuer: issuer.trim(),
+          clientId: clientId.trim(),
           autoJoin,
           enabled,
           ssoRequired: required,
-          ...(replaceSecret ? { clientSecret: secret } : {}),
+          ...(askSecret ? { clientSecret: secret } : {}),
         }),
       );
       notice = m.org_sso_saved();
@@ -179,7 +180,7 @@
         />
       </div>
       <div class="grid gap-1.5">
-        {#if replaceSecret}
+        {#if askSecret}
           <Label for="{uid}-secret">{m.org_sso_secret()}</Label>
           <Input
             id="{uid}-secret"
@@ -190,6 +191,19 @@
             data-testid="sso-secret"
           />
           <p class="text-xs text-muted-foreground">{m.org_sso_secret_hint()}</p>
+          {#if provider?.hasClientSecret && !changed}
+            <Button
+              variant="outline"
+              size="sm"
+              class="justify-self-start"
+              disabled={busy}
+              data-testid="sso-keep-secret"
+              onclick={() => {
+                replaceSecret = false;
+                secret = '';
+              }}>{m.org_sso_keep_secret()}</Button
+            >
+          {/if}
         {:else}
           <div class="flex flex-wrap items-center justify-between gap-2">
             <span class="text-sm"

@@ -61,6 +61,36 @@ describe('the SSO settings', () => {
     expect(screen.queryByTestId('sso-issuer-change')).not.toBeInTheDocument();
   });
 
+  it('asks for the secret of another issuer, and can keep the stored one otherwise', async () => {
+    const { save } = mount();
+    const issuer = await screen.findByTestId('sso-issuer');
+    await fireEvent.input(issuer, { target: { value: ' https://other.example.test ' } });
+    expect(screen.getByTestId('sso-secret')).toBeInTheDocument();
+    expect(screen.queryByTestId('sso-keep-secret')).not.toBeInTheDocument();
+    await fireEvent.input(screen.getByTestId('sso-secret'), { target: { value: 'new secret' } });
+    await fireEvent.click(screen.getByTestId('sso-save'));
+    await vi.waitFor(() => {
+      expect(save).toHaveBeenCalledOnce();
+    });
+    expect(save.mock.calls[0]?.[0]).toMatchObject({
+      issuer: 'https://other.example.test',
+      clientSecret: 'new secret',
+    });
+  });
+
+  it('goes back to the stored secret after asking to change it', async () => {
+    const { save } = mount();
+    await fireEvent.click(await screen.findByRole('button', { name: 'Change secret' }));
+    expect(screen.getByTestId('sso-secret')).toBeInTheDocument();
+    await fireEvent.click(screen.getByTestId('sso-keep-secret'));
+    expect(screen.queryByTestId('sso-secret')).not.toBeInTheDocument();
+    await fireEvent.click(screen.getByTestId('sso-save'));
+    await vi.waitFor(() => {
+      expect(save).toHaveBeenCalledOnce();
+    });
+    expect(save.mock.calls[0]?.[0]).not.toHaveProperty('clientSecret');
+  });
+
   it('changing the client requires proving the replacement too', async () => {
     mount({ ...provider, canRequireSso: true });
     const client = await screen.findByTestId('sso-client');

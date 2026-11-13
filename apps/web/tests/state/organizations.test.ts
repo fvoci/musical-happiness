@@ -191,7 +191,7 @@ describe('the organization screen', () => {
     const admin = new OrgAdmin(organizations(), 'o', { report: signedOut });
     await admin.load();
     expect(admin.status).toBe('failed');
-    expect(signedOut).toHaveBeenCalledExactlyOnceWith('save', expect.any(BackendError));
+    expect(signedOut).toHaveBeenCalledExactlyOnceWith('load', expect.any(BackendError));
 
     const closed = { status: 401, body: { status: 401, reason: 'sso_required', orgId: 'o' } };
     serve({

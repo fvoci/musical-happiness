@@ -23,7 +23,7 @@ export type OrgStatus = 'loading' | 'ready' | 'missing' | 'sso' | 'failed';
 
 /** What the page around the screen is told: the workspace's `report`. */
 interface Shell {
-  report(action: 'save', error: unknown): void;
+  report(action: 'load', error: unknown): void;
 }
 
 /** Why a change was refused, as the screen tells it. */
@@ -90,7 +90,7 @@ export class OrgAdmin {
     } catch (error) {
       if (ssoOrgOf(error) !== undefined) this.status = 'sso';
       else this.status = isBackendError(error) && error.status === 404 ? 'missing' : 'failed';
-      if (this.status === 'failed' && isSignedOut(error)) this.#shell?.report('save', error);
+      if (this.status === 'failed' && isSignedOut(error)) this.#shell?.report('load', error);
     }
   }
 

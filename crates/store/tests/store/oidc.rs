@@ -310,7 +310,7 @@ async fn an_enforced_provider_is_not_removed_until_it_is_released() {
         test.delete_oidc_provider(&new_id()).await.expect("asked"),
         Removal::NoneThere
     );
-    assert_eq!(test.release_sso().await.expect("asked"), None);
+    assert_eq!(test.release_sso_by_operator().await.expect("asked"), None);
     let enforced = test
         .put_oidc_provider(&provider_that(Enforcement::On))
         .await
@@ -319,8 +319,8 @@ async fn an_enforced_provider_is_not_removed_until_it_is_released() {
 
     let refused = test.delete_oidc_provider(&new_id()).await.expect("asked");
     let still = test.oidc_provider().await.expect("read");
-    let released = test.release_sso().await.expect("released");
-    let again = test.release_sso().await.expect("asked");
+    let released = test.release_sso_by_operator().await.expect("released");
+    let again = test.release_sso_by_operator().await.expect("asked");
     let removed = test.delete_oidc_provider(&new_id()).await.expect("asked");
     test.teardown().await;
 
@@ -483,7 +483,7 @@ async fn enforcing_and_removing_at_once_leave_no_organization_without_its_provid
             Removal::NoneThere => panic!("round {round}: there was a provider"),
         }
         // For the next round.
-        test.release_sso().await.expect("asked");
+        test.release_sso_by_operator().await.expect("asked");
         test.delete_oidc_provider(&new_id()).await.expect("asked");
     }
     test.teardown().await;

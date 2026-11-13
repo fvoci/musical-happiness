@@ -289,15 +289,17 @@ impl Store {
     }
 
     /// Releases the handle's organization from taking only sessions made through its
-    /// provider, whoever asks and whatever the provider is: the way out when nobody
-    /// gets in through it. Returns the provider as it is then if this released it,
-    /// `None` if there was nothing to release.
+    /// provider, on the word of whoever runs the server (the administration socket),
+    /// whatever the provider is: the way out when nobody gets in through it. It is
+    /// recorded as the server operator's; nothing that a person asks for calls it.
+    /// Returns the provider as it is then if this released it, `None` if there was
+    /// nothing to release.
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::NoOrganization`] if the handle names none, and
     /// [`StoreError::Database`] if a statement fails.
-    pub async fn release_sso(&self) -> Result<Option<StoredProvider>, StoreError> {
+    pub async fn release_sso_by_operator(&self) -> Result<Option<StoredProvider>, StoreError> {
         self.transaction(async |scope| {
             hold_provider_of_organization(scope).await?;
             let mut sql = scope.sql("SELECT update_at FROM oidc_providers WHERE org_id = ");

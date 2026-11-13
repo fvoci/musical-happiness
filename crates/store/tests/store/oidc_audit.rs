@@ -25,9 +25,14 @@ async fn operator_records_are_distinct_immutable_and_made_with_the_release() {
     test.put_oidc_provider_as_read(&settings(), None, &actor)
         .await
         .expect("stored");
-    assert!(test.release_sso().await.expect("released").is_some());
     assert!(
-        test.release_sso()
+        test.release_sso_by_operator()
+            .await
+            .expect("released")
+            .is_some()
+    );
+    assert!(
+        test.release_sso_by_operator()
             .await
             .expect("already released")
             .is_none()
@@ -174,7 +179,7 @@ async fn a_release_or_removal_without_its_record_rolls_back() {
             .await
             .expect("recording fails");
         if required {
-            assert!(test.release_sso().await.is_err());
+            assert!(test.release_sso_by_operator().await.is_err());
         } else {
             assert!(test.delete_oidc_provider(&actor).await.is_err());
         }

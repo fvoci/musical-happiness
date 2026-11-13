@@ -1058,5 +1058,6 @@
   "audit_sso_required": "{actor} 님이 조직의 통합 로그인을 강제했습니다",
   "audit_sso_released": "{actor} 님이 조직의 통합 로그인 강제를 해제했습니다",
   "account_linked_ends_session": "지금 이 로그인으로 들어와 있습니다. 연결을 끊으면 여기서 로그아웃되고, 비밀번호로 다시 로그인하게 됩니다.",
-  "org_sso_issuer_change": "다른 issuer로 저장하면 지금 issuer로 로그인한 사람이 모두 로그아웃됩니다. 내가 그렇게 로그인했다면 나도 포함됩니다."
+  "org_sso_issuer_change": "다른 issuer로 저장하면 지금 issuer로 로그인한 사람이 모두 로그아웃됩니다. 내가 그렇게 로그인했다면 나도 포함됩니다.",
+  "org_sso_keep_secret": "저장된 secret 유지"
 }

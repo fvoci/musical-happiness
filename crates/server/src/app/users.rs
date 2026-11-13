@@ -72,11 +72,14 @@ impl App {
     /// A missing account or unavailable lookup leaves the identifier absent; the command
     /// still performs its own checks and returns their outcome.
     pub(crate) async fn operator_user_id(&self, username: &str) -> Option<String> {
-        self.store()
-            .get_user_by_username(username)
-            .await
-            .ok()
-            .map(|user| user.id)
+        match self.store().get_user_by_username(username).await {
+            Ok(user) => Some(user.id),
+            Err(error) if error.is_not_found() => None,
+            Err(error) => {
+                tracing::warn!(%error, "the target of an operator's command could not be read");
+                None
+            }
+        }
     }
 
     /// Makes the user with the given name, in any letter case, an administrator of the
