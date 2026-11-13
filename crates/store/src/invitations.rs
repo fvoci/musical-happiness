@@ -296,19 +296,19 @@ impl Store {
         inviter: Inviter<'_>,
     ) -> Result<Acceptance, StoreError> {
         self.transaction(async |scope| {
-            // Team changes take this lock too: inherited access cannot change after
-            // the inviter is checked but before their grant is recorded.
-            crate::org_admin::hold_organization_row(scope).await?;
             // Hold the board before its invitation and membership, as removal does.
             // The acceptor's role then stays what was read until its write.
             let sql = select_live_by_token(scope, token_hash, now)?;
             let Some(row) = scope.fetch_optional(sql).await? else {
                 return Ok(Acceptance::Unavailable);
             };
-            if let Some(board_id) = invitation_from_row(&row)?.board_id
-                && !lock_board(scope, &board_id).await?
-            {
-                return Ok(Acceptance::Unavailable);
+            if let Some(board_id) = invitation_from_row(&row)?.board_id {
+                // Team changes hold the organization before any board. Keep inherited
+                // board access stable through the grant; workspace links have no such role.
+                crate::org_admin::hold_organization_row(scope).await?;
+                if !lock_board(scope, &board_id).await? {
+                    return Ok(Acceptance::Unavailable);
+                }
             }
             // The link itself, held against the other acceptances of it: read again,
             // it is live still, and its workspace still invites guests if it is for one.
