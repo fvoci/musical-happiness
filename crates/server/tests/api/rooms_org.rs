@@ -9,7 +9,7 @@ use serde_json::json;
 use crate::boards::new_board;
 use crate::common::{Setup, TEST_WORKSPACE_ID, TestServer};
 use crate::org_admin::{let_in, make_workspace, org_of};
-use crate::rooms::{Incoming, PATIENCE, Peer, give_in, no_rooms, paragraphs, table};
+use crate::rooms::{Peer, give_in, no_rooms, paragraphs, table};
 
 /// A server that asks every second whether who is in a room may be there.
 fn asking_often() -> Setup {
@@ -58,14 +58,13 @@ async fn a_workspace_in_the_trash_or_removed_for_good_empties_the_rooms_of_its_c
 
     th.client.delete(&place).await.check_no_content();
     for peer in [&mut one, &mut two] {
+        let left = peer.text("DOC_LEFT").await;
         assert_eq!(
-            peer.incoming(PATIENCE).await,
-            Incoming::Closed,
-            "workspace trash ends the connection"
+            left["reason"],
+            json!("not_found"),
+            "workspace trash puts out of the room: {left}"
         );
     }
-    one = Peer::connect(&th.client, 101).await;
-    two = Peer::connect(&th.client2, 102).await;
     for peer in [&mut one, &mut two] {
         let refused = peer.join(&workspace, &card_id).await;
         assert_eq!(refused["reason"], json!("not_found"), "{refused}");
@@ -91,14 +90,13 @@ async fn a_workspace_in_the_trash_or_removed_for_good_empties_the_rooms_of_its_c
         .expect("the deletion is made an old one");
     fvoci_server::keep_house(&th.app).await;
     for peer in [&mut one, &mut two] {
+        let left = peer.text("DOC_LEFT").await;
         assert_eq!(
-            peer.incoming(PATIENCE).await,
-            Incoming::Closed,
-            "removed workspace ends the connection"
+            left["reason"],
+            json!("not_found"),
+            "the trash puts out of the room: {left}"
         );
     }
-    one = Peer::connect(&th.client, 101).await;
-    two = Peer::connect(&th.client2, 102).await;
     for peer in [&mut one, &mut two] {
         let refused = peer.join(&workspace, &card_id).await;
         assert_eq!(refused["reason"], json!("not_found"), "{refused}");
@@ -171,12 +169,12 @@ async fn an_org_admin_who_leaves_a_workspace_they_joined_is_put_out_of_its_rooms
         .post_empty(&format!("{place}/leave"))
         .await
         .check_ok();
+    let left = joined.text("DOC_LEFT").await;
     assert_eq!(
-        joined.incoming(PATIENCE).await,
-        Incoming::Closed,
-        "leaving ends the document connection"
+        left["reason"],
+        json!("not_found"),
+        "leaving puts out of the room: {left}"
     );
-    joined = Peer::connect(&th.client, 101).await;
     let refused = joined.join(&workspace, &card.id).await;
     assert_eq!(refused["reason"], json!("not_found"), "{refused}");
     theirs.write_acked("by the member, after").await;

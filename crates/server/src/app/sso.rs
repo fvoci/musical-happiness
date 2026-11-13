@@ -230,26 +230,27 @@ impl App {
         Ok(())
     }
 
-    /// Closes the websocket connections that the handle's organization shuts out as it
-    /// takes only sessions made through `provider`: what a connection follows of a
-    /// workspace was asked when it subscribed. For after that is stored; also when it
-    /// was on already, which closes again what a failure may have left.
+    /// Stops what the websocket connections that the handle's organization shuts out as
+    /// it takes only sessions made through `provider` follow of its workspaces, and
+    /// tells them: what a connection follows of a workspace was asked when it
+    /// subscribed. For after that is stored; also when it was on already, which ends
+    /// again what a failure may have left.
     ///
-    /// If the organization's workspaces cannot be read, every connection that follows a
-    /// workspace with a session made otherwise is closed, whose workspace it may be:
-    /// the pages connect again, and are asked then.
-    pub(crate) async fn close_connections_shut_out(&self, provider: &StoredProvider) {
+    /// If the organization's workspaces cannot be read, every workspace followed with
+    /// a session made otherwise is stopped, whose it may be: the pages follow them
+    /// again, and are asked then.
+    pub(crate) async fn end_subscriptions_shut_out(&self, provider: &StoredProvider) {
         match self.store().get_workspaces().await {
             Ok(workspaces) => {
                 let ids: Vec<String> = workspaces
                     .into_iter()
                     .map(|workspace| workspace.id)
                     .collect();
-                self.ws().close_sessions_closed_out(&ids, &provider.id);
+                self.ws().end_subscriptions_shut_out(&ids, &provider.id);
             }
             Err(error) => {
                 tracing::warn!(%error, org_id = %provider.org_id, "unable to read the workspaces of an organization that takes no password");
-                self.ws().close_sessions_made_otherwise(&provider.id);
+                self.ws().end_subscriptions_made_otherwise(&provider.id);
             }
         }
     }

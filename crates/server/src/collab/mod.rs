@@ -45,6 +45,7 @@ pub mod worker;
 pub use participation::AdmissionStage;
 pub use participation::Participation;
 pub use queue::Outgoing;
+pub(crate) use rooms::AccessScope;
 pub use seat::{Outbox, Seat};
 pub use whole::cards_written_whole;
 

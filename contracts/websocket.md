@@ -1,6 +1,6 @@
 # WebSocket `/ws`의 메시지
 
-적은 때: 2026-11-11 04:14 KST(본문의 공동 편집, 6절은 2026-11-13 04:41 KST). 서버가 **지금** 주고받는 것을 모양을 바꾸지 않고 적었다(`crates/server/src/ws.rs`, 핸드셰이크는 `crates/server/src/lib.rs`의 `handle_websocket`). OpenAPI는 WebSocket을 적지 못하므로 계약 파일 `contracts/openapi.json` 밖에 둔다.
+적은 때: 2026-11-11 04:14 KST(본문의 공동 편집, 6절은 2026-11-13 04:41 KST. 서버가 구독을 끝낼 때의 알림, 3절은 2026-11-14 01:35 KST). 서버가 **지금** 주고받는 것을 모양을 바꾸지 않고 적었다(`crates/server/src/ws.rs`, 핸드셰이크는 `crates/server/src/lib.rs`의 `handle_websocket`). OpenAPI는 WebSocket을 적지 못하므로 계약 파일 `contracts/openapi.json` 밖에 둔다.
 
 - 메시지마다의 멤버와 타입은 기계가 읽는 `contracts/websocket.json`에 있다. 서버의 테스트(`crates/server/tests/api/websocket.rs`의 `messages_match_the_websocket_contract`, 본문의 공동 편집(6절)의 `DOC_…`은 `rooms_contract.rs`의 `the_messages_of_the_rooms_match_the_websocket_contract`)가 서버가 실제로 보낸 메시지를 그 파일과 견준다: 맨 위 멤버가 정확히 그 이름들이고, 실린 객체(`board`, `block` 등)의 멤버는 계약 파일의 같은 이름의 스키마에 있는 것들이다. 테스트가 보는 것은 **메시지**뿐이다. 명령(2절)과 `session`·`sent` 표시는 이 문서와 코드를 사람이 맞춰 둔다. 실린 객체의 멤버는 이름만 견주고 타입은 계약 파일의 스키마를 따른다. Binary 프레임(6절)의 바이트는 `crates/server/src/collab/frame.rs`의 테스트와 `rooms.rs`의 테스트가 따로 쓴 부호화로 견준다.
 - 메시지가 싣는 보드, 블록, 멤버, 카테고리는 계약의 `Board`, `Block`, `BoardMember`, `Category`와 같은 모양이다. `Block`은 본문(`body`, `docs/contract-pending.md` 1절)을 싣는다.
@@ -27,7 +27,7 @@
 
 ## 2. 클라이언트가 보내는 명령
 
-명령은 텍스트 프레임의 JSON 객체 하나다. 멤버는 camelCase이고 없는 멤버는 빈 값으로 읽는다. **구독 명령에는 답이 없다.** 받아들였는지, 거절했는지, 모르는 명령인지 알리는 메시지가 없다(서버의 로그에만 남는다). 그래서 구독이 됐는지는 그 뒤에 오는 변경으로만 안다. 다만 구독의 권한을 저장소에서 읽지 못하면 연결을 코드 1013으로 닫는다(3절): 다시 연결해 다시 구독한다. 답이 있는 것은 `JOIN_DOC`뿐이다(6절).
+명령은 텍스트 프레임의 JSON 객체 하나다. 멤버는 camelCase이고 없는 멤버는 빈 값으로 읽는다. **구독 명령에는 답이 없다.** 받아들였는지, 거절했는지, 모르는 명령인지 알리는 메시지가 없다(서버의 로그에만 남는다). 그래서 구독이 됐는지는 그 뒤에 오는 변경으로만 안다. 서버가 구독을 끝낼 때는 알린다(`UNSUBSCRIBED_WORKSPACE`·`UNSUBSCRIBED_BLOCKS`, 3절). 구독의 권한을 저장소에서 읽지 못하면 연결을 코드 1013으로 닫는다(3절): 다시 연결해 다시 구독한다. 답이 있는 것은 `JOIN_DOC`뿐이다(6절).
 
 | `action` | 세션 | 멤버 | 하는 일 |
 |---|---|---|---|
@@ -41,9 +41,9 @@
 - 세션이 필요한 명령을 익명 연결이 보내면 무시한다(`JOIN_DOC`은 `DOC_REFUSED`로 답한다, 6절).
 - JSON이 아니거나, 멤버의 타입이 틀리거나(`workspaceId`가 수, `blockIds`가 목록이 아님 등), `action`을 모르면 그 명령만 무시하고 연결은 그대로다.
 - `SUBSCRIBE_WORKSPACE`는 그 워크스페이스의 구성원(손님도 포함)의 것만 받아들이고, 그 밖의 것은 무시한다. 워크스페이스 ID는 `GET /api/v1/users/me/workspaces`에 있다.
-- 검사와 구독 등록 사이에 권한 회수가 있으면 다시 검사한다(모두 8번까지). 그사이 권한을 잃은 연결도 종료된다. 무관한 회수가 8번 모두 겹치면 코드 1013으로 닫는다.
+- 검사와 구독 등록 사이에 권한 회수가 있으면 다시 검사한다(모두 8번까지). 한 번 받아들인 뒤 다시 검사에서 권한이 없으면 구독하지 않고 끝났다고 알린다. 그 구독(그 사용자의 그 워크스페이스·조직, 그 워크스페이스, 그 보드의 링크)에 닿는 회수만 다시 검사하게 한다: 다른 사용자의 로그아웃이나 다른 조직의 회수는 겹치지 않는다. 닿는 회수가 8번 모두 겹치면 코드 1013으로 닫는다.
 - `blockIds`가 빈 목록이면 보드를 정할 수 없어 읽기 토큰이 맞지 않는 것으로 친다.
-- 비밀번호를 받지 않는 조직(공급자의 `ssoRequired`)의 워크스페이스는 그 공급자로 만든 세션의 연결만 구독한다. 다른 세션의 `SUBSCRIBE_WORKSPACE`는 무시한다(HTTP의 401 `sso_required`에 해당한다. `getMyWorkspaces`의 `ssoRequired`가 미리 알려 준다). 조직이 `ssoRequired`를 켜면, 그 조직의 워크스페이스를 구독하던 연결 가운데 그 공급자로 만들지 않은 세션의 것을 서버가 닫는다. 조직이 다시 비밀번호를 받게 돼도 무시된 구독이 저절로 살아나지는 않는다: 다시 구독한다.
+- 비밀번호를 받지 않는 조직(공급자의 `ssoRequired`)의 워크스페이스는 그 공급자로 만든 세션의 연결만 구독한다. 다른 세션의 `SUBSCRIBE_WORKSPACE`는 무시한다(HTTP의 401 `sso_required`에 해당한다. `getMyWorkspaces`의 `ssoRequired`가 미리 알려 준다). 조직이 `ssoRequired`를 켜면, 그 조직의 워크스페이스를 그 공급자로 만들지 않은 세션으로 구독하던 것을 서버가 끝내고 `UNSUBSCRIBED_WORKSPACE`(`sso required`)로 알린다. 연결과 다른 조직의 구독은 그대로다. 조직이 다시 비밀번호를 받게 돼도 무시된 구독이 저절로 살아나지는 않는다: 다시 구독한다.
 
 ## 3. 서버가 보내는 메시지
 
@@ -60,6 +60,8 @@
 | `REORDER_CATEGORIES` | `workspaceId`, `categoryOrder`(카테고리 ID의 새 순서) | 그 사용자의 연결 모두 |
 | `REORDER_CATEGORY_BOARDS` | `workspaceId`, `categoryId`, `boardOrder`(그 카테고리의 보드 ID의 새 순서) | 그 사용자의 연결 모두 |
 | `UPDATE_CLIENT_CONFIG` | `clientConfig` | 모든 연결. **지금은 보내는 곳이 없다**(서버 설정이 실행 중에 바뀌지 않는다) |
+| `UNSUBSCRIBED_WORKSPACE` | `workspaceId`, `reason`(`workspace access ended`, `sso required`) | 서버가 그 워크스페이스의 구독을 끝낸 연결(아래 "서버가 구독을 끝낼 때"). 연결과 다른 구독·방은 그대로다 |
+| `UNSUBSCRIBED_BLOCKS` | `workspaceId`, `blockIds`(그 보드의 따라가던 블록 모두), `reason`(`public link access ended`) | 서버가 그 보드의 블록 구독을 끝낸 연결 |
 
 ### 받는 사람의 규칙
 
@@ -79,7 +81,7 @@
 | `patchBoard` | `UPDATE_BOARD`. **템플릿**의 패치에 `type`이 있으면(바뀌지 않았어도) 멤버가 아닌 워크스페이스 사용자마다: 비공개면 `DELETE_MEMBER`, 공개면 보기 역할의 `UPDATE_MEMBER`. 템플릿이 아닌 보드는 종류가 바뀌어도 `UPDATE_BOARD`뿐이다 |
 | `patchBoardsAndBlocks` | 바뀐 블록마다 `UPDATE_BLOCK`, 바뀐 보드마다 `UPDATE_BOARD` |
 | `reorderCardProperties` | 새 순서의 `cardProperties`를 실은 `UPDATE_BOARD` |
-| `deleteBoard`, `deleteBoardsAndBlocks` | `UPDATE_BOARD`, `board`는 `id`, `workspaceId`, `updateAt`, `deleteAt`(0이 아님)만 뜻이 있고 나머지는 빈 값. 받는 사람은 지우기 직전의 멤버. `deleteBoardsAndBlocks`는 그 앞에 블록마다 삭제 `UPDATE_BLOCK`(모양은 아래 `deleteBlock`)을 내는데, 이것도 지우기 직전의 멤버에게만 가고 `SUBSCRIBE_BLOCKS`로 따라가던 연결은 받지 않는다. 둘 다 보드의 공유 토큰으로 따라가던 연결을 닫는다 |
+| `deleteBoard`, `deleteBoardsAndBlocks` | `UPDATE_BOARD`, `board`는 `id`, `workspaceId`, `updateAt`, `deleteAt`(0이 아님)만 뜻이 있고 나머지는 빈 값. 받는 사람은 지우기 직전의 멤버. `deleteBoardsAndBlocks`는 그 앞에 블록마다 삭제 `UPDATE_BLOCK`(모양은 아래 `deleteBlock`)을 내는데, 이것도 지우기 직전의 멤버에게만 가고 `SUBSCRIBE_BLOCKS`로 따라가던 연결은 받지 않는다. 둘 다 보드의 공유 토큰으로 따라가던 블록 구독을 끝낸다(`UNSUBSCRIBED_BLOCKS`) |
 | `undeleteBoard` | 돌아온 보드의 `UPDATE_BOARD` 하나, 그리고 보드를 사이드바에 다시 둔 사용자마다 그 사람의 연결에 `UPDATE_BOARD_CATEGORY`(그 보드의 항목 하나: 원래 카테고리, 그사이 지워졌으면 기본 카테고리)와 그 카테고리의 `REORDER_CATEGORY_BOARDS`(원래 자리로 들어가며 뒤의 보드가 밀린 순서). 비공개 보드는 다시 구성원이 된 사람에게만. **함께 돌아온 블록과 멤버의 메시지는 없다** |
 | `createBlocks`, `patchBlock`, `patchBlocks`, `createCard`, `patchCard`, `duplicateBlock`, `undeleteBlock` | 바뀌거나 생긴 블록마다 `UPDATE_BLOCK`. `undeleteBlock`은 되살린 블록 하나만 알린다(함께 돌아온 아래 블록은 알리지 않는다) |
 | `deleteBlock` | `UPDATE_BLOCK`, `block`은 `id`, `boardId`, `updateAt`, `deleteAt`(0이 아님)만 뜻이 있고 나머지는 빈 값. **지운 블록 하나만** 알린다. 함께 휴지통에 간 아래 블록(카드의 댓글·첨부)은 따로 알리지 않는다 |
@@ -90,14 +92,26 @@
 | `reorderCategories` | `REORDER_CATEGORIES` |
 | `setBoardCategory`, `hideBoard`, `unhideBoard` | `UPDATE_BOARD_CATEGORY` |
 | `reorderCategoryBoards` | `REORDER_CATEGORY_BOARDS` |
-| `setSharing`(끄기, 새 토큰) | 메시지 없음. 옛 토큰으로 따라가던 연결이 닫힌다 |
+| `setSharing`(끄기, 새 토큰) | 옛 토큰으로 따라가던 연결에 `UNSUBSCRIBED_BLOCKS` |
 | `patchUserSettings`, `patchClientState` | 메시지 없음 |
 
 메시지는 쓰기가 끝난 뒤 보낸다. 어떤 조작은 답하기 전에 보내고(`createBoardsAndBlocks`, `createBlocks`, `createCard`, `deleteBoard`, `deleteBoardsAndBlocks`, 카테고리의 메시지 모두), 나머지는 따로 돌며 보낸다. 클라이언트는 HTTP의 답과 메시지의 순서에 기대지 않는다.
 
+### 서버가 구독을 끝낼 때
+
+권한 회수는 연결을 닫지 않고 그 구독만 끝내며 알린다. 연결은 남고, 다른 워크스페이스의 구독과 블록 구독, 방(6절)도 남는다. 끝난 워크스페이스의 방은 방이 스스로 다시 물어 권한이 없는 사람을 `DOC_LEFT`로 내보낸다. 클라이언트는 다시 구독해 보고(권한이 있으면 새 역할로 받아들여진다) 보드를 다시 읽는다.
+
+| 언제 | 끝나는 구독, 알림 |
+|---|---|
+| 워크스페이스에서 빠짐·역할 변경, 관리자 참여 회수·강등이나 인스턴스 관리자 해제로 가입 당시 역할을 잃음 | 그 사용자의 그 워크스페이스 구독(`UNSUBSCRIBED_WORKSPACE`, `workspace access ended`) |
+| 워크스페이스가 휴지통에 감 | 그 워크스페이스의 모든 구독(같은 알림) |
+| 조직이 비밀번호를 받지 않게 됨(`ssoRequired`) | 그 조직의 워크스페이스를 그 공급자로 만들지 않은 세션으로 구독하던 것(`sso required`). 조직의 워크스페이스를 읽지 못하면 그런 세션의 워크스페이스 구독 모두 |
+| 공유를 끄거나 새 토큰을 내거나 보드·워크스페이스를 휴지통에 넣거나 조직의 공개 링크를 끔 | 그 보드의 옛 읽기 토큰으로 따라가던 블록(`UNSUBSCRIBED_BLOCKS`, `public link access ended`) |
+| 보낼 때의 검사가 권한이 끝났거나 역할이 바뀌었거나 세션이 그 조직을 열지 못함을 봄(앞의 알림이 없던 회수) | 그 연결의 그 구독(같은 알림) |
+
 ### 서버가 연결을 닫을 때
 
-권한 회수 때는 코드 1008과 이유(`workspace access ended`, `public link access ended`, `session ended`, `sso required`)를 담은 종료 프레임을 보낸다. 받을 사람의 권한을 저장소에서 읽지 못했을 때는 권한이 끝난 것이 아니므로 코드 1013과 이유 `try again`으로 닫는다: 클라이언트는 놓친 변경 없이 다시 연결해 다시 읽는다. 대기 중인 변경은 버린다. 전송 중인 프레임을 취소한 때는 그 프레임이 나가지 않도록 연결을 바로 끊으며, 핸드셰이크 직후 세션이 끝났거나 종료를 5초 안에 마치지 못한 때도 프레임 없이 끊는다. 클라이언트는 다시 연결하고 보드를 다시 읽는다.
+세션이 끝나면 코드 1008과 이유 `session ended`를 담은 종료 프레임을 보낸다. 받을 사람의 권한을 저장소에서 읽지 못했을 때는 권한이 끝난 것이 아니므로 코드 1013과 이유 `try again`으로 닫는다: 클라이언트는 놓친 변경 없이 다시 연결해 다시 읽는다. 대기 중인 변경은 버린다. 전송 중인 프레임을 취소한 때는 그 프레임이 나가지 않도록 연결을 바로 끊으며, 핸드셰이크 직후 세션이 끝났거나 종료를 5초 안에 마치지 못한 때도 프레임 없이 끊는다. 클라이언트는 다시 연결하고 보드를 다시 읽는다.
 
 | 언제 | 닫히는 연결 |
 |---|---|
@@ -106,9 +120,6 @@
 | 자기 비밀번호를 바꿈 | 그 사용자의, 바꾼 세션이 아닌 세션의 연결 |
 | 핸드셰이크 직후, 연결을 등록하기 전에 세션이 끝나 있음 | 그 연결(닫는 프레임 없이) |
 | 세션이 한가함 한도나 절대 한도로 끝나거나 사용자가 지워짐 | 그 세션의 연결. 서버가 Ping마다(`websocket_ping_seconds`, Ping이 꺼져 있으면 1분마다) 세션을 다시 보고 닫는다 |
-| 공유를 끄거나 새 토큰을 내거나 보드·워크스페이스를 휴지통에 넣거나 조직의 공개 링크를 끔 | 그 보드의 옛 읽기 토큰으로 블록을 따라가던 연결 |
-| 워크스페이스에서 빠짐·역할 변경, 관리자 참여 회수·강등으로 가입 당시 역할을 잃음, 워크스페이스가 휴지통에 감 | 그 워크스페이스를 구독하거나 그 안의 문서에 든 해당 사용자의 연결. 일반 구독 없이 문서만 열었거나 문서 입장의 권한 검사를 마치고 등록을 기다려도 닫는다. 아직 권한을 검사하지 않은 요청은 현재 권한으로 검사한다. 남은 워크스페이스는 재연결해 구독한다 |
-| 조직이 비밀번호를 받지 않게 됨(`ssoRequired`) | 그 조직의 워크스페이스를 그 공급자로 만들지 않은 세션으로 구독하던 연결 |
 | 보낼 변경이나 구독의 권한을 저장소에서 읽지 못함(보드의 멤버를 읽지 못하면 그 워크스페이스를 구독한 연결 모두), 또는 구독이나 변경을 8번 검사해도 그 사이의 권한 쓰기가 겹침(변경은 마지막 검사에서 받을 연결만) | 그 연결(코드 1013). 저장소가 내려가 있으면 많은 연결이 함께 다시 연결한다: 클라이언트는 물러서며 다시 연결한다 |
 | 보내지 못한 메시지가 512개 쌓임 | 그 연결(읽지 않는 클라이언트) |
 | 받은 텍스트 메시지가 64 KiB를 넘거나, Binary 프레임이 64 KiB(설정 `collab_update_bytes`에 32바이트를 더한 것이 더 크면 그것)를 넘음 | 그 연결 |
@@ -199,7 +210,7 @@ sync 종류부터 끝까지는 y-protocols의 sync 메시지 그대로다(`write
 
 - 더 읽을 수 없으면(보드에서 빠졌다, 워크스페이스에서 빠졌다, 카드가 지워졌거나 다른 워크스페이스의 보드로 갔다, 조직이 비밀번호를 받지 않게 됐는데(`ssoRequired`) 연결의 세션이 그 공급자로 만든 것이 아니다) `reason`이 `not_found`인 `DOC_LEFT`로 내보낸다. 전송 시 물을 수 없으면 오류로 내보낸다. 유휴 방의 주기 검사에서 물을 수 없었을 때(저장소의 오류, 한 간격 안에 답이 없음)는 2초 뒤에 한 번 더 묻고, 그래도 답이 없으면 그 오류의 `reason`(답이 없었으면 `document_unavailable`)으로 내보낸다: 확인되지 않은 연결은 방에 남지 않는다.
 - 쓰던 연결이 읽을 수만 있게 됐으면 `DOC_MODE`(`read`)를 보내고 그 뒤의 변경은 `DOC_NACK`(`document_read_only`)이다. 반대로 쓸 수 있게 됐으면 `DOC_MODE`(`write`)다.
-- 보드의 권한을 잃은 연결은 다음 쓰기·데이터 전송 전에 방에서 빠지고, 유휴 중에는 주기 검사에서 빠진다. 워크스페이스 권한 회수와 세션 종료는 연결째 즉시 닫는다(3절). 조직이 비밀번호를 받지 않게 되면 그 공급자로 만들지 않은 세션의 연결은 그 조직의 방에서 저장소에 묻지 않고 곧바로 `not_found`의 `DOC_LEFT`로 나간다(그것을 켠 요청은 그 뒤에 답한다).
+- 보드의 권한을 잃은 연결은 다음 쓰기·데이터 전송 전에 방에서 빠지고, 유휴 중에는 주기 검사에서 빠진다. 워크스페이스 권한 회수는 그 워크스페이스의 방이 곧바로 다시 물어 내보내고(연결과 다른 방은 남는다), 세션 종료는 연결째 즉시 닫는다(3절). 조직이 비밀번호를 받지 않게 되면 그 공급자로 만들지 않은 세션의 연결은 그 조직의 방에서 저장소에 묻지 않고 곧바로 `not_found`의 `DOC_LEFT`로 나간다(그것을 켠 요청은 그 뒤에 답한다).
 
 ### 세대
 

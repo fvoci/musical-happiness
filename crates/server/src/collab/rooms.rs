@@ -20,7 +20,10 @@
 //! (`Seat`): a connection that ends while its update is taken leaves the update
 //! logged and sent to the others, never logged and not sent.
 
+mod access;
 mod visibility;
+
+pub(crate) use access::AccessScope;
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};

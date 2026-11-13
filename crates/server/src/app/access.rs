@@ -146,6 +146,21 @@ impl App {
             .map_or(Grant::NONE, |access| access.grant))
     }
 
+    /// Whether the user holds a role on the board as its member, directly: what a
+    /// guest needs to read a template (a template is a board, and a guest reads the
+    /// boards they were invited to).
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if the membership cannot be read.
+    pub async fn invited_to_board(&self, user_id: &str, board_id: &str) -> Result<bool, AppError> {
+        match self.store().get_member_for_board(board_id, user_id).await {
+            Ok(member) => Ok(permissions::role_of(&member).is_some()),
+            Err(error) if error.is_not_found() => Ok(false),
+            Err(error) => Err(error.into()),
+        }
+    }
+
     /// A board in the trash and what the user may do with it; `None` if no board of
     /// that identifier is there, or for a handle of one workspace if it is of another.
     /// The role is the one the trash kept of the user, and counts as what the user is in

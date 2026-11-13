@@ -6,13 +6,12 @@
 //! access the store's visibility revision keeps current: a change of an organization's
 //! provider moves that revision on. When an organization begins to take only the
 //! sessions of its provider, the connections of other sessions that follow its
-//! workspaces are closed at once ([`Hub::close_sessions_closed_out`]). Blocks followed
-//! by a read token are told no user's identifier whoever follows them, so the wall
-//! asks nothing of them.
+//! workspaces stop following them at once ([`Hub::end_subscriptions_shut_out`]).
+//! Blocks followed by a read token are told no user's identifier whoever follows them,
+//! so the wall asks nothing of them.
 
-use super::{Hub, Identity, Listener};
+use super::{Identity, Listener};
 use crate::app::Asker;
-use crate::metrics::Disconnect;
 use crate::permissions::session_opens;
 
 /// Whose a connection is, as its listener keeps it, and the token its session is
@@ -45,54 +44,10 @@ impl Who {
     }
 }
 
-/// Whether the wall of an organization that now takes only sessions made through
-/// `provider_id` shuts the connection out: one that follows a workspace of the
-/// organization with a session made otherwise.
-pub(super) fn shuts_out(listener: &Listener, workspace_ids: &[String], provider_id: &str) -> bool {
-    listener.login_provider.as_deref() != Some(provider_id)
-        && listener
-            .workspaces
-            .iter()
-            .any(|workspace| workspace_ids.contains(workspace))
-}
-
 impl Listener {
     /// Whether the connection's session opens an organization that takes only
     /// sessions made through `required`, if any.
     pub(super) fn session_opens(&self, required: Option<&str>) -> bool {
         session_opens(required, self.login_provider.as_deref())
-    }
-}
-
-impl Hub {
-    /// Closes the connections that an organization shuts out as it begins to take only
-    /// sessions made through the provider `provider_id`: those that follow one of its
-    /// workspaces, `workspace_ids`, with a session made otherwise (`shuts_out`). For
-    /// after that is stored. A subscription being checked meanwhile is checked again
-    /// (the wall is counted as taken back in each of the workspaces), against access
-    /// read anew.
-    pub fn close_sessions_closed_out(&self, workspace_ids: &[String], provider_id: &str) {
-        {
-            let mut listeners = self.listeners();
-            for workspace_id in workspace_ids {
-                listeners.revoked.workspace(workspace_id);
-            }
-        }
-        self.close_where(Disconnect::SsoRequired, |listener| {
-            shuts_out(listener, workspace_ids, provider_id)
-        });
-    }
-
-    /// As [`Self::close_sessions_closed_out`] where the organization's workspaces are
-    /// not known: closes every connection that follows a workspace, whichever, with a
-    /// session that was not made through the provider. One that follows none has
-    /// nothing of the organization to be told: blocks followed by a read token carry
-    /// no user's identifier.
-    pub fn close_sessions_made_otherwise(&self, provider_id: &str) {
-        self.listeners().revoked.everyone();
-        self.close_where(Disconnect::SsoRequired, |listener| {
-            !listener.workspaces.is_empty()
-                && listener.login_provider.as_deref() != Some(provider_id)
-        });
     }
 }

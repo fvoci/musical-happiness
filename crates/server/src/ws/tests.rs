@@ -1,7 +1,15 @@
 use super::*;
 
 fn add_listener(listeners: &mut Listeners, user_id: &str) -> ListenerId {
-    let (outbox, _inbox) = mpsc::channel(1);
+    add_listener_reading(listeners, user_id).0
+}
+
+/// A listener, and what it is sent.
+fn add_listener_reading(
+    listeners: &mut Listeners,
+    user_id: &str,
+) -> (ListenerId, mpsc::Receiver<Utf8Bytes>) {
+    let (outbox, inbox) = mpsc::channel(8);
     listeners.next_id += 1;
     let id = listeners.next_id;
     listeners.by_id.insert(
@@ -15,12 +23,11 @@ fn add_listener(listeners: &mut Listeners, user_id: &str) -> ListenerId {
             closed_because: Arc::default(),
             workspaces: Vec::new(),
             workspace_roles: HashMap::new(),
-            documents: crate::collab::Participation::default(),
             blocks: Vec::new(),
             shared_boards: Vec::new(),
         },
     );
-    id
+    (id, inbox)
 }
 
 fn unsubscribe_from_workspace(listeners: &mut Listeners, id: ListenerId, workspace_id: &str) {
@@ -134,30 +141,41 @@ fn workspace_subscription() {
 }
 
 /// A workspace that goes to the trash is followed by nobody: each of its listeners stops
-/// following it and receives a close, reconnecting for any workspace still accessible.
+/// following it and is told so, and keeps its connection and what else it follows.
 #[test]
 fn a_workspace_in_the_trash_is_followed_by_nobody() {
     let mut listeners = Listeners::default();
-    let one = add_listener(&mut listeners, "a");
-    let other = add_listener(&mut listeners, "b");
+    let (one, mut one_hears) = add_listener_reading(&mut listeners, "a");
+    let (other, mut other_hears) = add_listener_reading(&mut listeners, "b");
     for id in [one, other] {
         subscribe_to_workspace(&mut listeners, id, "trashed");
     }
     subscribe_to_workspace(&mut listeners, one, "kept");
 
-    listeners.stop_following_workspace("trashed");
+    assert_eq!(
+        listeners.stop_following_workspace("trashed"),
+        2,
+        "both are told"
+    );
     assert!(
         !listeners.by_workspace.contains_key("trashed"),
         "nobody follows it"
     );
-    assert!(
-        listeners.by_id.is_empty(),
-        "both affected connections are closed"
-    );
-    assert!(
-        workspace_listeners(&listeners, "kept").is_empty(),
-        "closed connections leave every index"
-    );
+    assert_eq!(listeners.by_id.len(), 2, "no connection is closed");
+    assert_eq!(workspaces_of(&listeners, one), ["kept"], "the other stays");
+    assert_eq!(workspace_listeners(&listeners, "kept"), [one]);
+    for hears in [&mut one_hears, &mut other_hears] {
+        let told: serde_json::Value =
+            serde_json::from_str(&hears.try_recv().expect("told")).expect("JSON");
+        assert_eq!(
+            told,
+            serde_json::json!({
+                "action": "UNSUBSCRIBED_WORKSPACE",
+                "workspaceId": "trashed",
+                "reason": "workspace access ended",
+            })
+        );
+    }
 }
 
 /// `TestTeamSubscription/"Subscribe users to team retrieve by user"`: the listeners of
@@ -302,7 +320,13 @@ fn a_wall_shuts_out_who_follows_the_organization_with_another_session() {
     let elsewhere = follows(&mut listeners, None, Some("theirs-1"));
     let following_nothing = follows(&mut listeners, None, None);
 
-    let shut_out = |id: ListenerId| subscribe::shuts_out(&listeners.by_id[&id], &ours, "ours");
+    let shut_out = |id: ListenerId| {
+        let listener = &listeners.by_id[&id];
+        listener
+            .workspaces
+            .iter()
+            .any(|workspace| ending::shuts_out(listener, workspace, &ours, "ours"))
+    };
     assert!(shut_out(with_password), "a password");
     assert!(shut_out(through_another), "another provider");
     assert!(!shut_out(through_ours), "the organization's provider");

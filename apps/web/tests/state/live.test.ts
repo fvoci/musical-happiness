@@ -229,6 +229,28 @@ describe('changes from the server', () => {
     expect(board).toEqual([]);
   });
 
+  it('asks again for a workspace whose subscription the server ended, and has everyone read again', async () => {
+    const { socket, board, self } = await connected();
+    socket.message({
+      action: 'UNSUBSCRIBED_WORKSPACE',
+      workspaceId: 't',
+      reason: 'workspace access ended',
+    });
+    socket.message({
+      action: 'UNSUBSCRIBED_WORKSPACE',
+      workspaceId: 'left',
+      reason: 'workspace access ended',
+    });
+    await settle();
+    expect(socket.closed).toBe(false);
+    expect(socket.sent).toEqual([
+      { action: 'SUBSCRIBE_WORKSPACE', workspaceId: 't' },
+      { action: 'SUBSCRIBE_WORKSPACE', workspaceId: 't' },
+    ]);
+    expect(board).toEqual([{ kind: 'resync' }]);
+    expect(self).toEqual([{ kind: 'resync' }]);
+  });
+
   it('opens again at once after signing in, and has everyone read again', async () => {
     const { live, socket, board } = await connected();
     live.restart();

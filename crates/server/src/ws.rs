@@ -140,6 +140,25 @@ struct CategoryBoardsReorderMessage<'a> {
     workspace_id: &'a str,
 }
 
+/// The server stopped what a connection followed of a workspace (`ending.rs`).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UnsubscribedWorkspaceMessage<'a> {
+    action: &'static str,
+    workspace_id: &'a str,
+    reason: &'static str,
+}
+
+/// The server stopped what a connection followed of a shared board's blocks.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UnsubscribedBlocksMessage<'a> {
+    action: &'static str,
+    workspace_id: &'a str,
+    block_ids: &'a [String],
+    reason: &'static str,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct UpdateClientConfigMessage<'a> {
@@ -170,6 +189,8 @@ outgoing!(
     CategoryReorderMessage,
     CategoryBoardsReorderMessage,
     UpdateClientConfigMessage,
+    UnsubscribedWorkspaceMessage,
+    UnsubscribedBlocksMessage,
 );
 
 type ListenerId = u64;
@@ -197,24 +218,28 @@ struct Listener {
     closed_because: Arc<OnceLock<Disconnect>>,
     workspaces: Vec<String>,
     workspace_roles: HashMap<String, fvoci_model::WorkspaceRole>,
-    /// Current and pending document participation, independent of sidebar subscriptions.
-    documents: crate::collab::Participation,
     blocks: Vec<String>,
     /// The shared boards whose read token this connection subscribed to blocks with.
     /// When such a board stops being shared under that token, the connection goes.
     shared_boards: Vec<ReadPermit>,
 }
 
+/// A shared board followed by its read token: the workspace and the blocks the
+/// connection named, which it is told of when the token stops opening the board.
 #[derive(Clone)]
 struct ReadPermit {
     board: String,
     token: String,
+    workspace: String,
+    blocks: Vec<String>,
 }
 
 impl std::fmt::Debug for ReadPermit {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ReadPermit")
             .field("board", &self.board)
+            .field("workspace", &self.workspace)
+            .field("blocks", &self.blocks)
             .finish_non_exhaustive()
     }
 }
@@ -222,7 +247,7 @@ impl std::fmt::Debug for ReadPermit {
 #[derive(Debug, Default)]
 struct Listeners {
     next_id: ListenerId,
-    /// What was taken back, for the subscriptions being checked (`closing.rs`).
+    /// What was taken back, for the subscriptions being checked (`revocations.rs`).
     revoked: revocations::Revocations,
     by_id: HashMap<ListenerId, Listener>,
     by_workspace: HashMap<String, Vec<ListenerId>>,
@@ -355,7 +380,6 @@ impl Hub {
                     closed_because: Arc::clone(&closed_because),
                     workspaces: Vec::new(),
                     workspace_roles: HashMap::new(),
-                    documents: docs.participation(),
                     blocks: Vec::new(),
                     shared_boards: Vec::new(),
                 },
@@ -795,20 +819,13 @@ impl Hub {
             .await;
     }
 
-    /// Queues a message for the given listeners. A listener whose queue is full is
-    /// dropped and its connection closed.
-    fn queue(&self, recipients: &[ListenerId], message: &impl Outgoing) {
+    /// Queues the text of a message whose action is `action` for the given listeners.
+    /// A listener whose queue is full is dropped and its connection closed. Cloning the
+    /// text copies none of it.
+    fn queue_text(&self, recipients: &[ListenerId], text: &Utf8Bytes, action: &'static str) {
         if recipients.is_empty() {
             return;
         }
-        // Shared by all recipients: cloning it copies no text.
-        let text: Utf8Bytes = match serde_json::to_string(message) {
-            Ok(text) => text.into(),
-            Err(error) => {
-                tracing::error!(%error, "websocket: a message could not be serialized");
-                return;
-            }
-        };
         let mut listeners = self.listeners();
         let mut queued = 0;
         for id in recipients {
@@ -827,9 +844,18 @@ impl Hub {
             }
         }
         drop(listeners);
-        self.inner
-            .metrics
-            .websocket_queued(message.action(), queued);
+        self.inner.metrics.websocket_queued(action, queued);
+    }
+}
+
+/// A message as the text frame it is sent in; `None`, logged, if it cannot be written.
+fn text_of(message: &impl Outgoing) -> Option<Utf8Bytes> {
+    match serde_json::to_string(message) {
+        Ok(text) => Some(text.into()),
+        Err(error) => {
+            tracing::error!(%error, action = message.action(), "websocket: a message could not be serialized");
+            None
+        }
     }
 }
 
@@ -872,6 +898,13 @@ fn subscribe_to_blocks(listeners: &mut Listeners, id: ListenerId, block_ids: &[S
 fn unsubscribe_from_blocks(listeners: &mut Listeners, id: ListenerId, block_ids: &[String]) {
     if let Some(listener) = listeners.by_id.get_mut(&id) {
         listener.blocks.retain(|block| !block_ids.contains(block));
+        for permit in &mut listener.shared_boards {
+            permit.blocks.retain(|block| !block_ids.contains(block));
+        }
+        // A board none of whose blocks is followed is not followed.
+        listener
+            .shared_boards
+            .retain(|permit| !permit.blocks.is_empty());
     }
     for block_id in block_ids {
         remove_from(&mut listeners.by_block, block_id, id);
@@ -879,6 +912,7 @@ fn unsubscribe_from_blocks(listeners: &mut Listeners, id: ListenerId, block_ids:
 }
 
 mod closing;
+mod ending;
 mod revocations;
 mod subscribe;
 

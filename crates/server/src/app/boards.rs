@@ -297,7 +297,7 @@ impl App {
             .broadcast_board_delete(&board.workspace_id, &board.id, &members)
             .await;
         // The board's sharing went with it; so does whoever followed it by its link.
-        self.ws().close_readers_of_board(&board.id);
+        self.ws().end_readers_of_board(&board.id);
         Ok(())
     }
 

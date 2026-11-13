@@ -71,25 +71,30 @@ impl Socket {
         }
     }
 
-    /// The code and reason of the close frame the server ends the connection with,
-    /// skipping what comes before it; `None` if it ends without one or not within
-    /// `wait`.
-    pub(crate) async fn close_frame(&mut self, wait: Duration) -> Option<(u16, String)> {
-        tokio::time::timeout(wait, async {
-            loop {
-                match self.stream.next().await {
-                    Some(Ok(Message::Close(frame))) => {
-                        return frame
-                            .map(|frame| (u16::from(frame.code), frame.reason.to_string()));
+    /// The next message by which the server says it stopped what the connection
+    /// followed (`UNSUBSCRIBED_…`), skipping pings and other messages; `None` if the
+    /// connection closes, or nothing such comes within `wait`.
+    pub(crate) async fn unsubscribed_message(&mut self, wait: Duration) -> Option<Value> {
+        loop {
+            match self.next(wait).await {
+                Event::Json(message) => {
+                    if message["action"]
+                        .as_str()
+                        .is_some_and(|action| action.starts_with("UNSUBSCRIBED_"))
+                    {
+                        return Some(message);
                     }
-                    None | Some(Err(_)) => return None,
-                    Some(Ok(_)) => {}
                 }
+                Event::Ping => {}
+                Event::Closed | Event::Nothing => return None,
             }
-        })
-        .await
-        .ok()
-        .flatten()
+        }
+    }
+
+    /// The action of [`Self::unsubscribed_message`].
+    pub(crate) async fn unsubscribed(&mut self, wait: Duration) -> Option<String> {
+        let message = self.unsubscribed_message(wait).await?;
+        message["action"].as_str().map(str::to_owned)
     }
 
     /// The next JSON message, skipping pings.
@@ -677,8 +682,9 @@ pub(crate) async fn follow_block_on(
     panic!("the reader was never told about the block");
 }
 
-/// Why a connection ended is counted in the metrics: here the read token stopped
-/// opening its board, and a message over the limit broke a connection off.
+/// Why a connection ended is counted in the metrics: here a message over the limit
+/// broke a connection off. A read token that stopped opening its board ends only what
+/// followed it, and the message that says so is counted among those queued.
 #[tokio::test]
 async fn why_a_connection_ended_is_counted() {
     use crate::metrics::{sample, scrape_until};
@@ -692,11 +698,11 @@ async fn why_a_connection_ended_is_counted() {
     let user1 = th.client.me().await;
     let (board, block, token) = shared_board_with_a_card(&th, &user1.id).await;
     let (mut reader, _) = follow_block(&th, &block, &token).await;
-    th.app.ws().close_readers_of_board(&board.id);
+    th.app.ws().end_readers_of_board(&board.id);
     assert_eq!(
-        reader.next(PATIENCE).await,
-        Event::Closed,
-        "the share ended"
+        reader.unsubscribed(PATIENCE).await.as_deref(),
+        Some("UNSUBSCRIBED_BLOCKS"),
+        "the share ended, and the reader is told"
     );
 
     let mut talker = Socket::connect(&th).await;
@@ -714,11 +720,18 @@ async fn why_a_connection_ended_is_counted() {
             &[("reason", reason)],
         )
     };
+    let told = |body: &str| {
+        sample(
+            body,
+            "fvoci_websocket_messages_queued_total",
+            &[("action", "UNSUBSCRIBED_BLOCKS")],
+        )
+    };
     let body = scrape_until(&th, |body| {
-        ended(body, "share_ended") == Some(1.0) && ended(body, "read_error") == Some(1.0)
+        told(body) == Some(1.0) && ended(body, "read_error") == Some(1.0)
     })
     .await;
-    assert_eq!(ended(&body, "share_ended"), Some(1.0), "{body}");
+    assert_eq!(told(&body), Some(1.0), "the ended share is told: {body}");
     assert_eq!(ended(&body, "read_error"), Some(1.0), "{body}");
     assert_eq!(
         ended(&body, "slow_consumer"),
@@ -819,8 +832,8 @@ async fn a_reader_by_read_token_is_not_told_who_wrote_a_block() {
 }
 
 /// A read token that stops opening its board stops feeding connections: turning
-/// sharing off, sharing under a new token and deleting the board each end the
-/// connections that followed the board with the old link.
+/// sharing off, sharing under a new token and deleting the board each end what the
+/// connections followed of the board with the old link, and tell them.
 #[tokio::test]
 async fn a_read_token_that_no_longer_opens_its_board_no_longer_feeds_a_connection() {
     let th = Setup::local_mode().start().await.init_basic().await;
@@ -840,7 +853,11 @@ async fn a_read_token_that_no_longer_opens_its_board_no_longer_feeds_a_connectio
         .post(&sharing(&board.id), &json!({"enabled": false}))
         .await
         .check_ok();
-    assert_eq!(reader.next(PATIENCE).await, Event::Closed, "sharing off");
+    assert_eq!(
+        reader.unsubscribed(PATIENCE).await.as_deref(),
+        Some("UNSUBSCRIBED_BLOCKS"),
+        "sharing off"
+    );
 
     // A new token: the old link is dead, the new one is followed.
     let (board, block, token) = shared_board_with_a_card(&th, &user1.id).await;
@@ -856,7 +873,11 @@ async fn a_read_token_that_no_longer_opens_its_board_no_longer_feeds_a_connectio
         .as_str()
         .expect("the new token is answered")
         .to_owned();
-    assert_eq!(reader.next(PATIENCE).await, Event::Closed, "a new token");
+    assert_eq!(
+        reader.unsubscribed(PATIENCE).await.as_deref(),
+        Some("UNSUBSCRIBED_BLOCKS"),
+        "a new token"
+    );
     let (mut with_new_link, _) = follow_block(&th, &block, &renewed).await;
 
     // The board deleted: its sharing went with it.
@@ -865,8 +886,8 @@ async fn a_read_token_that_no_longer_opens_its_board_no_longer_feeds_a_connectio
         .await
         .check_no_content();
     assert_eq!(
-        with_new_link.next(PATIENCE).await,
-        Event::Closed,
+        with_new_link.unsubscribed(PATIENCE).await.as_deref(),
+        Some("UNSUBSCRIBED_BLOCKS"),
         "the board is gone"
     );
 
@@ -881,8 +902,8 @@ async fn a_read_token_that_no_longer_opens_its_board_no_longer_feeds_a_connectio
         .await
         .check_no_content();
     assert_eq!(
-        reader.next(PATIENCE).await,
-        Event::Closed,
+        reader.unsubscribed(PATIENCE).await.as_deref(),
+        Some("UNSUBSCRIBED_BLOCKS"),
         "the board is gone with others"
     );
 
@@ -1114,7 +1135,7 @@ async fn board_with_a_card(th: &TestServer, user_id: &str) -> (Board, Block) {
 async fn messages_match_the_websocket_contract() {
     let contract = read_contract("websocket.json");
     let openapi = read_contract("openapi.json");
-    let th = Setup::native().start().await.init_basic().await;
+    let th = Setup::local_mode().start().await.init_basic().await;
     let user1 = th.client.me().await;
 
     let (board, block) = board_with_a_card(&th, &user1.id).await;
@@ -1192,6 +1213,7 @@ async fn messages_match_the_websocket_contract() {
     ws.broadcast_board_delete(ROOT_WORKSPACE_ID, &board.id, &members)
         .await;
     contract_check.hear(&mut socket, "UPDATE_BOARD").await;
+    hear_the_endings(&th, &mut socket, &mut contract_check, &block, &user1.id).await;
 
     // Every message of the contract was heard; those of the bodies edited together
     // are heard by `rooms_contract`.
@@ -1208,6 +1230,30 @@ async fn messages_match_the_websocket_contract() {
     );
 
     th.teardown().await;
+}
+
+/// What ends of a shared board, and of a workspace, ends what followed it, and is told.
+async fn hear_the_endings(
+    th: &TestServer,
+    socket: &mut Socket,
+    contract_check: &mut ContractCheck<'_>,
+    block: &Block,
+    user_id: &str,
+) {
+    let token = th.share(&block.board_id).await;
+    socket
+        .send(
+            json!({"action": "SUBSCRIBE_BLOCKS", "workspaceId": ROOT_WORKSPACE_ID,
+            "blockIds": [block.id], "readToken": token}),
+        )
+        .await;
+    while socket.next_json(QUIET).await.is_some() {}
+    th.app.ws().end_readers_of_board(&block.board_id);
+    contract_check.hear(socket, "UNSUBSCRIBED_BLOCKS").await;
+    th.app
+        .ws()
+        .workspace_role_changed(ROOT_WORKSPACE_ID, user_id);
+    contract_check.hear(socket, "UNSUBSCRIBED_WORKSPACE").await;
 }
 
 /// A private board of the root workspace with the text properties `a`, `b` and `c`, in that

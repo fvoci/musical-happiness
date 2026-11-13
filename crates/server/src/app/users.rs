@@ -7,6 +7,7 @@ use fvoci_model::{
 use fvoci_store::{AdminChange, InstanceRole, Looking, Preference, Sight};
 
 use super::App;
+use crate::collab::AccessScope;
 use crate::error::{AppError, Reason};
 use crate::permissions;
 
@@ -68,6 +69,9 @@ impl App {
         match self.store().set_user_admin(user_id, role, actor_id).await? {
             AdminChange::Done(user) => {
                 if role != InstanceRole::Administrator {
+                    self.collab()
+                        .recheck_access(self, AccessScope::organization().of_user(user_id))
+                        .await;
                     // The workspaces they joined as the organization's administrator
                     // are theirs no more (`Store::set_user_admin`).
                     self.ws().follow_only_own_workspaces(user_id).await;

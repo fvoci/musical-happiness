@@ -44,6 +44,11 @@ impl Audience {
         }
     }
 
+    /// The organization this audience asks about, if its handle names one.
+    pub fn org_id(&self) -> Option<String> {
+        self.store.tenant().org_id()
+    }
+
     /// The committed revision used to validate cached dispatch permissions.
     pub async fn version(&self) -> VisibilityVersion {
         self.store.visibility_version().await

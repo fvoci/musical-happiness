@@ -227,7 +227,7 @@ impl App {
                 .await;
             // The board's sharing went with it; so does whoever followed it by its link,
             // as with `deleteBoard`.
-            self.ws().close_readers_of_board(board_id);
+            self.ws().end_readers_of_board(board_id);
         }
         Ok(())
     }

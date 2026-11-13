@@ -16,6 +16,7 @@ use fvoci_store::{
 };
 
 use super::App;
+use crate::collab::AccessScope;
 use crate::error::{AppError, Reason};
 
 /// How many records or members one page holds when the request does not say.
@@ -136,7 +137,7 @@ impl App {
     /// its workspaces, by its read token: its links open nothing now.
     async fn close_shared_readers(&self, workspace_id: Option<&str>) -> Result<(), AppError> {
         for board_id in self.store().shared_board_ids(workspace_id).await? {
-            self.ws().close_readers_of_board(&board_id);
+            self.ws().end_readers_of_board(&board_id);
         }
         Ok(())
     }
@@ -171,6 +172,9 @@ impl App {
         }
         match self.store().set_org_role(user_id, role, actor_id).await {
             Ok(OrgRoleChange::Done) => {
+                self.collab()
+                    .recheck_access(self, AccessScope::organization().of_user(user_id))
+                    .await;
                 if role == OrgRole::Member {
                     // What they joined is theirs no more, and what happens there neither.
                     self.ws().follow_only_own_workspaces(user_id).await;
@@ -282,6 +286,9 @@ impl App {
         known_workspace(workspace_id)?;
         match self.store().trash_workspace(workspace_id, actor_id).await {
             Ok(WorkspaceTrashing::Done) => {
+                self.collab()
+                    .recheck_access(self, AccessScope::workspace(workspace_id))
+                    .await;
                 self.ws().stop_following_workspace(workspace_id);
                 self.close_shared_readers(Some(workspace_id)).await?;
                 Ok(())
@@ -338,6 +345,9 @@ impl App {
             .await?
         {
             Joining::Joined => {
+                self.collab()
+                    .recheck_access(self, AccessScope::workspace(workspace_id).of_user(user_id))
+                    .await;
                 self.ws().workspace_role_changed(workspace_id, user_id);
                 self.org_workspace(user_id, workspace_id).await
             }
@@ -365,6 +375,9 @@ impl App {
             .leave_workspace_as_org_admin(workspace_id, user_id)
             .await?
         {
+            self.collab()
+                .recheck_access(self, AccessScope::workspace(workspace_id).of_user(user_id))
+                .await;
             self.ws().follow_only_own_workspaces(user_id).await;
         }
         self.org_workspace(user_id, workspace_id).await

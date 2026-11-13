@@ -54,7 +54,7 @@ impl Sink<Message> for Backpressured {
 }
 
 #[tokio::test]
-async fn revoking_access_drops_a_buffered_frame_without_flushing_it_on_close() {
+async fn ending_a_session_drops_a_buffered_frame_without_flushing_it_on_close() {
     let transport = Arc::new(Transport::default());
     let sink = Backpressured {
         transport: Arc::clone(&transport),
@@ -64,7 +64,9 @@ async fn revoking_access_drops_a_buffered_frame_without_flushing_it_on_close() {
     let stopped = closed.clone();
     let task = tokio::spawn(async move {
         let reason = OnceLock::new();
-        reason.set(Disconnect::AccessEnded).expect("initial reason");
+        reason
+            .set(Disconnect::SessionEnded)
+            .expect("initial reason");
         write(
             sink,
             futures_util::stream::iter([Message::Text("private contents".into())]),

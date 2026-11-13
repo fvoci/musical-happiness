@@ -1,4 +1,5 @@
-//! Document-only sockets participate in workspace revocation without sidebar subscriptions.
+//! Workspace revocation reaches the rooms of a connection that follows no workspace:
+//! it is put out of the rooms of that workspace, and keeps its connection.
 
 use std::time::Duration;
 
@@ -40,6 +41,12 @@ impl Revocation {
         Self::WithdrawAdmin,
         Self::DemoteAdmin,
     ];
+
+    /// Whether it takes the card away: a guest of the workspace who was made an editor
+    /// of the card's board is still invited to that board.
+    fn takes_the_card(self) -> bool {
+        !matches!(self, Self::Guest)
+    }
 
     fn client(self, ts: &TestServer) -> &crate::common::Client {
         match self {
@@ -94,7 +101,7 @@ impl Revocation {
 }
 
 #[tokio::test]
-async fn document_only_sockets_close_when_workspace_access_ends() {
+async fn document_only_sockets_are_put_out_when_workspace_access_ends() {
     for ending in Revocation::ALL {
         let ts = server().await;
         let room = table(&ts, &paragraphs(&["initial"])).await;
@@ -105,10 +112,20 @@ async fn document_only_sockets_close_when_workspace_access_ends() {
         let mut peer = Peer::connect(client, 202).await;
         peer.joined(TEST_WORKSPACE_ID, &room.card_id).await;
         ending.apply(&ts, &user).await;
+        if !ending.takes_the_card() {
+            peer.write_acked("still invited").await;
+            ts.teardown().await;
+            continue;
+        }
+        let left = peer.text("DOC_LEFT").await;
         assert_eq!(
-            peer.incoming(WAIT).await,
-            Incoming::Closed,
-            "{ending:?} closes a document-only socket before the periodic recheck"
+            left["reason"], "not_found",
+            "{ending:?} puts a document-only socket out before the periodic recheck"
+        );
+        let refused = peer.join(TEST_WORKSPACE_ID, &room.card_id).await;
+        assert_eq!(
+            refused["action"], "DOC_REFUSED",
+            "{ending:?}: the connection stays, and is let in no more"
         );
         ts.teardown().await;
     }
@@ -145,12 +162,18 @@ async fn document_admission_cannot_miss_concurrent_workspace_revocation() {
         let message = tokio::time::timeout(WAIT, socket.next())
             .await
             .expect("revocation ends admission promptly")
-            .expect("a close frame")
+            .expect("an answer")
             .expect("a protocol frame");
-        let Message::Close(Some(close)) = message else {
-            panic!("{ending:?} must close before sending a document: {message:?}");
+        let Message::Text(text) = message else {
+            panic!("{ending:?} must refuse before sending a document: {message:?}");
         };
-        assert_eq!(u16::from(close.code), 1008, "policy close for {ending:?}");
+        let answer: serde_json::Value = serde_json::from_str(&text).expect("JSON");
+        let expected = if ending.takes_the_card() {
+            "DOC_REFUSED"
+        } else {
+            "DOC_JOINED"
+        };
+        assert_eq!(answer["action"], expected, "{ending:?}: {answer}");
         ts.teardown().await;
     }
 }
@@ -169,14 +192,19 @@ async fn a_revoked_document_connection_cannot_write_or_receive_another_update() 
     let late = two.editor().append_paragraph("must not be stored");
     let user = ts.client2.me().await.id;
     Revocation::Remove.apply(&ts, &user).await;
+    let left = two.text("DOC_LEFT").await;
+    assert_eq!(left["reason"], "not_found", "{left}");
     two.try_send_binary(frame(two.doc, two.epoch, UPDATE, &late))
         .await;
     one.write_acked("after removal").await;
-    assert_eq!(
-        two.incoming(WAIT).await,
-        Incoming::Closed,
-        "no later document update"
-    );
+    loop {
+        match two.incoming(QUIET).await {
+            Incoming::Nothing => break,
+            Incoming::Frame(_) => panic!("no later document update"),
+            Incoming::Closed => panic!("the connection stays"),
+            Incoming::Text(_) => {}
+        }
+    }
     one.settle().await;
     assert_eq!(
         one.lines(),

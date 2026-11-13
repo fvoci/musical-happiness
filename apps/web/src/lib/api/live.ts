@@ -18,6 +18,10 @@
  * board's listeners read its members, and a member or category message has
  * the reader's own listeners read the sidebar again (`resync`, gathered).
  *
+ * Access taken back ends the subscription, not the connection
+ * (`UNSUBSCRIBED_WORKSPACE`): it is asked again, which takes the new role or
+ * is refused, and the listeners read again.
+ *
  * The rooms of the bodies edited together use the same connection
  * (`live-rooms.ts`): an open room keeps it open as a listener does, and
  * hears when it comes and goes. Their binary frames come on it too.
@@ -266,6 +270,11 @@ export class LiveChanges {
     const message = parsed as Message;
     // Still on its way from a workspace that was left.
     if (message.workspaceId !== undefined && message.workspaceId !== this.#workspaceId) return;
+    if (message.action === 'UNSUBSCRIBED_WORKSPACE') {
+      this.#send(JSON.stringify({ action: 'SUBSCRIBE_WORKSPACE', workspaceId: this.#workspaceId }));
+      this.#tellAll({ kind: 'resync' });
+      return;
+    }
     if ('board' in message) {
       const { board } = message;
       // A deleted board carries only its identifier and times.

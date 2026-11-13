@@ -1,7 +1,10 @@
-//! Validating and registering subscriptions under the same revocation generation.
+//! Validating subscriptions, and registering them unless what concerns them was taken
+//! back meanwhile (`revocations.rs`).
 
 use fvoci_model::WorkspaceRole;
 
+use super::ending::Ended;
+use super::revocations::Followed;
 use super::{
     CHECKED_AT_MOST, Command, Hub, ListenerId, ReadPermit, remove_from, subscribe_to_blocks,
     subscribe_to_workspace, unsubscribe_from_blocks,
@@ -13,7 +16,7 @@ use crate::metrics::Disconnect;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum NotOpened {
     /// Its access is not there: a subscription checked before ends, for this reason.
-    Ended(Disconnect),
+    Ended(Ended),
     /// Its access could not be read: nothing ends for it.
     Unreadable,
 }
@@ -80,8 +83,9 @@ impl Hub {
             let board_id = match self.board_of_read_token(command).await {
                 Ok(Some(board_id)) => board_id,
                 Ok(None) => {
+                    // The page believes it follows the blocks: it is told they ended.
                     if validated {
-                        self.close_listener(id, Disconnect::ShareEnded);
+                        self.end_blocks(id, &command.workspace_id, &command.block_ids);
                     }
                     return;
                 }
@@ -97,29 +101,20 @@ impl Hub {
             self.pause_subscription().await;
             let mut listeners = self.listeners();
             // Gone meanwhile: closed, with nothing to follow.
-            let Some(user_id) = listeners
-                .by_id
-                .get(&id)
-                .map(|listener| listener.user_id.clone())
-            else {
+            let Some(listener) = listeners.by_id.get(&id) else {
                 return;
             };
-            // This board's link taken back meanwhile, or this user's access: checked
+            // This board's link taken back meanwhile, or this user's sessions: checked
             // again.
-            if listeners.revoked.of_board_since(&user_id, &board_id, since) {
+            if listeners
+                .revoked
+                .of_board_since(&listener.user_id, &board_id, since)
+            {
                 continue;
             }
             subscribe_to_blocks(&mut listeners, id, &command.block_ids);
-            if let Some(listener) = listeners.by_id.get_mut(&id)
-                && !listener
-                    .shared_boards
-                    .iter()
-                    .any(|permit| permit.board == board_id)
-            {
-                listener.shared_boards.push(ReadPermit {
-                    board: board_id,
-                    token: command.read_token.clone(),
-                });
+            if let Some(listener) = listeners.by_id.get_mut(&id) {
+                permit_blocks(&mut listener.shared_boards, board_id, command);
             }
             return;
         }
@@ -135,11 +130,12 @@ impl Hub {
         let mut validated_role = None;
         for _ in 0..CHECKED_AT_MOST {
             let since = self.listeners().revoked.now();
-            let role = match self.opened_role(id, user_id, workspace).await {
-                Ok(role) => role,
+            let (role, org_id) = match self.opened_role(id, user_id, workspace).await {
+                Ok(opened) => opened,
                 Err(NotOpened::Ended(ended)) => {
+                    // The page believes it follows the workspace: it is told it ended.
                     if validated_role.is_some() {
-                        self.close_listener(id, ended);
+                        self.end_workspace(id, workspace, ended);
                     }
                     return;
                 }
@@ -151,7 +147,7 @@ impl Hub {
                 }
             };
             if validated_role.is_some_and(|previous| previous != role) {
-                self.close_listener(id, Disconnect::AccessEnded);
+                self.end_workspace(id, workspace, Ended::Access);
                 return;
             }
             validated_role = Some(role);
@@ -161,11 +157,13 @@ impl Hub {
             if !listeners.by_id.contains_key(&id) {
                 return;
             }
-            // What concerns this user or this workspace taken back meanwhile.
-            if listeners
-                .revoked
-                .of_workspace_since(user_id, workspace, since)
-            {
+            // What concerns this user there, or this workspace, taken back meanwhile.
+            let followed = Followed {
+                user: user_id,
+                workspace,
+                org: &org_id,
+            };
+            if listeners.revoked.of_workspace_since(followed, since) {
                 continue;
             }
             subscribe_to_workspace(&mut listeners, id, workspace);
@@ -183,21 +181,22 @@ impl Hub {
         self.close_listener(id, Disconnect::ChecksOvertaken);
     }
 
-    /// What the connection's user is in the workspace, if they are a member of it and
-    /// the connection's session opens the workspace's organization; otherwise why not.
-    pub(super) async fn opened_role(
+    /// What the connection's user is in the workspace, and the workspace's
+    /// organization, if they are a member of it and the connection's session opens that
+    /// organization; otherwise why not.
+    async fn opened_role(
         &self,
         id: ListenerId,
         user_id: &str,
         workspace: &str,
-    ) -> Result<WorkspaceRole, NotOpened> {
+    ) -> Result<(WorkspaceRole, String), NotOpened> {
         let access = match self
             .audience
             .current_workspace_access(user_id, workspace)
             .await
         {
             Ok(Some(access)) => access,
-            Ok(None) => return Err(NotOpened::Ended(Disconnect::AccessEnded)),
+            Ok(None) => return Err(NotOpened::Ended(Ended::Access)),
             Err(error) => {
                 tracing::error!(%error, workspace_id = workspace, "websocket: reading a workspace's membership failed");
                 return Err(NotOpened::Unreadable);
@@ -207,11 +206,11 @@ impl Hub {
         let listener = listeners
             .by_id
             .get(&id)
-            .ok_or(NotOpened::Ended(Disconnect::AccessEnded))?;
+            .ok_or(NotOpened::Ended(Ended::Access))?;
         if listener.session_opens(access.required_provider.as_deref()) {
-            Ok(access.workspace_role)
+            Ok((access.workspace_role, access.org_id))
         } else {
-            Err(NotOpened::Ended(Disconnect::SsoRequired))
+            Err(NotOpened::Ended(Ended::Sso))
         }
     }
 
@@ -247,5 +246,27 @@ impl Hub {
             .is_valid_read_token(&board_id, &command.read_token)
             .await?;
         Ok(valid.then_some(board_id))
+    }
+}
+
+/// Counts the blocks among those followed of the board by its read token: with the
+/// board's permit if the connection follows it already, in a new one if not. The
+/// permit keeps the token it was first given.
+fn permit_blocks(permits: &mut Vec<ReadPermit>, board_id: String, command: &Command) {
+    let permit = if let Some(at) = permits.iter().position(|permit| permit.board == board_id) {
+        &mut permits[at]
+    } else {
+        permits.push(ReadPermit {
+            board: board_id,
+            token: command.read_token.clone(),
+            workspace: command.workspace_id.clone(),
+            blocks: Vec::new(),
+        });
+        permits.last_mut().expect("a permit was just pushed")
+    };
+    for block in &command.block_ids {
+        if !permit.blocks.contains(block) {
+            permit.blocks.push(block.clone());
+        }
     }
 }

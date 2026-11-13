@@ -1,4 +1,5 @@
-//! Revocation reaches open sockets, including a subscription not registered yet.
+//! Revocation reaches open sockets, including a subscription not registered yet: it
+//! ends what the connection followed, and tells it, and leaves the connection.
 
 use std::time::Duration;
 
@@ -65,24 +66,38 @@ async fn barrier(socket: &mut Socket) {
     .expect("the subscription is registered");
 }
 
-async fn closed(socket: &mut Socket) {
-    tokio::time::timeout(WAIT, async {
+/// Reads until the server says it stopped what the connection followed
+/// (`UNSUBSCRIBED_WORKSPACE`, `UNSUBSCRIBED_BLOCKS`), and shows the connection is still
+/// open: access that ends takes the subscription, not the connection.
+async fn ended(socket: &mut Socket) -> Value {
+    let told = tokio::time::timeout(WAIT, async {
         while let Some(message) = socket.next().await {
-            if let Message::Close(frame) = message.expect("the close is a protocol frame") {
-                let frame = frame.expect("the peer is told why access ended");
-                assert_eq!(
-                    u16::from(frame.code),
-                    1008,
-                    "access revocation is a policy close"
-                );
-                assert!(!frame.reason.is_empty(), "the close explains revocation");
-                return;
+            match message.expect("a protocol frame") {
+                Message::Text(text) => {
+                    let message: Value = serde_json::from_str(&text).expect("JSON");
+                    if message["action"]
+                        .as_str()
+                        .is_some_and(|action| action.starts_with("UNSUBSCRIBED_"))
+                    {
+                        return message;
+                    }
+                }
+                Message::Close(frame) => panic!("the connection was closed: {frame:?}"),
+                _ => {}
             }
         }
         panic!("the connection ended without telling the peer why");
     })
     .await
-    .expect("revocation promptly closes the connection");
+    .expect("revocation promptly tells the connection");
+    assert!(
+        told["reason"]
+            .as_str()
+            .is_some_and(|reason| !reason.is_empty()),
+        "the message explains revocation: {told}"
+    );
+    barrier(socket).await;
+    told
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -169,12 +184,15 @@ async fn public_subscription_ends(ending: EndShare, moment: Moment) {
     if let Some(pause) = &pause {
         pause.resume();
     }
-    closed(&mut socket).await;
+    let told = ended(&mut socket).await;
+    assert_eq!(told["action"], "UNSUBSCRIBED_BLOCKS", "{ending:?}");
+    assert_eq!(told["workspaceId"], TEST_WORKSPACE_ID, "{ending:?}");
+    assert_eq!(told["blockIds"], json!([card.id]), "the blocks it followed");
     ts.teardown().await;
 }
 
 #[tokio::test]
-async fn public_subscriptions_close_when_their_access_ends() {
+async fn public_subscriptions_end_when_their_access_ends() {
     for ending in EndShare::ALL {
         public_subscription_ends(ending, Moment::Registered).await;
     }
@@ -218,7 +236,9 @@ async fn workspace_subscription_ends(ending: EndMembership, moment: Moment) {
     if let Some(pause) = &pause {
         pause.resume();
     }
-    closed(&mut socket).await;
+    let told = ended(&mut socket).await;
+    assert_eq!(told["action"], "UNSUBSCRIBED_WORKSPACE", "{told}");
+    assert_eq!(told["workspaceId"], ROOT_WORKSPACE_ID, "{told}");
     ts.teardown().await;
 }
 
@@ -232,7 +252,7 @@ async fn removed_and_demoted_members_are_told_their_subscription_ended() {
 }
 
 #[tokio::test]
-async fn withdrawing_an_administrators_joining_closes_the_subscription() {
+async fn withdrawing_an_administrators_joining_ends_the_subscription() {
     for prior in [
         None,
         Some(WorkspaceRole::Member),
@@ -265,13 +285,13 @@ async fn withdrawing_an_administrators_joining_closes_the_subscription() {
             .post_empty(&format!("{at}/leave"))
             .await
             .check_ok();
-        closed(&mut socket).await;
+        ended(&mut socket).await;
         ts.teardown().await;
     }
 }
 
 #[tokio::test]
-async fn demoting_an_organization_administrator_closes_the_joined_subscription() {
+async fn demoting_an_organization_administrator_ends_the_joined_subscription() {
     for prior in [
         None,
         Some(WorkspaceRole::Member),
@@ -318,7 +338,7 @@ async fn demoting_an_organization_administrator_closes_the_joined_subscription()
             )
             .await
             .check_no_content();
-        closed(&mut socket).await;
+        ended(&mut socket).await;
         ts.teardown().await;
     }
 }
@@ -393,7 +413,7 @@ async fn trashing_a_workspace_tells_its_subscribed_members() {
         .delete(&format!("/org/{org}/workspaces/{TEST_WORKSPACE_ID}"))
         .await
         .check_no_content();
-    closed(&mut socket).await;
+    ended(&mut socket).await;
     ts.teardown().await;
 }
 
@@ -421,7 +441,7 @@ async fn joining_as_an_administrator_ends_a_subscription_made_under_the_prior_ro
             .post_empty(&format!("/org/{org}/workspaces/{workspace}/join"))
             .await
             .check_ok();
-        closed(&mut socket).await;
+        ended(&mut socket).await;
         ts.teardown().await;
     }
 }
@@ -614,7 +634,7 @@ async fn dispatch_reuses_authorization_reads_until_visibility_changes() {
         .ws()
         .broadcast_category_reorder(ROOT_WORKSPACE_ID, &user, &[])
         .await;
-    closed(&mut member).await;
+    ended(&mut member).await;
     ts.app
         .ws()
         .broadcast_block_change(ROOT_WORKSPACE_ID, &block)
@@ -629,7 +649,7 @@ async fn dispatch_reuses_authorization_reads_until_visibility_changes() {
         .ws()
         .broadcast_block_change(ROOT_WORKSPACE_ID, &block)
         .await;
-    closed(&mut reader).await;
+    ended(&mut reader).await;
     ts.teardown().await;
 }
 
@@ -695,7 +715,7 @@ async fn revocation_between_dispatch_check_and_queue_is_rechecked() {
         pause.resume();
         sending.await.expect("dispatch ends");
         if public {
-            closed(&mut socket).await;
+            ended(&mut socket).await;
         } else {
             ts.app
                 .ws()
@@ -761,7 +781,7 @@ async fn a_role_change_asks_another_organizations_workspace_anew() {
         .await
         .expect("the membership ends there, below the app's hooks");
     ts.app.ws().follow_only_own_workspaces(&user).await;
-    closed(&mut socket).await;
+    ended(&mut socket).await;
     ts.teardown().await;
 }
 
@@ -781,18 +801,18 @@ async fn a_subscription_checked_too_often_is_given_up_as_retryable() {
     )
     .await
     .expect("the first check is paused");
-    // Eight checks in all, each overtaken by this user's access being taken back in
-    // another workspace, which this connection does not follow.
+    // Eight checks in all, each overtaken by this user's role in this workspace being
+    // changed, which ends nothing the connection follows yet.
     for _ in 1..8 {
         let next = ts.app.ws().pause_next_subscription();
-        ts.app.ws().workspace_role_changed(TEST_WORKSPACE_ID, &user);
+        ts.app.ws().workspace_role_changed(ROOT_WORKSPACE_ID, &user);
         pause.resume();
         tokio::time::timeout(WAIT, next.reached())
             .await
             .expect("the subscription is checked again");
         pause = next;
     }
-    ts.app.ws().workspace_role_changed(TEST_WORKSPACE_ID, &user);
+    ts.app.ws().workspace_role_changed(ROOT_WORKSPACE_ID, &user);
     pause.resume();
     let frame = tokio::time::timeout(WAIT, async {
         while let Some(message) = socket.next().await {

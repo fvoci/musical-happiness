@@ -8,6 +8,7 @@ use fvoci_model::{BoardMember, BoardRole, WorkspaceMember, WorkspaceRole, is_id}
 use fvoci_store::MembershipChange;
 
 use super::App;
+use crate::collab::AccessScope;
 use crate::error::{AppError, Reason};
 use crate::permissions;
 
@@ -79,6 +80,9 @@ impl App {
                 continue;
             }
             self.settle(workspace_id, by, change)?;
+            self.collab()
+                .recheck_access(self, AccessScope::workspace(workspace_id).of_user(user_id))
+                .await;
             self.ws().workspace_role_changed(workspace_id, user_id);
             tracing::info!(
                 workspace_id,
@@ -120,6 +124,9 @@ impl App {
             .remove_workspace_member(workspace_id, user_id, by)
             .await?;
         self.settle(workspace_id, by, change)?;
+        self.collab()
+            .recheck_access(self, AccessScope::workspace(workspace_id).of_user(user_id))
+            .await;
         self.ws().workspace_role_changed(workspace_id, user_id);
         tracing::info!(
             workspace_id,

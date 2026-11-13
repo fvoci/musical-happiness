@@ -2,7 +2,8 @@
 
 use fvoci_model::{Block, BoardMember};
 
-use super::{CHECKED_AT_MOST, Hub, ListenerId, Outgoing, UpdateBlockMessage};
+use super::ending::Ended;
+use super::{CHECKED_AT_MOST, Hub, ListenerId, Outgoing, UpdateBlockMessage, text_of};
 use crate::metrics::Disconnect;
 use crate::permissions::{role_of, session_opens};
 
@@ -28,6 +29,16 @@ impl Hub {
         if ids.is_empty() {
             return;
         }
+        // Made once, before any revision is held: queueing under it only hands it on.
+        let Some(text) = text_of(message) else {
+            return;
+        };
+        let action = message.action();
+        // What every connection is told depends on no one's access.
+        if matches!(access, Access::All) {
+            self.queue_text(ids, &text, action);
+            return;
+        }
         let mut authorized = Vec::new();
         for _ in 0..CHECKED_AT_MOST {
             // Not cacheable for a while after an abandoned write: the checks below
@@ -36,15 +47,14 @@ impl Hub {
             authorized = self.authorized(ids, access).await;
             #[cfg(feature = "test-util")]
             self.pause_dispatch().await;
-            if self
-                .audience
-                .if_current(revision, || self.queue(&authorized, message))
-            {
+            if self.audience.if_current(revision, || {
+                self.queue_text(&authorized, &text, action);
+            }) {
                 return;
             }
         }
         // Who was to be told at the last check: not who could never see it.
-        self.give_up(&authorized, message.action());
+        self.give_up(&authorized, action);
     }
 
     pub(super) async fn send_public_block(
@@ -75,17 +85,17 @@ impl Hub {
             };
             let mut public = block.clone();
             public.hide_people(&people);
+            let Some(text) = text_of(&UpdateBlockMessage {
+                action: "UPDATE_BLOCK",
+                workspace_id,
+                block: &public,
+            }) else {
+                return;
+            };
             #[cfg(feature = "test-util")]
             self.pause_dispatch().await;
             if self.audience.if_current(revision, || {
-                self.queue(
-                    &authorized,
-                    &UpdateBlockMessage {
-                        action: "UPDATE_BLOCK",
-                        workspace_id,
-                        block: &public,
-                    },
-                );
+                self.queue_text(&authorized, &text, "UPDATE_BLOCK");
             }) {
                 return;
             }
@@ -173,7 +183,7 @@ impl Hub {
             {
                 Ok(true) => true,
                 Ok(false) => {
-                    self.close_listener(id, Disconnect::ShareEnded);
+                    self.end_board(id, &permit.board);
                     false
                 }
                 // The link may still open: not "ended", but not to miss the change.
@@ -191,7 +201,7 @@ impl Hub {
         let current = match self.audience.workspace_access(&user, workspace).await {
             Ok(Some(current)) => current,
             Ok(None) => {
-                self.close_listener(id, Disconnect::AccessEnded);
+                self.end_workspace(id, workspace, Ended::Access);
                 return false;
             }
             // Access that cannot be read has not ended, but the change is not to be
@@ -203,14 +213,14 @@ impl Hub {
             }
         };
         if Some(current.workspace_role) != subscribed_role {
-            self.close_listener(id, Disconnect::AccessEnded);
+            self.end_workspace(id, workspace, Ended::Access);
             return false;
         }
         if !session_opens(
             current.required_provider.as_deref(),
             login_provider.as_deref(),
         ) {
-            self.close_listener(id, Disconnect::SsoRequired);
+            self.end_workspace(id, workspace, Ended::Sso);
             return false;
         }
         match access {
