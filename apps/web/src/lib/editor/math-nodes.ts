@@ -42,9 +42,9 @@ import {
 import { openNewFormula } from './editing-place.ts';
 import { fillMath, watchFormulaFit } from './embeds.ts';
 import { formulaBlockView, newFormulaPanel } from './math-block.ts';
-import { cancelMathEditing, editMath } from './math-editing.ts';
+import { cancelMathEditingOf, editMath, mathDraftChanged } from './math-editing.ts';
 import { MAX_LATEX } from './schema.ts';
-import { holdNode, mayWrite, nodeNow, sayDropped } from './shared-place.ts';
+import { holdNode, nodeNow, sayDropped } from './shared-place.ts';
 
 const latexOf = (node: { attrs: Record<string, unknown> }): string =>
   typeof node.attrs.latex === 'string' ? node.attrs.latex : '';
@@ -52,16 +52,19 @@ const latexOf = (node: { attrs: Record<string, unknown> }): string =>
 /**
  * Opens the box for the source of the formula in a line at `position`. In a
  * body edited together the formula is held by its own shared element
- * (shared-place.ts): found again through what others write meanwhile, its
- * source written by the reader over somebody else's (as a block formula's
- * field does), and the box closed, keeping nothing, when the formula is
- * deleted. A reader who may no longer write writes nothing.
+ * (shared-place.ts): found again through what others write meanwhile. The
+ * box writes only what the reader changed in it, over the source as it is
+ * now (somebody else's change stays when the reader changed nothing); it
+ * closes, keeping nothing, when the formula is deleted, and says so when
+ * something was written in it. While the editor is read-only the box is
+ * locked (`lockMathEditing`, from editing-place.ts).
  */
 function editFormulaAt(editor: Editor, position: number): void {
   const name = 'inlineMath';
   const node = editor.state.doc.nodeAt(position);
   if (node?.type.name !== name || !editor.isEditable) return;
   const held = holdNode(editor.state, position);
+  const { view } = editor;
   /** Where the formula is now; undefined when it is gone. */
   const where = (): number | undefined => {
     if (editor.isDestroyed) return undefined;
@@ -70,50 +73,40 @@ function editFormulaAt(editor: Editor, position: number): void {
     return editor.state.doc.nodeAt(at)?.type.name === name ? at : undefined;
   };
   const watch = (): void => {
-    if (where() === undefined) cancelMathEditing();
+    if (where() !== undefined) return;
+    if (mathDraftChanged(view)) sayDropped(view, 'gone');
+    cancelMathEditingOf(view);
   };
   const stopWatching = (): void => {
     if (!editor.isDestroyed) editor.off('transaction', watch);
   };
   editor.on('transaction', watch);
-  const before = latexOf(node);
   editMath({
-    latex: before,
-    owner: editor.view,
-    page: editor.view.dom.ownerDocument,
+    latex: latexOf(node),
+    owner: view,
+    page: view.dom.ownerDocument,
     anchor: () => {
       const at = where();
-      const element = at === undefined ? null : editor.view.nodeDOM(at);
+      const element = at === undefined ? null : view.nodeDOM(at);
       return element instanceof HTMLElement ? element.getBoundingClientRect() : undefined;
     },
-    apply: (latex) => {
+    apply: (latex, changed) => {
       stopWatching();
       const at = where();
       const now = at === undefined ? undefined : editor.state.doc.nodeAt(at);
-      if (at === undefined || !now) return;
-      // Nothing written in the box: whatever the formula holds now (somebody else's) stays.
-      const write = latex !== before;
-      if (write && !mayWrite(editor.view)) {
-        sayDropped(editor.view, 'refused');
-        return;
-      }
-      // Closed while read-only for a moment: kept, and the room sends it.
-      if (write && !editor.isEditable) sayDropped(editor.view, 'kept');
-      if (!write && !editor.isEditable) return;
+      if (at === undefined || !now || !editor.isEditable) return;
       const transaction = editor.state.tr;
-      if (write && latex === '') transaction.delete(at, at + now.nodeSize);
-      else if (write) transaction.setNodeMarkup(at, undefined, { latex });
-      const gone = write && latex === '';
+      if (changed && latex === '') transaction.delete(at, at + now.nodeSize);
+      else if (changed) transaction.setNodeMarkup(at, undefined, { latex });
+      const gone = changed && latex === '';
       const after = Math.min(transaction.doc.content.size, gone ? at : at + now.nodeSize);
-      if (editor.isEditable) {
-        transaction.setSelection(TextSelection.near(transaction.doc.resolve(after)));
-      }
-      editor.view.dispatch(transaction);
-      if (editor.isEditable) editor.view.focus();
+      transaction.setSelection(TextSelection.near(transaction.doc.resolve(after)));
+      view.dispatch(transaction);
+      view.focus();
     },
     cancel: () => {
       stopWatching();
-      if (!editor.isDestroyed && editor.isEditable) editor.view.focus();
+      if (!editor.isDestroyed && editor.isEditable) view.focus();
     },
   });
 }

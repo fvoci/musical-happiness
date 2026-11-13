@@ -35,7 +35,7 @@
   import { loadEmoji, searchEmoji } from './emoji.ts';
   import { bodyExtensions } from './extensions.ts';
   import { heldWritten, placeOf } from './editing-place.ts';
-  import { cancelMathEditing, mathDraftChanged } from './math-editing.ts';
+  import { cancelMathEditingOf, mathDraftChanged } from './math-editing.ts';
   import { emptyDoc, isEmptyDoc, toStoredDoc, validateDoc, type DocNode } from './schema.ts';
   import { suggestionList } from './suggestion-list.ts';
   import { ImageUpload } from './uploads.ts';
@@ -68,22 +68,25 @@
   let changes = $state(0);
   /** Whether the document that was last read could not be loaded. */
   let unreadable = $state(false);
-  /** A formula's source the reader wrote was not kept: they may no longer write. */
-  let formulaDropped = $state<DroppedWhy>();
+  /**
+   * The last thing that came of something the reader did and is to be said:
+   * an image not put in, a formula's source not kept. Undefined once an
+   * image went in.
+   */
+  let said = $state<string>();
   let uploads = $state(0);
-  /** How the upload that ended last did, when that is to be said. */
-  let uploadEnded = $state<'failed' | 'gone' | 'refused'>();
 
   const status = $derived.by(() => {
     if (unreadable) return m.editor_body_unreadable();
-    if (formulaDropped === 'gone') return m.editor_formula_gone();
-    if (formulaDropped === 'refused') return m.editor_formula_refused();
-    if (formulaDropped === 'kept') return m.editor_formula_kept();
     if (uploads > 0) return m.editor_image_uploading();
-    if (uploadEnded === 'gone') return m.editor_image_gone();
-    if (uploadEnded === 'refused') return m.editor_image_refused();
-    return uploadEnded === 'failed' ? m.editor_image_failed() : '';
+    return said ?? '';
   });
+
+  const UPLOAD_SAID = {
+    failed: m.editor_image_failed,
+    gone: m.editor_image_gone,
+    refused: m.editor_image_refused,
+  };
 
   const nameOf = (userId: string): string =>
     resolveUser?.(userId) ?? users.find((user) => user.id === userId)?.name ?? userId;
@@ -182,7 +185,8 @@
               if (outcome === 'gone') onImageDropped?.();
               return;
             }
-            if (outcome !== undefined) uploadEnded = outcome === 'done' ? undefined : outcome;
+            if (outcome !== undefined)
+              said = outcome === 'done' ? undefined : UPLOAD_SAID[outcome]();
           },
         }),
       ],
@@ -200,7 +204,7 @@
     setMayWrite(created.view, {
       may: () => shared !== undefined && canWrite,
       dropped: fromEditor((why: DroppedWhy) => {
-        formulaDropped = why;
+        said = why === 'gone' ? m.editor_formula_gone() : m.editor_formula_refused();
       }),
     });
     // What it could not draw is gone again: the editor, which took nothing from the shared
@@ -217,7 +221,7 @@
       const place = placeOf(created.state);
       const unsent = mathDraftChanged(created.view) || (place !== null && heldWritten(place));
       if (shared && unsent) fromEditor(() => onDraftDropped?.())();
-      cancelMathEditing();
+      cancelMathEditingOf(created.view);
       created.destroy();
     };
   });
@@ -238,7 +242,7 @@
     untrack(() => {
       const fresh = loadable(doc);
       unreadable = fresh === undefined;
-      cancelMathEditing();
+      cancelMathEditingOf(current.view);
       current.commands.setContent(fresh ?? emptyDoc(), { emitUpdate: false });
       current.setEditable(editable && fresh !== undefined, false);
       onLoad?.(fresh === undefined ? undefined : storedOf(current));

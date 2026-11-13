@@ -1,12 +1,12 @@
 /**
  * An archive of boards as the backend in memory writes it: a line of its
  * own version, then each board and its blocks, one per line. What the rooms
- * of their cards took is written into the cards first (`flushBodies`).
+ * of their cards took is written into the cards first (`flushBoards`).
  */
 import type { Board } from '../../logic/wire.ts';
 import type { DownloadedFile, DownloadOptions } from '../backend.ts';
 
-import { flushBodies } from './bodies.ts';
+import { flushBoards } from './bodies.ts';
 import { MEMORY_ARCHIVE } from './shapes.ts';
 import type { World } from './world.ts';
 
@@ -15,7 +15,7 @@ export function archiveOf(
   boards: readonly Board[],
   options: DownloadOptions | undefined,
 ): DownloadedFile {
-  flushBodies(world, boards);
+  flushBoards(world, boards);
   const lines = [JSON.stringify({ version: MEMORY_ARCHIVE })];
   for (const board of boards) {
     lines.push(JSON.stringify({ type: 'board', data: board }));

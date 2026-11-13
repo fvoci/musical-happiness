@@ -31,7 +31,7 @@ import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view';
 import { m } from '$lib/i18n/paraglide/messages.js';
 
 import { diagramKind } from './diagram-kind.ts';
-import { applyMathEditing } from './math-editing.ts';
+import { lockMathEditing } from './math-editing.ts';
 import { mayWrite, onShared, sayDropped } from './shared-place.ts';
 import {
   closedDiagramAt,
@@ -224,21 +224,20 @@ function placeView(view: EditorView) {
       // Nothing of the document changed: the shared document has it all already.
       if (view.state.doc === before.doc) holdAgain(view.state);
       const place = placeOf(view.state);
-      if (!view.editable) {
-        // The editor became read-only with a place or a formula's box open: nothing more can
-        // be typed into them. Only for a moment (the connection away): what they hold is kept
-        // as if closed on purpose, and the room sends it when it can, or says it was lost.
-        // For a reader who may only read: nothing is written. Either is said. Not from inside
-        // this update.
+      // A formula's box is locked while the editor is read-only: nothing more is typed into it.
+      lockMathEditing(view, !view.editable);
+      if (place && !view.editable) {
+        // The editor became read-only with a place open. Only for a moment (the connection
+        // away): what the field holds is kept as if closed on purpose, and the room sends it
+        // when it can, or says it was lost. For a reader who may only read: nothing is
+        // written, and that is said. Not from inside this update.
         queueMicrotask(() => {
           if (view.isDestroyed) return;
-          applyMathEditing(view);
-          if (!place) return;
           const dropping = !mayWrite(view);
-          if (heldWritten(place)) sayDropped(view, dropping ? 'refused' : 'kept');
+          if (dropping && heldWritten(place)) sayDropped(view, 'refused');
           closePlace(view, false, dropping);
         });
-        if (place) return;
+        return;
       }
       const said = announcement(view, before);
       if (said !== undefined) live.textContent = said;

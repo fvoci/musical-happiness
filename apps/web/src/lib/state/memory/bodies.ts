@@ -64,17 +64,21 @@ export function openMemoryRoom(
 }
 
 /**
- * What the rooms took is written into the cards first (cards by identifier,
- * or every card of boards), so that a card read, a copy or an archive has
- * it: the read a copy of a card is made from, a copy or template of a
- * board, an archive. The server is to do the same (R4).
+ * What the room of a card took is written into the card first, so that a
+ * read of it has it: the read a copy of a card is made from. The server is
+ * to do the same (R4): until then it reads the body as the room last wrote
+ * it (e2e-live/body.spec.ts records that).
  */
-export function flushBodies(world: World, of: readonly (string | { id: string })[]): void {
-  for (const each of of) {
-    const id = typeof each === 'string' ? each : each.id;
-    const cards = world.boards.has(id)
-      ? world.blocksOf(id).filter((block) => block.type === 'card')
-      : [{ id }];
-    for (const card of cards) world.bodyFlushed?.(card.id);
+export function flushCard<Card extends { id: string }>(world: World, card: Card): Card {
+  world.bodyFlushed?.(card.id);
+  return card;
+}
+
+/** The same for every card of boards: before a copy or a template of them, or an archive. */
+export function flushBoards(world: World, boards: readonly { id: string }[]): void {
+  for (const board of boards) {
+    for (const block of world.blocksOf(board.id)) {
+      if (block.type === 'card') flushCard(world, block);
+    }
   }
 }

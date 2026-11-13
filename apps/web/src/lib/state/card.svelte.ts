@@ -199,9 +199,12 @@ export class CardStore {
     this.#bodyDoc?.retry();
   }
 
-  /** Something of the reader's that was not put into the body is said as lost, until dismissed. */
+  /**
+   * Something of the reader's that was not put into the body is said as
+   * lost, until dismissed; a loss already said (the room's) stays said.
+   */
   sayLost(why: string): void {
-    this.lost = why;
+    this.lost ??= why;
   }
 
   /** The reader was told that changes were dropped. */

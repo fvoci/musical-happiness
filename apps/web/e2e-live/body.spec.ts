@@ -362,3 +362,30 @@ test('a card duplicated right after typing copies what was typed', async ({ page
   expect(JSON.stringify(copy?.body ?? null)).toContain('Typed just now');
   await api.dispose();
 });
+
+// The same gap for a board copied (and a template made of it, an archive: the same read).
+test('a board copied right after typing copies what was typed', async ({ page, baseURL }) => {
+  test.fail(true, 'the server copies the stored bodies before the room has written them');
+  const base = baseURL ?? '';
+  const owner = person('boardcopier');
+  await register(base, owner);
+  const api = await signedIn(base, owner);
+  const board = await makeBoard(api, {
+    title: 'Copied whole',
+    cards: [{ title: 'Original', status: 'To do' }],
+  });
+  const cardId = board.cards.Original ?? '';
+  await openCard(page, boardPath(board, board.viewId, cardId), owner);
+  await editor(page).click();
+  await page.keyboard.type('Typed just now');
+  await expect(page.getByTestId('card-save-state')).toHaveAttribute('data-state', 'saved');
+  const copied = await api.post(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/duplicate`);
+  expect(copied.ok()).toBe(true);
+  const copyId = ((await copied.json()) as Schemas['BoardsAndBlocks']).boards[0]?.id ?? '';
+  const blocks = (await (
+    await api.get(`/api/v1/w/${board.workspaceId}/boards/${copyId}/blocks`)
+  ).json()) as Schemas['Block'][];
+  const card = blocks.find((block) => block.type === 'card' && block.title === 'Original');
+  expect(JSON.stringify(card?.body ?? null)).toContain('Typed just now');
+  await api.dispose();
+});

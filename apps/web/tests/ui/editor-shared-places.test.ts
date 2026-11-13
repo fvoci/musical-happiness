@@ -508,6 +508,54 @@ describe('the box of a formula in a line in a body edited together', () => {
     expect(editor.state.doc.textContent).toContain('a X');
   });
 
+  it('says so when the room deletes the formula with something written in its box', async () => {
+    const shared = room(doc(paragraph(text('a '), math('x'), text(' b'))));
+    const { container } = render(BodyEditor, { doc: null, collab: shared.reader });
+    const editor = editorIn(container);
+    editor.view.dom.querySelector<HTMLElement>('.doc-math')?.click();
+    const field = box();
+    if (!field) throw new Error('no box');
+    field.value = 'y^2';
+    shared.others(() => {
+      const line = shared.server.getXmlFragment(BODY_FIELD).get(0) as Y.XmlElement;
+      line.delete(1, 1);
+    });
+    expect(box()).toBeNull();
+    await vi.waitFor(() => {
+      expect(container.querySelector('.doc-editor-status')?.textContent.trim()).toBe(
+        'What you wrote in the formula was not kept: its line was removed or changed.',
+      );
+    });
+  });
+
+  it('is locked while the editor is read-only, saying why, and writes again once it is not', async () => {
+    const shared = room(doc(paragraph(text('a '), math('x'), text(' b'))));
+    const props = { doc: null, collab: shared.reader, canWrite: true };
+    const { container, rerender } = render(BodyEditor, props);
+    const editor = editorIn(container);
+    editor.view.dom.querySelector<HTMLElement>('.doc-math')?.click();
+    const field = box();
+    if (!field) throw new Error('no box');
+    field.value = 'y';
+    await rerender({ ...props, editable: false });
+    expect(field.readOnly).toBe(true);
+    expect(document.querySelector('.doc-math-editing')?.textContent).toContain(
+      'cannot be changed now',
+    );
+    // Enter does nothing while locked: nothing goes into the shared document.
+    field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(box()).not.toBeNull();
+    expect(JSON.stringify(shared.reader.getXmlFragment(BODY_FIELD).toJSON())).not.toContain('"y"');
+    await rerender({ ...props, editable: true });
+    expect(field.readOnly).toBe(false);
+    field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    let latex: unknown;
+    editor.state.doc.descendants((node) => {
+      if (node.type.name === 'inlineMath') latex = node.attrs.latex;
+    });
+    expect(latex).toBe('y');
+  });
+
   it('closes, keeping nothing, when the room deletes the formula', () => {
     const shared = room(doc(paragraph(text('a '), math('x'), text(' b'))));
     const { container } = render(BodyEditor, { doc: null, collab: shared.reader });

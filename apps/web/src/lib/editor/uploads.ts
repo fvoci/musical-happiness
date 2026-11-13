@@ -13,9 +13,10 @@
  * (shared-place.ts), so that what others write meanwhile, before it or in
  * its block, does not move the image elsewhere. The image is not put in,
  * and that is said, when the block it was going into was deleted or made
- * anew (by anybody; by the reader, when the spot itself is taken away), when the reader may no longer write, and when the
- * editor takes no change for now (content it cannot draw). An editor read
- * only for a moment (the connection away) takes it: the room sends it later.
+ * anew (by anybody; by the reader, when the spot itself is taken away),
+ * when the reader may no longer write, and when the editor takes no change
+ * for now (content it cannot draw). An editor read only for a moment (the
+ * connection away) takes it: the room sends it later.
  */
 import { Extension } from '@tiptap/core';
 import { Plugin, PluginKey, type EditorState, type Transaction } from '@tiptap/pm/state';

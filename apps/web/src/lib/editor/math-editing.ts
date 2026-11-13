@@ -21,12 +21,16 @@ export interface MathEditingOptions {
   latex: string;
   /** Where on the screen the formula is, now. Asked again when the window changes. */
   anchor: () => { left: number; top: number; bottom: number } | undefined;
-  /** The source to keep; empty means "no formula". Called once, unless `cancel` is. */
-  apply: (latex: string) => void;
+  /**
+   * The source to keep; empty means "no formula". `changed`: the field holds
+   * something else than the source it opened with. Called once, unless
+   * `cancel` is.
+   */
+  apply: (latex: string, changed: boolean) => void;
   /** Nothing is to change. Called once, unless `apply` is. */
   cancel: () => void;
   page: Document;
-  /** Whose box it is (the editor's view): for `applyMathEditing` and `mathDraftChanged`. */
+  /** Whose box it is (the editor's view): for `lockMathEditing` and `mathDraftChanged`. */
   owner?: object;
 }
 
@@ -98,7 +102,14 @@ function fieldKeys(apply: () => void, cancel: () => void): (event: KeyboardEvent
 }
 
 let open:
-  { apply: () => void; cancel: () => void; owner?: object; changed: () => boolean } | undefined;
+  | {
+      apply: () => void;
+      cancel: () => void;
+      owner?: object;
+      changed: () => boolean;
+      lock: (locked: boolean) => void;
+    }
+  | undefined;
 
 /** Opens the box. Only one is open at a time; opening another applies the first. */
 export function editMath(options: MathEditingOptions): void {
@@ -108,7 +119,10 @@ export function editMath(options: MathEditingOptions): void {
   const { box, field, preview, hint, buttons, button } = mathDialog(page, options);
 
   let done = false;
+  /** The editor is read-only for now: nothing is typed in, nothing kept (`lockMathEditing`). */
+  let locked = false;
   let sequence = 0;
+  const changed = (): boolean => field.value !== options.latex;
 
   function redraw(): void {
     const latex = field.value.trim();
@@ -149,10 +163,11 @@ export function editMath(options: MathEditingOptions): void {
     box.remove();
   }
   function apply(): void {
-    if (done) return;
+    if (done || locked) return;
     const latex = field.value.trim().slice(0, MAX_LATEX);
+    const written = changed();
     close();
-    options.apply(latex);
+    options.apply(latex, written);
   }
   function cancel(): void {
     if (done) return;
@@ -180,12 +195,15 @@ export function editMath(options: MathEditingOptions): void {
 
   box.append(field, preview, hint, buttons);
   page.body.append(box);
-  open = {
-    apply,
-    cancel,
-    owner: options.owner,
-    changed: () => field.value.trim().slice(0, MAX_LATEX) !== options.latex,
-  };
+  open = { apply, cancel, owner: options.owner, changed, lock: lockBox };
+  function lockBox(lock: boolean): void {
+    if (lock === locked) return;
+    locked = lock;
+    field.readOnly = lock;
+    for (const each of buttons.querySelectorAll('button')) each.disabled = lock;
+    hint.replaceChildren(page.createTextNode(lock ? m.editor_math_locked() : m.editor_math_hint()));
+    box.toggleAttribute('data-locked', lock);
+  }
   place();
   redraw();
   view?.addEventListener('resize', place);
@@ -195,17 +213,21 @@ export function editMath(options: MathEditingOptions): void {
 }
 
 /**
- * Closes the box that is open, if one is, without keeping what was written:
- * for when the editor behind it goes away or is handed another document, and
- * a late change would land on something it was not written for.
+ * Locks the box of `owner`, if it is open, while its editor is read-only:
+ * nothing more is typed into it and nothing is kept from it, and it says
+ * why; unlocked when the editor may be written again. Escape still closes it.
  */
-export function cancelMathEditing(): void {
-  open?.cancel();
+export function lockMathEditing(owner: object, locked: boolean): void {
+  if (open?.owner === owner) open.lock(locked);
 }
 
-/** Closes the box of `owner`, if it is open, keeping what was written (as Done does). */
-export function applyMathEditing(owner: object): void {
-  if (open?.owner === owner) open.apply();
+/**
+ * Closes the box of `owner`, if it is open, keeping nothing: for when the
+ * editor behind it goes away or is handed another document, and a late
+ * change would land on something it was not written for.
+ */
+export function cancelMathEditingOf(owner: object): void {
+  if (open?.owner === owner) open.cancel();
 }
 
 /** Whether the box of `owner` is open with a source other than the one it opened with. */

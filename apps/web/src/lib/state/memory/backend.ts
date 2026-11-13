@@ -73,7 +73,7 @@ import {
 } from './comments.ts';
 import { changeDisplayName } from './account.ts';
 import { archiveOf } from './archive.ts';
-import { checkedBody, checkedWhole, flushBodies, openMemoryRoom } from './bodies.ts';
+import { checkedBody, checkedWhole, flushBoards, flushCard, openMemoryRoom } from './bodies.ts';
 import { checkRelations, renameCopied } from './references.ts';
 import { fail } from './refuse.ts';
 import {
@@ -491,7 +491,7 @@ export class MemoryBackend implements Backend {
 
   /** The blocks a copy of a board takes: all but its comments. */
   #copied(board: Board): StoredBlock[] {
-    flushBodies(this.world, [board]);
+    flushBoards(this.world, [board]);
     return this.world.blocksOf(board.id).filter((block) => block.type !== 'comment');
   }
 
@@ -901,8 +901,8 @@ export class MemoryBackend implements Backend {
 
   async card(boardId: string, cardId: string): Promise<CardDetail> {
     await this.#enter('card');
-    flushBodies(this.world, [cardId]);
-    return this.#commented(detailOf(this.#block(boardId, cardId, 'card') as StoredCard));
+    const card = flushCard(this.world, this.#block(boardId, cardId, 'card') as StoredCard);
+    return this.#commented(detailOf(card));
   }
 
   async createCard(boardId: string, draft: CardDraft): Promise<CardSummary> {
