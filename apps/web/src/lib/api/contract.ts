@@ -2358,9 +2358,12 @@ export interface paths {
         put?: never;
         /**
          * Create an empty team
-         * @description For workspace administrators. Surrounding whitespace is removed from the name;
-         *     an empty name is 400 at `/name`, and a name of another team of this workspace, in any
-         *     letter case, is 409.
+         * @description For workspace administrators. The name is read as an organization's: surrounding
+         *     whitespace is removed, and a name that is then empty, longer than 64 characters or
+         *     holds a control character or one that shows nothing or turns the text around is 400
+         *     at `/name` with the reason `required`, `too_long` or `invalid_characters`. The name of
+         *     another team of this workspace, in any letter case, is 409 with the reason
+         *     `team_name_taken`.
          */
         post: operations["createTeam"];
         delete?: never;
@@ -4026,7 +4029,11 @@ export interface components {
         };
         /** @description The name when creating or renaming a team. */
         TeamName: {
-            /** @description A nonempty name; surrounding whitespace is removed. */
+            /**
+             * @description The name, by the rule of an organization's: surrounding whitespace is removed, and
+             *     what is left is 1 to 64 characters (UTF-16 code units), none of them a control
+             *     character or one that shows nothing, breaks a line or turns the text around.
+             */
             name: string;
         };
         /**

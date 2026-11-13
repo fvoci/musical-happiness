@@ -2,6 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::auth::{AuthParamError, Named, required_name};
+
 /// A named group of people within a workspace.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -31,34 +33,20 @@ pub struct TeamMember {
 /// The name when creating or renaming a team.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, utoipa::ToSchema)]
 pub struct TeamName {
-    /// A nonempty name; surrounding whitespace is removed.
+    /// The name, by the rule of an organization's: surrounding whitespace is removed, and
+    /// what is left is 1 to 64 characters (UTF-16 code units), none of them a control
+    /// character or one that shows nothing, breaks a line or turns the text around.
     pub name: String,
 }
 
-/// Why a team name cannot be stored on both databases.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-pub enum TeamNameError {
-    /// The name is empty after surrounding whitespace is removed.
-    #[error("a team needs a name")]
-    Empty,
-    /// PostgreSQL text cannot hold the null character.
-    #[error("a team name cannot contain a null character")]
-    Null,
-}
-
-/// Trims a team name and checks that it can be stored on either database.
+/// Reads a team name by the rule of an organization's ([`required_name`]). Returns the
+/// name to store.
 ///
 /// # Errors
-/// Returns [`TeamNameError`] for an empty name or a null character.
-pub fn team_name(text: &str) -> Result<&str, TeamNameError> {
-    let text = text.trim();
-    if text.is_empty() {
-        return Err(TeamNameError::Empty);
-    }
-    if text.contains('\0') {
-        return Err(TeamNameError::Null);
-    }
-    Ok(text)
+/// Returns an [`AuthParamError`] for `name` if the name is blank, too long or holds a
+/// character it may not.
+pub fn team_name(text: &str) -> Result<String, AuthParamError> {
+    required_name(text, Named::Team)
 }
 
 /// The form of a team name that names differing only in letter case share. A name is

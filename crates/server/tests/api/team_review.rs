@@ -37,6 +37,45 @@ async fn a_team_name_has_a_length_limit() {
     th.teardown().await;
 }
 
+/// A team's name is read by the rule of an organization's name: each refusal is about
+/// `/name`, with the reason the web app chooses its words by, and the name typed is
+/// kept as it was (the request changes nothing).
+#[tokio::test]
+async fn a_team_name_is_read_as_an_organization_name_is() {
+    let th = Setup::native().start().await.init_basic().await;
+    let longest = "가".repeat(64);
+    let made: Team = th
+        .client
+        .post(&teams_path(), &json!({ "name": format!("  {longest}  ") }))
+        .await
+        .ok_json();
+    assert_eq!(made.name, longest, "the white space around is dropped");
+    let item = format!("{}/{}", teams_path(), made.id);
+    for (name, reason) in [
+        ("가".repeat(65), "too_long"),
+        ("   ".to_owned(), "required"),
+        ("a\u{202E}b".to_owned(), "invalid_characters"),
+        ("a\u{200B}".to_owned(), "invalid_characters"),
+        ("two\nlines".to_owned(), "invalid_characters"),
+        ("nul\0".to_owned(), "invalid_characters"),
+    ] {
+        for refused in [
+            th.client
+                .post(&teams_path(), &json!({ "name": name }))
+                .await,
+            th.client.put(&item, &json!({ "name": name })).await,
+        ] {
+            refused.check_status(StatusCode::BAD_REQUEST);
+            assert_eq!(refused.refused_at(), "/name", "{name:?}");
+            assert_eq!(refused.value()["errors"][0]["reason"], reason, "{name:?}");
+        }
+    }
+    let teams: Vec<Team> = th.client.get(&teams_path()).await.ok_json();
+    let names: Vec<&str> = teams.iter().map(|team| team.name.as_str()).collect();
+    assert_eq!(names, [longest.as_str()], "nothing refused is stored");
+    th.teardown().await;
+}
+
 /// Names that differ only in letter case are one name in a workspace, on making a
 /// team and on renaming another; a team may change the case of its own name.
 #[tokio::test]
@@ -47,10 +86,14 @@ async fn a_team_name_is_taken_in_any_letter_case() {
         .post(&teams_path(), &json!({"name":"Design"}))
         .await
         .ok_json();
-    th.client
+    let taken = th
+        .client
         .post(&teams_path(), &json!({"name":"DESIGN"}))
-        .await
-        .check_status(StatusCode::CONFLICT);
+        .await;
+    taken.check_status(StatusCode::CONFLICT);
+    assert_eq!(taken.error_reason(), "team_name_taken");
+    assert_eq!(taken.problem_type(), "/problems/team-name-taken");
+    assert_eq!(taken.refused_at(), "/name");
     let other: Team = th
         .client
         .post(&teams_path(), &json!({"name":"Research"}))

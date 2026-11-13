@@ -59,6 +59,19 @@ test('an administrator creates a team, changes its name and people, and deletes 
   await expect(readOnly.getByText(colleague.username, { exact: true })).toBeVisible();
   await expect(readOnly.getByRole('button')).toHaveCount(0);
   await other.close();
+  // A refused name stays typed, with the reason in one line.
+  const box = panel.getByRole('textbox', { name: 'Team name' });
+  for (const [typed, told] of [
+    [name.toUpperCase(), /Letter case does not make names different/],
+    ['x'.repeat(65), /up to 64 characters/],
+    ['a\u202eb', /change the direction of text/],
+  ] as const) {
+    await box.fill(typed);
+    await panel.getByRole('button', { name: 'Create team' }).click();
+    await expect(panel.getByRole('alert')).toHaveText(told);
+    await expect(box).toHaveValue(typed);
+  }
+  await box.fill('');
   await row.getByRole('button', { name: 'Rename', exact: true }).click();
   const renamed = `${name}-research`;
   await row.getByRole('textbox', { name: 'Team name' }).fill(renamed);

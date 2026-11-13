@@ -242,6 +242,7 @@ fn describe_reason(reason: Reason) -> &'static str {
         | Reason::RelationNotACard
         | Reason::RelationCardNotFound => describe_relation(reason).unwrap_or_default(),
         Reason::WorkspaceNameTaken
+        | Reason::TeamNameTaken
         | Reason::DefaultWorkspace
         | Reason::LastOrgAdmin
         | Reason::PublicLinksOff => describe_organization(reason).unwrap_or_default(),
@@ -306,13 +307,18 @@ fn describe_invitation(reason: Reason) -> Option<&'static str> {
     })
 }
 
-/// The descriptions of the reasons an organization's administrators are refused for.
+/// The descriptions of the reasons the administrators of an organization or of a
+/// workspace are refused for.
 fn describe_organization(reason: Reason) -> Option<&'static str> {
     Some(match reason {
         Reason::WorkspaceNameTaken => {
             "Status 409. Another workspace of the organization that is in use has the name; \
              one in the trash leaves its name to be taken. `errors` names `/name`, or \
              `/organizationName` where the first registration names the organization so."
+        }
+        Reason::TeamNameTaken => {
+            "Status 409. Another team of the workspace has the name, in the same or another \
+             letter case: `Design` and `DESIGN` are one name. `errors` names `/name`."
         }
         Reason::DefaultWorkspace => {
             "Status 409. The organization's default workspace, which whoever joins the \

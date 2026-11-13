@@ -64,6 +64,23 @@
     };
   });
 
+  /** The one line that says why a step was refused, by the reason the server gives. */
+  function told(error: unknown): string {
+    if (!isBackendError(error)) return m.teams_failed();
+    if (error.reason === 'team_self_joining') return m.teams_self_joining();
+    if (error.reason === 'team_name_taken') return m.teams_name_taken();
+    switch (error.refusalAt('/name')?.reason) {
+      case 'required':
+        return m.teams_name_required();
+      case 'too_long':
+        return m.teams_name_too_long();
+      case 'invalid_characters':
+        return m.teams_name_invalid_characters();
+      default:
+        return m.teams_failed();
+    }
+  }
+
   /** Whether the step was done; on failure, what was typed for it stays. */
   async function act(step: (place: string) => Promise<unknown>): Promise<boolean> {
     if (!workspaceId || working) return false;
@@ -73,12 +90,7 @@
       await step(workspaceId);
       return true;
     } catch (error) {
-      problem =
-        isBackendError(error) && error.reason === 'team_self_joining'
-          ? m.teams_self_joining()
-          : isBackendError(error) && error.status === 409
-            ? m.teams_name_taken()
-            : m.teams_failed();
+      problem = told(error);
       return false;
     } finally {
       await read(workspaceId, managing);

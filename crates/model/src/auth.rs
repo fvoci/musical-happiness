@@ -67,36 +67,74 @@ pub fn display_name(raw: &str) -> Result<String, AuthParamError> {
 /// The longest name of an organization, in UTF-16 code units as the web app counts text.
 pub const ORGANIZATION_NAME_MAX_LENGTH: usize = 64;
 
+/// What is named by the rule of [`required_name`]: one rule, in the words of each.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Named {
+    /// The organization somebody starts by signing up, and so its first workspace.
+    Organization,
+    /// A team of people of a workspace.
+    Team,
+}
+
+impl Named {
+    /// The request member the name is sent in.
+    fn field(self) -> &'static str {
+        match self {
+            Self::Organization => "organizationName",
+            Self::Team => "name",
+        }
+    }
+
+    /// What the name is called in a refusal, without and with its article.
+    fn words(self) -> (&'static str, &'static str) {
+        match self {
+            Self::Organization => ("organization name", "an organization name"),
+            Self::Team => ("team name", "a team name"),
+        }
+    }
+}
+
+/// Reads a name that people give something together (an organization, a team): without
+/// the white space around it, not empty, and otherwise as [`display_name`] has a name.
+/// Returns the name to store.
+///
+/// # Errors
+///
+/// Returns an [`AuthParamError`] for the member the name is sent in if the name is
+/// blank, too long or holds a character it may not.
+pub fn required_name(raw: &str, named: Named) -> Result<String, AuthParamError> {
+    let (noun, with_article) = named.words();
+    let name = display_name(raw).map_err(|error| {
+        let message = match error.reason() {
+            RefusalReason::TooLong => {
+                format!("{with_article} has at most {ORGANIZATION_NAME_MAX_LENGTH} characters")
+            }
+            _ => format!(
+                "{with_article} has no control characters, and none that show nothing or \
+                 turn the text around"
+            ),
+        };
+        AuthParamError::new(named.field(), error.reason(), message)
+    })?;
+    if name.is_empty() {
+        return Err(AuthParamError::new(
+            named.field(),
+            RefusalReason::Required,
+            format!("{noun} is required"),
+        ));
+    }
+    Ok(name)
+}
+
 /// Reads the name of the organization somebody starts by signing up, which is the
-/// name of its first workspace too: without the white space around it, not empty, and
-/// otherwise as [`display_name`] has a name. Returns the name to store.
+/// name of its first workspace too, by the rule of [`required_name`].
 ///
 /// # Errors
 ///
 /// Returns an [`AuthParamError`] for `organizationName` if the name is blank, too long or
 /// holds a character it may not.
 pub fn organization_name(raw: &str) -> Result<String, AuthParamError> {
-    let name = display_name(raw).map_err(|error| {
-        let message = match error.reason() {
-            RefusalReason::TooLong => {
-                format!(
-                    "an organization name has at most {ORGANIZATION_NAME_MAX_LENGTH} characters"
-                )
-            }
-            _ => "an organization name has no control characters, and none that show nothing or \
-                  turn the text around"
-                .to_owned(),
-        };
-        AuthParamError::new("organizationName", error.reason(), message)
-    })?;
-    if name.is_empty() {
-        return Err(AuthParamError::new(
-            "organizationName",
-            RefusalReason::Required,
-            "organization name is required",
-        ));
-    }
-    Ok(name)
+    required_name(raw, Named::Organization)
 }
 
 // An organization is named as a person is: one rule for both.

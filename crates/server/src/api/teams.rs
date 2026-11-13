@@ -61,9 +61,12 @@ async fn list_teams(ws: Ws) -> ApiResult {
 
 /// Create an empty team
 ///
-/// For workspace administrators. Surrounding whitespace is removed from the name;
-/// an empty name is 400 at `/name`, and a name of another team of this workspace, in any
-/// letter case, is 409.
+/// For workspace administrators. The name is read as an organization's: surrounding
+/// whitespace is removed, and a name that is then empty, longer than 64 characters or
+/// holds a control character or one that shows nothing or turns the text around is 400
+/// at `/name` with the reason `required`, `too_long` or `invalid_characters`. The name of
+/// another team of this workspace, in any letter case, is 409 with the reason
+/// `team_name_taken`.
 #[utoipa::path(post, path = "/w/{workspaceId}/teams", operation_id = "createTeam", tag = tag::WORKSPACES,
     params(WorkerWorkspaceId), request_body = TeamName,
     responses((status = 200, description = "The new team.", body = Team)))]

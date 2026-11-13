@@ -44,9 +44,9 @@ mod workspace;
 pub use archive::{ArchiveHeader, ArchiveLine};
 pub use auth::{
     AuthParamError, ChangePasswordRequest, DISPLAY_NAME_MAX_LENGTH, LoginRequest,
-    MAXIMUM_EMAIL_BYTES, MAXIMUM_PASSWORD_BYTES, MINIMUM_PASSWORD_LENGTH, NewAccount,
+    MAXIMUM_EMAIL_BYTES, MAXIMUM_PASSWORD_BYTES, MINIMUM_PASSWORD_LENGTH, Named, NewAccount,
     ORGANIZATION_NAME_MAX_LENGTH, RegisterRequest, check_new_password, display_name,
-    is_email_valid, organization_name,
+    is_email_valid, organization_name, required_name,
 };
 pub use block::{
     BLOCK_FIELDS_MAX_CHARS, BLOCK_TITLE_MAX_CHARS, Block, BlockError, BlockPatch, BlockPatchBatch,
@@ -115,7 +115,7 @@ pub use settings::{
 };
 pub use sharing::Sharing;
 pub use subscription::{Subscriber, SubscriberType, Subscription, SubscriptionError};
-pub use team::{Team, TeamMember, TeamName, TeamNameError, team_name, team_name_key};
+pub use team::{Team, TeamMember, TeamName, team_name, team_name_key};
 pub use upload::{MAX_UPLOAD_PARTS, Upload, UploadPart, UploadPurpose};
 pub use user::{Session, User, UserPreferencesPatch};
 pub use workspace::{GuestInvitationsChange, Workspace};

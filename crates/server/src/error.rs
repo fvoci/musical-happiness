@@ -280,6 +280,8 @@ reasons! {
     RelationCardNotFound => "relation_card_not_found", "Card relation names a card not on the board";
     /// Another workspace in use of the organization has the name.
     WorkspaceNameTaken => "workspace_name_taken", "Workspace name taken";
+    /// Another team of the workspace has the name, in some letter case.
+    TeamNameTaken => "team_name_taken", "Team name taken";
     /// The organization's default workspace is not deleted.
     DefaultWorkspace => "default_workspace", "Default workspace";
     /// The change would leave the organization without an administrator.

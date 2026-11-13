@@ -106,7 +106,7 @@ crates/model/src/team.rs
 crates/model/src/lib.rs | mod board_teams
 crates/model/src/lib.rs | pub use board_teams::{boardteam, boardteamrole}
 crates/model/src/lib.rs | mod team;
-crates/model/src/lib.rs | pub use team::{team, teammember, teamname, teamnameerror, team_name, team_name_key}
+crates/model/src/lib.rs | pub use team::{team, teammember, teamname, team_name, team_name_key}
 crates/store/schema/*/0026_teams.sql
 crates/store/src/teams.rs
 crates/store/src/schema.rs | workspace teams
@@ -190,6 +190,7 @@ crates/model/src/board_teams.rs
 crates/store/src/board_team_membership.rs
 crates/server/tests/api/team_standing.rs
 apps/web/tests/ui/shell/team-row.test.ts
+apps/web/tests/ui/shell/teams-panel.test.ts
 apps/web/tests/ui/shell/board-teams.test.ts
 crates/store/src/board_membership.rs | team_role
 crates/store/src/board_membership.rs | board_team_access::
@@ -202,6 +203,17 @@ crates/server/src/error.rs | team_self_joining
 crates/server/src/error.rs | to a team
 crates/server/src/problems.rs | teamselfjoining
 crates/server/src/problems.rs | yourself to a team
+crates/server/src/error.rs | another team of the workspace
+crates/server/src/error.rs | teamnametaken
+crates/server/src/error.rs | team_name_taken
+crates/server/src/error.rs | team name taken
+crates/server/src/problems.rs | teamnametaken
+crates/server/src/problems.rs | another team of the workspace
+crates/model/src/auth.rs | a team of people
+crates/model/src/auth.rs | team,
+crates/model/src/auth.rs | self::team
+crates/model/src/auth.rs | a team)
+crates/model/src/auth.rs | ("team name", "a team name")
 crates/server/src/app/boards.rs | team_role
 crates/server/src/app/boards.rs | a team's people keep
 crates/server/src/app/invitations.rs | team_role

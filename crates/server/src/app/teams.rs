@@ -2,11 +2,25 @@
 //! the workspace lock; names are trimmed here before they reach storage.
 
 use super::App;
-use crate::error::AppError;
+use crate::error::{AppError, Reason};
 use fvoci_model::{Team, is_id};
+use fvoci_store::{StoreError, Taken};
 
-fn name(text: &str) -> Result<&str, AppError> {
-    fvoci_model::team_name(text).map_err(|error| AppError::bad_request(error).with_field("name"))
+fn name(text: &str) -> Result<String, AppError> {
+    Ok(fvoci_model::team_name(text)?)
+}
+
+/// A store's refusal of a team name another team of the workspace has, as the problem
+/// `team_name_taken` about `/name`.
+fn name_taken(error: StoreError) -> AppError {
+    match error {
+        StoreError::Conflict(Taken::TeamName) => {
+            AppError::conflict("another team of the workspace has the name in some letter case")
+                .with_reason(Reason::TeamNameTaken)
+                .with_field("name")
+        }
+        other => AppError::from(other),
+    }
 }
 
 impl App {
@@ -59,7 +73,9 @@ impl App {
     /// Creates an empty team for the workspace's administrator.
     ///
     /// # Errors
-    /// Returns 400 for an empty name, 409 for a duplicate, or the store error.
+    /// Returns 400 for a name [`fvoci_model::team_name`] refuses, 409 with the reason
+    /// `team_name_taken` for the name of another team in any letter case, or the store
+    /// error.
     pub async fn create_team(
         &self,
         workspace_id: &str,
@@ -68,8 +84,9 @@ impl App {
     ) -> Result<Team, AppError> {
         let id = self
             .store()
-            .create_team(workspace_id, name(text)?, by)
-            .await?;
+            .create_team(workspace_id, &name(text)?, by)
+            .await
+            .map_err(name_taken)?;
         self.team(workspace_id, &id).await
     }
 
@@ -85,8 +102,9 @@ impl App {
         by: &str,
     ) -> Result<Team, AppError> {
         self.store()
-            .rename_team(workspace_id, team_id, name(text)?, by)
-            .await?;
+            .rename_team(workspace_id, team_id, &name(text)?, by)
+            .await
+            .map_err(name_taken)?;
         self.team(workspace_id, team_id).await
     }
 
