@@ -10,7 +10,6 @@ pub mod token;
 
 use fvoci_model::Session;
 use fvoci_store::Store;
-use subtle::ConstantTimeEq as _;
 
 use crate::config::Configuration;
 use crate::error::AppError;
@@ -181,11 +180,6 @@ impl Authenticator {
         // else.
         Ok(self.store.org_of_shared_board(board_id, read_token).await?)
     }
-}
-
-/// Compares two secrets without revealing through timing where they differ.
-pub fn tokens_match(expected: &str, given: &str) -> bool {
-    expected.as_bytes().ct_eq(given.as_bytes()).into()
 }
 
 /// Returns the current time in milliseconds since the Unix epoch.

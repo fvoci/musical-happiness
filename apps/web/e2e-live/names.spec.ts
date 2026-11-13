@@ -24,30 +24,28 @@ async function me(api: APIRequestContext): Promise<Schemas['User']> {
   return (await (await api.get('/api/v1/users/me')).json()) as Schemas['User'];
 }
 
-test('a display name is given at registration, changed in the settings, and a refused one is told at its field', async ({
+test('a display name is given where the account is made, changed in the settings, and a refused one is told at its field', async ({
   page,
   baseURL,
 }) => {
   const base = baseURL ?? '';
   const errors = watchErrors(page);
   const who = person('named');
-  const code = await invitation(base);
+  const token = await invitation(base);
 
-  await page.goto('/');
-  await page.getByRole('button', { name: /create one/i }).click();
-  const form = page.getByTestId('register-form');
+  await page.goto(`/invite/${token}`);
+  const form = page.getByTestId('invite-register-form');
   await form.getByLabel(/^user name$/i).fill(who.username);
   // A name that turns the text around: the server's refusal is said beside the field.
   const displayName = form.getByLabel(/^display name$/i);
   await displayName.fill(`Ada${String.fromCharCode(0x202e)}`);
   await form.getByLabel(/email/i).fill(who.email);
   await form.getByLabel(/^password$/i).fill(who.password);
-  await form.getByLabel(/invitation/i).fill(code);
-  await form.getByRole('button', { name: /^create account$/i }).click();
+  await form.getByRole('button', { name: /^create account and join$/i }).click();
   await expect(form.getByTestId('problem-displayName')).toHaveText(/turn the text around/);
   await expect(displayName).toBeFocused();
   await displayName.fill('  Ada Lovelace ');
-  await form.getByRole('button', { name: /^create account$/i }).click();
+  await form.getByRole('button', { name: /^create account and join$/i }).click();
   await expect(page.getByTestId('app-shell')).toBeVisible();
 
   const api = await signedIn(base, who);

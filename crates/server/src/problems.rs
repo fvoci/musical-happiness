@@ -187,13 +187,8 @@ fn describe_reason(reason: Reason) -> &'static str {
              say which. Status 401 from a login. Status 400 from a change of the password, \
              whose session is good: `errors` names `/oldPassword`."
         }
-        Reason::SignupTokenRequired => {
-            "Status 403. Only the first user of a server registers without the signup token, \
-             and this registration has none. `errors` names `/token`."
-        }
-        Reason::SignupTokenInvalid => {
-            "Status 403. The signup token of the registration is not the workspace's. `errors` \
-             names `/token`."
+        Reason::InvitationRequired | Reason::InvitationUnavailable => {
+            describe_invitation(reason).unwrap_or_default()
         }
         Reason::UsernameTaken => {
             "Status 409. Another user has the user name. `errors` names `/username`."
@@ -202,8 +197,8 @@ fn describe_reason(reason: Reason) -> &'static str {
             "Status 409. Another user has the email address. `errors` names `/email`."
         }
         Reason::LastAdmin => {
-            "Status 409. The change would leave the board, or the server, without an \
-             administrator. Make somebody else one first."
+            "Status 409. The change would leave the board, the workspace or the server \
+             without an administrator. Make somebody else one first."
         }
         Reason::AdminRequired => "Status 403. Only an administrator of the server may do this.",
         Reason::GuestRoleLimit => "Status 403. A guest of a workspace has no role above editor.",
@@ -290,12 +285,31 @@ fn describe_transfer(reason: Reason) -> Option<&'static str> {
     })
 }
 
+/// The descriptions of the reasons somebody is not let in for.
+fn describe_invitation(reason: Reason) -> Option<&'static str> {
+    Some(match reason {
+        Reason::InvitationRequired => {
+            "Status 403. The server has one organization, which its first user started by \
+             registering. Everybody after gets in by the link of an invitation, and this \
+             registration is none."
+        }
+        Reason::InvitationUnavailable => {
+            "Status 404. The link of the invitation lets nobody in. The answer is the same \
+             whether there never was such a link, it ended after its seven days, it was \
+             used as often as it may be, it was revoked, or who made it may no longer \
+             invite. Ask for a new link."
+        }
+        _ => return None,
+    })
+}
+
 /// The descriptions of the reasons an organization's administrators are refused for.
 fn describe_organization(reason: Reason) -> Option<&'static str> {
     Some(match reason {
         Reason::WorkspaceNameTaken => {
             "Status 409. Another workspace of the organization that is in use has the name; \
-             one in the trash leaves its name to be taken. `errors` names `/name`."
+             one in the trash leaves its name to be taken. `errors` names `/name`, or \
+             `/organizationName` where the first registration names the organization so."
         }
         Reason::DefaultWorkspace => {
             "Status 409. The organization's default workspace, which whoever joins the \
@@ -535,7 +549,8 @@ fn describe_linking_and_enforcing(reason: Reason) -> Option<&'static str> {
              provider. Everything of the organization answers so (the routes under \
              `/w/{workspaceId}` and `/org/{orgId}`, and `getMyMemberships` and \
              `setUserAdmin`, which name neither and are of the organization the server \
-             stands in), from the request after it was switched on; the session \
+             stands in, and `acceptInvitation`, for a link into it, member or not), from \
+             the request after it was switched on; the session \
              stays, and opens what is of other organizations. `orgId` names the \
              organization: start a sign-in through its provider (`startOidcLogin`) and the \
              session it ends in opens it. `getMyWorkspaces` says beforehand which \
@@ -665,7 +680,7 @@ mod tests {
         );
         assert!(page.contains("reason: last_admin\n"), "{page}");
         assert!(
-            page.ends_with("\n\nStatus 409. The change would leave the board, or the server, without an administrator. Make somebody else one first.\n"),
+            page.ends_with("\n\nStatus 409. The change would leave the board, the workspace or the server without an administrator. Make somebody else one first.\n"),
             "{page}"
         );
         let page = find("not-found").expect("a kind").page("/base");

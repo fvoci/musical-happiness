@@ -33,6 +33,7 @@
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { closeOnBack, isOverlayEntry } from '$lib/layout/back.svelte.ts';
+  import { userDisplayName } from '$lib/logic/users.ts';
   import { page } from '$lib/layout/room.svelte.ts';
   import {
     THEME_SETTINGS,
@@ -51,7 +52,7 @@
   } from '$lib/logic/regional.ts';
   import { browserTimeZone } from '$lib/regional.ts';
   import { saveBlob } from '$lib/save.ts';
-  import type { Workspace } from '$lib/state/index.ts';
+  import { isGuest, type Workspace } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
   import * as Dialog from '$lib/ui/dialog/index.js';
   import { Switch } from '$lib/ui/switch/index.js';
@@ -334,36 +335,43 @@
             <DownloadIcon aria-hidden="true" />
             {m.shell_export_workspace()}
           </Button>
-          <Button
-            variant="outline"
-            class="roomy:min-h-touch"
-            aria-describedby="{uid}-import-hint"
-            onclick={() => importField?.click()}
-          >
-            <UploadIcon aria-hidden="true" />
-            {m.shell_import()}
-          </Button>
-          <input
-            bind:this={importField}
-            type="file"
-            accept=".boardarchive,application/zip"
-            hidden
-            data-testid="import-archive"
-            onchange={(event) => {
-              const field = event.currentTarget;
-              const file = field.files?.[0];
-              // The same file can be chosen again.
-              field.value = '';
-              const workspaceId = workspace.info?.id;
-              if (!file || workspaceId === undefined) return;
-              leftOut = undefined;
-              void workspace.importArchive(file).then((imported) => {
-                leftOut = { workspaceId, count: imported?.membersLeftOut ?? 0 };
-              });
-            }}
-          />
+          <!-- A guest brings no boards in: importing makes boards. -->
+          {#if !isGuest(workspace)}
+            <Button
+              variant="outline"
+              class="roomy:min-h-touch"
+              aria-describedby="{uid}-import-hint"
+              onclick={() => importField?.click()}
+            >
+              <UploadIcon aria-hidden="true" />
+              {m.shell_import()}
+            </Button>
+            <input
+              bind:this={importField}
+              type="file"
+              accept=".boardarchive,application/zip"
+              hidden
+              data-testid="import-archive"
+              onchange={(event) => {
+                const field = event.currentTarget;
+                const file = field.files?.[0];
+                // The same file can be chosen again.
+                field.value = '';
+                const workspaceId = workspace.info?.id;
+                if (!file || workspaceId === undefined) return;
+                leftOut = undefined;
+                void workspace.importArchive(file).then((imported) => {
+                  leftOut = { workspaceId, count: imported?.membersLeftOut ?? 0 };
+                });
+              }}
+            />
+          {/if}
         </div>
-        <p id="{uid}-import-hint" class="text-xs text-muted-foreground">{m.shell_import_hint()}</p>
+        {#if !isGuest(workspace)}
+          <p id="{uid}-import-hint" class="text-xs text-muted-foreground">
+            {m.shell_import_hint()}
+          </p>
+        {/if}
         <!-- There before it says anything, so that what it says is announced. -->
         <p
           role="status"
@@ -406,7 +414,9 @@
         <div class="flex min-h-8 items-center gap-3 border-t pt-4 roomy:min-h-touch">
           <span class="min-w-0 flex-1 truncate text-muted-foreground" data-testid="signed-in-as">
             {m.account_signed_in_as({
-              name: (workspace.me && workspace.userName(workspace.me.id)) ?? '',
+              // The reader is not always among the people read of where they
+              // are (somebody new there, before they are on a board).
+              name: workspace.me ? userDisplayName(workspace.me) : '',
             })}
           </span>
           <Button variant="outline" class="roomy:min-h-touch" onclick={onSignOut}>

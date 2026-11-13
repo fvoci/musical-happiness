@@ -248,6 +248,33 @@ impl App {
         }
     }
 
+    /// Refuses `asker` if its session does not open what is the organization this handle
+    /// stands in, whether the user has a place in it yet or not: for one who holds the
+    /// link of an invitation into it, which names the organization to them.
+    ///
+    /// # Errors
+    ///
+    /// Returns 401 with the reason `sso_required`; the store's error if the
+    /// organization's provider cannot be read; and a server error for a handle that
+    /// stands in no organization.
+    pub(crate) async fn require_session_opens_organization(
+        &self,
+        asker: Asker<'_>,
+    ) -> Result<(), AppError> {
+        let Some(org_id) = self.store().tenant().org_id() else {
+            return Err(AppError::internal(
+                "an invitation's organization is asked of a handle of none",
+            ));
+        };
+        let required = self
+            .store()
+            .oidc_provider()
+            .await?
+            .filter(|provider| provider.sso_required)
+            .map(|provider| provider.id);
+        require_session_opens(asker, &org_id, required.as_deref())
+    }
+
     /// Refuses a session that does not open what is the organization this handle
     /// stands in: the one of the routes that name no workspace and no organization and
     /// still read or change an organization's (`getMyMemberships`, `setUserAdmin`).

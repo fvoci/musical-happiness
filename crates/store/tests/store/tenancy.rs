@@ -556,7 +556,24 @@ async fn something_in_every_table(store: &Store, username: &str) -> (String, Str
         .await
         .expect("a board goes to the trash");
     sign_in_under_way(store, username).await;
+    a_link_for_a_guest(store, &board, &user_id).await;
     (card.id, user_id)
+}
+
+/// A link that invites a guest to the board, made by the user.
+async fn a_link_for_a_guest(store: &Store, board: &Board, user_id: &str) {
+    store
+        .create_invitation(&fvoci_store::NewLink {
+            workspace_id: &board.workspace_id,
+            guest_of: Some((&board.id, fvoci_model::BoardRole::Viewer)),
+            token_hash: &format!("link of {user_id}"),
+            created_by: user_id,
+            now: 0,
+            expires_at: i64::MAX,
+            max_uses: Some(1),
+        })
+        .await
+        .expect("a link is stored");
 }
 
 /// The document of a card's body that is edited together, with an update logged.
@@ -836,7 +853,6 @@ async fn an_sqlite_database_holds_one_organization() {
     let test = common::setup().await;
     let second = Workspace {
         id: new_id(),
-        signup_token: "signup-token".to_owned(),
         ..Workspace::default()
     };
     let refused = test
@@ -1124,7 +1140,6 @@ async fn assert_the_workspaces_are_its_workspaces(
         [before.id("older_workspace"), before.id("younger_workspace")],
         "the oldest first"
     );
-    assert_eq!(workspaces[0].signup_token, "token-1", "{:?}", workspaces[0]);
     assert_eq!(
         workspaces[0].modified_by,
         before.id("admin"),

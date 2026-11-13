@@ -56,9 +56,11 @@ describe('the organizations offered to connect', () => {
       ],
       (orgId) => {
         asked.push(orgId);
-        if (orgId === 'a') return Promise.resolve({ id: 'a', name: '', oidc: true });
-        if (orgId === 'b') return Promise.resolve({ id: 'b', name: 'Bee', oidc: true });
-        if (orgId === 'c') return Promise.resolve({ id: 'c', name: 'Sea', oidc: false });
+        const of = (organization: { id: string; name: string; oidc: boolean }) =>
+          Promise.resolve({ organization, registrationOpen: true });
+        if (orgId === 'a') return of({ id: 'a', name: '', oidc: true });
+        if (orgId === 'b') return of({ id: 'b', name: 'Bee', oidc: true });
+        if (orgId === 'c') return of({ id: 'c', name: 'Sea', oidc: false });
         return Promise.reject(new Error('not read'));
       },
     );

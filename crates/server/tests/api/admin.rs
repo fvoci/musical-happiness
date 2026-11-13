@@ -634,7 +634,10 @@ async fn use_ssl_serves_over_tls() {
     let register = https
         .post(format!("https://localhost:{port}/api/v1/register"))
         .header("X-Requested-With", "XMLHttpRequest")
-        .json(&json!({"username": "user1", "email": "user1@sample.com", "password": PASSWORD}))
+        .json(&json!({
+            "username": "user1", "email": "user1@sample.com", "password": PASSWORD,
+            "organizationName": "The Firm",
+        }))
         .send()
         .await
         .expect("the server answers over TLS");

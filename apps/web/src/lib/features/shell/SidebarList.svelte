@@ -19,7 +19,6 @@
   import ArrowDownIcon from '@lucide/svelte/icons/arrow-down';
   import ArrowUpIcon from '@lucide/svelte/icons/arrow-up';
   import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
-  import DownloadIcon from '@lucide/svelte/icons/download';
   import EllipsisIcon from '@lucide/svelte/icons/ellipsis';
   import EyeIcon from '@lucide/svelte/icons/eye';
   import EyeOffIcon from '@lucide/svelte/icons/eye-off';
@@ -36,9 +35,9 @@
   import { Sortable } from '$lib/drag/sortable.svelte.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type { Board } from '$lib/logic/wire.ts';
-  import { saveBlob } from '$lib/save.ts';
   import type { Category, SidebarCategory, Workspace } from '$lib/state/index.ts';
 
+  import { exportAction } from './board-export.ts';
   import BoardIcon from './BoardIcon.svelte';
   import { boardDragMessages } from './drag-messages.ts';
   import {
@@ -118,9 +117,12 @@
   const categoryName = (id: string): string =>
     workspace.categories.find((category) => category.id === id)?.name ?? id;
 
+  /** A guest has the boards they were invited to as they are filed: the sidebar is not theirs to arrange. */
+  const guest = $derived(workspace.info?.role === 'guest');
+
   const sortable = new Sortable({
-    order: () => (filtering ? [] : dragOrder(workspace.sidebar)),
-    zones: () => (filtering ? [] : dragZones(workspace.sidebar)),
+    order: () => (filtering || guest ? [] : dragOrder(workspace.sidebar)),
+    zones: () => (filtering || guest ? [] : dragZones(workspace.sidebar)),
     onDrop: ({ itemId, to }) => {
       const move = boardMoveOf(to, itemId, workspace.sidebar);
       if (move) void workspace.moveBoard(move.boardId, move.categoryId, move.index);
@@ -228,12 +230,6 @@
     return actions;
   }
 
-  /** Saves an archive of the board, once it has all arrived. */
-  async function exportBoard(boardId: string): Promise<void> {
-    const archive = await workspace.exportBoard(boardId);
-    if (archive) saveBlob(archive.bytes, archive.name);
-  }
-
   function boardActions(board: Board, home: Category): MenuAction[] {
     const moves = workspace.sidebar
       .filter((entry) => entry.category.id !== home.id)
@@ -246,15 +242,10 @@
           if (move) void workspace.moveBoard(move.boardId, move.categoryId, move.index);
         },
       }));
+    if (guest) return [exportAction(workspace, board.id)];
     return [
       ...moves,
-      {
-        id: 'export',
-        label: m.shell_export_board(),
-        icon: DownloadIcon,
-        separated: moves.length > 0,
-        run: () => void exportBoard(board.id),
-      },
+      exportAction(workspace, board.id, moves.length > 0),
       {
         id: 'template-from-board',
         label: m['Sidebar.template-from-board'](),
@@ -306,7 +297,7 @@
           type="button"
           data-category-toggle
           aria-expanded={open}
-          disabled={filtering}
+          disabled={filtering || guest}
           class="flex min-h-8 w-full items-center gap-1 rounded-md py-1 pr-9 pl-1 text-left text-xs font-medium text-muted-foreground hover:bg-sidebar-accent disabled:hover:bg-transparent roomy:min-h-touch roomy:pr-12"
           onclick={() => void workspace.setCategoryCollapsed(category.id, !category.collapsed)}
         >
@@ -316,17 +307,19 @@
           />
           <span class="min-w-0 flex-1 truncate">{category.name}</span>
         </button>
-        <ActionMenu title={category.name} actions={categoryActions(category)}>
-          {#snippet trigger(props: Record<string, unknown>)}
-            <IconButton
-              {...props}
-              label={m.shell_category_menu({ name: category.name })}
-              class="absolute top-0 right-0 text-muted-foreground can-hover:opacity-0 can-hover:group-focus-within/category:opacity-100 can-hover:group-hover/category:opacity-100 can-hover:aria-expanded:opacity-100"
-            >
-              <EllipsisIcon />
-            </IconButton>
-          {/snippet}
-        </ActionMenu>
+        {#if !guest}
+          <ActionMenu title={category.name} actions={categoryActions(category)}>
+            {#snippet trigger(props: Record<string, unknown>)}
+              <IconButton
+                {...props}
+                label={m.shell_category_menu({ name: category.name })}
+                class="absolute top-0 right-0 text-muted-foreground can-hover:opacity-0 can-hover:group-focus-within/category:opacity-100 can-hover:group-hover/category:opacity-100 can-hover:aria-expanded:opacity-100"
+              >
+                <EllipsisIcon />
+              </IconButton>
+            {/snippet}
+          </ActionMenu>
+        {/if}
       </div>
 
       {#if open}
@@ -494,7 +487,7 @@
     </div>
   {/if}
 
-  {#if !filtering}
+  {#if !filtering && !guest}
     <button
       type="button"
       data-testid="new-category"

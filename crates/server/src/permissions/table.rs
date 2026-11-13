@@ -46,16 +46,17 @@ const fn actor(org: Option<OrgRole>, workspace: Option<WorkspaceRole>) -> Actor 
     Actor { org, workspace }
 }
 
-const MEMBER: Actor = actor(Some(OrgRole::Member), Some(WorkspaceRole::Member));
-const WORKSPACE_ADMIN: Actor = actor(Some(OrgRole::Member), Some(WorkspaceRole::Admin));
-const GUEST: Actor = actor(Some(OrgRole::Member), Some(WorkspaceRole::Guest));
-const OUTSIDE_GUEST: Actor = actor(None, Some(WorkspaceRole::Guest));
-const ORG_ADMIN_ONLY: Actor = actor(Some(OrgRole::Admin), None);
-const ORG_ADMIN_IN_WORKSPACE: Actor = actor(Some(OrgRole::Admin), Some(WorkspaceRole::Member));
+pub(super) const MEMBER: Actor = actor(Some(OrgRole::Member), Some(WorkspaceRole::Member));
+pub(super) const WORKSPACE_ADMIN: Actor = actor(Some(OrgRole::Member), Some(WorkspaceRole::Admin));
+pub(super) const GUEST: Actor = actor(Some(OrgRole::Member), Some(WorkspaceRole::Guest));
+pub(super) const OUTSIDE_GUEST: Actor = actor(None, Some(WorkspaceRole::Guest));
+pub(super) const ORG_ADMIN_ONLY: Actor = actor(Some(OrgRole::Admin), None);
+pub(super) const ORG_ADMIN_IN_WORKSPACE: Actor =
+    actor(Some(OrgRole::Admin), Some(WorkspaceRole::Member));
 /// An organization's administrator who joined the workspace as its administrator.
 const ORG_ADMIN_JOINED: Actor = actor(Some(OrgRole::Admin), Some(WorkspaceRole::Admin));
-const REMOVED: Actor = actor(Some(OrgRole::Member), None);
-const STRANGER: Actor = actor(None, None);
+pub(super) const REMOVED: Actor = actor(Some(OrgRole::Member), None);
+pub(super) const STRANGER: Actor = actor(None, None);
 
 /// One case: who, on what board, with which role there, may do exactly this.
 struct Row {

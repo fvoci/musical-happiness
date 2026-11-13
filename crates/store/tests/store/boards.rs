@@ -789,7 +789,7 @@ async fn undelete_board() {
 async fn insert_board_with_admin() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
-    let workspace_id = common::workspace(&test).await;
+    let workspace_id = common::workspace_of(&test, &[&user_id]).await;
 
     // "should correctly create a board and the admin membership with the creator"
     {
@@ -1546,7 +1546,7 @@ async fn search_boards_for_user_in_workspace_finds_open_boards_and_own_private_b
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
     let other_user_id = common::user(&test, "other-user").await;
-    let workspace_id_1 = common::workspace(&test).await;
+    let workspace_id_1 = common::workspace_of(&test, &[&user_id, &other_user_id]).await;
     let workspace_id_2 = common::workspace(&test).await;
 
     let mut open = Board {
@@ -1630,7 +1630,7 @@ async fn get_template_boards_returns_open_templates_and_templates_the_user_is_me
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
     let other_user_id = common::user(&test, "other-user").await;
-    let workspace_id = common::workspace(&test).await;
+    let workspace_id = common::workspace_of(&test, &[&user_id, &other_user_id]).await;
     let another_workspace_id = common::workspace(&test).await;
 
     let mut open_template = Board {
@@ -1988,9 +1988,9 @@ struct FullBoard {
 
 impl FullBoard {
     async fn store(store: &Store) -> Self {
-        let workspace_id = common::workspace(store).await;
         let admin_id = common::user(store, "admin").await;
         let editor_id = common::user(store, "editor").await;
+        let workspace_id = common::workspace_of(store, &[&admin_id]).await;
 
         let mut board = Board {
             title: "Roadmap".to_owned(),
@@ -2432,7 +2432,7 @@ async fn undelete_board_restores_a_board_whose_creator_is_gone_as_made_by_nobody
     let test = common::setup().await;
     let creator_id = common::user(&test, "creator").await;
     let editor_id = common::user(&test, "editor").await;
-    let workspace_id = common::workspace(&test).await;
+    let workspace_id = common::workspace_of(&test, &[&creator_id]).await;
 
     let mut board = new_board(&new_id(), &workspace_id, BoardType::Open);
     test.insert_board_with_admin(&mut board, &creator_id)
@@ -3580,7 +3580,7 @@ async fn join_board_gives_the_minimum_role_raises_to_it_and_never_lowers() {
     let test = common::setup().await;
     let owner_id = common::user(&test, "owner").await;
     let user_id = common::user(&test, "joiner").await;
-    let workspace_id = common::workspace(&test).await;
+    let workspace_id = common::workspace_of(&test, &[&owner_id]).await;
 
     for (minimum_role, expected) in [
         (MinimumRole::Viewer, VIEWER),

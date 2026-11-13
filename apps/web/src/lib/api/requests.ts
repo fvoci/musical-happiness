@@ -7,9 +7,12 @@
  */
 import type { Board } from '../logic/wire.ts';
 import type {
+  AcceptedInvitation,
   DeletedItem,
   LinkedIdentity,
-  LoginOrganization,
+  InvitationPreview,
+  LoginOptions,
+  NewAccount,
   Paging,
   Registration,
   WorkspaceInfo,
@@ -18,9 +21,11 @@ import type {
 } from '../state/backend.ts';
 
 import { BackendError } from '../state/backend.ts';
+import type { People } from '../state/people-types.ts';
 
 import { boardOf, workspacesOf, userOf, type Schemas } from './convert.ts';
 import type { ApiPath, Http, RequestOptions } from './http.ts';
+import { ServerPeople } from './people.ts';
 
 /** A path under a workspace, as the contract writes it after `/api/v1/w/{workspaceId}`. */
 export type WorkspacePath = ApiPath extends infer P
@@ -40,8 +45,20 @@ export function underWorkspace<P extends WorkspacePath>(path: P): `/api/v1/w/{wo
 /** How many identifiers `getWorkspaceUsersById` takes at once (its `maxItems`). */
 export const USERS_AT_ONCE = 200;
 
+/** The account as the server takes it: a display name that is empty is left out. */
+function accountOf(account: NewAccount): Schemas['NewAccount'] {
+  return {
+    username: account.username,
+    email: account.email,
+    password: account.password,
+    ...(account.displayName ? { displayName: account.displayName } : {}),
+  };
+}
+
 export class ServerRequests implements TrashReads {
   readonly #http: Http;
+  /** Who is in a workspace, and the links that let others in. */
+  readonly people: People;
   /** The workspace the reader is in (`enter`): the paths of its boards are under it. */
   #workspaceId: string | undefined;
   /**
@@ -53,6 +70,7 @@ export class ServerRequests implements TrashReads {
 
   constructor(http: Http) {
     this.#http = http;
+    this.people = new ServerPeople(http);
   }
 
   /** The requests that name no workspace go to this one from now on. */
@@ -156,22 +174,53 @@ export class ServerRequests implements TrashReads {
 
   async register(registration: Registration): Promise<void> {
     const request: Schemas['RegisterRequest'] = {
-      username: registration.username,
-      email: registration.email,
-      password: registration.password,
-      ...(registration.displayName ? { displayName: registration.displayName } : {}),
-      ...(registration.token ? { token: registration.token } : {}),
+      ...accountOf(registration),
+      organizationName: registration.organizationName,
     };
     await this.#http.request('/api/v1/register', {}, { method: 'POST', json: request });
   }
 
-  async loginOrganization(orgId: string | undefined): Promise<LoginOrganization | undefined> {
+  /** The token goes in the body: an address would keep it in logs. */
+  async previewInvitation(token: string): Promise<InvitationPreview> {
+    const request: Schemas['InvitationToken'] = { token };
+    const preview = await this.#http.request<Schemas['InvitationPreview']>(
+      '/api/v1/invitations/preview',
+      {},
+      { method: 'POST', json: request },
+    );
+    return {
+      workspaceName: preview.workspaceName,
+      inviterName: preview.inviterName,
+      ...(typeof preview.boardTitle === 'string' ? { boardTitle: preview.boardTitle } : {}),
+    };
+  }
+
+  async acceptInvitation(token: string, account?: NewAccount): Promise<AcceptedInvitation> {
+    const request: Schemas['AcceptInvitation'] = {
+      token,
+      ...(account ? { account: accountOf(account) } : {}),
+    };
+    const accepted = await this.#http.request<Schemas['AcceptedInvitation']>(
+      '/api/v1/invitations/accept',
+      {},
+      { method: 'POST', json: request },
+    );
+    return {
+      workspaceId: accepted.workspaceId,
+      ...(accepted.boardId ? { boardId: accepted.boardId } : {}),
+    };
+  }
+
+  async loginOptions(orgId: string | undefined): Promise<LoginOptions> {
     const options = await this.#http.request<Schemas['LoginOptions']>(
       '/api/v1/login-options',
       {},
       { query: { org: orgId } },
     );
-    return options.organization ?? undefined;
+    return {
+      ...(options.organization ? { organization: options.organization } : {}),
+      registrationOpen: options.registrationOpen,
+    };
   }
 
   /**

@@ -62,8 +62,8 @@ describe('the workspaces as the server lists them', () => {
       { id: 'b', orgId: 'another', name: 'B', role: 'admin', ssoRequired: false },
     ]);
     expect(workspaces).toEqual([
-      { id: 'a', title: 'A', orgId: ORG, ssoRequired: true },
-      { id: 'b', title: 'B', orgId: 'another', ssoRequired: false },
+      { id: 'a', title: 'A', role: 'member', orgId: ORG, ssoRequired: true },
+      { id: 'b', title: 'B', role: 'admin', orgId: 'another', ssoRequired: false },
     ]);
   });
 });

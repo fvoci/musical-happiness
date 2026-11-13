@@ -9,7 +9,6 @@ import { tick } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import SignInPage from '$lib/features/account/SignInPage.svelte';
-import { m } from '$lib/i18n/paraglide/messages.js';
 import { BackendError, type LoginOrganization } from '$lib/state/index.ts';
 
 afterEach(() => {
@@ -23,13 +22,16 @@ function mount(
   start: (orgId: string) => Promise<void> = () => Promise.resolve(),
 ) {
   history.replaceState(null, '', address);
-  const organizationOf = vi.fn(async (_orgId: string | undefined) => found);
+  const organizationOf = vi.fn(async (_orgId: string | undefined) => ({
+    ...(found ? { organization: found } : {}),
+    registrationOpen: true,
+  }));
   const onOidcStart = vi.fn(start);
   render(SignInPage, {
     props: {
       onSignIn: vi.fn(() => Promise.resolve()),
       onRegister: vi.fn(() => Promise.resolve()),
-      organizationOf,
+      optionsOf: organizationOf,
       onOidcStart,
     },
   });
@@ -55,7 +57,9 @@ describe('the provider of the organization on the sign-in page', () => {
       Promise.reject(new BackendError(409, { detail: 'no', reason: 'oidc_unavailable' })),
     );
     await fireEvent.click(await screen.findByRole('button', { name: 'Continue with Acme' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent(m.account_oidc_failed());
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      "Signing in through single sign-on did not work. Try again, or ask your team's administrator.",
+    );
   });
 
   it('asks for the server’s only organization when the address names none, or an empty one', async () => {
@@ -85,9 +89,13 @@ describe('the provider of the organization on the sign-in page', () => {
 
   it('tells a refusal by its name, and one it does not know in general words', () => {
     mount('/login?oidc_error=oidc-join-closed', undefined);
-    expect(screen.getByRole('alert')).toHaveTextContent(m.account_oidc_join_closed());
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'This team does not let new people in through its single sign-on. Ask its administrator for an invitation.',
+    );
     cleanup();
     mount('/login?oidc_error=<b>made-up</b>', undefined);
-    expect(screen.getByRole('alert')).toHaveTextContent(m.account_oidc_failed());
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      "Signing in through single sign-on did not work. Try again, or ask your team's administrator.",
+    );
   });
 });

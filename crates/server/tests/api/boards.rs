@@ -26,7 +26,6 @@ use fvoci_model::{
     Block, BlockType, Board, BoardMember, BoardPatch, BoardType, Category, CategoryBoards,
     MinimumRole, User, Workspace, is_id, new_id,
 };
-use fvoci_server::auth::secret::new_secret;
 use fvoci_store::PublicBoards;
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
@@ -69,7 +68,6 @@ pub(crate) async fn board_without_members(th: &TestServer, board: Board, user_id
 pub(crate) async fn another_workspace(th: &TestServer, member: &str) -> String {
     let workspace = Workspace {
         id: new_id(),
-        signup_token: new_secret(),
         ..Workspace::default()
     };
     let (store, role) = (th.app.store(), fvoci_model::WorkspaceRole::Member);
@@ -3103,7 +3101,7 @@ async fn leave_board_cases() {
 #[tokio::test]
 async fn app_patch_board_base_case_title_patch() {
     let th = Setup::native().start().await;
-    let user = th.stranger().await;
+    let user = th.stranger_in(TEST_WORKSPACE_ID).await;
     let board = board_with_admin(
         &th,
         new_board(TEST_WORKSPACE_ID, BoardType::Open, "Title"),
@@ -3130,7 +3128,7 @@ async fn app_patch_board_base_case_title_patch() {
 #[tokio::test]
 async fn board_category_no_boards_default_category_exists() {
     let th = Setup::native().start().await;
-    let user = th.stranger().await;
+    let user = th.stranger_in(TEST_WORKSPACE_ID).await;
     for name in ["Category 1", "Category 2", "Category 3"] {
         th.app
             .create_category(Category {

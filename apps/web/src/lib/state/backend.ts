@@ -32,12 +32,17 @@ import type {
   Card,
 } from '../logic/wire.ts';
 
+import type { WorkspaceRole } from './people-types.ts';
 import type { TrashReads } from './trash-reads.ts';
 
 export type {
+  AcceptedInvitation,
   Account,
+  InvitationPreview,
   LinkedIdentity,
+  LoginOptions,
   LoginOrganization,
+  NewAccount,
   Registration,
   SignInOrganization,
 } from './account-types.ts';
@@ -88,6 +93,12 @@ export interface WorkspaceInfo {
    * password, and it opens for a session made through the provider of `orgId`.
    */
   ssoRequired?: boolean;
+  /**
+   * What the reader is in it; left out by a backend that has no roles, where
+   * the reader does everything. A guest is on the boards they were invited
+   * to, and makes none.
+   */
+  role?: WorkspaceRole;
 }
 
 /**

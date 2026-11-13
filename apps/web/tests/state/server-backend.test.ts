@@ -1035,7 +1035,7 @@ describe('sharing a board on the server', () => {
     expect(sentLines(sent)).toEqual(['GET /api/v1/w/t/users?search=ann+lee']);
   });
 
-  it("takes the reader's workspaces from their workspaces, leaving out those they are a guest of", async () => {
+  it("takes the reader's workspaces from their workspaces, those they are a guest of too, with what they are in each", async () => {
     const workspace = (id: string, role: string) => ({
       id,
       orgId: 'o',
@@ -1050,8 +1050,9 @@ describe('sharing a board on the server', () => {
       ],
     ]);
     expect(await serverBackend('').workspaces()).toEqual([
-      { id: 'w2', title: 'n-w2', orgId: 'o', ssoRequired: false },
-      { id: 'w3', title: 'n-w3', orgId: 'o', ssoRequired: false },
+      { id: 'w1', title: 'n-w1', role: 'guest', orgId: 'o', ssoRequired: false },
+      { id: 'w2', title: 'n-w2', role: 'member', orgId: 'o', ssoRequired: false },
+      { id: 'w3', title: 'n-w3', role: 'admin', orgId: 'o', ssoRequired: false },
     ]);
     expect(sentLines(sent)).toEqual(['GET /api/v1/users/me/workspaces']);
   });

@@ -199,7 +199,11 @@ async fn a_first_start_makes_the_organization_and_its_workspace() {
         .get(&format!("/w/{}", workspaces[0].id))
         .await
         .ok_json();
-    assert!(!workspace.signup_token.is_empty(), "with a signup token");
+    assert_eq!(
+        workspace.title,
+        crate::common::ORG_NAME,
+        "named as the organization is"
+    );
     // And it is there to work in.
     let board = ts.create_board(&workspace.id, BoardType::Private).await;
     let boards: Vec<fvoci_model::Board> = ts
@@ -232,7 +236,6 @@ async fn the_housekeeping_reaches_every_organization() {
     let ts = Setup::native().start().await.init_basic().await;
     let workspace = fvoci_model::Workspace {
         id: fvoci_model::new_id(),
-        signup_token: "signup-token".to_owned(),
         ..fvoci_model::Workspace::default()
     };
     let org_id = ts

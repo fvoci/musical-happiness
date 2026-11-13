@@ -32,8 +32,8 @@ fn pairs(expected: &[(&str, &str)]) -> Vec<(String, String)> {
         .collect()
 }
 
-/// A registration whose name, email address and password are all wrong is told of all
-/// three in one answer, and of a fourth with them; nothing is registered.
+/// A registration whose name, email address, password and organization name are all wrong is
+/// told of all four in one answer, and of a fifth with them; nothing is registered.
 #[tokio::test]
 async fn a_registration_is_told_of_every_member_that_is_wrong_at_once() {
     let th = Setup::native().start().await;
@@ -47,7 +47,7 @@ async fn a_registration_is_told_of_every_member_that_is_wrong_at_once() {
         .await;
     response.check_error(
         StatusCode::BAD_REQUEST,
-        "3 members of the request were refused",
+        "4 members of the request were refused",
     );
     assert_eq!(
         response.value()["errors"],
@@ -59,6 +59,7 @@ async fn a_registration_is_told_of_every_member_that_is_wrong_at_once() {
                 "detail": "password must be at least 8 characters",
                 "reason": "too_short",
             },
+            {"pointer": "/organizationName", "detail": "organization name is required", "reason": "required"},
         ]),
         "each member with its own words and cause, in the order of the members"
     );
@@ -79,6 +80,7 @@ async fn a_registration_is_told_of_every_member_that_is_wrong_at_once() {
             ("/email", "required"),
             ("/displayName", "invalid_characters"),
             ("/password", "required"),
+            ("/organizationName", "required"),
         ])
     );
 
@@ -88,18 +90,31 @@ async fn a_registration_is_told_of_every_member_that_is_wrong_at_once() {
             "/register",
             &json!({
                 "username": "pam", "email": format!("{}@sample.com", "a".repeat(250)),
-                "password": "Pa$$word",
+                "password": "Pa$$word", "organizationName": "\u{202e}ours",
             }),
         )
         .await;
-    response.check_error(StatusCode::BAD_REQUEST, "email must be at most 254 bytes");
-    assert_eq!(refused(&response), pairs(&[("/email", "too_long")]));
+    response.check_bad_request();
+    assert_eq!(
+        refused(&response),
+        pairs(&[
+            ("/email", "too_long"),
+            ("/organizationName", "invalid_characters")
+        ])
+    );
+    assert_eq!(
+        response.value()["errors"][0]["detail"],
+        json!("email must be at most 254 bytes")
+    );
 
     // One member wrong: the answer's detail is that member's.
     let response = anonymous
         .post(
             "/register",
-            &json!({"username": "pam", "email": "pam@sample.com", "password": "short"}),
+            &json!({
+                "username": "pam", "email": "pam@sample.com", "password": "short",
+                "organizationName": "Ours",
+            }),
         )
         .await;
     response.check_error(
@@ -112,7 +127,10 @@ async fn a_registration_is_told_of_every_member_that_is_wrong_at_once() {
     let made: Value = anonymous
         .post(
             "/register",
-            &json!({"username": "pam", "email": "pam@sample.com", "password": "Pa$$word"}),
+            &json!({
+                "username": "pam", "email": "pam@sample.com", "password": "Pa$$word",
+                "organizationName": "Ours",
+            }),
         )
         .await
         .created_json();
@@ -381,5 +399,47 @@ async fn an_upload_and_the_sharing_list_everything_they_refuse() {
             ("/regenerate", "invalid"),
         ])
     );
+    th.teardown().await;
+}
+
+/// The first user's name for the organization is its first workspace's too: where the
+/// organization was given another workspace of that name before anybody signed up, it
+/// is refused as taken, at the name, and nobody is made.
+#[tokio::test]
+async fn the_first_user_is_told_the_organizations_name_is_another_workspaces() {
+    let th = Setup::native().start().await;
+    th.app
+        .store()
+        .system()
+        .execute_unchecked(&format!(
+            "INSERT INTO workspaces (id, settings, create_at, update_at, org_id, name) \
+             SELECT '{}', '{{}}', 1, 1, org_id, 'Design' FROM workspaces WHERE id = '{}'",
+            fvoci_model::new_id(),
+            crate::common::ROOT_WORKSPACE_ID
+        ))
+        .await
+        .expect("another workspace of the organization");
+    let register = async |name: &str| {
+        th.anonymous()
+            .post(
+                "/register",
+                &json!({
+                    "username": "first", "email": "first@sample.com",
+                    "password": crate::common::PASSWORD, "organizationName": name,
+                }),
+            )
+            .await
+    };
+
+    let taken = register("Design").await;
+    taken.check_status(StatusCode::CONFLICT);
+    assert_eq!(taken.error_reason(), "workspace_name_taken");
+    assert_eq!(taken.refused_at(), "/organizationName");
+    assert_eq!(
+        th.app.registered_user_count().await.expect("user count"),
+        0,
+        "nobody is made"
+    );
+    register("Design studio").await.check_created();
     th.teardown().await;
 }

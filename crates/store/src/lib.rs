@@ -6,6 +6,7 @@
 //!
 //! The schema is this server's own: a list of migrations applied by sqlx's migrator.
 
+mod accounts;
 mod audit;
 mod blocks;
 mod board_membership;
@@ -24,6 +25,7 @@ mod directory;
 mod error;
 mod file_info;
 mod file_refs;
+mod invitations;
 mod joinings;
 mod loose_objects;
 mod members;
@@ -40,6 +42,7 @@ pub mod testing;
 mod trash;
 mod uploads;
 mod users;
+mod workspace_membership;
 mod workspaces;
 
 use std::sync::Arc;
@@ -49,6 +52,7 @@ use sqlx::Connection as _;
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
 
+pub use accounts::Founding;
 pub use audit::{AuditEntry, AuditPlace};
 pub use blocks::{BlockFilter, BodyPreview, DuplicateAs, ListedBlock, Paging, Previews};
 pub use board_membership::Standing;
@@ -61,6 +65,7 @@ pub use db::Dialect;
 pub use directory::{Looking, Reach, SYSTEM_ORG_ID, SYSTEM_WORKSPACE_ID, Sight, WorkspaceAccess};
 pub use error::{StoreError, Taken};
 pub use file_refs::NewImages;
+pub use invitations::{Acceptance, Accepted, Acceptor, Inviter, InviterOfBoard, NewLink};
 pub use loose_objects::{LooseCounts, LooseObject, LooseState};
 pub use observe::{Access, Call, Observer, Outcome};
 pub use oidc::{
@@ -73,6 +78,7 @@ pub use sharing::SharingChange;
 pub use trash::{DeletedBlock, DeletedBoard, Purged};
 pub use uploads::{OpenUploads, PartRecord, UploadUsage};
 pub use users::{AdminChange, InstanceRole, Preference};
+pub use workspace_membership::MembershipChange;
 
 use db::{ConnRef, Scope};
 use observe::Watch;

@@ -859,6 +859,32 @@ fn organization_requests(org: &str) -> Vec<(Method, String, Value)> {
     ]
 }
 
+/// The routes of who is in a workspace and of the links that let others in; `{}`
+/// stands for the identifier that is asked about, and `me` is a user of the server.
+fn the_people_of_a_workspace(me: &str) -> Vec<(Method, String, Value)> {
+    vec![
+        (Method::POST, "/w/{}/invitations".to_owned(), Value::Null),
+        (Method::GET, "/w/{}/invitations".to_owned(), Value::Null),
+        (Method::GET, "/w/{}/members".to_owned(), Value::Null),
+        (
+            Method::PUT,
+            format!("/w/{{}}/members/{me}"),
+            json!({"role": "member"}),
+        ),
+        (Method::DELETE, format!("/w/{{}}/members/{me}"), Value::Null),
+        (
+            Method::DELETE,
+            format!("/w/{{}}/invitations/{}", crate::common::UNKNOWN_ID),
+            Value::Null,
+        ),
+        (
+            Method::PUT,
+            "/w/{}/guest-invitations".to_owned(),
+            json!({"enabled": true}),
+        ),
+    ]
+}
+
 /// Text that is no identifier answers as an identifier of nothing, also where the asker
 /// is allowed everything: on their own board, in their own workspace, about themselves. An
 /// identifier column takes no such text, and no route may let that show: not as a 500,
@@ -897,7 +923,6 @@ async fn text_that_is_no_identifier_answers_as_an_identifier_of_nothing() {
             Value::Null,
         ),
         (Method::POST, "/w/{}/onboard".to_owned(), Value::Null),
-        (Method::POST, "/w/{}/signup-token".to_owned(), Value::Null),
         (Method::GET, format!("{TEST_WS}/users/{{}}"), Value::Null),
         (
             Method::GET,
@@ -1016,6 +1041,7 @@ async fn text_that_is_no_identifier_answers_as_an_identifier_of_nothing() {
             json!({"blockType": "card", "blockId": "{}", "subscriberType": "user", "subscriberId": me}),
         ),
     ];
+    requests.extend(the_people_of_a_workspace(me));
     requests.extend(organization_requests(org));
 
     let unknown = new_id();

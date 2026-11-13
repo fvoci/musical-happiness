@@ -97,13 +97,14 @@ fn the_contract_says_when_each_reason_comes() {
 }
 
 /// The operations that need no session at all.
-const NO_SESSION: [&str; 9] = [
+const NO_SESSION: [&str; 10] = [
     "finishOidcLogin",
     "getClientConfig",
     "getLoginOptions",
     "hello",
     "login",
     "ping",
+    "previewInvitation",
     "ready",
     "register",
     "startOidcLogin",
@@ -116,6 +117,9 @@ const READ_TOKEN: [&str; 5] = [
     "getSharedFile",
     "getSharedFileInfo",
 ];
+/// The operations that take a session and do without one: the acceptance of an
+/// invitation, which makes an account for whoever has none.
+const SESSION_OR_NONE: [&str; 1] = ["acceptInvitation"];
 
 #[test]
 fn what_needs_no_session_says_so() {
@@ -123,6 +127,7 @@ fn what_needs_no_session_says_so() {
     let document: Value = serde_json::from_str(&text).expect("JSON");
     let mut no_session = Vec::new();
     let mut read_token = Vec::new();
+    let mut session_or_none = Vec::new();
     for (path, item) in document["paths"].as_object().expect("paths") {
         for operation in item.as_object().expect("a path item").values() {
             let name = operation["operationId"].as_str().expect("a name");
@@ -133,6 +138,8 @@ fn what_needs_no_session_says_so() {
                 } else {
                     no_session.push(name);
                 }
+            } else if *security == json!([{}, { "sessionCookie": [] }, { "bearerToken": [] }]) {
+                session_or_none.push(name);
             } else {
                 assert_eq!(
                     *security,
@@ -144,6 +151,7 @@ fn what_needs_no_session_says_so() {
     }
     no_session.sort_unstable();
     read_token.sort_unstable();
+    session_or_none.sort_unstable();
     assert_eq!(
         no_session, NO_SESSION,
         "these need no session, and no others"
@@ -151,6 +159,10 @@ fn what_needs_no_session_says_so() {
     assert_eq!(
         read_token, READ_TOKEN,
         "these read a shared board with its token, and are all under /shared"
+    );
+    assert_eq!(
+        session_or_none, SESSION_OR_NONE,
+        "these take a session and do without one, and no others"
     );
     assert_eq!(
         document["security"],
@@ -498,6 +510,7 @@ const ORDERS: &[(&str, &str)] = &[
         "getDeletedCards",
         "The last deleted first; the pages cut that order",
     ),
+    ("getInvitations", "The newest first"),
     ("getMembers", "By the identifier of the user"),
     ("getMyIdentities", "Oldest first"),
     ("getMyMemberships", "By the identifier of the board"),
@@ -517,6 +530,7 @@ const ORDERS: &[(&str, &str)] = &[
     ("getTemplates", "Each of the two oldest first"),
     ("getWorkspaceAudit", "the newest first"),
     ("getWorkspaceBoards", "Oldest first"),
+    ("getWorkspaceMembers", "The oldest membership first"),
     ("getWorkspaceUsers", "Oldest account first"),
     (
         "getWorkspaceUsersById",

@@ -52,7 +52,7 @@
 | `dbconfig` | `FVOCI_DBCONFIG` | 문자열 | `"./fvoci.db"` | 연결 문자열. SQLite는 파일의 경로, PostgreSQL은 `postgres://사용자:비밀번호@호스트:포트/DB?sslmode=disable` 꼴이다. 다른 테이블과 한 DB를 나눠 쓰려면 `search_path`로 이 서버만의 스키마를 준다. 비밀번호가 들어 있을 수 있어 로그에 남기지 않는다 |
 | `dbpingattempts` | `FVOCI_DBPINGATTEMPTS` | 정수(0 이상) | `5` | 시작할 때 DB에 닿으려고 해 보는 횟수. 0이어도 한 번은 해 본다 |
 | `server_lock_wait_seconds` | `FVOCI_SERVER_LOCK_WAIT_SECONDS` | 정수(0 이상) | `30` | 시작할 때 다른 프로세스가 쥔 서버 잠금(위)을 기다리는 시간(초). 지나면 시작을 거절한다. 0이면 기다리지 않는다. 재시작에서 앞선 서버가 내려가는 시간보다 길게 둔다 |
-| `org_creation` | `FVOCI_ORG_CREATION` | 문자열 | `"first_user_only"` | 서버가 조직을 하나만 두는가(`first_user_only`), 여럿을 받는가(`open`). `open`은 `dbtype`이 `sqlite3`이면 시작하지 않는다(SQLite는 조직 하나만 담는다). PostgreSQL에서는 조직의 행을 행 단위 보안 정책이 갈라 둔다. 서버가 붙는 DB 역할이 슈퍼유저이거나 `BYPASSRLS`이면 그 정책이 걸리지 않는다: `open`이면 DB에 아무것도 만들기 전에 시작을 거부하고, `first_user_only`면 경고를 남기고 시작한다. 그 밖의 값은 시작 오류다. 조직을 만드는 조작은 아직 없어서 지금은 이 검사만 한다 |
+| `org_creation` | `FVOCI_ORG_CREATION` | 문자열 | `"first_user_only"` | 서버가 조직을 하나만 두는가(`first_user_only`), 여럿을 받는가(`open`). `open`은 `dbtype`이 `sqlite3`이면 시작하지 않는다(SQLite는 조직 하나만 담는다). PostgreSQL에서는 조직의 행을 행 단위 보안 정책이 갈라 둔다. 서버가 붙는 DB 역할이 슈퍼유저이거나 `BYPASSRLS`이면 그 정책이 걸리지 않는다: `open`이면 DB에 아무것도 만들기 전에 시작을 거부하고, `first_user_only`면 경고를 남기고 시작한다. 그 밖의 값은 시작 오류다. 가입(`register`)이 이 값을 따른다: `first_user_only`에서는 첫 사용자만 가입해 조직을 시작하고 그 뒤의 사람은 초대 링크로만 들어온다(403 `invitation_required`). `open`에서는 가입하는 사람마다 새 조직을 시작한다 |
 
 ## 키: 파일 저장소
 
@@ -122,7 +122,7 @@ Cloudflare R2는 같은 규칙이 기본으로 7일이다. 다른 S3 호환 저�
 | `login_pair_max_delay_seconds` | `FVOCI_LOGIN_PAIR_MAX_DELAY_SECONDS` | 정수(1 이상, 10년 이하) | `3600` | 한 주소가 한 계정에서 기다리는 가장 긴 시간(초). `login_pair_base_delay_seconds`보다 작을 수 없다 |
 | `login_account_max_failures` | `FVOCI_LOGIN_ACCOUNT_MAX_FAILURES` | 정수(1 이상) | `100` | 어디서든 연달아 이만큼 실패하면 계정을 잠근다 |
 | `login_account_lock_seconds` | `FVOCI_LOGIN_ACCOUNT_LOCK_SECONDS` | 정수(1 이상, 10년 이하) | `3600` | 계정이 잠겨 있는 시간(초) |
-| `login_address_attempts_per_minute` | `FVOCI_LOGIN_ADDRESS_ATTEMPTS_PER_MINUTE` | 정수(0 이상) | `20` | 한 주소가 1분에 해 볼 수 있는 로그인과 가입. 0이면 주소로 세지 않는다(모든 사용자가 한 주소에서 오고 프록시도 없는 서버) |
+| `login_address_attempts_per_minute` | `FVOCI_LOGIN_ADDRESS_ATTEMPTS_PER_MINUTE` | 정수(0 이상) | `20` | 한 주소가 1분에 해 볼 수 있는 로그인과 가입, 초대 링크의 미리보기와 수락. 한 주소의 시도는 한 번에 하나씩 지나간다. 0이면 주소로 세지 않는다(모든 사용자가 한 주소에서 오고 프록시도 없는 서버) |
 | `password_hash_concurrency` | `FVOCI_PASSWORD_HASH_CONCURRENCY` | 정수(1 이상) | `4` | 한꺼번에 하는 비밀번호 해시와 확인. 하나에 19 MiB와 몇 밀리초의 처리기가 든다 |
 | `password_hash_queue` | `FVOCI_PASSWORD_HASH_QUEUE` | 정수(0 이상) | `16` | 해시할 차례를 기다릴 수 있는 요청의 수 |
 | `password_hash_queue_seconds` | `FVOCI_PASSWORD_HASH_QUEUE_SECONDS` | 정수(1 이상) | `5` | 차례를 기다리는 시간(초). 넘으면 다시 해 보라고 답한다(429) |

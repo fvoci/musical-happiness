@@ -67,6 +67,17 @@ impl BoardRole {
     }
 }
 
+impl std::str::FromStr for BoardRole {
+    type Err = crate::organization::UnknownRole;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        [Self::Viewer, Self::Commenter, Self::Editor, Self::Admin]
+            .into_iter()
+            .find(|role| role.as_str() == text)
+            .ok_or_else(|| crate::organization::UnknownRole(text.to_owned()))
+    }
+}
+
 /// The minimum role of a board: the role a user gets who joins the board, or is added
 /// to it by somebody who does not manage its roles.
 ///
@@ -509,6 +520,33 @@ pub struct BoardMember {
     /// derives one; not part of the JSON form.
     #[serde(skip)]
     pub synthetic: bool,
+}
+
+impl BoardMember {
+    /// The role the membership has: the highest of its flags, `None` if it has none.
+    #[must_use]
+    pub fn role(&self) -> Option<BoardRole> {
+        [
+            (self.scheme_admin, BoardRole::Admin),
+            (self.scheme_editor, BoardRole::Editor),
+            (self.scheme_commenter, BoardRole::Commenter),
+            (self.scheme_viewer, BoardRole::Viewer),
+        ]
+        .into_iter()
+        .find_map(|(held, role)| held.then_some(role))
+    }
+
+    /// The membership with exactly the flag of `role`, and none for `None`.
+    #[must_use]
+    pub fn with_role(self, role: Option<BoardRole>) -> Self {
+        Self {
+            scheme_admin: role == Some(BoardRole::Admin),
+            scheme_editor: role == Some(BoardRole::Editor),
+            scheme_commenter: role == Some(BoardRole::Commenter),
+            scheme_viewer: role == Some(BoardRole::Viewer),
+            ..self
+        }
+    }
 }
 
 /// The board member that a board search matches against.

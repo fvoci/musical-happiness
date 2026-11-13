@@ -6,13 +6,14 @@
 //! is nobody's. What is asked before the organization is known (which sign-in comes
 //! back, which organization a login page is for) is in `directory.rs`.
 
-use fvoci_model::{LinkedIdentity, Session, User, new_id};
+use fvoci_model::{LinkedIdentity, OrgRole, Session, User, WorkspaceRole, new_id};
 
 use crate::Store;
+use crate::accounts::{self, Which};
 use crate::db::{Dialect, Id, OptId, Row, Scope, now_millis};
 use crate::error::StoreError;
-use crate::users::{InstanceRole, insert_user_row};
-use crate::{members, sessions};
+use crate::sessions;
+use crate::users::InstanceRole;
 
 /// The columns of a sign-in under way, in the order [`flow_from_row`] reads them.
 pub(crate) const FLOW_COLUMNS: &str = "state_hash, browser_hash, nonce, pkce_verifier, org_id, \
@@ -416,16 +417,12 @@ impl Store {
                     if !auto_join {
                         return Ok(Err(OidcRefusal::JoinClosed));
                     }
-                    let now = now_millis();
-                    user.create_at = now;
-                    user.update_at = now;
-                    user.delete_at = 0;
-                    user.is_admin = false;
                     user.password_hash = String::new();
                     user.email = String::new();
-                    insert_user_row(scope, user).await?;
-                    insert_identity(scope, identity, &user.id, provider_email, now).await?;
-                    members::join_organization(scope, &user.id, InstanceRole::User).await?;
+                    accounts::insert_account(scope, user, InstanceRole::User).await?;
+                    insert_identity(scope, identity, &user.id, provider_email, user.create_at)
+                        .await?;
+                    join_as_member(scope, &user.id).await?;
                     session.user_id.clone_from(&user.id);
                     true
                 }
@@ -440,7 +437,7 @@ impl Store {
                     if is_member(scope, user_id).await? {
                         false
                     } else if auto_join {
-                        members::join_organization_unless_member(scope, user_id).await?
+                        join_as_member(scope, user_id).await?
                     } else {
                         return Ok(Err(OidcRefusal::JoinClosed));
                     }
@@ -807,6 +804,24 @@ pub enum OidcRefusal {
     JoinClosed,
     /// The account was deleted, or given a password, while signing in.
     AccountChanged,
+}
+
+/// Makes a user a member of the scope's organization and of its default workspace, as a
+/// member of both, unless the user is a member of the organization already; says
+/// whether the user joined. Two at once for the same user both succeed, and one of them
+/// joins.
+async fn join_as_member(scope: &mut Scope<'_>, user_id: &str) -> Result<bool, StoreError> {
+    if !accounts::join_organization(scope, user_id, OrgRole::Member).await? {
+        return Ok(false);
+    }
+    accounts::join_workspace(
+        scope,
+        Which::DefaultWorkspace,
+        user_id,
+        WorkspaceRole::Member,
+    )
+    .await?;
+    Ok(true)
 }
 
 /// Whether the user is a member of the scope's organization.

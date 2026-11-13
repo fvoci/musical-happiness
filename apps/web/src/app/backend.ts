@@ -8,7 +8,7 @@
  * The page says which (`chosenBackend`). Each is fetched as a chunk of its
  * own, so the app the server serves does not carry the one in memory.
  */
-import type { Account, Backend } from '$lib/state/index.ts';
+import type { Account, Backend, People } from '$lib/state/index.ts';
 import type { Organizations } from '$lib/state/organization.ts';
 
 import { readBasePath } from './router.svelte.ts';
@@ -22,6 +22,8 @@ export interface StartedBackend {
   backend: Backend;
   /** Signing in and out; only a backend with accounts has it. */
   account?: Account;
+  /** Managing who is in a workspace; only a backend with accounts has it. */
+  people?: People;
   /** The organization's administration and the workspaces' records; only the server has them. */
   organizations?: Organizations;
 }
@@ -84,7 +86,12 @@ async function startServer(): Promise<StartedBackend> {
   const base = readBasePath(document);
   const path = base === '' ? '' : `/${base}`;
   const backend = new ServerBackend(path);
-  return { backend, account: backend, organizations: new ServerOrganizations(new Http(path)) };
+  return {
+    backend,
+    account: backend,
+    people: backend.people,
+    organizations: new ServerOrganizations(new Http(path)),
+  };
 }
 
 /**

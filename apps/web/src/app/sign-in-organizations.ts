@@ -4,11 +4,11 @@
  * of its workspaces the reader is in. One whose provider is off, or that has
  * none, is left out.
  */
-import type { LoginOrganization, SignInOrganization, WorkspaceInfo } from '$lib/state/index.ts';
+import type { LoginOptions, SignInOrganization, WorkspaceInfo } from '$lib/state/index.ts';
 
 export async function signInOrganizations(
   workspaces: readonly WorkspaceInfo[],
-  loginOrganization: (orgId: string) => Promise<LoginOrganization | undefined>,
+  loginOptions: (orgId: string) => Promise<LoginOptions>,
 ): Promise<SignInOrganization[]> {
   // An organization once, by the workspaces of it the reader is in: those are the
   // names they know it by. Its own name stands in where none of them has one.
@@ -21,7 +21,8 @@ export async function signInOrganizations(
   const found = await Promise.all(
     [...titles].map(async ([orgId, known]) => {
       // One that cannot be read is not offered; the others still are.
-      const organization = await loginOrganization(orgId).catch(() => undefined);
+      const options = await loginOptions(orgId).catch(() => undefined);
+      const organization = options?.organization;
       if (!organization?.oidc) return undefined;
       return { orgId, name: known.join(', ') || organization.name || orgId };
     }),

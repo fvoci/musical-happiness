@@ -450,6 +450,8 @@ const OPEN_TO_ANY_SESSION: &[&str] = &[
     "patchMe",
     "patchUserSettings",
     "ping",
+    // What a link leads into is shown to whoever holds it, signed in or not.
+    "previewInvitation",
     "ready",
     "register",
     "startOidcLogin",
@@ -465,6 +467,8 @@ struct Named {
     upload_id: String,
     user_id: String,
     category_id: String,
+    /// The token of a link for members into the organization's root workspace.
+    invitation: String,
 }
 
 impl Named {
@@ -490,6 +494,7 @@ impl Named {
             "getWorkspaceUsersById" => json!([self.user_id]),
             "createBlocks" | "reorderCardProperties" => json!([]),
             "importArchive" => json!({ "uploadId": self.upload_id }),
+            "acceptInvitation" | "previewInvitation" => json!({ "token": self.invitation }),
             _ => json!({}),
         }
     }
@@ -542,6 +547,7 @@ async fn named(ts: &TestServer, org_id: &str) -> Named {
         upload_id,
         user_id: ts.client2.me().await.id,
         category_id: categories[0]["id"].as_str().expect("a category").to_owned(),
+        invitation: ts.member_link().await,
     }
 }
 
@@ -978,6 +984,65 @@ async fn who_has_no_place_in_the_organization_learns_nothing_of_its_wall() {
             .collect::<Vec<_>>(),
         vec![(their_workspace.as_str(), false)]
     );
+    ts.teardown().await;
+    fake.stop();
+}
+
+/// Who holds the link of an invitation into an organization that takes no password and
+/// is signed in with a password, though no member of it, is told so by the
+/// organization the link names, and let in nowhere: the link opens it to a session of
+/// its provider.
+#[tokio::test]
+async fn a_link_into_an_organization_that_takes_no_password_lets_no_password_in() {
+    use fvoci_model::User;
+    use fvoci_store::DbType;
+    use fvoci_store::testing::db_type_of_the_tests;
+    if db_type_of_the_tests() != DbType::Postgres {
+        // An SQLite database holds one organization.
+        return;
+    }
+    let fake = FakeProvider::start().await;
+    let Two {
+        ts, ours, theirs, ..
+    } = two_organizations(&fake).await;
+    // Somebody of theirs alone, who signs in with a password.
+    let mut outsider = User {
+        id: new_id(),
+        username: "theirs-only".to_owned(),
+        email: "theirs-only@sample.com".to_owned(),
+        password_hash: fvoci_server::auth::password::hash_password(PASSWORD).expect("a hash"),
+        ..User::default()
+    };
+    ts.app
+        .store()
+        .for_org(&theirs)
+        .expect("an identifier")
+        .create_user(&mut outsider)
+        .await
+        .expect("an account of theirs");
+    let outsider_client = ts.login("theirs-only", PASSWORD).await;
+    let link = ts.member_link().await;
+    tie(&ts, &ts.client, &fake, ADMIN_SUBJECT).await;
+    let through_ours = through_provider(&ts, &fake, &ours, ADMIN_SUBJECT).await;
+    require_sso(&through_ours, &ours, &fake, Passwords::Refused)
+        .await
+        .check_ok();
+
+    let refused = outsider_client
+        .post("/invitations/accept", &json!({ "token": link }))
+        .await;
+    check_sso_required(&refused, &ours);
+    let theirs_only: Vec<UserWorkspace> =
+        outsider_client.get("/users/me/workspaces").await.ok_json();
+    assert!(
+        theirs_only.iter().all(|workspace| workspace.org_id != ours),
+        "let in nowhere: {theirs_only:?}"
+    );
+    // The refusal used nothing of the link.
+    ts.anonymous()
+        .post("/invitations/preview", &json!({ "token": link }))
+        .await
+        .check_ok();
     ts.teardown().await;
     fake.stop();
 }

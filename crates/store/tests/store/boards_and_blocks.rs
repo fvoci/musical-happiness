@@ -682,6 +682,7 @@ async fn duplicate_board() {
 
     // "duplicate existing board as no template"
     {
+        common::works_in(&test, &workspace_id, &user_id).await;
         let (bab, members) = test
             .duplicate_board(&board1, &user_id, Some(&workspace_id), DuplicateAs::Copy)
             .await
@@ -769,6 +770,7 @@ async fn duplicate_board_copies_under_new_ids_as_a_private_board_of_the_user() {
         .expect("the board and its blocks are created");
 
     // board -> board, same workspace
+    common::works_in(&test, &workspace_id, &copier).await;
     let (copy, members) = test
         .duplicate_board(&source_id, &copier, None, DuplicateAs::Copy)
         .await
@@ -843,6 +845,7 @@ async fn duplicate_board_copies_under_new_ids_as_a_private_board_of_the_user() {
     assert_eq!(source_board, source.boards[0], "the source board");
 
     // board -> template, other workspace
+    common::works_in(&test, &other_workspace_id, &copier).await;
     let (template, _) = test
         .duplicate_board(
             &source_id,
@@ -930,6 +933,7 @@ async fn duplicate_board_copies_a_board_without_blocks() {
         .await
         .expect("the card is deleted");
 
+    common::works_in(&test, &workspace_id, &user_id).await;
     for (board_id, what) in [(&empty_id, "empty"), (&only_comments_id, "comments only")] {
         let (copy, members) = test
             .duplicate_board(board_id, &user_id, None, DuplicateAs::Copy)
@@ -1236,6 +1240,7 @@ async fn duplicate_board_copies_a_block_that_is_older_than_its_parent() {
         "the board lists the text before the card it is on"
     );
 
+    common::works_in(&test, &workspace_id, &user_id).await;
     let (copy, _) = test
         .duplicate_board(&board_id, &user_id, None, DuplicateAs::Copy)
         .await

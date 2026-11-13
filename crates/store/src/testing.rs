@@ -287,7 +287,7 @@ pub const GLOBAL_TABLES: [&str; 7] = crate::schema::GLOBAL_TABLES;
 
 /// The tables that hold rows of organizations, and the organizations themselves, each
 /// behind the wall on PostgreSQL.
-pub const ORG_TABLES: [&str; 24] = crate::schema::ORG_TABLES;
+pub const ORG_TABLES: [&str; 25] = crate::schema::ORG_TABLES;
 
 /// Brings a test database to the schema as a server left it that knew nothing of
 /// organizations: every migration before theirs, and none of the changes of the data
@@ -421,6 +421,26 @@ impl Store {
                 Some(row) => row.int(0),
                 None => Ok(0),
             }
+        })
+        .await
+    }
+
+    /// Runs one query as this handle does its own, and returns the first column of
+    /// every row, which is text (`CAST(… AS TEXT)` for one that is not): for the tests
+    /// of what is in a table, such as that no token is. Nothing checks the text.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn texts_unchecked(&self, query: &str) -> Result<Vec<String>, StoreError> {
+        self.with_conn(async |scope| {
+            let sql = scope.sql(query);
+            scope
+                .fetch_all(sql)
+                .await?
+                .iter()
+                .map(|row| row.text(0))
+                .collect()
         })
         .await
     }

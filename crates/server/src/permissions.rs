@@ -9,13 +9,15 @@
 //! The table of `permissions/table.rs` pins every rule of this file, one row per
 //! sentence of what the product promises.
 
-use fvoci_model::{Board, BoardMember, BoardRole, BoardType, OrgRole, WorkspaceRole};
+use fvoci_model::{Board, BoardMember, BoardRole, BoardType, OrgRole, Workspace, WorkspaceRole};
 use fvoci_store::{Looking, Reach};
 
 #[cfg(test)]
 mod session_table;
 #[cfg(test)]
 mod table;
+#[cfg(test)]
+mod workspace_table;
 
 /// What a user is where a board lives: in the board's organization and in its
 /// workspace. A user who is no member of the workspace has no `workspace` role, and for
@@ -59,6 +61,74 @@ impl Actor {
 #[must_use]
 pub fn session_opens(required: Option<&str>, made_through: Option<&str>) -> bool {
     required.is_none_or(|required| made_through == Some(required))
+}
+
+/// Something a member of a workspace can be allowed to do in it, beside what is on its
+/// boards.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WorkspacePermission {
+    /// Make a link that lets somebody in as a member of the workspace, and see and
+    /// revoke the links others made.
+    InviteMembers,
+    /// Turn on and off whether the admins of the workspace's boards invite guests to
+    /// them.
+    SwitchGuestInvitations,
+    /// List the members of the workspace, change what one of them is in it, and
+    /// remove one.
+    ManageMembers,
+}
+
+impl WorkspacePermission {
+    /// Every permission, in the order of the declaration.
+    pub const ALL: [Self; 3] = [
+        Self::InviteMembers,
+        Self::SwitchGuestInvitations,
+        Self::ManageMembers,
+    ];
+}
+
+/// Whether the user may do this in the workspace: its administrators invite its
+/// members and say whether guests are invited. What the user is in the organization
+/// adds nothing.
+#[must_use]
+pub const fn allows_in_workspace(actor: Actor, permission: WorkspacePermission) -> bool {
+    match permission {
+        WorkspacePermission::InviteMembers
+        | WorkspacePermission::SwitchGuestInvitations
+        | WorkspacePermission::ManageMembers => {
+            matches!(actor.workspace, Some(WorkspaceRole::Admin))
+        }
+    }
+}
+
+/// Whether a member of a workspace who is `from` there is made `to` by a change of
+/// their role: an administrator a member and a member an administrator, and a member a
+/// guest. A guest becomes a member by an invitation for members, and an administrator
+/// a guest in two steps. What a member is already they may be made again.
+#[must_use]
+pub const fn may_become(from: WorkspaceRole, to: WorkspaceRole) -> bool {
+    matches!(
+        (from, to),
+        (
+            WorkspaceRole::Admin,
+            WorkspaceRole::Admin | WorkspaceRole::Member
+        ) | (WorkspaceRole::Member, _)
+            | (WorkspaceRole::Guest, WorkspaceRole::Guest)
+    )
+}
+
+/// Whether a user who may do `grant` on a board of `scope` invites guests to it:
+/// whoever adds members to the board (its admins, and the administrators of its
+/// workspace), while the workspace lets guests be invited to its boards. A template
+/// takes no guests.
+#[must_use]
+pub const fn invites_guests(grant: Grant, scope: BoardScope, workspace: &Workspace) -> bool {
+    match scope {
+        BoardScope::InvitedOnly | BoardScope::Open => {
+            workspace.guest_invitations && grant.allows(BoardPermission::ManageBoardRoles)
+        }
+        BoardScope::BuiltIn | BoardScope::InvitedOnlyTemplate | BoardScope::OpenTemplate => false,
+    }
 }
 
 /// Who a board is there for, besides its members.
@@ -493,24 +563,11 @@ pub const fn reads_the_audit_log(role: Option<WorkspaceRole>) -> bool {
 /// The membership with exactly the flag of `role`, and none for `None`.
 #[must_use]
 pub fn with_role(member: BoardMember, role: Option<BoardRole>) -> BoardMember {
-    BoardMember {
-        scheme_admin: role == Some(BoardRole::Admin),
-        scheme_editor: role == Some(BoardRole::Editor),
-        scheme_commenter: role == Some(BoardRole::Commenter),
-        scheme_viewer: role == Some(BoardRole::Viewer),
-        ..member
-    }
+    member.with_role(role)
 }
 
 /// The role a membership has: the highest of its flags, `None` if it has none.
 #[must_use]
 pub fn role_of(member: &BoardMember) -> Option<BoardRole> {
-    [
-        (member.scheme_admin, BoardRole::Admin),
-        (member.scheme_editor, BoardRole::Editor),
-        (member.scheme_commenter, BoardRole::Commenter),
-        (member.scheme_viewer, BoardRole::Viewer),
-    ]
-    .into_iter()
-    .find_map(|(held, role)| held.then_some(role))
+    member.role()
 }

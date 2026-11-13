@@ -251,6 +251,10 @@ pub struct LoginOptions {
     /// The organization the page is for: the one named, or the only one of a server
     /// that holds one. `null` for none, also for an identifier that names none.
     pub organization: Option<LoginOrganization>,
+    /// Whether somebody without an invitation may register and start an organization: on a
+    /// server where everybody may, and on any server until its first user did. Where it
+    /// is `false`, the link of an invitation is the way in.
+    pub registration_open: bool,
 }
 
 #[cfg(test)]

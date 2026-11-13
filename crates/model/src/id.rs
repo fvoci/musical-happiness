@@ -9,8 +9,8 @@
 //! creation: identifiers made by one process sort in the order they were made, but two
 //! processes (two servers, or one before and after a restart) order theirs by their
 //! clocks. Sorting by creation uses the creation time, with the identifier to break
-//! ties. Secrets (session tokens, read tokens, signup tokens, stored file names) do not
-//! come from here.
+//! ties. Secrets (session tokens, read tokens, the tokens of invitations, stored file
+//! names) do not come from here.
 
 use uuid::Uuid;
 
