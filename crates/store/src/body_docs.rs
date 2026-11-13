@@ -8,7 +8,7 @@
 //! ([`forget_gone_blocks`]). What a document's bytes are is the server's to know: the
 //! store keeps them.
 
-use fvoci_model::{BlockPatch, Body, BodyChange};
+use fvoci_model::{BlockPatch, BlockType, Body, BodyChange};
 
 use crate::Store;
 use crate::blocks;
@@ -53,6 +53,26 @@ pub struct LoggedUpdate {
 }
 
 impl Store {
+    /// The board a card is on; `None` for no block of that identifier, and for a block
+    /// that is no card. Nothing else of the card is read: who asks whether somebody
+    /// may come to the card's body is answered in the same time whatever the body is.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn board_of_card(&self, card_id: &str) -> Result<Option<String>, StoreError> {
+        self.with_conn(async |scope| {
+            let mut sql = scope.sql("SELECT type, board_id FROM blocks WHERE id = ");
+            sql.bind(Id(card_id));
+            let Some(row) = scope.fetch_optional(sql).await? else {
+                return Ok(None);
+            };
+            let is_card = BlockType::from(row.text(0)?) == BlockType::Card;
+            Ok(if is_card { Some(row.id(1)?) } else { None })
+        })
+        .await
+    }
+
     /// The stored document of a block, with the updates it took after its state;
     /// `None` if the block has none. Read in two statements outside a transaction: the
     /// server writes a block's document only while it holds the block's place, as the

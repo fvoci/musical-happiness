@@ -99,7 +99,7 @@ impl OpenDoc {
 }
 
 /// The key of an organization's card in the place.
-fn key_of(tenant: Tenant, card_id: &str) -> String {
+pub(super) fn key_of(tenant: Tenant, card_id: &str) -> String {
     format!("{tenant:?} {card_id}")
 }
 

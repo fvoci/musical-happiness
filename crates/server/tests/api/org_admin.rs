@@ -18,7 +18,7 @@ use crate::files::{upload_in, uploaded_id};
 use crate::loose_objects::{exists, remove_doomed};
 
 /// The organization of the test server: the first user administers it.
-async fn org_of(ts: &TestServer) -> String {
+pub(crate) async fn org_of(ts: &TestServer) -> String {
     let workspaces: Vec<UserWorkspace> = ts.client.get("/users/me/workspaces").await.ok_json();
     workspaces
         .first()
@@ -28,7 +28,7 @@ async fn org_of(ts: &TestServer) -> String {
 }
 
 /// Makes a workspace through the route as the first user; returns its identifier.
-async fn make_workspace(ts: &TestServer, org_id: &str, name: &str) -> String {
+pub(crate) async fn make_workspace(ts: &TestServer, org_id: &str, name: &str) -> String {
     let made: Value = ts
         .client
         .post(
@@ -41,7 +41,12 @@ async fn make_workspace(ts: &TestServer, org_id: &str, name: &str) -> String {
 }
 
 /// Lets the user into the workspace with the role, past the routes.
-async fn let_in(ts: &TestServer, workspace_id: &str, user_id: &str, role: WorkspaceRole) {
+pub(crate) async fn let_in(
+    ts: &TestServer,
+    workspace_id: &str,
+    user_id: &str,
+    role: WorkspaceRole,
+) {
     ts.app
         .store()
         .add_workspace_member(workspace_id, user_id, role)

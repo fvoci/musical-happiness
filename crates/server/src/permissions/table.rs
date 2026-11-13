@@ -10,7 +10,10 @@ use super::BoardPermission::{
     ShareBoard, ViewBoard,
 };
 use super::BoardScope::{BuiltIn, InvitedOnly, InvitedOnlyTemplate, Open, OpenTemplate};
-use super::{Actor, BoardFacts, BoardPermission, BoardScope, Grant, grant, highest_board_role};
+use super::{
+    Actor, BoardFacts, BoardPermission, BoardScope, DocMode, Grant, doc_mode, grant,
+    highest_board_role,
+};
 
 const VIEWER: &[BoardPermission] = &[SeeBoard, ViewBoard, ListMembers];
 const COMMENTER: &[BoardPermission] = &[SeeBoard, ViewBoard, ListMembers, CommentBoardCards];
@@ -43,16 +46,17 @@ const fn actor(org: Option<OrgRole>, workspace: Option<WorkspaceRole>) -> Actor 
     Actor { org, workspace }
 }
 
-const MEMBER: Actor = actor(Some(OrgRole::Member), Some(WorkspaceRole::Member));
-const WORKSPACE_ADMIN: Actor = actor(Some(OrgRole::Member), Some(WorkspaceRole::Admin));
-const GUEST: Actor = actor(Some(OrgRole::Member), Some(WorkspaceRole::Guest));
-const OUTSIDE_GUEST: Actor = actor(None, Some(WorkspaceRole::Guest));
-const ORG_ADMIN_ONLY: Actor = actor(Some(OrgRole::Admin), None);
-const ORG_ADMIN_IN_WORKSPACE: Actor = actor(Some(OrgRole::Admin), Some(WorkspaceRole::Member));
+pub(super) const MEMBER: Actor = actor(Some(OrgRole::Member), Some(WorkspaceRole::Member));
+pub(super) const WORKSPACE_ADMIN: Actor = actor(Some(OrgRole::Member), Some(WorkspaceRole::Admin));
+pub(super) const GUEST: Actor = actor(Some(OrgRole::Member), Some(WorkspaceRole::Guest));
+pub(super) const OUTSIDE_GUEST: Actor = actor(None, Some(WorkspaceRole::Guest));
+pub(super) const ORG_ADMIN_ONLY: Actor = actor(Some(OrgRole::Admin), None);
+pub(super) const ORG_ADMIN_IN_WORKSPACE: Actor =
+    actor(Some(OrgRole::Admin), Some(WorkspaceRole::Member));
 /// An organization's administrator who joined the workspace as its administrator.
 const ORG_ADMIN_JOINED: Actor = actor(Some(OrgRole::Admin), Some(WorkspaceRole::Admin));
-const REMOVED: Actor = actor(Some(OrgRole::Member), None);
-const STRANGER: Actor = actor(None, None);
+pub(super) const REMOVED: Actor = actor(Some(OrgRole::Member), None);
+pub(super) const STRANGER: Actor = actor(None, None);
 
 /// One case: who, on what board, with which role there, may do exactly this.
 struct Row {
@@ -776,146 +780,6 @@ fn who_sees_whom_of_the_people() {
     }
 }
 
-/// What a member of a workspace does in it beside its boards: its administrators invite
-/// its members, say whether guests are invited and manage who is in it, and nobody
-/// else does. `(case, actor, what they may do)`; a permission a
-/// row does not name is one the user does not have.
-#[test]
-fn the_work_of_a_workspace() {
-    use super::WorkspacePermission::{self, InviteMembers, ManageMembers, SwitchGuestInvitations};
-    use super::allows_in_workspace;
-    const ADMINISTERS: &[WorkspacePermission] =
-        &[InviteMembers, SwitchGuestInvitations, ManageMembers];
-    let rows: [(&str, Actor, &[WorkspacePermission]); 8] = [
-        ("a workspace admin", WORKSPACE_ADMIN, ADMINISTERS),
-        ("a member", MEMBER, &[]),
-        ("a guest", GUEST, &[]),
-        ("a guest from outside the organization", OUTSIDE_GUEST, &[]),
-        ("an org admin outside the workspace", ORG_ADMIN_ONLY, &[]),
-        (
-            "an org admin who is a member of the workspace",
-            ORG_ADMIN_IN_WORKSPACE,
-            &[],
-        ),
-        ("who was removed", REMOVED, &[]),
-        ("a stranger", STRANGER, &[]),
-    ];
-    for (case, actor, allowed) in rows {
-        let got: Vec<WorkspacePermission> = WorkspacePermission::ALL
-            .into_iter()
-            .filter(|permission| allows_in_workspace(actor, *permission))
-            .collect();
-        assert_eq!(got, allowed, "{case}");
-    }
-}
-
-/// What a change of a member's role makes of them: every pair of roles, and no other.
-#[test]
-fn what_a_member_of_a_workspace_is_made_by_a_change_of_role() {
-    use super::may_become;
-    use WorkspaceRole::{Admin, Guest, Member};
-    let rows = [
-        (Admin, Admin, true),
-        (Admin, Member, true),
-        (Admin, Guest, false),
-        (Member, Admin, true),
-        (Member, Member, true),
-        (Member, Guest, true),
-        (Guest, Admin, false),
-        (Guest, Member, false),
-        (Guest, Guest, true),
-    ];
-    for (from, to, allowed) in rows {
-        assert_eq!(may_become(from, to), allowed, "{from:?} to {to:?}");
-    }
-}
-
-/// Guests are invited to a board by who adds its members: its admins, and the
-/// administrators of its workspace, on a board they have no role on too. Nobody
-/// invites one while the workspace does not let guests be invited, and nobody to a
-/// template.
-#[test]
-fn who_invites_guests_to_a_board() {
-    use super::invites_guests;
-    let workspace = |guest_invitations| fvoci_model::Workspace {
-        guest_invitations,
-        ..fvoci_model::Workspace::default()
-    };
-    let rows = [
-        (
-            "an admin of the board",
-            MEMBER,
-            Some(BoardRole::Admin),
-            true,
-        ),
-        (
-            "an editor of the board",
-            MEMBER,
-            Some(BoardRole::Editor),
-            false,
-        ),
-        (
-            "a member of the workspace who is not on it",
-            MEMBER,
-            None,
-            false,
-        ),
-        (
-            "a workspace admin who is not on it",
-            WORKSPACE_ADMIN,
-            None,
-            true,
-        ),
-        (
-            "a workspace admin who views it",
-            WORKSPACE_ADMIN,
-            Some(BoardRole::Viewer),
-            true,
-        ),
-        (
-            "a guest who edits it",
-            GUEST,
-            Some(BoardRole::Editor),
-            false,
-        ),
-        (
-            "a guest with a role above a guest's left on it",
-            GUEST,
-            Some(BoardRole::Admin),
-            false,
-        ),
-        (
-            "who was removed, its admin once",
-            REMOVED,
-            Some(BoardRole::Admin),
-            false,
-        ),
-        ("a stranger", STRANGER, None, false),
-    ];
-    for (case, actor, role, invites) in rows {
-        for scope in [InvitedOnly, Open] {
-            let granted = grant(actor, BoardFacts { scope, role });
-            assert_eq!(
-                invites_guests(granted, scope, &workspace(true)),
-                invites,
-                "{case}, on a board that is {scope:?}"
-            );
-            assert!(
-                !invites_guests(granted, scope, &workspace(false)),
-                "{case}: nobody while the workspace invites no guests"
-            );
-        }
-        // A template takes no guests, whoever asks.
-        for scope in [InvitedOnlyTemplate, OpenTemplate, BuiltIn] {
-            let granted = grant(actor, BoardFacts { scope, role });
-            assert!(
-                !invites_guests(granted, scope, &workspace(true)),
-                "{case}, on a template that is {scope:?}"
-            );
-        }
-    }
-}
-
 /// An organization's administrator, and nobody else, takes the routes of the
 /// organization; it gives nothing on a board (the rows above).
 #[test]
@@ -935,6 +799,149 @@ fn who_administers_the_organization() {
     for (case, actor, administers) in rows {
         assert_eq!(actor.administers_the_organization(), administers, "{case}");
     }
+}
+
+/// How one enters the room of a card's body that is edited together: writing for who
+/// may change the board's cards, reading for who reads the board, and not at all for
+/// anybody else. `(case, who, scope, role on the board, mode)`.
+const ROOM_ROWS: &[RoomRow] = &[
+    room(
+        "an admin writes",
+        MEMBER,
+        InvitedOnly,
+        Some(BoardRole::Admin),
+        WRITE,
+    ),
+    room(
+        "an editor writes",
+        MEMBER,
+        InvitedOnly,
+        Some(BoardRole::Editor),
+        WRITE,
+    ),
+    room(
+        "a commenter reads",
+        MEMBER,
+        InvitedOnly,
+        Some(BoardRole::Commenter),
+        READ,
+    ),
+    room(
+        "a viewer reads",
+        MEMBER,
+        InvitedOnly,
+        Some(BoardRole::Viewer),
+        READ,
+    ),
+    room(
+        "an invited guest who edits writes",
+        GUEST,
+        InvitedOnly,
+        Some(BoardRole::Editor),
+        WRITE,
+    ),
+    room(
+        "an invited guest who views reads",
+        GUEST,
+        InvitedOnly,
+        Some(BoardRole::Viewer),
+        READ,
+    ),
+    room(
+        "an editor of an open template writes",
+        MEMBER,
+        OpenTemplate,
+        Some(BoardRole::Editor),
+        WRITE,
+    ),
+    room(
+        "whoever works there reads an open template",
+        MEMBER,
+        OpenTemplate,
+        None,
+        READ,
+    ),
+    // To see an open board is not to read it: one joins it first.
+    room("a member who has not joined", MEMBER, Open, None, None),
+    room(
+        "a member: no invited-only board",
+        MEMBER,
+        InvitedOnly,
+        None,
+        None,
+    ),
+    room("a guest who was not invited", GUEST, Open, None, None),
+    // To manage a board is not to read it.
+    room(
+        "a workspace admin who only manages",
+        WORKSPACE_ADMIN,
+        InvitedOnly,
+        None,
+        None,
+    ),
+    room(
+        "an organization's admin outside the workspace",
+        ORG_ADMIN_ONLY,
+        Open,
+        None,
+        None,
+    ),
+    // A role left on a board after leaving the workspace opens nothing.
+    room(
+        "who left the workspace, with a role left",
+        REMOVED,
+        InvitedOnly,
+        Some(BoardRole::Admin),
+        None,
+    ),
+    room("a stranger", STRANGER, Open, None, None),
+    room(
+        "a stranger with a stored role",
+        STRANGER,
+        InvitedOnly,
+        Some(BoardRole::Editor),
+        None,
+    ),
+];
+
+/// One case: who, on what board, with which role there, enters the room how.
+struct RoomRow {
+    case: &'static str,
+    actor: Actor,
+    scope: BoardScope,
+    role: Option<BoardRole>,
+    mode: Option<DocMode>,
+}
+
+const fn room(
+    case: &'static str,
+    actor: Actor,
+    scope: BoardScope,
+    role: Option<BoardRole>,
+    mode: Option<DocMode>,
+) -> RoomRow {
+    RoomRow {
+        case,
+        actor,
+        scope,
+        role,
+        mode,
+    }
+}
+
+const READ: Option<DocMode> = Some(DocMode::Read);
+const WRITE: Option<DocMode> = Some(DocMode::Write);
+
+#[test]
+fn who_enters_the_room_of_a_body_and_how() {
+    for row in ROOM_ROWS {
+        let facts = BoardFacts {
+            scope: row.scope,
+            role: row.role,
+        };
+        assert_eq!(doc_mode(grant(row.actor, facts)), row.mode, "{}", row.case);
+    }
+    assert_eq!(doc_mode(Grant::NONE), None, "no grant, as a read token is");
 }
 
 /// Who reads the audit log of a workspace: whoever works there, its administrators and

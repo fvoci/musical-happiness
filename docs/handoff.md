@@ -257,7 +257,7 @@ DOCKER_BUILDKIT=1 docker build -f docker/fvoci/Dockerfile -t fvoci-server:s5 .  
 - 계약 파일 `contracts/openapi.json`과 `docs/contract-pending.md`. 웹앱과 같은 트리에 있다.
 - 타입 생성은 웹앱 쪽이 한다. `openapi-typescript` 7.13.0이 이 파일을 받는 것은 확인했다.
 - 날짜 값의 시각 표기는 UTC 밀리초 정수다(설계 5.7).
-- WebSocket 메시지는 계약에 없다(`docs/contract-pending.md` 6절).
+- WebSocket의 메시지는 OpenAPI 밖의 `contracts/websocket.md`와 `websocket.json`에 있다. 카드 본문을 함께 고치는 방(명령, 메시지, Binary 프레임, 세대, 한도)은 그 6절이고, 웹앱(R3)이 붙을 자리다.
 - 바꾸는 요청은 `fetch`의 기본 방식(`cors`)으로 보낸다. 서버가 페이지에 `Referrer-Policy: no-referrer`를 붙인다. 그래서 다른 방식(`same-origin`, `no-cors`, 브라우저가 직접 보내는 폼)의 요청은 `Origin: null`이 되어 403이다(계약의 머리말, `PORTING.md` P절).
 - API 밖의 주소는 `/ws`, `/static/…`, 웹앱의 화면뿐이다. `hello`와 `ping`도 `/api/v1` 아래에 있다(`PORTING.md` Q절).
 

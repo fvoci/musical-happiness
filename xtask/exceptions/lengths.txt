@@ -23,7 +23,6 @@ file 4159 crates/store/tests/store/blocks.rs
 file 4393 crates/store/tests/store/boards.rs
 function 114 crates/server/src/api/blocks.rs handle_post_blocks
 function 117 crates/server/src/app/import.rs App::import_archive
-function 101 crates/server/src/ws.rs Hub::serve
 function 322 crates/server/tests/regression/blocks.rs blocks
 function 221 crates/server/tests/regression/permissions.rs request
 function 201 crates/server/tests/regression/sidebar.rs categories

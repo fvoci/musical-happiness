@@ -755,6 +755,38 @@ impl Client {
         }
     }
 
+    /// Opens a websocket connection as this client, with a bearer token, whose
+    /// socket takes `bytes` of what is sent to it before it is read: for a
+    /// connection that does not read, of which the system would hold megabytes
+    /// otherwise.
+    pub(crate) async fn connect_websocket_receiving(&self, bytes: u32) -> WebSocket {
+        use tokio_tungstenite::tungstenite::client::IntoClientRequest as _;
+        use tokio_tungstenite::tungstenite::http::HeaderValue;
+
+        let mut request = self
+            .websocket_url()
+            .into_client_request()
+            .expect("the websocket address is a URL");
+        let bearer = HeaderValue::from_str(&format!("Bearer {}", self.token)).expect("a token");
+        request.headers_mut().insert("Authorization", bearer);
+        let address = request
+            .uri()
+            .authority()
+            .expect("the address names a host")
+            .as_str()
+            .parse()
+            .expect("the test servers are reached by address");
+        let socket = tokio::net::TcpSocket::new_v4().expect("a socket");
+        socket
+            .set_recv_buffer_size(bytes)
+            .expect("the socket's buffer is set");
+        let stream = socket.connect(address).await.expect("the server listens");
+        let (stream, _) = tokio_tungstenite::client_async(request, MaybeTlsStream::Plain(stream))
+            .await
+            .expect("the websocket endpoint accepts the connection");
+        stream
+    }
+
     /// The address of a path as it is written, with nothing put before it but the
     /// server's own address: for the paths outside the API, and for those that are
     /// written out in full.

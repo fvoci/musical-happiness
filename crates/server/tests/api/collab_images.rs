@@ -30,7 +30,7 @@ async fn old_file(e: &Editing, th: &TestServer) -> FileInfo {
 }
 
 /// An update that makes an empty document show an image of `stored_name`.
-fn showing(stored_name: &str) -> Vec<u8> {
+pub(crate) fn showing(stored_name: &str) -> Vec<u8> {
     let body = Body::parse(json!({"type": "doc", "content": [
         {"type": "image", "attrs": {"fileId": stored_name}}
     ]}))

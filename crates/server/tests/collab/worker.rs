@@ -295,7 +295,9 @@ async fn a_worker_holds_no_more_bytes_of_documents_than_it_may() {
     let worker = Worker::new(WorkerSettings {
         command: WorkerCommand::of_executable(env!("CARGO_BIN_EXE_fvoci-server").into()),
         limits: Limits {
-            held_bytes: state_bytes * 2,
+            // Two and no third. A document's state is a few bytes longer or shorter
+            // with the client identifier it was made under, which is drawn anew.
+            held_bytes: state_bytes * 5 / 2,
             ..limits(100)
         },
         timeout: Duration::from_secs(10),

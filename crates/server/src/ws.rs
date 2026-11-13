@@ -5,13 +5,18 @@
 //! carries; there is no message to sign in with. A user's connection may subscribe to
 //! workspaces. `SUBSCRIBE_BLOCKS` works without a session but needs the read token of the
 //! shared board the blocks belong to.
+//!
+//! The commands and the binary frames of the bodies edited together are handed to the
+//! connection's seat among their rooms (`crate::collab::Seat`).
+
+mod writer;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use axum::extract::ws::{Message, Utf8Bytes, WebSocket};
-use futures_util::{SinkExt as _, StreamExt as _};
+use futures_util::StreamExt as _;
 use fvoci_model::{
     Block, Board, BoardCategoryWebsocketData, BoardMember, Category, ClientConfig,
     PersonProperties, Session,
@@ -20,8 +25,9 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use crate::app::Audience;
+use crate::app::{App, Audience};
 use crate::auth::{Authenticator, now_millis};
+use crate::collab::Seat;
 use crate::error::ErrorKind;
 use crate::metrics::{Disconnect, Metrics};
 use crate::permissions::role_of;
@@ -280,10 +286,10 @@ impl Hub {
 
     /// Serves one websocket connection until it closes. `identity` is the session the
     /// handshake came with, if any; without one the connection can only subscribe to
-    /// the blocks of shared boards.
-    pub async fn serve(&self, socket: WebSocket, identity: Option<Identity>) {
-        let (mut sink, mut stream) = socket.split();
-        let (outbox, mut inbox) = mpsc::channel::<Utf8Bytes>(OUTBOX_CAPACITY);
+    /// the blocks of shared boards. `app` is the application the handshake reached.
+    pub async fn serve(&self, app: &App, socket: WebSocket, identity: Option<Identity>) {
+        let (sink, mut stream) = socket.split();
+        let (outbox, inbox) = mpsc::channel::<Utf8Bytes>(OUTBOX_CAPACITY);
         let closed = CancellationToken::new();
         let closed_because = Arc::new(OnceLock::new());
         let (user_id, session_id, token) = match identity {
@@ -294,6 +300,8 @@ impl Hub {
             ),
             None => (String::new(), String::new(), None),
         };
+        let (mut docs, docs_outbox) = app.collab().seat(app, &user_id);
+        let docs_overrun = docs.overrun();
 
         let id = {
             let mut listeners = self.listeners();
@@ -334,27 +342,7 @@ impl Hub {
 
         let ping_interval = self.inner.ping_interval;
         let session_check = ping_interval.unwrap_or(SESSION_CHECK_WITHOUT_PING);
-        let mut writer = tokio::spawn(async move {
-            let mut ping = ping_interval.map(|period| {
-                let mut interval = tokio::time::interval(period);
-                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-                interval
-            });
-            loop {
-                let message = tokio::select! {
-                    message = inbox.recv() => match message {
-                        Some(text) => Message::Text(text),
-                        // The hub dropped this connection.
-                        None => break,
-                    },
-                    () = next_tick(ping.as_mut()) => Message::Ping(Vec::new().into()),
-                };
-                if sink.send(message).await.is_err() {
-                    break;
-                }
-            }
-            let _ = sink.close().await;
-        });
+        let mut writer = writer::spawn(sink, inbox, docs_outbox, ping_interval);
 
         let reason = tokio::select! {
             // First: when the hub gave the connection up, its reason is the one counted,
@@ -365,12 +353,15 @@ impl Hub {
             () = closed.cancelled() => {
                 closed_because.get().copied().unwrap_or(Disconnect::Shutdown)
             }
-            reason = self.read_commands(id, &mut stream) => reason,
+            // It reads nothing of what the rooms send it.
+            () = docs_overrun.cancelled() => Disconnect::SlowConsumer,
+            reason = self.read_commands(id, &mut stream, &mut docs) => reason,
             // The session ended by its idle or absolute limit, which nobody announces:
             // the sessions that ended so are deleted only by the hourly clean-up.
             () = self.session_ends(token.as_deref(), session_check) => Disconnect::SessionEnded,
         };
         metrics.websocket_closed(reason);
+        docs.leave_all().await;
 
         // Removing the listener drops its outbox, which ends the writer once it has sent
         // what was queued. A peer that does not read would hold the writer forever.
@@ -389,14 +380,26 @@ impl Hub {
         &self,
         id: ListenerId,
         stream: &mut (impl futures_util::Stream<Item = Result<Message, axum::Error>> + Unpin),
+        docs: &mut Seat,
     ) -> Disconnect {
         loop {
             let text = match stream.next().await {
                 Some(Ok(Message::Text(text))) => text,
                 Some(Ok(Message::Close(_))) | None => return Disconnect::ClientClosed,
-                Some(Ok(Message::Binary(_) | Message::Ping(_) | Message::Pong(_))) => continue,
+                Some(Ok(Message::Binary(frame))) => {
+                    docs.frame(frame).await;
+                    continue;
+                }
+                Some(Ok(Message::Ping(_) | Message::Pong(_))) => continue,
                 Some(Err(_)) => return Disconnect::ReadError,
             };
+            // A command is small, whatever a frame of a body edited together may be.
+            if text.len() > crate::api::WEBSOCKET_MESSAGE_LIMIT {
+                return Disconnect::ReadError;
+            }
+            if docs.command(&text).await {
+                continue;
+            }
             let Ok(command) = serde_json::from_str::<Command>(&text) else {
                 tracing::error!("websocket: a command could not be parsed");
                 continue;
@@ -886,16 +889,6 @@ impl Hub {
         self.inner
             .metrics
             .websocket_queued(message.action(), queued);
-    }
-}
-
-/// Waits for the next tick of the interval, or forever if there is none.
-async fn next_tick(interval: Option<&mut tokio::time::Interval>) {
-    match interval {
-        Some(interval) => {
-            interval.tick().await;
-        }
-        None => std::future::pending().await,
     }
 }
 

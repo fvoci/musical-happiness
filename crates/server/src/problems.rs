@@ -257,12 +257,9 @@ fn describe_reason(reason: Reason) -> &'static str {
         | Reason::DefaultWorkspace
         | Reason::LastOrgAdmin
         | Reason::PublicLinksOff => describe_organization(reason).unwrap_or_default(),
-        Reason::UpdateRefused
-        | Reason::UpdateOutOfStep
-        | Reason::UpdateTooLarge
-        | Reason::DocumentTooLarge
-        | Reason::TooManyDocuments
-        | Reason::DocumentUnavailable => describe_editing_together(reason),
+        // The rest are the reasons of a body edited together, which the two functions
+        // below name one by one: a reason that is none of theirs fails the tests.
+        _ => describe_editing_together(reason),
     }
 }
 
@@ -380,7 +377,53 @@ fn describe_editing_together(reason: Reason) -> &'static str {
              could not be written to the card first, and was not done. The document is as \
              it was stored before. Try again later."
         }
-        other => unreachable!("{other:?} is no reason of editing together"),
+        other => describe_rooms(other),
+    }
+}
+
+/// What the reasons mean that only the rooms of the websocket give (`DOC_REFUSED`,
+/// `DOC_NACK`, `DOC_LEFT`).
+fn describe_rooms(reason: Reason) -> &'static str {
+    match reason {
+        Reason::DocumentReadOnly => {
+            "Over the websocket only (`DOC_NACK`). The connection is in the room of the \
+             card's body to read: its user reads the card's board and may not change its \
+             cards. The update went to nobody; the editor that made it holds a change the \
+             document does not, and comes into the room anew to drop it."
+        }
+        Reason::ConnectionTooSlow => {
+            "Over the websocket only (`DOC_LEFT`, `DOC_REFUSED`). As many messages wait \
+             for the connection as may (settings `collab_queue_messages`, and twice \
+             `collab_state_bytes` in bytes), and it was put out of the room, or not let \
+             in, so that the others go on. The frames that waited for it of the room \
+             are dropped. Come into the room again: the whole document is sent anew."
+        }
+        Reason::TooManyDocumentsJoined => {
+            "Over the websocket only (`DOC_REFUSED`). The connection is in as many rooms \
+             as one connection may be (setting `collab_documents_per_connection`). Leave \
+             one, or open another connection."
+        }
+        Reason::DocumentFull => {
+            "Over the websocket only (`DOC_REFUSED`). As many connections are in the room \
+             of the card's body as may be (setting `collab_connections_per_document`). \
+             Try again when one has left."
+        }
+        Reason::TooManyConnectionsJoined => {
+            "Over the websocket only (`DOC_REFUSED`). As many of the user's own connections \
+             are in the room of the card's body as one user's may be (setting \
+             `collab_connections_per_user`): the card is open in that many tabs or \
+             devices. Close one of them."
+        }
+        Reason::TooManyFrames => {
+            "Over the websocket only (`DOC_REFUSED`, `DOC_LEFT`). The connection sent the \
+             rooms more than it may: as many frames a second as the setting \
+             `collab_frames_per_second` says, and as many at once after a pause, a \
+             `JOIN_DOC` and a sync step 1 counting as five. A `JOIN_DOC` past it is \
+             refused; a frame past it puts the connection out of the room the frame was \
+             for, since the room no longer has what the connection sent. Send less often, \
+             and come in again."
+        }
+        other => unreachable!("{other:?} is no reason of the rooms"),
     }
 }
 
