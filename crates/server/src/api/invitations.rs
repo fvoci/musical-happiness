@@ -309,6 +309,10 @@ async fn handle_preview_invitation(
 /// is made, the membership stored and the use of the link counted together or not at
 /// all, and an acceptance that changes nothing uses nothing of the link.
 ///
+/// A session that the link's organization does not take (it takes no password,
+/// `ssoRequired`, and the session was not made through its provider) is 401 with the
+/// reason `sso_required` and its `orgId`, and lets nobody in.
+///
 /// A token that lets nobody in is 404 with the reason `invitation_unavailable`,
 /// whatever is wrong with it: there is no such link, it ended, it was used as often as
 /// it may be, it was revoked, or who made it may no longer invite. Requests are counted
@@ -346,9 +350,7 @@ async fn handle_accept_invitation(
             )
             .with_field("account"));
         }
-        (Some(session), None) => Accepting::SignedIn {
-            user_id: &session.user_id,
-        },
+        (Some(session), None) => Accepting::SignedIn(session.into()),
         (None, Some(account)) => {
             account
                 .validate()

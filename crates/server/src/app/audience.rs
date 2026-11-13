@@ -2,7 +2,7 @@
 //! much of it.
 
 use fvoci_model::{BoardMember, PersonProperties};
-use fvoci_store::{Store, StoreError};
+use fvoci_store::{Store, StoreError, WorkspaceAccess};
 
 /// The boards as the websocket hub asks about them: who the members of a board are,
 /// which of its properties name users, and which board a block is of. The hub is made
@@ -29,17 +29,22 @@ impl Audience {
         Ok(self.store.get_block(block_id).await?.board_id)
     }
 
-    /// Whether the user is a member of the workspace, a guest too (`App::actor`). What
-    /// a subscription of the workspace is told of a board goes to the board's members
-    /// only, so a guest hears the boards they were invited to and no other. A
-    /// membership that cannot be read is no membership here: the connection is not
-    /// subscribed.
-    pub async fn is_in_workspace(&self, user_id: &str, workspace_id: &str) -> bool {
+    /// What the user is in the workspace, a guest too (`App::actor`), with the provider
+    /// a session must be made through to open the workspace's organization; `None` for
+    /// who is no member. What a subscription of the workspace is told of a board goes
+    /// to the board's members only, so a guest hears the boards they were invited to
+    /// and no other. A membership that cannot be read is no membership here: the
+    /// connection is not subscribed.
+    pub async fn workspace_access(
+        &self,
+        user_id: &str,
+        workspace_id: &str,
+    ) -> Option<WorkspaceAccess> {
         match self.store.resolve_workspace(user_id, workspace_id).await {
-            Ok(access) => access.is_some(),
+            Ok(access) => access,
             Err(error) => {
                 tracing::error!(%error, workspace_id, "websocket: reading a workspace's membership failed");
-                false
+                None
             }
         }
     }

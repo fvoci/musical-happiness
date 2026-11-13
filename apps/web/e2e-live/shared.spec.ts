@@ -188,7 +188,7 @@ test('a board is read by its public link without signing in, and not when the li
   await signInOnPage(ownerPage, owner);
   await expect(ownerPage.getByTestId('share-board')).toBeVisible();
   const ownerReader = await ownerContext.newPage();
-  ownerErrors.push(...watchErrors(ownerReader));
+  const readerErrors = watchErrors(ownerReader);
   const ownerStray = strayRequestsOf(ownerReader, board.boardId);
   await ownerReader.goto(sharedPath(board.boardId, token));
   await expect(ownerReader.getByTestId('shared-board').getByText('Sow the beans')).toBeVisible();
@@ -221,5 +221,5 @@ test('a board is read by its public link without signing in, and not when the li
   await api.dispose();
   await context.close();
   await ownerContext.close();
-  expect([...errors, ...ownerErrors]).toEqual([]);
+  expect([...errors, ...ownerErrors, ...readerErrors]).toEqual([]);
 });

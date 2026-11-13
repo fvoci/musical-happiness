@@ -27,7 +27,8 @@
     "look": "pnpm run build && pnpm run spikes:build && pnpm run build-storybook && node tools/serve.ts --host 0.0.0.0 --port 18410 app:app=dist screens=dist-spikes storybook=storybook-static",
     "api:types": "openapi-typescript ../../contracts/openapi.json -o src/lib/api/contract.ts",
     "e2e:live": "playwright test --config playwright.live.config.ts",
-    "e2e:live:apple": "playwright test --config playwright.live.apple.config.ts"
+    "e2e:live:apple": "playwright test --config playwright.live.apple.config.ts",
+    "test:storybook": "pnpm run build-storybook && playwright test --config playwright.storybook.config.ts"
   },
   "dependencies": {
     "@tiptap/core": "3.33.0",

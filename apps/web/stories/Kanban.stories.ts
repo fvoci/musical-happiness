@@ -1,0 +1,36 @@
+import type { Meta, StoryObj } from '@storybook/svelte';
+import { expect, waitFor } from 'storybook/test';
+import ViewSample from './ViewSample.svelte';
+import { clickStory, storyElement } from './interactions.ts';
+
+const meta = {
+  title: 'Views/Kanban',
+  component: ViewSample,
+  args: { kind: 'board' },
+  play: async ({ canvasElement, args }) => {
+    const root = await storyElement(canvasElement, '[data-testid="kanban"]');
+    const count = typeof args.count === 'number' ? args.count : 8;
+    await waitFor(() => expect(root.querySelectorAll('[data-card]')).toHaveLength(count));
+    if (count > 0) await expect(root).toHaveTextContent('Example card 001');
+    if (args.readOnly)
+      await expect(root.querySelectorAll('[data-column-add], [data-column-new]')).toHaveLength(0);
+    else await expect(root.querySelector('[data-column-add], [data-column-new]')).not.toBeNull();
+  },
+} satisfies Meta<typeof ViewSample>;
+export default meta;
+type Story = StoryObj<typeof meta>;
+export const Cards: Story = {};
+export const Empty: Story = { args: { count: 0 } };
+export const ThreeHundredCards: Story = { args: { count: 300 } };
+export const ReadOnly: Story = { args: { readOnly: true } };
+
+export const OpenCard: Story = {
+  play: async ({ canvasElement }) => {
+    await clickStory(canvasElement, '[data-card="example-card-1"]');
+    await waitFor(() =>
+      expect(canvasElement.querySelector('[data-testid="opened-card"]')).toHaveTextContent(
+        'example-card-1',
+      ),
+    );
+  },
+};

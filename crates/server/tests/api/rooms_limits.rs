@@ -148,7 +148,10 @@ async fn five_connections_of_a_user_are_in_a_room_and_no_sixth() {
 async fn room_app(th: &TestServer) -> fvoci_server::app::App {
     let user = th.client.me().await.id;
     th.app
-        .enter_workspace(&user, TEST_WORKSPACE_ID)
+        .enter_workspace_as(
+            fvoci_server::app::Asker::with_password(&user),
+            TEST_WORKSPACE_ID,
+        )
         .await
         .expect("the membership is read")
         .expect("a member")

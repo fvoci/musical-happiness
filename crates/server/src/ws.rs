@@ -174,6 +174,9 @@ struct Listener {
     user_id: String,
     /// The session the handshake came with; empty for a connection without one.
     session_id: String,
+    /// The provider that session was made through; `None` for a password, and without
+    /// a session.
+    login_provider: Option<String>,
     outbox: mpsc::Sender<Utf8Bytes>,
     /// Cancelled when the hub gives the connection up; ends its reading side.
     closed: CancellationToken,
@@ -189,6 +192,9 @@ struct Listener {
 #[derive(Debug, Default)]
 struct Listeners {
     next_id: ListenerId,
+    /// How often an organization began to take only its provider's sessions
+    /// (`subscribe.rs`).
+    walls_raised: u64,
     by_id: HashMap<ListenerId, Listener>,
     by_workspace: HashMap<String, Vec<ListenerId>>,
     by_block: HashMap<String, Vec<ListenerId>>,
@@ -292,15 +298,9 @@ impl Hub {
         let (outbox, inbox) = mpsc::channel::<Utf8Bytes>(OUTBOX_CAPACITY);
         let closed = CancellationToken::new();
         let closed_because = Arc::new(OnceLock::new());
-        let (user_id, session_id, token) = match identity {
-            Some(identity) => (
-                identity.session.user_id,
-                identity.session.id,
-                Some(identity.token),
-            ),
-            None => (String::new(), String::new(), None),
-        };
-        let (mut docs, docs_outbox) = app.collab().seat(app, &user_id);
+        let who = subscribe::Who::of(identity);
+        let (mut docs, docs_outbox) = app.collab().seat(app, who.asker());
+        let token = who.token;
         let docs_overrun = docs.overrun();
 
         let id = {
@@ -310,8 +310,9 @@ impl Hub {
             listeners.by_id.insert(
                 id,
                 Listener {
-                    user_id,
-                    session_id,
+                    user_id: who.user_id,
+                    session_id: who.session_id,
+                    login_provider: who.login_provider,
                     outbox,
                     closed: closed.clone(),
                     closed_because: Arc::clone(&closed_because),
@@ -443,21 +444,7 @@ impl Hub {
     async fn handle(&self, id: ListenerId, command: Command) -> bool {
         match command.action.as_str() {
             "SUBSCRIBE_BLOCKS" | "UNSUBSCRIBE_BLOCKS" => {
-                let Some(board_id) = self.board_of_read_token(&command).await else {
-                    tracing::error!(action = %command.action, "websocket: rejected an invalid read token");
-                    return true;
-                };
-                let mut listeners = self.listeners();
-                if command.action == "SUBSCRIBE_BLOCKS" {
-                    subscribe_to_blocks(&mut listeners, id, &command.block_ids);
-                    if let Some(listener) = listeners.by_id.get_mut(&id)
-                        && !listener.shared_boards.contains(&board_id)
-                    {
-                        listener.shared_boards.push(board_id);
-                    }
-                } else {
-                    unsubscribe_from_blocks(&mut listeners, id, &command.block_ids);
-                }
+                self.follow_blocks(id, &command).await;
                 return true;
             }
             _ => {}
@@ -476,12 +463,8 @@ impl Hub {
 
         match command.action.as_str() {
             "SUBSCRIBE_WORKSPACE" => {
-                let workspace = &command.workspace_id;
-                if self.audience.is_in_workspace(&user_id, workspace).await {
-                    subscribe_to_workspace(&mut self.listeners(), id, &command.workspace_id);
-                } else {
-                    tracing::error!(workspace_id = %command.workspace_id, user_id, "websocket: no workspace access");
-                }
+                self.follow_workspace(id, &user_id, &command.workspace_id)
+                    .await;
             }
             "UNSUBSCRIBE_WORKSPACE" => {
                 let mut listeners = self.listeners();
@@ -533,8 +516,9 @@ impl Hub {
     /// parent, that a block changed.
     ///
     /// A listener of the block whose connection has no session, or whose user is no
-    /// member of the board who may read it, follows it by the read token alone and is
-    /// told no user's identifier ([`Block::hide_people`]), as over HTTP (`getBlocks`).
+    /// member of the board who may read it, or whose session does not open the
+    /// workspace's organization, follows it by the read token alone and is told no
+    /// user's identifier ([`Block::hide_people`]), as over HTTP (`getBlocks`).
     pub async fn broadcast_block_change(&self, workspace_id: &str, block: &Block) {
         let followers = self.block_followers(block);
         // Most changes happen with nobody listening; do not ask the store then.
@@ -553,10 +537,14 @@ impl Hub {
         // A connection that listens both as a board member and to the block itself
         // gets the message once per subscription.
         for (id, user_id) in followers {
+            // As a member of the board only while its session opens the organization.
             let reader = !user_id.is_empty()
                 && members
                     .iter()
-                    .any(|member| member.user_id == user_id && role_of(member).is_some());
+                    .any(|member| member.user_id == user_id && role_of(member).is_some())
+                && self
+                    .session_opens_workspace(id, &user_id, workspace_id)
+                    .await;
             if reader {
                 recipients.push(id);
             } else {
@@ -938,6 +926,7 @@ fn unsubscribe_from_blocks(listeners: &mut Listeners, id: ListenerId, block_ids:
 }
 
 mod closing;
+mod subscribe;
 
 /// Ports of `server/ws/server_test.go`, on the listener table.
 #[cfg(test)]

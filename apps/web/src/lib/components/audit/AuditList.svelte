@@ -10,10 +10,12 @@
   interface Props {
     records: readonly AuditRecord[];
     locale: string;
+    /** Omitted in the app: the reader's zone. A fixed zone is useful for examples. */
+    timeZone?: string;
     testId?: string;
   }
 
-  let { records, locale, testId = 'audit-list' }: Props = $props();
+  let { records, locale, timeZone, testId = 'audit-list' }: Props = $props();
 
   function named(person: AuditPerson | null): string {
     if (!person || person.username === '') return m.audit_gone_user();
@@ -58,7 +60,7 @@
   }
 
   const when = $derived(
-    new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }),
+    new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short', timeZone }),
   );
 </script>
 

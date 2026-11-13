@@ -18,12 +18,12 @@ use crate::common::{PASSWORD, ROOT_WORKSPACE_ID, Setup, TestServer, USER1_USERNA
 use crate::fake_oidc::{CLIENT_ID, CLIENT_SECRET, FakeProvider, Forgery, Person};
 
 /// The key the test servers seal with.
-fn secret_key() -> SecretKey {
+pub(crate) fn secret_key() -> SecretKey {
     SecretKey::from_base64(&base64::engine::general_purpose::STANDARD.encode([42_u8; 32]))
         .expect("a key")
 }
 
-fn with_key_and_private_addresses(config: &mut Configuration) {
+pub(crate) fn with_key_and_private_addresses(config: &mut Configuration) {
     config.secret_key = Some(secret_key());
     config.oidc_allow_private_addresses = true;
 }
@@ -34,7 +34,7 @@ fn with_key_only(config: &mut Configuration) {
 
 /// A server that reaches the fake provider, with `user1`, who administers the
 /// organization, and `user2`, a member.
-async fn server_for(fake: &FakeProvider) -> TestServer {
+pub(crate) async fn server_for(fake: &FakeProvider) -> TestServer {
     Setup::native()
         .trusting_oidc_provider(&fake.certificate_der)
         .configure(with_key_and_private_addresses)
@@ -45,7 +45,7 @@ async fn server_for(fake: &FakeProvider) -> TestServer {
 }
 
 /// The organization of the test server.
-async fn org_of(ts: &TestServer) -> String {
+pub(crate) async fn org_of(ts: &TestServer) -> String {
     let workspaces: Vec<UserWorkspace> = ts.client.get("/users/me/workspaces").await.ok_json();
     workspaces
         .first()
@@ -72,7 +72,11 @@ fn settings(fake: &FakeProvider, newcomers: Newcomers) -> serde_json::Value {
 }
 
 /// Sets the fake provider as the organization's.
-async fn set_provider(ts: &TestServer, org_id: &str, fake: &FakeProvider) -> OidcProvider {
+pub(crate) async fn set_provider(
+    ts: &TestServer,
+    org_id: &str,
+    fake: &FakeProvider,
+) -> OidcProvider {
     ts.client
         .put(
             &format!("/org/{org_id}/oidc"),
@@ -84,7 +88,7 @@ async fn set_provider(ts: &TestServer, org_id: &str, fake: &FakeProvider) -> Oid
 
 /// What a sign-in came to.
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum Outcome {
+pub(crate) enum Outcome {
     /// A session, with its token.
     SignedIn(String),
     /// The login page, with the name of what went wrong.
@@ -92,7 +96,7 @@ enum Outcome {
 }
 
 impl Outcome {
-    fn token(&self) -> &str {
+    pub(crate) fn token(&self) -> &str {
         match self {
             Self::SignedIn(token) => token,
             Self::Refused(name) => panic!("the sign-in was refused: {name}"),
@@ -102,7 +106,7 @@ impl Outcome {
 
 /// A browser: it follows no redirect by itself, keeps the cookie of a sign-in, and
 /// trusts the fake provider's certificate.
-struct Browser {
+pub(crate) struct Browser {
     http: reqwest::Client,
     base_url: String,
     server_root: String,
@@ -117,7 +121,7 @@ struct Returning {
 }
 
 impl Browser {
-    fn new(ts: &TestServer, fake: &FakeProvider) -> Self {
+    pub(crate) fn new(ts: &TestServer, fake: &FakeProvider) -> Self {
         let http = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .tls_certs_merge([
@@ -220,7 +224,7 @@ impl Browser {
         Outcome::SignedIn(token)
     }
 
-    async fn sign_in(&self, org_id: &str) -> Outcome {
+    pub(crate) async fn sign_in(&self, org_id: &str) -> Outcome {
         match self.go_to_provider(org_id).await {
             Ok(returning) => self.come_back(&returning).await,
             Err(name) => Outcome::Refused(name),
@@ -753,6 +757,7 @@ async fn a_provider_is_reached_only_where_it_may_be() {
             enabled: true,
             create_at: 0,
             update_at: 0,
+            sso_required: false,
         })
         .await
         .expect("stored");
@@ -878,6 +883,7 @@ async fn a_sign_in_lets_into_the_organization_it_was_started_for() {
             enabled: true,
             create_at: 0,
             update_at: 0,
+            sso_required: false,
         })
         .await
         .expect("their provider");
@@ -979,6 +985,7 @@ async fn the_same_address_from_two_providers_is_two_accounts() {
             enabled: true,
             create_at: 0,
             update_at: 0,
+            sso_required: false,
         })
         .await
         .expect("their provider");

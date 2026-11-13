@@ -17,10 +17,15 @@
  * taken off one sends no message of the board. So a member message has the
  * board's listeners read its members, and a member or category message has
  * the reader's own listeners read the sidebar again (`resync`, gathered).
+ *
+ * The rooms of the bodies edited together use the same connection
+ * (`live-rooms.ts`): an open room keeps it open as a listener does, and
+ * hears when it comes and goes. Their binary frames come on it too.
  */
 import { isBackendError, type Change, type ChangeListener } from '../state/backend.ts';
 
 import { attachmentOf, boardOf, cardOfBlock, commentOf, viewOf, type Schemas } from './convert.ts';
+import { LiveRooms } from './live-rooms.ts';
 
 type Members = Extract<Change, { kind: 'members' }>['members'];
 type ChangedBlock = Extract<Change, { kind: 'blocks' }>['blocks'][number];
@@ -70,13 +75,25 @@ export class LiveChanges {
   /** The latest reading of each board's members: an older answer is not told. */
   readonly #readings = new Map<string, number>();
   #readCount = 0;
+  /** The rooms of the bodies open on this connection. */
+  readonly rooms: LiveRooms;
 
   /** `url` is the address of `/ws`, with `ws:` or `wss:`. */
   constructor(url: string, reads: LiveReads) {
     this.#url = url;
     this.#reads = reads;
+    this.rooms = new LiveRooms(
+      {
+        text: (command) => this.#send(JSON.stringify(command)),
+        bytes: (frame) => this.#send(frame),
+      },
+      () => {
+        if (!this.#wanted()) this.#stop();
+        else if (!this.#socket && this.#timer === undefined) this.#open();
+      },
+    );
     globalThis.addEventListener('online', () => {
-      if (this.#listening.size > 0 && !this.#socket) this.#openNow();
+      if (this.#wanted() && !this.#socket) this.#openNow();
     });
   }
 
@@ -93,7 +110,8 @@ export class LiveChanges {
     this.#socket = undefined;
     this.#subscribed = false;
     socket?.close();
-    if (this.#listening.size === 0) return;
+    this.rooms.down();
+    if (!this.#wanted()) return;
     this.#wasOpen = true;
     this.#openNow();
   }
@@ -119,7 +137,7 @@ export class LiveChanges {
         socket.send(JSON.stringify({ action: 'UNSUBSCRIBE_WORKSPACE', workspaceId: before }));
       }
       socket.send(JSON.stringify({ action: 'SUBSCRIBE_WORKSPACE', workspaceId }));
-    } else if (!socket && this.#listening.size > 0 && this.#timer === undefined) {
+    } else if (!socket && this.#wanted() && this.#timer === undefined) {
       this.#open();
     }
   }
@@ -130,8 +148,21 @@ export class LiveChanges {
     if (!this.#socket && this.#timer === undefined) this.#open();
     return () => {
       this.#listening.delete(entry);
-      if (this.#listening.size === 0) this.#stop();
+      if (!this.#wanted()) this.#stop();
     };
+  }
+
+  /** Somebody listens, or a room is open: the connection is kept. */
+  #wanted(): boolean {
+    return this.#listening.size > 0 || this.rooms.size > 0;
+  }
+
+  /** Sends on the connection if it is open and subscribed; false when it is not. */
+  #send(data: string | Uint8Array<ArrayBuffer>): boolean {
+    const socket = this.#socket;
+    if (!socket || !this.#subscribed) return false;
+    socket.send(data);
+    return true;
   }
 
   #stop(): void {
@@ -146,13 +177,15 @@ export class LiveChanges {
     this.#wasOpen = false;
     this.#failures = 0;
     socket?.close();
+    this.rooms.down();
   }
 
   #open(): void {
     // Nothing to follow yet: entering a workspace opens it.
     if (this.#workspaceId === undefined) return;
-    if (this.#listening.size === 0 || this.#socket) return;
+    if (!this.#wanted() || this.#socket) return;
     const socket = new WebSocket(this.#url);
+    socket.binaryType = 'arraybuffer';
     this.#socket = socket;
     this.#subscribed = false;
     socket.addEventListener('open', () => {
@@ -169,10 +202,12 @@ export class LiveChanges {
       // server taking it in is missed. The window is short.
       if (this.#wasOpen) this.#tellAll({ kind: 'resync' });
       this.#wasOpen = true;
+      this.rooms.up();
     });
     socket.addEventListener('message', (event: MessageEvent<unknown>) => {
-      if (this.#socket !== socket || typeof event.data !== 'string') return;
-      void this.#receive(event.data);
+      if (this.#socket !== socket) return;
+      if (event.data instanceof ArrayBuffer) this.rooms.bytes(new Uint8Array(event.data));
+      else if (typeof event.data === 'string') void this.#receive(event.data);
     });
     socket.addEventListener('close', () => {
       if (this.#socket !== socket) return;
@@ -180,12 +215,13 @@ export class LiveChanges {
       this.#socket = undefined;
       this.#subscribed = false;
       this.#failures += 1;
+      this.rooms.down();
       this.#again();
     });
   }
 
   #again(): void {
-    if (this.#listening.size === 0 || this.#timer !== undefined) return;
+    if (!this.#wanted() || this.#timer !== undefined) return;
     const wait = WAITS[Math.min(this.#failures - 1, WAITS.length - 1)] ?? 30_000;
     this.#timer = setTimeout(() => {
       this.#timer = undefined;
@@ -211,12 +247,15 @@ export class LiveChanges {
   }
 
   async #receive(text: string): Promise<void> {
-    let message: Message;
+    let parsed: unknown;
     try {
-      message = JSON.parse(text) as Message;
+      parsed = JSON.parse(text);
     } catch {
       return;
     }
+    if (typeof parsed !== 'object' || parsed === null) return;
+    if (this.rooms.text(parsed as Record<string, unknown>)) return;
+    const message = parsed as Message;
     // Still on its way from a workspace that was left.
     if (message.workspaceId !== undefined && message.workspaceId !== this.#workspaceId) return;
     if ('board' in message) {

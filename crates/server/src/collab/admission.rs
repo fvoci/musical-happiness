@@ -1,8 +1,8 @@
 //! Who is let into the room of a card's body, and how: asked when a connection
 //! comes in, and again while it is there.
 
-use crate::app::App;
-use crate::error::AppError;
+use crate::app::{App, Asker};
+use crate::error::{AppError, Reason};
 use crate::permissions::{DocMode, doc_mode};
 
 /// A user let into the room of a card.
@@ -20,6 +20,12 @@ pub(super) struct Admitted {
 /// that workspace, and for a connection without a user. `home` is the application as
 /// the connection's handshake reached it.
 ///
+/// A workspace is entered as a request enters it (`App::enter_workspace`): one whose
+/// organization takes only sessions made through its provider lets the connection of
+/// another session into no room, as it lets it follow none of its workspaces. Asked
+/// again while the connection is there, it is put out once the organization takes
+/// none.
+///
 /// Whoever is in the workspace is asked the same of the store whether the card is
 /// there or not ([`App::board_access`]), and of the card only which board it is on
 /// (`Store::board_of_card`), never its body: a card that is not there for the user
@@ -30,15 +36,21 @@ pub(super) struct Admitted {
 /// Returns the store's error if a fact cannot be read: that is no "no".
 pub(super) async fn admit(
     home: &App,
-    user_id: &str,
+    asker: Asker<'_>,
     workspace_id: &str,
     card_id: &str,
 ) -> Result<Option<Admitted>, AppError> {
+    let user_id = asker.user_id;
     if user_id.is_empty() {
         return Ok(None);
     }
-    let Some(entered) = home.enter_workspace(user_id, workspace_id).await? else {
-        return Ok(None);
+    let entered = match home.enter_workspace_as(asker, workspace_id).await {
+        Ok(Some(entered)) => entered,
+        Ok(None) => return Ok(None),
+        // Not let in, which is an answer: told as a failure, it would leave who is in
+        // the room there when the organization begins to take no password.
+        Err(error) if error.reason() == Some(Reason::SsoRequired) => return Ok(None),
+        Err(error) => return Err(error),
     };
     // For the workspace the connection named: a board of another is not there for it
     // (`App::reaches_board`), as for a request that names the workspace in its path.
@@ -56,4 +68,21 @@ pub(super) async fn admit(
         .filter(|access| !access.board.is_builtin)
         .and_then(|access| doc_mode(access.grant));
     Ok(board_id.zip(mode).map(|(_, mode)| Admitted { app, mode }))
+}
+
+/// How a connection of `asker` is let into the room of a card ([`admit`]), refused as
+/// for a card that is not there.
+///
+/// # Errors
+///
+/// As [`admit`], and a not-found error for who is not let in.
+pub(super) async fn let_in(
+    home: &App,
+    asker: Asker<'_>,
+    workspace_id: &str,
+    card_id: &str,
+) -> Result<Admitted, AppError> {
+    admit(home, asker, workspace_id, card_id)
+        .await?
+        .ok_or_else(|| AppError::not_found("card"))
 }

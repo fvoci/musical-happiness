@@ -12,14 +12,16 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const WithValue: Story = { args: { value: ['u-jisoo', 'u-ada'] } };
+export const WithValue: Story = { args: { value: ['example-member-1', 'example-member-3'] } };
 
 export const Empty: Story = {};
 
-export const ReadOnly: Story = { args: { value: ['u-minho', 'u-grace'], readOnly: true } };
+export const ReadOnly: Story = {
+  args: { value: ['example-member-2', 'example-member-4'], readOnly: true },
+};
 
 /** Starts with the list open. */
-export const Editing: Story = { args: { value: ['u-jisoo'], startOpen: true } };
+export const Editing: Story = { args: { value: ['example-member-1'], startOpen: true } };
 
 /** One of the people is no longer on the board; they can be taken out. */
-export const UnknownUser: Story = { args: { value: ['u-jisoo', 'u-gone'] } };
+export const UnknownUser: Story = { args: { value: ['example-member-1', 'u-gone'] } };

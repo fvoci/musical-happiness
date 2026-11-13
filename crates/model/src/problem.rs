@@ -59,6 +59,11 @@ pub struct Problem {
     #[serde(rename = "requestId", skip_serializing_if = "Option::is_none")]
     #[schema(nullable = false)]
     pub request_id: Option<String>,
+    /// The organization whose provider the session must be made through, with the
+    /// reason `sso_required`: what the sign-in is started for.
+    #[serde(rename = "orgId", skip_serializing_if = "Option::is_none")]
+    #[schema(nullable = false)]
+    pub org_id: Option<String>,
 }
 
 /// One thing of a request that was refused, and where in the request it is: exactly

@@ -55,7 +55,12 @@ export function shortcutKeys(
   return `${isApplePlatform(platform) ? 'Meta' : 'Control'}+${options.alt ? 'Alt+' : ''}${options.shift ? 'Shift+' : ''}${key}`;
 }
 
-const FIELDS = 'input, textarea, select, [contenteditable]:not([contenteditable="false"])';
+/**
+ * An editor of a body counts as a field even while it is read-only for now
+ * (the connection away): the reader who presses the keys there means its text.
+ */
+const FIELDS =
+  'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [data-body-editor]';
 
 /** Whether an event started in something the reader types into. */
 export function inField(target: EventTarget | null): boolean {

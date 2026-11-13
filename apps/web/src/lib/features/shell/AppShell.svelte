@@ -72,6 +72,10 @@
     onSignOut?: () => void;
     /** Changes the reader's password. Without it (no accounts) it is not offered. */
     onChangePassword?: (oldPassword: string, newPassword: string) => Promise<void>;
+    /** What the app adds to the account's part of the settings: where features meet. */
+    accountSettings?: Snippet;
+    /** Whether the settings are open: the app opens them for what it has to show there. */
+    settingsOpen?: boolean;
     /** The address of the organization's screen, for whoever administers it. */
     orgHref?: string;
     /** Goes to another workspace of the reader's. */
@@ -94,6 +98,8 @@
     onChooseLanguage,
     onSignOut,
     onChangePassword,
+    accountSettings,
+    settingsOpen = $bindable(false),
     orgHref,
     onSwitchWorkspace,
     readRecords,
@@ -110,7 +116,6 @@
 
   let shell = $state<HTMLElement | null>(null);
   let panel = $state<HTMLElement | null>(null);
-  let settingsOpen = $state(false);
   let recordsOpen = $state(false);
   /** The reader works in the workspace shown (no guest of it): its records are theirs to read. */
   const worksHere = $derived(workspace.workspaces.some((one) => one.id === workspace.info?.id));
@@ -361,6 +366,7 @@
   {onChooseLanguage}
   {onSignOut}
   {onChangePassword}
+  account={accountSettings}
   onOpenRecords={readRecords && worksHere
     ? () => {
         settingsOpen = false;

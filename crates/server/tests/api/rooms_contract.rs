@@ -27,11 +27,15 @@ async fn left_for_not_reading(
         "action": "JOIN_DOC", "workspaceId": TEST_WORKSPACE_ID, "cardId": card_id,
     })
     .to_string();
-    let (mut slow, waiting) = collab.seat(&th.app, user_id);
+    let (mut slow, waiting) =
+        collab.seat(&th.app, fvoci_server::app::Asker::with_password(user_id));
     assert!(slow.command(&join).await, "a command of the rooms");
     let app = th
         .app
-        .enter_workspace(user_id, TEST_WORKSPACE_ID)
+        .enter_workspace_as(
+            fvoci_server::app::Asker::with_password(user_id),
+            TEST_WORKSPACE_ID,
+        )
         .await
         .expect("the membership is read")
         .expect("a member")

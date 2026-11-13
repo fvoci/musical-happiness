@@ -116,7 +116,8 @@ test('two people change two values of one card at about the same time, and both 
 
   const first = await (await browser.newContext({ locale: 'en-US' })).newPage();
   const second = await (await browser.newContext({ locale: 'en-US' })).newPage();
-  const errors = [...watchErrors(first), ...watchErrors(second)];
+  // Read at the end: errors that come later are in them too.
+  const watched = [watchErrors(first), watchErrors(second)];
   const open = async (page: Page, who: typeof owner): Promise<void> => {
     await page.goto(boardPath(board, board.viewId, cardId));
     await signInOnPage(page, who);
@@ -164,5 +165,5 @@ test('two people change two values of one card at about the same time, and both 
   await first.context().close();
   await second.context().close();
   await api.dispose();
-  expect(errors).toEqual([]);
+  expect(watched.flat()).toEqual([]);
 });
