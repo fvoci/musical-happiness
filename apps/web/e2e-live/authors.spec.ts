@@ -1,6 +1,6 @@
 /**
- * A departed writer is named where their work is read (an earlier comment revision, a
- * comment, a card's last change), but never offered as a member.
+ * A departed writer is named where their work is read: an earlier comment revision, a
+ * comment, a card's last change. (That they are not offered as a member is the unit tests'.)
  */
 import { expect, test, type APIRequestContext } from '@playwright/test';
 

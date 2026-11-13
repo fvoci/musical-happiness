@@ -60,7 +60,7 @@ export class UserNames {
       const added: User[] = found.filter(
         (user) => ids.includes(user.id) && !workspace.user(user.id),
       );
-      workspace.users = [...workspace.users, ...added];
+      if (added.length > 0) workspace.users = [...workspace.users, ...added];
     } catch (error) {
       // A session that is over signs out, whichever workspace is shown by then.
       if (isBackendError(error) && error.status === 401) workspace.report('load', error);
