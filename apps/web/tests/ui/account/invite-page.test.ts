@@ -18,17 +18,20 @@ import {
 afterEach(cleanup);
 
 const GONE = new BackendError(404, { detail: 'no', reason: 'invitation_unavailable' });
+const SSO_REQUIRED = new BackendError(401, { reason: 'sso_required', orgId: 'org-a' });
 
 function mount(options: {
   preview?: () => Promise<InvitationPreview>;
   accept?: (token: string, account?: NewAccount) => Promise<AcceptedInvitation>;
   signedInAs?: string;
   onSignIn?: (login: string, password: string) => Promise<void>;
+  onSso?: (orgId: string) => Promise<void>;
 }) {
   const accept = vi.fn(options.accept ?? (() => Promise.resolve({ workspaceId: 'w1' })));
   const onSignIn = vi.fn(options.onSignIn ?? (() => Promise.resolve()));
   const onJoined = vi.fn();
   const onSessionEnded = vi.fn();
+  const onSso = vi.fn(options.onSso ?? (() => Promise.resolve()));
   render(InvitePage, {
     props: {
       token: 'the-token',
@@ -39,10 +42,11 @@ function mount(options: {
       onSignIn,
       onJoined,
       onSessionEnded,
+      onSso,
       homeHref: '/',
     },
   });
-  return { accept, onSignIn, onJoined, onSessionEnded };
+  return { accept, onSignIn, onJoined, onSessionEnded, onSso };
 }
 
 async function fill(label: RegExp, value: string): Promise<void> {
@@ -169,6 +173,34 @@ describe('the page of an invitation', () => {
     });
     expect(onJoined).not.toHaveBeenCalled();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('sends whoever is signed in another way through the single sign-on of an organization that takes no password', async () => {
+    const { onJoined, onSessionEnded, onSso } = mount({
+      signedInAs: 'grace',
+      accept: () => Promise.reject(SSO_REQUIRED),
+    });
+    await fireEvent.click(await screen.findByRole('button', { name: 'Join' }));
+    expect(await screen.findByTestId('invite-sso')).toHaveTextContent(
+      'opens only for its own single sign-on, and you are signed in another way',
+    );
+    expect(onSessionEnded).not.toHaveBeenCalled();
+    expect(onJoined).not.toHaveBeenCalled();
+    await fireEvent.click(screen.getByRole('button', { name: 'Continue with single sign-on' }));
+    expect(onSso).toHaveBeenCalledExactlyOnceWith('org-a');
+  });
+
+  it('tells a good password apart from the single sign-on an organization asks for', async () => {
+    const { onSignIn, onSso } = mount({ accept: () => Promise.reject(SSO_REQUIRED) });
+    await fireEvent.click(await screen.findByRole('button', { name: 'Have an account? Sign in' }));
+    await fill(/User name or email address/, 'grace');
+    await fill(/^Password/, 'the password');
+    await fireEvent.click(screen.getByRole('button', { name: 'Sign in and join' }));
+    expect(await screen.findByTestId('invite-sso')).toBeInTheDocument();
+    expect(onSignIn).toHaveBeenCalledExactlyOnceWith('grace', 'the password');
+    expect(screen.queryByText(/name or password/i)).not.toBeInTheDocument();
+    await fireEvent.click(screen.getByRole('button', { name: 'Continue with single sign-on' }));
+    expect(onSso).toHaveBeenCalledExactlyOnceWith('org-a');
   });
 
   it('offers to try again when the link could not be read at all', async () => {

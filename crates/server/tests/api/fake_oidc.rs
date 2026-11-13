@@ -179,6 +179,7 @@ impl FakeProvider {
             .route("/authorize", get(authorize))
             .route("/token", post(token))
             .route("/jwks", get(jwks))
+            .route("/person", post(set_person))
             .with_state(Arc::clone(&shared));
         let listener = Tls {
             tcp,
@@ -298,6 +299,39 @@ async fn discovery(State(shared): State<Arc<Shared>>) -> Response {
         "authorization_response_iss_parameter_supported": promises_issuer,
     }))
     .into_response()
+}
+
+/// Who the provider is to sign in, as a test that reaches it as a program names them.
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct NamedPerson {
+    subject: String,
+    email: String,
+    #[serde(default)]
+    preferred_username: Option<String>,
+    #[serde(default)]
+    name: Option<String>,
+}
+
+/// Signs in the person of the body from now on: for the tests that reach the provider
+/// as a program (`examples/fake_oidc.rs`), which cannot call
+/// [`FakeProvider::sign_in_as`]. Without a `name` the person has the one
+/// [`Person::new`] gives.
+async fn set_person(
+    State(shared): State<Arc<Shared>>,
+    Json(named): Json<NamedPerson>,
+) -> StatusCode {
+    let mut person = Person::new(&named.subject, &named.email);
+    person.preferred_username = named.preferred_username;
+    if named.name.is_some() {
+        person.name = named.name;
+    }
+    shared
+        .state
+        .lock()
+        .expect("the state is never held across a panic")
+        .person = person;
+    StatusCode::NO_CONTENT
 }
 
 /// The value of a query parameter, percent-decoded.

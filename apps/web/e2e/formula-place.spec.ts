@@ -6,7 +6,7 @@
  */
 import { expect, test, type Locator } from '@playwright/test';
 
-import { openCardWithBody } from './embeds.support.ts';
+import { focusAtEnd, openCardWithBody } from './embeds.support.ts';
 
 const formulaBody = (latex: string): object => ({
   type: 'doc',
@@ -72,7 +72,7 @@ test('with the keys alone: an arrow selects it, Enter opens, Ctrl+Enter closes',
 }) => {
   const body = await openCardWithBody(page, 'Welcome', formulaBody('a+b'));
   await closedAndDrawn(body);
-  await body.locator('.ProseMirror').focus();
+  await focusAtEnd(body);
   await page.keyboard.press('ArrowUp');
   await expect(blockOf(body)).toHaveClass(/ProseMirror-selectednode/);
   await expect(blockOf(body)).not.toHaveAttribute('data-open');
@@ -100,7 +100,7 @@ test('a source that cannot be drawn shows, closed, as itself with what went wron
 
 test('where the body may only be read, the formula does not open', async ({ page }) => {
   const body = await openCardWithBody(page, 'Company Goals', formulaBody('x^2'));
-  await expect(body).toHaveAttribute('data-editor', 'none');
+  await expect(body).toHaveAttribute('data-editor', 'reading');
   const formula = body.locator('div.doc-math[data-state="drawn"]');
   await expect(formula).toBeVisible({ timeout: 30_000 });
   await formula.click();

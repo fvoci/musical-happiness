@@ -633,6 +633,7 @@ fn config_error_and_request_json_members() {
             limit: Some(4_194_304),
             retry_after: Some(30),
             request_id: Some("id".to_owned()),
+            org_id: Some("org".to_owned()),
         }),
         json!({
             "type": "/problems/r",
@@ -648,6 +649,7 @@ fn config_error_and_request_json_members() {
             "limit": 4_194_304,
             "retryAfter": 30,
             "requestId": "id",
+            "orgId": "org",
         })
     );
 

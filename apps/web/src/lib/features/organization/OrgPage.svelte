@@ -5,9 +5,14 @@
   An administrator manages here; what is in a workspace they read by joining
   it. A refused change is told in a line at the top; the lists show what the
   server has.
+
+  An organization that takes its single sign-on alone, read with a session
+  made another way, shows what the app gives it for that (`closed`): the
+  way to that sign-in is the app's, not this screen's.
 -->
 <script lang="ts">
   import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
+  import type { Snippet } from 'svelte';
 
   import AuditList from '$lib/components/audit/AuditList.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
@@ -26,9 +31,11 @@
     meId: string | undefined;
     homeHref: string;
     workspaceHref: (workspaceId: string) => string;
+    /** What is shown of an organization this session does not open. */
+    closed?: Snippet;
   }
 
-  let { admin, locale, meId, homeHref, workspaceHref }: Props = $props();
+  let { admin, locale, meId, homeHref, workspaceHref, closed }: Props = $props();
 
   const REFUSALS: Record<OrgRefusal, () => string> = {
     name_taken: m.org_refused_name_taken,
@@ -70,7 +77,9 @@
   {:else if admin.status === 'missing'}
     <!-- Not theirs to administer: never, or no longer (stepped down, or made a member). -->
     <p class="text-muted-foreground" role="alert" data-testid="org-missing">{m.org_missing()}</p>
-  {:else if admin.status === 'failed'}
+  {:else if admin.status === 'sso' && closed}
+    {@render closed()}
+  {:else if admin.status === 'failed' || admin.status === 'sso'}
     <div>
       <p class="text-muted-foreground" role="alert">{m.app_problem_load()}</p>
       <Button class="mt-4 roomy:min-h-touch" onclick={() => void admin.load()}

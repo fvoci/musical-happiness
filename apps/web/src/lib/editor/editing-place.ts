@@ -31,13 +31,18 @@ import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view';
 import { m } from '$lib/i18n/paraglide/messages.js';
 
 import { diagramKind } from './diagram-kind.ts';
+import { lockMathEditing } from './math-editing.ts';
+import { mayWrite, onShared, sayDropped } from './shared-place.ts';
 import {
   closedDiagramAt,
+  closedOnPurpose,
   closePlace,
   closesPlace,
-  dropPlace,
+  heldWritten,
+  holdAgain,
   isDiagramNode,
   keepOutOfClosed,
+  keepPlaceSelected,
   nextPlace,
   openPlace,
   placeKey,
@@ -48,7 +53,7 @@ import {
 export {
   closePlace,
   closesPlace,
-  dropPlace,
+  heldWritten,
   isDiagramNode,
   openNewFormula,
   openPlace,
@@ -206,13 +211,31 @@ function placeView(view: EditorView) {
   };
   page.addEventListener('click', onClick, true);
   page.addEventListener('focusin', onFocusIn);
+  const stopHolding = onShared(view, () => {
+    holdAgain(view.state);
+  });
   return {
     update: (_: EditorView, before: EditorState) => {
+      // A written field gone with its block (deleted, or made anew by somebody else): said.
+      const was = placeOf(before);
+      if (was && !placeOf(view.state) && heldWritten(was) && !closedOnPurpose(was)) {
+        sayDropped(view, 'gone');
+      }
+      // Nothing of the document changed: the shared document has it all already.
+      if (view.state.doc === before.doc) holdAgain(view.state);
       const place = placeOf(view.state);
+      // A formula's box is locked while the editor is read-only: nothing more is typed into it.
+      lockMathEditing(view, !view.editable);
       if (place && !view.editable) {
-        // The editor became read-only with a place open. Not from inside this update.
+        // The editor became read-only with a place open. Only for a moment (the connection
+        // away): what the field holds is kept as if closed on purpose, and the room sends it
+        // when it can, or says it was lost. For a reader who may only read: nothing is
+        // written, and that is said. Not from inside this update.
         queueMicrotask(() => {
-          if (!view.isDestroyed) dropPlace(view);
+          if (view.isDestroyed) return;
+          const dropping = !mayWrite(view);
+          if (dropping && heldWritten(place)) sayDropped(view, 'refused');
+          closePlace(view, false, dropping);
         });
         return;
       }
@@ -227,6 +250,7 @@ function placeView(view: EditorView) {
       }
     },
     destroy: () => {
+      stopHolding();
       page.removeEventListener('click', onClick, true);
       page.removeEventListener('focusin', onFocusIn);
       live.remove();
@@ -245,9 +269,10 @@ export const EditingPlace = Extension.create({
         key: placeKey,
         state: {
           init: () => null,
-          apply: (tr, value, _old, state) => nextPlace(value, tr, state),
+          apply: (tr, value, before, state) => nextPlace(value, tr, before, state),
         },
-        appendTransaction: keepOutOfClosed,
+        appendTransaction: (transactions, before, state) =>
+          keepPlaceSelected(transactions, state) ?? keepOutOfClosed(transactions, before, state),
         props: {
           handleDOMEvents: { keydown: placeKeys },
           handleKeyDown,
@@ -264,9 +289,13 @@ export const EditingPlace = Extension.create({
             const place = placeOf(state);
             if (!place) return null;
             if (place.panel) {
+              // On a line somebody else wrote in meanwhile, after its text: where it will go.
+              const line = state.doc.nodeAt(place.pos);
+              const after = place.lineTaken === true && line !== null;
+              const at = after ? place.pos + line.nodeSize - 1 : place.pos + 1;
               return DecorationSet.create(state.doc, [
-                Decoration.widget(place.pos + 1, place.panel.dom, {
-                  side: -1,
+                Decoration.widget(at, place.panel.dom, {
+                  side: after ? 1 : -1,
                   key: 'new-formula',
                   ignoreSelection: true,
                   stopEvent: () => true,

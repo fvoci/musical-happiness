@@ -73,7 +73,10 @@ pub use file_refs::NewImages;
 pub use invitations::{Acceptance, Accepted, Acceptor, Inviter, InviterOfBoard, NewLink};
 pub use loose_objects::{LooseCounts, LooseObject, LooseState};
 pub use observe::{Access, Call, Observer, Outcome};
-pub use oidc::{Identity, LoginFlow, OidcAccount, OidcRefusal, StoredProvider};
+pub use oidc::{
+    Identity, LinkRefusal, Linked, LinkingSession, LoginFlow, OidcAccount, OidcRefusal, Removal,
+    StoredProvider, Unlinked,
+};
 pub use org_admin::{Joining, OrgRoleChange, WorkspaceTrashing};
 pub use server_lock::ServerLock;
 pub use sharing::SharingChange;
@@ -131,6 +134,16 @@ impl Tenant {
             Ok(Self::Org(uuid))
         } else {
             Err(StoreError::InvalidId(org_id.to_owned()))
+        }
+    }
+
+    /// The identifier of the organization whose rows these are; `None` for the rows of
+    /// none and of all.
+    #[must_use]
+    pub fn org_id(self) -> Option<String> {
+        match self {
+            Self::Org(org_id) => Some(org_id.hyphenated().to_string()),
+            Self::Unset | Self::System => None,
         }
     }
 

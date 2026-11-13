@@ -69,10 +69,12 @@ test('the editor of a card draws a formula and a diagram, under the policy', asy
   expect(seen).toEqual([]);
 });
 
-test('a card the reader may only look at draws them too, without the editor', async ({ page }) => {
+test('a card the reader may only look at draws them too, in an editor that only reads', async ({
+  page,
+}) => {
   const seen = refusals(page);
   const body = await openCardWithEmbeds(page, 'Company Goals');
-  await expect(body).toHaveAttribute('data-editor', 'none');
+  await expect(body).toHaveAttribute('data-editor', 'reading');
   await expect(body.locator('[contenteditable="true"]')).toHaveCount(0);
   await drawn(body);
   expect(seen).toEqual([]);

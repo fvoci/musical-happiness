@@ -6,7 +6,7 @@
 
 ## 지금 상태
 
-- **화면은 끝까지 조립돼 있고, 바뀐 서버에 붙었다.** 서버가 서빙하는 앱은 서버를 부르는 구현(`src/lib/api/`)으로 돌고, 서버 없이 빌드를 보는 도구(`preview`, `look`)와 개발 서버는 메모리 구현으로 돈다(`docs/decisions.md`의 연결 1번). 서버에 붙은 것: 로그인, 보드 읽기와 열린 보드의 참여, 보드 만들기(첫 뷰와 한 요청)·고치기·지우기·되살리기, 뷰 만들기, 공유(구성원과 역할, 팀에 열기와 최소 역할, 공개 링크, 사람 찾기), 비밀번호 바꾸기, 템플릿(목록, 템플릿에서 보드, 보드에서 템플릿)과 새 계정의 환영 보드, 아카이브(보드와 팀의 내보내기, 가져오기), 보드 검색, 카드 만들기·고치기(속성 단위)·옮기기·지우기, 카드의 본문(409 포함), 댓글 쓰기·고치기·지우기, 첨부(올리기 세션)와 본문의 이미지, 실시간, 사이드바(카테고리, 보드의 자리와 숨기기), 보일 이름(사람은 어디서나 "보일 이름 (@로그인 이름)"), 계정 설정의 언어, 휴지통(사이드바의 "휴지통"과 보드 위 막대의 "지운 카드"). `not_wired`(연결 3번)로 거절하는 조작은 남지 않았다. 장치는 다음 조작을 위해 둔다.
+- **화면은 끝까지 조립돼 있고, 바뀐 서버에 붙었다.** 서버가 서빙하는 앱은 서버를 부르는 구현(`src/lib/api/`)으로 돌고, 서버 없이 빌드를 보는 도구(`preview`, `look`)와 개발 서버는 메모리 구현으로 돈다(`docs/decisions.md`의 연결 1번). 서버에 붙은 것: 로그인, 보드 읽기와 열린 보드의 참여, 보드 만들기(첫 뷰와 한 요청)·고치기·지우기·되살리기, 뷰 만들기, 공유(구성원과 역할, 팀에 열기와 최소 역할, 공개 링크, 사람 찾기), 비밀번호 바꾸기, 템플릿(목록, 템플릿에서 보드, 보드에서 템플릿)과 새 계정의 환영 보드, 아카이브(보드와 팀의 내보내기, 가져오기), 보드 검색, 카드 만들기·고치기(속성 단위)·옮기기·지우기, 카드의 본문(방에서 함께 고침), 댓글 쓰기·고치기·지우기, 첨부(올리기 세션)와 본문의 이미지, 실시간, 사이드바(카테고리, 보드의 자리와 숨기기), 보일 이름(사람은 어디서나 "보일 이름 (@로그인 이름)"), 계정 설정의 언어, 휴지통(사이드바의 "휴지통"과 보드 위 막대의 "지운 카드"), 비밀번호를 받지 않는 조직의 안내(401 `sso_required`는 로그아웃이 아니다: `state/problems.ts`의 `isSignedOut`)와 계정 설정의 "연결된 로그인". 서버에 붙지 않은 조작은 없다(연결 3번).
 - **계약**은 저장소 루트의 `contracts/`(`openapi.json`, `websocket.md`, `body-vectors.json`)와 `docs/contract-pending.md`다. 아직 열린 가정과 질문, 계약의 빈틈은 `docs/contract-assumptions.md`에 있다.
 - **사용자 결정을 기다리는 것**은 `docs/contract-assumptions.md` 1절에 있다.
 - **서버와 한 브랜치에 있다.** 저장소는 `fvoci/musical-happiness`(비공개)이고, 브랜치 `master`에 서버(저장소 루트)와 웹앱(`apps/web`)이 함께 있다. 일마다 `master`에서 워크트리를 새로 갈라 일하고, 끝나면 `master`에 합친다. 양쪽에 걸친 안내는 저장소 루트의 `docs/handoff.md` 맨 앞에 있다.
@@ -64,16 +64,15 @@
 | `e2e`      | 532 통과, 179 건너뜀(`FVOCI_SCREENS`의 그림과 프로젝트마다 맞지 않는 것), 실패 0              |
 | `e2e:live` | 27 통과, 실패 0(지난 묶음의 11개가 그대로 있다. 서버는 테스트가 띄우고 끈다)                  |
 
-스크린샷 테스트(`FVOCI_SCREENS`와 스파이크의 그림)는 이 묶음에서 돌리지 않았다.
+`stories/`·`.storybook/`·공용 컴포넌트를 바꾼 묶음은 합치기 전과 배포 전에 `pnpm --filter web run test:storybook`을 별도로 돌린다(`check`에는 포함하지 않는다).
 
 ## 다음에 할 일
 
-1. **서버의 결정 묶음(`server-decide`) 뒤의 일.** 남은 것 없음: 웹앱에 이어졌다(`web-two-a`, `web-two-b`). 타입은 계약에서 만든다(`pnpm --filter web run api:types`).
-2. **손으로 적은 임시 타입이 남아 있다**(`src/lib/state/memory/seed.ts`의 템플릿 파일). 화면의 카드에는 옛 `contentOrder`가 남아 있지만(`logic/wire.ts`) 서버로 가지 않는다.
-3. **검토에서 남긴 것을 본다.** 화면 조립 때의 것은 `docs/decisions.md`의 "검토에서 나온 것과 처리"에, 이 묶음의 것은 각 리뷰 커밋의 본문("Not taken")에 있다.
-4. **캘린더와 간트에 끌기가 있다**(V5: `calendar/card-drag.svelte.ts`, `gantt/bar-drag.svelte.ts`, 머리글의 "새로 만들기"는 `lib/state/new-card.ts`). 간트는 서버의 관계 값 검증(V6)이 남았다.
-5. **가끔 실패하는 드래그 테스트의 원인을 가른다**(아래).
-6. **실제 기기에서 본다.** 터치 드래그, 한글 조합 입력, 진동, 접기·회전, 안전 영역은 아직 실제 기기에서 본 적이 없다.
+1. **손으로 적은 임시 타입이 남아 있다**(`src/lib/state/memory/seed.ts`의 템플릿 파일). 화면의 카드에는 옛 `contentOrder`가 남아 있지만(`logic/wire.ts`) 서버로 가지 않는다.
+2. **검토에서 남긴 것을 본다.** 화면 조립 때의 것은 `docs/decisions.md`의 "검토에서 나온 것과 처리"에, 이 묶음의 것은 각 리뷰 커밋의 본문("Not taken")에 있다.
+3. **캘린더와 간트에 끌기가 있다**(V5: `calendar/card-drag.svelte.ts`, `gantt/bar-drag.svelte.ts`, 머리글의 "새로 만들기"는 `lib/state/new-card.ts`). 간트는 서버의 관계 값 검증(V6)이 남았다.
+4. **가끔 실패하는 드래그 테스트의 원인을 가른다**(아래).
+5. **실제 기기에서 본다.** 터치 드래그, 한글 조합 입력, 진동, 접기·회전, 안전 영역은 아직 실제 기기에서 본 적이 없다.
 
 ## 도구가 있는 곳
 
@@ -92,18 +91,19 @@
 
 ## 화면을 띄우는 법과 포트
 
-| 무엇                                   | 명령                              | 포트                       | 주소               |
-| -------------------------------------- | --------------------------------- | -------------------------- | ------------------ |
-| **앱, 스파이크, Storybook을 한꺼번에** | `pnpm --filter web run look`      | 18410, 모든 인터페이스     | `/`가 목록이다     |
-| 앱 개발 서버                           | `pnpm --filter web run dev`       | 5173                       | `/`                |
-| 스파이크 개발 서버                     | `pnpm --filter web run spikes`    | 5173 고정                  | `/spikes/<이름>/`  |
-| 스파이크 Playwright                    | `spikes:e2e`                      | 18320, `FVOCI_SPIKES_PORT` | 스스로 띄우고 끈다 |
-| 빌드 결과 미리 보기                    | `pnpm --filter web run preview`   | 4173                       | `/`                |
-| 앱 Playwright                          | `e2e`                             | 18310, `FVOCI_E2E_PORT`    | 스스로 띄우고 끈다 |
-| 실제 서버의 Playwright                 | `e2e:live`(아래)                  | 18510, `FVOCI_LIVE_PORT`   | 스스로 띄우고 끈다 |
-| Storybook 개발 서버                    | `pnpm --filter web run storybook` | 6006                       | `/`                |
+| 무엇                                   | 명령                              | 포트                          | 주소               |
+| -------------------------------------- | --------------------------------- | ----------------------------- | ------------------ |
+| **앱, 스파이크, Storybook을 한꺼번에** | `pnpm --filter web run look`      | 18410, 모든 인터페이스        | `/`가 목록이다     |
+| 앱 개발 서버                           | `pnpm --filter web run dev`       | 5173                          | `/`                |
+| 스파이크 개발 서버                     | `pnpm --filter web run spikes`    | 5173 고정                     | `/spikes/<이름>/`  |
+| 스파이크 Playwright                    | `spikes:e2e`                      | 18320, `FVOCI_SPIKES_PORT`    | 스스로 띄우고 끈다 |
+| 빌드 결과 미리 보기                    | `pnpm --filter web run preview`   | 4173                          | `/`                |
+| 앱 Playwright                          | `e2e`                             | 18310, `FVOCI_E2E_PORT`       | 스스로 띄우고 끈다 |
+| 실제 서버의 Playwright                 | `e2e:live`(아래)                  | 18510, `FVOCI_LIVE_PORT`      | 스스로 띄우고 끈다 |
+| Storybook Playwright                   | `test:storybook`                  | 18369, `FVOCI_STORYBOOK_PORT` | 스스로 띄우고 끈다 |
+| Storybook 개발 서버                    | `pnpm --filter web run storybook` | 6006                          | `/`                |
 
-`e2e:live`에 관해: 먼저 저장소 루트에서 `cargo build -p fvoci-server --bins --examples`와 `pnpm --filter web run build`를 한다. 그 뒤 `pnpm --filter web run e2e:live`가 그 서버를 SQLite로 `target/web-live/<시각>-<포트>/`에 띄우고(그 다음 포트에 서버 테스트의 가짜 OIDC 공급자도) 끝나면 멈춘다. 테스트는 `e2e-live/`, 정한 것은 `docs/decisions.md`의 연결 8번.
+병렬 묶음마다 `FVOCI_E2E_PORT`·`FVOCI_LIVE_PORT`·`FVOCI_STORYBOOK_PORT`를 함께 정한다(지시문이 묶음마다 준다). `e2e:live`에 관해: 먼저 저장소 루트에서 `cargo build -p fvoci-server --bins --examples`와 `pnpm --filter web run build`를 한다. 그 뒤 `pnpm --filter web run e2e:live`가 그 서버를 SQLite로 `target/web-live/<시각>-<포트>/`에 띄우고(그 다음 포트에 서버 테스트의 가짜 OIDC 공급자도) 끝나면 멈춘다. 테스트는 `e2e-live/`, 정한 것은 `docs/decisions.md`의 연결 8번.
 
 `look`에 관해:
 

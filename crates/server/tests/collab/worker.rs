@@ -588,5 +588,19 @@ fn signal(pid: u32, name: &str) {
 /// Whether a process of that identifier is there, a zombie included.
 #[cfg(unix)]
 fn is_alive(pid: u32) -> bool {
-    std::path::Path::new(&format!("/proc/{pid}")).exists()
+    let pid = libc::pid_t::try_from(pid).expect("a process identifier fits pid_t");
+    // SAFETY: signal zero only checks whether this process exists; it sends no signal.
+    if unsafe { libc::kill(pid, 0) } == 0 {
+        return true;
+    }
+    let error = std::io::Error::last_os_error();
+    if error.raw_os_error() == Some(libc::EPERM) {
+        return true;
+    }
+    assert_eq!(
+        error.raw_os_error(),
+        Some(libc::ESRCH),
+        "process {pid}: {error}"
+    );
+    false
 }

@@ -92,3 +92,21 @@ export async function drawnDiagram(body: Locator): Promise<void> {
   });
   expect(outside).toBeLessThanOrEqual(1);
 }
+
+/**
+ * Puts the cursor at the end of the body and the focus in it, through the
+ * editor: a key (Ctrl+End) and an arrow right behind it can race the editor
+ * reading where the browser moved the cursor, which no hand is quick enough for.
+ */
+export async function focusAtEnd(body: Locator): Promise<void> {
+  // The editor of the room's document, not the view shown before it came.
+  await expect(body).toHaveAttribute('data-editor', 'ready');
+  await expect(body).not.toHaveAttribute('data-settling');
+  await body
+    .locator('.ProseMirror')
+    .evaluate(
+      (element: HTMLElement & { editor?: { commands: { focus: (at: string) => void } } }) => {
+        element.editor?.commands.focus('end');
+      },
+    );
+}

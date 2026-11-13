@@ -13,6 +13,8 @@ use fvoci_model::{Board, BoardMember, BoardRole, BoardType, OrgRole, Workspace, 
 use fvoci_store::{Looking, Reach};
 
 #[cfg(test)]
+mod session_table;
+#[cfg(test)]
 mod table;
 #[cfg(test)]
 mod team_table;
@@ -50,6 +52,17 @@ impl Actor {
     pub fn administers_the_organization(self) -> bool {
         matches!(self.org, Some(OrgRole::Admin))
     }
+}
+
+/// Whether a session opens what is an organization's, before anything else is asked of
+/// who it is: `required` is the provider the organization takes sessions of and no
+/// other (`None` if it takes a password too), `made_through` the provider the session
+/// was made through (`None` for a password). A session made through another provider
+/// opens nothing there: not one of another organization, and not the one the
+/// organization had before.
+#[must_use]
+pub fn session_opens(required: Option<&str>, made_through: Option<&str>) -> bool {
+    required.is_none_or(|required| made_through == Some(required))
 }
 
 /// Something a member of a workspace can be allowed to do in it, beside what is on its
