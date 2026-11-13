@@ -32,19 +32,23 @@ impl fmt::Debug for Outgoing {
     }
 }
 
-/// What became of one attempt to send a message: all the queue decides by.
+/// What became of one attempt to send a message: all the queue decides by. Each way
+/// sorts its own answers into these, by what they mean rather than by their numbers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Outcome {
     /// The way took the message.
     Sent,
-    /// Not now: the way is busy, limited or unreachable. `after` is how long it asked
-    /// to be left alone, if it said; `code` is its reply code (SMTP 4xx, HTTP 429 or
-    /// 5xx), if it gave one.
+    /// Not now: the way is busy, unreachable, throttled, past a quota or paused, or
+    /// anything else that another attempt later may get past. Whatever stops the whole
+    /// way rather than this message belongs here: three in a row hold invitations back
+    /// while recovery goes on. `after` is how long the way asked to be left alone, if
+    /// it said; `code` is its reply or status code, if it gave one.
     Later {
         after: Option<Duration>,
         code: Option<u16>,
     },
-    /// Never: the way refused this message for good (SMTP 5xx, HTTP 4xx but 429).
+    /// Never: the way refused this message for good (a recipient it does not take, a
+    /// message it will not carry); another attempt would get the same.
     Refused { code: Option<u16> },
 }
 
@@ -52,6 +56,9 @@ pub(crate) enum Outcome {
 /// and decides on another from the [`Outcome`] alone. An implementation reports no
 /// text of the provider's, no address and no part of the message.
 pub(crate) trait Outbound: Send + Sync + 'static {
+    /// The way's name in logs (`smtp`), which says what the codes are codes of.
+    fn name(&self) -> &'static str;
+
     /// Sends `message` once.
     fn send<'a>(
         &'a self,

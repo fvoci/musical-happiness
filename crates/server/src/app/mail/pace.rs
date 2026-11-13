@@ -115,8 +115,12 @@ impl Pace {
                 state.later_streak = state.later_streak.saturating_add(1);
                 if state.later_streak >= LATER_STREAK {
                     let pause = after.map_or(PAUSE, |after| after.clamp(PAUSE, LONGEST_PAUSE));
-                    let until = Instant::now() + pause;
-                    if state.invitations_paused_until.is_none() {
+                    let now = Instant::now();
+                    let until = now + pause;
+                    if state
+                        .invitations_paused_until
+                        .is_none_or(|paused| paused <= now)
+                    {
                         tracing::warn!(
                             seconds = pause.as_secs(),
                             "mail keeps being deferred: invitations wait, recovery goes on"

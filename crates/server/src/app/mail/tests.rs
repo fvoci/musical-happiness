@@ -33,6 +33,10 @@ impl Fake {
 }
 
 impl Outbound for Fake {
+    fn name(&self) -> &'static str {
+        "fake"
+    }
+
     fn send<'a>(
         &'a self,
         message: &'a Outgoing,
@@ -176,8 +180,8 @@ async fn a_message_deferred_at_every_attempt_is_given_up_after_the_third() {
     let times: Vec<u64> = fake.attempts().into_iter().map(|(at, _)| at).collect();
     assert_eq!(
         times,
-        [0, 30, 90],
-        "as long as the way asks, up to a minute"
+        [0, 30],
+        "as long as the way asks; given up when it asks for more than a minute"
     );
 }
 
@@ -250,4 +254,50 @@ fn a_root_on_this_machine_only_is_told_apart() {
     ] {
         assert!(!is_loopback_root(root), "{root}");
     }
+}
+
+#[tokio::test(start_paused = true)]
+async fn recovery_keeps_the_pace_while_invitations_wait_and_another_backs_off() {
+    let fake = Fake::new(&[
+        LATER,
+        LATER,
+        LATER,
+        Outcome::Later {
+            after: Some(Duration::from_secs(30)),
+            code: Some(421),
+        },
+        Outcome::Sent,
+    ]);
+    let mailer = mailer_of(&fake, Metrics::none());
+    send(&mailer, invitation(&mailer), "first@example.test")
+        .await
+        .expect("given up");
+    // Invitations wait now; more of them than they may send at once.
+    let waiting: Vec<_> = (0..4)
+        .map(|n| send(&mailer, invitation(&mailer), &format!("i{n}@example.test")))
+        .collect();
+    let backing_off = send(&mailer, reset(&mailer, "a"), "a@example.test");
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    let next = send(&mailer, reset(&mailer, "b"), "b@example.test");
+    for task in waiting.into_iter().chain([backing_off, next]) {
+        task.await.expect("sent");
+    }
+    let attempts = fake.attempts();
+    let of = |to: &str| -> Vec<u64> {
+        attempts
+            .iter()
+            .filter(|(_, recipient)| recipient == to)
+            .map(|(at, _)| *at)
+            .collect()
+    };
+    assert_eq!(of("a@example.test"), [6, 36], "{attempts:?}");
+    assert_eq!(
+        of("b@example.test"),
+        [7],
+        "the next recovery message has the next turn while another waits: {attempts:?}"
+    );
+    assert!(
+        of("i0@example.test")[0] < 36,
+        "a message sent lets the invitations go: {attempts:?}"
+    );
 }

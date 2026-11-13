@@ -61,6 +61,10 @@ impl Smtp {
 }
 
 impl Outbound for Smtp {
+    fn name(&self) -> &'static str {
+        "smtp"
+    }
+
     fn send<'a>(
         &'a self,
         message: &'a Outgoing,
@@ -69,7 +73,9 @@ impl Outbound for Smtp {
     }
 }
 
-/// What an SMTP error makes of the attempt: a 5xx reply refuses the message for good;
+/// What an SMTP error makes of the attempt: a 5xx reply refuses the message for good
+/// (a `535` of the credentials too, as SMTP says it is final; it is counted, and logged
+/// with its code, for every message);
 /// a 4xx reply (`421`, `451`, `454`) and anything without a reply (the connection, TLS,
 /// a timeout) is worth another attempt. Only the reply code is kept, never its text.
 fn outcome_of(reply: Option<u16>) -> Outcome {

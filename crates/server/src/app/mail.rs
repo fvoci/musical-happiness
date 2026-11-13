@@ -30,8 +30,8 @@ const INVITATION_CONNECTIONS: usize = CONNECTIONS - 1;
 const ATTEMPT_TIMEOUT: Duration = Duration::from_secs(10);
 /// The waits before the second and the third attempt, when the way did not say.
 const RETRY_DELAYS: [Duration; 2] = [Duration::from_secs(1), Duration::from_secs(4)];
-/// The longest a message waits for another attempt, whatever the way asked: a way that
-/// asks for longer has its message given up after the last attempt.
+/// The longest a message waits for another attempt: a way that asks for longer has its
+/// message given up then, rather than asked again before it said.
 const LONGEST_RETRY_WAIT: Duration = Duration::from_mins(1);
 
 /// Why invitation messages were not queued; nothing of the request was.
@@ -211,12 +211,13 @@ pub(super) struct Letter {
 
 impl Queued {
     /// Delivers the message `write` makes, keeping the place until it was delivered or
-    /// given up. It waits for a share of the sending its kind may use and for its turn
-    /// of the pace, and only then asks `write` for the message, so that what `write`
-    /// creates (a reset token) is as young as can be; `None` sends nothing. Attempts
-    /// follow the way's [`Outcome`]: up to three while it asks for later, one when it
-    /// refuses. What became of the message is logged and counted here, without a reply
-    /// text, an address or a token.
+    /// given up. Each attempt waits for its turn of the pace and then for a sending its
+    /// kind may use, holding nothing while it waits for the turn or for the next
+    /// attempt; the first one only then asks `write` for the message, so that what
+    /// `write` creates (a reset token) is as young as can be. `None` sends nothing.
+    /// Attempts follow the way's [`Outcome`]: up to three while it asks for later, one
+    /// when it refuses. What became of the message is logged and counted here, without
+    /// a reply text, an address or a token.
     ///
     /// # Errors
     /// Returns what `write` returned.
@@ -233,58 +234,102 @@ impl Queued {
             return Ok(());
         };
         let kind = self.kind;
-        // Dropped in this order: the connection is free before the share that let an
-        // invitation take it, so invitations never hold all four at once.
-        let share = match kind {
-            MailKind::PasswordReset => None,
-            MailKind::Invitation => Arc::clone(&mailer.invitation_connections)
-                .acquire_owned()
-                .await
-                .ok(),
-        };
-        let connection = Arc::clone(&mailer.connections).acquire_owned().await.ok();
-        mailer.pace.turn(kind).await;
-        let Some(letter) = write().await? else {
-            return Ok(());
-        };
-        let message = Outgoing {
-            from: mailer.from.to_string(),
-            to: letter.to,
-            subject: letter.content.subject,
-            plain: letter.content.plain,
-            html: letter.content.html,
-            language: letter.content.language,
-        };
+        let mut write = Some(write);
+        let mut message = None;
         let mut waits = RETRY_DELAYS.into_iter();
         for attempt in 1.. {
-            let outcome = tokio::time::timeout(ATTEMPT_TIMEOUT, outbound.send(&message))
+            mailer.pace.turn(kind).await;
+            let sending = mailer.sending(kind).await;
+            if let Some(write) = write.take() {
+                let Some(letter) = write().await? else {
+                    return Ok(());
+                };
+                message = Some(mailer.outgoing(letter));
+            }
+            let Some(message) = message.as_ref() else {
+                break;
+            };
+            let outcome = tokio::time::timeout(ATTEMPT_TIMEOUT, outbound.send(message))
                 .await
                 .unwrap_or(Outcome::Later {
                     after: None,
                     code: None,
                 });
+            drop(sending);
             mailer.pace.observe(outcome);
+            let way = outbound.name();
             let wait = match outcome {
                 Outcome::Sent => break,
                 Outcome::Refused { code } => {
-                    tracing::warn!(kind = kind.as_str(), attempt, code, "mail refused for good");
+                    tracing::warn!(
+                        kind = kind.as_str(),
+                        way,
+                        attempt,
+                        code,
+                        "mail refused for good"
+                    );
                     mailer.metrics.mail_failed(kind, MailFailure::Permanent);
                     break;
                 }
                 Outcome::Later { after, code } => {
-                    tracing::warn!(kind = kind.as_str(), attempt, code, "mail deferred");
-                    let Some(backoff) = waits.next() else {
-                        tracing::warn!(kind = kind.as_str(), attempt, "mail given up");
+                    tracing::warn!(kind = kind.as_str(), way, attempt, code, "mail deferred");
+                    // A way that asks for longer than another attempt may wait is
+                    // not asked again before it said.
+                    let wait = waits.next().map(|backoff| after.unwrap_or(backoff));
+                    let Some(wait) = wait.filter(|wait| *wait <= LONGEST_RETRY_WAIT) else {
+                        tracing::warn!(kind = kind.as_str(), way, attempt, "mail given up");
                         mailer.metrics.mail_failed(kind, MailFailure::Temporary);
                         break;
                     };
-                    after.map_or(backoff, |after| after.min(LONGEST_RETRY_WAIT))
+                    wait
                 }
             };
             tokio::time::sleep(wait).await;
-            mailer.pace.turn(kind).await;
         }
-        drop((connection, share, self.place));
+        drop(self.place);
         Ok(())
+    }
+}
+
+/// The sendings one attempt holds while it is made; given back in the order of the
+/// fields, so the connection is free before the share that let an invitation take it,
+/// and invitations never hold all four at once.
+struct Sending {
+    _connection: OwnedSemaphorePermit,
+    _invitations: Option<OwnedSemaphorePermit>,
+}
+
+impl Mailer {
+    /// Waits for a sending a message of `kind` may use.
+    async fn sending(&self, kind: MailKind) -> Sending {
+        let closed = "the mail semaphores are never closed";
+        let invitations = match kind {
+            MailKind::PasswordReset => None,
+            MailKind::Invitation => Some(
+                Arc::clone(&self.invitation_connections)
+                    .acquire_owned()
+                    .await
+                    .expect(closed),
+            ),
+        };
+        Sending {
+            _connection: Arc::clone(&self.connections)
+                .acquire_owned()
+                .await
+                .expect(closed),
+            _invitations: invitations,
+        }
+    }
+
+    /// The message of `letter`, from this mailer's sender.
+    fn outgoing(&self, letter: Letter) -> Outgoing {
+        Outgoing {
+            from: self.from.to_string(),
+            to: letter.to,
+            subject: letter.content.subject,
+            plain: letter.content.plain,
+            html: letter.content.html,
+            language: letter.content.language,
+        }
     }
 }
