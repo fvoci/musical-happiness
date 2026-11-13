@@ -71,6 +71,7 @@ async fn a_user_lists_the_workspaces_they_are_a_member_of() {
             "orgId": first[0].org_id,
             "name": crate::common::ORG_NAME,
             "role": "admin",
+            "ssoRequired": false,
         }),
         "the members of a workspace in the list"
     );
@@ -355,12 +356,9 @@ async fn a_workspace_of_another_organization_is_reached_by_its_members_only() {
     ts.teardown().await;
 }
 
-/// The routes that moved under `/w/{workspaceId}` read the workspace in the server's one
-/// organization, as they did before: a workspace of another organization is not there
-/// for them, also for a member of it who works in it, while `getWorkspaceBoards` lists
-/// its boards.
+/// A workspace is available to its members in every organization.
 #[tokio::test]
-async fn the_moved_routes_find_no_workspace_of_another_organization() {
+async fn workspace_routes_are_available_to_members_of_another_organization() {
     // SQLite holds one organization.
     if fvoci_store::testing::db_type_of_the_tests() != DbType::Postgres {
         return;
@@ -376,24 +374,25 @@ async fn the_moved_routes_find_no_workspace_of_another_organization() {
         .add_workspace_member(&their_workspace, &user1, WorkspaceRole::Member)
         .await
         .expect("the user is let into their workspace");
-    let hidden = not_there(&ts.client.get(&format!("/w/{UNKNOWN_ID}/categories")).await);
     for path in ["", "/categories", "/templates", "/users", "/trash/boards"] {
-        let refused = ts.client.get(&format!("/w/{their_workspace}{path}")).await;
-        assert_eq!(not_there(&refused), hidden, "{path}");
+        ts.client
+            .get(&format!("/w/{their_workspace}{path}"))
+            .await
+            .check_ok();
     }
     let search = format!("/w/{their_workspace}/boards/search?q=x");
-    assert_eq!(not_there(&ts.client.get(&search).await), hidden);
+    ts.client.get(&search).await.check_ok();
     let category = json!({"name": "x", "userId": user1, "workspaceId": their_workspace});
     let posted = ts
         .client
         .post(&format!("/w/{their_workspace}/categories"), &category)
         .await;
-    assert_eq!(not_there(&posted), hidden, "a new category");
+    posted.check_created();
     let by_ids = ts
         .client
         .post(&format!("/w/{their_workspace}/users"), &json!([user1]))
         .await;
-    assert_eq!(not_there(&by_ids), hidden, "users by their identifiers");
+    by_ids.check_ok();
     ts.client
         .get(&format!("/w/{their_workspace}/boards"))
         .await

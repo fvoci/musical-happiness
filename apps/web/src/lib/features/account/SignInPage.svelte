@@ -26,6 +26,7 @@
   import { Input } from '$lib/ui/input/index.js';
   import { Label } from '$lib/ui/label/index.js';
 
+  import { oidcProblemOf } from './oidc-problems.ts';
   import AccountFields from './AccountFields.svelte';
   import {
     accountFieldsUnder,
@@ -45,9 +46,11 @@
      * (`Account.startOidc`); a refusal of the start rejects.
      */
     onOidcStart?: (orgId: string) => Promise<void>;
+    /** Where "Forgot your password?" leads; the link shows only while the server sends mail. */
+    forgotHref?: string;
   }
 
-  let { onSignIn, onRegister, optionsOf, onOidcStart }: Props = $props();
+  let { onSignIn, onRegister, optionsOf, onOidcStart, forgotHref }: Props = $props();
 
   /** What the page's address says: the organization, and what went wrong. */
   const address = new URLSearchParams(location.search);
@@ -61,25 +64,6 @@
     options?.then((read) => (read?.organization?.oidc ? read.organization : undefined)),
   );
 
-  /** The words for what went wrong with a sign-in through a provider. */
-  function oidcProblemOf(name: string): string {
-    switch (name) {
-      case 'oidc-state-invalid':
-        return m.account_oidc_state_invalid();
-      case 'oidc-denied':
-        return m.account_oidc_denied();
-      case 'oidc-email-missing':
-        return m.account_oidc_email_missing();
-      case 'oidc-email-unverified':
-        return m.account_oidc_email_unverified();
-      case 'oidc-email-taken':
-        return m.account_oidc_email_taken();
-      case 'oidc-join-closed':
-        return m.account_oidc_join_closed();
-      default:
-        return m.account_oidc_failed();
-    }
-  }
   const oidcError = address.get('oidc_error');
 
   let mode = $state<'signIn' | 'register'>('signIn');
@@ -293,6 +277,16 @@
         {mode === 'signIn' ? m.account_sign_in() : m.account_register()}
       {/if}
     </Button>
+
+    {#if mode === 'signIn' && forgotHref}
+      {#await options then read}
+        {#if read?.mailEnabled}
+          <a href={forgotHref} class="text-center text-sm underline underline-offset-4"
+            >{m.reset_forgot()}</a
+          >
+        {/if}
+      {/await}
+    {/if}
 
     <!-- Until the server has said whether it takes an account, neither is offered. -->
     {#await options then read}

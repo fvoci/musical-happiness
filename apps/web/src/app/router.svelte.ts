@@ -23,6 +23,9 @@ import { afterOwnSteps, releaseOverlayEntries } from '$lib/layout/back.svelte.ts
 import { buildUrl, normalizeBasePath, type BoardPlace } from '$lib/logic/urls.ts';
 
 export interface Route {
+  /** The standalone password reset page; its token is in the URL fragment. */
+  passwordReset?: true;
+  passwordForgot?: true;
   /** The organization whose screen is shown; then nothing else is. */
   orgId?: string | undefined;
   workspaceId: string | undefined;
@@ -81,6 +84,12 @@ export function parseRoute(pathname: string, basePath: string, search = ''): Rou
       }
     });
   if (segments.length === 0) return NOWHERE;
+  if (segments[0] === 'forgot-password' && segments.length === 1) {
+    return { ...NOWHERE, passwordForgot: true };
+  }
+  if (segments[0] === 'reset-password' && segments.length === 1) {
+    return { ...NOWHERE, passwordReset: true };
+  }
   if (segments[0] === 'invite' && segments.length === 2) {
     return { ...NOWHERE, invitation: segments[1] };
   }
@@ -122,9 +131,11 @@ function sharedRoute(segments: string[], search: string): Route {
 
 /**
  * The route as far as it goes: each part only under the one before it
- * (a card only on a view, a view only on a board, a board only in a workspace).
+ * (a card only on a view, a view only on a board, a board only in a workspace),
+ * and an organization's screen alone.
  */
 function settled(route: Partial<Route>): Route {
+  if (route.orgId) return { ...NOWHERE, orgId: route.orgId };
   const readToken = route.readToken || undefined;
   const workspaceId = (!readToken && route.workspaceId) || undefined;
   const boardId = ((workspaceId || readToken) && route.boardId) || undefined;
@@ -179,6 +190,8 @@ export class Router {
       const next = parseRoute(location.pathname, this.basePath, location.search);
       const now = this.route;
       if (
+        next.passwordReset === now.passwordReset &&
+        next.passwordForgot === now.passwordForgot &&
         next.orgId === now.orgId &&
         next.workspaceId === now.workspaceId &&
         next.boardId === now.boardId &&

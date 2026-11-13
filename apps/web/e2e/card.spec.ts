@@ -27,6 +27,8 @@ test.describe.configure({ mode: 'parallel', timeout: 90_000 });
 /** What `window.fvociDev` offers a test (src/app/backend.ts). Only what is used here. */
 interface DevBackend {
   latency: number;
+  me(): Promise<{ id: string }>;
+  addMember(boardId: string, userId: string, role: 'editor'): Promise<unknown>;
   workspaces(): Promise<{ id: string }[]>;
   boards(workspaceId: string): Promise<{ id: string; title: string }[]>;
   views(boardId: string): Promise<{ id: string; title: string }[]>;
@@ -120,7 +122,6 @@ const saveState = (page: Page): Locator => page.getByTestId('card-save-state');
 /** The editor of the body, once the piece of the app that holds it has arrived. */
 async function bodyEditor(page: Page): Promise<Locator> {
   await expect(page.getByTestId('card-body')).toHaveAttribute('data-editor', 'ready');
-  // Whatever it says about being editable: while a conflict waits it is not.
   return page.getByTestId('card-body').locator('[contenteditable]').first();
 }
 
@@ -593,7 +594,7 @@ test('the editor is a piece of its own that is fetched when a card is first open
   expect(scripts.filter(isEditor)).toHaveLength(1);
 });
 
-test('the body is stored when the typing pauses, and is there when the card is opened again', async ({
+test('the body is sent as it is typed, and is there when the card is opened again', async ({
   page,
 }, testInfo) => {
   const stage = STAGE_OF_PROJECT[testInfo.project.name] ?? 'expanded';
@@ -606,7 +607,10 @@ test('the body is stored when the typing pauses, and is there when the card is o
   await page.keyboard.type('Typed and kept. ');
   await expect(saveState(page)).toHaveText('Saving…');
   await expect(saveState(page)).toHaveText('Saved');
-  expect(textOf((await stored(page, place)).body)).toContain('Typed and kept');
+  // The card's body is written from the room's document a little later.
+  await expect
+    .poll(async () => textOf((await stored(page, place)).body))
+    .toContain('Typed and kept');
 
   // Closing sends what the pause has not sent yet.
   await page.keyboard.type('And this too. ');
@@ -618,83 +622,56 @@ test('the body is stored when the typing pauses, and is there when the card is o
   await expect(await bodyEditor(page)).toContainText('Typed and kept. And this too.');
 });
 
-test('somebody else writes the body while the reader writes: a notice, and the choice to keep the own text', async ({
+test('two tabs edit one body together: each sees what the other types, and both stay', async ({
   page,
+  context,
 }) => {
   const place = await openTaskCard(page);
   const editor = await bodyEditor(page);
-  await meetSomebodyElse(page, place, editor);
+  const other = await context.newPage();
+  await other.goto(addressOf(place));
+  const theirs = await bodyEditor(other);
 
-  const notice = page.getByTestId('body-conflict');
-  await expect(notice).toBeVisible();
-  await expect(notice).toContainText('Someone else changed this card.');
-  await expect(saveState(page)).toHaveText('Not saved');
-  // The app's own line about it is not laid over the comment field.
-  await expect(page.locator('[data-problem="conflict"]')).toHaveCount(0);
-  // Nothing was overwritten, on either side.
-  await expect(editor).toContainText('Mine. ');
-  expect(textOf((await stored(page, place)).body)).toBe('Theirs');
+  await editor.click();
+  await page.keyboard.press('Control+Home');
+  await page.keyboard.type('From the first tab. ');
+  await theirs.click();
+  await other.keyboard.press('Control+End');
+  await other.keyboard.type(' From the second tab.');
 
-  // The stored text can be looked at before choosing.
-  await page.getByTestId('conflict-preview').click();
-  await expect(page.getByTestId('conflict-theirs')).toHaveText('Theirs');
-
-  await page.getByTestId('conflict-mine').click();
-  await expect(notice).toBeHidden();
+  for (const shown of [editor, theirs]) {
+    await expect(shown).toContainText('From the first tab. ');
+    await expect(shown).toContainText(' From the second tab.');
+  }
   await expect(saveState(page)).toHaveText('Saved');
-  await expect(editor).toContainText('Mine. ');
-  expect(textOf((await stored(page, place)).body)).toContain('Mine');
+  await expect(saveState(other)).toHaveText('Saved');
+  expect(await theirs.textContent()).toBe(await editor.textContent());
+  await other.close();
 });
 
-test('the other choice of a conflict shows the stored text and drops what the reader wrote', async ({
+test('a body written whole elsewhere while the reader types: the new text shows, and what was lost is said', async ({
   page,
 }) => {
   const place = await openTaskCard(page);
   const editor = await bodyEditor(page);
-  await meetSomebodyElse(page, place, editor);
+  await replacedWhileTyping(page, place, editor);
+  const notice = page.getByTestId('body-lost');
+  await expect(notice).toContainText('replaced elsewhere');
+  await expect(await bodyEditor(page)).toHaveText('Theirs');
+  await notice.getByRole('button', { name: 'Close' }).click();
+  await expect(notice).toHaveCount(0);
 
-  const notice = page.getByTestId('body-conflict');
-  await expect(notice).toContainText('Showing the saved text discards what you wrote.');
-  await page.getByTestId('conflict-theirs-button').click();
-  await expect(notice).toBeHidden();
-  await expect(editor).toHaveText('Theirs');
-  expect(textOf((await stored(page, place)).body)).toBe('Theirs');
-
-  // The editor takes typing again, and it is stored.
-  await editor.click();
+  // The editor takes typing again, and it is kept.
+  await (await bodyEditor(page)).click();
   await page.keyboard.press('Control+End');
   await page.keyboard.type(' and mine after');
   await expect(saveState(page)).toHaveText('Saved');
-  expect(textOf((await stored(page, place)).body)).toBe('Theirs and mine after');
+  await expect
+    .poll(async () => textOf((await stored(page, place)).body))
+    .toBe('Theirs and mine after');
 });
 
-/**
- * The reader types, and before that is stored somebody else stores another
- * body. The reader's backend is slowed down for the moment, so that the
- * other write is certain to arrive first.
- */
-async function meetSomebodyElse(page: Page, place: Place, editor: Locator): Promise<void> {
-  await page.evaluate(() => {
-    window.fvociDev.backend.latency = 1500;
-  });
-  await editor.click();
-  await page.keyboard.press('Control+Home');
-  await page.keyboard.type('Mine. ');
-  await page.evaluate(
-    async ({ place: at, body }) => {
-      const other = window.fvociDev.someoneElse();
-      const card = await other.card(at.boardId, at.cardId);
-      await other.writeCardBody(at.boardId, at.cardId, { body, readAt: card.updateAt });
-    },
-    { place, body: paragraph('Theirs') },
-  );
-  await expect(page.getByTestId('body-conflict')).toBeVisible({ timeout: 15_000 });
-  await page.evaluate(() => {
-    window.fvociDev.backend.latency = 40;
-  });
-}
-
-test('somebody else changes only a property while the reader writes: the body is stored without a notice', async ({
+test('somebody else changes only a property while the reader writes: both are kept, without a notice', async ({
   page,
 }) => {
   const place = await openTaskCard(page);
@@ -710,12 +687,82 @@ test('somebody else changes only a property while the reader writes: the body is
   }, place);
 
   await expect(saveState(page)).toHaveText('Saved', { timeout: 15_000 });
-  await expect(page.getByTestId('body-conflict')).toHaveCount(0);
+  await expect(page.getByTestId('body-lost')).toHaveCount(0);
   await expect(page.getByTestId('card-title')).toHaveValue('Renamed by them');
-  const card = await stored(page, place);
-  expect(textOf(card.body)).toContain('Written meanwhile');
-  expect(card.title).toBe('Renamed by them');
+  await expect
+    .poll(async () => textOf((await stored(page, place)).body))
+    .toContain('Written meanwhile');
+  expect((await stored(page, place)).title).toBe('Renamed by them');
 });
+
+/**
+ * The reader types, and before that reaches the room somebody else writes
+ * the body whole (as a client of the server's API does): the room gets a new
+ * document and the reader's typing is dropped with the old one. The reader's
+ * backend is slowed down for the moment, so that the other write comes first.
+ */
+test('the reader stays in the body when the room sends it anew, with the caret where it was', async ({
+  page,
+}) => {
+  const place = await openTaskCard(page);
+  const editor = await bodyEditor(page);
+  await editor.click();
+  await page.keyboard.press('Control+Home');
+  await page.keyboard.type('Mine ');
+  // In the card already: what follows loses nothing.
+  await expect.poll(async () => textOf((await stored(page, place)).body)).toContain('Mine ');
+  await otherJoins(page, place);
+  await writtenWholeElsewhere(page, place, paragraph('Theirs, written whole'));
+  await expect(await bodyEditor(page)).toHaveText('Theirs, written whole');
+  await expect(page.getByTestId('body-lost')).toHaveCount(0);
+  // Not pressed again: the new editor has the focus, and the caret near where it was.
+  await page.keyboard.type('Z');
+  await expect(await bodyEditor(page)).toContainText('Z');
+  // Where it was in the line (after "Mine "), not at the start the new editor begins with.
+  expect((await (await bodyEditor(page)).textContent())?.startsWith('Z')).toBe(false);
+  expect(await page.evaluate(() => document.activeElement?.closest('.ProseMirror') !== null)).toBe(
+    true,
+  );
+});
+
+/**
+ * Somebody else becomes a member of the card's board: a card is read by its
+ * board's members only. Done before anything is slowed down, so that their
+ * write then takes no longer than the write itself.
+ */
+async function otherJoins(page: Page, place: Place): Promise<void> {
+  await page.evaluate(async ({ boardId }) => {
+    const other = await window.fvociDev.someoneElse().me();
+    await window.fvociDev.backend.addMember(boardId, other.id, 'editor');
+  }, place);
+}
+
+/** Somebody else, a member (`otherJoins`), writes the card's body whole as another client of the API does. */
+async function writtenWholeElsewhere(page: Page, place: Place, body: object): Promise<void> {
+  await page.evaluate(
+    async ({ place: at, body: written }) => {
+      const other = window.fvociDev.someoneElse();
+      const card = await other.card(at.boardId, at.cardId);
+      await other.writeCardBody(at.boardId, at.cardId, { body: written, readAt: card.updateAt });
+    },
+    { place, body },
+  );
+}
+
+async function replacedWhileTyping(page: Page, place: Place, editor: Locator): Promise<void> {
+  await otherJoins(page, place);
+  await page.evaluate(() => {
+    window.fvociDev.backend.latency = 1500;
+  });
+  await editor.click();
+  await page.keyboard.press('Control+Home');
+  await page.keyboard.type('Mine. ');
+  await writtenWholeElsewhere(page, place, paragraph('Theirs'));
+  await expect(page.getByTestId('body-lost')).toBeVisible({ timeout: 15_000 });
+  await page.evaluate(() => {
+    window.fvociDev.backend.latency = 40;
+  });
+}
 
 // ----------------------------------------- the window changes under a card
 
@@ -1094,8 +1141,6 @@ test('the card keeps clear of the edges the device keeps', async ({ page }, test
 // ------------------------------------------- reading only, and no card
 
 test('on a board the reader may only look at, nothing can be changed', async ({ page }) => {
-  const scripts: string[] = [];
-  page.on('request', (request) => scripts.push(new URL(request.url()).pathname));
   await openCard(page, 'Company Goals', 'Improve customer NPS score');
 
   // The title is a heading, the names of the properties are not buttons, the values are not fields.
@@ -1107,11 +1152,12 @@ test('on a board the reader may only look at, nothing can be changed', async ({ 
   await expect(page.getByTestId('card-add-icon')).toHaveCount(0);
   await expect(page.getByTestId('card-properties').locator('input, button')).toHaveCount(0);
 
-  // The body is shown, not edited, and the editor is not fetched for it.
-  await expect(page.getByTestId('card-body')).toHaveAttribute('data-editor', 'none');
+  // The body is read in its room (others' changes come in), never edited, and says why.
+  await expect(page.getByTestId('card-body')).toHaveAttribute('data-editor', 'reading');
   await expect(page.getByTestId('card-body').locator('[contenteditable="true"]')).toHaveCount(0);
-  await expect(page.getByTestId('card-body')).toContainText('No description.');
-  expect(scripts.filter((name) => name.includes('BodyEditor-'))).toEqual([]);
+  await expect(page.getByTestId('body-room-note')).toHaveText(
+    'You can read this description but not change it.',
+  );
 
   // No attaching, no commenting; the menu offers the link only.
   await expect(page.getByTestId('attach')).toHaveCount(0);
@@ -1209,7 +1255,9 @@ test.describe('pictures of the card', () => {
   const SCREENS = screensDir('card');
 
   for (const scheme of ['light', 'dark'] as const) {
-    test(`the card, its menu, a picker and a conflict (${scheme})`, async ({ page }, testInfo) => {
+    test(`the card, its menu, a picker and a loss of typing (${scheme})`, async ({
+      page,
+    }, testInfo) => {
       const stage = STAGE_OF_PROJECT[testInfo.project.name] ?? 'expanded';
       const shot = async (name: string): Promise<void> => {
         await page.screenshot({ path: path.join(SCREENS, `${name}-${stage}-${scheme}.png`) });
@@ -1258,11 +1306,10 @@ test.describe('pictures of the card', () => {
       await shot('card-menu');
       await closePicker(page);
 
-      // A conflict over the body.
-      await meetSomebodyElse(page, place, editor);
-      await page.getByTestId('conflict-preview').click();
-      await page.getByTestId('body-conflict').scrollIntoViewIfNeeded();
-      await shot('card-conflict');
+      // What the reader typed was dropped with a body written whole elsewhere.
+      await replacedWhileTyping(page, place, editor);
+      await page.getByTestId('body-lost').scrollIntoViewIfNeeded();
+      await shot('card-body-lost');
     });
   }
 });

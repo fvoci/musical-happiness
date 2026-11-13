@@ -22,6 +22,7 @@ mod observe;
 mod oidc;
 mod order;
 mod org_admin;
+mod password_reset;
 mod registration;
 mod restored_boards;
 mod sessions;

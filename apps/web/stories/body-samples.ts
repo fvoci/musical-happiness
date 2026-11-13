@@ -19,8 +19,8 @@ const task = (checked: boolean, ...content: DocNode[]): DocNode => ({
 });
 
 export const PEOPLE: Record<string, string> = {
-  '01930000-0000-7000-8000-00000000c001': '김하늘',
-  '01930000-0000-7000-8000-00000000c002': 'Ada Lovelace',
+  '01930000-0000-7000-8000-00000000c001': '예시 구성원',
+  '01930000-0000-7000-8000-00000000c002': 'Example guest',
 };
 
 /** A picture for a file identifier that starts with `file-`; the others have no address. */
@@ -175,7 +175,7 @@ export const FORMULAS: DocNode = {
       ],
     },
     paragraph(text('그릴 수 없는 수식은 원문과 안내가 보입니다: '), math('\\frac{1}{')),
-    mathBlock('\\href{https://example.com}{링크는 만들어지지 않습니다}'),
+    mathBlock('\\href{https://example.test}{링크는 만들어지지 않습니다}'),
   ],
 };
 

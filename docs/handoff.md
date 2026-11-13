@@ -17,7 +17,7 @@
 
 - **보관 폴더.** 커밋되지 않는 파일은 이 기기의 보관 폴더(`musical-happiness-carry/`) 아래에 있다. `server/`에는 템플릿 아카이브와 조사 자료가, `web/`에는 글꼴 산출물과 그 원본, 마지막 검증의 출력이 있다. 새 워크트리에 놓는 명령은 각 폴더의 `README.md` 3절에 있다. 서버는 템플릿 아카이브 없이 컴파일되고(템플릿은 `crates/server/assets/templates/`에 있다), 웹앱은 글꼴을 놓으면 `build`가 글꼴을 받으러 네트워크에 나가지 않는다.
 - **무시 규칙.** 저장소 루트의 `.gitignore`가 `target/`, `node_modules/`를 무시한다. 웹앱의 빌드 산출물과 글꼴은 `apps/web/.gitignore`가 맡는다.
-- **컨테이너.** 필요할 때 만들고 그 일이 끝나면 닫는다. `cargo xtask test`가 PostgreSQL과 S3 컨테이너를 스스로 준비하고, 돌린 세션이 일을 마칠 때 멈춘다(2절). 웹앱의 검증은 컨테이너를 쓰지 않는다.
+- **컨테이너.** 필요할 때 만들고 그 일이 끝나면 닫는다. `cargo xtask test`가 PostgreSQL과 S3 컨테이너를 스스로 준비하고, 돌린 세션이 일을 마칠 때 멈춘다(2절). 웹앱의 실서버 검증에는 PostgreSQL도 필요하다.
 
 ## 지금 상태
 
@@ -81,7 +81,6 @@ cargo xtask openapi  # contracts/openapi.json 이 서버가 내는 것과 다르
 | 회귀 스냅샷 | 591단계(시나리오 21개) |
 | 권한 표 | 636칸 |
 
-- 앞 두 실행의 `ignored` 12건 가운데 10건은 S3 테스트다. 세 번째 단계가 그것을 돌린다. 나머지 2건은 `organization_boundary_review.rs`에서 꺼 둔 것이다.
 - 수는 커밋마다 달라진다. 문서보다 실행 결과를 믿는다.
 - 건너뛴 단계는 요약에 `SKIP`으로 나온다(`--skip-licenses`, `--database sqlite|postgres`). `SKIP`이 있는 실행을 전체 통과로 보고하지 않는다.
 - `cargo xtask test`는 `FVOCI_REGRESSION_UPDATE`가 설정돼 있으면 시작하지 않는다(아래의 갱신 절차).

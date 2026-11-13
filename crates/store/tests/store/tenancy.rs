@@ -609,6 +609,7 @@ async fn sign_in_under_way(store: &Store, name: &str) {
             enabled: true,
             create_at: 0,
             update_at: 0,
+            sso_required: false,
         })
         .await
         .expect("a provider is stored");
@@ -622,6 +623,7 @@ async fn sign_in_under_way(store: &Store, name: &str) {
             provider_id: provider.id,
             create_at: 0,
             expires_at: i64::MAX,
+            link_session_id: None,
         })
         .await
         .expect("a sign-in is stored");
@@ -751,7 +753,7 @@ async fn a_member_does_not_find_a_workspace_that_is_not_in_use() {
     };
     let listed = async || {
         unset
-            .workspaces_of_user(&user_id)
+            .workspaces_of_user(&user_id, None)
             .await
             .expect("the workspaces are listed")
             .into_iter()
@@ -833,9 +835,10 @@ async fn the_schema_makes_the_system_organization_and_its_workspace() {
     // It is not the organization the server works in, old as it is.
     let found = test
         .scoped(Tenant::Unset)
-        .only_organization(&Workspace::default())
+        .instance_organization()
         .await
-        .expect("the organization");
+        .expect("the organization")
+        .expect("an existing organization");
     assert_eq!(found, test.org_id);
 
     test.teardown().await;
@@ -894,15 +897,17 @@ fn rust_sources(directory: &Path, found: &mut Vec<std::path::PathBuf>) {
 /// The files that may ask for the system's reach, by which a handle reaches the rows of
 /// every organization: the store itself, the directory, the changes of the data after
 /// a migration, and the one function of the server that its housekeeping works
-/// through. Anywhere else, a request would be let past the wall it is there to be held
-/// by. (The system organization, which holds the built-in templates, is an
+/// through; and the revisions of the cached checks, which name it to tell what its
+/// writes move. Anywhere else, a request would be let past the wall it is there to be
+/// held by. (The system organization, which holds the built-in templates, is an
 /// organization like another to the wall: `Tenant::org(SYSTEM_ORG_ID)` is not this.)
 #[test]
 fn the_systems_reach_is_asked_for_in_few_places() {
-    const ALLOWED: [&str; 4] = [
+    const ALLOWED: [&str; 5] = [
         "store/src/lib.rs",
         "store/src/directory.rs",
         "store/src/data_steps.rs",
+        "store/src/visibility.rs",
         "server/src/app/housekeeping.rs",
     ];
     let crates = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -951,10 +956,9 @@ fn the_systems_reach_is_asked_for_in_few_places() {
 /// says, past the extractor, would open the wall from the inside.
 #[test]
 fn the_server_names_an_organization_for_a_handle_in_few_places() {
-    const ALLOWED: [&str; 6] = [
+    const ALLOWED: [&str; 5] = [
         "app/housekeeping.rs",
         "app/mod.rs",
-        "app/startup.rs",
         "app/templates.rs",
         "app/workspaces.rs",
         "collab/mod.rs",
@@ -1154,7 +1158,7 @@ async fn assert_the_workspaces_are_its_workspaces(
         ("left", OrgRole::Member, WorkspaceRole::Member),
     ] {
         let listed = unset
-            .workspaces_of_user(before.id(user))
+            .workspaces_of_user(before.id(user), None)
             .await
             .expect("the workspaces are listed");
         let listed: Vec<(&str, &str, WorkspaceRole)> = listed
@@ -1194,7 +1198,7 @@ async fn assert_the_workspaces_are_its_workspaces(
         .expect("a user registers");
     assert!(!newcomer.is_admin, "the instance had its first user");
     let listed = unset
-        .workspaces_of_user(&newcomer.id)
+        .workspaces_of_user(&newcomer.id, None)
         .await
         .expect("the workspaces are listed");
     let ids: Vec<&str> = listed
@@ -1342,9 +1346,10 @@ async fn a_database_from_before_organizations_becomes_one_organization() {
         .expect("the store migrates the database");
     // The one organization: found, not made.
     let org_id = unset
-        .only_organization(&Workspace::default())
+        .instance_organization()
         .await
-        .expect("the organization");
+        .expect("the organization")
+        .expect("an existing organization");
     assert!(is_id(&org_id), "{org_id}");
     assert_eq!(org_id.as_bytes()[14], b'7', "a version 7 UUID: {org_id}");
     assert!(
@@ -1622,9 +1627,10 @@ async fn a_database_with_one_workspace_becomes_one_organization_with_one_workspa
         "the organization and the system's"
     );
     let org_id = unset
-        .only_organization(&Workspace::default())
+        .instance_organization()
         .await
-        .expect("the organization");
+        .expect("the organization")
+        .expect("an existing organization");
     let ours = unset.for_org(&org_id).expect("an identifier");
     // One workspace: the one of the old database.
     let workspaces = ours.get_workspaces().await.expect("the workspaces");
@@ -1660,7 +1666,7 @@ async fn a_database_with_one_workspace_becomes_one_organization_with_one_workspa
             "a member of both"
         );
         let listed = unset
-            .workspaces_of_user(user)
+            .workspaces_of_user(user, None)
             .await
             .expect("the workspaces are listed");
         assert_eq!(listed.len(), 1, "one workspace: {listed:?}");
@@ -1829,7 +1835,7 @@ async fn a_row_of_one_organization_under_anothers_parent_counts_for_nothing() {
         "the row lets nobody into their workspace"
     );
     let listed = test
-        .workspaces_of_user(&user_id)
+        .workspaces_of_user(&user_id, None)
         .await
         .expect("the workspaces are listed");
     assert!(

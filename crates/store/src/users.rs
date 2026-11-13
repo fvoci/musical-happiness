@@ -1,11 +1,7 @@
 //! Users and their preferences.
 //!
-//! The operations that the original addresses to "the users of a team" take no workspace
-//! here, and answer the users of the whole instance: users are no organization's, so
-//! no wall narrows them. TEMPORARY, with [`Store::only_organization`]: who is in a
-//! workspace is in `workspace_members`, and these will ask that. The original's
-//! standalone store ignores the workspace, the guest and the visibility flags it is given
-//! (`server/services/store/sqlstore/user.go:105`, `:217` and `:226`).
+//! Accounts belong to the service. Workspace people are selected by membership and
+//! visibility in `directory.rs`; these account operations do not choose a workspace.
 //!
 //! An account is made in `accounts.rs`.
 
@@ -17,6 +13,7 @@ use crate::Store;
 use crate::db::{Dialect, Id, Row, Scope, Sql, now_millis};
 use crate::error::{StoreError, Taken};
 use crate::members;
+use crate::password_reset;
 use crate::sessions;
 
 /// The columns of a user, in the order [`user_from_row`] reads them.
@@ -206,47 +203,56 @@ impl Store {
         asker: Asker,
     ) -> Result<AdminChange, StoreError> {
         let is_admin = role == InstanceRole::Administrator;
-        self.transaction(async |scope| {
-            lock_instance(scope).await?;
+        let store = match self.instance_organization().await? {
+            Some(org_id) => self.for_org(&org_id)?,
+            None => self.scoped(crate::Tenant::Unset),
+        };
+        store
+            .transaction(async |scope| {
+                lock_instance(scope).await?;
 
-            let mut sql = select_users(scope);
-            sql.push_bind(" AND id = ", Id(user_id));
-            let Some(current) = fetch_users(scope, sql).await?.into_iter().next() else {
-                return Ok(AdminChange::NoSuchUser);
-            };
-            if asker == Asker::Administrator {
-                let mut sql = scope.sql("SELECT 1 FROM users WHERE delete_at = 0 AND is_admin = ");
-                sql.bind(true).push_bind(" AND id = ", Id(actor_id));
-                if scope.fetch_optional(sql).await?.is_none() {
-                    return Ok(AdminChange::NotAnAdministrator);
+                let mut sql = select_users(scope);
+                sql.push_bind(" AND id = ", Id(user_id));
+                let Some(current) = fetch_users(scope, sql).await?.into_iter().next() else {
+                    return Ok(AdminChange::NoSuchUser);
+                };
+                if asker == Asker::Administrator {
+                    let mut sql =
+                        scope.sql("SELECT 1 FROM users WHERE delete_at = 0 AND is_admin = ");
+                    sql.bind(true).push_bind(" AND id = ", Id(actor_id));
+                    if scope.fetch_optional(sql).await?.is_none() {
+                        return Ok(AdminChange::NotAnAdministrator);
+                    }
                 }
-            }
-            if current.is_admin && !is_admin {
-                let mut sql = scope.sql("SELECT 1 FROM users WHERE delete_at = 0 AND is_admin = ");
-                sql.bind(true)
-                    .push_bind(" AND id <> ", Id(user_id))
-                    .push(" LIMIT 1");
-                if scope.fetch_optional(sql).await?.is_none() {
-                    return Ok(AdminChange::LastAdmin);
+                if current.is_admin && !is_admin {
+                    let mut sql =
+                        scope.sql("SELECT 1 FROM users WHERE delete_at = 0 AND is_admin = ");
+                    sql.bind(true)
+                        .push_bind(" AND id <> ", Id(user_id))
+                        .push(" LIMIT 1");
+                    if scope.fetch_optional(sql).await?.is_none() {
+                        return Ok(AdminChange::LastAdmin);
+                    }
+                    if scope.has_org()
+                        && crate::org_admin::is_last_org_admin(scope, user_id).await?
+                    {
+                        return Ok(AdminChange::LastAdmin);
+                    }
                 }
-                if scope.has_org() && crate::org_admin::is_last_org_admin(scope, user_id).await? {
-                    return Ok(AdminChange::LastAdmin);
+                if current.is_admin != is_admin {
+                    let mut sql = scope.sql("UPDATE users SET is_admin = ");
+                    sql.bind(is_admin)
+                        .push_bind(", update_at = ", now_millis())
+                        .push_bind(" WHERE id = ", Id(user_id));
+                    scope.execute(sql).await?;
+                    if scope.has_org() {
+                        members::follow_instance_role(scope, user_id, role, actor_id).await?;
+                    }
                 }
-            }
-            if current.is_admin != is_admin {
-                let mut sql = scope.sql("UPDATE users SET is_admin = ");
-                sql.bind(is_admin)
-                    .push_bind(", update_at = ", now_millis())
-                    .push_bind(" WHERE id = ", Id(user_id));
-                scope.execute(sql).await?;
-                if scope.has_org() {
-                    members::follow_instance_role(scope, user_id, role, actor_id).await?;
-                }
-            }
-            let user = get_user_by_id(scope, user_id).await?;
-            Ok(AdminChange::Done(Box::new(user)))
-        })
-        .await
+                let user = get_user_by_id(scope, user_id).await?;
+                Ok(AdminChange::Done(Box::new(user)))
+            })
+            .await
     }
 
     /// Sets the password hash of the user with the given name, in any letter case, and
@@ -274,6 +280,7 @@ impl Store {
                 .ok_or_else(|| StoreError::UserNotFound(username.to_owned()))?;
             let user_id = row.id(0)?;
             sessions::delete_sessions_of_user(scope, &user_id).await?;
+            password_reset::delete_password_resets_of_user(scope, &user_id).await?;
             Ok(user_id)
         })
         .await
@@ -315,6 +322,7 @@ impl Store {
             sessions::delete_other_sessions_of_user(scope, user_id, kept_session_id).await?;
             sessions::replace_token_digest(scope, kept_session_id, kept_session_token_digest)
                 .await?;
+            password_reset::delete_password_resets_of_user(scope, user_id).await?;
             Ok(true)
         })
         .await

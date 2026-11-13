@@ -43,23 +43,21 @@
 
   let { board, view, cardId, cardHref, onClose, onOpenCard }: Props = $props();
 
-  // The store's open card follows the address. A card that is left is told to
-  // store its body first: once closed it sends nothing any more.
+  // The store's open card follows the address. A card that is left sends
+  // what was written in its body as it leaves the body's room.
   $effect(() => {
     const store = board;
     const id = cardId;
     untrack(() => {
-      const left = store.openCard;
-      if (left && left.cardId !== id) void left.saveBody();
       if (id) void store.showCard(id);
       else store.closeCard();
     });
   });
 
-  // The tab is closed or put away with something unsaved: send it while there is time.
+  // The tab is closed or put away with something not sent: send it while there is time.
   onMount(() => {
     const save = (): void => {
-      void board.openCard?.saveBody();
+      void board.openCard?.settleBody();
     };
     const whenHidden = (): void => {
       if (document.visibilityState === 'hidden') save();
@@ -83,23 +81,22 @@
     if (cardId !== undefined) shown = cardId;
   });
 
-  /** The card whose closing was held back once because its body could not be stored. */
+  /** The card whose closing was held back once because what was written in its body had not gone. */
   let held: unknown;
 
   /**
    * Whether the card may be left, for another card or for the board. What
-   * is unsaved is stored first. When that does not work (somebody else wrote
-   * the body, the server did not answer), or an image is still going up for
-   * the body (shown in its place), the card stays open once, so that nothing
-   * is lost by a careless tap. Leaving again, or with the notice already
-   * there, leaves.
+   * the reader wrote in the body is sent first. When it does not reach the
+   * server (no connection, not in the room), or an image is still going up
+   * for the body (shown in its place), the card stays open once, so that
+   * nothing is lost by a careless tap. Leaving again leaves.
    */
   async function mayLeave(): Promise<boolean> {
     const open = card;
-    // Asked before and after the write: a function, so that the second answer is not taken for the first.
-    const unsaved = (): boolean => (open?.dirty ?? false) || (open?.imagesGoingUp ?? false);
-    if (open && unsaved() && !open.conflict && held !== open) {
-      await open.saveBody();
+    // Asked before and after the sending: a function, so that the second answer is not taken for the first.
+    const unsaved = (): boolean => (open?.bodyPending ?? false) || (open?.imagesGoingUp ?? false);
+    if (open && unsaved() && held !== open) {
+      await open.settleBody();
       if (unsaved() && board.openCard === open) {
         held = open;
         return false;

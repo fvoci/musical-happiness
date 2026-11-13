@@ -117,6 +117,31 @@ pub(crate) struct Peer {
 }
 
 impl Peer {
+    /// Waits until preceding commands were read, without changing document state.
+    pub(crate) async fn barrier(&mut self) {
+        self.stream
+            .send(Message::Ping(vec![7].into()))
+            .await
+            .expect("ping sent");
+        tokio::time::timeout(PATIENCE, async {
+            loop {
+                match self
+                    .stream
+                    .next()
+                    .await
+                    .expect("connection stays open")
+                    .expect("protocol frame")
+                {
+                    Message::Pong(_) => return,
+                    Message::Ping(_) => {}
+                    message => panic!("unexpected frame before barrier: {message:?}"),
+                }
+            }
+        })
+        .await
+        .expect("server read the preceding commands");
+    }
+
     /// A connection of the client's session, whose editor is `client`.
     pub(crate) async fn connect(of: &Client, client: u64) -> Self {
         Self::on(of.connect_websocket().await, client)
@@ -572,7 +597,10 @@ async fn a_refused_update_goes_to_nobody_and_what_goes_out_is_logged_first() {
     two.joined(TEST_WORKSPACE_ID, &t.card_id).await;
     let app = th
         .app
-        .enter_workspace(&user2, TEST_WORKSPACE_ID)
+        .enter_workspace_as(
+            fvoci_server::app::Asker::with_password(&user2),
+            TEST_WORKSPACE_ID,
+        )
         .await
         .expect("the membership is read")
         .expect("a member")
@@ -894,7 +922,10 @@ async fn nothing_is_sent_on_before_the_log_has_it() {
     let user1 = th.client.me().await.id;
     let app = th
         .app
-        .enter_workspace(&user1, TEST_WORKSPACE_ID)
+        .enter_workspace_as(
+            fvoci_server::app::Asker::with_password(&user1),
+            TEST_WORKSPACE_ID,
+        )
         .await
         .expect("the membership is read")
         .expect("a member")

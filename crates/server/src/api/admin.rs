@@ -1,6 +1,7 @@
 //! The administration API: setting a user's password without knowing the old one, which
 //! also ends every session of that user, making a user an administrator of the
-//! instance, and comparing the file storage with the records.
+//! instance, releasing an organization from taking no password, and comparing the file
+//! storage with the records.
 //!
 //! It is served on the local Unix socket only, never on the TCP listener, so that being
 //! able to open the socket file is the credential. There is no session and no cross-site
@@ -23,6 +24,10 @@ use crate::error::AppError;
 pub(super) fn routes() -> Router<App> {
     Router::new()
         .route(
+            &format!("{}/admin/users/{{username}}/password-reset", super::PREFIX),
+            post(handle_password_reset_link),
+        )
+        .route(
             &format!("{}/admin/users/{{username}}/password", super::PREFIX),
             post(handle_admin_set_password),
         )
@@ -34,10 +39,23 @@ pub(super) fn routes() -> Router<App> {
             &format!("{}/admin/files/reconcile", super::PREFIX),
             post(handle_reconcile_files),
         )
+        .route(
+            &format!("{}/admin/orgs/{{orgId}}/sso/release", super::PREFIX),
+            post(handle_release_sso),
+        )
         .route_layer(middleware::from_fn(require_unix_connection))
         // The socket speaks the API's language for what it does not have as well.
         .fallback(|| async { AppError::not_found("route") })
         .method_not_allowed_fallback(|| async { AppError::method_not_allowed() })
+}
+
+/// Makes a single-use link for an operator to deliver without SMTP.
+async fn handle_password_reset_link(
+    State(app): State<App>,
+    Path(username): Path<String>,
+) -> ApiResult {
+    let url = app.password_reset_link(&username).await?;
+    Ok(json_response(&serde_json::json!({"url": url})))
 }
 
 /// The body of a request to set a password.
@@ -85,6 +103,16 @@ async fn handle_admin_make_admin(
 ) -> ApiResult {
     let user = app.make_admin_by_username(&username).await?;
     tracing::info!(user_id = %user.id, "made an administrator through the administration socket");
+    Ok(no_content())
+}
+
+/// Releases an organization from taking no password (`ssoRequired` of its provider):
+/// the way back in when nobody gets in through the provider, which an administrator
+/// of the organization could then not switch off either. The provider stays as it is
+/// otherwise, and the release is recorded. 204 also for an organization that takes a
+/// password already; 404 for an identifier that names no organization in use.
+async fn handle_release_sso(State(app): State<App>, Path(org_id): Path<String>) -> ApiResult {
+    app.release_sso_as_operator(&org_id).await?;
     Ok(no_content())
 }
 

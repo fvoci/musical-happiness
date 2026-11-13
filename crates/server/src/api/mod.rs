@@ -16,6 +16,7 @@ mod categories;
 mod config;
 pub mod contract;
 mod files;
+mod invitation_mail;
 mod invitations;
 mod limits;
 mod members;
@@ -23,6 +24,7 @@ mod oidc;
 mod onboarding;
 mod org;
 mod org_admin;
+mod password_reset;
 mod search;
 mod session;
 mod shared;
@@ -50,7 +52,7 @@ pub(crate) use access::{
     BlockAction, refusal, require_admin, require_block_patch_permission, require_block_permission,
     require_board_permission, require_board_visible, require_delete_permission,
     require_deletion_permission, require_granted, require_permission_through,
-    require_workspace_access, user_is_guest,
+    require_workspace_access,
 };
 pub(crate) use body::{
     decode_json, decode_object, decode_object_members, decode_object_with, decode_with_document,
@@ -113,6 +115,7 @@ fn routes() -> Routes {
         .merge(config::routes())
         .merge(files::routes())
         .merge(invitations::routes())
+        .merge(invitation_mail::routes())
         .merge(members::routes())
         .merge(workspace_members::routes())
         .merge(onboarding::routes())
@@ -131,6 +134,7 @@ fn routes() -> Routes {
     // What asks whether the server is there needs no session either.
     let unauthenticated = OpenApiRouter::new()
         .merge(auth::unauthenticated_routes())
+        .merge(password_reset::routes())
         .merge(invitations::unauthenticated_routes())
         .merge(oidc::unauthenticated_routes())
         .merge(system::routes());

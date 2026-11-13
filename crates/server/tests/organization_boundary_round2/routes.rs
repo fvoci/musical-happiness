@@ -20,7 +20,7 @@ use super::{answer, db_type_of_the_tests};
 // Method, path suffix, operation ID: every operation under `/w/{workspaceId}`, also
 // compared against the published contract. A parameter of the path is filled in with an
 // identifier of nothing; `{partNumber}` with 1.
-const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
+pub(super) const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
     ("GET", "", "getWorkspace"),
     ("GET", "/archive/export", "exportWorkspaceArchive"),
     ("POST", "/archive/import", "importArchive"),
@@ -128,6 +128,7 @@ const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
     ("PUT", "/guest-invitations", "setGuestInvitations"),
     ("GET", "/invitations", "getInvitations"),
     ("POST", "/invitations", "createInvitation"),
+    ("POST", "/invitations/mail", "emailInvitation"),
     ("DELETE", "/invitations/{invitation}", "revokeInvitation"),
     ("POST", "/subscriptions", "createSubscription"),
     (
@@ -245,7 +246,7 @@ fn fill_with_nothing(suffix: &str) -> String {
     filled
 }
 
-fn archive_entries(bytes: &[u8]) -> Vec<(String, Vec<u8>)> {
+pub(super) fn archive_entries(bytes: &[u8]) -> Vec<(String, Vec<u8>)> {
     let mut zip = zip::ZipArchive::new(Cursor::new(bytes)).expect("an export is a ZIP");
     let mut entries = Vec::new();
     for index in 0..zip.len() {

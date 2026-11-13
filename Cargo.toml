@@ -10,6 +10,9 @@ license = "MIT"
 publish = false
 
 [workspace.dependencies]
+mail-parser = "1.0.1"
+mail-builder = { version = "2.0.1", default-features = false }
+lettre = { version = "0.11.23", default-features = false, features = ["smtp-transport", "tokio1-rustls", "aws-lc-rs", "rustls-platform-verifier"] }
 # The names of the IANA time zones, compiled in: what a user may set as their time zone
 # is the same on every installation, whatever the host has in /usr/share/zoneinfo.
 chrono-tz = "0.10"

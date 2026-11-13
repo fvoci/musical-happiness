@@ -8,6 +8,8 @@
 //! stored only if the maker is still what was found then, where it is written
 //! (`fvoci_store::Inviter`).
 
+mod mail;
+
 use std::net::IpAddr;
 
 use fvoci_model::{
@@ -18,9 +20,10 @@ use fvoci_model::{
 use fvoci_store::{Acceptance, Acceptor, Inviter, InviterOfBoard, NewLink, Standing, StoreError};
 
 use super::auth::account_error;
-use super::{App, BoardAccess};
+use super::{App, Asker, BoardAccess};
 use crate::auth::now_millis;
 use crate::auth::secret::{new_secret, token_digest};
+use crate::collab::AccessScope;
 use crate::error::AppError;
 use crate::permissions::{self, Actor, BoardScope, WorkspacePermission};
 
@@ -41,11 +44,8 @@ struct Maker {
 /// Who accepts a link.
 #[derive(Debug, Clone, Copy)]
 pub enum Accepting<'a> {
-    /// The user of the request's session.
-    SignedIn {
-        /// The identifier of the user.
-        user_id: &'a str,
-    },
+    /// The user of the request's session, and the provider it was made through.
+    SignedIn(Asker<'a>),
     /// Somebody without an account, who asks for this one. The caller has checked and
     /// tidied it.
     NewAccount(&'a NewAccount),
@@ -81,8 +81,20 @@ impl App {
         created_by: &str,
         inviting: Inviting<'_>,
     ) -> Result<Invitation, AppError> {
+        let ends = now_millis().saturating_add(INVITATION_LIFETIME_MILLIS);
+        self.store_link(workspace_id, created_by, inviting, ends)
+            .await
+    }
+
+    /// Stores a new link that ends at `expires_at`, and returns it with its token.
+    async fn store_link(
+        &self,
+        workspace_id: &str,
+        created_by: &str,
+        inviting: Inviting<'_>,
+        expires_at: i64,
+    ) -> Result<Invitation, AppError> {
         let token = new_secret();
-        let now = now_millis();
         let (guest_of, max_uses) = match inviting {
             Inviting::Members => (None, None),
             Inviting::Guest { board_id, role } => {
@@ -94,8 +106,8 @@ impl App {
             guest_of,
             token_hash: &token_digest(&token),
             created_by,
-            now,
-            expires_at: now.saturating_add(INVITATION_LIFETIME_MILLIS),
+            now: now_millis(),
+            expires_at,
             max_uses,
         };
         let mut invitation = match self.store().create_invitation(&link).await {
@@ -380,7 +392,13 @@ impl App {
             };
             // Only now, for a link that is there, is a password hashed, and once.
             let acceptor = match accepting {
-                Accepting::SignedIn { user_id } => Acceptor::Account(user_id),
+                Accepting::SignedIn(asker) => {
+                    // Who holds the link knows the organization it leads into: a
+                    // session that organization does not take is told so, and let in
+                    // nowhere.
+                    app.require_session_opens_organization(asker).await?;
+                    Acceptor::Account(asker.user_id)
+                }
                 Accepting::NewAccount(account) => match &mut new_user {
                     Some(user) => Acceptor::NewAccount(user),
                     empty => Acceptor::NewAccount(empty.insert(app.new_account(account).await?)),
@@ -404,6 +422,13 @@ impl App {
                 })?;
             match acceptance {
                 Acceptance::Accepted(accepted) => {
+                    app.collab()
+                        .recheck_access(
+                            &app,
+                            AccessScope::workspace(&accepted.workspace_id)
+                                .of_user(&accepted.user_id),
+                        )
+                        .await;
                     settled = Some((app, accepted));
                     break;
                 }

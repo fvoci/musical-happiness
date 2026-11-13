@@ -3,8 +3,23 @@
 #[path = "api/common.rs"]
 mod common;
 
+#[path = "api/fake_oidc.rs"]
+mod fake_oidc;
+
+#[path = "api/fake_smtp.rs"]
+mod fake_smtp;
+
 #[path = "organization_boundary_round2/routes.rs"]
 mod routes;
+
+#[path = "organization_boundary_round2/workspace_app.rs"]
+mod workspace_app;
+
+#[path = "organization_boundary_round2/workspace_operations.rs"]
+mod workspace_operations;
+
+#[path = "organization_boundary_round2/member_operations.rs"]
+mod member_operations;
 
 #[path = "organization_boundary_round2/media.rs"]
 mod media;

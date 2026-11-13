@@ -18,8 +18,7 @@ use utoipa_axum::routes;
 
 use super::contract::bodies::UserIds;
 use super::contract::params::{
-    CappedPerPage, HomeMemberWorkspaceId, MemberWorkspaceId, Page, UserId, UserSearch,
-    WorkerWorkspaceId, WorkspaceId,
+    CappedPerPage, MemberWorkspaceId, Page, UserId, UserSearch, WorkerWorkspaceId, WorkspaceId,
 };
 use super::contract::tag;
 use super::org_admin::requested_page;
@@ -49,7 +48,11 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 ///
 /// Extraction fails with 401 without a session, and with 404 unless the session's user
 /// is a member of the workspace: one that is another's and one that does not exist
-/// answer alike. The application it hands the handler is behind the wall between
+/// answer alike. A member whose session does not open the workspace's organization,
+/// which takes only sessions made through its provider, is told so (401, reason
+/// `sso_required`): that is asked where the workspace is entered
+/// (`App::enter_workspace`), of every request, before anything else is asked of the
+/// member. The application it hands the handler is behind the wall between
 /// organizations, reaching the rows of the workspace's organization and no other, and
 /// finds a board of the organization's other workspaces as one that is not there
 /// (`App::board_access`); a handler that lists asks for what is in this one by
@@ -66,9 +69,6 @@ pub(crate) struct Ws {
     pub(crate) role: WorkspaceRole,
     /// What the user is in the workspace's organization, if a member of it.
     org_role: Option<OrgRole>,
-    /// Whether the workspace is in the organization the server stands in, the one the
-    /// routes that name no workspace work in.
-    home: bool,
 }
 
 impl FromRequestParts<App> for Ws {
@@ -129,7 +129,7 @@ impl Ws {
         workspace_id: String,
     ) -> Result<Self, AppError> {
         let entered = app
-            .enter_workspace(&session.user_id, &workspace_id)
+            .enter_workspace(&session, &workspace_id)
             .await?
             .ok_or_else(workspace_not_found)?;
         Ok(Self {
@@ -138,7 +138,6 @@ impl Ws {
             workspace_id,
             role: entered.role,
             org_role: entered.org_role,
-            home: entered.home,
         })
     }
 
@@ -151,18 +150,13 @@ impl Ws {
         }
     }
 
-    /// The workspace for one who makes boards in it: whoever works in it, and is no
-    /// guest of the instance either. A guest is refused (403) in `denial`: the workspace
-    /// is there for them.
+    /// Refuses a guest of this workspace who asks to make a board.
     ///
     /// # Errors
     ///
-    /// Returns 403 for a guest of the workspace or of the instance, and the store's
-    /// error if the user cannot be read.
-    pub(crate) async fn require_board_maker(&self, denial: &str) -> Result<(), AppError> {
-        if self.role == WorkspaceRole::Guest
-            || self.app.user_is_guest(&self.session.user_id).await?
-        {
+    /// Returns 403 in `denial` for a guest; the workspace is there for them.
+    pub(crate) fn require_board_maker(&self, denial: &str) -> Result<(), AppError> {
+        if self.role == WorkspaceRole::Guest {
             return Err(AppError::forbidden(denial));
         }
         Ok(())
@@ -186,26 +180,6 @@ impl Ws {
         Ok(())
     }
 
-    /// The workspace for one who works in it: a member who is no guest. A guest of the
-    /// workspace is on the boards they were invited to and reaches those by their
-    /// board; for the rest of the workspace (its sidebar, its templates, its users,
-    /// its archives) a guest is told what anybody else is, that it is not there.
-    ///
-    /// The routes that ask this read the workspace, before they moved under `/w/`, in
-    /// the organization the server stands in: a workspace of another organization was
-    /// not there for them, also for its members. That answer is kept until the routes
-    /// are decided anew.
-    ///
-    /// # Errors
-    ///
-    /// Returns 404 for a guest, and for a workspace of another organization.
-    pub(crate) fn require_works_there(self) -> Result<Self, AppError> {
-        if self.role == WorkspaceRole::Guest {
-            return Err(workspace_not_found());
-        }
-        self.require_home()
-    }
-
     /// The workspace for one who works in it, a member who is no guest, in whatever
     /// organization it is: what the routes take that were made under `/w/` and never
     /// read their workspace anywhere else. A guest is told what anybody else is.
@@ -219,55 +193,19 @@ impl Ws {
         }
         Ok(self)
     }
-
-    /// The workspace for a member of it, a guest too, if it is of the organization the
-    /// server stands in: the routes that read their workspace there before they moved
-    /// under `/w/` keep that answer until the routes are decided anew.
-    ///
-    /// # Errors
-    ///
-    /// Returns 404 for a workspace of another organization.
-    pub(crate) fn require_home(self) -> Result<Self, AppError> {
-        if !self.home {
-            return Err(workspace_not_found());
-        }
-        Ok(self)
-    }
 }
 
-/// The workspace a request names in its path, for one who works in it: [`Ws`] for a
-/// member who is no guest, of a workspace of the server's organization
-/// ([`Ws::require_works_there`]). Anybody else is told 404. A parameter of the path that is no text is a malformed request (400),
-/// as it is on the routes that take their parameters as text.
+/// A workspace whose path must be UTF-8 text, preserving the malformed-path response
+/// of routes that previously extracted their path as text. Membership and guest
+/// checks are the same as for [`Ws`].
 #[derive(Debug)]
-pub(crate) struct WorksIn(pub(crate) Ws);
+pub(crate) struct TextWs(pub(crate) Ws);
 
-impl FromRequestParts<App> for WorksIn {
+impl FromRequestParts<App> for TextWs {
     type Rejection = AppError;
 
     async fn from_request_parts(parts: &mut Parts, app: &App) -> Result<Self, Self::Rejection> {
-        Ws::extract(parts, app, malformed_path)
-            .await?
-            .require_works_there()
-            .map(Self)
-    }
-}
-
-/// The workspace a request names in its path, for a member of it, a guest too, if it is
-/// of the server's organization ([`Ws::require_home`]): for a route that was for who
-/// works in the workspace and is a guest's too now. A parameter of the path that is no
-/// text is a malformed request (400), as it was for it.
-#[derive(Debug)]
-pub(crate) struct AtHome(pub(crate) Ws);
-
-impl FromRequestParts<App> for AtHome {
-    type Rejection = AppError;
-
-    async fn from_request_parts(parts: &mut Parts, app: &App) -> Result<Self, Self::Rejection> {
-        Ws::extract(parts, app, malformed_path)
-            .await?
-            .require_home()
-            .map(Self)
+        Ws::extract(parts, app, malformed_path).await.map(Self)
     }
 }
 
@@ -284,7 +222,10 @@ fn malformed_path() -> AppError {
 ///
 /// The workspaces the user of the session is a member of, in every organization, with
 /// what the user is in each. By organization, the oldest first, and in each the oldest
-/// workspace first.
+/// workspace first. A workspace of an organization that takes only sessions made
+/// through its provider is listed for any session, with `ssoRequired` true for one that
+/// was not made so: what is under it answers 401 with the reason `sso_required` until
+/// the user signs in through the provider of `orgId`.
 #[utoipa::path(
     get,
     path = "/users/me/workspaces",
@@ -296,7 +237,7 @@ async fn handle_get_my_workspaces(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
 ) -> ApiResult {
-    let workspaces = app.workspaces_of_user(&session.user_id).await?;
+    let workspaces = app.workspaces_of_user(&session).await?;
     Ok(json_response(&workspaces))
 }
 
@@ -334,7 +275,8 @@ async fn handle_get_workspace_boards(ws: Ws) -> ApiResult {
     params(WorkspaceId),
     responses((status = 200, description = "The workspace.", body = Workspace)),
 )]
-async fn handle_get_workspace(WorksIn(ws): WorksIn) -> ApiResult {
+async fn handle_get_workspace(TextWs(ws): TextWs) -> ApiResult {
+    let ws = ws.require_no_guest()?;
     let workspace = ws.app.workspace(&ws.workspace_id).await?;
     Ok(json_response(&workspace))
 }
@@ -351,11 +293,10 @@ async fn handle_get_workspace(WorksIn(ws): WorksIn) -> ApiResult {
     path = "/w/{workspaceId}/users",
     operation_id = "getWorkspaceUsers",
     tag = tag::WORKSPACES,
-    params(HomeMemberWorkspaceId, UserSearch),
+    params(MemberWorkspaceId, UserSearch),
     responses((status = 200, description = "The users.", body = Vec<User>)),
 )]
 async fn handle_get_workspace_users(ws: Ws, RawQuery(query): RawQuery) -> ApiResult {
-    let ws = ws.require_home()?;
     let search_query = query_param(query.as_deref(), "search");
     Ok(json_response(
         &ws.app
@@ -383,12 +324,11 @@ async fn handle_get_workspace_users(ws: Ws, RawQuery(query): RawQuery) -> ApiRes
     path = "/w/{workspaceId}/users",
     operation_id = "getWorkspaceUsersById",
     tag = tag::WORKSPACES,
-    params(HomeMemberWorkspaceId),
+    params(MemberWorkspaceId),
     request_body = UserIds,
     responses((status = 200, description = "The users.", body = Vec<User>)),
 )]
 async fn handle_get_workspace_users_by_id(ws: Ws, body: Bytes) -> ApiResult {
-    let ws = ws.require_home()?;
     let user_ids: Vec<String> = decode_json(&body)?;
     if user_ids.is_empty() {
         return Err(AppError::bad_request("User IDs are empty"));
@@ -414,14 +354,13 @@ async fn handle_get_workspace_users_by_id(ws: Ws, body: Bytes) -> ApiResult {
     path = "/w/{workspaceId}/users/{userId}",
     operation_id = "getWorkspaceUser",
     tag = tag::WORKSPACES,
-    params(HomeMemberWorkspaceId, UserId),
+    params(MemberWorkspaceId, UserId),
     responses((status = 200, description = "The user.", body = User)),
 )]
 async fn handle_get_workspace_user(
     ws: Ws,
     Path((_, user_id)): Path<(String, String)>,
 ) -> ApiResult {
-    let ws = ws.require_home()?;
     let mut user = ws
         .app
         .users_in_workspace(

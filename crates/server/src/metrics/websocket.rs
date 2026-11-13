@@ -16,10 +16,15 @@ pub(crate) enum Disconnect {
     ReadError,
     /// Its session ended: logout, a changed password, the idle or absolute limit, or
     /// the user went. Also when the session could not be read back right after the
-    /// handshake, which is logged.
+    /// handshake, which is logged. (What ends of a workspace or a shared board ends
+    /// only what follows it, and is counted among the messages queued.)
     SessionEnded,
-    /// The read token it followed a shared board with stopped opening the board.
-    ShareEnded,
+    /// What it may be told could not be read of the store: it connects again and
+    /// reads anew, rather than miss what it was not sent.
+    StoreUnavailable,
+    /// What it may be told was checked again too often, overtaken each time by
+    /// permission writes: it connects again and reads anew.
+    ChecksOvertaken,
     /// It did not read its messages as fast as they came.
     SlowConsumer,
     /// The server stopped. Counted as it stops, after the metrics listener closed, so a
@@ -28,11 +33,12 @@ pub(crate) enum Disconnect {
 }
 
 impl Disconnect {
-    const ALL: [Self; 6] = [
+    const ALL: [Self; 7] = [
         Self::ClientClosed,
         Self::ReadError,
         Self::SessionEnded,
-        Self::ShareEnded,
+        Self::StoreUnavailable,
+        Self::ChecksOvertaken,
         Self::SlowConsumer,
         Self::Shutdown,
     ];
@@ -43,7 +49,8 @@ impl Disconnect {
             Self::ClientClosed => "client_closed",
             Self::ReadError => "read_error",
             Self::SessionEnded => "session_ended",
-            Self::ShareEnded => "share_ended",
+            Self::StoreUnavailable => "store_unavailable",
+            Self::ChecksOvertaken => "checks_overtaken",
             Self::SlowConsumer => "slow_consumer",
             Self::Shutdown => "shutdown",
         }
@@ -65,7 +72,7 @@ impl WebsocketMetrics {
             Opts::new(
                 "websocket_connections",
                 "How many websocket connections are open; one that ended is counted until \
-                 what was queued for it is sent, for five seconds at most.",
+                 its writer closes, for five seconds at most.",
             )
             .namespace(PREFIX),
         )?;
@@ -84,8 +91,10 @@ impl WebsocketMetrics {
                 "websocket_disconnections_total",
                 "How many websocket connections ended, by reason: client_closed (a close \
                  frame), read_error (broken off, or no websocket frame), session_ended, \
-                 share_ended, slow_consumer, shutdown (not seen: counted as the server \
-                 stops).",
+                 store_unavailable (what it may be \
+                 told could not be read; it connects again), checks_overtaken (checked \
+                 again too often as permissions changed; it connects again), slow_consumer, shutdown (not \
+                 seen: counted as the server stops).",
             )
             .namespace(PREFIX),
             &["reason"],

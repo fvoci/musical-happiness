@@ -16,6 +16,10 @@ import { defineConfig, devices } from '@playwright/test';
 const PORT = Number(process.env.FVOCI_LIVE_PORT ?? 18510);
 /** The tests of the first use of a server (e2e-live/first-use.spec.ts). */
 const FIRST_USE = /first-use\.spec\.ts$/;
+const ORGANIZATIONS = /organizations\.spec\.ts$/;
+
+/** The test that closes the server's one organization to passwords. */
+const SSO = /sso\.spec\.ts$/;
 
 export default defineConfig({
   testDir: 'e2e-live',
@@ -29,24 +33,48 @@ export default defineConfig({
     trace: 'retain-on-failure',
   },
   // The tests of the first use start on a server that nobody has used: they
-  // run first, and make the administrator the others work beside.
+  // run first, and make the administrator the others work beside. The test
+  // that closes that administrator's organization to passwords runs after the
+  // others are done, whose passwords it would refuse meanwhile (alone:
+  // `e2e:live --project=sso --no-deps`).
   projects: [
     { name: 'first-use', testMatch: FIRST_USE, use: { ...devices['Desktop Chrome'] } },
     {
       name: 'desktop',
-      testIgnore: FIRST_USE,
+      testIgnore: [FIRST_USE, ORGANIZATIONS, SSO],
       dependencies: ['first-use'],
       use: { ...devices['Desktop Chrome'] },
     },
+    {
+      name: 'sso',
+      testMatch: SSO,
+      dependencies: ['desktop'],
+      use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      name: 'organizations',
+      testMatch: ORGANIZATIONS,
+      use: { ...devices['Desktop Chrome'], baseURL: `http://127.0.0.1:${PORT + 4}` },
+    },
   ],
-  webServer: {
-    command: `node tools/live-server.ts ${PORT}`,
-    // No `url` or `port`: on this host a connection to a closed port hangs
-    // instead of being refused (playwright.config.ts says more).
-    wait: { stdout: /live: http/ },
-    stdout: 'pipe',
-    stderr: 'pipe',
-    timeout: 60_000,
-    gracefulShutdown: { signal: 'SIGTERM', timeout: 15_000 },
-  },
+  webServer: [
+    {
+      command: `node tools/live-server.ts ${PORT}`,
+      // No `url` or `port`: on this host a connection to a closed port hangs
+      // instead of being refused (playwright.config.ts says more).
+      wait: { stdout: /live: http/ },
+      stdout: 'pipe',
+      stderr: 'pipe',
+      timeout: 60_000,
+      gracefulShutdown: { signal: 'SIGTERM', timeout: 15_000 },
+    },
+    {
+      command: `node tools/live-server.ts ${PORT + 4} --organizations`,
+      wait: { stdout: /live: http/ },
+      stdout: 'pipe',
+      stderr: 'pipe',
+      timeout: 60_000,
+      gracefulShutdown: { signal: 'SIGTERM', timeout: 15_000 },
+    },
+  ],
 });

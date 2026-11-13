@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use base64::Engine as _;
 use fvoci_model::{OidcProvider, OidcStart, UserWorkspace};
-use fvoci_server::app::{Callback, LoginFailure};
+use fvoci_server::app::{Callback, FinishedLogin, LoginFailure};
 use fvoci_server::auth::sealed::SecretKey;
 use fvoci_server::auth::secret::token_digest;
 use fvoci_server::config::Configuration;
@@ -96,6 +96,7 @@ async fn callback_for(ts: &TestServer, fake: &FakeProvider, org_id: &str) -> Cal
             .expect("the organization's own address")
             .to_owned(),
         issuer: None,
+        session_token: None,
     }
 }
 
@@ -243,13 +244,13 @@ async fn changed_provider_refuses_pending_callback(change: Change, who: Who) {
             .expect("the callback finishes")
     };
     let live_session = match &outcome {
-        Ok(finished) => ts
+        Ok(FinishedLogin::SignedIn { token }) => ts
             .app
             .store()
-            .get_session(&token_digest(&finished.token), 0, 0)
+            .get_session(&token_digest(token), 0, 0)
             .await
             .is_ok(),
-        Err(_) => false,
+        Ok(FinishedLogin::Linked) | Err(_) => false,
     };
     let users_after = ts
         .app
@@ -284,25 +285,53 @@ async fn changed_provider_refuses_pending_callback(change: Change, who: Who) {
 
 #[tokio::test]
 async fn disabling_a_provider_during_token_exchange_prevents_a_new_session() {
-    changed_provider_refuses_pending_callback(Change::Disable, Who::Newcomer).await;
-    changed_provider_refuses_pending_callback(Change::Disable, Who::Member).await;
+    Box::pin(changed_provider_refuses_pending_callback(
+        Change::Disable,
+        Who::Newcomer,
+    ))
+    .await;
+    Box::pin(changed_provider_refuses_pending_callback(
+        Change::Disable,
+        Who::Member,
+    ))
+    .await;
 }
 
 #[tokio::test]
 async fn deleting_a_provider_during_token_exchange_prevents_a_new_session() {
-    changed_provider_refuses_pending_callback(Change::Delete, Who::Newcomer).await;
+    Box::pin(changed_provider_refuses_pending_callback(
+        Change::Delete,
+        Who::Newcomer,
+    ))
+    .await;
 }
 
 #[tokio::test]
 async fn replacing_a_provider_during_token_exchange_prevents_a_new_session() {
-    changed_provider_refuses_pending_callback(Change::Replace, Who::Newcomer).await;
-    changed_provider_refuses_pending_callback(Change::Replace, Who::Member).await;
+    Box::pin(changed_provider_refuses_pending_callback(
+        Change::Replace,
+        Who::Newcomer,
+    ))
+    .await;
+    Box::pin(changed_provider_refuses_pending_callback(
+        Change::Replace,
+        Who::Member,
+    ))
+    .await;
 }
 
 #[tokio::test]
 async fn closing_auto_join_during_token_exchange_prevents_a_new_member() {
-    changed_provider_refuses_pending_callback(Change::CloseJoining, Who::Newcomer).await;
-    changed_provider_refuses_pending_callback(Change::CloseJoining, Who::FormerMember).await;
+    Box::pin(changed_provider_refuses_pending_callback(
+        Change::CloseJoining,
+        Who::Newcomer,
+    ))
+    .await;
+    Box::pin(changed_provider_refuses_pending_callback(
+        Change::CloseJoining,
+        Who::FormerMember,
+    ))
+    .await;
 }
 
 #[tokio::test]

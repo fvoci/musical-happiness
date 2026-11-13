@@ -47,7 +47,7 @@ test('a category made elsewhere shows in the sidebar of every tab of its user', 
   const board = await makeBoard(api, { title: 'Sorted', cards: [] });
   const first = await context.newPage();
   const second = await context.newPage();
-  const errors = [...watchErrors(first), ...watchErrors(second)];
+  const watched = [watchErrors(first), watchErrors(second)];
   const listening = Promise.all([subscribed(first), subscribed(second)]);
   await first.goto(boardPath(board, board.viewId));
   await signInOnPage(first, owner);
@@ -66,7 +66,7 @@ test('a category made elsewhere shows in the sidebar of every tab of its user', 
     await expect(page.locator(`[data-category="${category.id}"]`)).toContainText('Errands');
   }
   await api.dispose();
-  expect(errors).toEqual([]);
+  expect(watched.flat()).toEqual([]);
 });
 
 test('signing out in one tab ends the session of the other, which asks to sign in by itself', async ({
@@ -81,7 +81,7 @@ test('signing out in one tab ends the session of the other, which asks to sign i
   await api.dispose();
   const first = await context.newPage();
   const second = await context.newPage();
-  const errors = [...watchErrors(first), ...watchErrors(second)];
+  const watched = [watchErrors(first), watchErrors(second)];
   const listening = Promise.all([subscribed(first), subscribed(second)]);
   await first.goto(boardPath(board, board.viewId));
   await signInOnPage(first, owner);
@@ -96,5 +96,5 @@ test('signing out in one tab ends the session of the other, which asks to sign i
   expect(out.ok()).toBe(true);
   // The second tab, untouched, follows: its connection closed, it reads again, and is told.
   await expect(second.getByTestId('sign-in-form')).toBeVisible({ timeout: 15_000 });
-  expect(errors).toEqual([]);
+  expect(watched.flat()).toEqual([]);
 });

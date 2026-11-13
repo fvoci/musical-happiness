@@ -18,6 +18,10 @@ pub const OIDC_ISSUER_MAX_BYTES: usize = 2048;
 /// is not in it: only whether there is one.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each flag is a separate member of the wire format"
+)]
 pub struct OidcProvider {
     /// The issuer: an `https` address, exactly as the provider names itself.
     pub issuer: String,
@@ -25,11 +29,15 @@ pub struct OidcProvider {
     pub client_id: String,
     /// Whether a client secret is stored.
     pub has_client_secret: bool,
-    /// Whether somebody the provider vouches for who is no member of the organization
-    /// becomes one, and a member of its default workspace, by signing in.
+    /// Whether somebody the provider vouches for who has no place in the organization
+    /// (no member of it, nor a guest of one of its workspaces) becomes a member of it,
+    /// and of its default workspace, by signing in. A guest signs in as a guest.
     pub auto_join: bool,
     /// Whether signing in through the provider is on.
     pub enabled: bool,
+    /// Whether the organization takes no password: what is the organization's opens
+    /// only for a session made through this provider.
+    pub sso_required: bool,
     /// The address the provider sends people back to, to be registered with it exactly:
     /// the organization's own, which does not change with the provider.
     pub redirect_uri: String,
@@ -59,6 +67,9 @@ pub struct OidcProviderSettings {
     /// Whether signing in through the provider is on. Left out, it stays as it is; on
     /// when the organization has no provider.
     pub enabled: Option<bool>,
+    /// Whether the organization takes no password. Left out, it stays as it is; off
+    /// when the organization has no provider.
+    pub sso_required: Option<bool>,
 }
 
 impl OidcProviderSettings {
@@ -135,6 +146,85 @@ impl fmt::Debug for OidcProviderSettings {
     }
 }
 
+/// What a sign-in through a provider is started with. Nothing, to sign in.
+#[derive(Clone, PartialEq, Eq, Default, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(default, rename_all = "camelCase")]
+pub struct OidcStartRequest {
+    /// The password of the account of the request's session. With it the sign-in
+    /// links: what the provider vouches for is tied to that account, in place of
+    /// signing in.
+    #[schema(nullable = false)]
+    pub link_password: Option<String>,
+}
+
+impl fmt::Debug for OidcStartRequest {
+    /// Leaves out the password.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("OidcStartRequest")
+            .field("links", &self.link_password.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
+/// An identity tied to an account: who its owner is at a provider, by which they sign
+/// in to it through the provider of an organization.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct LinkedIdentity {
+    /// The issuer, as the provider names itself.
+    pub issuer: String,
+    /// Who the account's owner is at the issuer.
+    pub subject: String,
+    /// The email address the provider gave when the identity was tied: its word,
+    /// checked by nobody. Empty if it gave none.
+    pub email: String,
+    /// When it was tied, in milliseconds since the Unix epoch.
+    pub create_at: i64,
+}
+
+/// A request to remove an identity from the account of the session.
+#[derive(Clone, PartialEq, Eq, Default, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(default, rename_all = "camelCase")]
+pub struct UnlinkRequest {
+    /// The issuer of the identity.
+    #[serde(deserialize_with = "null_as_default")]
+    pub issuer: String,
+    /// Its subject.
+    #[serde(deserialize_with = "null_as_default")]
+    pub subject: String,
+    /// The account's password.
+    #[serde(deserialize_with = "null_as_default")]
+    pub password: String,
+}
+
+impl UnlinkRequest {
+    /// Checks that the identity is named. The password is the account's to judge: an
+    /// account without one is told so, whatever is sent.
+    ///
+    /// # Errors
+    ///
+    /// Returns `issuer` and `subject` if they are empty.
+    pub fn validate(&self) -> Result<(), Refusals> {
+        let mut refused = Refusals::new();
+        for (name, value) in [("issuer", &self.issuer), ("subject", &self.subject)] {
+            if value.is_empty() {
+                refused.refuse(name, RefusalReason::Required, format!("{name} is required"));
+            }
+        }
+        refused.into_result()
+    }
+}
+
+impl fmt::Debug for UnlinkRequest {
+    /// Leaves out the password.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("UnlinkRequest")
+            .field("issuer", &self.issuer)
+            .field("subject", &self.subject)
+            .finish_non_exhaustive()
+    }
+}
+
 /// What the login page may know of an organization before anybody signs in.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -166,6 +256,8 @@ pub struct LoginOptions {
     /// server where everybody may, and on any server until its first user did. Where it
     /// is `false`, the link of an invitation is the way in.
     pub registration_open: bool,
+    /// Whether this server can deliver password recovery and invitation mail.
+    pub mail_enabled: bool,
 }
 
 #[cfg(test)]

@@ -67,7 +67,6 @@ crates/server/tests/api/search.rs | `SearchBoardsForTeam`
 crates/server/tests/api/sidebar.rs | "trying to update some other team's category"
 crates/server/tests/api/users.rs | `TestTeamUploadFile`
 crates/server/tests/api/users.rs | `TestGetRootTeam` in `server/app/teams_test.go`
-crates/store/src/users.rs | "the users of a team"
 crates/store/tests/store/boards.rs | "should return only the boards of the team that the user is a member of"
 crates/store/tests/store/boards.rs | for team 1"
 crates/store/tests/store/boards.rs | for team 2"

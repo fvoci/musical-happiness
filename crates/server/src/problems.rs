@@ -206,6 +206,66 @@ fn describe_reason(reason: Reason) -> &'static str {
             "Status 403. Sharing a board with whoever has its link is turned off in the \
              configuration of this server."
         }
+        Reason::TooManyUploads
+        | Reason::UploadsPending
+        | Reason::ServerUploadsPending
+        | Reason::UploadInParts
+        | Reason::ExportRunning
+        | Reason::ServerExportsBusy
+        | Reason::ImportRunning
+        | Reason::ServerImportsBusy => describe_transfer(reason).unwrap_or_default(),
+        Reason::SecretKeyRequired
+        | Reason::OidcIssuerUnverified
+        | Reason::OidcUnavailable
+        | Reason::OidcStateInvalid
+        | Reason::OidcDenied
+        | Reason::OidcTokenRefused
+        | Reason::OidcTokenInvalid
+        | Reason::OidcEmailMissing
+        | Reason::OidcEmailUnverified
+        | Reason::OidcEmailTaken
+        | Reason::OidcJoinClosed
+        | Reason::OidcIdentityTaken
+        | Reason::OidcEmailMismatch
+        | Reason::PasswordNotSet
+        | Reason::LastSignIn
+        | Reason::SsoRequired
+        | Reason::SsoUnproven
+        | Reason::SsoEnforced => describe_sign_in(reason).unwrap_or_default(),
+        Reason::RelationNotAList
+        | Reason::RelationToItself
+        | Reason::RelationRepeated
+        | Reason::RelationTooMany
+        | Reason::RelationNotACard
+        | Reason::RelationCardNotFound => describe_relation(reason).unwrap_or_default(),
+        Reason::WorkspaceNameTaken
+        | Reason::DefaultWorkspace
+        | Reason::LastOrgAdmin
+        | Reason::PublicLinksOff => describe_organization(reason).unwrap_or_default(),
+        Reason::TooManyRecipients => {
+            "Status 400. An invitation mail request names more recipients than \
+             `invitation_mail_recipients` allows (20 unless configured), which `limit` \
+             tells. `errors` names `/recipients`. Nothing was sent: send fewer at a time."
+        }
+        Reason::InvitationMailLimit => {
+            "Status 429. The workspace queued as many invitation messages within the last \
+             hour as `invitation_mail_per_hour` allows (100 unless configured), counting the \
+             recipients of this request. Nothing of it was sent. `Retry-After` and \
+             `retryAfter` say when enough of the earlier messages are an hour old."
+        }
+        Reason::MailQueueFull => {
+            "Status 503. The server holds as many invitation messages waiting to be sent as \
+             `mail_invitation_queue` allows. Nothing of this request was sent. Try again later."
+        }
+        // The rest are the reasons of a body edited together, which the two functions
+        // below name one by one: a reason that is none of theirs fails the tests.
+        _ => describe_editing_together(reason),
+    }
+}
+
+/// The descriptions of the reasons of uploads in parts and of archives.
+fn describe_transfer(reason: Reason) -> Option<&'static str> {
+    Some(match reason {
         Reason::TooManyUploads => {
             "Status 429. The user has as many uploads in parts open as one user may. Complete \
              or abandon one first. No wait is told: what makes room is the user's own doing."
@@ -236,31 +296,8 @@ fn describe_reason(reason: Reason) -> &'static str {
         Reason::ServerImportsBusy => {
             "Status 429. The server runs as many imports as it may at once. Try again later."
         }
-        Reason::SecretKeyRequired
-        | Reason::OidcIssuerUnverified
-        | Reason::OidcUnavailable
-        | Reason::OidcStateInvalid
-        | Reason::OidcDenied
-        | Reason::OidcTokenRefused
-        | Reason::OidcTokenInvalid
-        | Reason::OidcEmailMissing
-        | Reason::OidcEmailUnverified
-        | Reason::OidcEmailTaken
-        | Reason::OidcJoinClosed => describe_sign_in(reason).unwrap_or_default(),
-        Reason::RelationNotAList
-        | Reason::RelationToItself
-        | Reason::RelationRepeated
-        | Reason::RelationTooMany
-        | Reason::RelationNotACard
-        | Reason::RelationCardNotFound => describe_relation(reason).unwrap_or_default(),
-        Reason::WorkspaceNameTaken
-        | Reason::DefaultWorkspace
-        | Reason::LastOrgAdmin
-        | Reason::PublicLinksOff => describe_organization(reason).unwrap_or_default(),
-        // The rest are the reasons of a body edited together, which the two functions
-        // below name one by one: a reason that is none of theirs fails the tests.
-        _ => describe_editing_together(reason),
-    }
+        _ => return None,
+    })
 }
 
 /// The descriptions of the reasons somebody is not let in for.
@@ -447,8 +484,9 @@ fn describe_sign_in(reason: Reason) -> Option<&'static str> {
             "On the login page, after a sign-in through a provider. What came back is no \
              sign-in this browser started, or one that was used already or took longer than \
              ten minutes, or it came back to the address of another organization than the one \
-             it was started for, or from another issuer (`iss`). Start again from the login \
-             page."
+             it was started for, or from another issuer (`iss`); or it was started to link \
+             and the session it was started from has ended, or is not the one the browser \
+             came back with. Start again from the login page."
         }
         Reason::OidcDenied => {
             "On the login page, after a sign-in through a provider: the provider sent the \
@@ -465,24 +503,90 @@ fn describe_sign_in(reason: Reason) -> Option<&'static str> {
         }
         Reason::OidcEmailMissing => {
             "On the login page, after a sign-in through a provider: the person has no \
-             account yet, and the provider gave no email address to make one with."
+             account yet, and the provider gave no email address to make one with; or the \
+             sign-in was to link, and the provider gave none to know the account by."
         }
         Reason::OidcEmailUnverified => {
             "On the login page, after a sign-in through a provider: the person has no \
-             account yet, and the provider says it has not checked their email address."
+             account yet, or the sign-in was to link, and the provider says it has not \
+             checked their email address."
         }
         Reason::OidcEmailTaken => {
             "On the login page, after a sign-in through a provider: the person has no \
              account through the provider, and an account with a password has the email \
              address the provider gave as its own. The two are not joined by their \
-             address: sign in with the password of that account. (Connecting a provider to \
-             an account that has one is not there yet.) An address a provider gave for \
-             another account is no account's own, and refuses nobody."
+             address: sign in with the password of that account, and link the provider to \
+             it there (`startOidcLogin` with `linkPassword`); after that the provider \
+             signs in to the same account. An address a provider gave for another account \
+             is no account's own, and refuses nobody."
         }
         Reason::OidcJoinClosed => {
-            "On the login page, after a sign-in through a provider: the person is no member \
-             of the organization, and the organization does not let newcomers in through \
-             its provider."
+            "On the login page, after a sign-in through a provider: the person has no place \
+             in the organization (no member of it, nor a guest of one of its workspaces), \
+             and the organization does not let newcomers in through its provider."
+        }
+        other => return describe_linking_and_enforcing(other),
+    })
+}
+
+/// The descriptions of the reasons of linking a provider to an account, and of an
+/// organization that takes no password.
+fn describe_linking_and_enforcing(reason: Reason) -> Option<&'static str> {
+    Some(match reason {
+        Reason::OidcIdentityTaken => {
+            "On the login page, after a sign-in through a provider that was started to \
+             link (`startOidcLogin` with `linkPassword`): who the provider vouches for is \
+             another account's already. Nothing is linked, and the two accounts are not \
+             joined."
+        }
+        Reason::OidcEmailMismatch => {
+            "On the login page, after a sign-in through a provider that was started to \
+             link (`startOidcLogin` with `linkPassword`): the email address the provider \
+             vouches for is not the account's own. Nothing is linked: the account's \
+             password ties to it only the person the provider knows by the account's \
+             address. A provider that gave no address, or one it has not checked, is \
+             refused as at a first sign-in (`oidc_email_missing`, \
+             `oidc_email_unverified`)."
+        }
+        Reason::PasswordNotSet => {
+            "Status 409, linking a provider to the account or removing an identity from \
+             it: both ask for the account's password, and the account has none (it was \
+             made by a sign-in through a provider)."
+        }
+        Reason::LastSignIn => {
+            "Status 409, removing an identity from the account (`unlinkIdentity`): the \
+             account has no password and no other identity, so nothing else would let \
+             its owner in."
+        }
+        Reason::SsoRequired => {
+            "Status 401, with a session that is good: the organization takes no password \
+             (`ssoRequired` of its provider), and the session was not made through its \
+             provider. Everything of the organization answers so (the routes under \
+             `/w/{workspaceId}` and `/org/{orgId}`, and `getMyMemberships` and \
+             `setUserAdmin`, which name neither and are of the organization the server \
+             stands in, and `acceptInvitation`, for a link into it, member or not), from \
+             the request after it was switched on; the session \
+             stays, and opens what is of other organizations. `orgId` names the \
+             organization: start a sign-in through its provider (`startOidcLogin`) and the \
+             session it ends in opens it. `getMyWorkspaces` says beforehand which \
+             workspaces are closed so. A board's public link is read without a session and \
+             is not closed."
+        }
+        Reason::SsoUnproven => {
+            "Status 409, setting an organization's provider. Taking no password \
+             (`ssoRequired`) is switched on by a session that was made through that very \
+             provider, switched on: who asks has then shown that it lets them in. Sign in \
+             through the provider and send the request again."
+        }
+        Reason::SsoEnforced => {
+            "Status 409, setting or removing an organization's provider. While the \
+             organization takes no password (`ssoRequired`), its provider is not switched \
+             off, removed, or set to another issuer or client: nobody would get in. \
+             Switch `ssoRequired` off first. A refused setting names in `errors` what of \
+             it was refused; a refused removal names nothing. The client secret can \
+             still be set, and a wrong one lets nobody in either. If nobody gets in through the provider any more, who runs the \
+             server releases the organization on its administration socket \
+             (`POST /api/v1/admin/orgs/{orgId}/sso/release`)."
         }
         _ => return None,
     })

@@ -9,7 +9,14 @@ use fvoci_store::{
 };
 
 use super::{App, BoardAccess, DEFAULT_CATEGORY_BOARDS};
+use crate::collab::{AccessScope, Deletion};
 use crate::error::{AppError, Reason};
+
+/// Whether a patch of a board changes who may do what on it: its type (open to the
+/// workspace or by invitation) or the role of who joins it.
+pub(super) fn changes_access(patch: &BoardPatch) -> bool {
+    patch.board_type.is_some() || patch.minimum_role.is_some()
+}
 
 /// The message of the refusal to remove or demote a board's only admin.
 const LAST_ADMIN: &str = "cannot leave a board with no admins";
@@ -180,6 +187,11 @@ impl App {
         }
 
         let updated = self.store().patch_board(board_id, patch, user_id).await?;
+        if changes_access(patch) {
+            self.collab()
+                .recheck_access(self, AccessScope::board(board_id))
+                .await;
+        }
 
         let app = self.clone();
         let board = updated.clone();
@@ -291,12 +303,23 @@ impl App {
         };
         // The memberships go with the board; who is told is who was a member.
         let members = self.store().get_members_for_board(board_id).await?;
-        self.store().delete_board(board_id, user_id).await?;
+        let (removed, by) = (board_id.to_owned(), user_id.to_owned());
+        self.collab()
+            .remove(
+                self,
+                Deletion::Boards(vec![removed.clone()]),
+                async move |app| Ok(app.store().delete_board(&removed, &by).await?),
+            )
+            .await?;
+        self.collab()
+            .recheck_access(self, AccessScope::board(board_id))
+            .await;
 
         self.ws()
-            .broadcast_board_delete(&board.workspace_id, &board.id, &members);
+            .broadcast_board_delete(&board.workspace_id, &board.id, &members)
+            .await;
         // The board's sharing went with it; so does whoever followed it by its link.
-        self.ws().close_readers_of_board(&board.id);
+        self.ws().end_readers_of_board(&board.id);
         Ok(())
     }
 
@@ -327,7 +350,11 @@ impl App {
         board_id: &str,
         modified_by: &str,
     ) -> Result<Board, AppError> {
-        let board = match self.store().undelete_board(board_id, modified_by).await {
+        let restored = {
+            let _structure = self.collab().changing_structure(self).await;
+            self.store().undelete_board(board_id, modified_by).await
+        };
+        let board = match restored {
             Ok(board) => board,
             Err(error) if error.is_not_found() => return Err(AppError::not_found("board")),
             Err(error) => return Err(error.into()),
@@ -361,11 +388,13 @@ impl App {
                 category_id: place.category_id.clone(),
                 hidden: place.hidden,
             };
-            self.ws().broadcast_category_board_change(
-                &board.workspace_id,
-                &place.user_id,
-                std::slice::from_ref(&filed),
-            );
+            self.ws()
+                .broadcast_category_board_change(
+                    &board.workspace_id,
+                    &place.user_id,
+                    std::slice::from_ref(&filed),
+                )
+                .await;
             let categories = self
                 .store()
                 .get_user_category_boards(&place.user_id, &board.workspace_id)
@@ -383,12 +412,14 @@ impl App {
                     })
             });
             if let Some(order) = order {
-                self.ws().broadcast_category_boards_reorder(
-                    &board.workspace_id,
-                    &place.user_id,
-                    &place.category_id,
-                    &order,
-                );
+                self.ws()
+                    .broadcast_category_boards_reorder(
+                        &board.workspace_id,
+                        &place.user_id,
+                        &place.category_id,
+                        &order,
+                    )
+                    .await;
             }
         }
     }
@@ -410,6 +441,7 @@ impl App {
         to_workspace: &str,
         duplicate_as: DuplicateAs,
     ) -> Result<(BoardsAndBlocks, Vec<BoardMember>), AppError> {
+        self.write_board_bodies(board_id).await?;
         let (mut copies, members) = self
             .store()
             .duplicate_board(
@@ -622,6 +654,9 @@ impl App {
             return Ok(Some(existing));
         }
 
+        self.collab()
+            .recheck_access(self, AccessScope::board(&board.id).of_user(&member.user_id))
+            .await;
         // The membership is stored: it is announced whatever becomes of the filing.
         self.broadcast_member_change_in_background(board.workspace_id.clone(), member.clone());
         if !board.is_template {
@@ -654,6 +689,9 @@ impl App {
         };
         match joined {
             Joined::New(member) => {
+                self.collab()
+                    .recheck_access(self, AccessScope::board(&board.id).of_user(user_id))
+                    .await;
                 // The membership is stored: it is announced whatever becomes of the
                 // filing.
                 self.broadcast_member_change_in_background(
@@ -671,6 +709,9 @@ impl App {
                 Ok(member)
             }
             Joined::Raised(member) => {
+                self.collab()
+                    .recheck_access(self, AccessScope::board(&board.id).of_user(user_id))
+                    .await;
                 self.broadcast_member_change_in_background(board.workspace_id, member.clone());
                 Ok(member)
             }
@@ -766,6 +807,9 @@ impl App {
             }
         }
 
+        self.collab()
+            .recheck_access(self, AccessScope::board(&board.id).of_user(&member.user_id))
+            .await;
         self.broadcast_member_change_in_background(board.workspace_id, member.clone());
         Ok(Some(member.clone()))
     }
@@ -805,6 +849,9 @@ impl App {
             }
         }
 
+        self.collab()
+            .recheck_access(self, AccessScope::board(board_id).of_user(user_id))
+            .await;
         // The original announces a membership through a channel in place of the removed
         // one, if the user has one; a standalone server has no such memberships.
         let app = self.clone();

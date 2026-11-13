@@ -21,14 +21,18 @@ mod import;
 mod invitations;
 mod limits;
 mod loose_objects;
+mod mail;
 mod oidc;
+mod oidc_link;
 mod onboarding;
 mod org_admin;
+mod password_reset;
 mod readiness;
 mod reconcile;
 mod search;
 mod server_lock;
 mod slots;
+mod snapshots;
 
 pub(crate) use download::download;
 pub(crate) use server_lock::HeldLock;
@@ -38,6 +42,7 @@ pub use slots::Slot;
 pub(crate) use startup::{open_store, prepare_store};
 mod shared_reads;
 mod sharing;
+mod sso;
 mod startup;
 mod store_metrics;
 mod subscriptions;
@@ -68,6 +73,7 @@ pub use org_admin::{DEFAULT_PER_PAGE, MAX_PER_PAGE, PageAsked};
 pub use readiness::{Readiness, ReadinessCheck};
 pub use reconcile::{Found, Reconciliation, UNRECORDED_MIN_AGE_MILLIS, Unrecorded};
 pub use shared_reads::{MAX_SHARED_READ_FAILURES, SHARED_READ_WINDOW, SharedReads};
+pub use sso::Asker;
 pub use uploads::{
     CLOSED_UPLOAD_GRACE_MILLIS, CleanedUp, FileToUpload, MAX_OPEN_UPLOADS, MAX_UPLOAD_NAME_CHARS,
     PARTS_IN_MEMORY, PartDigest, UPLOAD_LIFETIME_MILLIS,
@@ -122,6 +128,8 @@ struct Inner {
     config: Configuration,
     auth: Authenticator,
     login_limiter: LoginLimiter,
+    reset_limiter: LoginLimiter,
+    mail: mail::Mailer,
     password_work: HashQueue,
     files: FileBackend,
     web: WebRoot,
@@ -155,6 +163,9 @@ struct Inner {
     server_lock: server_lock::Holder,
     /// The limit on reads of shared boards whose token opens nothing.
     shared_reads: SharedReads,
+    /// Sign-ups held until as many as it counts reach the store (`App::meet_next_signups`).
+    #[cfg(feature = "test-util")]
+    signups_meet: std::sync::Mutex<Option<Arc<tokio::sync::Barrier>>>,
 }
 
 /// What `ping` reports about the server.
@@ -246,6 +257,8 @@ impl App {
             ws,
             workspace: None,
             inner: Arc::new(Inner {
+                reset_limiter: LoginLimiter::new(Limits::from_config(&config)),
+                mail: mail::Mailer::new(&config.smtp, &config.server_root, metrics.clone())?,
                 config,
                 auth,
                 login_limiter,
@@ -266,6 +279,8 @@ impl App {
                 collab,
                 server_lock: server_lock::Holder::default(),
                 shared_reads: SharedReads::default(),
+                #[cfg(feature = "test-util")]
+                signups_meet: std::sync::Mutex::default(),
             }),
         })
     }
@@ -294,7 +309,7 @@ impl App {
         // The hub is the same, with the same connections; what it asks about the
         // boards, to know whom a change is told to, it asks as this handle reaches them.
         let mut ws = self.ws.clone();
-        ws.audience = Audience::new(store.clone());
+        ws.audience = self.ws.audience.with_store(store.clone());
         Self {
             inner: Arc::clone(&self.inner),
             ws,

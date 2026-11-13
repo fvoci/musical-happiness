@@ -22,14 +22,16 @@ export interface paths {
          *     checked. The person is known by the issuer and the subject: an account of theirs
          *     signs in, and somebody who has none gets one, if the organization lets newcomers in
          *     and no account has their email address. The session comes in the `Set-Cookie`
-         *     header, and the browser goes to the web app (303).
+         *     header, and the browser goes to the web app (303). A sign-in that was started to
+         *     link sets no session: the browser goes to the web app with `oidc_linked=1` in the
+         *     query.
          *
          *     Otherwise the browser goes to the login page of the organization (`/login?org=…`),
          *     with the reason of what went wrong in `oidc_error`, by the name of its problem
          *     (`oidc_state_invalid` as `oidc-state-invalid`): `oidc_state_invalid`, `oidc_denied`,
          *     `oidc_token_refused`, `oidc_token_invalid`, `oidc_email_missing`,
-         *     `oidc_email_unverified`, `oidc_email_taken`, `oidc_join_closed` or
-         *     `oidc_unavailable`.
+         *     `oidc_email_unverified`, `oidc_email_taken`, `oidc_join_closed`,
+         *     `oidc_identity_taken`, `oidc_email_mismatch` or `oidc_unavailable`.
          */
         get: operations["finishOidcLogin"];
         put?: never;
@@ -60,6 +62,22 @@ export interface paths {
          *     browser, and ten minutes to come back. 409 with the reason `oidc_unavailable` if
          *     the organization has no provider that is on, or it cannot be reached; 429 when
          *     this address made too many sign-ins of late.
+         *
+         *     With `linkPassword` in the body the sign-in links: it needs the session of the
+         *     browser's cookie (401 without; a bearer token does not do, as the browser comes back
+         *     with its cookie), whose account's password that is, and when the browser comes back, who the provider
+         *     vouches for is tied to that account in place of signing in (`getMyIdentities`);
+         *     after that the provider signs in to the account. No account is made and none is
+         *     joined to another: an identity that is another account's is refused
+         *     (`oidc_identity_taken`), and so is one whose email address, as the provider has
+         *     checked it, is not the account's own (`oidc_email_mismatch`): the password ties no
+         *     other person of the provider to the account. It ends only in the browser that started it and still has
+         *     the session it was started from (`oidc_state_invalid` otherwise). A wrong password
+         *     is 400 with the reason `invalid_credentials`, naming `/linkPassword`, counted as a
+         *     wrong one of `changePassword` is; an account without a password is 409 with the
+         *     reason `password_not_set`. The session need not open the organization. A body with
+         *     another member, or a `linkPassword` that is no text, is 400 naming it: what was
+         *     meant to link does not sign in instead.
          */
         post: operations["startOidcLogin"];
         delete?: never;
@@ -136,6 +154,10 @@ export interface paths {
          *     stays what they are in it. The answer names the board then (`boardId`). The account
          *     is made, the membership stored and the use of the link counted together or not at
          *     all, and an acceptance that changes nothing uses nothing of the link.
+         *
+         *     A session that the link's organization does not take (it takes no password,
+         *     `ssoRequired`, and the session was not made through its provider) is 401 with the
+         *     reason `sso_required` and its `orgId`, and lets nobody in.
          *
          *     A token that lets nobody in is 404 with the reason `invitation_unavailable`,
          *     whatever is wrong with it: there is no such link, it ended, it was used as often as
@@ -367,7 +389,8 @@ export interface paths {
         /**
          * Set the provider of an organization
          * @description Sets the organization's `OpenID Connect` provider, in place of the one it has. The
-         *     issuer's discovery document is read first: it must name the issuer exactly and have
+         *     discovery document of an issuer that is not the organization's already is read
+         *     first: it must name the issuer exactly and have
          *     `https` endpoints, or the request is 400 with the reason `oidc_issuer_unverified`
          *     and `errors` naming `/issuer`. The server reaches only `https` addresses, follows no
          *     redirect, and reaches only public addresses unless its configuration lets it
@@ -379,7 +402,21 @@ export interface paths {
          *     stores none. The secret is stored sealed with the server's key and never answered:
          *     without the key the request is 409 with the reason `secret_key_required`. `autoJoin`
          *     and `enabled` left out stay as they are, also for another issuer or client, and are
-         *     on when the organization has no provider. A provider changed by another request
+         *     on when the organization has no provider.
+         *
+         *     `ssoRequired` true makes the organization take no password: from the next request
+         *     on, what is the organization's (the routes under `/w/{workspaceId}` and
+         *     `/org/{orgId}`, and `setUserAdmin` where the organization is the instance's own, the
+         *     oldest) answers 401 with the reason `sso_required` to every session that was not
+         *     made through this provider, `getMyMemberships` leaves its boards out for one, and
+         *     the websocket follows none of its workspaces for one. The sessions stay, and open
+         *     what is of other organizations. It is switched on by a
+         *     session that was itself made through this provider, switched on, or the request is
+         *     409 with the reason `sso_unproven`: who asks has then shown that it lets them in.
+         *     While it is on, the provider is not switched off (`enabled` false), not set to
+         *     another issuer or client, and not removed: 409 with the reason `sso_enforced`,
+         *     unless the same request switches `ssoRequired` off. Left out it stays as it is,
+         *     and is off when the organization has no provider. A provider changed by another request
          *     since this one read it is 409, to be read and sent again. The answer's `redirectUri`
          *     is the address to register with the provider, exactly: the organization's own,
          *     `…/api/v1/auth/oidc/callback/{orgId}`, the same before the provider is set and after
@@ -391,6 +428,8 @@ export interface paths {
          * Remove the provider of an organization
          * @description Removes the organization's provider and the sign-ins under way through it. The
          *     sessions made through it go on. An organization without one answers the same.
+         *     While the organization takes no password (`ssoRequired`) the provider stays: 409
+         *     with the reason `sso_enforced`.
          */
         delete: operations["deleteOidcProvider"];
         options?: never;
@@ -521,6 +560,57 @@ export interface paths {
          *     organization's audit log.
          */
         post: operations["restoreOrgWorkspace"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/password-reset/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Finish resetting a password
+         * @description Consumes a reset token before its one-hour expiry and sets the new password.
+         *     All of the account's sessions and WebSocket connections end, and so do its other
+         *     reset links, as they do when the password is changed or set by an operator. The sign-in
+         *     lock of the account, at its user name and its email, ends, and so does the wait of the
+         *     address that finished the reset. A missing, expired or already used token answers the
+         *     same 400, naming `token` in `errors`.
+         */
+        post: operations["completePasswordReset"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/password-reset/request": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Request a password reset
+         * @description Answers 204 with an empty body for an existing account, an absent account and
+         *     an account without a password. Lookup and SMTP delivery run in the background;
+         *     the request never waits for either. Accounts without passwords receive no mail.
+         *     Requests are limited by address only, with the login setting of attempts per minute
+         *     and a separate counter (429); never by email. An account is sent at most
+         *     `mail_reset_per_account_hour` messages an hour: more requests are answered the same
+         *     and send nothing. Without SMTP this route answers 404.
+         */
+        post: operations["requestPasswordReset"];
         delete?: never;
         options?: never;
         head?: never;
@@ -779,6 +869,39 @@ export interface paths {
         patch: operations["patchClientState"];
         trace?: never;
     };
+    "/api/v1/users/me/identities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The identities linked to the account
+         * @description Who the user of the session is at the providers they linked to the account, or
+         *     first signed in through: an organization's provider with that issuer signs in to
+         *     this account. Linked by `startOidcLogin` with `linkPassword`. Oldest first.
+         */
+        get: operations["getMyIdentities"];
+        put?: never;
+        post?: never;
+        /**
+         * Remove an identity from the account
+         * @description Removes the identity of `issuer` and `subject` from the account of the session: the
+         *     providers of that issuer no longer sign in to it. Asks for the account's password,
+         *     as `changePassword` does: a wrong one is 400 with the reason `invalid_credentials`,
+         *     naming `/password`, and too many are 429. An identity that is not the account's is
+         *     404. An account without a password keeps its last identity, which is all that lets
+         *     its owner in: 409 with the reason `last_sign_in`; and has no password to confirm
+         *     removing another with: 409 with the reason `password_not_set`. The sessions made
+         *     through a provider go on.
+         */
+        delete: operations["unlinkIdentity"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/users/me/memberships": {
         parameters: {
             query?: never;
@@ -789,7 +912,9 @@ export interface paths {
         /**
          * The boards the user is a member of
          * @description The user's memberships, with the roles of each, of the boards of the workspaces the
-         *     user is a member of. By the identifier of the board.
+         *     user is a member of, in every organization the session opens: one that takes only
+         *     sessions made through its provider leaves its boards out of another session's list.
+         *     By the identifier of the board.
          */
         get: operations["getMyMemberships"];
         put?: never;
@@ -866,7 +991,10 @@ export interface paths {
          * The workspaces of the user
          * @description The workspaces the user of the session is a member of, in every organization, with
          *     what the user is in each. By organization, the oldest first, and in each the oldest
-         *     workspace first.
+         *     workspace first. A workspace of an organization that takes only sessions made
+         *     through its provider is listed for any session, with `ssoRequired` true for one that
+         *     was not made so: what is under it answers 401 with the reason `sso_required` until
+         *     the user signs in through the provider of `orgId`.
          */
         get: operations["getMyWorkspaces"];
         put?: never;
@@ -1215,7 +1343,9 @@ export interface paths {
         };
         /**
          * The blocks of a board
-         * @description For the board's members, and for an open template everyone in its workspace.
+         * @description For the board's members, and for an open template everyone who works in its workspace.
+         *     A guest of the path's workspace reads a template's blocks only as a member of that
+         *     template (403 otherwise).
          *
          *     `all` asks for every block and `blockId` for one, which is 404 if the board has no
          *     such block. Otherwise `parentId` and `type` narrow the list, and without either the
@@ -2016,6 +2146,44 @@ export interface paths {
          *     A guest of the workspace is told that it is not there (404).
          */
         post: operations["createInvitation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/invitations/mail": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Email an invitation
+         * @description Queues a separate message for each unique email address with an existing link.
+         *     The token must name a live invitation of this workspace, and the sender must
+         *     still be allowed to make that kind of invitation. The same checks are repeated
+         *     before each delivery. A member link is sent as it is, its expiry and uses unchanged.
+         *     A guest link lets one person in once, so it is not sent: each recipient gets a
+         *     one-use guest link of their own, to the same board in the same role and ending
+         *     with it, made by the sender as their message leaves (and revoked if the mail server
+         *     refuses that message for good); the named link is left as it is, and messages go
+         *     out only while it is live and unused. Invalid recipients reject the whole request
+         *     before sending.
+         *     Each message is in the recipient's language when the mail is written in it, else the
+         *     sender's setting, else `language`, else English. No SMTP means 404.
+         *     A request names at most `invitation_mail_recipients` addresses, repeats counted
+         *     (400, `too_many_recipients`). Its messages are queued all or none: 429
+         *     (`invitation_mail_limit`, with `Retry-After`) when the workspace would pass
+         *     `invitation_mail_per_hour` messages within an hour or its organization its own
+         *     hourly limit (`invitation_mail_per_org_hour`), and 503 (`mail_queue_full`) when the
+         *     organization's half of the server's invitation queue, or the queue, cannot hold them
+         *     all. A refused request sends nothing.
+         */
+        post: operations["emailInvitation"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2974,6 +3142,12 @@ export interface components {
              */
             size: number;
         };
+        FinishPasswordReset: {
+            /** @description The new password: at least eight characters, at most 1024 bytes. */
+            password: string;
+            /** @description The secret from the reset link's fragment. */
+            token: string;
+        };
         /** @description A request to turn the invitations of guests to a workspace's boards on or off. */
         GuestInvitationsChange: {
             /** @description Whether the admins of the workspace's boards may invite guests to them. */
@@ -3066,6 +3240,18 @@ export interface components {
             /** @description The workspace the link leads into. */
             workspaceId: string;
         };
+        /** @description A request to email an existing invitation to one or more recipients. */
+        InvitationMail: {
+            /**
+             * @description The sender's screen language, used for a recipient when neither the recipient's
+             *     nor the sender's setting names a language the mail is written in.
+             */
+            language?: string;
+            /** @description Email addresses, each delivered separately; duplicates are sent once. */
+            recipients: string[];
+            /** @description The secret of the existing invitation, sent only in the request body. */
+            token: string;
+        };
         /** @description What a link shows of where it leads, to whoever holds it. */
         InvitationPreview: {
             /** @description For a guest: the title of the board they are invited to. */
@@ -3083,8 +3269,30 @@ export interface components {
             /** @description The token of the link. */
             token: string;
         };
+        /**
+         * @description An identity tied to an account: who its owner is at a provider, by which they sign
+         *     in to it through the provider of an organization.
+         */
+        LinkedIdentity: {
+            /**
+             * Format: int64
+             * @description When it was tied, in milliseconds since the Unix epoch.
+             */
+            createAt: number;
+            /**
+             * @description The email address the provider gave when the identity was tied: its word,
+             *     checked by nobody. Empty if it gave none.
+             */
+            email: string;
+            /** @description The issuer, as the provider names itself. */
+            issuer: string;
+            /** @description Who the account's owner is at the issuer. */
+            subject: string;
+        };
         /** @description What the login page shows: the organization it is for, if it is for one. */
         LoginOptions: {
+            /** @description Whether this server can deliver password recovery and invitation mail. */
+            mailEnabled: boolean;
             organization: components["schemas"]["LoginOrganization"] | null;
             /**
              * @description Whether somebody without an invitation may register and start an organization: on a
@@ -3351,8 +3559,9 @@ export interface components {
          */
         OidcProvider: {
             /**
-             * @description Whether somebody the provider vouches for who is no member of the organization
-             *     becomes one, and a member of its default workspace, by signing in.
+             * @description Whether somebody the provider vouches for who has no place in the organization
+             *     (no member of it, nor a guest of one of its workspaces) becomes a member of it,
+             *     and of its default workspace, by signing in. A guest signs in as a guest.
              */
             autoJoin: boolean;
             /** @description The client identifier the provider gave this server. */
@@ -3373,6 +3582,11 @@ export interface components {
              *     the organization's own, which does not change with the provider.
              */
             redirectUri: string;
+            /**
+             * @description Whether the organization takes no password: what is the organization's opens
+             *     only for a session made through this provider.
+             */
+            ssoRequired: boolean;
             /**
              * Format: int64
              * @description When the provider was last changed, in milliseconds since the Unix epoch.
@@ -3401,11 +3615,25 @@ export interface components {
             enabled?: boolean | null;
             /** @description The issuer: an `https` address without query or fragment. */
             issuer: string;
+            /**
+             * @description Whether the organization takes no password. Left out, it stays as it is; off
+             *     when the organization has no provider.
+             */
+            ssoRequired?: boolean | null;
         };
         /** @description A sign-in through a provider that was started: where the page sends the browser. */
         OidcStart: {
             /** @description The provider's address that asks the person to sign in, for this sign-in. */
             authorizationUrl: string;
+        };
+        /** @description What a sign-in through a provider is started with. Nothing, to sign in. */
+        OidcStartRequest: {
+            /**
+             * @description The password of the account of the request's session. With it the sign-in
+             *     links: what the provider vouches for is tied to that account, in place of
+             *     signing in.
+             */
+            linkPassword?: string;
         };
         /** @description What starting the tour answers: where the tour's board is. */
         OnboardingStart: {
@@ -3535,6 +3763,11 @@ export interface components {
              */
             limit?: number;
             /**
+             * @description The organization whose provider the session must be made through, with the
+             *     reason `sso_required`: what the sign-in is started for.
+             */
+            orgId?: string;
+            /**
              * @description Why, where a client must tell causes of the same status apart, such as
              *     `invalid_credentials` or `last_admin`.
              */
@@ -3616,6 +3849,15 @@ export interface components {
             password: string;
             /** @description The login name. */
             username: string;
+        };
+        RequestPasswordReset: {
+            /** @description The account's email address. */
+            email: string;
+            /**
+             * @description The requester's language tag (`ko`, `en-GB`), used when the account's own setting
+             *     names no language the mail is written in (English, Korean); English if neither does.
+             */
+            language?: string;
         };
         /** @description What `ping` reports about the server. */
         ServerMetadata: {
@@ -3736,6 +3978,15 @@ export interface components {
          * @enum {string}
          */
         Theme: "auto" | "light" | "dark";
+        /** @description A request to remove an identity from the account of the session. */
+        UnlinkRequest: {
+            /** @description The issuer of the identity. */
+            issuer: string;
+            /** @description The account's password. */
+            password: string;
+            /** @description Its subject. */
+            subject: string;
+        };
         /** @description An upload that is open. */
         UploadOpened: {
             /**
@@ -3892,6 +4143,13 @@ export interface components {
             orgId: string;
             /** @description What the user is in the workspace. */
             role: components["schemas"]["WorkspaceRole"];
+            /**
+             * @description Whether the workspace is closed to the session that asks: its organization
+             *     takes only sessions made through its provider, and this one was not. What is
+             *     under the workspace then answers 401 with the reason `sso_required`; signing in
+             *     through the provider of `orgId` opens it.
+             */
+            ssoRequired: boolean;
         };
         /**
          * @description The day a week starts on.
@@ -3982,12 +4240,12 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description To the web app, signed in, or to the login page. */
+            /** @description To the web app, signed in or (with `oidc_linked=1`) linked, or to the login page. */
             303: {
                 headers: {
                     /** @description Where the browser goes. */
                     Location?: string;
-                    /** @description The session cookie, and the cookie of the sign-in cleared. */
+                    /** @description The session cookie, unless the sign-in linked or failed, and the cookie of the sign-in cleared. */
                     "Set-Cookie"?: string;
                     [name: string]: unknown;
                 };
@@ -4014,7 +4272,12 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        /** @description May be left out, to sign in. */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["OidcStartRequest"] | null;
+            };
+        };
         responses: {
             /** @description Started: where the browser goes. */
             200: {
@@ -4834,6 +5097,68 @@ export interface operations {
             };
         };
     };
+    completePasswordReset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FinishPasswordReset"];
+            };
+        };
+        responses: {
+            /** @description The password was reset; sign in again. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    requestPasswordReset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RequestPasswordReset"];
+            };
+        };
+        responses: {
+            /** @description If eligible, the account will receive a reset link. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     ping: {
         parameters: {
             query?: never;
@@ -5275,6 +5600,77 @@ export interface operations {
             };
         };
     };
+    getMyIdentities: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The identities. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LinkedIdentity"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    unlinkIdentity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UnlinkRequest"];
+            };
+        };
+        responses: {
+            /** @description The identity is removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The password was wrong too often, or the server has too much password work to do at the moment. */
+            429: {
+                headers: {
+                    /** @description How many seconds to wait before trying again. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     getMyMemberships: {
         parameters: {
             query?: never;
@@ -5480,7 +5876,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization. */
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
                 workspaceId: string;
             };
             cookie?: never;
@@ -5548,7 +5944,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization. */
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
                 workspaceId: string;
             };
             cookie?: never;
@@ -5584,7 +5980,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization. */
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
                 workspaceId: string;
             };
             cookie?: never;
@@ -5836,7 +6232,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization. */
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
                 workspaceId: string;
             };
             cookie?: never;
@@ -7097,7 +7493,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too, and it is of the server's organization. */
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
                 workspaceId: string;
             };
             cookie?: never;
@@ -7129,7 +7525,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization. */
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
                 workspaceId: string;
             };
             cookie?: never;
@@ -7165,7 +7561,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization. */
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
                 workspaceId: string;
                 /** @description The identifier of the category, one of the user's own. */
                 categoryId: string;
@@ -7203,7 +7599,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization. */
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
                 workspaceId: string;
                 /** @description The identifier of the category, one of the user's own. */
                 categoryId: string;
@@ -7235,7 +7631,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization. */
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
                 workspaceId: string;
                 /** @description The identifier of the category, one of the user's own. */
                 categoryId: string;
@@ -7273,7 +7669,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization. */
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
                 workspaceId: string;
                 /** @description The identifier of the category, one of the user's own. */
                 categoryId: string;
@@ -7307,7 +7703,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization. */
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
                 workspaceId: string;
                 /** @description The identifier of the category, one of the user's own. */
                 categoryId: string;
@@ -7341,7 +7737,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization. */
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
                 workspaceId: string;
                 /** @description The identifier of the category, one of the user's own. */
                 categoryId: string;
@@ -7375,7 +7771,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization. */
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
                 workspaceId: string;
             };
             cookie?: never;
@@ -7498,6 +7894,40 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Invitation"];
                 };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    emailInvitation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InvitationMail"];
+            };
+        };
+        responses: {
+            /** @description Delivery queued; the existing invitation is unchanged. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
             default: {
@@ -7649,7 +8079,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization. */
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
                 workspaceId: string;
             };
             cookie?: never;
@@ -7785,7 +8215,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization. */
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
                 workspaceId: string;
             };
             cookie?: never;
@@ -7822,7 +8252,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization. */
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
                 workspaceId: string;
             };
             cookie?: never;
@@ -7998,7 +8428,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too, and it is of the server's organization. */
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
                 workspaceId: string;
             };
             cookie?: never;
@@ -8030,7 +8460,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too, and it is of the server's organization. */
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
                 workspaceId: string;
             };
             cookie?: never;
@@ -8066,7 +8496,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too, and it is of the server's organization. */
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
                 workspaceId: string;
                 /** @description The identifier of the user. */
                 userId: string;
