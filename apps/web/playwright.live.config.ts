@@ -18,7 +18,7 @@ const PORT = Number(process.env.FVOCI_LIVE_PORT ?? 18510);
 const FIRST_USE = /first-use\.spec\.ts$/;
 
 /** The tests that close the server's one organization to passwords. */
-const SSO = /(^|\/)sso(-operator)?\.spec\.ts$/;
+const SSO = /(^|\/)sso(-operator|-pending)?\.spec\.ts$/;
 
 export default defineConfig({
   testDir: 'e2e-live',

@@ -88,8 +88,8 @@ pub use invitation::{
 };
 pub use oidc::{
     LinkedIdentity, LoginOptions, LoginOrganization, OIDC_CLIENT_FIELD_MAX_BYTES,
-    OIDC_ISSUER_MAX_BYTES, OidcProvider, OidcProviderSettings, OidcStart, OidcStartRequest,
-    UnlinkRequest,
+    OIDC_ISSUER_MAX_BYTES, OidcPendingProvider, OidcProvider, OidcProviderSettings, OidcStart,
+    OidcStartRequest, UnlinkRequest,
 };
 pub use org_admin::{
     AuditAction, AuditActorKind, AuditPerson, AuditRecord, MAX_NAME_CHARS, OrgMember,

@@ -75,6 +75,19 @@ export class ServerOrganizations implements Organizations {
     await this.#http.request('/api/v1/org/{orgId}/oidc', { orgId }, { method: 'DELETE' });
   }
 
+  async discardOidcPending(orgId: string): Promise<void> {
+    await this.#http.request('/api/v1/org/{orgId}/oidc/pending', { orgId }, { method: 'DELETE' });
+  }
+
+  async startOidcTrial(orgId: string): Promise<string> {
+    const started = await this.#http.request<Schemas['OidcStart']>(
+      '/api/v1/org/{orgId}/oidc/pending/sign-in',
+      { orgId },
+      { method: 'POST' },
+    );
+    return started.authorizationUrl;
+  }
+
   changeOrganization(orgId: string, patch: OrganizationPatch): Promise<Organization> {
     const json: Schemas['OrganizationPatch'] = patch;
     return this.#http.request<Schemas['Organization']>(

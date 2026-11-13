@@ -49,6 +49,25 @@ pub struct OidcProvider {
     pub create_at: i64,
     /// When the provider was last changed, in milliseconds since the Unix epoch.
     pub update_at: i64,
+    /// The settings saved aside while the organization takes no password, which
+    /// nobody signs in through until a sign-in through them ends well; `null` for
+    /// none.
+    pub pending: Option<OidcPendingProvider>,
+}
+
+/// The pending settings of an organization's provider, without the client secret:
+/// `hasClientSecret` says whether there is one.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct OidcPendingProvider {
+    /// The issuer.
+    pub issuer: String,
+    /// The client identifier.
+    pub client_id: String,
+    /// Whether a client secret is saved with them.
+    pub has_client_secret: bool,
+    /// When they were saved, in milliseconds since the Unix epoch.
+    pub create_at: i64,
 }
 
 /// What an administrator sets of the organization's provider.

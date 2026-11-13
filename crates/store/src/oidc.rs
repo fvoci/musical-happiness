@@ -12,14 +12,15 @@ use fvoci_model::{AuditAction, LoginOrigin, OrgRole, Session, User, WorkspaceRol
 use crate::Store;
 use crate::accounts::{self, Which};
 use crate::audit::{self, AuditActor, AuditEntry};
-use crate::db::{Dialect, Id, OptId, Row, Scope, now_millis};
+use crate::db::{Dialect, Id, OptId, Param, Row, Scope, now_millis};
 use crate::error::StoreError;
 use crate::sessions;
 use crate::users::InstanceRole;
 
 /// The columns of a sign-in under way, in the order [`flow_from_row`] reads them.
 pub(crate) const FLOW_COLUMNS: &str = "state_hash, browser_hash, nonce, pkce_verifier, org_id, \
-                                       provider_id, create_at, expires_at, link_session_id";
+                                       provider_id, create_at, expires_at, link_session_id, \
+                                       pending_at";
 
 /// The columns of a provider, in the order [`provider_from_row`] reads them.
 const PROVIDER_COLUMNS: &str = "id, org_id, issuer, client_id, client_secret, auto_join, enabled, \
@@ -106,9 +107,27 @@ pub struct LoginFlow {
     pub create_at: i64,
     /// When it can no longer come back, in milliseconds since the Unix epoch.
     pub expires_at: i64,
-    /// The session it was started from to link what the provider vouches for to that
-    /// session's account; `None` for a sign-in.
-    pub link_session_id: Option<String>,
+    /// What it is for: a sign-in, a link, or a trial of the pending settings.
+    pub purpose: FlowPurpose,
+}
+
+/// What a sign-in through a provider was started for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FlowPurpose {
+    /// To sign in through the provider as it is.
+    SignIn,
+    /// To tie what the provider vouches for to the account of the session it was
+    /// started from, in place of signing in.
+    Link {
+        /// The session it was started from.
+        session_id: String,
+    },
+    /// To sign in through the pending settings saved at `pending_at`, which become the
+    /// provider's when it ends well.
+    Trial {
+        /// When the pending settings it tries were saved: their state.
+        pending_at: i64,
+    },
 }
 
 impl std::fmt::Debug for LoginFlow {
@@ -118,7 +137,7 @@ impl std::fmt::Debug for LoginFlow {
             .field("org_id", &self.org_id)
             .field("provider_id", &self.provider_id)
             .field("expires_at", &self.expires_at)
-            .field("link_session_id", &self.link_session_id)
+            .field("purpose", &self.purpose)
             .finish_non_exhaustive()
     }
 }
@@ -140,19 +159,8 @@ impl Store {
     /// Returns [`StoreError::NoOrganization`] if the handle names none, and
     /// [`StoreError::Database`] if the query fails.
     pub async fn oidc_provider(&self) -> Result<Option<StoredProvider>, StoreError> {
-        self.with_conn(async |scope| {
-            let mut sql = scope.sql(&format!(
-                "SELECT {PROVIDER_COLUMNS} FROM oidc_providers WHERE org_id = "
-            ));
-            sql.bind(scope.org()?);
-            scope
-                .fetch_optional(sql)
-                .await?
-                .as_ref()
-                .map(provider_from_row)
-                .transpose()
-        })
-        .await
+        self.with_conn(async |scope| read_provider(scope).await)
+            .await
     }
 
     /// Stores the provider of the handle's organization, in place of the one it has,
@@ -212,14 +220,7 @@ impl Store {
     ) -> Result<Option<StoredProvider>, StoreError> {
         self.transaction(async |scope| {
             hold_provider_of_organization(scope).await?;
-            let mut sql = scope.sql(&format!(
-                "SELECT {PROVIDER_COLUMNS} FROM oidc_providers WHERE org_id = "
-            ));
-            sql.bind(scope.org()?);
-            let before = match scope.fetch_optional(sql).await? {
-                Some(row) => Some(provider_from_row(&row)?),
-                None => None,
-            };
+            let before = read_provider(scope).await?;
             let there = before
                 .as_ref()
                 .map(|before| (before.id.clone(), before.update_at));
@@ -228,57 +229,20 @@ impl Store {
             {
                 return Ok(None);
             }
-            // Later than the change before, also within one millisecond or when the
-            // clock went back: no two states of one provider have one time.
-            let now = there.as_ref().map_or_else(now_millis, |(_, before)| {
-                now_millis().max(before.saturating_add(1))
-            });
-            // Raised across a replacement too: no session of the one before names it.
-            let revision = match &before {
-                None => 1,
-                Some(before) if before.signs_in_like(provider) => before.revision,
-                Some(before) => before.revision.saturating_add(1),
-            };
-            let mut sql = scope.sql("DELETE FROM oidc_providers WHERE org_id = ");
-            sql.bind(scope.org()?)
-                .push_bind(" AND (issuer <> ", &provider.issuer)
-                .push_bind(" OR client_id <> ", &provider.client_id)
-                .push(")");
-            scope.execute(sql).await?;
-            let mut sql = scope.sql(&format!(
-                "INSERT INTO oidc_providers ({PROVIDER_COLUMNS}) VALUES ("
-            ));
-            sql.bind(Id(&new_id()))
-                .push_bind(", ", scope.org()?)
-                .push_bind(", ", &provider.issuer)
-                .push_bind(", ", &provider.client_id)
-                .push_bind(", ", &provider.sealed_client_secret)
-                .push_bind(", ", provider.auto_join)
-                .push_bind(", ", provider.enabled)
-                .push_bind(", ", now)
-                .push_bind(", ", now)
-                .push_bind(", ", provider.sso_required)
-                .push_bind(", ", revision)
-                .push(
-                    ") ON CONFLICT (org_id) DO UPDATE SET \
-                     issuer = excluded.issuer, client_id = excluded.client_id, \
-                     client_secret = excluded.client_secret, \
-                     auto_join = excluded.auto_join, enabled = excluded.enabled, \
-                     update_at = excluded.update_at, sso_required = excluded.sso_required, \
-                     revision = excluded.revision",
-                )
-                .push(&format!(" RETURNING {PROVIDER_COLUMNS}"));
-            let row = scope.fetch_optional(sql).await?.ok_or(StoreError::NoRows)?;
-            let stored = provider_from_row(&row)?;
-            if let Some(before) = &before
-                && before.issuer != stored.issuer
-            {
-                sessions::end_sessions_of_origin(scope, &before.org_id, &before.issuer).await?;
-            }
+            let written = write_provider(scope, before.as_ref(), provider).await?;
             if let Some(actor_id) = actor_id {
-                record_provider_change(scope, actor_id, before.as_ref(), &stored).await?;
+                record_provider_change(scope, actor_id, before.as_ref(), &written.provider).await?;
+                if written.dropped_pending {
+                    let entry = AuditEntry::new(
+                        "",
+                        actor_id,
+                        AuditAction::OidcProviderPendingDiscarded,
+                        &written.provider.org_id,
+                    );
+                    audit::record_entry(scope, &entry).await?;
+                }
             }
-            Ok(Some(stored))
+            Ok(Some(written.provider))
         })
         .await
     }
@@ -370,8 +334,13 @@ impl Store {
         self.with_conn(async |scope| {
             let mut sql = scope.sql(
                 "INSERT INTO oidc_login_flows (state_hash, browser_hash, nonce, pkce_verifier, \
-                 org_id, provider_id, create_at, expires_at, link_session_id) SELECT ",
+                 org_id, provider_id, create_at, expires_at, link_session_id, pending_at) SELECT ",
             );
+            let (link_session_id, pending_at) = match &flow.purpose {
+                FlowPurpose::SignIn => ("", None),
+                FlowPurpose::Link { session_id } => (session_id.as_str(), None),
+                FlowPurpose::Trial { pending_at } => ("", Some(*pending_at)),
+            };
             sql.bind(&flow.state_hash)
                 .push_bind(", ", &flow.browser_hash)
                 .push_bind(", ", &flow.nonce)
@@ -379,12 +348,19 @@ impl Store {
                 .push(", org_id, id")
                 .push_bind(", ", flow.create_at)
                 .push_bind(", ", flow.expires_at)
-                .push_bind(
-                    ", ",
-                    OptId(flow.link_session_id.as_deref().unwrap_or_default()),
-                )
+                .push_bind(", ", OptId(link_session_id))
+                .push_bind(", ", Param::OptInt(pending_at))
                 .push_bind(" FROM oidc_providers WHERE id = ", Id(&flow.provider_id))
                 .push_bind(" AND org_id = ", scope.org()?);
+            if let Some(pending_at) = pending_at {
+                // A trial of settings that were thrown away or saved anew starts nothing.
+                sql.push(
+                    " AND EXISTS (SELECT 1 FROM oidc_pending_providers AS pending \
+                     WHERE pending.provider_id = oidc_providers.id",
+                )
+                .push_bind(" AND pending.create_at = ", pending_at)
+                .push(")");
+            }
             if scope.execute(sql).await? == 0 {
                 return Err(StoreError::not_found("oidc provider"));
             }
@@ -479,57 +455,21 @@ impl Store {
             let Some(row) = scope.fetch_optional(sql).await? else {
                 return Ok(Err(OidcRefusal::ProviderGone));
             };
-            let auto_join = row.bool(0)?;
-            let (OidcAccount::New { identity, .. } | OidcAccount::Known { identity, .. }) =
-                &account;
+            let newcomers = if row.bool(0)? {
+                Newcomers::Join
+            } else {
+                Newcomers::Refused
+            };
             let origin = LoginOrigin {
                 provider_id: provider_id.to_owned(),
                 org_id: row.id(2)?,
                 issuer: row.text(1)?,
-                subject: Some(identity.subject.to_owned()),
+                subject: Some(account.identity().subject.to_owned()),
                 revision: Some(row.int(3)?),
             };
-            let joined = match account {
-                OidcAccount::New {
-                    user,
-                    identity,
-                    provider_email,
-                } => {
-                    if !auto_join {
-                        return Ok(Err(OidcRefusal::JoinClosed));
-                    }
-                    user.password_hash = String::new();
-                    user.email = String::new();
-                    accounts::insert_account(scope, user, InstanceRole::User).await?;
-                    insert_identity(scope, identity, &user.id, provider_email, user.create_at)
-                        .await?;
-                    join_as_member(scope, &user.id).await?;
-                    session.user_id.clone_from(&user.id);
-                    true
-                }
-                OidcAccount::Known {
-                    user_id,
-                    password_hash,
-                    identity,
-                } => {
-                    // Held, the account waits for an unlinking under way, which ends
-                    // the sessions of the identity: one made after it is refused here.
-                    if !sessions::hold_unchanged_user(scope, user_id, password_hash).await?
-                        || !is_identity_of(scope, identity, user_id).await?
-                    {
-                        return Ok(Err(OidcRefusal::AccountChanged));
-                    }
-                    user_id.clone_into(&mut session.user_id);
-                    // A guest of one of its workspaces is let in as they are, and joins
-                    // nothing: their board is what they have there.
-                    if has_place(scope, user_id).await? {
-                        false
-                    } else if auto_join {
-                        join_as_member(scope, user_id).await?
-                    } else {
-                        return Ok(Err(OidcRefusal::JoinClosed));
-                    }
-                }
+            let joined = match admit(scope, account, newcomers, session).await? {
+                Ok(joined) => joined,
+                Err(refusal) => return Ok(Err(refusal)),
             };
             session.login = Some(origin);
             sessions::insert_session(scope, session, token_digest).await?;
@@ -555,13 +495,184 @@ impl Store {
 /// transaction ends: changes and removals of it are one after the other. On PostgreSQL
 /// the organization's row is held (no key of it changes, so its references are not held
 /// up); on SQLite a transaction that writes holds the database.
-async fn hold_provider_of_organization(scope: &mut Scope<'_>) -> Result<(), StoreError> {
+pub(crate) async fn hold_provider_of_organization(scope: &mut Scope<'_>) -> Result<(), StoreError> {
     if scope.dialect() == Dialect::Postgres {
         let mut sql = scope.sql("SELECT 1 FROM organizations WHERE id = ");
         sql.bind(scope.org()?).push(" FOR NO KEY UPDATE");
         scope.fetch_optional(sql).await?;
     }
     Ok(())
+}
+
+/// The provider of the transaction's organization, as it is stored, if it has one.
+pub(crate) async fn read_provider(
+    scope: &mut Scope<'_>,
+) -> Result<Option<StoredProvider>, StoreError> {
+    let mut sql = scope.sql(&format!(
+        "SELECT {PROVIDER_COLUMNS} FROM oidc_providers WHERE org_id = "
+    ));
+    sql.bind(scope.org()?);
+    scope
+        .fetch_optional(sql)
+        .await?
+        .as_ref()
+        .map(provider_from_row)
+        .transpose()
+}
+
+/// A provider as [`write_provider`] stored it.
+pub(crate) struct Written {
+    /// The provider as stored.
+    pub(crate) provider: StoredProvider,
+    /// Whether pending settings of the provider were thrown away with the change.
+    pub(crate) dropped_pending: bool,
+}
+
+/// Stores `provider` as the transaction's organization's, in place of `before`, which
+/// the caller read in this transaction and holds ([`hold_provider_of_organization`]).
+/// A provider whose issuer and client stay keeps its identifier and the time it was
+/// first set; one with another issuer or client is another provider, under a new
+/// identifier, and the sign-ins under way through the one before end with it; with
+/// another issuer, so do the sessions made through a provider of the organization
+/// under the issuer before. A change of what signing in takes raises the revision and
+/// throws away the pending settings, which were saved against what signing in took.
+pub(crate) async fn write_provider(
+    scope: &mut Scope<'_>,
+    before: Option<&StoredProvider>,
+    provider: &StoredProvider,
+) -> Result<Written, StoreError> {
+    // Later than the change before, also within one millisecond or when the clock went
+    // back: no two states of one provider have one time.
+    let now = before.map_or_else(now_millis, |before| {
+        now_millis().max(before.update_at.saturating_add(1))
+    });
+    let signs_in_alike = before.is_some_and(|before| before.signs_in_like(provider));
+    // Raised across a replacement too: no session of the one before names it.
+    let revision = match before {
+        None => 1,
+        Some(before) if signs_in_alike => before.revision,
+        Some(before) => before.revision.saturating_add(1),
+    };
+    let dropped_pending = before.is_some() && !signs_in_alike && {
+        let mut sql = scope.sql("DELETE FROM oidc_pending_providers WHERE org_id = ");
+        sql.bind(scope.org()?);
+        scope.execute(sql).await? > 0
+    };
+    let mut sql = scope.sql("DELETE FROM oidc_providers WHERE org_id = ");
+    sql.bind(scope.org()?)
+        .push_bind(" AND (issuer <> ", &provider.issuer)
+        .push_bind(" OR client_id <> ", &provider.client_id)
+        .push(")");
+    scope.execute(sql).await?;
+    let mut sql = scope.sql(&format!(
+        "INSERT INTO oidc_providers ({PROVIDER_COLUMNS}) VALUES ("
+    ));
+    sql.bind(Id(&new_id()))
+        .push_bind(", ", scope.org()?)
+        .push_bind(", ", &provider.issuer)
+        .push_bind(", ", &provider.client_id)
+        .push_bind(", ", &provider.sealed_client_secret)
+        .push_bind(", ", provider.auto_join)
+        .push_bind(", ", provider.enabled)
+        .push_bind(", ", now)
+        .push_bind(", ", now)
+        .push_bind(", ", provider.sso_required)
+        .push_bind(", ", revision)
+        .push(
+            ") ON CONFLICT (org_id) DO UPDATE SET \
+             issuer = excluded.issuer, client_id = excluded.client_id, \
+             client_secret = excluded.client_secret, \
+             auto_join = excluded.auto_join, enabled = excluded.enabled, \
+             update_at = excluded.update_at, sso_required = excluded.sso_required, \
+             revision = excluded.revision",
+        )
+        .push(&format!(" RETURNING {PROVIDER_COLUMNS}"));
+    let row = scope.fetch_optional(sql).await?.ok_or(StoreError::NoRows)?;
+    let stored = provider_from_row(&row)?;
+    if let Some(before) = before
+        && before.issuer != stored.issuer
+    {
+        sessions::end_sessions_of_origin(scope, &before.org_id, &before.issuer).await?;
+    }
+    Ok(Written {
+        provider: stored,
+        dropped_pending,
+    })
+}
+
+/// Whether a provider lets somebody who has no place in the organization in, a member
+/// of it from then on (`auto_join`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Newcomers {
+    /// They join.
+    Join,
+    /// They are refused.
+    Refused,
+}
+
+impl From<&StoredProvider> for Newcomers {
+    fn from(provider: &StoredProvider) -> Self {
+        if provider.auto_join {
+            Self::Join
+        } else {
+            Self::Refused
+        }
+    }
+}
+
+/// Lets the account a sign-in through the provider ends in into the transaction's
+/// organization: makes a new one, a member of it, or holds a known one, which joins
+/// it if it has no place in it and `newcomers` lets it; and sets the user of
+/// `session`. Says whether the account joined the organization, or why it is not let
+/// in.
+pub(crate) async fn admit(
+    scope: &mut Scope<'_>,
+    account: OidcAccount<'_>,
+    newcomers: Newcomers,
+    session: &mut Session,
+) -> Result<Result<bool, OidcRefusal>, StoreError> {
+    let auto_join = newcomers == Newcomers::Join;
+    Ok(Ok(match account {
+        OidcAccount::New {
+            user,
+            identity,
+            provider_email,
+        } => {
+            if !auto_join {
+                return Ok(Err(OidcRefusal::JoinClosed));
+            }
+            user.password_hash = String::new();
+            user.email = String::new();
+            accounts::insert_account(scope, user, InstanceRole::User).await?;
+            insert_identity(scope, identity, &user.id, provider_email, user.create_at).await?;
+            join_as_member(scope, &user.id).await?;
+            session.user_id.clone_from(&user.id);
+            true
+        }
+        OidcAccount::Known {
+            user_id,
+            password_hash,
+            identity,
+        } => {
+            // Held, the account waits for an unlinking under way, which ends the
+            // sessions of the identity: one made after it is refused here.
+            if !sessions::hold_unchanged_user(scope, user_id, password_hash).await?
+                || !is_identity_of(scope, identity, user_id).await?
+            {
+                return Ok(Err(OidcRefusal::AccountChanged));
+            }
+            user_id.clone_into(&mut session.user_id);
+            // A guest of one of its workspaces is let in as they are, and joins
+            // nothing: their board is what they have there.
+            if has_place(scope, user_id).await? {
+                false
+            } else if auto_join {
+                join_as_member(scope, user_id).await?
+            } else {
+                return Ok(Err(OidcRefusal::JoinClosed));
+            }
+        }
+    }))
 }
 
 /// What came of removing the provider of an organization.
@@ -653,6 +764,16 @@ pub enum OidcAccount<'a> {
         /// The address the provider gave, unchecked.
         provider_email: &'a str,
     },
+}
+
+impl OidcAccount<'_> {
+    /// Who the provider vouches for.
+    #[must_use]
+    pub fn identity(&self) -> Identity<'_> {
+        match self {
+            Self::Known { identity, .. } | Self::New { identity, .. } => *identity,
+        }
+    }
 }
 
 /// Why a sign-in through a provider stored nothing at its end.
@@ -773,6 +894,10 @@ pub(crate) fn flow_from_row(row: &Row) -> Result<LoginFlow, StoreError> {
         provider_id: row.id(5)?,
         create_at: row.int(6)?,
         expires_at: row.int(7)?,
-        link_session_id: Some(row.id(8)?).filter(|id| !id.is_empty()),
+        purpose: match (row.id(8)?, row.opt_int(9)?) {
+            (session_id, _) if !session_id.is_empty() => FlowPurpose::Link { session_id },
+            (_, Some(pending_at)) => FlowPurpose::Trial { pending_at },
+            (_, None) => FlowPurpose::SignIn,
+        },
     })
 }

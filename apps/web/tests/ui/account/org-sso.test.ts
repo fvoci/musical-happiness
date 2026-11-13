@@ -17,6 +17,7 @@ const provider: OidcProvider = {
   redirectUri: 'https://app.example.test/api/v1/auth/oidc/callback/org',
   createAt: 1,
   updateAt: 1,
+  pending: null,
 };
 
 function mount(value: OidcProvider | undefined = provider) {
@@ -26,8 +27,10 @@ function mount(value: OidcProvider | undefined = provider) {
   }));
   const remove = vi.fn(() => Promise.resolve());
   const onSignIn = vi.fn(() => Promise.resolve());
-  render(OrgSso, { read: async () => value, save, remove, onSignIn });
-  return { save, remove, onSignIn };
+  const discard = vi.fn(() => Promise.resolve());
+  const onTry = vi.fn(() => Promise.resolve());
+  render(OrgSso, { read: async () => value, save, remove, onSignIn, discard, onTry });
+  return { save, remove, onSignIn, discard, onTry };
 }
 
 describe('the SSO settings', () => {
@@ -119,13 +122,61 @@ describe('the SSO settings', () => {
     });
   });
 
-  it('does not disable, replace or delete a provider while enforcement is stored', async () => {
+  it('does not disable or delete a provider while enforcement is stored', async () => {
     mount({ ...provider, canRequireSso: true, ssoRequired: true });
     await screen.findByTestId('sso-client');
-    for (const id of ['sso-issuer', 'sso-client', 'sso-enabled', 'sso-delete']) {
+    for (const id of ['sso-enabled', 'sso-delete']) {
       expect(screen.getByTestId(id)).toBeDisabled();
     }
-    expect(screen.getByTestId('sso-required-switch')).toBeEnabled();
+    for (const id of ['sso-issuer', 'sso-client', 'sso-required-switch']) {
+      expect(screen.getByTestId(id)).toBeEnabled();
+    }
+    expect(screen.getByTestId('sso-pending-hint')).toBeInTheDocument();
+  });
+
+  it('says a change saved while enforced waits aside, and tries or discards it', async () => {
+    const enforced = { ...provider, canRequireSso: true, ssoRequired: true };
+    const pending = {
+      issuer: provider.issuer,
+      clientId: 'next-client',
+      hasClientSecret: true,
+      createAt: 2,
+    };
+    const { save, onTry } = mount(enforced);
+    save.mockResolvedValueOnce({ ...enforced, pending });
+    const client = await screen.findByTestId('sso-client');
+    await fireEvent.input(client, { target: { value: 'next-client' } });
+    await fireEvent.input(screen.getByTestId('sso-secret'), { target: { value: 'next secret' } });
+    await fireEvent.click(screen.getByTestId('sso-save'));
+    await screen.findByText(/Saved as pending/);
+    expect(save.mock.calls[0]?.[0]).toMatchObject({ clientId: 'next-client', ssoRequired: true });
+    expect(screen.getByTestId('sso-client')).toHaveValue(provider.clientId);
+    expect(screen.getByTestId('sso-pending-client')).toHaveTextContent('next-client');
+    expect(document.body.textContent).not.toContain('next secret');
+    await fireEvent.click(screen.getByTestId('sso-pending-try'));
+    expect(onTry).toHaveBeenCalledOnce();
+  });
+
+  it('throws the pending settings away', async () => {
+    const pending = { issuer: provider.issuer, clientId: 'c', hasClientSecret: false, createAt: 2 };
+    const { discard } = mount({ ...provider, ssoRequired: true, pending });
+    await fireEvent.click(await screen.findByTestId('sso-pending-discard'));
+    await vi.waitFor(() => {
+      expect(discard).toHaveBeenCalledOnce();
+    });
+    await screen.findByText('The pending settings were discarded.');
+  });
+
+  it('tells what came of a sign-in through the pending settings, once', async () => {
+    history.replaceState(null, '', '/org/o?oidc_pending_error=oidc-token-refused');
+    mount();
+    await screen.findByText(/did not accept the client ID or secret/);
+    expect(location.search).toBe('');
+    cleanup();
+    history.replaceState(null, '', '/org/o?oidc_pending=applied');
+    mount();
+    await screen.findByText(/They are now in use/);
+    expect(location.search).toBe('');
   });
 
   it('keeps an entered secret for retry and clears it after saving', async () => {

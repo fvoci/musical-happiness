@@ -12,9 +12,7 @@
  * others (`playwright.live.config.ts`): the provider and the rule are taken
  * away again at the end, whatever came of the test.
  */
-import { mkdir } from 'node:fs/promises';
-import path from 'node:path';
-import { expect, request, test, type APIRequestContext, type Page } from '@playwright/test';
+import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 
 import {
   ADMIN,
@@ -27,89 +25,16 @@ import {
   uniqueName,
   type Schemas,
 } from './support.ts';
+import {
+  forgetIdentities,
+  pictures,
+  providerSignsIn,
+  requireOnScreen,
+  settle,
+} from './sso-support.ts';
 
 // The fake provider's certificate is its own.
 test.use({ locale: 'en-US', ignoreHTTPSErrors: true });
-
-const PORT = Number(process.env.FVOCI_LIVE_PORT ?? 18510);
-const ISSUER = `https://127.0.0.1:${PORT + 1}`;
-const CLIENT_ID = 'fvoci-test-client';
-const SECRET = 'fvoci test secret: not one to keep';
-
-/** Who the provider signs in from now on. */
-async function providerSignsIn(who: {
-  subject: string;
-  email: string;
-  preferredUsername?: string;
-  name?: string;
-}): Promise<void> {
-  const provider = await request.newContext({ ignoreHTTPSErrors: true });
-  expect((await provider.post(`${ISSUER}/person`, { data: who })).status()).toBe(204);
-  await provider.dispose();
-}
-
-/** The page at both widths, under `target/screens/sso/`, with nothing wider than the window. */
-async function pictures(page: Page, name: string): Promise<void> {
-  const directory = path.resolve('../../target/screens/sso');
-  await mkdir(directory, { recursive: true });
-  for (const width of [1280, 390]) {
-    await page.setViewportSize({ width, height: 900 });
-    await page.screenshot({ path: path.join(directory, `${name}-${width}.png`), fullPage: true });
-    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
-      width,
-    );
-  }
-  await page.setViewportSize({ width: 1280, height: 900 });
-}
-
-/** Removes the identities `api`'s account has, as one left by an earlier test would make two. */
-async function forgetIdentities(api: APIRequestContext): Promise<void> {
-  const tied = (await (
-    await api.get('/api/v1/users/me/identities')
-  ).json()) as Schemas['LinkedIdentity'][];
-  for (const { issuer, subject } of tied) {
-    const removed = await api.delete('/api/v1/users/me/identities', {
-      data: { issuer, subject, password: ADMIN.password },
-    });
-    expect(removed.status(), await removed.text()).toBe(204);
-  }
-}
-
-/**
- * The administrator puts the provider in on the organization's screen,
- * connects their account to it as `subject`, signs in through it from the
- * section, and requires it: the provider cannot be removed meanwhile.
- */
-async function requireOnScreen(page: Page, orgId: string, subject: string): Promise<void> {
-  await page.goto('/');
-  await signInOnPage(page, ADMIN);
-  await page.goto(`/org/${orgId}`);
-  const section = page.getByTestId('org-sso');
-  await section.getByTestId('sso-issuer').fill(ISSUER);
-  await section.getByTestId('sso-client').fill(CLIENT_ID);
-  await section.getByTestId('sso-secret').fill(SECRET);
-  await section.getByTestId('sso-save').click();
-  await expect(section.getByRole('status')).toContainText('Saved.');
-  await expect(section.getByTestId('sso-required-switch')).toBeDisabled();
-
-  await providerSignsIn({ subject, email: ADMIN.email });
-  const started = await page.request.post(`/api/v1/auth/oidc/start?org=${orgId}`, {
-    headers: { 'X-Requested-With': 'XMLHttpRequest' },
-    data: { linkPassword: ADMIN.password },
-  });
-  expect(started.ok(), await started.text()).toBe(true);
-  const { authorizationUrl } = (await started.json()) as Schemas['OidcStart'];
-  expect((await page.request.get(authorizationUrl)).url()).toContain('oidc_linked=1');
-  await section.getByTestId('sso-sign-in').click();
-  await expect(section.getByTestId('sso-required-switch')).toBeEnabled();
-
-  await section.getByTestId('sso-required-switch').click();
-  await section.getByTestId('sso-save').click();
-  // The save is answered, and what it stored is read back.
-  await expect(section.getByTestId('sso-save')).toBeEnabled();
-  await expect(section.getByTestId('sso-required-switch')).toBeChecked();
-  await expect(section.getByTestId('sso-delete')).toBeDisabled();
-}
 
 /** The operator releases the organization: its records name the server operator. */
 async function releasedByTheOperator(page: Page, base: string, orgId: string): Promise<void> {
@@ -153,15 +78,6 @@ async function disconnectingSignsOut(
     await api.get('/api/v1/users/me/identities')
   ).json()) as Schemas['LinkedIdentity'][];
   expect(left.map((identity) => identity.subject)).not.toContain(subject);
-}
-
-/** Runs a step of the cleanup, and tells of its failure without stopping the others. */
-async function settle(what: string, step: () => Promise<unknown>): Promise<void> {
-  try {
-    await step();
-  } catch (error) {
-    expect.soft(error, what).toBeUndefined();
-  }
 }
 
 test('an administrator requires single sign-on on the screen, the operator releases it, and disconnecting signs out', async ({

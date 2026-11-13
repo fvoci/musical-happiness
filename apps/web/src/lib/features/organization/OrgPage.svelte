@@ -50,6 +50,11 @@
 
   let stepDownOpen = $state(false);
 
+  /** Sends the browser to sign in through the pending settings; it comes back to this page. */
+  async function tryPending(): Promise<void> {
+    location.assign(await admin.startOidcTrial());
+  }
+
   const named = (member: OrgMember): string =>
     member.displayName ? `${member.displayName} (@${member.username})` : `@${member.username}`;
 </script>
@@ -108,6 +113,8 @@
         save={(settings: OidcSettings) => admin.saveOidcProvider(settings)}
         remove={() => admin.deleteOidcProvider()}
         onSignIn={onSsoSignIn}
+        discard={() => admin.discardOidcPending()}
+        onTry={tryPending}
       />
     {/key}
 

@@ -65,6 +65,16 @@
         return m.audit_sso_released({ actor });
       case 'public_links_enabled':
         return m.audit_public_links_enabled({ actor });
+      case 'oidc_provider_pending_saved':
+        return m.audit_oidc_pending_saved({ actor });
+      case 'oidc_provider_pending_applied':
+        return m.audit_oidc_pending_applied({ actor });
+      case 'oidc_provider_pending_discarded':
+        return m.audit_oidc_pending_discarded({ actor });
+      case 'password_reset_link_made':
+        return m.audit_password_reset_link_made({ actor, subject });
+      case 'password_set_by_operator':
+        return m.audit_password_set_by_operator({ actor, subject });
     }
   }
 

@@ -2,6 +2,24 @@
 import { m } from '$lib/i18n/paraglide/messages.js';
 import { isBackendError } from '$lib/state/backend.ts';
 
+/**
+ * What the address says of a sign-in through the pending settings that came
+ * back to the organization's page (`oidc_pending=applied`, or the name of what
+ * went wrong in `oidc_pending_error`); undefined when it says nothing of one.
+ */
+export function pendingOutcome(
+  address: URLSearchParams,
+): { applied: boolean; words: string } | undefined {
+  if (address.get('oidc_pending') === 'applied') {
+    return { applied: true, words: m.org_sso_pending_applied() };
+  }
+  const name = address.get('oidc_pending_error');
+  if (name === null) return undefined;
+  // The provider's answer is what a trial tests; the rest is said as a sign-in says it.
+  const why = name === 'oidc-token-refused' ? m.org_sso_pending_refused() : m.account_oidc_failed();
+  return { applied: false, words: `${m.org_sso_pending_failed()} ${why}` };
+}
+
 export function oidcProblem(error: unknown): string {
   if (!isBackendError(error)) return m.org_sso_failed();
   switch (error.reason) {

@@ -90,7 +90,12 @@
           "oidc_provider_configured",
           "oidc_provider_removed",
           "sso_required",
-          "sso_released"
+          "sso_released",
+          "oidc_provider_pending_saved",
+          "oidc_provider_pending_applied",
+          "oidc_provider_pending_discarded",
+          "password_reset_link_made",
+          "password_set_by_operator"
         ],
         "type": "string"
       },
@@ -1954,6 +1959,35 @@
         ],
         "type": "object"
       },
+      "OidcPendingProvider": {
+        "description": "The pending settings of an organization's provider, without the client secret:\n`hasClientSecret` says whether there is one.",
+        "properties": {
+          "clientId": {
+            "description": "The client identifier.",
+            "type": "string"
+          },
+          "createAt": {
+            "description": "When they were saved, in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "hasClientSecret": {
+            "description": "Whether a client secret is saved with them.",
+            "type": "boolean"
+          },
+          "issuer": {
+            "description": "The issuer.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "clientId",
+          "createAt",
+          "hasClientSecret",
+          "issuer"
+        ],
+        "type": "object"
+      },
       "OidcProvider": {
         "description": "The provider of an organization, as its administrators read it. The client secret\nis not in it: only whether there is one.",
         "properties": {
@@ -1986,6 +2020,17 @@
             "description": "The issuer: an `https` address, exactly as the provider names itself.",
             "type": "string"
           },
+          "pending": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/OidcPendingProvider",
+                "description": "The settings saved aside while the organization takes no password, which\nnobody signs in through until a sign-in through them ends well; `null` for\nnone."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "redirectUri": {
             "description": "The address the provider sends people back to, to be registered with it exactly:\nthe organization's own, which does not change with the provider.",
             "type": "string"
@@ -2008,6 +2053,7 @@
           "enabled",
           "hasClientSecret",
           "issuer",
+          "pending",
           "redirectUri",
           "ssoRequired",
           "updateAt"
@@ -3488,7 +3534,7 @@
   "paths": {
     "/api/v1/auth/oidc/callback/{orgId}": {
       "get": {
-        "description": "Where a provider sends the browser back to: each organization has an address of its\nown, its provider's `redirectUri`, and a sign-in started for one organization does\nnot finish at another's address, nor with an `iss` (RFC 9207) other than the\nprovider's, before any code is exchanged. The sign-in is taken by its `state`, once, and only from the\nbrowser that started it; another browser takes nothing. The code is\nexchanged for an ID token, whose signature, issuer, audience, time and nonce are\nchecked. The person is known by the issuer and the subject: an account of theirs\nsigns in, and somebody who has none gets one, if the organization lets newcomers in\nand no account has their email address. The session comes in the `Set-Cookie`\nheader, and the browser goes to the web app (303). A sign-in that was started to\nlink sets no session: the browser goes to the web app with `oidc_linked=1` in the\nquery.\n\nOtherwise the browser goes to the login page of the organization (`/login?org=…`),\nwith the reason of what went wrong in `oidc_error`, by the name of its problem\n(`oidc_state_invalid` as `oidc-state-invalid`): `oidc_state_invalid`, `oidc_denied`,\n`oidc_token_refused`, `oidc_token_invalid`, `oidc_email_missing`,\n`oidc_email_unverified`, `oidc_email_taken`, `oidc_join_closed`,\n`oidc_identity_taken`, `oidc_email_mismatch` or `oidc_unavailable`.",
+        "description": "Where a provider sends the browser back to: each organization has an address of its\nown, its provider's `redirectUri`, and a sign-in started for one organization does\nnot finish at another's address, nor with an `iss` (RFC 9207) other than the\nprovider's, before any code is exchanged. The sign-in is taken by its `state`, once, and only from the\nbrowser that started it; another browser takes nothing. The code is\nexchanged for an ID token, whose signature, issuer, audience, time and nonce are\nchecked. The person is known by the issuer and the subject: an account of theirs\nsigns in, and somebody who has none gets one, if the organization lets newcomers in\nand no account has their email address. The session comes in the `Set-Cookie`\nheader, and the browser goes to the web app (303). A sign-in that was started to\nlink sets no session: the browser goes to the web app with `oidc_linked=1` in the\nquery. A trial of the provider's pending settings (`startOidcTrial`) that ends well\nmakes them the provider's and sets the session, made through them, and the browser\ngoes to the organization's page (`/org/{orgId}`) with `oidc_pending=applied`; one\nthat fails changes nothing, and goes there with `oidc_pending_error` naming the\nreason as `oidc_error` does.\n\nOtherwise the browser goes to the login page of the organization (`/login?org=…`),\nwith the reason of what went wrong in `oidc_error`, by the name of its problem\n(`oidc_state_invalid` as `oidc-state-invalid`): `oidc_state_invalid`, `oidc_denied`,\n`oidc_token_refused`, `oidc_token_invalid`, `oidc_email_missing`,\n`oidc_email_unverified`, `oidc_email_taken`, `oidc_join_closed`,\n`oidc_identity_taken`, `oidc_email_mismatch` or `oidc_unavailable`.",
         "operationId": "finishOidcLogin",
         "parameters": [
           {
@@ -3539,7 +3585,7 @@
         ],
         "responses": {
           "303": {
-            "description": "To the web app, signed in or (with `oidc_linked=1`) linked, or to the login page.",
+            "description": "To the web app, signed in or (with `oidc_linked=1`) linked, to the login page, or to the organization's page after a trial.",
             "headers": {
               "Location": {
                 "description": "Where the browser goes.",
@@ -4395,7 +4441,7 @@
         ]
       },
       "put": {
-        "description": "Sets the organization's `OpenID Connect` provider, in place of the one it has. The\ndiscovery document of an issuer that is not the organization's already is read\nfirst: it must name the issuer exactly and have\n`https` endpoints, or the request is 400 with the reason `oidc_issuer_unverified`\nand `errors` naming `/issuer`. The server reaches only `https` addresses, follows no\nredirect, and reaches only public addresses unless its configuration lets it\n(`oidc_allow_private_addresses`).\n\n`clientSecret` left out keeps the stored secret while the issuer and the client stay\nthe same; with another issuer or client it is required when a secret is stored (400,\n`required` at `/clientSecret`), as the secret is the old client's. The empty string\nstores none. The secret is stored sealed with the server's key and never answered:\nwithout the key the request is 409 with the reason `secret_key_required`. `autoJoin`\nand `enabled` left out stay as they are, also for another issuer or client, and are\non when the organization has no provider.\n\n`ssoRequired` true makes the organization take no password: from the next request\non, what is the organization's (the routes under `/w/{workspaceId}` and\n`/org/{orgId}`, and `getMyMemberships` and `setUserAdmin` where the organization is\nthe one the server stands in) answers 401 with the reason `sso_required` to every\nsession that was not made through this provider, and the websocket follows none of\nits workspaces for one. The\nsessions stay, and open what is of other organizations. It is switched on by a\nsession that was itself made through this provider, switched on, as it is stored\n(`canRequireSso`), by a request that does not change its issuer, client, secret or\n`enabled`, or the request is 409 with the reason `sso_unproven`: who asks has then\nshown that it lets them in. A `clientSecret` sent as it is stored is no change.\nWhile it is on, the provider is not switched off (`enabled` false), not set to\nanother issuer or client, and not removed: 409 with the reason `sso_enforced`,\nunless the same request switches `ssoRequired` off. Left out it stays as it is,\nand is off when the organization has no provider. A provider changed by another request\nsince this one read it is 409, to be read and sent again. The answer's `redirectUri`\nis the address to register with the provider, exactly: the organization's own,\n`…/api/v1/auth/oidc/callback/{orgId}`, the same before the provider is set and after\nit is changed.",
+        "description": "Sets the organization's `OpenID Connect` provider, in place of the one it has. The\ndiscovery document of an issuer that is not the organization's already is read\nfirst: it must name the issuer exactly and have\n`https` endpoints, or the request is 400 with the reason `oidc_issuer_unverified`\nand `errors` naming `/issuer`. The server reaches only `https` addresses, follows no\nredirect, and reaches only public addresses unless its configuration lets it\n(`oidc_allow_private_addresses`).\n\n`clientSecret` left out keeps the stored secret while the issuer and the client stay\nthe same; with another issuer or client it is required when a secret is stored (400,\n`required` at `/clientSecret`), as the secret is the old client's. The empty string\nstores none. The secret is stored sealed with the server's key and never answered:\nwithout the key the request is 409 with the reason `secret_key_required`. `autoJoin`\nand `enabled` left out stay as they are, also for another issuer or client, and are\non when the organization has no provider.\n\nWhile the organization takes no password and the request keeps it so, another\nissuer, client or secret is not taken at once: it is saved aside as the provider's\n`pending` settings (in place of pending ones there are), and people go on signing\nin through the provider as it is. A sign-in through the pending settings\n(`startOidcTrial`) that ends well makes them the provider's; `deleteOidcPending`\nthrows them away. The secret of the pending settings is never answered either. What\nelse the request changes (`autoJoin`) is taken at once; `enabled` false is refused\n(`sso_enforced`). While the organization takes a password a change is taken at\nonce, and a change of what signing in takes throws pending settings away.\n\n`ssoRequired` true makes the organization take no password: from the next request\non, what is the organization's (the routes under `/w/{workspaceId}` and\n`/org/{orgId}`, and `getMyMemberships` and `setUserAdmin` where the organization is\nthe one the server stands in) answers 401 with the reason `sso_required` to every\nsession that was not made through this provider, and the websocket follows none of\nits workspaces for one. The\nsessions stay, and open what is of other organizations. It is switched on by a\nsession that was itself made through this provider, switched on, as it is stored\n(`canRequireSso`), by a request that does not change its issuer, client, secret or\n`enabled`, or the request is 409 with the reason `sso_unproven`: who asks has then\nshown that it lets them in. A `clientSecret` sent as it is stored is no change.\nWhile it is on, the provider is not switched off (`enabled` false) and not removed:\n409 with the reason `sso_enforced`, unless the same request switches `ssoRequired`\noff. Left out it stays as it is,\nand is off when the organization has no provider. A provider changed by another request\nsince this one read it is 409, to be read and sent again. The answer's `redirectUri`\nis the address to register with the provider, exactly: the organization's own,\n`…/api/v1/auth/oidc/callback/{orgId}`, the same before the provider is set and after\nit is changed.",
         "operationId": "putOidcProvider",
         "parameters": [
           {
@@ -4441,6 +4487,123 @@
           }
         },
         "summary": "Set the provider of an organization",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/org/{orgId}/oidc/pending": {
+      "delete": {
+        "description": "Throws away the settings saved aside while the organization takes no password\n(`pending` of the provider): the provider stays as it is. An organization without\nany answers the same. Recorded in the organization's audit log.",
+        "operationId": "deleteOidcPending",
+        "parameters": [
+          {
+            "description": "The identifier of the organization. 404 unless the user of the session administers it.",
+            "in": "path",
+            "name": "orgId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The provider has no pending settings."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Throw the pending settings of an organization's provider away",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/org/{orgId}/oidc/pending/sign-in": {
+      "post": {
+        "description": "Starts a sign-in through the pending settings (`pending` of the provider), as\n`startOidcLogin` starts one through the provider: it answers where the page sends\nthe browser, with the cookie of the sign-in. When the browser comes back\n(`finishOidcLogin`) and the sign-in ends well, in a session of whoever the provider\nvouches for, the pending settings become the provider's, at a new revision that the\nnew session proves (`canRequireSso`); another issuer ends the sessions of the one\nbefore. A sign-in that fails changes nothing. 409 with the reason `oidc_unavailable`\nif there are no pending settings, the provider is off, or their issuer cannot be\nreached; 429 when this address made too many sign-ins of late.",
+        "operationId": "startOidcTrial",
+        "parameters": [
+          {
+            "description": "The identifier of the organization. 404 unless the user of the session administers it.",
+            "in": "path",
+            "name": "orgId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OidcStart"
+                }
+              }
+            },
+            "description": "Started: where the browser goes.",
+            "headers": {
+              "Set-Cookie": {
+                "description": "The cookie of the sign-in.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "No pending settings, or they cannot be reached."
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Too many sign-ins from this address. `retryAfter`, and the `Retry-After` header, say how long to wait.",
+            "headers": {
+              "Retry-After": {
+                "description": "How many seconds to wait before trying again.",
+                "schema": {
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Try the pending settings of an organization's provider",
         "tags": [
           "auth"
         ]

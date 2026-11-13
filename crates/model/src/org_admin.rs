@@ -137,11 +137,26 @@ pub enum AuditAction {
     SsoRequired,
     /// The organization began accepting password sessions again.
     SsoReleased,
+    /// Settings of the provider's sign-in were saved aside while the organization
+    /// takes no password, to be tried before they are taken.
+    OidcProviderPendingSaved,
+    /// The pending settings became the provider's, by a sign-in through them that
+    /// ended well: the actor is who signed in.
+    OidcProviderPendingApplied,
+    /// The pending settings were thrown away.
+    OidcProviderPendingDiscarded,
+    /// The server operator made a link to set the password of a member (the subject)
+    /// anew. The target is the organization; one is written in each organization
+    /// the person is in.
+    PasswordResetLinkMade,
+    /// The server operator set the password of a member (the subject). The target is
+    /// the organization; one is written in each organization the person is in.
+    PasswordSetByOperator,
 }
 
 impl AuditAction {
     /// Every action, in the order of the declaration.
-    pub const ALL: [Self; 17] = [
+    pub const ALL: [Self; 22] = [
         Self::SelfAddedToBoard,
         Self::AddedToBoard,
         Self::OrgAdminJoined,
@@ -159,6 +174,11 @@ impl AuditAction {
         Self::OidcProviderRemoved,
         Self::SsoRequired,
         Self::SsoReleased,
+        Self::OidcProviderPendingSaved,
+        Self::OidcProviderPendingApplied,
+        Self::OidcProviderPendingDiscarded,
+        Self::PasswordResetLinkMade,
+        Self::PasswordSetByOperator,
     ];
 
     /// The wire and database form.
@@ -182,6 +202,11 @@ impl AuditAction {
             Self::OidcProviderRemoved => "oidc_provider_removed",
             Self::SsoRequired => "sso_required",
             Self::SsoReleased => "sso_released",
+            Self::OidcProviderPendingSaved => "oidc_provider_pending_saved",
+            Self::OidcProviderPendingApplied => "oidc_provider_pending_applied",
+            Self::OidcProviderPendingDiscarded => "oidc_provider_pending_discarded",
+            Self::PasswordResetLinkMade => "password_reset_link_made",
+            Self::PasswordSetByOperator => "password_set_by_operator",
         }
     }
 }

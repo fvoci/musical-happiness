@@ -1,0 +1,239 @@
+//! The pending settings of a provider in the store: saved only while the organization
+//! takes no password and the provider is as read; a trial that ends well makes them
+//! the provider's, at a new revision, in its own transaction, and one of settings
+//! that were saved anew, thrown away or replaced makes nothing.
+
+use fvoci_model::{AuditAction, Session, User, new_id};
+use fvoci_store::{
+    AuditPlace, Identity, OidcAccount, OidcRefusal, Paging, PendingProvider, Store, StoredProvider,
+};
+
+use crate::common;
+
+const ISSUER: &str = "https://issuer.example.test";
+
+/// The password hash of the person of these tests.
+const HASH: &str = "a password hash";
+
+/// Whether the organization takes a password beside the provider.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Passwords {
+    Taken,
+    Refused,
+}
+
+fn provider(passwords: Passwords) -> StoredProvider {
+    StoredProvider {
+        id: String::new(),
+        org_id: String::new(),
+        issuer: ISSUER.to_owned(),
+        client_id: "client".to_owned(),
+        sealed_client_secret: "the sealed secret".to_owned(),
+        auto_join: true,
+        enabled: true,
+        sso_required: passwords == Passwords::Refused,
+        revision: 0,
+        create_at: 0,
+        update_at: 0,
+    }
+}
+
+fn pending(secret: &str) -> PendingProvider {
+    PendingProvider {
+        provider_id: String::new(),
+        issuer: ISSUER.to_owned(),
+        client_id: "client".to_owned(),
+        sealed_client_secret: secret.to_owned(),
+        create_at: 0,
+    }
+}
+
+/// A person whose identity at the issuer is tied, and their identifier.
+async fn person(store: &Store) -> String {
+    let mut user = User {
+        id: new_id(),
+        username: "admin".to_owned(),
+        email: "admin@example.com".to_owned(),
+        password_hash: HASH.to_owned(),
+        ..User::default()
+    };
+    store.create_user(&mut user).await.expect("stored");
+    store
+        .add_identity(&user.id, identity(), "")
+        .await
+        .expect("tied");
+    user.id
+}
+
+fn identity() -> Identity<'static> {
+    Identity {
+        issuer: ISSUER,
+        subject: "subject",
+    }
+}
+
+/// Ends a trial of the pending settings saved at `pending_at` as `user_id`, with the
+/// session under `digest`.
+async fn trial(
+    store: &Store,
+    provider_id: &str,
+    pending_at: i64,
+    user_id: &str,
+    digest: &str,
+) -> Result<fvoci_store::Applied, OidcRefusal> {
+    let mut session = Session {
+        id: new_id(),
+        created_at: 1,
+        expires_at: i64::MAX,
+        ..Session::default()
+    };
+    let account = OidcAccount::Known {
+        user_id,
+        password_hash: HASH,
+        identity: identity(),
+    };
+    store
+        .finish_oidc_trial(provider_id, pending_at, account, &mut session, digest)
+        .await
+        .expect("asked")
+}
+
+async fn actions(store: &Store) -> Vec<AuditAction> {
+    store
+        .audit_records(
+            AuditPlace::Organization,
+            Paging {
+                page: 0,
+                per_page: 100,
+            },
+        )
+        .await
+        .expect("records")
+        .into_iter()
+        .map(|record| record.action)
+        .collect()
+}
+
+/// Saved while the organization takes a password, nothing is set aside; saved while
+/// it takes none, they are; a trial of the settings saved before the last is refused,
+/// one of the last makes them the provider's at the next revision, and a session of
+/// it, and nothing is left aside.
+#[tokio::test]
+async fn a_trial_of_the_last_settings_saved_applies_them() {
+    let test = common::setup().await;
+    let user = person(&test).await;
+    let open = test
+        .put_oidc_provider_as_read(&provider(Passwords::Taken), None, &user)
+        .await
+        .expect("stored")
+        .expect("new");
+    let not_enforced = test
+        .put_oidc_pending_provider(&pending("another"), &open, &user)
+        .await
+        .expect("asked");
+    let enforced = test
+        .put_oidc_provider_as_read(&provider(Passwords::Refused), Some(&open), &user)
+        .await
+        .expect("stored")
+        .expect("as read");
+    let first = test
+        .put_oidc_pending_provider(&pending("first"), &enforced, &user)
+        .await
+        .expect("asked")
+        .expect("set aside");
+    let second = test
+        .put_oidc_pending_provider(&pending("second"), &enforced, &user)
+        .await
+        .expect("asked")
+        .expect("set aside");
+    let stale = trial(&test, &enforced.id, first.create_at, &user, "stale").await;
+    let applied = trial(&test, &enforced.id, second.create_at, &user, "applied").await;
+    let left = test.oidc_pending_provider().await.expect("read");
+    let made = test.get_session("applied", 1, 0).await.expect("made");
+    let stale_made = test.get_session("stale", 1, 0).await.is_ok();
+    let recorded = actions(&test).await;
+    test.teardown().await;
+
+    assert_eq!(
+        not_enforced, None,
+        "nothing aside while a password is taken"
+    );
+    assert!(second.create_at > first.create_at);
+    assert_eq!(stale.err(), Some(OidcRefusal::ProviderGone));
+    assert!(!stale_made);
+    let applied = applied.expect("applied");
+    assert_eq!(applied.provider.sealed_client_secret, "second");
+    assert_eq!(
+        applied.provider.id, enforced.id,
+        "the same issuer and client"
+    );
+    assert_eq!(applied.provider.revision, enforced.revision + 1);
+    assert!(applied.provider.sso_required);
+    assert_eq!(left, None);
+    let login = made.login.expect("made through the provider");
+    assert_eq!(login.revision, Some(applied.provider.revision));
+    assert_eq!(
+        recorded[..3],
+        [
+            AuditAction::OidcProviderPendingApplied,
+            AuditAction::OidcProviderPendingSaved,
+            AuditAction::OidcProviderPendingSaved,
+        ]
+    );
+}
+
+/// Pending settings go with a provider released and given another secret at once,
+/// and with one thrown away: a trial of them makes nothing after either.
+#[tokio::test]
+async fn a_trial_of_settings_thrown_away_makes_nothing() {
+    let test = common::setup().await;
+    let user = person(&test).await;
+    let enforced = test
+        .put_oidc_provider_as_read(&provider(Passwords::Refused), None, &user)
+        .await
+        .expect("stored")
+        .expect("new");
+    let thrown = test
+        .put_oidc_pending_provider(&pending("one"), &enforced, &user)
+        .await
+        .expect("asked")
+        .expect("set aside");
+    let discarded = test
+        .discard_oidc_pending_provider(&user)
+        .await
+        .expect("asked");
+    let again = test
+        .discard_oidc_pending_provider(&user)
+        .await
+        .expect("asked");
+    let after_discard = trial(&test, &enforced.id, thrown.create_at, &user, "one").await;
+    let replaced = test
+        .put_oidc_pending_provider(&pending("two"), &enforced, &user)
+        .await
+        .expect("asked")
+        .expect("set aside");
+    let mut released = provider(Passwords::Taken);
+    released.sealed_client_secret = "three".to_owned();
+    test.put_oidc_provider_as_read(&released, Some(&enforced), &user)
+        .await
+        .expect("stored")
+        .expect("as read");
+    let after_change = trial(&test, &enforced.id, replaced.create_at, &user, "two").await;
+    let left = test.oidc_pending_provider().await.expect("read");
+    let recorded = actions(&test).await;
+    test.teardown().await;
+
+    assert!(discarded && !again, "thrown away once");
+    assert_eq!(after_discard.err(), Some(OidcRefusal::ProviderGone));
+    assert_eq!(after_change.err(), Some(OidcRefusal::ProviderGone));
+    assert_eq!(left, None, "went with the change of the secret");
+    assert!(recorded.contains(&AuditAction::OidcProviderPendingDiscarded));
+    assert_eq!(
+        recorded
+            .iter()
+            .filter(|action| **action == AuditAction::OidcProviderPendingDiscarded)
+            .count(),
+        2,
+        "thrown away, and gone with the change"
+    );
+}

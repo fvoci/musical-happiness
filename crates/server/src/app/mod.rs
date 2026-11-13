@@ -23,6 +23,8 @@ mod limits;
 mod loose_objects;
 mod oidc;
 mod oidc_link;
+mod oidc_pending;
+mod oidc_settings;
 mod onboarding;
 mod org_admin;
 mod readiness;
@@ -63,9 +65,10 @@ pub use invitations::{Accepting, Inviting};
 pub use limits::OrgLimits;
 pub use loose_objects::{RemovedObjects, WRITING_GRACE_MILLIS};
 pub use oidc::{
-    CALLBACK_PATH, Callback, FinishedLogin, LOGIN_FLOW_LIFETIME_MILLIS, LoginFailure, StartedLogin,
-    secret_context,
+    BackTo, CALLBACK_PATH, Callback, FinishedLogin, LOGIN_FLOW_LIFETIME_MILLIS, LoginFailure,
+    Returned, StartedLogin,
 };
+pub use oidc_settings::secret_context;
 pub use org_admin::{DEFAULT_PER_PAGE, MAX_PER_PAGE, PageAsked};
 pub use readiness::{Readiness, ReadinessCheck};
 pub use reconcile::{Found, Reconciliation, UNRECORDED_MIN_AGE_MILLIS, Unrecorded};

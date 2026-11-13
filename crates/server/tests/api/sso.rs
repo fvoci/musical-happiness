@@ -244,20 +244,16 @@ async fn an_organization_does_not_lock_itself_out() {
     // Each refusal names what of the request would let nobody in.
     for (held, at) in [
         (settings(&fake, json!({ "enabled": false })), "/enabled"),
-        (settings(&other, json!({})), "/issuer"),
-        (
-            json!({ "issuer": fake.issuer, "clientId": "another-client", "clientSecret": "s" }),
-            "/clientId",
-        ),
         (
             settings(&other, json!({ "ssoRequired": true, "enabled": false })),
-            "/issuer",
+            "/enabled",
         ),
     ] {
         let response = admin.put(&path, &held).await;
         check_refused(&response, "sso_enforced");
         assert_eq!(response.refused_at(), at, "{held}");
     }
+    // Another issuer or client is set aside instead (sso_pending.rs).
     check_refused(&admin.delete(&path).await, "sso_enforced");
     let read: OidcProvider = admin.get(&path).await.ok_json();
     assert!(read.sso_required && read.enabled && read.issuer == fake.issuer);

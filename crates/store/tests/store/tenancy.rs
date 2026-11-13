@@ -595,8 +595,8 @@ async fn a_body_edited_together(store: &Store, board_id: &str, user_id: &str) {
         .expect("an update is logged");
 }
 
-/// The organization's provider of sign-ins (one, whoever sets it) and a sign-in through
-/// it that has not come back.
+/// The organization's provider of sign-ins (one, whoever sets it), its pending settings,
+/// and a sign-in through it that has not come back.
 async fn sign_in_under_way(store: &Store, name: &str) {
     let provider = store
         .put_oidc_provider(&fvoci_store::StoredProvider {
@@ -609,11 +609,26 @@ async fn sign_in_under_way(store: &Store, name: &str) {
             enabled: true,
             create_at: 0,
             update_at: 0,
-            sso_required: false,
+            sso_required: true,
             revision: 0,
         })
         .await
         .expect("a provider is stored");
+    store
+        .put_oidc_pending_provider(
+            &fvoci_store::PendingProvider {
+                provider_id: String::new(),
+                issuer: "https://idp.example.com".to_owned(),
+                client_id: format!("fvoci of {name}"),
+                sealed_client_secret: String::new(),
+                create_at: 0,
+            },
+            &provider,
+            &fvoci_model::new_id(),
+        )
+        .await
+        .expect("asked")
+        .expect("pending settings are stored");
     store
         .create_oidc_login_flow(&fvoci_store::LoginFlow {
             state_hash: format!("state of {name}"),
@@ -624,7 +639,7 @@ async fn sign_in_under_way(store: &Store, name: &str) {
             provider_id: provider.id,
             create_at: 0,
             expires_at: i64::MAX,
-            link_session_id: None,
+            purpose: fvoci_store::FlowPurpose::SignIn,
         })
         .await
         .expect("a sign-in is stored");
@@ -659,8 +674,9 @@ async fn what_two_organizations_store_stays_apart_in_every_table() {
         let count = async |store: &Store| store.count_rows(table).await.expect("counted");
         let (our_rows, their_rows) = (count(ours).await, count(&theirs).await);
         assert!(our_rows > 0, "{table}: the test stores a row of ours");
-        // An organization, and its provider of sign-ins, are one of each.
-        if ["organizations", "oidc_providers"].contains(&table.as_str()) {
+        // An organization, its provider of sign-ins and its pending settings are one
+        // of each.
+        if ["organizations", "oidc_providers", "oidc_pending_providers"].contains(&table.as_str()) {
             assert_eq!((our_rows, their_rows), (1, 1), "each reaches its own alone");
         } else {
             assert!(

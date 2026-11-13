@@ -229,7 +229,7 @@ pub(crate) const GLOBAL_TABLES: [&str; 7] = [
 /// policy `org_wall`. A test of the store reads the catalog to see that every table of
 /// the schema is in this list or in [`GLOBAL_TABLES`], and that it is so.
 #[cfg(any(test, feature = "test-util"))]
-pub(crate) const ORG_TABLES: [&str; 25] = [
+pub(crate) const ORG_TABLES: [&str; 26] = [
     "audit_log",
     "blocks",
     "board_members",
@@ -246,6 +246,7 @@ pub(crate) const ORG_TABLES: [&str; 25] = [
     "invitations",
     "loose_objects",
     "oidc_login_flows",
+    "oidc_pending_providers",
     "oidc_providers",
     "organization_members",
     "organizations",

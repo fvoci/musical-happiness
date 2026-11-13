@@ -20,6 +20,11 @@ export const AUDIT_ACTIONS = [
   'oidc_provider_removed',
   'sso_required',
   'sso_released',
+  'oidc_provider_pending_saved',
+  'oidc_provider_pending_applied',
+  'oidc_provider_pending_discarded',
+  'password_reset_link_made',
+  'password_set_by_operator',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

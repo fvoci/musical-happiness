@@ -15,7 +15,7 @@ use fvoci_store::{Identity, LinkRefusal, LinkingSession, StoredProvider, Unlinke
 
 use super::App;
 use super::auth::WrongPassword;
-use super::oidc::{Callback, LoginFailure, StartedLogin};
+use super::oidc::{Callback, LoginFailure, Start, StartedLogin};
 use crate::auth::now_millis;
 use crate::auth::oidc::provider::IdClaims;
 use crate::auth::secret::token_digest;
@@ -72,8 +72,14 @@ impl App {
         };
         self.confirmed_account(session, password, wrong, address)
             .await?;
-        self.start_oidc_flow(org_id, address, Some(&session.id))
-            .await
+        self.start_oidc_flow(
+            org_id,
+            address,
+            Start::Link {
+                session_id: &session.id,
+            },
+        )
+        .await
     }
 
     /// Ends a sign-in that was started to link, on the handle of its organization:

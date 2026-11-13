@@ -22,6 +22,7 @@ mod loose_objects;
 mod observe;
 mod oidc;
 mod oidc_audit;
+mod oidc_pending;
 mod order;
 mod org_admin;
 mod registration;

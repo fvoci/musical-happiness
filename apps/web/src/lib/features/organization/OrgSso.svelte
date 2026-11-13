@@ -8,15 +8,20 @@
   import { Label } from '$lib/ui/label/index.js';
   import { Switch } from '$lib/ui/switch/index.js';
   import ConfirmDialog from '$lib/components/confirm/ConfirmDialog.svelte';
-  import { oidcProblem } from './oidc-problem.ts';
+  import { oidcProblem, pendingOutcome } from './oidc-problem.ts';
+  import OrgSsoPending from './OrgSsoPending.svelte';
 
   interface Props {
     read: () => Promise<OidcProvider | undefined>;
     save: (settings: OidcSettings) => Promise<OidcProvider>;
     remove: () => Promise<void>;
     onSignIn: () => Promise<void>;
+    /** Throws the pending settings away. */
+    discard: () => Promise<void>;
+    /** Sends the browser to sign in through the pending settings. */
+    onTry: () => Promise<void>;
   }
-  let { read, save, remove, onSignIn }: Props = $props();
+  let { read, save, remove, onSignIn, discard, onTry }: Props = $props();
   const uid = $props.id();
   let provider = $state.raw<OidcProvider | undefined>(undefined);
   let loaded = $state(false);
@@ -73,7 +78,13 @@
     }
   }
   onMount(() => {
-    void load();
+    // Back from a sign-in through the pending settings: told once, and taken off the address.
+    const outcome = pendingOutcome(new URLSearchParams(location.search));
+    if (outcome) history.replaceState(history.state, '', location.pathname);
+    void load().then(() => {
+      if (outcome?.applied) notice = outcome.words;
+      else if (outcome && !problem) problem = outcome.words;
+    });
   });
 
   async function submit(event: SubmitEvent): Promise<void> {
@@ -83,17 +94,20 @@
     problem = '';
     notice = '';
     try {
-      accept(
-        await save({
-          issuer: issuer.trim(),
-          clientId: clientId.trim(),
-          autoJoin,
-          enabled,
-          ssoRequired: requires,
-          ...(askSecret ? { clientSecret: secret } : {}),
-        }),
-      );
-      notice = m.org_sso_saved();
+      const saved = await save({
+        issuer: issuer.trim(),
+        clientId: clientId.trim(),
+        autoJoin,
+        enabled,
+        ssoRequired: requires,
+        ...(askSecret ? { clientSecret: secret } : {}),
+      });
+      const pendingBefore = provider?.pending?.createAt;
+      accept(saved);
+      notice =
+        saved.pending && saved.pending.createAt !== pendingBefore
+          ? m.org_sso_pending_saved()
+          : m.org_sso_saved();
     } catch (error) {
       problem = oidcProblem(error);
     } finally {
@@ -113,6 +127,34 @@
     } catch (error) {
       problem = oidcProblem(error);
     } finally {
+      busy = false;
+    }
+  }
+
+  async function throwAway(): Promise<void> {
+    if (busy) return;
+    busy = true;
+    problem = '';
+    notice = '';
+    try {
+      await discard();
+      accept(await read());
+      notice = m.org_sso_pending_discarded();
+    } catch (error) {
+      problem = oidcProblem(error);
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function tryPending(): Promise<void> {
+    if (busy) return;
+    busy = true;
+    problem = '';
+    try {
+      await onTry();
+    } catch (error) {
+      problem = oidcProblem(error);
       busy = false;
     }
   }
@@ -166,7 +208,7 @@
           type="url"
           bind:value={issuer}
           required
-          disabled={busy || enforced}
+          disabled={busy}
           autocomplete="off"
           placeholder="https://login.example.com"
           data-testid="sso-issuer"
@@ -183,7 +225,7 @@
           id="{uid}-client"
           bind:value={clientId}
           required
-          disabled={busy || enforced}
+          disabled={busy}
           autocomplete="off"
           data-testid="sso-client"
         />
@@ -285,8 +327,19 @@
         {/if}
         {#if enforced}
           <p class="text-sm">{m.org_sso_enforced()}</p>
+          <p class="text-xs text-muted-foreground" data-testid="sso-pending-hint">
+            {m.org_sso_pending_hint()}
+          </p>
         {/if}
       </div>
+      {#if provider?.pending}
+        <OrgSsoPending
+          pending={provider.pending}
+          {busy}
+          onTry={() => void tryPending()}
+          onDiscard={() => void throwAway()}
+        />
+      {/if}
       <div class="flex flex-wrap gap-2">
         <Button
           type="submit"

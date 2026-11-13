@@ -64,6 +64,10 @@ export interface Organizations {
   oidcProvider(orgId: string): Promise<OidcProvider | undefined>;
   saveOidcProvider(orgId: string, settings: OidcSettings): Promise<OidcProvider>;
   deleteOidcProvider(orgId: string): Promise<void>;
+  /** Throws the provider's pending settings away. */
+  discardOidcPending(orgId: string): Promise<void>;
+  /** Starts a sign-in through the pending settings: the address to send the browser to. */
+  startOidcTrial(orgId: string): Promise<string>;
   /** The organization the reader administers; undefined when they administer none. */
   administered(): Promise<string | undefined>;
   organization(orgId: string): Promise<Organization>;

@@ -135,6 +135,19 @@ export class OrgAdmin {
     }
   }
 
+  async discardOidcPending(): Promise<void> {
+    try {
+      await this.#api.discardOidcPending(this.orgId);
+    } finally {
+      await this.load();
+    }
+  }
+
+  /** The address of the provider for a sign-in through the pending settings. */
+  startOidcTrial(): Promise<string> {
+    return this.#api.startOidcTrial(this.orgId);
+  }
+
   renameWorkspace(workspaceId: string, name: string): Promise<boolean> {
     return this.#change(() => this.#api.renameWorkspace(this.orgId, workspaceId, name));
   }

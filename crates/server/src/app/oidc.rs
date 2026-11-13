@@ -10,22 +10,19 @@
 use std::net::IpAddr;
 use std::time::Instant;
 
-use fvoci_model::{
-    LoginOptions, OidcProvider, OidcProviderSettings, RefusalReason, Refusals, Session, User,
-    display_name, is_email_valid, new_id,
-};
+use fvoci_model::{LoginOptions, Session, User, display_name, is_email_valid, new_id};
 use fvoci_store::{
-    Identity, LoginFlow, OidcAccount, OidcRefusal, Removal, StoreError, StoredProvider, Taken,
+    Applied, FlowPurpose, Identity, LoginFlow, OidcAccount, OidcRefusal, PendingProvider,
+    StoreError, StoredProvider, Taken,
 };
 
 use super::App;
-use super::sso;
+use super::oidc_settings::secret_context;
 use crate::auth::limiter::RetryAfter;
 use crate::auth::now_millis;
 use crate::auth::oidc::provider::{
     self, Client, Discovery, Expected, Grant, IdClaims, ProviderError,
 };
-use crate::auth::sealed::SecretKey;
 use crate::auth::secret::{new_secret, token_digest};
 use crate::error::{AppError, Reason};
 
@@ -63,6 +60,28 @@ impl From<Reason> for LoginFailure {
     fn from(reason: Reason) -> Self {
         Self::Reason(reason)
     }
+}
+
+/// What came of a sign-in that came back from a provider, and where the browser goes
+/// to be told.
+#[derive(Debug)]
+pub struct Returned {
+    /// The organization of the sign-in, where there is one.
+    pub org_id: Option<String>,
+    /// The page that tells a failure.
+    pub back_to: BackTo,
+    /// How it ended.
+    pub result: Result<FinishedLogin, LoginFailure>,
+}
+
+/// The page a sign-in that came back goes on to with a failure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BackTo {
+    /// The login page of the organization.
+    LoginPage,
+    /// The organization's page: a trial of its pending settings was started there by
+    /// an administrator who is signed in.
+    Organization,
 }
 
 /// A sign-in that was started: where the browser goes, and the secret its cookie keeps
@@ -121,6 +140,11 @@ pub enum FinishedLogin {
     /// In an identity tied to the account of the session it was started from: no
     /// session is made, and the one there goes on.
     Linked,
+    /// In a session made through the pending settings, which are the provider's now.
+    Applied {
+        /// The token of the new session.
+        token: String,
+    },
 }
 
 impl std::fmt::Debug for FinishedLogin {
@@ -129,6 +153,7 @@ impl std::fmt::Debug for FinishedLogin {
         f.write_str(match self {
             Self::SignedIn { .. } => "SignedIn",
             Self::Linked => "Linked",
+            Self::Applied { .. } => "Applied",
         })
     }
 }
@@ -144,164 +169,6 @@ impl App {
             "{}{CALLBACK_PATH}/{org_id}",
             self.config().server_root.trim_end_matches('/')
         )
-    }
-
-    /// The provider of the handle's organization, for its administrators.
-    ///
-    /// # Errors
-    ///
-    /// Returns the store's error.
-    pub async fn oidc_provider(&self, session: &Session) -> Result<Option<OidcProvider>, AppError> {
-        Ok(self
-            .store()
-            .oidc_provider()
-            .await?
-            .map(|stored| self.provider_view(&stored, session)))
-    }
-
-    /// Sets the provider of the organization `org_id`, which the handle reaches, after
-    /// reading the discovery document of an issuer that is new to the organization, to
-    /// see that it is what it says.
-    ///
-    /// # Errors
-    ///
-    /// Returns 400 for settings that are refused or an issuer that is not verified,
-    /// 409 (`secret_key_required`) if the server has no key to seal the secret with,
-    /// 409 (`sso_unproven`, `sso_enforced`) for what the organization's taking no
-    /// password does not let `session` do (`sso::check_change`), and the store's
-    /// error.
-    pub async fn put_oidc_provider(
-        &self,
-        org_id: &str,
-        session: &Session,
-        settings: &OidcProviderSettings,
-    ) -> Result<OidcProvider, AppError> {
-        settings.validate()?;
-        let Some(key) = &self.config().secret_key else {
-            return Err(AppError::conflict(
-                "the server has no secret_key to seal the client secret with",
-            )
-            .with_reason(Reason::SecretKeyRequired));
-        };
-        let existing = self.store().oidc_provider().await?;
-        // The issuer that stays was read when it was set. Not read again: a change of
-        // what else there is, taking a password again among it, does not wait for a
-        // provider that does not answer.
-        let issuer_stays = existing
-            .as_ref()
-            .is_some_and(|existing| existing.issuer == settings.issuer);
-        if !issuer_stays
-            && let Err(error) = provider::discover(self.oidc_fetcher(), &settings.issuer).await
-        {
-            tracing::info!(%error, "the issuer of a provider could not be verified");
-            return Err(AppError::bad_request(format_args!(
-                "the issuer could not be verified: {error}"
-            ))
-            .with_reason(Reason::OidcIssuerUnverified)
-            .with_field("issuer"));
-        }
-        let kept = existing
-            .as_ref()
-            .map(|existing| (existing.auto_join, existing.enabled));
-        let sealed_client_secret = sealed_secret(key, org_id, settings, existing.as_ref())?;
-        let next = StoredProvider {
-            id: String::new(),
-            org_id: org_id.to_owned(),
-            issuer: settings.issuer.clone(),
-            client_id: settings.client_id.clone(),
-            sealed_client_secret,
-            // Left out, what is stored stays, as the secret does, also for another
-            // client; on when the organization has none.
-            auto_join: settings
-                .auto_join
-                .or(kept.map(|kept| kept.0))
-                .unwrap_or(true),
-            enabled: settings.enabled.or(kept.map(|kept| kept.1)).unwrap_or(true),
-            create_at: 0,
-            update_at: 0,
-            // Left out, it stays, also for another client, which is then refused: off
-            // when the organization has none.
-            sso_required: settings
-                .sso_required
-                .or(existing.as_ref().map(|existing| existing.sso_required))
-                .unwrap_or(false),
-            revision: 0,
-        };
-        // Decided from the provider as it was read; the store takes the change only if
-        // that is still the provider, so no other change slips between the two.
-        sso::check_change(session, existing.as_ref(), &next)?;
-        let stored = self
-            .store()
-            .put_oidc_provider_as_read(&next, existing.as_ref(), &session.user_id)
-            .await?
-            // Changed by another request since it was read here: what was kept from it
-            // may be kept no more.
-            .ok_or_else(|| {
-                AppError::conflict("the provider was changed meanwhile; read it and try again")
-            })?;
-        tracing::info!(org_id, issuer = %stored.issuer, "the provider of an organization was set");
-        if let Some(existing) = &existing
-            && existing.issuer != stored.issuer
-        {
-            self.close_sessions_of_origin(&existing.issuer);
-        }
-        sso::record_if_changed(existing.as_ref(), &stored, &session.user_id);
-        if stored.sso_required {
-            if !existing
-                .as_ref()
-                .is_some_and(|existing| existing.sso_required)
-            {
-                // Begun now: who it shuts out is out of the rooms of its cards' bodies
-                // before the request answers. A connection in one may follow no workspace.
-                self.collab().put_out_shut_out(self, &stored.id).await;
-            }
-            self.close_connections_shut_out(&stored).await;
-        }
-        Ok(self.provider_view(&stored, session))
-    }
-
-    /// Removes the provider of the handle's organization, and the sign-ins under way
-    /// through it.
-    ///
-    /// # Errors
-    ///
-    /// Returns 409 with the reason `sso_enforced` while the organization takes no
-    /// password, and the store's error.
-    pub async fn delete_oidc_provider(&self, actor_id: &str) -> Result<(), AppError> {
-        match self.store().delete_oidc_provider(actor_id).await? {
-            Removal::Removed { issuer } => {
-                // The store ended the sessions made through it: what they had open, their
-                // seats in the rooms among it, ends with them.
-                self.close_sessions_of_origin(&issuer);
-                tracing::info!("the provider of an organization was removed");
-            }
-            Removal::NoneThere => {}
-            Removal::Enforced => return Err(sso::enforced()),
-        }
-        Ok(())
-    }
-
-    /// Closes the connections of the sessions made through a provider of the handle's
-    /// organization under `issuer`, which the store ended.
-    fn close_sessions_of_origin(&self, issuer: &str) {
-        if let Some(org_id) = self.store().tenant().org_id() {
-            self.ws().close_sessions_of_origin(&org_id, issuer);
-        }
-    }
-
-    fn provider_view(&self, stored: &StoredProvider, session: &Session) -> OidcProvider {
-        OidcProvider {
-            issuer: stored.issuer.clone(),
-            client_id: stored.client_id.clone(),
-            has_client_secret: !stored.sealed_client_secret.is_empty(),
-            auto_join: stored.auto_join,
-            enabled: stored.enabled,
-            sso_required: stored.sso_required,
-            can_require_sso: sso::proves(session, stored),
-            redirect_uri: self.oidc_redirect_uri(&stored.org_id),
-            create_at: stored.create_at,
-            update_at: stored.update_at,
-        }
     }
 
     /// What the login page shows: the organization `org_id`, or without one the only
@@ -339,16 +206,17 @@ impl App {
         org_id: &str,
         address: Option<IpAddr>,
     ) -> Result<StartedLogin, AppError> {
-        self.start_oidc_flow(org_id, address, None).await
+        self.start_oidc_flow(org_id, address, Start::SignIn).await
     }
 
-    /// Starts a sign-in as [`Self::start_oidc_login`] does: to sign in, or, from the
-    /// session `link_session_id`, to link (`App::start_oidc_link`).
+    /// Starts a sign-in as [`Self::start_oidc_login`] does: to sign in, to link
+    /// (`App::start_oidc_link`), or to try the pending settings
+    /// (`App::start_oidc_trial`), through them.
     pub(super) async fn start_oidc_flow(
         &self,
         org_id: &str,
         address: Option<IpAddr>,
-        link_session_id: Option<&str>,
+        start: Start<'_>,
     ) -> Result<StartedLogin, AppError> {
         // Counted against the address as a login is, and let go at once: the requests
         // to the provider below are no password work, and must not keep the address's
@@ -379,6 +247,26 @@ impl App {
             .map_err(|error| AppError::from(error).context("reading the provider"))?
             .filter(|stored| stored.enabled)
             .ok_or_else(unavailable)?;
+        let (stored, purpose) = match start {
+            Start::SignIn => (stored, FlowPurpose::SignIn),
+            Start::Link { session_id } => (
+                stored,
+                FlowPurpose::Link {
+                    session_id: session_id.to_owned(),
+                },
+            ),
+            Start::Trial => {
+                let pending = org
+                    .store()
+                    .oidc_pending_provider()
+                    .await
+                    .map_err(|error| AppError::from(error).context("reading the provider"))?
+                    .ok_or_else(unavailable)?;
+                let pending_at = pending.create_at;
+                let trying = trying(&stored, pending).ok_or_else(unavailable)?;
+                (trying, FlowPurpose::Trial { pending_at })
+            }
+        };
         let discovery = provider::discover(self.oidc_fetcher(), &stored.issuer)
             .await
             .map_err(|error| {
@@ -420,7 +308,7 @@ impl App {
                 provider_id: stored.id.clone(),
                 create_at: now,
                 expires_at: now.saturating_add(LOGIN_FLOW_LIFETIME_MILLIS),
-                link_session_id: link_session_id.map(str::to_owned),
+                purpose,
             })
             .await
             .map_err(|error| AppError::from(error).context("storing a sign-in"))?;
@@ -436,20 +324,29 @@ impl App {
     /// provider. Returns the organization of the sign-in with the result: the login
     /// page of a failure is that organization's. Not counted against the address: only
     /// a sign-in that was started comes back, and the start is counted.
-    pub async fn finish_oidc_login(
-        &self,
-        callback: &Callback,
-        user_agent: &str,
-    ) -> (Option<String>, Result<FinishedLogin, LoginFailure>) {
+    pub async fn finish_oidc_login(&self, callback: &Callback, user_agent: &str) -> Returned {
         let flow = match self.take_flow(callback).await {
             Ok(flow) => flow,
-            Err((org_id, failure)) => return (org_id, Err(failure)),
+            Err((org_id, failure)) => {
+                return Returned {
+                    org_id,
+                    back_to: BackTo::LoginPage,
+                    result: Err(failure),
+                };
+            }
         };
         let result = self.finish_flow(&flow, callback, user_agent).await;
         if let Err(failure) = &result {
             tracing::info!(org_id = %flow.org_id, failure = %failure.name(), "a sign-in through a provider failed");
         }
-        (Some(flow.org_id), result)
+        Returned {
+            back_to: match flow.purpose {
+                FlowPurpose::Trial { .. } => BackTo::Organization,
+                FlowPurpose::SignIn | FlowPurpose::Link { .. } => BackTo::LoginPage,
+            },
+            org_id: Some(flow.org_id),
+            result,
+        }
     }
 
     /// The sign-in a callback is for, taken so that it is not taken again, if this
@@ -528,6 +425,18 @@ impl App {
             .map_err(|error| logged(&error, "reading the provider"))?
             .filter(|stored| stored.enabled && stored.id == flow.provider_id)
             .ok_or(unavailable)?;
+        // A trial goes through the pending settings it was started for, and no other.
+        let stored = match &flow.purpose {
+            FlowPurpose::Trial { pending_at } => org
+                .store()
+                .oidc_pending_provider()
+                .await
+                .map_err(|error| logged(&error, "reading the provider"))?
+                .filter(|pending| pending.create_at == *pending_at)
+                .and_then(|pending| trying(&stored, pending))
+                .ok_or(unavailable)?,
+            FlowPurpose::SignIn | FlowPurpose::Link { .. } => stored,
+        };
         let secret = self.open_client_secret(&stored)?;
         let discovery = provider::discover(self.oidc_fetcher(), &stored.issuer)
             .await
@@ -544,18 +453,24 @@ impl App {
         }
         // A link that comes back without a session ends here, before the provider is
         // asked for anything: which session it is, is asked where the link is stored.
-        if flow.link_session_id.is_some() && callback.session_token.is_none() {
+        if matches!(flow.purpose, FlowPurpose::Link { .. }) && callback.session_token.is_none() {
             tracing::info!(org_id = %flow.org_id, "a sign-in to link came back without a session");
             return Err(Reason::OidcStateInvalid.into());
         }
         let claims = self
             .checked_claims(&discovery, &stored, secret.as_deref(), flow, &callback.code)
             .await?;
-        if let Some(session_id) = &flow.link_session_id {
-            org.link_through(&claims, &stored, session_id, callback)
-                .await?;
-            return Ok(FinishedLogin::Linked);
-        }
+        let ending = match &flow.purpose {
+            FlowPurpose::Link { session_id } => {
+                org.link_through(&claims, &stored, session_id, callback)
+                    .await?;
+                return Ok(FinishedLogin::Linked);
+            }
+            FlowPurpose::SignIn => Ending::SignIn,
+            FlowPurpose::Trial { pending_at } => Ending::Trial {
+                pending_at: *pending_at,
+            },
+        };
         let token = new_secret();
         let now = now_millis();
         let mut session = Session {
@@ -565,9 +480,23 @@ impl App {
             user_agent: user_agent.to_owned(),
             ..Session::default()
         };
-        org.sign_in_through(&claims, &stored, &mut session, &token_digest(&token))
-            .await?;
-        Ok(FinishedLogin::SignedIn { token })
+        // Boxed: making the account and applying the pending settings make a large
+        // future, which every caller of a callback would otherwise carry.
+        let applied = Box::pin(org.sign_in_through(
+            &claims,
+            &stored,
+            ending,
+            &mut session,
+            &token_digest(&token),
+        ))
+        .await?;
+        Ok(match applied {
+            Some(applied) => {
+                org.follow_applied(&applied).await;
+                FinishedLogin::Applied { token }
+            }
+            None => FinishedLogin::SignedIn { token },
+        })
     }
 
     /// Whether `org_id` names an organization in use that is not the system's: none
@@ -651,9 +580,10 @@ impl App {
         &self,
         claims: &IdClaims,
         stored: &StoredProvider,
+        ending: Ending,
         session: &mut Session,
         digest: &str,
-    ) -> Result<(), LoginFailure> {
+    ) -> Result<Option<Applied>, LoginFailure> {
         let identity = Identity {
             issuer: &claims.issuer,
             subject: &claims.subject,
@@ -664,7 +594,9 @@ impl App {
             .await
             .map_err(|error| logged(&error, "looking up an identity"))?;
         if let Some(user) = found {
-            return self.let_in(&user, identity, stored, session, digest).await;
+            return self
+                .let_in(&user, identity, stored, ending, session, digest)
+                .await;
         }
         // The identity of an account that is deleted: not let in, and not made anew.
         if self
@@ -697,7 +629,7 @@ impl App {
             Err(error) if error.is_not_found() => {}
             Err(error) => return Err(logged(&error, "looking up an email address")),
         }
-        self.make_account(claims, identity, email, stored, session, digest)
+        self.make_account(claims, identity, email, stored, ending, session, digest)
             .await
     }
 
@@ -708,37 +640,66 @@ impl App {
         user: &User,
         identity: Identity<'_>,
         stored: &StoredProvider,
+        ending: Ending,
         session: &mut Session,
         digest: &str,
-    ) -> Result<(), LoginFailure> {
+    ) -> Result<Option<Applied>, LoginFailure> {
         let account = OidcAccount::Known {
             user_id: &user.id,
             password_hash: &user.password_hash,
             identity,
         };
-        let joined = self
-            .store()
-            .finish_oidc_sign_in(&stored.id, stored.revision, account, session, digest)
+        let (joined, applied) = self
+            .finish_in_store(stored, ending, account, session, digest)
             .await
             .map_err(|error| logged(&error, "storing a sign-in"))?
             .map_err(|refusal| refused(refusal, stored))?;
         if joined {
             tracing::info!(user_id = %user.id, org_id = %stored.org_id, "an account joined the organization by signing in through its provider");
         }
-        Ok(())
+        Ok(applied)
+    }
+
+    /// Stores the end of a sign-in as `ending` says: a session through the provider as
+    /// it is, or through the pending settings, which become the provider's.
+    async fn finish_in_store(
+        &self,
+        stored: &StoredProvider,
+        ending: Ending,
+        account: OidcAccount<'_>,
+        session: &mut Session,
+        digest: &str,
+    ) -> Result<Result<(bool, Option<Applied>), OidcRefusal>, StoreError> {
+        Ok(match ending {
+            Ending::SignIn => self
+                .store()
+                .finish_oidc_sign_in(&stored.id, stored.revision, account, session, digest)
+                .await?
+                .map(|joined| (joined, None)),
+            Ending::Trial { pending_at } => self
+                .store()
+                .finish_oidc_trial(&stored.id, pending_at, account, session, digest)
+                .await?
+                .map(|applied| (applied.joined, Some(applied))),
+        })
     }
 
     /// Makes the account of a person who signs in for the first time, a member of the
     /// handle's organization and its default workspace, and signs in to it.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the sign-in's parts, each of its own kind, passed down once"
+    )]
     async fn make_account(
         &self,
         claims: &IdClaims,
         identity: Identity<'_>,
         email: &str,
         stored: &StoredProvider,
+        ending: Ending,
         session: &mut Session,
         digest: &str,
-    ) -> Result<(), LoginFailure> {
+    ) -> Result<Option<Applied>, LoginFailure> {
         let base = username_base(claims, email);
         for attempt in 0..3 {
             let username = if attempt == 0 {
@@ -768,14 +729,13 @@ impl App {
                 provider_email: email,
             };
             match self
-                .store()
-                .finish_oidc_sign_in(&stored.id, stored.revision, account, session, digest)
+                .finish_in_store(stored, ending, account, session, digest)
                 .await
             {
-                Ok(Ok(_)) => {
+                Ok(Ok((_, applied))) => {
                     self.metrics().registered();
                     tracing::info!(user_id = %user.id, org_id = %stored.org_id, issuer = %stored.issuer, "an account was made at its first sign-in through a provider, and joined the organization");
-                    return Ok(());
+                    return Ok(applied);
                 }
                 Ok(Err(refusal)) => return Err(refused(refusal, stored)),
                 Err(StoreError::Conflict(Taken::Username)) => {}
@@ -787,7 +747,9 @@ impl App {
                         .await
                         .map_err(|error| logged(&error, "looking up an identity"))?
                         .ok_or(Reason::OidcUnavailable)?;
-                    return self.let_in(&user, identity, stored, session, digest).await;
+                    return self
+                        .let_in(&user, identity, stored, ending, session, digest)
+                        .await;
                 }
                 Err(error) => return Err(logged(&error, "storing a new account")),
             }
@@ -797,71 +759,41 @@ impl App {
     }
 }
 
-/// The client secret to store with the settings, sealed for the organization: the one
-/// given; or, left out or given as it is stored, the stored one while the issuer and
-/// the client stay, so that the provider's revision stays with it.
-///
-/// # Errors
-///
-/// Returns 400 naming `clientSecret` if it is left out for another issuer or client
-/// while one is stored: the stored secret is the old client's.
-fn sealed_secret(
-    key: &SecretKey,
-    org_id: &str,
-    settings: &OidcProviderSettings,
-    existing: Option<&StoredProvider>,
-) -> Result<String, AppError> {
-    Ok(match settings.client_secret.as_deref() {
-        // The secret stays with the client it was given for: one that went on to
-        // another issuer or client would be sent to it.
-        None => match existing {
-            Some(existing)
-                if existing.issuer == settings.issuer
-                    && existing.client_id == settings.client_id =>
-            {
-                existing.sealed_client_secret.clone()
-            }
-            Some(existing) if !existing.sealed_client_secret.is_empty() => {
-                let mut refused = Refusals::new();
-                refused.refuse(
-                    "clientSecret",
-                    RefusalReason::Required,
-                    "clientSecret is required with another issuer or client",
-                );
-                return Err(refused.into());
-            }
-            _ => String::new(),
-        },
-        Some("") => String::new(),
-        Some(secret) => match existing {
-            Some(existing) if is_stored_secret(key, existing, settings, secret) => {
-                existing.sealed_client_secret.clone()
-            }
-            _ => key.seal(
-                secret,
-                &secret_context(org_id, &settings.issuer, &settings.client_id),
-            ),
-        },
-    })
+/// What a sign-in is started for, as [`App::start_oidc_flow`] is asked.
+#[derive(Debug, Clone, Copy)]
+pub(super) enum Start<'a> {
+    /// To sign in through the provider as it is.
+    SignIn,
+    /// To link, from the session.
+    Link {
+        /// The session it is started from.
+        session_id: &'a str,
+    },
+    /// To try the pending settings.
+    Trial,
 }
 
-/// Whether `secret` is the one `existing` keeps for the issuer and client of
-/// `settings`: given again, it is no change.
-fn is_stored_secret(
-    key: &SecretKey,
-    existing: &StoredProvider,
-    settings: &OidcProviderSettings,
-    secret: &str,
-) -> bool {
-    existing.issuer == settings.issuer
-        && existing.client_id == settings.client_id
-        && !existing.sealed_client_secret.is_empty()
-        && key
-            .open(
-                &existing.sealed_client_secret,
-                &secret_context(&existing.org_id, &existing.issuer, &existing.client_id),
-            )
-            .is_ok_and(|stored| stored == secret)
+/// How a sign-in that ends in a session is stored.
+#[derive(Debug, Clone, Copy)]
+enum Ending {
+    /// Through the provider as it is.
+    SignIn,
+    /// Through the pending settings saved at `pending_at`, which become the provider's.
+    Trial {
+        /// When they were saved.
+        pending_at: i64,
+    },
+}
+
+/// The provider as a trial signs in through it: with the pending settings' issuer,
+/// client and secret, if they are of this very provider.
+fn trying(stored: &StoredProvider, pending: PendingProvider) -> Option<StoredProvider> {
+    (pending.provider_id == stored.id).then(|| StoredProvider {
+        issuer: pending.issuer,
+        client_id: pending.client_id,
+        sealed_client_secret: pending.sealed_client_secret,
+        ..stored.clone()
+    })
 }
 
 /// The failure of a sign-in that the store refused at its end, logged.
@@ -877,20 +809,6 @@ fn refused(refusal: OidcRefusal, stored: &StoredProvider) -> LoginFailure {
             Reason::OidcUnavailable.into()
         }
     }
-}
-
-/// What a sealed client secret is bound to: the organization, the issuer and the client
-/// it is for. Moved to another row, or kept for another issuer, it does not open.
-pub fn secret_context(org_id: &str, issuer: &str, client_id: &str) -> Vec<u8> {
-    // Each part is length-prefixed, so no two triples give the same bytes; the length
-    // is eight bytes on every platform.
-    let mut context = b"oidc client secret".to_vec();
-    for part in [org_id, issuer, client_id] {
-        let length = u64::try_from(part.len()).unwrap_or(u64::MAX);
-        context.extend_from_slice(&length.to_be_bytes());
-        context.extend_from_slice(part.as_bytes());
-    }
-    context
 }
 
 /// The PKCE challenge of a verifier: its SHA-256 in unpadded base64url (S256).

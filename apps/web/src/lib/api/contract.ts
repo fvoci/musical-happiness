@@ -24,7 +24,11 @@ export interface paths {
          *     and no account has their email address. The session comes in the `Set-Cookie`
          *     header, and the browser goes to the web app (303). A sign-in that was started to
          *     link sets no session: the browser goes to the web app with `oidc_linked=1` in the
-         *     query.
+         *     query. A trial of the provider's pending settings (`startOidcTrial`) that ends well
+         *     makes them the provider's and sets the session, made through them, and the browser
+         *     goes to the organization's page (`/org/{orgId}`) with `oidc_pending=applied`; one
+         *     that fails changes nothing, and goes there with `oidc_pending_error` naming the
+         *     reason as `oidc_error` does.
          *
          *     Otherwise the browser goes to the login page of the organization (`/login?org=…`),
          *     with the reason of what went wrong in `oidc_error`, by the name of its problem
@@ -406,6 +410,16 @@ export interface paths {
          *     and `enabled` left out stay as they are, also for another issuer or client, and are
          *     on when the organization has no provider.
          *
+         *     While the organization takes no password and the request keeps it so, another
+         *     issuer, client or secret is not taken at once: it is saved aside as the provider's
+         *     `pending` settings (in place of pending ones there are), and people go on signing
+         *     in through the provider as it is. A sign-in through the pending settings
+         *     (`startOidcTrial`) that ends well makes them the provider's; `deleteOidcPending`
+         *     throws them away. The secret of the pending settings is never answered either. What
+         *     else the request changes (`autoJoin`) is taken at once; `enabled` false is refused
+         *     (`sso_enforced`). While the organization takes a password a change is taken at
+         *     once, and a change of what signing in takes throws pending settings away.
+         *
          *     `ssoRequired` true makes the organization take no password: from the next request
          *     on, what is the organization's (the routes under `/w/{workspaceId}` and
          *     `/org/{orgId}`, and `getMyMemberships` and `setUserAdmin` where the organization is
@@ -417,9 +431,9 @@ export interface paths {
          *     (`canRequireSso`), by a request that does not change its issuer, client, secret or
          *     `enabled`, or the request is 409 with the reason `sso_unproven`: who asks has then
          *     shown that it lets them in. A `clientSecret` sent as it is stored is no change.
-         *     While it is on, the provider is not switched off (`enabled` false), not set to
-         *     another issuer or client, and not removed: 409 with the reason `sso_enforced`,
-         *     unless the same request switches `ssoRequired` off. Left out it stays as it is,
+         *     While it is on, the provider is not switched off (`enabled` false) and not removed:
+         *     409 with the reason `sso_enforced`, unless the same request switches `ssoRequired`
+         *     off. Left out it stays as it is,
          *     and is off when the organization has no provider. A provider changed by another request
          *     since this one read it is 409, to be read and sent again. The answer's `redirectUri`
          *     is the address to register with the provider, exactly: the organization's own,
@@ -437,6 +451,56 @@ export interface paths {
          *     with the reason `sso_enforced`.
          */
         delete: operations["deleteOidcProvider"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/org/{orgId}/oidc/pending": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Throw the pending settings of an organization's provider away
+         * @description Throws away the settings saved aside while the organization takes no password
+         *     (`pending` of the provider): the provider stays as it is. An organization without
+         *     any answers the same. Recorded in the organization's audit log.
+         */
+        delete: operations["deleteOidcPending"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/org/{orgId}/oidc/pending/sign-in": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Try the pending settings of an organization's provider
+         * @description Starts a sign-in through the pending settings (`pending` of the provider), as
+         *     `startOidcLogin` starts one through the provider: it answers where the page sends
+         *     the browser, with the cookie of the sign-in. When the browser comes back
+         *     (`finishOidcLogin`) and the sign-in ends well, in a session of whoever the provider
+         *     vouches for, the pending settings become the provider's, at a new revision that the
+         *     new session proves (`canRequireSso`); another issuer ends the sessions of the one
+         *     before. A sign-in that fails changes nothing. 409 with the reason `oidc_unavailable`
+         *     if there are no pending settings, the provider is off, or their issuer cannot be
+         *     reached; 429 when this address made too many sign-ins of late.
+         */
+        post: operations["startOidcTrial"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -2509,7 +2573,7 @@ export interface components {
          * @description What a record of the audit log says was done.
          * @enum {string}
          */
-        AuditAction: "self_added_to_board" | "added_to_board" | "org_admin_joined" | "org_admin_left" | "org_admin_revoked" | "org_admin_granted" | "org_admin_removed" | "workspace_created" | "workspace_renamed" | "workspace_deleted" | "workspace_restored" | "public_links_disabled" | "public_links_enabled" | "oidc_provider_configured" | "oidc_provider_removed" | "sso_required" | "sso_released";
+        AuditAction: "self_added_to_board" | "added_to_board" | "org_admin_joined" | "org_admin_left" | "org_admin_revoked" | "org_admin_granted" | "org_admin_removed" | "workspace_created" | "workspace_renamed" | "workspace_deleted" | "workspace_restored" | "public_links_disabled" | "public_links_enabled" | "oidc_provider_configured" | "oidc_provider_removed" | "sso_required" | "sso_released" | "oidc_provider_pending_saved" | "oidc_provider_pending_applied" | "oidc_provider_pending_discarded" | "password_reset_link_made" | "password_set_by_operator";
         /**
          * @description Whether a record was made by an account holder or through the local administration socket.
          * @enum {string}
@@ -3460,6 +3524,23 @@ export interface components {
             size: number;
         };
         /**
+         * @description The pending settings of an organization's provider, without the client secret:
+         *     `hasClientSecret` says whether there is one.
+         */
+        OidcPendingProvider: {
+            /** @description The client identifier. */
+            clientId: string;
+            /**
+             * Format: int64
+             * @description When they were saved, in milliseconds since the Unix epoch.
+             */
+            createAt: number;
+            /** @description Whether a client secret is saved with them. */
+            hasClientSecret: boolean;
+            /** @description The issuer. */
+            issuer: string;
+        };
+        /**
          * @description The provider of an organization, as its administrators read it. The client secret
          *     is not in it: only whether there is one.
          */
@@ -3489,6 +3570,7 @@ export interface components {
             hasClientSecret: boolean;
             /** @description The issuer: an `https` address, exactly as the provider names itself. */
             issuer: string;
+            pending: components["schemas"]["OidcPendingProvider"] | null;
             /**
              * @description The address the provider sends people back to, to be registered with it exactly:
              *     the organization's own, which does not change with the provider.
@@ -4143,7 +4225,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description To the web app, signed in or (with `oidc_linked=1`) linked, or to the login page. */
+            /** @description To the web app, signed in or (with `oidc_linked=1`) linked, to the login page, or to the organization's page after a trial. */
             303: {
                 headers: {
                     /** @description Where the browser goes. */
@@ -4748,6 +4830,90 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    deleteOidcPending: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the organization. 404 unless the user of the session administers it. */
+                orgId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The provider has no pending settings. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    startOidcTrial: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the organization. 404 unless the user of the session administers it. */
+                orgId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Started: where the browser goes. */
+            200: {
+                headers: {
+                    /** @description The cookie of the sign-in. */
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OidcStart"];
+                };
+            };
+            /** @description No pending settings, or they cannot be reached. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Too many sign-ins from this address. `retryAfter`, and the `Retry-After` header, say how long to wait. */
+            429: {
+                headers: {
+                    /** @description How many seconds to wait before trying again. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
             default: {

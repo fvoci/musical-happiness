@@ -26,7 +26,9 @@ use super::contract::params::{
 };
 use super::contract::tag;
 use super::{ApiResult, decode_json, json_object, json_response, query_param};
-use crate::app::{App, Callback, FinishedLogin, LOGIN_FLOW_LIFETIME_MILLIS, LoginFailure};
+use crate::app::{
+    App, BackTo, Callback, FinishedLogin, LOGIN_FLOW_LIFETIME_MILLIS, LoginFailure, StartedLogin,
+};
 use crate::auth::token::{Credential, Https, cookie_value, query_value};
 use crate::client_address::ClientAddress;
 use crate::error::AppError;
@@ -170,16 +172,22 @@ async fn handle_start(
                 .await?
         }
     };
+    Ok(started_response(&app, started))
+}
+
+/// The answer to a start of a sign-in: where the browser goes, and the cookie that ties
+/// the sign-in to it.
+pub(super) fn started_response(app: &App, started: StartedLogin) -> Response {
     let mut response = json_response(&OidcStart {
         authorization_url: started.authorization_url,
     });
     let cookie = flow_cookie(
-        &app,
+        app,
         &started.browser_secret,
         LOGIN_FLOW_LIFETIME_MILLIS / 1000,
     );
     response.headers_mut().append(SET_COOKIE, cookie);
-    Ok(response)
+    response
 }
 
 /// Come back from a provider
@@ -195,7 +203,11 @@ async fn handle_start(
 /// and no account has their email address. The session comes in the `Set-Cookie`
 /// header, and the browser goes to the web app (303). A sign-in that was started to
 /// link sets no session: the browser goes to the web app with `oidc_linked=1` in the
-/// query.
+/// query. A trial of the provider's pending settings (`startOidcTrial`) that ends well
+/// makes them the provider's and sets the session, made through them, and the browser
+/// goes to the organization's page (`/org/{orgId}`) with `oidc_pending=applied`; one
+/// that fails changes nothing, and goes there with `oidc_pending_error` naming the
+/// reason as `oidc_error` does.
 ///
 /// Otherwise the browser goes to the login page of the organization (`/login?org=…`),
 /// with the reason of what went wrong in `oidc_error`, by the name of its problem
@@ -212,7 +224,7 @@ async fn handle_start(
     security(()),
     responses((
         status = 303,
-        description = "To the web app, signed in or (with `oidc_linked=1`) linked, or to the login page.",
+        description = "To the web app, signed in or (with `oidc_linked=1`) linked, to the login page, or to the organization's page after a trial.",
         headers(
             ("Location" = String, description = "Where the browser goes."),
             ("Set-Cookie" = String, description = "The session cookie, unless the sign-in linked or failed, and the cookie of the sign-in cleared."),
@@ -239,19 +251,33 @@ async fn handle_callback(
             Some(Credential::Bearer(_)) | None => None,
         },
     };
-    let (org_id, result) = app
+    let returned = app
         .finish_oidc_login(&callback, &user_agent(&headers))
         .await;
-    let mut response = match result {
-        Ok(FinishedLogin::SignedIn { token }) => {
-            let mut response = see_other(&app_root(&app));
-            let cookie = app.authenticator().session_cookie().set(&token);
-            response.headers_mut().append(SET_COOKIE, cookie);
-            response
-        }
+    let org_id = returned.org_id.as_deref();
+    let signed_in = |location: &str, token: &str| {
+        let mut response = see_other(location);
+        let cookie = app.authenticator().session_cookie().set(token);
+        response.headers_mut().append(SET_COOKIE, cookie);
+        response
+    };
+    let mut response = match (returned.result, org_id) {
+        (Ok(FinishedLogin::SignedIn { token } | FinishedLogin::Applied { token }), None)
+        | (Ok(FinishedLogin::SignedIn { token }), _) => signed_in(&app_root(&app), &token),
         // The session there goes on; the web app is told that the link is made.
-        Ok(FinishedLogin::Linked) => see_other(&format!("{}?oidc_linked=1", app_root(&app))),
-        Err(failure) => to_login_page(&app, org_id.as_deref(), failure),
+        (Ok(FinishedLogin::Linked), _) => see_other(&format!("{}?oidc_linked=1", app_root(&app))),
+        (Ok(FinishedLogin::Applied { token }), Some(org_id)) => signed_in(
+            &format!("{}?oidc_pending=applied", org_page(&app, org_id)),
+            &token,
+        ),
+        (Err(failure), Some(org_id)) if returned.back_to == BackTo::Organization => {
+            see_other(&format!(
+                "{}?oidc_pending_error={}",
+                org_page(&app, org_id),
+                failure.name()
+            ))
+        }
+        (Err(failure), _) => to_login_page(&app, org_id, failure),
     };
     // The sign-in is over, whatever came of it.
     response
@@ -308,6 +334,15 @@ fn see_other(location: &str) -> Response {
 /// The address of the web app, from the server's own address.
 fn app_root(app: &App) -> String {
     format!("{}/", app.config().server_root.trim_end_matches('/'))
+}
+
+/// The page of the organization `org_id` in the web app, where it is an identifier.
+fn org_page(app: &App, org_id: &str) -> String {
+    if fvoci_model::is_id(org_id) {
+        format!("{}org/{org_id}", app_root(app))
+    } else {
+        app_root(app)
+    }
 }
 
 /// A redirect to the login page of the organization `org_id`, if one is known, with the
