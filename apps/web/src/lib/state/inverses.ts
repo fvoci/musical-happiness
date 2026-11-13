@@ -52,7 +52,13 @@ export class Inverses<P extends object> {
   }
 
   /** Sends a write; a refusal corrects only the inverse values descended from that write. */
-  async write<T>(id: string, patch: P, reverse: P, send: () => Promise<T>): Promise<T> {
+  async write<T>(
+    id: string,
+    patch: P,
+    reverse: P,
+    send: () => Promise<T>,
+    refused?: (restore: P) => void,
+  ): Promise<T> {
     const origins = this.#begin(id, patch, reverse);
     try {
       const answer = await send();
@@ -65,6 +71,13 @@ export class Inverses<P extends object> {
     } catch (error) {
       for (const origin of origins.values()) origin.state = 'refused';
       this.#correct();
+      const restore: Patch = {};
+      for (const [key, origin] of origins) {
+        if (this.#shown.get(id)?.get(key) === origin) {
+          this.#values.put(restore, key, surviving(origin).value);
+        }
+      }
+      refused?.(restore as P);
       throw error;
     } finally {
       this.#release(id);

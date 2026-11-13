@@ -18,7 +18,6 @@ import {
   type BlockPatch,
   type Board,
   type BoardMember,
-  type BoardPatch,
   type BoardView,
   type Card,
   type MemberRole,
@@ -38,6 +37,7 @@ import {
   type ViewDraft,
 } from './backend.ts';
 import { copyOfCard } from './card-copy.ts';
+import { BoardWrites } from './board-writes.ts';
 import { dropCardsOn } from './card-drop.ts';
 import { CardStore } from './card.svelte.ts';
 import { Inverses } from './inverses.ts';
@@ -46,7 +46,6 @@ import { propertyMovesOf } from './property-moves.ts';
 import { addMemberTo, boardOfWorkspace, roleFlags, roleOf, type CardDrop } from './board-parts.ts';
 import { orderMembers, orderViews } from './order.ts';
 import {
-  applyBoardPatch,
   applyCardPatch,
   applyViewPatch,
   boardPatches,
@@ -145,10 +144,9 @@ export class BoardStore {
   readonly #lastComments = lastCommentsOf(this);
   readonly #cardWrites = new PendingWrites<CardSummary>();
   readonly #viewWrites = new PendingWrites<BoardView>();
-  readonly #boardWrites = new PendingWrites<Board>();
+  readonly #boardWrites = new BoardWrites(this);
   readonly #cardInverses = new Inverses<CardPatch>('updatedProperties', 'deletedProperties');
   readonly #viewInverses = new Inverses<BlockPatch>('updatedFields', 'deletedFields');
-  readonly #boardInverses = new Inverses<BoardPatch>('updatedProperties', 'deletedProperties');
   /** Readings again (`#refresh`) begun: the latest is the one that counts. */
   #refreshing = 0;
   /** Lists of members told by changes: a reading begun before the latest does not replace it. */
@@ -682,22 +680,6 @@ export class BoardStore {
 
   // -------------------------------------------------------------- board
 
-  async #sendBoardPatch(patch: BoardPatch, reverse: BoardPatch): Promise<void> {
-    if (!this.board) return;
-    this.board = applyBoardPatch(this.board, patch);
-    this.#boardWrites.begin(this.boardId);
-    let answer: Board | undefined;
-    try {
-      answer = await this.#boardInverses.write(this.boardId, patch, reverse, () =>
-        this.#backend.patchBoard(this.boardId, patch),
-      );
-    } finally {
-      const latest = this.#boardWrites.end(this.boardId, answer);
-      if (latest) this.#takeBoard(latest);
-      else if (!answer) this.board = applyBoardPatch(this.board, reverse);
-    }
-  }
-
   /** As `take` (write.ts) does for cards and views. */
   #takeBoard(board: Board): void {
     if (!this.board || board.updateAt >= this.board.updateAt) this.board = board;
@@ -715,10 +697,10 @@ export class BoardStore {
     if (!this.board) return;
     const [forward, backward] = boardPatches(change(this.board), this.board);
     if (isEmptyBoardPatch(forward)) return;
-    this.#boardInverses.keep(this.boardId, backward);
+    this.#boardWrites.keep(backward);
     await this.#perform(
-      () => this.#sendBoardPatch(forward, backward),
-      () => this.#sendBoardPatch(backward, forward),
+      () => this.#boardWrites.write(forward, backward),
+      () => this.#boardWrites.write(backward, forward),
       description,
       groupId,
     );
