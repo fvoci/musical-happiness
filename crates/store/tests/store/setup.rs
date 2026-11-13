@@ -833,6 +833,18 @@ async fn the_file_reference_migration_finds_what_the_blocks_show() {
     let migrated_at = crate::blocks::now_millis();
 
     let store = test.reconnect().await;
+    // Only migration 3 was replayed above. Give its recreated table the column
+    // migration 14 supplies before exercising today's organization-aware collector.
+    if common::db_type() == DbType::Postgres {
+        common::execute_raw(
+            &test.dbconfig(),
+            &format!(
+                "ALTER TABLE file_refs ADD COLUMN org_id UUID NOT NULL DEFAULT '{}'",
+                test.org_id
+            ),
+        )
+        .await;
+    }
     let collected = |before: i64| {
         let store = &store;
         async move {

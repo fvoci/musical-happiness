@@ -211,3 +211,62 @@ async fn the_collector_skips_a_record_that_a_write_holds() {
 
     test.teardown().await;
 }
+
+/// The purge never waits on one writer while holding rows another writer needs.
+#[tokio::test]
+async fn the_purge_skips_a_file_whose_mark_a_writer_holds() {
+    if common::db_type() != DbType::Postgres {
+        return;
+    }
+    let test = common::setup().await;
+    let user = common::user(&test, "mark.writer").await;
+    let workspace = common::workspace(&test).await;
+    let boards = common::create_test_boards(&test, &workspace, &user, 1).await;
+    let file = record_of(&boards[0].id, "7held.png");
+    test.save_file_info(&file)
+        .await
+        .expect("the file is stored");
+    test.execute_unchecked(&format!(
+        "UPDATE file_info SET unreferenced_at = NULL WHERE id = '{}'",
+        file.id,
+    ))
+    .await
+    .expect("the committed row needs a mark");
+    let mut writer = common::connect_past_the_store(&test.dbconfig()).await;
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+        "BEGIN; SELECT id FROM file_info WHERE id = '{}' FOR NO KEY UPDATE",
+        file.id,
+    )))
+    .execute(&mut writer)
+    .await
+    .expect("the writer holds the mark");
+    let system = test.system();
+    tokio::time::timeout(Duration::from_secs(10), system.purge_trash(i64::MAX))
+        .await
+        .expect("the purge skips the held row")
+        .expect("purged");
+    sqlx::raw_sql("COMMIT")
+        .execute(&mut writer)
+        .await
+        .expect("the writer commits");
+    assert!(
+        system
+            .collect_unreferenced_files(i64::MAX)
+            .await
+            .expect("collected")
+            .is_empty(),
+        "the purge left the held mark alone"
+    );
+    system
+        .purge_trash(i64::MAX)
+        .await
+        .expect("the next purge sees the row");
+    assert_eq!(
+        system
+            .collect_unreferenced_files(i64::MAX)
+            .await
+            .expect("collected"),
+        [file]
+    );
+    test.teardown().await;
+}

@@ -177,3 +177,67 @@ async fn a_body_checked_before_collection_cannot_commit_a_missing_image() {
         assert_eq!(refused.body(), checked_now.body(), "{refused:?}");
     }
 }
+
+/// A mark left by a purge's old snapshot is not permission to delete a file a
+/// committed body shows. Exercise the real server's locked deletion of objects too.
+#[tokio::test]
+async fn a_purge_mark_cannot_doom_the_bytes_of_a_newly_shown_image() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let file = recorded(&ts).await;
+    let body: Body = serde_json::from_value(serde_json::json!({
+        "type": "doc", "content": [{
+            "type": "image", "attrs": {"fileId": file.stored_name}
+        }]
+    }))
+    .expect("a valid image body");
+    ts.app
+        .create_card(
+            Card {
+                body: Some(body),
+                ..Card::default()
+            },
+            &file.board_id,
+            &ts.client.me().await.id,
+            ChangeNotification::default(),
+        )
+        .await
+        .expect("a committed card shows the image");
+    // The deterministic store race test reaches this state through purge_trash.
+    ts.app
+        .store()
+        .execute_unchecked(&format!(
+            "UPDATE file_info SET unreferenced_at = 1 WHERE id = '{}'",
+            file.id,
+        ))
+        .await
+        .expect("the old snapshot's mark");
+    assert!(
+        ts.app.holds_server_lock(),
+        "the real housekeeping worker owns the lock"
+    );
+    let collected = ts
+        .app
+        .housekeeping()
+        .store()
+        .collect_unreferenced_files(i64::MAX)
+        .await
+        .expect("collected");
+    ts.app
+        .housekeeping()
+        .remove_doomed_objects(now_millis())
+        .await
+        .expect("objects removed");
+    let recorded = ts
+        .app
+        .store()
+        .get_file_info(&file.board_id, &file.stored_name)
+        .await;
+    let present = ts.app.files().exists(&file.path).await.expect("read");
+    ts.teardown().await;
+    assert!(
+        collected.is_empty(),
+        "the live reference wins over a stale mark"
+    );
+    assert!(recorded.is_ok(), "the live file record remains");
+    assert!(present, "the committed body's image bytes remain");
+}

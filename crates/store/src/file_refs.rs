@@ -18,10 +18,13 @@ use fvoci_model::{Block, BlockError, FileInfo};
 
 use crate::Store;
 use crate::comment_versions;
-use crate::db::{Dialect, Id, Scope, now_millis};
+use crate::db::{Dialect, Id, Scope, Sql, now_millis};
 use crate::error::StoreError;
 use crate::file_info::{FILE_INFO_COLUMN_COUNT, FILE_INFO_COLUMNS, file_info_from_row};
 use crate::loose_objects;
+
+/// Bounded parameters even when a purge visits every stored file.
+const MARK_BATCH: usize = 300;
 
 impl Store {
     /// Removes the records of the files that no block has shown since before `before`
@@ -40,7 +43,9 @@ impl Store {
             // holds (`hold_new_images`) or changes is skipped, not waited for: left to
             // the next run, and no two transactions wait for each other's records. A
             // record whose mark a write took away since the statement began is looked
-            // at again as committed, and kept.
+            // at again as committed, and kept. A purge can have marked a record from
+            // an older snapshot while a new reference committed: ask the references
+            // again here, in the transaction that would doom the object.
             let org = loose_objects::org_column(scope);
             let skip_held = match scope.dialect() {
                 Dialect::Postgres => " FOR UPDATE SKIP LOCKED",
@@ -50,10 +55,17 @@ impl Store {
                 "DELETE FROM file_info WHERE id IN (SELECT id FROM file_info \
                  WHERE unreferenced_at IS NOT NULL AND unreferenced_at < ",
             );
-            sql.bind(before).push(&format!(
-                "{skip_held}) RETURNING {FILE_INFO_COLUMNS}{}",
-                org.map_or(String::new(), |column| format!(", {column}"))
-            ));
+            sql.bind(before)
+                .push(
+                    " AND NOT EXISTS (SELECT 1 FROM file_refs r \
+                       WHERE r.board_id = file_info.board_id AND r.name = file_info.name",
+                )
+                .push(&scope.same_organization(&[("r", "file_info")]))
+                .push(")")
+                .push(&format!(
+                    "{skip_held}) RETURNING {FILE_INFO_COLUMNS}{}",
+                    org.map_or(String::new(), |column| format!(", {column}"))
+                ));
             let rows = scope.fetch_all(sql).await?;
             let mut files = Vec::with_capacity(rows.len());
             let mut doomed = Vec::with_capacity(rows.len());
@@ -258,32 +270,77 @@ pub(crate) async fn forget_gone_blocks(scope: &mut Scope<'_>) -> Result<(), Stor
 /// Marks file records: one that a block of its organization shows has no mark, and one
 /// that no such block shows gets the time of now if it had none. Only the records whose
 /// state flips are written. `only` narrows it to some stored names of one board; `None`
-/// looks at every record.
+/// looks at every record. PostgreSQL holds the affected rows before asking references
+/// in a fresh statement, including rows whose mark a writer need not change. Otherwise
+/// a purge's older snapshot could mark a file while a writer leaves its null mark alone.
 pub(crate) async fn mark(
     scope: &mut Scope<'_>,
     only: Option<(&str, &[String])>,
 ) -> Result<(), StoreError> {
-    let shown = [
-        " ELSE NULL END WHERE (unreferenced_at IS NULL) = (NOT EXISTS (\
+    let changing = [
+        "(unreferenced_at IS NULL) = (NOT EXISTS (\
          SELECT 1 FROM file_refs r WHERE r.board_id = file_info.board_id \
          AND r.name = file_info.name",
         &scope.same_organization(&[("r", "file_info")]),
         "))",
     ]
     .concat();
+    if scope.dialect() == Dialect::Postgres {
+        let ids = hold_marks(scope, only, &changing).await?;
+        for batch in ids.chunks(MARK_BATCH) {
+            let mut sql = mark_statement(scope, &changing);
+            sql.push(" AND id IN (")
+                .bind_list(batch.iter().map(|id| Id(id)))
+                .push(")");
+            scope.execute(sql).await?;
+        }
+    } else {
+        // SQLite's transaction is already the only writer.
+        let mut sql = mark_statement(scope, &changing);
+        narrow_marks(&mut sql, only);
+        scope.execute(sql).await?;
+    }
+    Ok(())
+}
+
+fn mark_statement(scope: &Scope<'_>, changing: &str) -> Sql {
     let mut sql =
         scope.sql("UPDATE file_info SET unreferenced_at = CASE WHEN unreferenced_at IS NULL THEN ");
-    sql.bind(now_millis()).push(&shown);
+    sql.bind(now_millis())
+        .push(" ELSE NULL END WHERE ")
+        .push(changing);
+    sql
+}
+
+fn narrow_marks(sql: &mut Sql, only: Option<(&str, &[String])>) {
     if let Some((board_id, names)) = only {
-        sql.push_bind(" AND board_id = ", Id(board_id));
-        for (index, name) in names.iter().enumerate() {
-            sql.push_bind(
-                if index == 0 { " AND name IN (" } else { ", " },
-                name.as_str(),
-            );
-        }
-        sql.push(")");
+        sql.push_bind(" AND board_id = ", Id(board_id))
+            .push(" AND name IN (")
+            .bind_list(names.iter().map(String::as_str))
+            .push(")");
     }
-    scope.execute(sql).await?;
-    Ok(())
+}
+
+/// NO KEY UPDATE is compatible with an image writer's earlier KEY SHARE: two
+/// writers can wait their turn here without an upgrade deadlock. The purge skips
+/// held rows so it never waits for a writer holding another row it already locked.
+async fn hold_marks(
+    scope: &mut Scope<'_>,
+    only: Option<(&str, &[String])>,
+    changing: &str,
+) -> Result<Vec<String>, StoreError> {
+    let mut sql = scope.sql("SELECT id FROM file_info WHERE ");
+    // Writers hold every affected row, even if their current snapshot needs no flip.
+    sql.push(if only.is_some() { "TRUE" } else { changing });
+    narrow_marks(&mut sql, only);
+    sql.push(" ORDER BY id FOR NO KEY UPDATE");
+    if only.is_none() {
+        sql.push(" SKIP LOCKED");
+    }
+    scope
+        .fetch_all(sql)
+        .await?
+        .iter()
+        .map(|row| row.id(0))
+        .collect()
 }

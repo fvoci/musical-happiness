@@ -30,6 +30,7 @@ mod sharing;
 mod subscriptions;
 mod tenancy;
 mod trash;
+mod trash_file_race;
 mod users;
 mod users_at_once;
 mod workspace_membership;
