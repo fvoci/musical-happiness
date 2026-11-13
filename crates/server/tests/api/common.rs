@@ -375,6 +375,19 @@ impl TestServer {
             .clone()
     }
 
+    /// The stranger ([`Self::stranger`]) as a member of the workspace `workspace_id`:
+    /// somebody to make boards on behalf of who may be their admin, as only who works
+    /// in a board's workspace is.
+    pub(crate) async fn stranger_in(&self, workspace_id: &str) -> String {
+        let user_id = self.stranger().await;
+        self.app
+            .store()
+            .add_workspace_member(workspace_id, &user_id, fvoci_model::WorkspaceRole::Member)
+            .await
+            .expect("the stranger works in the workspace");
+        user_id
+    }
+
     /// The store as the system organization reaches it: where the built-in templates
     /// are, which no other organization changes.
     pub(crate) fn system_store(&self) -> Store {

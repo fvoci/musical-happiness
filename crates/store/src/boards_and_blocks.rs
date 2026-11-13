@@ -16,6 +16,7 @@ use crate::error::StoreError;
 use crate::file_info;
 use crate::file_refs::NewImages;
 use crate::loose_objects;
+use crate::members;
 use crate::org_admin;
 use crate::trash;
 
@@ -97,8 +98,9 @@ impl Store {
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::InvalidBlock`] for the first block that fails validation;
-    /// nothing is written in that case.
+    /// Returns [`StoreError::InvalidBlock`] for the first block that fails validation,
+    /// and [`StoreError::NotFound`] for the workspace if the creator of a board does not
+    /// work in its workspace; nothing is written in either case.
     pub async fn create_boards_and_blocks_with_admin(
         &self,
         boards_and_blocks: &mut BoardsAndBlocks,
@@ -162,8 +164,9 @@ impl Store {
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::NotFound`] if there is no such board, and
-    /// the store's error if the copy cannot be written.
+    /// Returns [`StoreError::NotFound`] if there is no such board, or if `user_id` does
+    /// not work in the copy's workspace, and the store's error if the copy cannot be
+    /// written.
     pub async fn duplicate_board(
         &self,
         board_id: &str,
@@ -204,6 +207,7 @@ pub(crate) async fn create_boards_and_blocks_with_admin(
     for board in &boards_and_blocks.boards {
         // As in `insert_board_with_admin`, the administrator is the board's creator:
         // `user_id` for a new board, the stored creator for one that existed.
+        members::hold_creator(scope, &board.workspace_id, &board.created_by).await?;
         let member = BoardMember {
             board_id: board.id.clone(),
             user_id: board.created_by.clone(),

@@ -164,7 +164,7 @@ async fn duplicate_board_create_and_duplicate_public_board_from_a_custom_categor
 #[tokio::test]
 async fn duplicate_board_base_case_and_as_template() {
     let th = Setup::native().start().await;
-    let user = th.stranger().await;
+    let user = th.stranger_in(TEST_WORKSPACE_ID).await;
     let board = board_with_admin(
         &th,
         new_board(TEST_WORKSPACE_ID, BoardType::Open, "Source"),

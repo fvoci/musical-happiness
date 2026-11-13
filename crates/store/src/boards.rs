@@ -111,7 +111,7 @@ impl Store {
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::Database`] if a statement fails.
+    /// Returns [`StoreError::NotFound`] if its creator does not work in its workspace.
     pub async fn insert_board_with_admin(
         &self,
         board: &mut Board,
@@ -688,8 +688,8 @@ pub(crate) async fn insert_board_with_admin(
     user_id: &str,
 ) -> Result<BoardMember, StoreError> {
     insert_board(scope, board, user_id).await?;
-    // The administrator is the board's creator: `user_id` for a new board, the stored
-    // creator for one that existed.
+    // Its admin is its creator (`user_id`, or the stored one of a board that existed).
+    members::hold_creator(scope, &board.workspace_id, &board.created_by).await?;
     let member = BoardMember {
         board_id: board.id.clone(),
         user_id: board.created_by.clone(),

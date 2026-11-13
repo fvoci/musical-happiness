@@ -204,6 +204,34 @@ pub(crate) async fn works_in(
     Ok(scope.fetch_optional(sql).await?.is_some())
 }
 
+/// Holds the membership of a board's creator in its workspace before they are made its
+/// admin, from here to the end of the transaction, and refuses one who does not work
+/// there. The server let them make the board before its transaction: who takes them out
+/// of the workspace, or makes them a guest of it, at the same time waits for the board
+/// and hands it over, or is waited for, and the board is not stored. Asked after the
+/// boards are written, as who changes a membership holds the boards before it.
+///
+/// # Errors
+///
+/// Returns [`StoreError::NotFound`] for the workspace if the creator is no member of
+/// it, or a guest of it.
+pub(crate) async fn hold_creator(
+    scope: &mut Scope<'_>,
+    workspace_id: &str,
+    user_id: &str,
+) -> Result<(), StoreError> {
+    let mut sql = scope.sql("SELECT role FROM workspace_members WHERE workspace_id = ");
+    sql.bind(Id(workspace_id))
+        .push_bind(" AND user_id = ", Id(user_id));
+    if scope.dialect() == Dialect::Postgres {
+        sql.push(" FOR SHARE");
+    }
+    match scope.fetch_optional(sql).await? {
+        Some(row) if row.text(0)? != WorkspaceRole::Guest.as_str() => Ok(()),
+        _ => Err(StoreError::not_found("workspace")),
+    }
+}
+
 /// Whether a member of the board, other than `except` if one is named, is an admin of
 /// it who can act as one.
 async fn has_acting_admin(

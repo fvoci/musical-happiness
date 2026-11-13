@@ -401,3 +401,45 @@ async fn an_upload_and_the_sharing_list_everything_they_refuse() {
     );
     th.teardown().await;
 }
+
+/// The first user's name for the organization is its first workspace's too: where the
+/// organization was given another workspace of that name before anybody signed up, it
+/// is refused as taken, at the name, and nobody is made.
+#[tokio::test]
+async fn the_first_user_is_told_the_organizations_name_is_another_workspaces() {
+    let th = Setup::native().start().await;
+    th.app
+        .store()
+        .system()
+        .execute_unchecked(&format!(
+            "INSERT INTO workspaces (id, settings, create_at, update_at, org_id, name) \
+             SELECT '{}', '{{}}', 1, 1, org_id, 'Design' FROM workspaces WHERE id = '{}'",
+            fvoci_model::new_id(),
+            crate::common::ROOT_WORKSPACE_ID
+        ))
+        .await
+        .expect("another workspace of the organization");
+    let register = async |name: &str| {
+        th.anonymous()
+            .post(
+                "/register",
+                &json!({
+                    "username": "first", "email": "first@sample.com",
+                    "password": crate::common::PASSWORD, "organizationName": name,
+                }),
+            )
+            .await
+    };
+
+    let taken = register("Design").await;
+    taken.check_status(StatusCode::CONFLICT);
+    assert_eq!(taken.error_reason(), "workspace_name_taken");
+    assert_eq!(taken.refused_at(), "/organizationName");
+    assert_eq!(
+        th.app.registered_user_count().await.expect("user count"),
+        0,
+        "nobody is made"
+    );
+    register("Design studio").await.check_created();
+    th.teardown().await;
+}
