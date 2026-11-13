@@ -22,7 +22,7 @@ pub(super) async fn admit_tracked(
     workspace_id: &str,
     card_id: &str,
     watching: &mut super::participation::Admission,
-) -> Result<Admitted, AppError> {
+) -> Result<(Admitted, fvoci_store::VisibilityVersion), AppError> {
     loop {
         let revision = home.store().visibility_version().await;
         if !revision.cacheable() {
@@ -34,7 +34,7 @@ pub(super) async fn admit_tracked(
         if home.store().if_visibility_current(revision, || {
             watching.set_role(admitted.workspace_role);
         }) {
-            return Ok(admitted);
+            return Ok((admitted, revision));
         }
     }
 }

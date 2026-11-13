@@ -18,6 +18,8 @@
 //! (`Seat`): a connection that ends while its update is taken leaves the update
 //! logged and sent to the others, never logged and not sent.
 
+mod visibility;
+
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -194,6 +196,8 @@ pub(super) struct Room {
 /// What the one that works on a room holds.
 #[derive(Debug, Default)]
 struct Turn {
+    /// All member grants were read under this committed store revision.
+    visibility: Option<fvoci_store::VisibilityVersion>,
     /// Which making of the document the members hold.
     epoch: i64,
     members: Vec<Member>,
@@ -479,17 +483,7 @@ impl Collab {
     async fn recheck(&self, room: &Arc<Room>) {
         let asked: Vec<Asked> = {
             let turn = room.turn.lock().await;
-            turn.members
-                .iter()
-                .map(|member| Asked {
-                    connection: member.connection.id,
-                    doc: member.doc,
-                    who: Who {
-                        user_id: member.connection.user_id.clone(),
-                        workspace_id: member.workspace_id.clone(),
-                    },
-                })
-                .collect()
+            turn.asked()
         };
         // Each user once, however many connections they have in the room.
         let mut users: Vec<Who> = asked.iter().map(|asked| asked.who.clone()).collect();
@@ -508,29 +502,9 @@ impl Collab {
         if turn.closed || self.rooms_ended() {
             return;
         }
-        for Asked {
-            connection,
-            doc,
-            who,
-        } in asked
-        {
-            let is_asked =
-                |member: &Member| member.connection.id == connection && member.doc == doc;
-            let Some(index) = turn.members.iter().position(is_asked) else {
-                continue;
-            };
-            match answers.get(&who) {
-                Some(Ok(Some(mode))) if *mode == turn.members[index].mode => {}
-                Some(Ok(Some(mode))) => {
-                    let mode = *mode;
-                    turn.members[index].mode = mode;
-                    turn.send(is_asked, |_| [Queued::text(doc, messages::mode(doc, mode))]);
-                }
-                Some(Ok(None)) => turn.put_out(index, &reason_of(&AppError::not_found("card"))),
-                Some(Err(reason)) => turn.put_out(index, reason),
-                None => turn.put_out(index, &reason_of(&refusals::unavailable())),
-            }
-        }
+        turn.apply_answers(asked, &answers);
+        // A periodic snapshot was read outside the turn and can predate a write.
+        turn.visibility = None;
         self.shut_if_empty(room, &mut turn).await;
     }
 
@@ -541,6 +515,11 @@ impl Collab {
     async fn answers(&self, room: &Room, users: Vec<Who>) -> HashMap<Who, Answer> {
         use futures_util::StreamExt as _;
 
+        #[cfg(feature = "test-util")]
+        self.inner.room_permission_checks.fetch_add(
+            u64::try_from(users.len()).expect("room membership count fits u64"),
+            Ordering::Relaxed,
+        );
         let (app, card_id) = (room.app.clone(), room.card_id.clone());
         let asking = futures_util::stream::iter(users)
             .map(move |who| {
@@ -612,7 +591,7 @@ impl Collab {
         self.paused_admission(super::AdmissionStage::BeforeCheck)
             .await;
         let user_id = &connection.user_id;
-        let admitted =
+        let (admitted, _) =
             admission::admit_tracked(home, user_id, workspace_id, card_id, &mut watching).await?;
         #[cfg(feature = "test-util")]
         self.paused_admission(super::AdmissionStage::AfterCheck)
@@ -653,39 +632,33 @@ impl Collab {
                     return Err(error);
                 }
             };
-            let epoch = loaded.epoch;
-            let whole = frame::message(Sync::Missing, &loaded.state);
-            let joined = messages::joined(workspace_id, card_id, doc, epoch, admitted.mode);
-            let queued = connection
-                .queue
-                .push([Queued::text(doc, joined), Queued::sync(doc, epoch, &whole)]);
-            // Counted among the connection's rooms before it is a member: a connection
-            // that ended meanwhile is no member of a room nobody would take it out of.
-            if queued.is_err() || !connection.join(doc, &room) {
-                connection.queue.forget(doc);
+            let registered = async {
+                loop {
+                    let (current, revision) = admission::admit_tracked(
+                        home,
+                        user_id,
+                        workspace_id,
+                        card_id,
+                        &mut watching,
+                    )
+                    .await?;
+                    if self.refresh_visibility(&room, &mut turn).await != Some(revision) {
+                        continue;
+                    }
+                    let mut result = Err(refusals::unavailable());
+                    if home.store().if_visibility_current(revision, || {
+                        result =
+                            turn.register(connection, doc, workspace_id, &current, &loaded, &room);
+                    }) {
+                        break result;
+                    }
+                }
+            }
+            .await;
+            if registered.is_err() {
                 self.shut_if_empty(&room, &mut turn).await;
-                return Err(refusals::too_slow());
             }
-            if let Some(index) = turn
-                .members
-                .iter()
-                .position(|member| member.connection.id == connection.id)
-            {
-                let before = turn.members.swap_remove(index);
-                connection.forget(before.doc);
-                connection.queue.forget_frames(before.doc);
-            }
-            if !turn.members.is_empty() && turn.epoch != epoch {
-                // Made again since the members were sent it, and not yet told.
-                turn.send_anew(&loaded);
-            }
-            turn.epoch = epoch;
-            turn.members.push(Member {
-                connection: Arc::clone(connection),
-                doc,
-                workspace_id: workspace_id.to_owned(),
-                mode: admitted.mode,
-            });
+            registered?;
             watching.finish();
             return Ok(());
         }
@@ -748,7 +721,9 @@ impl Collab {
         update: Bytes,
     ) {
         let mut turn = room.turn.lock().await;
+        self.refresh_visibility(room, &mut turn).await;
         let Some(index) = turn.index_of(connection, doc) else {
+            self.shut_if_empty(room, &mut turn).await;
             return;
         };
         let sender = connection.id;
@@ -791,17 +766,20 @@ impl Collab {
                     self.anew(room, &mut turn, None).await;
                 } else {
                     let update = frame::message(Sync::Update, &update);
-                    turn.send(
-                        |member| !to_sender(member),
-                        |member| [Queued::sync(member.doc, epoch, &update)],
-                    );
-                    if let Some(repair) = &taken.repair {
-                        let repair = frame::message(Sync::Update, repair);
+                    self.send_visible(room, &mut turn, |turn| {
                         turn.send(
-                            |_| true,
-                            |member| [Queued::sync(member.doc, epoch, &repair)],
+                            |member| !to_sender(member),
+                            |member| [Queued::sync(member.doc, epoch, &update)],
                         );
-                    }
+                        if let Some(repair) = &taken.repair {
+                            let repair = frame::message(Sync::Update, repair);
+                            turn.send(
+                                |_| true,
+                                |member| [Queued::sync(member.doc, epoch, &repair)],
+                            );
+                        }
+                    })
+                    .await;
                 }
             }
         }
@@ -829,10 +807,13 @@ impl Collab {
         {
             Ok(missing) => {
                 let missing = frame::message(Sync::Missing, &missing);
-                turn.send(
-                    |member| member.connection.id == connection.id,
-                    |_| [Queued::sync(doc, epoch, &missing)],
-                );
+                self.send_visible(room, &mut turn, |turn| {
+                    turn.send(
+                        |member| member.connection.id == connection.id,
+                        |_| [Queued::sync(doc, epoch, &missing)],
+                    );
+                })
+                .await;
             }
             Err(error) => error.log(),
         }
@@ -866,7 +847,8 @@ impl Collab {
             // Sent already, by the join or the update that found it made again.
             return true;
         }
-        turn.send_anew(&loaded);
+        self.send_visible(room, turn, |turn| turn.send_anew(&loaded))
+            .await;
         true
     }
 

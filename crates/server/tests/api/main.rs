@@ -26,6 +26,7 @@ mod compression;
 mod content_blocks;
 mod cookies;
 mod deleted_cards;
+mod document_visibility;
 mod export;
 mod fake_oidc;
 mod files;

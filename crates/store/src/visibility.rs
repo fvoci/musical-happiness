@@ -110,10 +110,15 @@ pub(crate) struct Writing<'a> {
 
 impl Writing<'_> {
     pub(crate) fn statement(&self, text: &str) {
-        if self.touched.load(Ordering::Relaxed) || !affects_visibility(text) {
+        if !self.touched.load(Ordering::Relaxed) && affects_visibility(text) {
+            self.invalidate();
+        }
+    }
+
+    pub(crate) fn invalidate(&self) {
+        if self.touched.swap(true, Ordering::Relaxed) {
             return;
         }
-        self.touched.store(true, Ordering::Relaxed);
         let mut state = self
             .visibility
             .state
@@ -148,9 +153,10 @@ impl Drop for Writing<'_> {
 
 /// Every statement is built by the store. Treat any write mentioning these tables
 /// conservatively, including writes with subqueries and the test-only raw SQL path.
-/// Card/body writes do not mention them and do not invalidate authorization caches.
+/// Ordinary card/body writes stay cacheable; type changes invalidate explicitly,
+/// and deleting or restoring cards changes their visibility through the trash.
 fn affects_visibility(text: &str) -> bool {
-    const TABLES: [&str; 9] = [
+    const TABLES: [&str; 10] = [
         "workspace_members",
         "organization_members",
         "board_members",
@@ -160,9 +166,18 @@ fn affects_visibility(text: &str) -> bool {
         "boards",
         "users",
         "deleted_boards",
+        "deleted_blocks",
     ];
-    text.split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
-        .any(|word| TABLES.iter().any(|table| word.eq_ignore_ascii_case(table)))
+    let mut deletes = false;
+    let mut blocks = false;
+    for word in text.split(|c: char| !c.is_ascii_alphanumeric() && c != '_') {
+        if TABLES.iter().any(|table| word.eq_ignore_ascii_case(table)) {
+            return true;
+        }
+        deletes |= word.eq_ignore_ascii_case("delete");
+        blocks |= word.eq_ignore_ascii_case("blocks");
+    }
+    deletes && blocks
 }
 
 #[cfg(test)]

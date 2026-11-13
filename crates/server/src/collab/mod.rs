@@ -117,6 +117,10 @@ struct Inner {
     projection_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
     #[cfg(feature = "test-util")]
     admission_pause: Mutex<Option<participation::AdmissionPause>>,
+    #[cfg(feature = "test-util")]
+    room_dispatch_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
+    #[cfg(feature = "test-util")]
+    room_permission_checks: AtomicU64,
     /// What the next update waits for, between the worker taking it and the log
     /// having it: for the tests of what is sent on meanwhile.
     #[cfg(feature = "test-util")]
@@ -223,6 +227,10 @@ impl Collab {
                 projection_pause: Mutex::new(None),
                 #[cfg(feature = "test-util")]
                 admission_pause: Mutex::new(None),
+                #[cfg(feature = "test-util")]
+                room_dispatch_pause: Mutex::new(None),
+                #[cfg(feature = "test-util")]
+                room_permission_checks: AtomicU64::new(0),
                 #[cfg(feature = "test-util")]
                 log_pause: Mutex::new(None),
             }),

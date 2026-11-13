@@ -343,6 +343,13 @@ impl<'c> Scope<'c> {
         }
     }
 
+    /// A structural change affects visibility even though its SQL also writes ordinary fields.
+    pub(crate) fn invalidate_visibility(&self) {
+        if let Some(visibility) = self.visibility {
+            visibility.invalidate();
+        }
+    }
+
     /// Whether the operation ran a statement that may have changed something. One that
     /// only read has nothing to commit.
     pub(crate) fn wrote(&self) -> bool {
