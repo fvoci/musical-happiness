@@ -711,6 +711,7 @@ test('the reader stays in the body when the room sends it anew, with the caret w
   await page.keyboard.type('Mine ');
   // In the card already: what follows loses nothing.
   await expect.poll(async () => textOf((await stored(page, place)).body)).toContain('Mine ');
+  await otherJoins(page, place);
   await writtenWholeElsewhere(page, place, paragraph('Theirs, written whole'));
   await expect(await bodyEditor(page)).toHaveText('Theirs, written whole');
   await expect(page.getByTestId('body-lost')).toHaveCount(0);
@@ -725,15 +726,22 @@ test('the reader stays in the body when the room sends it anew, with the caret w
 });
 
 /**
- * Somebody else, made a member of the board first (a card is read by its
- * board's members only), writes the card's body whole as another client of
- * the API does.
+ * Somebody else becomes a member of the card's board: a card is read by its
+ * board's members only. Done before anything is slowed down, so that their
+ * write then takes no longer than the write itself.
  */
+async function otherJoins(page: Page, place: Place): Promise<void> {
+  await page.evaluate(async ({ boardId }) => {
+    const other = await window.fvociDev.someoneElse().me();
+    await window.fvociDev.backend.addMember(boardId, other.id, 'editor');
+  }, place);
+}
+
+/** Somebody else, a member (`otherJoins`), writes the card's body whole as another client of the API does. */
 async function writtenWholeElsewhere(page: Page, place: Place, body: object): Promise<void> {
   await page.evaluate(
     async ({ place: at, body: written }) => {
       const other = window.fvociDev.someoneElse();
-      await window.fvociDev.backend.addMember(at.boardId, (await other.me()).id, 'editor');
       const card = await other.card(at.boardId, at.cardId);
       await other.writeCardBody(at.boardId, at.cardId, { body: written, readAt: card.updateAt });
     },
@@ -742,6 +750,7 @@ async function writtenWholeElsewhere(page: Page, place: Place, body: object): Pr
 }
 
 async function replacedWhileTyping(page: Page, place: Place, editor: Locator): Promise<void> {
+  await otherJoins(page, place);
   await page.evaluate(() => {
     window.fvociDev.backend.latency = 1500;
   });
