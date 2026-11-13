@@ -1,6 +1,16 @@
 /** Two independent browser sessions see who is on their board. */
-import { expect, test } from '@playwright/test';
-import { boardPath, makeBoard, person, register, signedIn, watchErrors } from './support.ts';
+import { expect, test, type Page, type APIRequestContext, type Browser } from '@playwright/test';
+import { screensDir } from '../e2e/screens.ts';
+import {
+  boardPath,
+  makeBoard,
+  person,
+  register,
+  signedIn,
+  watchErrors,
+  type MadeBoard,
+  type Schemas,
+} from './support.ts';
 
 test.use({ locale: 'en-US' });
 
@@ -17,7 +27,7 @@ test('board presence shows another person and removes their closed browser', asy
   const otherApi = await signedIn(base, other);
   const board = await makeBoard(api, {
     title: 'Here together',
-    cards: [{ title: 'Discuss the draft' }],
+    cards: [{ title: 'Discuss the draft', status: 'To do' }],
     members: [{ who: other, role: 'viewer' }],
   });
   const firstContext = await browser.newContext({
@@ -36,12 +46,12 @@ test('board presence shows another person and removes their closed browser', asy
   try {
     await first.goto(boardPath(board, board.viewId));
     await expect(first.getByTestId('board-presence')).toHaveAccessibleName(
-      '0 people viewing this board',
+      'People viewing this board: 0',
     );
     await second.goto(boardPath(board, board.viewId));
     for (const page of [first, second]) {
       await expect(page.getByTestId('board-presence')).toHaveAccessibleName(
-        '1 people viewing this board',
+        'People viewing this board: 1',
       );
       await expect(page.getByTestId('board-presence').locator('[data-avatar]')).toHaveCount(1);
     }
@@ -49,9 +59,11 @@ test('board presence shows another person and removes their closed browser', asy
     await expect(first.getByTestId('presence-list')).toContainText(other.username);
     await expect(first.getByTestId('presence-list')).not.toContainText(owner.username);
     await first.keyboard.press('Escape');
+    await cardsInEveryView(first, second, api, board);
+    await anonymousVisit(first, browser, base, api, board);
     await secondContext.close();
     await expect(first.getByTestId('board-presence')).toHaveAccessibleName(
-      '0 people viewing this board',
+      'People viewing this board: 0',
     );
     expect(errors.flat()).toEqual([]);
   } finally {
@@ -61,3 +73,104 @@ test('board presence shows another person and removes their closed browser', asy
     await otherApi.dispose();
   }
 });
+
+async function cardsInEveryView(
+  first: Page,
+  second: Page,
+  api: APIRequestContext,
+  board: MadeBoard,
+): Promise<void> {
+  const cardId = board.cards['Discuss the draft'] ?? '';
+  await second.goto(boardPath(board, board.viewId, cardId));
+  await expect(second.getByTestId('card-dialog')).toBeVisible();
+  await expect(
+    first.locator(`[data-card="${cardId}"]`).getByTestId('card-presence').locator('[data-avatar]'),
+  ).toHaveCount(1);
+  await first.getByTestId('board-presence').click();
+  await expect(first.getByTestId('presence-list')).toContainText('Discuss the draft');
+  await shoot(first, 'roster-wide');
+  await first.keyboard.press('Escape');
+  await shoot(first, 'kanban-wide');
+  for (const kind of ['table', 'gallery']) {
+    const response = await api.post(
+      `/api/v1/w/${board.workspaceId}/boards/${board.boardId}/blocks`,
+      {
+        data: [
+          {
+            type: 'view',
+            parentId: board.boardId,
+            boardId: board.boardId,
+            title: kind,
+            fields: { viewType: kind },
+            createAt: Date.now(),
+            updateAt: Date.now(),
+          },
+        ],
+      },
+    );
+    expect(response.ok()).toBe(true);
+    const [view] = (await response.json()) as Schemas['Block'][];
+    if (!view) throw new Error('the new view');
+    await first.goto(boardPath(board, view.id));
+    await expect(
+      first
+        .locator(`[data-card="${cardId}"]`)
+        .getByTestId('card-presence')
+        .locator('[data-avatar]'),
+    ).toHaveCount(1);
+    await shoot(first, `${kind}-wide`);
+    await first.setViewportSize({ width: 390, height: 844 });
+    await shoot(first, `${kind}-390`);
+    await first.setViewportSize({ width: 1280, height: 800 });
+  }
+  await first.goto(boardPath(board, board.viewId));
+  await first.setViewportSize({ width: 390, height: 844 });
+  await expect(first.locator(`[data-card="${cardId}"]`).getByTestId('card-presence')).toBeVisible();
+  await shoot(first, 'kanban-390');
+  await first.getByTestId('board-presence').click();
+  await shoot(first, 'roster-390');
+  await first.keyboard.press('Escape');
+  await first.setViewportSize({ width: 1280, height: 800 });
+  await second.keyboard.press('Escape');
+  await expect(first.getByTestId('card-presence')).toHaveCount(0);
+}
+
+async function anonymousVisit(
+  first: Page,
+  browser: Browser,
+  base: string,
+  api: APIRequestContext,
+  board: MadeBoard,
+): Promise<void> {
+  const response = await api.post(
+    `/api/v1/w/${board.workspaceId}/boards/${board.boardId}/sharing`,
+    { data: { enabled: true } },
+  );
+  expect(response.ok()).toBe(true);
+  const sharing = (await response.json()) as Schemas['Sharing'];
+  const context = await browser.newContext({ baseURL: base, locale: 'en-US' });
+  try {
+    const reader = await context.newPage();
+    const received: unknown[] = [];
+    reader.on('websocket', (socket) =>
+      socket.on('framereceived', (frame) => received.push(frame.payload)),
+    );
+    await reader.goto(`/shared/${board.boardId}?r=${encodeURIComponent(sharing.token ?? '')}`);
+    await expect(reader.getByTestId('board-page')).toBeVisible();
+    await expect(first.getByTestId('board-presence')).toContainText('1 anonymous');
+    await first.setViewportSize({ width: 390, height: 844 });
+    await shoot(first, 'anonymous-390');
+    await first.setViewportSize({ width: 1280, height: 800 });
+    await shoot(first, 'anonymous-wide');
+    await expect(reader.getByTestId('board-presence')).toHaveCount(0);
+    expect(received).toEqual([]);
+  } finally {
+    await context.close();
+  }
+  await expect(first.getByTestId('board-presence')).not.toContainText('anonymous');
+}
+
+async function shoot(page: Page, name: string): Promise<void> {
+  if (!process.env.FVOCI_SCREENS) return;
+  await page.screenshot({ path: `${screensDir('presence')}/${name}.png`, animations: 'disabled' });
+}

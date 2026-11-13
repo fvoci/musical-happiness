@@ -134,3 +134,34 @@ it('separate worlds exchange visits through BroadcastChannel and close the chann
     stop();
   }
 });
+
+it('a hidden page leaves after one minute, returns when visible, and releases its visit on unmount', async () => {
+  const { openFirstBoard } = await import('./support.ts');
+  const { board, backend } = await openFirstBoard();
+  vi.useFakeTimers();
+  let hidden = false;
+  const hiddenRead = vi.spyOn(document, 'hidden', 'get').mockImplementation(() => hidden);
+  const send = vi.spyOn(backend.presence, 'setPresence');
+  const stop = board.presence.start();
+  try {
+    expect(send).toHaveBeenLastCalledWith(expect.objectContaining({ boardId: board.boardId }));
+    hidden = true;
+    document.dispatchEvent(new Event('visibilitychange'));
+    await vi.advanceTimersByTimeAsync(59_999);
+    expect(send).not.toHaveBeenLastCalledWith(null);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(send).toHaveBeenLastCalledWith(null);
+    hidden = false;
+    document.dispatchEvent(new Event('visibilitychange'));
+    expect(send).toHaveBeenLastCalledWith(expect.objectContaining({ boardId: board.boardId }));
+    window.dispatchEvent(new Event('pagehide'));
+    expect(send).toHaveBeenLastCalledWith(null);
+    window.dispatchEvent(new Event('pageshow'));
+    expect(send).toHaveBeenLastCalledWith(expect.objectContaining({ boardId: board.boardId }));
+  } finally {
+    stop();
+    hiddenRead.mockRestore();
+  }
+  expect(send).toHaveBeenLastCalledWith(null);
+  expect(vi.getTimerCount()).toBe(0);
+});

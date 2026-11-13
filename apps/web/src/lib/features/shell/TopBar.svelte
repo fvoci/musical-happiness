@@ -147,7 +147,7 @@
       }}
     >
       <Share2Icon aria-hidden="true" />
-      {m.shell_share()}
+      <span class="sr-only @header/pane:not-sr-only">{m.shell_share()}</span>
     </Button>
   {/if}
 

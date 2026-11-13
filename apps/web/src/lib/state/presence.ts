@@ -27,9 +27,3 @@ export const EMPTY_PRESENCE: PresenceSnapshot = {
   anonymousCount: 0,
   hiddenCount: 0,
 };
-
-/** A reader with no presence transport, including a public link before it connects. */
-export const silentPresence: Presence = {
-  setPresence: () => undefined,
-  watchPresence: () => () => undefined,
-};

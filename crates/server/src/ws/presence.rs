@@ -192,43 +192,6 @@ impl Hub {
         }
     }
 
-    fn presence_snapshot(&self, visit: &Visit) -> Snapshot {
-        let listeners = self.listeners();
-        let mut people: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-        let mut anonymous_count = 0;
-        for listener in listeners.by_id.values() {
-            let state = &listener.presence;
-            let Some(other) = &state.visit else { continue };
-            if other.board_id != visit.board_id
-                || other.workspace_id != visit.workspace_id
-                || state
-                    .renewed
-                    .is_none_or(|renewed| renewed.elapsed() >= LEASE)
-            {
-                continue;
-            }
-            if other.read_token.is_empty() {
-                let cards = people.entry(listener.user_id.clone()).or_default();
-                if !other.card_id.is_empty() {
-                    cards.insert(other.card_id.clone());
-                }
-            } else {
-                anonymous_count += 1;
-            }
-        }
-        Snapshot {
-            action: "UPDATE_PRESENCE",
-            workspace_id: visit.workspace_id.clone(),
-            board_id: visit.board_id.clone(),
-            anonymous_count,
-            hidden_count: 0,
-            people: people
-                .into_iter()
-                .map(|(user_id, card_ids)| Person { user_id, card_ids })
-                .collect(),
-        }
-    }
-
     pub(super) async fn presence_loop(&self, app: &App, id: ListenerId) {
         let mut ticks = tokio::time::interval(BATCH);
         ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -265,7 +228,7 @@ impl Hub {
                 raw_before = None;
                 sent_before = None;
             }
-            let raw = self.presence_snapshot(&visit);
+            let raw = snapshot(&visit, &self.listeners());
             if raw_before.as_ref() == Some(&raw) && Instant::now() < next_check {
                 continue;
             }
@@ -351,3 +314,42 @@ impl Hub {
         Ok(Some(Some(snapshot)))
     }
 }
+
+fn snapshot(visit: &Visit, listeners: &super::Listeners) -> Snapshot {
+    let mut people: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    let mut anonymous_count = 0;
+    for listener in listeners.by_id.values() {
+        let state = &listener.presence;
+        let Some(other) = &state.visit else { continue };
+        if other.board_id != visit.board_id
+            || other.workspace_id != visit.workspace_id
+            || state
+                .renewed
+                .is_none_or(|renewed| renewed.elapsed() >= LEASE)
+        {
+            continue;
+        }
+        if other.read_token.is_empty() {
+            let cards = people.entry(listener.user_id.clone()).or_default();
+            if !other.card_id.is_empty() {
+                cards.insert(other.card_id.clone());
+            }
+        } else {
+            anonymous_count += 1;
+        }
+    }
+    Snapshot {
+        action: "UPDATE_PRESENCE",
+        workspace_id: visit.workspace_id.clone(),
+        board_id: visit.board_id.clone(),
+        anonymous_count,
+        hidden_count: 0,
+        people: people
+            .into_iter()
+            .map(|(user_id, card_ids)| Person { user_id, card_ids })
+            .collect(),
+    }
+}
+
+#[cfg(test)]
+mod tests;

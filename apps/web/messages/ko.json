@@ -1021,5 +1021,6 @@
   "presence_viewers": "{count}명이 이 보드를 보고 있음",
   "presence_anonymous": "익명 {count}명",
   "presence_hidden": "그 밖의 {count}명",
-  "presence_alone": "다른 사람은 아직 없습니다."
+  "presence_alone": "다른 사람은 아직 없습니다.",
+  "presence_card_viewers": "{names}: {count}명이 이 카드를 보고 있음"
 }

@@ -16,6 +16,7 @@
   two axes and lib/drag sorts along one. A sort of the view orders them.
 -->
 <script lang="ts">
+  import CardPresence from '../CardPresence.svelte';
   import CardFace from '$lib/components/card-face/CardFace.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { propertiesThatMeetFilterGroup } from '$lib/logic/filter.ts';
@@ -98,7 +99,9 @@
             users={face.users}
             menuRoom
             class="h-full"
-          />
+          >
+            {#snippet readers()}<CardPresence {board} cardId={card.id} class="mt-2" />{/snippet}
+          </CardFace>
         </div>
         <div data-slot="card-menu" class="absolute top-2 right-2 roomy:top-1 roomy:right-1">
           <CardMenu {board} {card} href={cardHref(card.id)} />

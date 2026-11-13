@@ -4,13 +4,13 @@
  * link's read token alone. No session goes along (`credentials: 'omit'`): a
  * reader who is signed in reads as anyone else does, and nothing of their
  * account mixes in. Nothing is written: every change is refused here,
- * before a request is made, and nothing changes while the board is read
- * (no connection: reading again shows what is new).
+ * before a request is made. A visit connection counts this reader anonymously;
+ * content is read again to see what is new, and no presence roster is received.
  *
  * The board is the only one of a place of its own (`SHARED_PLACE`), with
  * nobody in it: the server names no person to such a reader.
  */
-import { silentPresence } from '../state/presence.ts';
+import { SharedPresence } from './shared-presence.ts';
 import type { BoardView } from '../logic/wire.ts';
 import { DEFAULT_ACCOUNT_SETTINGS } from '../logic/account-settings.ts';
 import {
@@ -73,7 +73,7 @@ type SharedPath = ApiPath extends infer P
   : never;
 
 export class SharedBackend implements Backend {
-  readonly presence = silentPresence;
+  readonly presence: Backend['presence'];
   readonly #http: Http;
   readonly #boardId: string;
   readonly #readToken: string;
@@ -91,6 +91,7 @@ export class SharedBackend implements Backend {
     settings: AccountSettings = DEFAULT_ACCOUNT_SETTINGS,
   ) {
     this.#http = new Http(basePath, 'omit');
+    this.presence = new SharedPresence(basePath, boardId, readToken);
     this.#boardId = boardId;
     this.#readToken = readToken;
     this.#settings = settings;

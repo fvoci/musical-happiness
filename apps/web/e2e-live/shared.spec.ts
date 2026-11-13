@@ -1,7 +1,7 @@
 /**
  * A board read by its public link on the real server: a browser that is
  * signed in as nobody opens the link, reads the board, switches views, opens
- * a card and reads its body and comments, and sends nothing but readings.
+ * a card and reads its body and comments, and announces an anonymous visit.
  * Somebody signed in reads it the same way. A wrong token, and the link
  * turned off, show "not found". Pictures, wide and at 390 pixels, go to
  * `target/screens/shared/` when `FVOCI_SCREENS` is set.
@@ -32,7 +32,7 @@ function sharedPath(boardId: string, token: string, viewId?: string, cardId?: st
 /**
  * What the page asks of the server that a reader by the link must not: a
  * request to the API that is no reading, or not of the board under
- * `/api/v1/shared`, or that carries a cookie; and any connection for changes.
+ * `/api/v1/shared`, or that carries a cookie; or any socket subscription/roster.
  */
 function strayRequestsOf(page: Page, boardId: string): string[] {
   const stray: string[] = [];
@@ -47,7 +47,20 @@ function strayRequestsOf(page: Page, boardId: string): string[] {
       if (headers.cookie !== undefined) stray.push(`${said} with a cookie`);
     });
   });
-  page.on('websocket', (socket) => stray.push(`websocket ${socket.url()}`));
+  page.on('websocket', (socket) => {
+    socket.on('framesent', ({ payload }) => {
+      const command = JSON.parse(String(payload)) as Record<string, unknown>;
+      if (
+        command.action !== 'SET_PRESENCE' ||
+        !command.readToken ||
+        (command.boardId !== '' && command.boardId !== boardId) ||
+        command.workspaceId !== ''
+      ) {
+        stray.push(`unexpected socket command ${String(command.action)}`);
+      }
+    });
+    socket.on('framereceived', () => stray.push('a public reader received a socket message'));
+  });
   return stray;
 }
 

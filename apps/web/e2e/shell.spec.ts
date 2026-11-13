@@ -104,7 +104,7 @@ test.describe('the top bar', () => {
     const presence = topBar(page).getByTestId('board-presence');
     const description = topBar(page).getByText('Use this template to stay on top');
     await expect(presence).toBeVisible();
-    await expect(presence).toHaveAccessibleName('0 people viewing this board');
+    await expect(presence).toHaveAccessibleName('People viewing this board: 0');
     if (width >= 992) await expect(description).toBeVisible();
     else await expect(description).toBeHidden();
   });

@@ -180,3 +180,102 @@ async fn leaving_and_reentering_within_one_batch_gets_a_new_roster() {
     );
     th.teardown().await;
 }
+
+#[tokio::test]
+async fn a_guest_sees_an_unshared_template_reader_only_as_a_count() {
+    use crate::common::{PASSWORD, ROOT_WORKSPACE_ID, ROOT_WS};
+    use crate::rooms::give_in;
+    use fvoci_model::{Board, BoardType};
+
+    let th = Setup::native().start().await.init_basic().await;
+    let third = th
+        .register_and_login("template.reader", "template.reader@sample.com", PASSWORD)
+        .await;
+    let third_id = third.me().await.id;
+    let guest_id = th.client2.me().await.id;
+    let mut template = crate::boards::new_board(ROOT_WORKSPACE_ID, BoardType::Open, "Template");
+    template.is_template = true;
+    let template: Board = th.client.create_board(&template).await.created_json();
+    give_in(&th, ROOT_WORKSPACE_ID, &template.id, &guest_id, "viewer").await;
+    th.client
+        .put(
+            &format!("{ROOT_WS}/members/{guest_id}"),
+            &json!({"role":"guest"}),
+        )
+        .await
+        .check_ok();
+    let mut owner = Socket::connect_as(&th.client).await;
+    let mut guest = Socket::connect_as(&th.client2).await;
+    for socket in [&mut owner, &mut guest] {
+        socket.send(json!({"action":"SET_PRESENCE", "workspaceId":ROOT_WORKSPACE_ID, "boardId":template.id})).await;
+    }
+    let _ = people(&mut guest, 2).await;
+    let _ = people(&mut owner, 2).await;
+    let mut reader = Socket::connect_as(&third).await;
+    reader.send(json!({"action":"SET_PRESENCE", "workspaceId":ROOT_WORKSPACE_ID, "boardId":template.id})).await;
+    let roster = people(&mut guest, 2).await;
+    assert_eq!(
+        roster["hiddenCount"], 1,
+        "the guest does not share a board role with the template reader"
+    );
+    assert!(
+        !roster.to_string().contains(&third_id),
+        "no hidden user's identifier leaves the server"
+    );
+    assert_eq!(
+        people(&mut owner, 3).await["hiddenCount"],
+        0,
+        "a workspace member sees the reader"
+    );
+    let private = th.create_board(ROOT_WORKSPACE_ID, BoardType::Private).await;
+    let mut uninvited = Socket::connect_as(&th.client2).await;
+    uninvited
+        .send(
+            json!({"action":"SET_PRESENCE", "workspaceId":ROOT_WORKSPACE_ID, "boardId":private.id}),
+        )
+        .await;
+    assert!(
+        uninvited.next_json(QUIET).await.is_none(),
+        "a guest sees no uninvited board presence"
+    );
+    th.teardown().await;
+}
+
+#[tokio::test]
+async fn visits_never_cross_a_workspace_or_organization_wall() {
+    let th = Setup::native().start().await.init_basic().await;
+    let own = table(&th, &paragraphs(&["own"])).await;
+    let (elsewhere, foreign) = if th.app.store().db_type() == fvoci_store::DbType::Postgres {
+        let (_, workspace, board) = crate::workspaces::another_organization(&th).await;
+        (workspace, board)
+    } else {
+        let workspace = fvoci_model::Workspace {
+            id: fvoci_model::new_id(),
+            ..fvoci_model::Workspace::default()
+        };
+        assert!(
+            th.app
+                .store()
+                .create_organization("another", &workspace)
+                .await
+                .is_err(),
+            "SQLite enforces its single organization before any foreign presence can exist"
+        );
+        (workspace.id, fvoci_model::new_id())
+    };
+    let mut socket = Socket::connect_as(&th.client).await;
+    for (workspace, board) in [
+        (crate::common::ROOT_WORKSPACE_ID, own.board_id.as_str()),
+        (elsewhere.as_str(), foreign.as_str()),
+        (TEST_WORKSPACE_ID, foreign.as_str()),
+    ] {
+        socket
+            .send(json!({"action":"SET_PRESENCE", "workspaceId":workspace, "boardId":board}))
+            .await;
+        assert!(
+            socket.next_json(QUIET).await.is_none(),
+            "no roster outside the board's workspace and organization"
+        );
+    }
+    th.teardown().await;
+}

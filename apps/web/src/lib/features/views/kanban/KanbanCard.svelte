@@ -14,6 +14,7 @@
   screen reader.
 -->
 <script lang="ts">
+  import CardPresence from '../CardPresence.svelte';
   import CardFace from '$lib/components/card-face/CardFace.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type { Card } from '$lib/logic/wire.ts';
@@ -107,7 +108,9 @@
       users={face.users}
       {selected}
       menuRoom
-    />
+    >
+      {#snippet readers()}<CardPresence {board} cardId={card.id} class="mt-2" />{/snippet}
+    </CardFace>
     {#if selected}
       <span class="sr-only">{m.kanban_selected()}</span>
     {/if}
