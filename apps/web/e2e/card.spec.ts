@@ -148,9 +148,18 @@ async function closePicker(page: Page): Promise<void> {
 
 /**
  * Lets the page lay itself out again after a test changed a style by hand.
- * A measurement taken right after such a change can still be the old one.
+ * A measurement taken right after such a change can still be the old one, and one
+ * taken while the card still opens is where the card is on its way.
  */
 async function laidOut(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    const ending = document
+      .getAnimations()
+      .filter((animation) =>
+        Number.isFinite(Number(animation.effect?.getComputedTiming().endTime)),
+      );
+    await Promise.all(ending.map((animation) => animation.finished.catch(() => undefined)));
+  });
   await page.evaluate(
     () =>
       new Promise<void>((resolve) => {
