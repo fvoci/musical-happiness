@@ -151,3 +151,46 @@ describe('a lost answer on the real server (found by a review of b0dec09e)', () 
     }
   });
 });
+
+it('takes a write for stored when its value was changed and changed back before the reading (found by a review of 0d6099ed)', async () => {
+  const { board, backend, workspace, kinds } = await cases();
+  const card = board.realCards[0];
+  if (!card) throw new Error('no card');
+  const report = vi.spyOn(workspace, 'report');
+  let lose = (): void => undefined;
+  let release = (): void => undefined;
+  const real = backend.patchCard.bind(backend);
+  vi.spyOn(backend, 'patchCard')
+    .mockImplementationOnce(async (...args) => {
+      await real(...args);
+      await new Promise<void>((resolve) => {
+        lose = resolve;
+      });
+      throw new BackendError(0, { detail: 'no answer' });
+    })
+    .mockImplementationOnce(real)
+    // The change back reaches the server only after the reading.
+    .mockImplementationOnce(async (...args) => {
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return real(...args);
+    });
+  try {
+    const first = board.setCardTitle(card.id, 'X');
+    await board.setCardTitle(card.id, 'Y');
+    const back = board.setCardTitle(card.id, 'X');
+    lose();
+    await first;
+    release();
+    await back;
+    expect(report).not.toHaveBeenCalled();
+    await workspace.undoLast();
+    await workspace.undoLast();
+    expect([kinds.patchCard.shown(), await kinds.patchCard.stored()]).toEqual(['X', 'X']);
+  } finally {
+    lose();
+    release();
+    workspace.close();
+  }
+});

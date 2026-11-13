@@ -51,17 +51,24 @@ export class Inverses<P extends object> {
     if (origins.size > 0) this.#kept.add({ patch: patch as Patch, origins });
   }
 
-  /** Sends a write; a refusal corrects only the inverse values descended from that write. */
+  /**
+   * Sends a write; a refusal corrects only the inverse values descended from
+   * that write. `send` is told which keys the screen still shows as this
+   * write left them.
+   */
   async write<T>(
     id: string,
     patch: P,
     reverse: P,
-    send: () => Promise<T>,
+    send: (own: (key: string) => boolean) => Promise<T>,
     refused?: (restore: P) => void,
   ): Promise<T> {
     const origins = this.#begin(id, patch, reverse);
     try {
-      const answer = await send();
+      // Whether the screen's value of a key is still this write's (no later change replaced it).
+      const answer = await send(
+        (key) => origins.has(key) && this.#shown.get(id)?.get(key) === origins.get(key),
+      );
       for (const origin of origins.values()) {
         origin.state = 'stored';
         // A successful value does not depend on what came before it any more.

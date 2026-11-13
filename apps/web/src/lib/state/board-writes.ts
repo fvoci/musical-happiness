@@ -53,7 +53,7 @@ export class BoardWrites {
         host.boardId,
         written,
         reverse,
-        () => patchBoardOrStored(host, written),
+        (own) => patchBoardOrStored(host, written, own),
         (refused) => {
           restore = refused;
         },
@@ -87,28 +87,30 @@ type AsPatch<T> = (thing: T) => Record<string, unknown>;
 
 /**
  * `send`'s answer, or, when it was lost, what `read` finds if it holds the
- * write: every value of `patch` that the screen still shows as the write
- * left it (`shown`) is stored. A value that a later change has replaced on
- * the screen meanwhile is not asked for: that change may have been stored
- * over it before the reading.
+ * write: every value of `patch` that is still the write's on the screen
+ * (`own`: no later change replaced it, whatever value that change shows)
+ * is stored. A value a later change replaced is not asked for: that change
+ * may have been stored over it before the reading.
  */
 async function answeredOrStored<T>(
   patch: object,
   values: InverseValues,
   as: AsPatch<T>,
-  ways: { send: () => Promise<T>; read: () => Promise<T | undefined>; shown: () => T | undefined },
+  ways: {
+    send: () => Promise<T>;
+    read: () => Promise<T | undefined>;
+    own: (key: string) => boolean;
+  },
 ): Promise<T> {
   try {
     return await ways.send();
   } catch (error) {
     if (!isBackendError(error) || error.status !== 0) throw error;
     const stored = await ways.read().catch(() => undefined);
-    const now = ways.shown();
-    if (stored === undefined || now === undefined) throw error;
+    if (stored === undefined) throw error;
     const storedValues = values.read(as(stored));
-    const shownValues = values.read(as(now));
     for (const [key, value] of values.read(patch as Record<string, unknown>)) {
-      if (sameValue(shownValues.get(key), value) && !sameValue(storedValues.get(key), value)) {
+      if (ways.own(key) && !sameValue(storedValues.get(key), value)) {
         throw error;
       }
     }
@@ -119,7 +121,11 @@ async function answeredOrStored<T>(
 const boardValues = new InverseValues('updatedProperties', 'deletedProperties');
 const viewValues = new InverseValues('updatedFields', 'deletedFields');
 
-export function patchBoardOrStored(store: BoardStore, patch: BoardPatch): Promise<Board> {
+export function patchBoardOrStored(
+  store: BoardStore,
+  patch: BoardPatch,
+  own: (key: string) => boolean,
+): Promise<Board> {
   const { backend } = store.workspace;
   return answeredOrStored(
     patch,
@@ -132,7 +138,7 @@ export function patchBoardOrStored(store: BoardStore, patch: BoardPatch): Promis
     {
       send: () => backend.patchBoard(store.boardId, patch),
       read: () => backend.board(store.boardId),
-      shown: () => store.board,
+      own,
     },
   );
 }
@@ -141,6 +147,7 @@ export function patchCardOrStored(
   store: BoardStore,
   cardId: string,
   patch: CardPatch,
+  own: (key: string) => boolean,
 ): Promise<CardSummary> {
   const { backend } = store.workspace;
   return answeredOrStored(
@@ -157,7 +164,7 @@ export function patchCardOrStored(
         const { body: _body, ...card } = await backend.card(store.boardId, cardId);
         return card;
       },
-      shown: () => store.card(cardId),
+      own,
     },
   );
 }
@@ -166,6 +173,7 @@ export function patchViewOrStored(
   store: BoardStore,
   viewId: string,
   patch: BlockPatch,
+  own: (key: string) => boolean,
 ): Promise<BoardView> {
   const { backend } = store.workspace;
   return answeredOrStored(
@@ -175,7 +183,7 @@ export function patchViewOrStored(
     {
       send: () => backend.patchView(store.boardId, viewId, patch),
       read: async () => (await backend.views(store.boardId)).find((view) => view.id === viewId),
-      shown: () => store.view(viewId),
+      own,
     },
   );
 }

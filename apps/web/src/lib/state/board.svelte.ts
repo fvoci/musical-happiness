@@ -446,8 +446,8 @@ export class BoardStore {
     this.cards = put(this.cards, applyCardPatch(current, patch));
     this.#cardWrites.begin(cardId);
     try {
-      const answer = await this.#cardInverses.write(cardId, patch, reverse, () =>
-        patchCardOrStored(this, cardId, patch),
+      const answer = await this.#cardInverses.write(cardId, patch, reverse, (own) =>
+        patchCardOrStored(this, cardId, patch, own),
       );
       const latest = this.#cardWrites.end(cardId, answer);
       if (latest) {
@@ -591,8 +591,8 @@ export class BoardStore {
     this.views = put(this.views, applyViewPatch(current, patch));
     this.#viewWrites.begin(viewId);
     try {
-      const answer = await this.#viewInverses.write(viewId, patch, reverse, () =>
-        patchViewOrStored(this, viewId, patch),
+      const answer = await this.#viewInverses.write(viewId, patch, reverse, (own) =>
+        patchViewOrStored(this, viewId, patch, own),
       );
       const latest = this.#viewWrites.end(viewId, answer);
       if (latest) this.views = take(this.views, latest);
