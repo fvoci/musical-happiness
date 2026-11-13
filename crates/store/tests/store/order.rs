@@ -638,3 +638,38 @@ async fn the_trash_comes_the_last_deleted_first() {
 
     test.teardown().await;
 }
+
+/// The teams of a workspace come by name, and in the same order on both databases: a
+/// name in capitals sorts where it would on the other database too. The contract says
+/// "ordered by name and identifier" and the snapshots are shared, so the order cannot
+/// follow the collation of PostgreSQL's database (that of the locale of its image)
+/// while SQLite compares bytes.
+#[tokio::test]
+async fn teams_come_by_name_alike_on_both_databases() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let admin = common::user(store, "team admin").await;
+    let workspace_id = common::workspace(store).await;
+    store
+        .add_workspace_member(&workspace_id, &admin, WorkspaceRole::Admin)
+        .await
+        .expect("the administrator is let into the workspace");
+    for name in ["gamma", "Beta", "alpha"] {
+        store
+            .create_team(&workspace_id, name, &admin)
+            .await
+            .expect("the team is made");
+    }
+
+    let teams = store
+        .teams(&workspace_id)
+        .await
+        .expect("the teams are read");
+    let names: Vec<&str> = teams.iter().map(|team| team.name.as_str()).collect();
+    // By the characters of the names, which both databases can be made to agree on.
+    let mut expected = names.clone();
+    expected.sort_unstable();
+    assert_eq!(names, expected, "{:?}", common::db_type());
+
+    test.teardown().await;
+}
