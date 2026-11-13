@@ -7,9 +7,10 @@ use fvoci_model::OidcProvider;
 use reqwest::StatusCode;
 use serde_json::json;
 
-use crate::fake_oidc::{CLIENT_ID, FakeProvider, Person};
+use crate::common::ROOT_WORKSPACE_ID;
+use crate::fake_oidc::{CLIENT_ID, CLIENT_SECRET, FakeProvider, Person};
 use crate::oidc::{Browser, org_of, server_for, set_provider};
-use crate::sso::{Passwords, admin_through_provider, require_sso};
+use crate::sso::{ADMIN_SUBJECT, Passwords, admin_through_provider, require_sso, through_provider};
 
 /// A secret the fake provider does not take at its token endpoint.
 const WRONG_SECRET: &str = "a secret the provider never issued";
@@ -53,6 +54,55 @@ async fn another_secret_is_not_proved_by_a_session_made_with_the_one_before() {
         !changed.can_require_sso,
         "the session was made with another secret than the one stored now"
     );
+    ts.teardown().await;
+    fake.stop();
+}
+
+/// A change of client ends no session: the one made through the provider before goes
+/// on. Once the organization takes only the provider it was replaced by, that session
+/// opens nothing of it, the provider's settings among it.
+#[tokio::test]
+async fn the_session_of_a_replaced_client_opens_nothing_once_the_new_one_is_required() {
+    let fake = FakeProvider::start().await;
+    let ts = server_for(&fake).await;
+    let org_id = org_of(&ts).await;
+    let path = format!("/org/{org_id}/oidc");
+    let boards = format!("/w/{ROOT_WORKSPACE_ID}/boards");
+    set_provider(&ts, &org_id, &fake).await;
+    let old = admin_through_provider(&ts, &fake, &org_id).await;
+    // Away to another client and back: the same client, another provider.
+    for client_id in ["another-client", CLIENT_ID] {
+        ts.client
+            .put(
+                &path,
+                &json!({
+                    "issuer": fake.issuer, "clientId": client_id, "clientSecret": CLIENT_SECRET,
+                }),
+            )
+            .await
+            .check_ok();
+    }
+    old.get(&boards).await.check_ok();
+    let new = through_provider(&ts, &fake, &org_id, ADMIN_SUBJECT).await;
+    require_sso(&new, &org_id, &fake, Passwords::Refused)
+        .await
+        .check_ok();
+
+    for opened in [&boards, &path] {
+        let response = old.get(opened).await;
+        assert_eq!(
+            response.status,
+            StatusCode::UNAUTHORIZED,
+            "{opened}: {}",
+            response.text()
+        );
+        assert_eq!(
+            response.check_problem()["type"],
+            "/problems/sso-required",
+            "{opened}"
+        );
+    }
+    new.get(&boards).await.check_ok();
     ts.teardown().await;
     fake.stop();
 }
