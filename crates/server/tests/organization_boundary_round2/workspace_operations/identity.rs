@@ -1,0 +1,129 @@
+//! The existing provider contract also works when signup created a later organization.
+
+use base64::Engine as _;
+use reqwest::{Client as HttpClient, StatusCode, header};
+use serde_json::json;
+
+use fvoci_server::auth::sealed::SecretKey;
+use fvoci_server::config::Configuration;
+
+use super::super::fake_oidc::{CLIENT_ID, CLIENT_SECRET, FakeProvider, Person};
+use super::{Case, Client, TestServer};
+
+pub(super) fn configure(config: &mut Configuration) {
+    config.secret_key = Some(
+        SecretKey::from_base64(&base64::engine::general_purpose::STANDARD.encode([42_u8; 32]))
+            .expect("test key"),
+    );
+    config.oidc_allow_private_addresses = true;
+}
+
+pub(super) async fn exercise(case: &mut Case, server: &TestServer, fake: &FakeProvider) {
+    fake.sign_in_as(Person::new(
+        &format!("{}-subject", case.label),
+        &format!("{}-oidc@example.test", case.label),
+    ));
+    let configured = case.run("putOidcProvider", &[], json!({"issuer": fake.issuer, "clientId": CLIENT_ID, "clientSecret": CLIENT_SECRET, "autoJoin": true})).await;
+    let provider = case
+        .present("getOidcProvider", &[], &fake.issuer)
+        .await
+        .value();
+    assert_eq!(provider, configured.value(), "provider settings round trip");
+    assert_eq!(
+        provider["redirectUri"],
+        format!(
+            "{}/api/v1/auth/oidc/callback/{}",
+            server.app.config().server_root.trim_end_matches('/'),
+            case.org
+        ),
+        "provider redirect names this organization"
+    );
+    sign_in(case, server, fake).await;
+    case.run("deleteOidcProvider", &[], json!({})).await;
+}
+
+async fn sign_in(case: &mut Case, server: &TestServer, fake: &FakeProvider) {
+    let request = super::with_query(case.request("startOidcLogin", &[]), "org", &case.org);
+    let started = case.send("startOidcLogin", request).await;
+    let cookie = started
+        .headers
+        .get_all(header::SET_COOKIE)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .find_map(|value| {
+            value
+                .split(';')
+                .next()
+                .filter(|value| value.starts_with("fvoci_oidc="))
+        })
+        .expect("browser-bound login cookie");
+    let http = HttpClient::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .tls_certs_merge([
+            reqwest::Certificate::from_der(&fake.certificate_der).expect("test certificate")
+        ])
+        .build()
+        .expect("browser client");
+    let started = started.value();
+    let authorization = started["authorizationUrl"]
+        .as_str()
+        .expect("authorization URL");
+    assert!(
+        authorization.starts_with(&fake.issuer),
+        "login goes to this provider"
+    );
+    let authorized = http
+        .get(authorization)
+        .send()
+        .await
+        .expect("provider answers");
+    assert_eq!(
+        authorized.status(),
+        StatusCode::FOUND,
+        "provider returns the browser"
+    );
+    let callback = authorized.headers()[header::LOCATION]
+        .to_str()
+        .expect("callback");
+    let path = callback
+        .strip_prefix(server.app.config().server_root.trim_end_matches('/'))
+        .expect("callback to this server");
+    assert!(
+        path.starts_with(&format!("/api/v1/auth/oidc/callback/{}?", case.org)),
+        "callback identifies this organization"
+    );
+    let completed = Client::send(
+        http.get(format!("{}{path}", server.base_url))
+            .header(header::COOKIE, cookie),
+    )
+    .await;
+    assert_eq!(
+        completed.status,
+        StatusCode::SEE_OTHER,
+        "callback completes sign-in"
+    );
+    assert_eq!(
+        completed.headers[header::LOCATION],
+        format!("{}/", server.app.config().server_root.trim_end_matches('/')),
+        "successful callback opens the app"
+    );
+    let session = completed
+        .headers
+        .get_all(header::SET_COOKIE)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .find_map(|value| value.split(';').next()?.strip_prefix("fvoci_session="))
+        .expect("OIDC completed with a session");
+    let newcomer = Client::new(&server.base_url, session);
+    let workspaces = newcomer.get("/users/me/workspaces").await.value();
+    assert_eq!(
+        workspaces.as_array().expect("workspaces").len(),
+        1,
+        "OIDC newcomer joins one workspace"
+    );
+    assert_eq!(
+        workspaces[0]["id"], case.workspace,
+        "OIDC follows its organization"
+    );
+    case.record("finishOidcLogin", &completed);
+}

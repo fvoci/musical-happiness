@@ -1,11 +1,18 @@
-//! Positive parity for every workspace operation published in the HTTP contract.
+//! Positive parity for every operation published in the HTTP contract.
 
 #[path = "workspace_operations/actions.rs"]
 mod actions;
 #[path = "workspace_operations/files.rs"]
 mod files;
+#[path = "workspace_operations/identity.rs"]
+mod identity;
+#[path = "workspace_operations/service.rs"]
+mod service;
+#[path = "workspace_operations/shared.rs"]
+mod shared;
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::LazyLock;
 
 use fvoci_model::{User, UserWorkspace, new_id};
 use fvoci_store::DbType;
@@ -22,6 +29,8 @@ struct Case {
     client: Client,
     label: String,
     workspace: String,
+    org: String,
+    instance_admin: bool,
     user: String,
     peer: String,
     seen: BTreeMap<&'static str, u16>,
@@ -32,7 +41,7 @@ struct Case {
 
 impl Case {
     async fn founder(server: &TestServer, name: &str, forbidden: Vec<String>) -> Self {
-        server
+        let registered = server
             .anonymous()
             .post(
                 "/register",
@@ -41,10 +50,19 @@ impl Case {
                     "password": PASSWORD, "organizationName": name,
                 }),
             )
-            .await
-            .check_created();
-        let client = server.login(name, PASSWORD).await;
-        let user = client.me().await.id;
+            .await;
+        registered.check_created();
+        let logged_in = server
+            .anonymous()
+            .post("/login", &json!({"username": name, "password": PASSWORD}))
+            .await;
+        assert_eq!(logged_in.status.as_u16(), 204, "login succeeds");
+        let client = Client::new(
+            &server.base_url,
+            &logged_in.session_cookie().expect("login cookie"),
+        );
+        let account = client.me().await;
+        let user = account.id;
         let listed: Vec<UserWorkspace> = client.get("/users/me/workspaces").await.ok_json();
         assert_eq!(listed.len(), 1, "a founder sees only their workspace");
         let workspace = listed[0].id.clone();
@@ -70,7 +88,7 @@ impl Case {
             .create_user(&mut peer)
             .await
             .expect("another member in this organization");
-        Self {
+        let mut case = Self {
             client,
             label: name.to_owned(),
             identifiers: vec![
@@ -78,44 +96,81 @@ impl Case {
                 workspace.clone(),
                 user.clone(),
                 peer.id.clone(),
+                access.org_id.clone(),
             ],
             workspace,
+            org: access.org_id,
+            instance_admin: account.is_admin,
             user,
             peer: peer.id,
             seen: BTreeMap::new(),
             responses: BTreeMap::new(),
             forbidden,
-        }
+        };
+        case.record("register", &registered);
+        case.record("login", &logged_in);
+        case
     }
 
     fn request(&self, operation: &str, parameters: Parameters<'_>) -> RequestBuilder {
-        let (method, suffix, _) = WORKSPACE_ROUTES
+        let (method, mut path) = if let Some((method, suffix, _)) = WORKSPACE_ROUTES
             .iter()
             .find(|(_, _, name)| *name == operation)
-            .unwrap_or_else(|| panic!("unknown operation {operation}"));
-        let mut suffix = (*suffix).to_owned();
+        {
+            (
+                (*method).to_owned(),
+                format!("/w/{}{suffix}", self.workspace),
+            )
+        } else {
+            contract()["paths"]
+                .as_object()
+                .expect("paths")
+                .iter()
+                .find_map(|(path, methods)| {
+                    methods
+                        .as_object()
+                        .expect("methods")
+                        .iter()
+                        .find_map(|(method, spec)| {
+                            (spec["operationId"] == operation).then(|| {
+                                (
+                                    method.to_uppercase(),
+                                    path.trim_start_matches("/api/v1").to_owned(),
+                                )
+                            })
+                        })
+                })
+                .unwrap_or_else(|| panic!("unknown operation {operation}"))
+        };
         for (key, value) in parameters {
-            suffix = suffix.replace(&format!("{{{key}}}"), value);
+            path = path.replace(&format!("{{{key}}}"), value);
         }
+        path = path
+            .replace("{orgId}", &self.org)
+            .replace("{workspaceId}", &self.workspace);
         assert!(
-            !suffix.contains('{'),
-            "unfilled parameter for {operation}: {suffix}"
+            !path.contains('{'),
+            "unfilled parameter for {operation}: {path}"
         );
-        self.client.request(
-            method.parse().expect("contract HTTP method"),
-            &format!("/w/{}{suffix}", self.workspace),
-        )
+        self.client
+            .request(method.parse().expect("contract HTTP method"), &path)
     }
 
     async fn send(&mut self, operation: &'static str, request: RequestBuilder) -> ApiResponse {
         let response = Client::send(request).await;
         assert!(
-            response.status.is_success(),
+            response.status.is_success()
+                || (operation == "finishOidcLogin" && response.status.as_u16() == 303),
             "{operation} in {}: {} {}",
             self.workspace,
             response.status,
             response.text()
         );
+        self.record(operation, &response);
+        response
+    }
+
+    fn record(&mut self, operation: &'static str, response: &ApiResponse) {
         if let Some(previous) = self.seen.insert(operation, response.status.as_u16()) {
             assert_eq!(
                 previous,
@@ -124,12 +179,21 @@ impl Case {
             );
         }
         self.assert_is_ours(operation, &response.body);
-        let structure = serde_json::from_slice(&response.body).map_or_else(
-            |_| json!("binary"),
-            |value| comparable_response(&value, "", &self.label),
-        );
-        self.responses.entry(operation).or_default().push(structure);
-        response
+        // Instance authority is intentionally different from organization ownership.
+        if operation == "setUserAdmin" {
+            return;
+        }
+        let body = serde_json::from_slice(&response.body).unwrap_or_else(|_| {
+            if response.body.starts_with(b"PK") {
+                json!("<archive>")
+            } else {
+                json!(response.text())
+            }
+        });
+        self.responses
+            .entry(operation)
+            .or_default()
+            .push(comparable_response(&body, "", &self.label));
     }
 
     fn assert_is_ours(&self, operation: &str, bytes: &[u8]) {
@@ -177,44 +241,53 @@ impl Case {
     }
 
     fn assert_complete(&self) {
-        let contract: Value = serde_json::from_str(include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../contracts/openapi.json"
-        )))
-        .expect("contract JSON");
-        let expected: BTreeSet<&str> = contract["paths"]
+        let expected: BTreeSet<&str> = contract()["paths"]
             .as_object()
             .expect("paths")
             .iter()
-            .filter(|(path, _)| path.starts_with("/api/v1/w/{workspaceId}"))
             .flat_map(|(_, methods)| methods.as_object().expect("methods").values())
             .filter_map(|operation| operation["operationId"].as_str())
             .collect();
         assert_eq!(
             self.seen.keys().copied().collect::<BTreeSet<_>>(),
             expected,
-            "every published workspace operation needs a successful positive case"
+            "every published operation needs a case, including instance authority"
         );
     }
 }
 
 #[tokio::test]
-async fn every_workspace_operation_succeeds_for_the_second_founder_as_for_the_first() {
+async fn every_contract_operation_is_exercised_by_both_founders() {
     if db_type_of_the_tests() != DbType::Postgres {
         return;
     }
+    let fake = super::fake_oidc::FakeProvider::start().await;
     let server = Setup::local_mode()
+        .trusting_oidc_provider(&fake.certificate_der)
         .configure(open)
+        .configure(identity::configure)
         .on_an_empty_database()
         .with_templates()
         .start()
         .await;
     let mut first = Case::founder(&server, "parity-first", Vec::new()).await;
     actions::exercise(&mut first).await;
+    service::exercise(&mut first, &server, &fake).await;
     first.assert_complete();
     let mut second = Case::founder(&server, "parity-other", first.identifiers).await;
     actions::exercise(&mut second).await;
+    service::exercise(&mut second, &server, &fake).await;
     second.assert_complete();
+    assert_eq!(
+        first.seen.remove("setUserAdmin"),
+        Some(200),
+        "first founder has instance authority"
+    );
+    assert_eq!(
+        second.seen.remove("setUserAdmin"),
+        Some(403),
+        "later founder has only organization authority"
+    );
     assert_eq!(
         first.seen, second.seen,
         "all operations return the same successful status in each organization"
@@ -238,7 +311,10 @@ fn comparable_response(value: &Value, field: &str, founder: &str) -> Value {
         Value::Number(_) if field.ends_with("At") => json!("<time>"),
         Value::String(text)
             if uuid::Uuid::try_parse(text).is_ok()
-                || matches!(field, "token" | "fileId" | "uploadId" | "etag") =>
+                || matches!(
+                    field,
+                    "token" | "fileId" | "uploadId" | "etag" | "authorizationUrl" | "redirectUri"
+                ) =>
         {
             json!("<generated>")
         }
@@ -259,4 +335,22 @@ fn comparable_response(value: &Value, field: &str, founder: &str) -> Value {
         ),
         _ => value.clone(),
     }
+}
+
+fn contract() -> &'static Value {
+    static CONTRACT: LazyLock<Value> = LazyLock::new(|| {
+        serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../contracts/openapi.json"
+        )))
+        .expect("contract JSON")
+    });
+    &CONTRACT
+}
+
+fn with_query(builder: RequestBuilder, key: &str, value: &str) -> RequestBuilder {
+    let (client, request) = builder.build_split();
+    let mut request = request.expect("a valid test request");
+    request.url_mut().query_pairs_mut().append_pair(key, value);
+    RequestBuilder::from_parts(client, request)
 }
