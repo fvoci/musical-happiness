@@ -328,3 +328,49 @@ async fn an_unanswered_immediate_check_has_a_deadline() {
         .await;
     th.teardown().await;
 }
+
+/// A board whose only admin leaves the workspace passes to who took them out: that
+/// administrator, reading the card as a viewer, may write in its room at once.
+#[tokio::test]
+async fn a_board_passed_to_the_workspace_admin_lets_them_write_at_once() {
+    let th = seldom().start().await.init_basic().await;
+    let t = crate::rooms::table(&th, &paragraphs(&["first"])).await;
+    let (me, other) = (th.client.me().await.id, th.client2.me().await.id);
+    let path = |user: &str| {
+        format!(
+            "/w/{TEST_WORKSPACE_ID}/boards/{}/members/{user}",
+            t.board_id
+        )
+    };
+    let role = |user: &str, admin: bool| fvoci_model::BoardMember {
+        board_id: t.board_id.clone(),
+        user_id: user.to_owned(),
+        scheme_admin: admin,
+        scheme_viewer: true,
+        ..fvoci_model::BoardMember::default()
+    };
+    // The other user is the board's only admin; the first a viewer of it.
+    give(&th, &t.board_id, &other, "viewer").await;
+    th.client
+        .put(&path(&other), &role(&other, true))
+        .await
+        .check_ok();
+    th.client
+        .put(&path(&me), &role(&me, false))
+        .await
+        .check_ok();
+    let mut reader = Peer::connect(&th.client, 601).await;
+    let joined = reader.joined(TEST_WORKSPACE_ID, &t.card_id).await;
+    assert_eq!(joined["mode"], json!("read"), "{joined}");
+    workspace_admin(&th).await;
+    let changed_at = Instant::now();
+    th.client
+        .delete(&format!("/w/{TEST_WORKSPACE_ID}/members/{other}"))
+        .await
+        .check_no_content();
+    assert_eq!(
+        soon(&mut reader, "DOC_MODE", changed_at).await["mode"],
+        json!("write")
+    );
+    th.teardown().await;
+}

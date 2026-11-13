@@ -149,11 +149,12 @@ impl Collab {
     /// not. What cannot be written stays in the log, and the card restored opens with
     /// it; so does all of it if the store cannot say which logs are not written.
     async fn write_deleted(&self, app: &App, card_ids: &[String]) {
-        let pending = match self.pending_among(app, card_ids).await {
-            Ok(pending) => pending,
+        let open = self.open_among(app, card_ids);
+        let pending = match app.store().with_unwritten_bodies(card_ids).await {
+            Ok(unwritten) => merged(open, unwritten),
             Err(error) => {
-                tracing::error!(%error, "cannot find the deleted cards' unwritten logs; they keep them");
-                return;
+                tracing::error!(%error, "cannot find the deleted cards' unwritten logs; those closed keep them");
+                open
             }
         };
         for card_id in &pending {
@@ -173,22 +174,24 @@ impl Collab {
     }
 
     /// Those of `card_ids` whose document may hold what the card does not: open here,
-    /// or with a log not written to the card, found in one query.
+    /// or with a log not written to the card, found in one query. The open ones are
+    /// read first: a document that closes between the two without writing its body
+    /// leaves its log for the query.
     async fn pending_among(&self, app: &App, card_ids: &[String]) -> Result<Vec<String>, AppError> {
+        let open = self.open_among(app, card_ids);
         let unwritten = app.store().with_unwritten_bodies(card_ids).await?;
+        Ok(merged(open, unwritten))
+    }
+
+    /// Those of `card_ids` that have a slot here: a document open, or closed for a while.
+    fn open_among(&self, app: &App, card_ids: &[String]) -> Vec<String> {
         let tenant = app.store().tenant();
-        let mut pending: Vec<String> = {
-            let slots = self.inner.slots.lock().expect("the slots are not poisoned");
-            card_ids
-                .iter()
-                .filter(|id| slots.contains_key(&place::key_of(tenant, id)))
-                .cloned()
-                .chain(unwritten)
-                .collect()
-        };
-        pending.sort();
-        pending.dedup();
-        Ok(pending)
+        let slots = self.inner.slots.lock().expect("the slots are not poisoned");
+        card_ids
+            .iter()
+            .filter(|id| slots.contains_key(&place::key_of(tenant, id)))
+            .cloned()
+            .collect()
     }
 
     /// [`Self::write_body`] for many cards: of those that may hold something unwritten
@@ -207,6 +210,14 @@ impl Collab {
         }
         Ok(())
     }
+}
+
+/// The cards of both lists, each once.
+fn merged(open: Vec<String>, unwritten: Vec<String>) -> Vec<String> {
+    let mut pending: Vec<String> = open.into_iter().chain(unwritten).collect();
+    pending.sort();
+    pending.dedup();
+    pending
 }
 
 /// Where a deletion is paused for a test ([`Collab::pause_next_deletion`]).
