@@ -11,6 +11,8 @@ use std::collections::HashSet;
 use std::convert::Infallible;
 use std::time::Duration;
 
+use axum::extract::ws::Utf8Bytes;
+
 use fvoci_model::WorkspaceRole;
 use tokio::time::Instant;
 
@@ -192,8 +194,22 @@ impl Hub {
             self.clear_presence(id, Some(batch.revision));
             return;
         }
-        if !self.settle(id, &batch, &looked) {
+        // Its sight was read for this reader alone: no other check applies, and it is
+        // queued under the lock that settles it, before an access change can come.
+        let projected = reader
+            .sight
+            .as_ref()
+            .and_then(|sight| sight.project(batch.raw.clone()))
+            .filter(|projected| reader.sent.as_ref() != Some(projected));
+        let text = projected.as_ref().and_then(text_of);
+        let Some(queued) = self.settle(id, &batch, &looked, text.as_ref()) else {
             return;
+        };
+        if let Some(projected) = projected {
+            self.inner
+                .metrics
+                .websocket_queued(projected.action(), queued);
+            reader.sent = Some(projected);
         }
         if due {
             reader.next_check = Some(
@@ -201,20 +217,6 @@ impl Hub {
             );
         }
         reader.seen = batch.changed;
-        let Some(projected) = reader
-            .sight
-            .as_ref()
-            .and_then(|sight| sight.project(batch.raw))
-        else {
-            return;
-        };
-        if reader.sent.as_ref() != Some(&projected) {
-            // Its sight was read for this reader alone: no other check applies.
-            if let Some(text) = text_of(&projected) {
-                self.queue_text(&[id], &text, projected.action());
-            }
-            reader.sent = Some(projected);
-        }
     }
 
     /// Reads the connection's visit and, if the batch has anything to do, its board's
@@ -270,24 +272,30 @@ impl Hub {
     }
 
     /// Whether what the batch read stands, to be sent: no command came meanwhile and
-    /// no access change reached the visit while the store was asked. If the open
-    /// card is gone, the visit is moved to the board with no card, and the next
-    /// batch, which builds the roster again, sends.
-    fn settle(&self, id: ListenerId, batch: &Batch, looked: &Looked) -> bool {
+    /// no access change reached the visit while the store was asked. If it does, the
+    /// reader's `roster` (if any) is queued under the same lock, and how many it was
+    /// queued for is returned; `None` if it does not. If the open card is gone, the
+    /// visit is moved to the board with no card, and the next batch, which builds
+    /// the roster again, sends.
+    fn settle(
+        &self,
+        id: ListenerId,
+        batch: &Batch,
+        looked: &Looked,
+        roster: Option<&Utf8Bytes>,
+    ) -> Option<usize> {
         let mut listeners = self.listeners();
-        let Some(listener) = listeners.by_id.get_mut(&id) else {
-            return false;
-        };
+        let listener = listeners.by_id.get_mut(&id)?;
         let state = &mut listener.presence;
         if state.revision != batch.revision {
             // A recheck the batch was for is still owed to the roster's other people.
             state.recheck |= batch.recheck;
-            return false;
+            return None;
         }
         // An access change reached the visit after the batch took the flag: what was
         // read may be from before it, and the next batch asks again.
         if state.recheck {
-            return false;
+            return None;
         }
         if let Looked::Read { card_id } = looked
             && *card_id != batch.visit.card_id
@@ -298,9 +306,9 @@ impl Hub {
                 ..batch.visit.clone()
             };
             listeners.place(id, Some(visit));
-            return false;
+            return None;
         }
-        true
+        Some(roster.map_or(0, |roster| listeners.queue(&[id], roster)))
     }
 }
 

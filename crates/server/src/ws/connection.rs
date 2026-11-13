@@ -36,35 +36,18 @@ impl Hub {
         let (outbox, inbox) = mpsc::channel::<Utf8Bytes>(OUTBOX_CAPACITY);
         let closed = CancellationToken::new();
         let closed_because = Arc::new(OnceLock::new());
-        let who = subscribe::Who::of(identity);
+        let mut who = subscribe::Who::of(identity);
         let (mut docs, docs_outbox) = app.collab().seat(app, who.asker());
-        let token = who.token;
+        let token = who.token.take();
         let docs_overrun = docs.overrun();
         self.watch_access_changes(app);
 
-        let id = {
-            let mut listeners = self.listeners();
-            listeners.next_id += 1;
-            let id = listeners.next_id;
-            listeners.by_id.insert(
-                id,
-                Listener {
-                    user_id: who.user_id,
-                    session_id: who.session_id,
-                    login_provider: who.login_provider,
-                    address: address.map(AddressKey::from),
-                    outbox,
-                    closed: closed.clone(),
-                    closed_because: Arc::clone(&closed_because),
-                    workspaces: Vec::new(),
-                    workspace_roles: HashMap::new(),
-                    blocks: Vec::new(),
-                    shared_boards: Vec::new(),
-                    presence: presence::State::default(),
-                },
-            );
-            id
-        };
+        let id = self.add_listener(Listener {
+            address: address.map(AddressKey::from),
+            closed: closed.clone(),
+            closed_because: Arc::clone(&closed_because),
+            ..Listener::new(who, outbox)
+        });
         let _connection = Connection {
             hub: self.clone(),
             id,
@@ -138,6 +121,15 @@ impl Hub {
         }
     }
 
+    /// Counts a connection among the hub's, under a number of its own.
+    fn add_listener(&self, listener: Listener) -> ListenerId {
+        let mut listeners = self.listeners();
+        listeners.next_id += 1;
+        let id = listeners.next_id;
+        listeners.by_id.insert(id, listener);
+        id
+    }
+
     /// Reads the commands of a connection and carries them out, until the client
     /// closes it, goes away or sends what is no websocket frame; returns which.
     async fn read_commands(
@@ -195,6 +187,27 @@ impl Hub {
                     tracing::warn!(%error, "a websocket connection's session could not be read");
                 }
             }
+        }
+    }
+}
+
+impl Listener {
+    /// A connection of `who` (whose token is no more needed) that follows nothing yet,
+    /// from no known address, sending to `outbox`.
+    fn new(who: subscribe::Who, outbox: mpsc::Sender<Utf8Bytes>) -> Self {
+        Self {
+            user_id: who.user_id,
+            session_id: who.session_id,
+            login_provider: who.login_provider,
+            address: None,
+            outbox,
+            closed: CancellationToken::new(),
+            closed_because: Arc::default(),
+            workspaces: Vec::new(),
+            workspace_roles: HashMap::new(),
+            blocks: Vec::new(),
+            shared_boards: Vec::new(),
+            presence: presence::State::default(),
         }
     }
 }

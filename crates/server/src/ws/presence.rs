@@ -251,20 +251,8 @@ impl Hub {
             self.clear_presence(id, None);
             return;
         }
-        let identity = {
-            let mut listeners = self.listeners();
-            let Some(listener) = listeners.by_id.get_mut(&id) else {
-                return;
-            };
-            let per_second = app.config().collab.collab_frames_per_second;
-            let rate = listener.presence.rate.get_or_insert_with(|| Rate {
-                left: u64::from(per_second) * 1000,
-                counted: Instant::now(),
-            });
-            if !rate.admits(per_second) {
-                return;
-            }
-            (listener.user_id.clone(), listener.login_provider.clone())
+        let Some(identity) = self.rated_identity(app, id) else {
+            return;
         };
         if [&command.workspace_id, &command.board_id, &command.card_id]
             .iter()
@@ -277,8 +265,10 @@ impl Hub {
             user_id: &identity.0,
             made_through: identity.1.as_deref(),
         };
-        // Changes made while the lookup runs may not be in what it read.
+        // Changes made while the lookup runs may not be in what it read: access changes
+        // of the rooms, and links taken back (`end_readers_of_board`).
         let mut meanwhile = app.collab().access_changes();
+        let since = self.listeners().revoked.now();
         let access = tokio::time::timeout(
             LOOKUP_WAIT,
             app.presence_access(
@@ -310,13 +300,49 @@ impl Hub {
             read_token: command.read_token,
             wall: access.wall,
         };
+        let limits = ReaderLimits::of(app);
+        self.place_visit(id, visit, &mut meanwhile, since, limits);
+    }
+
+    /// The connection's user and the provider of its session, if the rate of its
+    /// commands takes one more.
+    fn rated_identity(&self, app: &App, id: ListenerId) -> Option<(String, Option<String>)> {
+        let mut listeners = self.listeners();
+        let listener = listeners.by_id.get_mut(&id)?;
+        let per_second = app.config().collab.collab_frames_per_second;
+        let rate = listener.presence.rate.get_or_insert_with(|| Rate {
+            left: u64::from(per_second) * 1000,
+            counted: Instant::now(),
+        });
+        rate.admits(per_second)
+            .then(|| (listener.user_id.clone(), listener.login_provider.clone()))
+    }
+
+    /// Places a visit read before now: not if the link it came by was taken back since
+    /// `since`, or the board has as many readers by its link as `limits` take (the
+    /// visit before ends then too).
+    fn place_visit(
+        &self,
+        id: ListenerId,
+        visit: Visit,
+        meanwhile: &mut broadcast::Receiver<AccessChange>,
+        since: u64,
+        limits: ReaderLimits,
+    ) {
         let mut listeners = self.listeners();
         // Drained under the lock: a change raised later is flagged by the watcher
         // (`watch_access`), which takes the same lock, against this visit.
-        let read_too_early = changed_meanwhile(&mut meanwhile, &visit);
-        // One reader too many of the board by its link is not taken, nor counted.
-        if !visit.read_token.is_empty()
-            && !listeners.admits_reader(id, &visit.board_id, ReaderLimits::of(app))
+        let read_too_early = changed_meanwhile(meanwhile, &visit);
+        let by_link = !visit.read_token.is_empty();
+        let user_id = listeners
+            .by_id
+            .get(&id)
+            .map_or_else(String::new, |listener| listener.user_id.clone());
+        if by_link
+            && (listeners
+                .revoked
+                .of_board_since(&user_id, &visit.board_id, since)
+                || !listeners.admits_reader(id, &visit.board_id, limits))
         {
             listeners.end_visit(id);
             return;

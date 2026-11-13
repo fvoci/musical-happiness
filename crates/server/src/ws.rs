@@ -289,6 +289,28 @@ impl Listeners {
             .unwrap_or_default()
     }
 
+    /// Queues `text` for each of `recipients`, and closes and takes out one that does
+    /// not keep up. How many it was queued for.
+    fn queue(&mut self, recipients: &[ListenerId], text: &Utf8Bytes) -> usize {
+        let mut queued = 0;
+        for id in recipients {
+            let Some(listener) = self.by_id.get(id) else {
+                continue;
+            };
+            if listener.outbox.try_send(text.clone()).is_ok() {
+                queued += 1;
+            } else {
+                tracing::warn!(
+                    listener = id,
+                    "websocket: dropping a connection that does not keep up"
+                );
+                listener.close(Disconnect::SlowConsumer);
+                self.remove(*id);
+            }
+        }
+        queued
+    }
+
     fn remove(&mut self, id: ListenerId) {
         let Some(listener) = self.by_id.remove(&id) else {
             return;
@@ -680,24 +702,7 @@ impl Hub {
         if recipients.is_empty() {
             return;
         }
-        let mut listeners = self.listeners();
-        let mut queued = 0;
-        for id in recipients {
-            let Some(listener) = listeners.by_id.get(id) else {
-                continue;
-            };
-            if listener.outbox.try_send(text.clone()).is_ok() {
-                queued += 1;
-            } else {
-                tracing::warn!(
-                    listener = id,
-                    "websocket: dropping a connection that does not keep up"
-                );
-                listener.close(Disconnect::SlowConsumer);
-                listeners.remove(*id);
-            }
-        }
-        drop(listeners);
+        let queued = self.listeners().queue(recipients, text);
         self.inner.metrics.websocket_queued(action, queued);
     }
 }

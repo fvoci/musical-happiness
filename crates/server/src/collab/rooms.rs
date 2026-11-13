@@ -296,6 +296,20 @@ impl Turn {
             .count()
     }
 
+    /// Takes the connection out of the room, under whatever number it knew it as, with
+    /// what waited for it there: it comes in anew.
+    fn forget_member(&mut self, connection: &Connection) {
+        let at = self
+            .members
+            .iter()
+            .position(|member| member.connection.id == connection.id);
+        if let Some(index) = at {
+            let before = self.members.swap_remove(index);
+            connection.forget(before.doc);
+            connection.queue.forget_frames(before.doc);
+        }
+    }
+
     fn index_of(&self, connection: &Connection, doc: u32) -> Option<usize> {
         self.members
             .iter()
@@ -665,15 +679,7 @@ impl Collab {
                 self.shut_if_empty(&room, &mut turn).await;
                 return Err(refusals::too_slow());
             }
-            if let Some(index) = turn
-                .members
-                .iter()
-                .position(|member| member.connection.id == connection.id)
-            {
-                let before = turn.members.swap_remove(index);
-                connection.forget(before.doc);
-                connection.queue.forget_frames(before.doc);
-            }
+            turn.forget_member(connection);
             if !turn.members.is_empty() && turn.epoch != epoch {
                 // Made again since the members were sent it, and not yet told.
                 turn.send_anew(&loaded);
