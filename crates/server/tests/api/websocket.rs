@@ -106,7 +106,7 @@ async fn subscribe_to_workspace(
         .await;
     let probe = category(workspace_id, user_id, "subscription probe");
     for _ in 0..50 {
-        th.app.ws().broadcast_category_change(&probe);
+        th.app.ws().broadcast_category_change(&probe).await;
         if let Some(message) = socket.next_json(Duration::from_millis(100)).await {
             assert_eq!(message["action"], json!("UPDATE_CATEGORY"), "{message}");
             // Later probes may still be queued; let them drain.
@@ -181,10 +181,12 @@ async fn a_workspace_is_followed_by_its_members_and_guests() {
 
     th.app
         .ws()
-        .broadcast_category_change(&category(HIDDEN_WORKSPACE_ID, &user1.id, "hidden"));
+        .broadcast_category_change(&category(HIDDEN_WORKSPACE_ID, &user1.id, "hidden"))
+        .await;
     th.app
         .ws()
-        .broadcast_category_change(&category(ROOT_WORKSPACE_ID, &user2.id, "a guest's"));
+        .broadcast_category_change(&category(ROOT_WORKSPACE_ID, &user2.id, "a guest's"))
+        .await;
     assert_eq!(
         outsider.next(QUIET).await,
         Event::Nothing,
@@ -217,7 +219,7 @@ async fn workspace_subscription_needs_authentication() {
     subscribe_to_workspace(&th, &mut socket, ROOT_WORKSPACE_ID, &user1.id).await;
 
     let change = category(ROOT_WORKSPACE_ID, &user1.id, "Projects");
-    th.app.ws().broadcast_category_change(&change);
+    th.app.ws().broadcast_category_change(&change).await;
     let message = socket
         .next_json(PATIENCE)
         .await
@@ -244,7 +246,7 @@ async fn workspace_subscription_needs_authentication() {
         .send(json!({"action": "UNSUBSCRIBE_WORKSPACE", "workspaceId": ROOT_WORKSPACE_ID}))
         .await;
     subscribe_to_workspace(&th, &mut socket, TEST_WORKSPACE_ID, &user1.id).await;
-    th.app.ws().broadcast_category_change(&change);
+    th.app.ws().broadcast_category_change(&change).await;
     assert_eq!(
         socket.next(QUIET).await,
         Event::Nothing,
@@ -276,7 +278,7 @@ async fn a_message_does_not_sign_a_connection_in() {
     subscribe_to_workspace(&th, &mut signed_in, ROOT_WORKSPACE_ID, &user1.id).await;
     let change = category(ROOT_WORKSPACE_ID, &user1.id, "Projects");
     for round in 0..5 {
-        th.app.ws().broadcast_category_change(&change);
+        th.app.ws().broadcast_category_change(&change).await;
         let heard = signed_in.next_json(Duration::from_secs(5)).await;
         assert_eq!(
             heard.expect("the user's connection hears the change")["action"],
@@ -539,7 +541,7 @@ async fn commands_with_members_of_the_wrong_type_are_ignored() {
     // The same connection still subscribes and is told about changes.
     subscribe_to_workspace(&th, &mut socket, ROOT_WORKSPACE_ID, &user1.id).await;
     let change = category(ROOT_WORKSPACE_ID, &user1.id, "After the noise");
-    th.app.ws().broadcast_category_change(&change);
+    th.app.ws().broadcast_category_change(&change).await;
     let message = socket
         .next_json(PATIENCE)
         .await
@@ -576,11 +578,10 @@ async fn resetting_a_password_closes_the_websocket_connections_of_that_user() {
         Event::Closed,
         "the connection of the user whose password was set"
     );
-    th.app.ws().broadcast_category_change(&category(
-        ROOT_WORKSPACE_ID,
-        &user2.id,
-        "still listening",
-    ));
+    th.app
+        .ws()
+        .broadcast_category_change(&category(ROOT_WORKSPACE_ID, &user2.id, "still listening"))
+        .await;
     let message = socket2
         .next_json(PATIENCE)
         .await
@@ -779,19 +780,14 @@ async fn a_reader_by_read_token_is_not_told_who_wrote_a_block() {
         "{message}"
     );
 
-    // A member who follows the block by the token, with no workspace subscription, is told
-    // all of it.
+    // A read-token subscription has the same privacy boundary with a member's session.
     let member = Socket::connect_as(&th.client).await;
     let (_member, message) = follow_block_on(&th, member, &block, &token).await;
-    assert_eq!(message["block"]["createdBy"], json!(user1.id), "{message}");
-    assert_eq!(
-        message.pointer(mention),
-        Some(&json!(user1.id)),
-        "{message}"
-    );
+    assert_eq!(message["block"]["createdBy"], json!(""), "{message}");
+    assert_eq!(message.pointer(mention), Some(&json!("")), "{message}");
     assert_eq!(
         message["block"]["fields"]["properties"],
-        json!({"owner": user1.id, "workspace": [user1.id, user1.id]}),
+        json!({"owner": "", "workspace": ["", ""]}),
         "{message}"
     );
 
@@ -1132,7 +1128,7 @@ async fn messages_match_the_websocket_contract() {
     ws.broadcast_member_delete(ROOT_WORKSPACE_ID, &board.id, &user1.id)
         .await;
     contract_check.hear(&mut socket, "DELETE_MEMBER").await;
-    ws.broadcast_category_change(&category);
+    ws.broadcast_category_change(&category).await;
     contract_check.hear(&mut socket, "UPDATE_CATEGORY").await;
     ws.broadcast_category_board_change(
         ROOT_WORKSPACE_ID,
@@ -1142,7 +1138,8 @@ async fn messages_match_the_websocket_contract() {
             category_id: category.id.clone(),
             hidden: false,
         }],
-    );
+    )
+    .await;
     contract_check
         .hear(&mut socket, "UPDATE_BOARD_CATEGORY")
         .await;
@@ -1150,23 +1147,26 @@ async fn messages_match_the_websocket_contract() {
         ROOT_WORKSPACE_ID,
         &user1.id,
         std::slice::from_ref(&category.id),
-    );
+    )
+    .await;
     contract_check.hear(&mut socket, "REORDER_CATEGORIES").await;
     ws.broadcast_category_boards_reorder(
         ROOT_WORKSPACE_ID,
         &user1.id,
         &category.id,
         std::slice::from_ref(&board.id),
-    );
+    )
+    .await;
     contract_check
         .hear(&mut socket, "REORDER_CATEGORY_BOARDS")
         .await;
-    ws.broadcast_config_change(&th.app.client_config());
+    ws.broadcast_config_change(&th.app.client_config()).await;
     contract_check
         .hear(&mut socket, "UPDATE_CLIENT_CONFIG")
         .await;
     // The board deletion goes to the former members, with the board's identifiers only.
-    ws.broadcast_board_delete(ROOT_WORKSPACE_ID, &board.id, &members);
+    ws.broadcast_board_delete(ROOT_WORKSPACE_ID, &board.id, &members)
+        .await;
     contract_check.hear(&mut socket, "UPDATE_BOARD").await;
 
     // Every message of the contract was heard; those of the bodies edited together

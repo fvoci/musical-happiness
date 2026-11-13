@@ -294,7 +294,7 @@ impl App {
         // The hub is the same, with the same connections; what it asks about the
         // boards, to know whom a change is told to, it asks as this handle reaches them.
         let mut ws = self.ws.clone();
-        ws.audience = Audience::new(store.clone());
+        ws.audience = self.ws.audience.with_store(store.clone());
         Self {
             inner: Arc::clone(&self.inner),
             ws,

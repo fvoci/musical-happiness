@@ -215,14 +215,16 @@ impl App {
                 .get(board_id.as_str())
                 .map_or(&[][..], Vec::as_slice);
             self.ws()
-                .broadcast_block_delete_with_board(&workspace_id, block_id, board_id, members);
+                .broadcast_block_delete_with_board(&workspace_id, block_id, board_id, members)
+                .await;
         }
         for board_id in &request.boards {
             let members = former_members
                 .get(board_id.as_str())
                 .map_or(&[][..], Vec::as_slice);
             self.ws()
-                .broadcast_board_delete(&workspace_id, board_id, members);
+                .broadcast_board_delete(&workspace_id, board_id, members)
+                .await;
             // The board's sharing went with it; so does whoever followed it by its link,
             // as with `deleteBoard`.
             self.ws().close_readers_of_board(board_id);

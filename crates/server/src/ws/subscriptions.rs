@@ -1,7 +1,7 @@
 //! Validating and registering subscriptions under the same revocation generation.
 
 use super::{
-    Command, Hub, ListenerId, remove_from, subscribe_to_blocks, subscribe_to_workspace,
+    Command, Hub, ListenerId, ReadPermit, remove_from, subscribe_to_blocks, subscribe_to_workspace,
     unsubscribe_from_blocks,
 };
 use crate::metrics::Disconnect;
@@ -73,9 +73,15 @@ impl Hub {
             }
             subscribe_to_blocks(&mut listeners, id, &command.block_ids);
             if let Some(listener) = listeners.by_id.get_mut(&id)
-                && !listener.shared_boards.contains(&board_id)
+                && !listener
+                    .shared_boards
+                    .iter()
+                    .any(|permit| permit.board == board_id)
             {
-                listener.shared_boards.push(board_id);
+                listener.shared_boards.push(ReadPermit {
+                    board: board_id,
+                    token: command.read_token.clone(),
+                });
             }
             return;
         }

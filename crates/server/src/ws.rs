@@ -9,7 +9,10 @@
 //! The commands and the binary frames of the bodies edited together are handed to the
 //! connection's seat among their rooms (`crate::collab::Seat`).
 
+mod delivery;
 mod subscriptions;
+
+use delivery::Access;
 #[cfg(feature = "test-util")]
 mod testing;
 mod writer;
@@ -23,8 +26,7 @@ use std::time::Duration;
 use axum::extract::ws::{Message, Utf8Bytes, WebSocket};
 use futures_util::StreamExt as _;
 use fvoci_model::{
-    Block, Board, BoardCategoryWebsocketData, BoardMember, Category, ClientConfig,
-    PersonProperties, Session,
+    Block, Board, BoardCategoryWebsocketData, BoardMember, Category, ClientConfig, Session,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
@@ -189,7 +191,21 @@ struct Listener {
     blocks: Vec<String>,
     /// The shared boards whose read token this connection subscribed to blocks with.
     /// When such a board stops being shared under that token, the connection goes.
-    shared_boards: Vec<String>,
+    shared_boards: Vec<ReadPermit>,
+}
+
+#[derive(Clone)]
+struct ReadPermit {
+    board: String,
+    token: String,
+}
+
+impl std::fmt::Debug for ReadPermit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ReadPermit")
+            .field("board", &self.board)
+            .finish_non_exhaustive()
+    }
 }
 
 #[derive(Debug, Default)]
@@ -265,6 +281,8 @@ struct HubInner {
     metrics: Metrics,
     #[cfg(feature = "test-util")]
     subscription_pause: Mutex<Option<SubscriptionPause>>,
+    #[cfg(feature = "test-util")]
+    dispatch_pause: Mutex<Option<SubscriptionPause>>,
 }
 
 impl Hub {
@@ -284,6 +302,8 @@ impl Hub {
                 metrics,
                 #[cfg(feature = "test-util")]
                 subscription_pause: Mutex::default(),
+                #[cfg(feature = "test-util")]
+                dispatch_pause: Mutex::default(),
             }),
             audience,
         }
@@ -466,69 +486,32 @@ impl Hub {
     /// Tells the board's members in the workspace, and the listeners of the block and of its
     /// parent, that a block changed.
     ///
-    /// A listener of the block whose connection has no session, or whose user is no
-    /// member of the board who may read it, follows it by the read token alone and is
-    /// told no user's identifier ([`Block::hide_people`]), as over HTTP (`getBlocks`).
+    /// A read-token subscription receives no user identifiers, including when its
+    /// connection also has a session ([`Block::hide_people`]), as over public HTTP.
     pub async fn broadcast_block_change(&self, workspace_id: &str, block: &Block) {
         let followers = self.block_followers(block);
         // Most changes happen with nobody listening; do not ask the store then.
         if followers.is_empty() && !self.listeners().by_workspace.contains_key(workspace_id) {
             return;
         }
-        let members = match self.audience.members(&block.board_id).await {
-            Ok(members) => members,
-            Err(error) => {
-                tracing::error!(%error, workspace_id, board_id = %block.board_id, "websocket: reading the board's members failed");
-                return;
-            }
-        };
-        let mut recipients = self.listeners_among(workspace_id, &members, None);
-        let mut by_token = Vec::new();
-        // A connection that listens both as a board member and to the block itself
-        // gets the message once per subscription.
-        for (id, user_id) in followers {
-            let reader = !user_id.is_empty()
-                && members
-                    .iter()
-                    .any(|member| member.user_id == user_id && role_of(member).is_some());
-            if reader {
-                recipients.push(id);
-            } else {
-                by_token.push(id);
-            }
-        }
+        let recipients = self.workspace_listeners(workspace_id);
         let message = UpdateBlockMessage {
             action: "UPDATE_BLOCK",
             workspace_id,
             block,
         };
-        self.send(&recipients, &message);
-        if by_token.is_empty() {
-            return;
-        }
-        // A block without fields names nobody there, such as the block of a deletion.
-        let people = if block.fields.is_empty() {
-            Ok(PersonProperties::default())
-        } else {
-            self.audience.person_properties(&block.board_id).await
-        };
-        let people = match people {
-            Ok(people) => people,
-            Err(error) => {
-                // Without the board's person properties the block cannot be told
-                // without its people: it is not told.
-                tracing::error!(%error, workspace_id, board_id = %block.board_id, "websocket: reading the board of a followed block failed");
-                return;
-            }
-        };
-        let mut without_people = block.clone();
-        without_people.hide_people(&people);
-        let message = UpdateBlockMessage {
-            action: "UPDATE_BLOCK",
-            workspace_id,
-            block: &without_people,
-        };
-        self.send(&by_token, &message);
+        self.send(
+            &recipients,
+            &message,
+            Access::Members {
+                workspace: workspace_id,
+                board: &block.board_id,
+                also: None,
+            },
+        )
+        .await;
+        let by_token: Vec<_> = followers.into_iter().map(|(id, _)| id).collect();
+        self.send_public_block(&by_token, workspace_id, block).await;
     }
 
     /// The connections that follow the block or its parent by `SUBSCRIBE_BLOCKS`, with
@@ -565,7 +548,7 @@ impl Hub {
     /// its blocks was deleted, with the message of [`Self::broadcast_block_delete`].
     ///
     /// The memberships went with the board, so the caller says who the members were.
-    pub fn broadcast_block_delete_with_board(
+    pub async fn broadcast_block_delete_with_board(
         &self,
         workspace_id: &str,
         block_id: &str,
@@ -586,7 +569,8 @@ impl Hub {
             block: &block,
         };
         let recipients = self.listeners_among(workspace_id, former_members, None);
-        self.send(&recipients, &message);
+        self.send(&recipients, &message, Access::Workspace(workspace_id))
+            .await;
     }
 
     /// Tells the board's members in the workspace that the board changed.
@@ -596,17 +580,24 @@ impl Hub {
             workspace_id,
             board,
         };
-        let recipients = self
-            .listeners_for_workspace_and_board(workspace_id, &board.id, None)
-            .await;
-        self.send(&recipients, &message);
+        let recipients = self.workspace_listeners(workspace_id);
+        self.send(
+            &recipients,
+            &message,
+            Access::Members {
+                workspace: workspace_id,
+                board: &board.id,
+                also: None,
+            },
+        )
+        .await;
     }
 
     /// Tells those who were the board's members that the board was deleted. The message
     /// is a board change whose board has only its identifiers and the deletion time.
     ///
     /// The memberships went with the board, so the caller says who the members were.
-    pub fn broadcast_board_delete(
+    pub async fn broadcast_board_delete(
         &self,
         workspace_id: &str,
         board_id: &str,
@@ -626,7 +617,8 @@ impl Hub {
             board: &board,
         };
         let recipients = self.listeners_among(workspace_id, former_members, None);
-        self.send(&recipients, &message);
+        self.send(&recipients, &message, Access::Workspace(workspace_id))
+            .await;
     }
 
     /// Tells the board's members in the workspace that a membership changed.
@@ -641,10 +633,17 @@ impl Hub {
             workspace_id,
             member,
         };
-        let recipients = self
-            .listeners_for_workspace_and_board(workspace_id, board_id, None)
-            .await;
-        self.send(&recipients, &message);
+        let recipients = self.workspace_listeners(workspace_id);
+        self.send(
+            &recipients,
+            &message,
+            Access::Members {
+                workspace: workspace_id,
+                board: board_id,
+                also: None,
+            },
+        )
+        .await;
     }
 
     /// Tells the board's members in the workspace, and the removed user, that a membership
@@ -660,35 +659,43 @@ impl Hub {
             workspace_id,
             member: &member,
         };
-        let recipients = self
-            .listeners_for_workspace_and_board(workspace_id, board_id, Some(user_id))
-            .await;
-        self.send(&recipients, &message);
+        let recipients = self.workspace_listeners(workspace_id);
+        self.send(
+            &recipients,
+            &message,
+            Access::Members {
+                workspace: workspace_id,
+                board: board_id,
+                also: Some(user_id),
+            },
+        )
+        .await;
     }
 
     /// Tells every connection that the client configuration changed.
-    pub fn broadcast_config_change(&self, client_config: &ClientConfig) {
+    pub async fn broadcast_config_change(&self, client_config: &ClientConfig) {
         let message = UpdateClientConfigMessage {
             action: "UPDATE_CLIENT_CONFIG",
             client_config,
         };
         let recipients: Vec<ListenerId> = self.listeners().by_id.keys().copied().collect();
-        self.send(&recipients, &message);
+        self.send(&recipients, &message, Access::All).await;
     }
 
     /// Tells the category's owner that it changed.
-    pub fn broadcast_category_change(&self, category: &Category) {
+    pub async fn broadcast_category_change(&self, category: &Category) {
         let message = UpdateCategoryMessage {
             action: "UPDATE_CATEGORY",
             workspace_id: &category.workspace_id,
             category: Some(category),
             board_categories: &[],
         };
-        self.send_to_user(&category.workspace_id, &category.user_id, &message);
+        self.send_to_user(&category.workspace_id, &category.user_id, &message)
+            .await;
     }
 
     /// Tells a user that boards moved between their categories or were hidden.
-    pub fn broadcast_category_board_change(
+    pub async fn broadcast_category_board_change(
         &self,
         workspace_id: &str,
         user_id: &str,
@@ -700,11 +707,11 @@ impl Hub {
             category: None,
             board_categories,
         };
-        self.send_to_user(workspace_id, user_id, &message);
+        self.send_to_user(workspace_id, user_id, &message).await;
     }
 
     /// Tells a user the new order of their categories.
-    pub fn broadcast_category_reorder(
+    pub async fn broadcast_category_reorder(
         &self,
         workspace_id: &str,
         user_id: &str,
@@ -715,11 +722,11 @@ impl Hub {
             category_order,
             workspace_id,
         };
-        self.send_to_user(workspace_id, user_id, &message);
+        self.send_to_user(workspace_id, user_id, &message).await;
     }
 
     /// Tells a user the new order of the boards in one of their categories.
-    pub fn broadcast_category_boards_reorder(
+    pub async fn broadcast_category_boards_reorder(
         &self,
         workspace_id: &str,
         user_id: &str,
@@ -732,28 +739,15 @@ impl Hub {
             board_order,
             workspace_id,
         };
-        self.send_to_user(workspace_id, user_id, &message);
+        self.send_to_user(workspace_id, user_id, &message).await;
     }
 
-    /// The workspace's listeners whose user is a member of the board, or is `also_user`.
-    async fn listeners_for_workspace_and_board(
-        &self,
-        workspace_id: &str,
-        board_id: &str,
-        also_user: Option<&str>,
-    ) -> Vec<ListenerId> {
-        // Most changes happen with nobody listening; do not ask the store then.
-        if !self.listeners().by_workspace.contains_key(workspace_id) {
-            return Vec::new();
-        }
-        let members = match self.audience.members(board_id).await {
-            Ok(members) => members,
-            Err(error) => {
-                tracing::error!(%error, workspace_id, board_id, "websocket: reading the board's members failed");
-                return Vec::new();
-            }
-        };
-        self.listeners_among(workspace_id, &members, also_user)
+    fn workspace_listeners(&self, workspace_id: &str) -> Vec<ListenerId> {
+        self.listeners()
+            .by_workspace
+            .get(workspace_id)
+            .cloned()
+            .unwrap_or_default()
     }
 
     /// The workspace's listeners whose user is one of `members` with a role, or `also_user`.
@@ -783,14 +777,15 @@ impl Hub {
 
     /// Sends a message to every connection of the user that is subscribed to the workspace:
     /// every tab of the user is told. (The original tells the first one only.)
-    fn send_to_user(&self, workspace_id: &str, user_id: &str, message: &impl Outgoing) {
+    async fn send_to_user(&self, workspace_id: &str, user_id: &str, message: &impl Outgoing) {
         let recipients = self.listeners().of_user(workspace_id, user_id);
-        self.send(&recipients, message);
+        self.send(&recipients, message, Access::Workspace(workspace_id))
+            .await;
     }
 
     /// Queues a message for the given listeners. A listener whose queue is full is
     /// dropped and its connection closed.
-    fn send(&self, recipients: &[ListenerId], message: &impl Outgoing) {
+    fn queue(&self, recipients: &[ListenerId], message: &impl Outgoing) {
         if recipients.is_empty() {
             return;
         }

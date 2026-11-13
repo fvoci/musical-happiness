@@ -35,7 +35,7 @@ impl App {
         category.validate()?;
         self.store().create_category(&category).await?;
         let created = self.store().get_category(&category.id).await?;
-        self.ws().broadcast_category_change(&created);
+        self.ws().broadcast_category_change(&created).await;
         Ok(created)
     }
 
@@ -63,7 +63,7 @@ impl App {
         self.store().update_category(&category).await?;
 
         let updated = self.store().get_category(&category.id).await?;
-        self.ws().broadcast_category_change(&updated);
+        self.ws().broadcast_category_change(&updated).await;
         Ok(updated)
     }
 
@@ -100,7 +100,7 @@ impl App {
             delete_at: now_millis(),
             ..existing
         };
-        self.ws().broadcast_category_change(&deleted);
+        self.ws().broadcast_category_change(&deleted).await;
         Ok(deleted)
     }
 
@@ -213,7 +213,8 @@ impl App {
             .reorder_categories(user_id, workspace_id, new_order)
             .await?;
         self.ws()
-            .broadcast_category_reorder(workspace_id, user_id, &new_order);
+            .broadcast_category_reorder(workspace_id, user_id, &new_order)
+            .await;
         Ok(new_order)
     }
 

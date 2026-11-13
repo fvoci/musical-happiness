@@ -1,8 +1,13 @@
 //! What the websocket hub asks about boards, to know whom a change is told to and how
 //! much of it.
 
+mod cache;
+
+use std::sync::Arc;
+
+use cache::Cache;
 use fvoci_model::{BoardMember, PersonProperties, WorkspaceRole};
-use fvoci_store::{Store, StoreError};
+use fvoci_store::{Store, StoreError, Tenant, VisibilityVersion};
 
 /// The boards as the websocket hub asks about them: who the members of a board are,
 /// which of its properties name users, and which board a block is of. The hub is made
@@ -12,12 +17,60 @@ use fvoci_store::{Store, StoreError};
 #[derive(Debug, Clone)]
 pub struct Audience {
     store: Store,
+    cache: Arc<Caches>,
+}
+
+#[derive(Debug, Default)]
+struct Caches {
+    workspaces: Cache<(String, String), Option<WorkspaceRole>>,
+    members: Cache<(Tenant, String), Vec<BoardMember>>,
+    people: Cache<(Tenant, String), PersonProperties>,
+    shares: Cache<(String, String), bool>,
 }
 
 impl Audience {
     /// The audience of the boards in `store`.
     pub fn new(store: Store) -> Self {
-        Self { store }
+        Self {
+            store,
+            cache: Arc::default(),
+        }
+    }
+
+    pub(super) fn with_store(&self, store: Store) -> Self {
+        Self {
+            store,
+            cache: Arc::clone(&self.cache),
+        }
+    }
+
+    /// The committed revision used to validate cached dispatch permissions.
+    pub async fn version(&self) -> VisibilityVersion {
+        self.store.visibility_version().await
+    }
+
+    /// Queues a checked dispatch atomically with respect to authorization writes.
+    pub fn if_current(&self, version: VisibilityVersion, send: impl FnOnce()) -> bool {
+        self.store.if_visibility_current(version, send)
+    }
+
+    /// Whether a previously admitted public subscription still has a valid token.
+    pub async fn shared_board(&self, board_id: &str, read_token: &str) -> bool {
+        self.cache
+            .shares
+            .read(
+                &self.store,
+                (board_id.to_owned(), read_token.to_owned()),
+                || async {
+                    Ok(self
+                        .store
+                        .org_of_shared_board(board_id, read_token)
+                        .await?
+                        .is_some())
+                },
+            )
+            .await
+            .unwrap_or(false)
     }
 
     /// The board of a block in the named workspace, if its public read token opens it.
@@ -42,8 +95,23 @@ impl Audience {
     /// membership that cannot be read is no membership here: the connection is not
     /// subscribed.
     pub async fn workspace_role(&self, user_id: &str, workspace_id: &str) -> Option<WorkspaceRole> {
-        match self.store.resolve_workspace(user_id, workspace_id).await {
-            Ok(access) => access.map(|access| access.workspace_role),
+        match self
+            .cache
+            .workspaces
+            .read(
+                &self.store,
+                (user_id.to_owned(), workspace_id.to_owned()),
+                || async {
+                    Ok(self
+                        .store
+                        .resolve_workspace(user_id, workspace_id)
+                        .await?
+                        .map(|access| access.workspace_role))
+                },
+            )
+            .await
+        {
+            Ok(role) => role,
             Err(error) => {
                 tracing::error!(%error, workspace_id, "websocket: reading a workspace's membership failed");
                 None
@@ -57,7 +125,14 @@ impl Audience {
     ///
     /// Returns the store's error if the query fails.
     pub async fn members(&self, board_id: &str) -> Result<Vec<BoardMember>, StoreError> {
-        self.store.get_members_for_board(board_id).await
+        self.cache
+            .members
+            .read(
+                &self.store,
+                (self.store.tenant(), board_id.to_owned()),
+                || async { self.store.get_present_members_for_board(board_id).await },
+            )
+            .await
     }
 
     /// The properties of the board's cards whose values name users.
@@ -66,6 +141,13 @@ impl Audience {
     ///
     /// Returns the store's error if there is no such board, or it cannot be read.
     pub async fn person_properties(&self, board_id: &str) -> Result<PersonProperties, StoreError> {
-        Ok(self.store.get_board(board_id).await?.person_properties())
+        self.cache
+            .people
+            .read(
+                &self.store,
+                (self.store.tenant(), board_id.to_owned()),
+                || async { Ok(self.store.get_board(board_id).await?.person_properties()) },
+            )
+            .await
     }
 }

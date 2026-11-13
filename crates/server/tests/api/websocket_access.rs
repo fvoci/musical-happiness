@@ -425,3 +425,236 @@ async fn joining_as_an_administrator_ends_a_subscription_made_under_the_prior_ro
         ts.teardown().await;
     }
 }
+
+#[derive(Debug, Clone, Default)]
+struct Reads(std::sync::Arc<std::sync::atomic::AtomicUsize>);
+
+impl fvoci_store::Observer for Reads {
+    fn called(&self, call: fvoci_store::Call) {
+        if call.access == fvoci_store::Access::Read {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+
+    fn waited_for_connection(&self, _: fvoci_store::DbType, _: Duration) {}
+}
+
+async fn updated(socket: &mut Socket, phase: &str) {
+    tokio::time::timeout(WAIT, async {
+        while let Some(frame) = socket.next().await {
+            if let Message::Text(text) = frame.expect("update frame") {
+                let message: Value = serde_json::from_str(&text).expect("JSON update");
+                assert_eq!(message["action"], "UPDATE_BLOCK", "{phase}: a block update");
+                return;
+            }
+        }
+        panic!("socket ended before update");
+    })
+    .await
+    .unwrap_or_else(|error| panic!("{phase}: an authorized update arrives: {error}"));
+}
+
+async fn stored_card(ts: &TestServer, board: &str, user: &str) -> Block {
+    let mut block = Block {
+        id: new_id(),
+        board_id: board.to_owned(),
+        block_type: BlockType::Card,
+        ..Block::default()
+    };
+    ts.app
+        .store()
+        .insert_block(&mut block, user)
+        .await
+        .expect("another card stored");
+    block
+}
+
+#[tokio::test]
+async fn dispatch_reuses_authorization_reads_until_visibility_changes() {
+    use std::sync::atomic::Ordering;
+    let ts = Setup::local_mode().start().await.init_basic().await;
+    let user = ts.client.me().await.id;
+    let board = ts.create_board(ROOT_WORKSPACE_ID, BoardType::Private).await;
+    assert!(
+        ts.app.finish_background(WAIT).await,
+        "fixture announcements finish before subscribing"
+    );
+    let mut block = Block {
+        id: new_id(),
+        board_id: board.id.clone(),
+        block_type: BlockType::Card,
+        ..Block::default()
+    };
+    ts.app
+        .store()
+        .insert_block(&mut block, &user)
+        .await
+        .expect("card stored");
+    let token = ts.share(&board.id).await;
+    let mut member = ts.client.connect_websocket().await;
+    let mut reader = ts.anonymous().as_browser().connect_websocket().await;
+    subscribe(
+        &ts,
+        &mut member,
+        json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": ROOT_WORKSPACE_ID}),
+        Moment::Registered,
+    )
+    .await;
+    subscribe(&ts, &mut reader, json!({"action": "SUBSCRIBE_BLOCKS", "workspaceId": ROOT_WORKSPACE_ID, "blockIds": [block.id], "readToken": token}), Moment::Registered).await;
+    let reads = Reads::default();
+    assert!(
+        ts.app.store().observe(Box::new(reads.clone())),
+        "observer installed once"
+    );
+    ts.app
+        .ws()
+        .broadcast_block_change(ROOT_WORKSPACE_ID, &block)
+        .await;
+    updated(&mut member, "member").await;
+    updated(&mut reader, "reader").await;
+    assert!(
+        reads.0.load(Ordering::Relaxed) > 0,
+        "cold dispatch reads permissions"
+    );
+    let revision = ts.app.store().visibility_version().await;
+    assert!(
+        revision.cacheable(),
+        "normal setup leaves a cacheable revision"
+    );
+    // A real card write, including its history, must not flush permission caches.
+    let _next = stored_card(&ts, &board.id, &user).await;
+    assert_eq!(revision, ts.app.store().visibility_version().await);
+    reads.0.store(0, Ordering::Relaxed);
+    let started = std::time::Instant::now();
+    let mut dispatch_time = Duration::ZERO;
+    for _ in 0..200 {
+        let dispatch = std::time::Instant::now();
+        ts.app
+            .ws()
+            .broadcast_block_change(ROOT_WORKSPACE_ID, &block)
+            .await;
+        dispatch_time += dispatch.elapsed();
+        updated(&mut member, "member").await;
+        updated(&mut reader, "reader").await;
+    }
+    let count = reads.0.load(Ordering::Relaxed);
+    println!(
+        "dispatch measurement: db={:?}, messages=200, recipients=2, reads={count}, dispatch_us={}, elapsed_us={}",
+        ts.app.store().db_type(),
+        dispatch_time.as_micros(),
+        started.elapsed().as_micros()
+    );
+    assert_eq!(count, 0, "warm dispatch performs no database round trips");
+    ts.app.store().execute_unchecked(&format!("DELETE FROM workspace_members WHERE user_id = '{user}' AND workspace_id = '{ROOT_WORKSPACE_ID}'")).await.expect("membership revoked below app hooks");
+    assert_ne!(revision, ts.app.store().visibility_version().await);
+    // User-directed messages must also recheck, not only board updates.
+    ts.app
+        .ws()
+        .broadcast_category_reorder(ROOT_WORKSPACE_ID, &user, &[])
+        .await;
+    closed(&mut member).await;
+    ts.app
+        .ws()
+        .broadcast_block_change(ROOT_WORKSPACE_ID, &block)
+        .await;
+    updated(&mut reader, "reader").await;
+    ts.app
+        .store()
+        .set_sharing(&board.id, fvoci_store::SharingChange::Off, "", &user)
+        .await
+        .expect("sharing revoked below app hooks");
+    ts.app
+        .ws()
+        .broadcast_block_change(ROOT_WORKSPACE_ID, &block)
+        .await;
+    closed(&mut reader).await;
+    ts.teardown().await;
+}
+
+#[tokio::test]
+async fn revocation_between_dispatch_check_and_queue_is_rechecked() {
+    for public in [false, true] {
+        let ts = Setup::local_mode().start().await.init_basic().await;
+        let user = ts.client.me().await.id;
+        let board = ts.create_board(ROOT_WORKSPACE_ID, BoardType::Private).await;
+        assert!(
+            ts.app.finish_background(WAIT).await,
+            "fixture announcements finish before subscribing"
+        );
+        let mut block = Block {
+            id: new_id(),
+            board_id: board.id.clone(),
+            block_type: BlockType::Card,
+            ..Block::default()
+        };
+        ts.app
+            .store()
+            .insert_block(&mut block, &user)
+            .await
+            .expect("stored card");
+        let mut socket = if public {
+            ts.anonymous().as_browser().connect_websocket().await
+        } else {
+            ts.client.connect_websocket().await
+        };
+        let command = if public {
+            let token = ts.share(&board.id).await;
+            json!({"action": "SUBSCRIBE_BLOCKS", "workspaceId": ROOT_WORKSPACE_ID, "blockIds": [block.id], "readToken": token})
+        } else {
+            json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": ROOT_WORKSPACE_ID})
+        };
+        subscribe(&ts, &mut socket, command, Moment::Registered).await;
+        let pause = ts.app.ws().pause_next_dispatch();
+        let app = ts.app.clone();
+        let sending = tokio::spawn(async move {
+            app.ws()
+                .broadcast_block_change(ROOT_WORKSPACE_ID, &block)
+                .await;
+        });
+        tokio::time::timeout(WAIT, pause.reached())
+            .await
+            .expect("dispatch passed authorization");
+        if public {
+            ts.app
+                .store()
+                .set_sharing(&board.id, fvoci_store::SharingChange::Off, "", &user)
+                .await
+                .expect("sharing ends without connection hook");
+        } else {
+            ts.app
+                .store()
+                .execute_unchecked(&format!(
+                    "DELETE FROM board_members WHERE board_id = '{}' AND user_id = '{user}'",
+                    board.id
+                ))
+                .await
+                .expect("board membership ends without connection hook");
+        }
+        pause.resume();
+        sending.await.expect("dispatch ends");
+        if public {
+            closed(&mut socket).await;
+        } else {
+            ts.app
+                .ws()
+                .broadcast_category_reorder(ROOT_WORKSPACE_ID, &user, &[])
+                .await;
+            tokio::time::timeout(WAIT, async {
+                while let Some(frame) = socket.next().await {
+                    if let Message::Text(text) = frame.expect("frame") {
+                        let message: Value = serde_json::from_str(&text).expect("JSON");
+                        assert_eq!(
+                            message["action"], "REORDER_CATEGORIES",
+                            "the stale private block was not queued"
+                        );
+                        return;
+                    }
+                }
+                panic!("the workspace connection remains usable");
+            })
+            .await
+            .expect("category barrier");
+        }
+        ts.teardown().await;
+    }
+}

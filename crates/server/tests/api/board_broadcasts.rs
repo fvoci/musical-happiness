@@ -50,7 +50,7 @@ impl WorkspaceSocket {
             ..Category::default()
         };
         for _ in 0..50 {
-            th.app.ws().broadcast_category_change(&probe);
+            th.app.ws().broadcast_category_change(&probe).await;
             if socket.next(Duration::from_millis(100)).await.is_some() {
                 socket.drain().await;
                 return socket;

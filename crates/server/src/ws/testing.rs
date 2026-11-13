@@ -66,3 +66,34 @@ impl Hub {
         }
     }
 }
+
+impl Hub {
+    /// Pauses the next authorized dispatch before its final revision check and enqueue.
+    ///
+    /// # Panics
+    /// Panics when another dispatch pause is installed.
+    pub fn pause_next_dispatch(&self) -> SubscriptionPause {
+        let pause = SubscriptionPause::default();
+        let mut next = self
+            .inner
+            .dispatch_pause
+            .lock()
+            .expect("dispatch test pause lock");
+        assert!(next.is_none(), "only one dispatch may be paused");
+        *next = Some(pause.clone());
+        pause
+    }
+
+    pub(super) async fn pause_dispatch(&self) {
+        let pause = self
+            .inner
+            .dispatch_pause
+            .lock()
+            .expect("dispatch test pause lock")
+            .take();
+        if let Some(pause) = pause {
+            pause.reached.notify_one();
+            pause.resumed.notified().await;
+        }
+    }
+}

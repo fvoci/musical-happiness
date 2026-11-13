@@ -22,7 +22,10 @@ impl Hub {
     /// connects again.
     pub fn close_readers_of_board(&self, board_id: &str) {
         self.close_where(Disconnect::ShareEnded, |listener| {
-            listener.shared_boards.iter().any(|board| board == board_id)
+            listener
+                .shared_boards
+                .iter()
+                .any(|permit| permit.board == board_id)
         });
     }
 

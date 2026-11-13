@@ -268,6 +268,7 @@ pub(crate) struct Scope<'c> {
     /// given up while such a statement is under way is told as one that wrote
     /// ([`crate::observe::Watch`]).
     writes: Option<&'c AtomicBool>,
+    visibility: Option<&'c crate::visibility::Writing<'c>>,
     /// How many earlier versions of a comment are kept
     /// ([`crate::Store::set_comment_versions_kept`]).
     comment_versions_kept: usize,
@@ -311,6 +312,7 @@ impl<'c> Scope<'c> {
             tenant,
             wrote: false,
             writes: None,
+            visibility: None,
             comment_versions_kept,
         }
     }
@@ -320,8 +322,21 @@ impl<'c> Scope<'c> {
         Self { writes, ..self }
     }
 
+    pub(crate) fn tracking_visibility(
+        self,
+        visibility: &'c crate::visibility::Writing<'c>,
+    ) -> Self {
+        Self {
+            visibility: Some(visibility),
+            ..self
+        }
+    }
+
     /// Notes that a statement that may write starts.
-    fn starts_writing(&mut self) {
+    fn starts_writing(&mut self, text: &str) {
+        if let Some(visibility) = self.visibility {
+            visibility.statement(text);
+        }
         self.wrote = true;
         if let Some(writes) = self.writes {
             writes.store(true, Ordering::Relaxed);
@@ -397,7 +412,7 @@ impl<'c> Scope<'c> {
     /// A value bound as an identifier that is not one matches no row.
     pub(crate) async fn fetch_all(&mut self, sql: Sql) -> Result<Vec<Row>, StoreError> {
         if !is_plain_select(&sql.text) {
-            self.starts_writing();
+            self.starts_writing(&sql.text);
         }
         // The text is built from literals in this crate; every value is a bound
         // parameter.
@@ -433,7 +448,7 @@ impl<'c> Scope<'c> {
         if let Some(invalid) = sql.invalid_id {
             return Err(StoreError::InvalidId(invalid));
         }
-        self.starts_writing();
+        self.starts_writing(&sql.text);
         let text = AssertSqlSafe(sql.text);
         match &mut self.conn {
             ConnRef::Sqlite(conn) => Ok(bind_params!(sqlx::query(text), sql.params, sqlite_id)
