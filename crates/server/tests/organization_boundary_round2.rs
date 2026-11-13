@@ -9,6 +9,9 @@ mod routes;
 #[path = "organization_boundary_round2/workspace_app.rs"]
 mod workspace_app;
 
+#[path = "organization_boundary_round2/workspace_operations.rs"]
+mod workspace_operations;
+
 #[path = "organization_boundary_round2/media.rs"]
 mod media;
 
