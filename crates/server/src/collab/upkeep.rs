@@ -255,8 +255,9 @@ impl Collab {
         self.close_number(open.worker, open.generation, open.number)
             .await;
         let number = self.next_number();
-        let (generation, state, state_bytes) =
-            self.open_from_body(open.worker, number, body).await?;
+        let (generation, state, state_bytes) = self
+            .open_from_body(open.worker, number, body, open.share())
+            .await?;
         open.generation = generation;
         open.number = number;
         let digest = digest_of(body);
@@ -395,6 +396,7 @@ impl Collab {
     async fn write_when_due(&self, app: &App, card_id: &str) {
         loop {
             let due = {
+                let _gate = self.reading(app.store().tenant()).await;
                 let Some(mut slot) = self.existing_slot(app, card_id).await else {
                     return;
                 };
@@ -408,6 +410,7 @@ impl Collab {
                 due
             };
             sleep_until(due).await;
+            let _gate = self.reading(app.store().tenant()).await;
             let Some(mut slot) = self.existing_slot(app, card_id).await else {
                 return;
             };
