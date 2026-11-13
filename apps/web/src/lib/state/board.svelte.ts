@@ -37,7 +37,7 @@ import {
   type ViewDraft,
 } from './backend.ts';
 import { copyOfCard } from './card-copy.ts';
-import { BoardWrites } from './board-writes.ts';
+import { BoardWrites, patchCardOrStored, patchViewOrStored } from './board-writes.ts';
 import { dropCardsOn } from './card-drop.ts';
 import { CardStore } from './card.svelte.ts';
 import { Inverses } from './inverses.ts';
@@ -447,7 +447,7 @@ export class BoardStore {
     this.#cardWrites.begin(cardId);
     try {
       const answer = await this.#cardInverses.write(cardId, patch, reverse, () =>
-        this.#backend.patchCard(this.boardId, cardId, patch),
+        patchCardOrStored(this.#backend, this.boardId, cardId, patch),
       );
       const latest = this.#cardWrites.end(cardId, answer);
       if (latest) {
@@ -592,7 +592,7 @@ export class BoardStore {
     this.#viewWrites.begin(viewId);
     try {
       const answer = await this.#viewInverses.write(viewId, patch, reverse, () =>
-        this.#backend.patchView(this.boardId, viewId, patch),
+        patchViewOrStored(this.#backend, this.boardId, viewId, patch),
       );
       const latest = this.#viewWrites.end(viewId, answer);
       if (latest) this.views = take(this.views, latest);

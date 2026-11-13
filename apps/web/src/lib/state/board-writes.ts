@@ -1,10 +1,23 @@
-/** Board writes restore only their own optimistic values when refused. */
-import type { Board, BoardPatch } from '../logic/wire.ts';
+/**
+ * The writes of a board, its cards and its views. A refused board write
+ * restores only its own optimistic values.
+ *
+ * A write whose answer was lost (no answer came: status 0) may have been
+ * stored all the same. Before it is taken for refused (its step leaves the
+ * history, the screen takes it back), the thing is read again: when what is
+ * stored already says everything the write said, the write was stored, and
+ * that reading is its answer. A refusal the server answered is a refusal.
+ * What is stored may say the same because somebody else wrote the same
+ * meanwhile; the write is then taken for stored too, which is what the
+ * screen shows either way.
+ */
+import type { BlockPatch, Board, BoardPatch } from '../logic/wire.ts';
 
+import { isBackendError, type Backend, type CardPatch, type CardSummary } from './backend.ts';
 import type { BoardStore } from './board.svelte.ts';
 import { InverseValues, sameValue } from './inverse-values.ts';
 import { Inverses } from './inverses.ts';
-import { applyBoardPatch } from './patches.ts';
+import { applyBoardPatch, applyCardPatch, applyViewPatch } from './patches.ts';
 import { PendingWrites } from './write.ts';
 
 export class BoardWrites {
@@ -39,7 +52,7 @@ export class BoardWrites {
         host.boardId,
         written,
         reverse,
-        () => host.workspace.backend.patchBoard(host.boardId, written),
+        () => patchBoardOrStored(host.workspace.backend, host.boardId, written),
         (refused) => {
           restore = refused;
         },
@@ -66,4 +79,61 @@ export class BoardWrites {
     }
     return applyBoardPatch(shown, own);
   }
+}
+
+/** `send`'s answer, or, when it was lost, what `read` finds if `says` it holds the write. */
+export async function answeredOrStored<T>(
+  send: () => Promise<T>,
+  read: () => Promise<T | undefined>,
+  says: (stored: T) => boolean,
+): Promise<T> {
+  try {
+    return await send();
+  } catch (error) {
+    if (!isBackendError(error) || error.status !== 0) throw error;
+    const stored = await read().catch(() => undefined);
+    if (stored !== undefined && says(stored)) return stored;
+    throw error;
+  }
+}
+
+export function patchBoardOrStored(
+  backend: Backend,
+  boardId: string,
+  patch: BoardPatch,
+): Promise<Board> {
+  return answeredOrStored(
+    () => backend.patchBoard(boardId, patch),
+    () => backend.board(boardId),
+    (stored) => sameValue(applyBoardPatch(stored, patch), stored),
+  );
+}
+
+export function patchCardOrStored(
+  backend: Backend,
+  boardId: string,
+  cardId: string,
+  patch: CardPatch,
+): Promise<CardSummary> {
+  return answeredOrStored(
+    () => backend.patchCard(boardId, cardId, patch),
+    async () => {
+      const { body: _body, ...card } = await backend.card(boardId, cardId);
+      return card;
+    },
+    (stored) => sameValue(applyCardPatch(stored, patch), stored),
+  );
+}
+
+export function patchViewOrStored(
+  backend: Backend,
+  boardId: string,
+  viewId: string,
+  patch: BlockPatch,
+) {
+  return answeredOrStored(
+    () => backend.patchView(boardId, viewId, patch),
+    async () => (await backend.views(boardId)).find((view) => view.id === viewId),
+    (stored) => sameValue(applyViewPatch(stored, patch), stored),
+  );
 }
