@@ -5,13 +5,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use fvoci_store::Tenant;
-use tokio::sync::{Mutex, OwnedMutexGuard};
+use tokio::sync::{Mutex, OwnedMutexGuard, OwnedSemaphorePermit};
 use tokio::time::Instant;
 
 use super::worker::CallError;
 use super::{Collab, DocChange, DocEvent, refusals, taken_from};
 use crate::app::App;
-use crate::collab_worker::wire::{Answer, DocNumber, Request};
+use crate::collab_worker::wire::{Answer, DocNumber, Request, Share};
 use crate::error::AppError;
 
 /// How long a document that ended its worker twice, the second within
@@ -87,6 +87,21 @@ pub(super) struct OpenDoc {
     pub(super) writing_scheduled: bool,
     /// Not before when its body is written again, after a write that failed.
     pub(super) retry_at: Option<Instant>,
+    /// Opened aside ([`Share::Aside`]), only to write its log to its card: its place
+    /// in the server's share aside, given back as it is closed. `None` for a document
+    /// counted in its worker's load.
+    pub(super) aside: Option<OwnedSemaphorePermit>,
+}
+
+impl OpenDoc {
+    /// The share of its worker's documents it is counted in.
+    pub(super) fn share(&self) -> Share {
+        if self.aside.is_some() {
+            Share::Aside
+        } else {
+            Share::Kept
+        }
+    }
 }
 
 impl OpenDoc {
@@ -177,7 +192,9 @@ impl Collab {
     /// Closes the document in its worker, if it is open, and forgets it.
     pub(super) async fn forget(&self, slot: &mut Held) {
         if let Some(open) = slot.open.take() {
-            taken_from(&self.inner.loads[open.worker]);
+            if open.aside.is_none() {
+                taken_from(&self.inner.loads[open.worker]);
+            }
             self.close_number(open.worker, open.generation, open.number)
                 .await;
         }
@@ -208,8 +225,14 @@ impl Collab {
             {
                 Ok((_, answer)) => return Ok(answer),
                 Err(CallError::Lost) => {
+                    let aside = open.aside.is_some();
                     self.lost(slot);
                     self.tell(app, card_id, DocChange::Reopened);
+                    if aside {
+                        // Opened aside for its log alone: not opened again in the kept
+                        // share, which may be full; the log stays for the next try.
+                        return Err(refusals::unavailable());
+                    }
                 }
                 Err(CallError::Refused(refused)) => {
                     return Err(refusals::refused(&refused, &self.inner.limits));
@@ -244,13 +267,10 @@ impl Collab {
         if slot.open.is_some() {
             return Ok(());
         }
-        if slot
-            .closed_until
-            .is_some_and(|until| until > Instant::now())
-        {
+        if closed_for_a_while(slot) {
             return Err(refusals::unavailable());
         }
-        let error = match self.open_stored(app, card_id).await {
+        let error = match self.open_stored(app, card_id, None).await {
             Ok(open) => {
                 let past_limit = open.state_bytes > self.inner.limits.state_bytes;
                 slot.open = Some(open);
@@ -276,6 +296,40 @@ impl Collab {
         Err(error)
     }
 
+    /// Opens the document aside ([`Share::Aside`]), only to write its log to its card:
+    /// within the server's share aside, waiting for a place in it, so that a server
+    /// that holds as many documents as it may still writes a log. Closed by the one
+    /// that opened it ([`Collab::forget`]) before the slot is let go.
+    ///
+    /// # Errors
+    ///
+    /// As [`Collab::ensure_open`].
+    pub(super) async fn open_aside(
+        &self,
+        app: &App,
+        card_id: &str,
+        slot: &mut Held,
+    ) -> Result<(), AppError> {
+        if closed_for_a_while(slot) {
+            return Err(refusals::unavailable());
+        }
+        let place = Arc::clone(&self.inner.aside)
+            .acquire_owned()
+            .await
+            .map_err(|_| refusals::unavailable())?;
+        match self.open_stored(app, card_id, Some(place)).await {
+            Ok(open) => {
+                slot.open = Some(open);
+                Ok(())
+            }
+            Err(Opening::Refused(error)) => Err(error),
+            Err(Opening::Died) => {
+                died_over(slot);
+                Err(refusals::unavailable())
+            }
+        }
+    }
+
     /// Opens the document if it is not open, and refuses a request made against
     /// another making of it than `epoch` (`update_out_of_step`).
     ///
@@ -295,7 +349,9 @@ impl Collab {
 
     /// Forgets a document whose worker is gone.
     pub(super) fn lost(&self, slot: &mut Slot) {
-        if let Some(open) = slot.open.take() {
+        if let Some(open) = slot.open.take()
+            && open.aside.is_none()
+        {
             taken_from(&self.inner.loads[open.worker]);
         }
     }
@@ -309,6 +365,12 @@ impl Collab {
             change,
         });
     }
+}
+
+/// Whether the document is closed for a while, after its worker ended over it.
+fn closed_for_a_while(slot: &Slot) -> bool {
+    slot.closed_until
+        .is_some_and(|until| until > Instant::now())
 }
 
 /// Counts a death of the worker over the document, and closes the document for a
