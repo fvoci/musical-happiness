@@ -55,7 +55,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 }
 
 /// The workspace for a user who may import into it: any signed-in user who works in it
-/// ([`Ws::require_works_there`]) and is no guest of the server.
+/// ([`Ws::require_no_guest`]) and is no guest of the server.
 ///
 /// # Errors
 ///
@@ -68,12 +68,12 @@ pub(super) async fn require_import_access(
 ) -> Result<Ws, AppError> {
     let ws = Ws::enter(app, session, workspace_id)
         .await?
-        .require_works_there()?;
+        .require_no_guest()?;
     admit_import(ws).await
 }
 
 /// The workspace entered, if the user may import into it: who is no guest of the
-/// instance (who works there is asked before, `Ws::require_works_there`).
+/// instance (who works there is asked before, `Ws::require_no_guest`).
 async fn admit_import(ws: Ws) -> Result<Ws, AppError> {
     if user_is_guest(&ws.app, &ws.session.user_id).await? {
         return Err(AppError::forbidden(IMPORT_DENIAL));
@@ -228,7 +228,7 @@ async fn handle_export_workspace(
     )),
 )]
 async fn handle_import(ws: Ws, body: Bytes) -> ApiResult {
-    let ws = ws.require_works_there()?;
+    let ws = ws.require_no_guest()?;
     let user_id = ws.session.user_id.clone();
     // The workspace is entered, and the user works there, before the body is read; the
     // upload is one of the workspace (`App::workspace_upload`), and a guest of the

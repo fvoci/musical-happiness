@@ -6,6 +6,9 @@ mod common;
 #[path = "organization_boundary_round2/routes.rs"]
 mod routes;
 
+#[path = "organization_boundary_round2/workspace_app.rs"]
+mod workspace_app;
+
 #[path = "organization_boundary_round2/media.rs"]
 mod media;
 

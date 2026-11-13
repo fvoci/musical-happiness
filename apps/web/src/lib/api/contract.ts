@@ -5480,7 +5480,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization. */
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
                 workspaceId: string;
             };
             cookie?: never;
@@ -5548,7 +5548,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization. */
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
                 workspaceId: string;
             };
             cookie?: never;
@@ -5584,7 +5584,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization. */
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
                 workspaceId: string;
             };
             cookie?: never;
@@ -5836,7 +5836,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization. */
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
                 workspaceId: string;
             };
             cookie?: never;
@@ -7097,7 +7097,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too, and it is of the server's organization. */
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
                 workspaceId: string;
             };
             cookie?: never;
@@ -7129,7 +7129,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization. */
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
                 workspaceId: string;
             };
             cookie?: never;
@@ -7165,7 +7165,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization. */
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
                 workspaceId: string;
                 /** @description The identifier of the category, one of the user's own. */
                 categoryId: string;
@@ -7203,7 +7203,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization. */
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
                 workspaceId: string;
                 /** @description The identifier of the category, one of the user's own. */
                 categoryId: string;
@@ -7235,7 +7235,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization. */
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
                 workspaceId: string;
                 /** @description The identifier of the category, one of the user's own. */
                 categoryId: string;
@@ -7273,7 +7273,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization. */
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
                 workspaceId: string;
                 /** @description The identifier of the category, one of the user's own. */
                 categoryId: string;
@@ -7307,7 +7307,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization. */
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
                 workspaceId: string;
                 /** @description The identifier of the category, one of the user's own. */
                 categoryId: string;
@@ -7341,7 +7341,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization. */
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
                 workspaceId: string;
                 /** @description The identifier of the category, one of the user's own. */
                 categoryId: string;
@@ -7375,7 +7375,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization. */
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
                 workspaceId: string;
             };
             cookie?: never;
@@ -7649,7 +7649,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization. */
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
                 workspaceId: string;
             };
             cookie?: never;
@@ -7785,7 +7785,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization. */
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
                 workspaceId: string;
             };
             cookie?: never;
@@ -7822,7 +7822,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization. */
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
                 workspaceId: string;
             };
             cookie?: never;
@@ -7998,7 +7998,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too, and it is of the server's organization. */
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
                 workspaceId: string;
             };
             cookie?: never;
@@ -8030,7 +8030,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too, and it is of the server's organization. */
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
                 workspaceId: string;
             };
             cookie?: never;
@@ -8066,7 +8066,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too, and it is of the server's organization. */
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
                 workspaceId: string;
                 /** @description The identifier of the user. */
                 userId: string;

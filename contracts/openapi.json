@@ -5577,7 +5577,7 @@
         "operationId": "getWorkspace",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
@@ -5681,7 +5681,7 @@
         "operationId": "importArchive",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
@@ -5734,7 +5734,7 @@
         "operationId": "createImportUpload",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
@@ -6098,7 +6098,7 @@
         "operationId": "searchWorkspaceBoards",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
@@ -8225,7 +8225,7 @@
         "operationId": "getCategories",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
@@ -8269,7 +8269,7 @@
         "operationId": "createCategory",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
@@ -8322,7 +8322,7 @@
         "operationId": "deleteCategory",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
@@ -8365,7 +8365,7 @@
         "operationId": "updateCategory",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
@@ -8427,7 +8427,7 @@
         "operationId": "reorderCategoryBoards",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
@@ -8495,7 +8495,7 @@
         "operationId": "setBoardCategory",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
@@ -8549,7 +8549,7 @@
         "operationId": "hideBoard",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
@@ -8603,7 +8603,7 @@
         "operationId": "unhideBoard",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
@@ -8657,7 +8657,7 @@
         "operationId": "reorderCategories",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
@@ -9062,7 +9062,7 @@
         "operationId": "onboard",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
@@ -9267,7 +9267,7 @@
         "operationId": "getTemplates",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
@@ -9313,7 +9313,7 @@
         "operationId": "getDeletedBoards",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
@@ -9602,7 +9602,7 @@
         "operationId": "getWorkspaceUsers",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
@@ -9655,7 +9655,7 @@
         "operationId": "getWorkspaceUsersById",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
@@ -9711,7 +9711,7 @@
         "operationId": "getWorkspaceUser",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
             "in": "path",
             "name": "workspaceId",
             "required": true,

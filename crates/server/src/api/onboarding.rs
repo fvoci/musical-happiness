@@ -10,7 +10,7 @@ use utoipa_axum::routes;
 use super::contract::params::WorkspaceId;
 use super::contract::tag;
 
-use super::workspace::WorksIn;
+use super::workspace::TextWs;
 use super::{ApiResult, json_response, user_is_guest};
 use crate::app::App;
 use crate::error::AppError;
@@ -43,7 +43,8 @@ pub(super) fn routes() -> OpenApiRouter<App> {
     params(WorkspaceId),
     responses((status = 200, description = "Where the tour's board is.", body = OnboardingStart)),
 )]
-async fn handle_onboard(WorksIn(ws): WorksIn) -> ApiResult {
+async fn handle_onboard(TextWs(ws): TextWs) -> ApiResult {
+    let ws = ws.require_no_guest()?;
     let (app, user_id, workspace_id) = (&ws.app, ws.session.user_id.as_str(), &ws.workspace_id);
     if user_is_guest(app, user_id).await? {
         return Err(AppError::forbidden("access denied to create board"));

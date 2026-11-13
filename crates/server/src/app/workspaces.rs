@@ -24,9 +24,6 @@ pub struct Entered {
     /// What the user is in the workspace's organization; `None` for somebody who is in
     /// the workspace without belonging to the organization.
     pub org_role: Option<OrgRole>,
-    /// Whether the workspace is in the organization this application stood in, the
-    /// one of the routes that name no workspace.
-    pub home: bool,
 }
 
 impl App {
@@ -61,8 +58,7 @@ impl App {
 
 impl App {
     /// Lets a member into a workspace; `None` unless the user is a member of it,
-    /// whether it exists or not. [`Entered::home`] is told against the organization
-    /// this application stands in: the server's, for the one the routes are given.
+    /// whether it exists or not.
     ///
     /// # Errors
     ///
@@ -81,12 +77,10 @@ impl App {
             return Ok(None);
         };
         let app = self.in_organization(&access.org_id)?;
-        let home = app.store().tenant() == self.store().tenant();
         Ok(Some(Entered {
             app,
             role: access.workspace_role,
             org_role: access.org_role,
-            home,
         }))
     }
 
@@ -130,7 +124,7 @@ impl App {
     /// Whether the user works in the workspace: a member of the workspace who is no guest.
     /// This is what the routes that name a workspace in their body or query, and not under
     /// `/w/{workspaceId}`, ask before anything else; for anybody else the workspace is not
-    /// there. The routes under a workspace ask it of their path (`WorksIn`).
+    /// there. The routes under a workspace ask it of their path (`Ws::require_no_guest`).
     ///
     /// A guest of a workspace is on the boards they were invited to and reaches those
     /// by their board; what a member of the workspace may do (see its boards, make one,

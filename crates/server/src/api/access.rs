@@ -295,7 +295,7 @@ pub(crate) async fn require_board_visible(
 ///
 /// For the copy of a board, whose query names the workspace it goes to besides the one of
 /// the path: it asks the same fact the routes under a workspace ask (`api/workspace.rs`,
-/// `WorksIn`).
+/// `Ws::require_no_guest`).
 pub(crate) async fn require_workspace_access(
     app: &App,
     user_id: &str,

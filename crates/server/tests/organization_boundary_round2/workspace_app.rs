@@ -1,0 +1,162 @@
+//! The workspace app is usable by a person who starts the second organization.
+
+use fvoci_model::{Board, Category, UserWorkspace};
+use fvoci_store::DbType;
+use serde_json::json;
+
+use super::common::{Client, PASSWORD, Setup};
+use super::{db_type_of_the_tests, open};
+
+#[tokio::test]
+async fn a_second_founder_can_use_the_workspace_app() {
+    if db_type_of_the_tests() != DbType::Postgres {
+        return;
+    }
+    let server = Setup::native()
+        .configure(open)
+        .on_an_empty_database()
+        .with_templates()
+        .start()
+        .await;
+    let mut workspaces = Vec::new();
+    for name in ["first", "second"] {
+        server
+            .anonymous()
+            .post(
+                "/register",
+                &json!({
+                    "username": name, "email": format!("{name}@example.test"),
+                    "password": PASSWORD, "organizationName": name,
+                }),
+            )
+            .await
+            .check_created();
+        let client = server.login(name, PASSWORD).await;
+        let listed: Vec<UserWorkspace> = client.get("/users/me/workspaces").await.ok_json();
+        assert_eq!(listed.len(), 1, "a founder sees only their own workspace");
+        let workspace = &listed[0].id;
+        exercise_workspace(&client, workspace, name).await;
+        workspaces.push((client, workspace.clone()));
+    }
+    for (client, _) in &workspaces {
+        let own: Vec<UserWorkspace> = client.get("/users/me/workspaces").await.ok_json();
+        for (_, workspace) in &workspaces {
+            if workspace != &own[0].id {
+                for suffix in ["", "/categories", "/templates", "/users", "/trash/boards"] {
+                    client
+                        .get(&format!("/w/{workspace}{suffix}"))
+                        .await
+                        .check_not_found();
+                }
+            }
+        }
+    }
+    server.teardown().await;
+}
+
+async fn exercise_workspace(client: &Client, workspace: &str, name: &str) {
+    let path = format!("/w/{workspace}");
+    client.get(&path).await.check_ok();
+    let user = client.me().await;
+    let category: Category = client
+        .post(
+            &format!("{path}/categories"),
+            &json!({
+                "name": name, "userId": user.id, "workspaceId": workspace,
+            }),
+        )
+        .await
+        .created_json();
+    let templates: Vec<Board> = client.get(&format!("{path}/templates")).await.ok_json();
+    assert!(
+        !templates.is_empty(),
+        "built-in templates are offered to both founders"
+    );
+    let copied = client
+        .post(
+            &format!("{path}/boards/{}/duplicate", templates[0].id),
+            &json!({}),
+        )
+        .await;
+    copied.check_created();
+    let board = copied.value()["boards"][0]["id"]
+        .as_str()
+        .expect("the copied board")
+        .to_owned();
+    client
+        .patch(&format!("{path}/boards/{board}"), &json!({"title": name}))
+        .await
+        .check_ok();
+    client
+        .post(
+            &format!("{path}/categories/{}/boards/{board}", category.id),
+            &json!({}),
+        )
+        .await
+        .check_no_content();
+    for action in ["hide", "unhide"] {
+        client
+            .put(
+                &format!("{path}/categories/{}/boards/{board}/{action}", category.id),
+                &json!({}),
+            )
+            .await
+            .check_no_content();
+    }
+    client
+        .put(
+            &format!("{path}/categories/{}/board-order", category.id),
+            &json!([board]),
+        )
+        .await
+        .check_ok();
+    let categories = client.get(&format!("{path}/categories")).await;
+    categories.check_ok();
+    assert!(
+        categories.text().contains(&board),
+        "the board is in its category"
+    );
+    let found: Vec<Board> = client
+        .get(&format!("{path}/boards/search?q={name}"))
+        .await
+        .ok_json();
+    assert_eq!(found.len(), 1, "search finds this founder's board");
+    assert_eq!(found[0].id, board, "search returns the copied board");
+    exercise_people_and_trash(client, &path, &user.id, &board).await;
+    client
+        .post(&format!("{path}/onboard"), &json!({}))
+        .await
+        .check_ok();
+    client
+        .delete(&format!("{path}/categories/{}", category.id))
+        .await
+        .check_no_content();
+}
+
+async fn exercise_people_and_trash(client: &Client, path: &str, user_id: &str, board: &str) {
+    for suffix in ["/users".to_owned(), format!("/users/{user_id}")] {
+        client.get(&format!("{path}{suffix}")).await.check_ok();
+    }
+    client
+        .post(&format!("{path}/users"), &json!([user_id]))
+        .await
+        .check_ok();
+    client
+        .get(&format!("{path}/archive/export"))
+        .await
+        .check_ok();
+    client
+        .delete(&format!("{path}/boards/{board}"))
+        .await
+        .check_no_content();
+    let trash = client.get(&format!("{path}/trash/boards")).await;
+    trash.check_ok();
+    assert!(
+        trash.text().contains(board),
+        "the deleted board is in the trash"
+    );
+    client
+        .post(&format!("{path}/boards/{board}/undelete"), &json!({}))
+        .await
+        .check_ok();
+}
