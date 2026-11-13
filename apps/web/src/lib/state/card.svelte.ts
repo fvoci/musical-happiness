@@ -154,6 +154,8 @@ export class CardStore {
     const opened = backend.openDoc(workspaceId, this.#boardId, this.cardId, {
       state: (state) => {
         if (this.#bodyDoc !== opened) return;
+        const shut = state.status === 'out' && state.reason === 'not_found';
+        if (shut && this.room?.reason !== 'not_found') void this.#stillThere();
         this.room = state;
         this.#showSaving(state.pending);
         // Without the room's document the body is the card's again: read what was missed.
@@ -165,6 +167,20 @@ export class CardStore {
     });
     this.#bodyDoc = opened;
     this.room = opened.state;
+  }
+
+  /**
+   * The room let the reader go as it does for a card that is not there: the
+   * card was deleted, or is no longer the reader's to read (taken off its
+   * board, out of its workspace). Which one, the card says.
+   */
+  async #stillThere(): Promise<void> {
+    try {
+      await this.#backend.card(this.#boardId, this.cardId);
+    } catch (error) {
+      const gone = isBackendError(error) && (error.status === 403 || error.status === 404);
+      if (gone && !this.#closed) this.missing = true;
+    }
   }
 
   #showSaving(pending: boolean): void {

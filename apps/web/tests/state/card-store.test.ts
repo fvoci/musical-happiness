@@ -18,6 +18,22 @@ async function openAlpha() {
   return { ...made, card, cardId: alpha.id };
 }
 
+/** Alpha open with its body in its room, and a way to have the reader taken off the board. */
+async function inTheRoom() {
+  const made = await openAlpha();
+  const { card, board, backend, world } = made;
+  card.openBody();
+  await vi.waitFor(() => {
+    expect(card.room?.status).toBe('joined');
+  });
+  const me = board.workspace.me?.id ?? '';
+  const otherId = [...world.users.keys()].find((id) => id !== me) ?? '';
+  await backend.addMember(board.boardId, otherId, 'admin');
+  await backend.setMemberRole(board.boardId, otherId, 'admin');
+  const takenOff = () => made.other.removeMember(board.boardId, me);
+  return { ...made, takenOff };
+}
+
 describe('an open card', () => {
   it('reads the body, the comments and the attachments, oldest first', async () => {
     const { card } = await openAlpha();
@@ -114,6 +130,32 @@ describe('an open card', () => {
     card.dismissLost();
     expect(card.lost).toEqual([]);
     card.close();
+  });
+
+  it('is missing when its room lets the reader go and the card is no longer theirs to read', async () => {
+    const { card, takenOff } = await inTheRoom();
+    // Read again, the card is not there for the reader any more, as the server answers.
+    await takenOff();
+    await vi.waitFor(() => {
+      expect(card.room?.reason).toBe('not_found');
+    });
+    await vi.waitFor(() => {
+      expect(card.missing).toBe(true);
+    });
+  });
+
+  it('stays when its room lets the reader go but the card can still be read', async () => {
+    const { card, board, cardId, backend, takenOff } = await inTheRoom();
+    // A card that is still read (moved meanwhile, or let in again) is not called gone.
+    const detail = await backend.card(board.boardId, cardId);
+    const read = vi.spyOn(backend, 'card').mockResolvedValue(detail);
+    await takenOff();
+    await vi.waitFor(() => {
+      expect(read).toHaveBeenCalledWith(board.boardId, cardId);
+    });
+    await settle();
+    expect(card.missing).toBe(false);
+    expect(card.room?.reason).toBe('not_found');
   });
 });
 
