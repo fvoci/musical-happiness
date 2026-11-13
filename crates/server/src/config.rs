@@ -21,7 +21,11 @@ pub const ENV_PREFIX: &str = "FVOCI_";
 pub const DEFAULT_MAX_REQUEST_BYTES: u64 = 4 * 1024 * 1024;
 
 pub mod collab;
+mod environment;
 mod keys;
+mod oidc_trust;
+
+use environment::{ENV_KEYS, EnvKind, env_value};
 mod scrapes;
 mod secret_key;
 
@@ -178,6 +182,9 @@ pub struct Configuration {
     /// on its own network. Off, such a provider is neither stored nor signed in
     /// through.
     pub oidc_allow_private_addresses: bool,
+    /// A PEM file of additional certificate authorities trusted by the OIDC client.
+    /// Empty to use only the system roots. Loaded when the client starts.
+    pub oidc_extra_ca_file: String,
     /// The key the server seals what it keeps secret in the database with: the client
     /// secrets of the providers. Read from `FVOCI_SECRET_KEY` only, never from the
     /// file, and never written by `Debug`. Without it no provider can be stored.
@@ -306,6 +313,7 @@ impl Default for Configuration {
             show_full_name: false,
             auth_mode: "native".to_owned(),
             oidc_allow_private_addresses: false,
+            oidc_extra_ca_file: String::new(),
             secret_key: None,
             oidc_extra_root_certificates: Vec::new(),
             org_creation: ORG_CREATION_FIRST_USER_ONLY.to_owned(),
@@ -420,81 +428,6 @@ impl std::fmt::Debug for Configuration {
             .finish_non_exhaustive()
     }
 }
-
-/// How the text of an environment variable becomes a configuration value.
-#[derive(Debug, Clone, Copy)]
-enum EnvKind {
-    Text,
-    Number,
-    Flag,
-    /// A comma-separated list.
-    List,
-}
-
-/// The configuration keys that an environment variable can override, a key of
-/// `filess3config` as `filess3config.<key>`. The variable is [`env_name`] of the key, for
-/// example `FVOCI_SESSION_IDLE_DAYS` and `FVOCI_FILESS3CONFIG_BUCKET`. The S3 credentials
-/// have none: the S3 client reads them from the `AWS_*` variables when `accesskeyid` is
-/// empty.
-const ENV_KEYS: [(&str, EnvKind); 57] = [
-    ("serverroot", EnvKind::Text),
-    ("port", EnvKind::Number),
-    ("dbtype", EnvKind::Text),
-    ("dbconfig", EnvKind::Text),
-    ("dbpingattempts", EnvKind::Number),
-    ("server_lock_wait_seconds", EnvKind::Number),
-    ("usessl", EnvKind::Flag),
-    ("webpath", EnvKind::Text),
-    ("filesdriver", EnvKind::Text),
-    ("filespath", EnvKind::Text),
-    ("filess3config.bucket", EnvKind::Text),
-    ("filess3config.pathprefix", EnvKind::Text),
-    ("filess3config.region", EnvKind::Text),
-    ("filess3config.endpoint", EnvKind::Text),
-    ("filess3config.ssl", EnvKind::Flag),
-    ("filess3config.signv2", EnvKind::Flag),
-    ("filess3config.sse", EnvKind::Flag),
-    ("filess3config.timeout", EnvKind::Number),
-    ("maxfilesize", EnvKind::Number),
-    ("prometheusaddress", EnvKind::Text),
-    ("prometheustoken", EnvKind::Text),
-    ("webhook_update", EnvKind::List),
-    ("allowed_origins", EnvKind::List),
-    ("session_idle_days", EnvKind::Number),
-    ("session_max_days", EnvKind::Number),
-    ("localonly", EnvKind::Flag),
-    ("enablelocalmode", EnvKind::Flag),
-    ("localmodesocketlocation", EnvKind::Text),
-    ("enablepublicsharedboards", EnvKind::Flag),
-    ("teammatenamedisplay", EnvKind::Text),
-    ("showemailaddress", EnvKind::Flag),
-    ("showfullname", EnvKind::Flag),
-    ("authmode", EnvKind::Text),
-    ("oidc_allow_private_addresses", EnvKind::Flag),
-    ("org_creation", EnvKind::Text),
-    ("websocket_ping_seconds", EnvKind::Number),
-    ("compress_responses", EnvKind::Flag),
-    ("max_request_bytes", EnvKind::Number),
-    ("trash_retention_days", EnvKind::Number),
-    ("upload_part_bytes", EnvKind::Number),
-    ("tmp_path", EnvKind::Text),
-    ("max_pending_upload_bytes", EnvKind::Number),
-    ("max_import_bytes", EnvKind::Number),
-    ("max_comment_versions", EnvKind::Number),
-    ("max_concurrent_exports", EnvKind::Number),
-    ("export_stall_seconds", EnvKind::Number),
-    ("max_concurrent_imports", EnvKind::Number),
-    ("trusted_proxies", EnvKind::List),
-    ("login_pair_free_failures", EnvKind::Number),
-    ("login_pair_base_delay_seconds", EnvKind::Number),
-    ("login_pair_max_delay_seconds", EnvKind::Number),
-    ("login_account_max_failures", EnvKind::Number),
-    ("login_account_lock_seconds", EnvKind::Number),
-    ("login_address_attempts_per_minute", EnvKind::Number),
-    ("password_hash_concurrency", EnvKind::Number),
-    ("password_hash_queue", EnvKind::Number),
-    ("password_hash_queue_seconds", EnvKind::Number),
-];
 
 const MILLIS_PER_DAY: i64 = 24 * 60 * 60 * 1000;
 
@@ -970,30 +903,6 @@ fn lower_case_keys(map: Map<String, Value>) -> Map<String, Value> {
     map.into_iter()
         .map(|(key, value)| (key.to_lowercase(), value))
         .collect()
-}
-
-fn env_value(name: &str, text: &str, kind: EnvKind) -> anyhow::Result<Value> {
-    Ok(match kind {
-        EnvKind::Text => Value::from(text),
-        EnvKind::Number => {
-            let number: i64 = text
-                .trim()
-                .parse()
-                .with_context(|| format!("{name}={text:?} is not a whole number"))?;
-            Value::from(number)
-        }
-        EnvKind::Flag => match text.trim().to_lowercase().as_str() {
-            "true" | "1" | "t" | "yes" | "on" => Value::Bool(true),
-            "false" | "0" | "f" | "no" | "off" => Value::Bool(false),
-            _ => bail!("{name}={text:?} is not true or false"),
-        },
-        EnvKind::List => Value::from(
-            text.split(',')
-                .map(str::trim)
-                .filter(|item| !item.is_empty())
-                .collect::<Vec<&str>>(),
-        ),
-    })
 }
 
 #[cfg(test)]

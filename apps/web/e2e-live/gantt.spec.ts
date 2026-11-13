@@ -370,6 +370,8 @@ test('a bar dragged on the page, and an end of it, change the card on the server
    * the change it makes to `cardId` answered by the server.
    */
   const dragBy = async (target: Locator, days: number, cardId: string): Promise<void> => {
+    // Wait for the bar to be stable and hittable before taking its coordinates.
+    await target.hover();
     const box = await target.boundingBox();
     if (!box) throw new Error('nothing to drag');
     const from = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
