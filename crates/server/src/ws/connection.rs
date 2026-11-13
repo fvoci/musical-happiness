@@ -1,6 +1,7 @@
 //! The lifetime of a websocket connection and its command reader.
 
 use std::collections::HashMap;
+use std::net::IpAddr;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
@@ -14,6 +15,7 @@ use super::{
     WRITER_GRACE, presence, subscribe, writer,
 };
 use crate::app::App;
+use crate::auth::limiter::AddressKey;
 use crate::collab::Seat;
 use crate::error::ErrorKind;
 use crate::metrics::Disconnect;
@@ -21,8 +23,15 @@ use crate::metrics::Disconnect;
 impl Hub {
     /// Serves one websocket connection until it closes. `identity` is the session the
     /// handshake came with, if any; without one it follows shared blocks and announces
-    /// anonymous visits by read token. `app` is the application the handshake reached.
-    pub async fn serve(&self, app: &App, socket: WebSocket, identity: Option<Identity>) {
+    /// anonymous visits by read token. `app` is the application the handshake reached,
+    /// `address` the client's (none through the administration socket).
+    pub async fn serve(
+        &self,
+        app: &App,
+        socket: WebSocket,
+        identity: Option<Identity>,
+        address: Option<IpAddr>,
+    ) {
         let (sink, mut stream) = socket.split();
         let (outbox, inbox) = mpsc::channel::<Utf8Bytes>(OUTBOX_CAPACITY);
         let closed = CancellationToken::new();
@@ -43,6 +52,7 @@ impl Hub {
                     user_id: who.user_id,
                     session_id: who.session_id,
                     login_provider: who.login_provider,
+                    address: address.map(AddressKey::from),
                     outbox,
                     closed: closed.clone(),
                     closed_because: Arc::clone(&closed_because),

@@ -12,6 +12,7 @@
 mod connection;
 mod delivery;
 mod presence;
+mod readers;
 mod subscriptions;
 
 use delivery::Access;
@@ -34,6 +35,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::app::Audience;
+use crate::auth::limiter::AddressKey;
 use crate::auth::{Authenticator, now_millis};
 use crate::metrics::{Disconnect, Metrics};
 use crate::permissions::role_of;
@@ -212,6 +214,9 @@ struct Listener {
     /// The provider that session was made through; `None` for a password, and without
     /// a session.
     login_provider: Option<String>,
+    /// Where the connection comes from, as readers by a public link are counted
+    /// (`readers.rs`); `None` through the administration socket.
+    address: Option<AddressKey>,
     outbox: mpsc::Sender<Utf8Bytes>,
     /// Cancelled when the hub gives the connection up; ends its reading side.
     closed: CancellationToken,

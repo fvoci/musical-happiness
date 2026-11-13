@@ -44,6 +44,21 @@ impl Socket {
         Self { stream }
     }
 
+    /// A connection without a session from `address`, as the proxy in front names it
+    /// (`X-Forwarded-For`): for a server that trusts 127.0.0.1 as its proxy.
+    pub(crate) async fn connect_from(th: &TestServer, address: &str) -> Self {
+        let headers = [
+            ("Origin", "http://localhost:8000".to_owned()),
+            ("X-Forwarded-For", address.to_owned()),
+        ];
+        let stream = th
+            .anonymous()
+            .try_connect_websocket(&headers)
+            .await
+            .expect("the websocket endpoint accepts the connection");
+        Self { stream }
+    }
+
     /// A connection of the client's session: whose it is is settled by the handshake.
     pub(crate) async fn connect_as(client: &Client) -> Self {
         let stream = client.connect_websocket().await;

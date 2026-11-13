@@ -51,6 +51,7 @@ mod paths;
 mod people;
 mod presence;
 mod properties;
+mod public_link_readers;
 mod readiness;
 mod reconcile;
 mod refusals;

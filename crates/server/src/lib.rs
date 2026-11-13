@@ -45,7 +45,7 @@ pub use crate::tls::TlsFiles;
 use crate::admin_socket::AdminSocket;
 use crate::app::App;
 use crate::auth::token::Credential;
-use crate::client_address::TrustedProxies;
+use crate::client_address::{ClientAddress, TrustedProxies};
 use crate::config::Configuration;
 use crate::connection::{BreakableListener, Connection};
 use crate::error::{AppError, ErrorKind};
@@ -707,6 +707,7 @@ fn start_upload_clean_up(app: &App) -> RecurringTask {
 ///   and needs a session token in its `Authorization` header.
 async fn handle_websocket(
     State(app): State<App>,
+    client: Option<axum::Extension<ClientAddress>>,
     headers: HeaderMap,
     upgrade: Result<WebSocketUpgrade, WebSocketUpgradeRejection>,
 ) -> Response {
@@ -738,10 +739,14 @@ async fn handle_websocket(
     // to make the server buffer it, and closes the connection (a text message past
     // the limit of a command too, once it is read: `Hub::serve`).
     let limit = api::WEBSOCKET_MESSAGE_LIMIT.max(app.collab().frame_bytes());
+    // Readers by a public link are counted by where they come from (`ws/readers.rs`).
+    let address = client.and_then(|axum::Extension(ClientAddress(address))| address);
     upgrade
         .max_message_size(limit)
         .max_frame_size(limit)
-        .on_upgrade(move |socket| async move { app.ws().serve(&app, socket, identity).await })
+        .on_upgrade(move |socket| async move {
+            app.ws().serve(&app, socket, identity, address).await;
+        })
 }
 
 /// Whose connection a websocket handshake opens; `None` for an anonymous one.

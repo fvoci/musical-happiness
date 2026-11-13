@@ -11,6 +11,7 @@ use serde::Serialize;
 use tokio::sync::broadcast::{self, error::RecvError, error::TryRecvError};
 use tokio::time::Instant;
 
+use super::readers::ReaderLimits;
 use super::{Command, Hub, HubInner, ListenerId, Listeners, Outgoing};
 use crate::app::{App, Asker};
 use crate::auth::secret::SECRET_LENGTH;
@@ -76,7 +77,7 @@ pub(super) struct State {
 }
 
 impl State {
-    fn reads_shared_board(&self, board_id: &str) -> bool {
+    pub(super) fn reads_shared_board(&self, board_id: &str) -> bool {
         self.visit
             .as_ref()
             .is_some_and(|visit| visit.board_id == board_id && !visit.read_token.is_empty())
@@ -151,13 +152,19 @@ impl Listeners {
             .map(|(id, _)| *id)
             .collect();
         for id in ids {
-            if let Some(listener) = self.by_id.get_mut(&id) {
-                let state = &mut listener.presence;
-                state.renewed = None;
-                state.revision = state.revision.wrapping_add(1);
-            }
-            self.place(id, None);
+            self.end_visit(id);
         }
+    }
+
+    /// Ends the visit of `id`, whatever command it came with.
+    fn end_visit(&mut self, id: ListenerId) {
+        let Some(listener) = self.by_id.get_mut(&id) else {
+            return;
+        };
+        let state = &mut listener.presence;
+        state.renewed = None;
+        state.revision = state.revision.wrapping_add(1);
+        self.place(id, None);
     }
 
     /// Sets the visit of `id` (`None`: it left the board), keeping the boards' index.
@@ -299,6 +306,13 @@ impl Hub {
         // Drained under the lock: a change raised later is flagged by the watcher
         // (`watch_access`), which takes the same lock, against this visit.
         let read_too_early = changed_meanwhile(&mut meanwhile, &visit);
+        // One reader too many of the board by its link is not taken, nor counted.
+        if !visit.read_token.is_empty()
+            && !listeners.admits_reader(id, &visit.board_id, ReaderLimits::of(app))
+        {
+            listeners.end_visit(id);
+            return;
+        }
         let Some(listener) = listeners.by_id.get_mut(&id) else {
             return;
         };
@@ -337,11 +351,8 @@ impl Hub {
         let Some(listener) = listeners.by_id.get_mut(&id) else {
             return;
         };
-        let state = &mut listener.presence;
-        if revision.is_none_or(|revision| revision == state.revision) {
-            state.renewed = None;
-            state.revision = state.revision.wrapping_add(1);
-            listeners.place(id, None);
+        if revision.is_none_or(|revision| revision == listener.presence.revision) {
+            listeners.end_visit(id);
         }
     }
 }

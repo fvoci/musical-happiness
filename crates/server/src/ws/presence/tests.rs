@@ -24,6 +24,7 @@ fn add(listeners: &mut Listeners, user: &str, visit: Visit, age: Duration) {
             user_id: user.to_owned(),
             session_id: String::new(),
             login_provider: None,
+            address: None,
             outbox,
             closed: CancellationToken::new(),
             closed_because: Arc::default(),

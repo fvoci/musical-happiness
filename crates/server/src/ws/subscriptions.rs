@@ -4,6 +4,7 @@
 use fvoci_model::WorkspaceRole;
 
 use super::ending::{Ended, Of};
+use super::readers::ReaderLimits;
 use super::revocations::Followed;
 use super::{
     CHECKED_AT_MOST, Command, Hub, ListenerId, ReadPermit, remove_from, subscribe_to_blocks,
@@ -31,7 +32,8 @@ impl Hub {
                 return true;
             }
             "SUBSCRIBE_BLOCKS" => {
-                self.subscribe_blocks(id, &command).await;
+                self.subscribe_blocks(id, &command, ReaderLimits::of(app))
+                    .await;
                 return true;
             }
             "UNSUBSCRIBE_BLOCKS" => {
@@ -81,7 +83,10 @@ impl Hub {
         true
     }
 
-    async fn subscribe_blocks(&self, id: ListenerId, command: &Command) {
+    /// Follows the blocks of a shared board by its read token, if `limits` take one
+    /// more reader of the board by its link (`readers.rs`); tells the connection
+    /// `UNSUBSCRIBED_BLOCKS` otherwise.
+    async fn subscribe_blocks(&self, id: ListenerId, command: &Command, limits: ReaderLimits) {
         // The board its token opened when it was first checked.
         let mut validated: Option<String> = None;
         for _ in 0..CHECKED_AT_MOST {
@@ -123,6 +128,12 @@ impl Hub {
                 .of_board_since(&listener.user_id, &board_id, since)
             {
                 continue;
+            }
+            if !listeners.admits_reader(id, &board_id, limits) {
+                let told = listeners.refuse_blocks(id, &command.workspace_id, &command.block_ids);
+                drop(listeners);
+                self.count_told("UNSUBSCRIBED_BLOCKS", usize::from(told));
+                return;
             }
             subscribe_to_blocks(&mut listeners, id, &command.block_ids);
             if let Some(listener) = listeners.by_id.get_mut(&id) {

@@ -62,7 +62,7 @@
 | `REORDER_CATEGORY_BOARDS` | `workspaceId`, `categoryId`, `boardOrder`(그 카테고리의 보드 ID의 새 순서) | 그 사용자의 연결 모두 |
 | `UPDATE_CLIENT_CONFIG` | `clientConfig` | 모든 연결. **지금은 보내는 곳이 없다**(서버 설정이 실행 중에 바뀌지 않는다) |
 | `UNSUBSCRIBED_WORKSPACE` | `workspaceId`, `reason`(`workspace access ended`, `sso required`) | 서버가 그 워크스페이스의 구독을 끝낸 연결(아래 "서버가 구독을 끝낼 때"). 연결과 다른 구독은 그대로다(방은 아래 "서버가 구독을 끝낼 때") |
-| `UNSUBSCRIBED_BLOCKS` | `workspaceId`, `blockIds`(그 보드의 따라가던 블록 모두), `reason`(`public link access ended`) | 서버가 그 보드의 블록 구독을 끝낸 연결 |
+| `UNSUBSCRIBED_BLOCKS` | `workspaceId`, `blockIds`(그 보드의 따라가던 블록 모두. 받지 않은 구독이면 그 명령의 블록), `reason`(`public link access ended`, `public link connections full`) | 서버가 그 보드의 블록 구독을 끝낸 연결, 또는 받지 않은 구독을 보낸 연결 |
 
 방문의 `UPDATE_PRESENCE`는 구독과 별개이며 받는 사람과 멤버는 7절을 따른다.
 
@@ -111,6 +111,7 @@
 | 조직이 비밀번호를 받지 않게 됨(`ssoRequired`) | 그 조직의 워크스페이스를 그 공급자로 만들지 않은 세션으로 구독하던 것(`sso required`). 조직의 워크스페이스를 읽지 못하면 그런 세션의 워크스페이스 구독 모두 |
 | 공유를 끄거나 새 토큰을 내거나 보드·워크스페이스를 휴지통에 넣거나 조직의 공개 링크를 끔 | 그 보드의 옛 읽기 토큰으로 따라가던 블록(`UNSUBSCRIBED_BLOCKS`, `public link access ended`) |
 | 보낼 때의 검사가 권한이 끝났거나 역할이 바뀌었거나 세션이 그 조직을 열지 못함을 봄(앞의 알림이 없던 회수) | 그 연결의 그 구독(같은 알림) |
+| 공개 링크로 그 보드를 읽는 연결이 이미 `public_link_connections_per_board`(기본 200)개, 또는 그 가운데 같은 주소(IPv6는 /64)의 것이 `public_link_connections_per_address`(기본 10)개 | 새로 오는 그 연결의 블록 구독을 받지 않는다(`UNSUBSCRIBED_BLOCKS`, `public link connections full`. `docs/configuration.md`). 읽기 토큰으로 블록을 따라가거나 방문(7절)하는 연결을 하나로 세고, 이미 읽는 연결과 구성원이 보통으로 여는 연결은 세지도 막지도 않는다 |
 
 ### 서버가 연결을 닫을 때
 
@@ -267,6 +268,8 @@ sync 종류부터 끝까지는 y-protocols의 sync 메시지 그대로다(`write
 사람과 카드 ID는 오름차순이며 같은 사람의 탭은 하나로, 카드는 합집합으로 센다.
 사용자 조회에서 보이지 않는 사람은 `hiddenCount`로만 센다. 읽기 토큰을 명시한
 연결은 세션이 있어도 익명 하나로 세고 명단은 받지 않는다. 익명은 연결별 수다.
+공개 링크로 그 보드를 읽는 연결의 한도(3절의 `public link connections full`)를 넘는
+읽기 토큰의 방문은 받지 않아 익명 수에 들지 않는다(앞선 방문도 끝난다).
 같은 명단은 다시 보내지 않는다. 받는 사람의 권한과 누구를 볼 수 있는지는 보드에
 들어올 때, `collab_recheck_seconds`마다, 아래의 권한 변경 때 저장소에 다시 묻고,
 읽을 수 없으면 표에서 뺀다. 그 사이 명단이 바뀌면 처음 만나는 사람만 묻는다.
