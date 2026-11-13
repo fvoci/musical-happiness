@@ -1932,6 +1932,10 @@
             "description": "Whether somebody the provider vouches for who has no place in the organization\n(no member of it, nor a guest of one of its workspaces) becomes a member of it,\nand of its default workspace, by signing in. A guest signs in as a guest.",
             "type": "boolean"
           },
+          "canRequireSso": {
+            "description": "Whether this session was made through this enabled provider. Changing the\nissuer or client requires signing in through the replacement before enforcing it.",
+            "type": "boolean"
+          },
           "clientId": {
             "description": "The client identifier the provider gave this server.",
             "type": "string"
@@ -1969,6 +1973,7 @@
         },
         "required": [
           "autoJoin",
+          "canRequireSso",
           "clientId",
           "createAt",
           "enabled",
@@ -4320,7 +4325,7 @@
         ]
       },
       "get": {
-        "description": "The `OpenID Connect` provider people of the organization sign in through, without\nits client secret: `hasClientSecret` says whether there is one. 404 if the\norganization has none.",
+        "description": "The `OpenID Connect` provider people of the organization sign in through, without\nits client secret: `hasClientSecret` says whether there is one. 404 if the\norganization has none. `canRequireSso` says whether the requesting session was\nmade through this enabled provider; it is false after its issuer or client changes.",
         "operationId": "getOidcProvider",
         "parameters": [
           {

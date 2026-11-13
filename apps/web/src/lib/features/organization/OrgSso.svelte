@@ -1,0 +1,287 @@
+<!-- One provider per organization; the server proves which session may require it. -->
+<script lang="ts">
+  import { onMount } from 'svelte';
+  import { m } from '$lib/i18n/paraglide/messages.js';
+  import type { OidcProvider, OidcSettings } from '$lib/state/oidc.ts';
+  import { Button } from '$lib/ui/button/index.js';
+  import { Input } from '$lib/ui/input/index.js';
+  import { Label } from '$lib/ui/label/index.js';
+  import { Switch } from '$lib/ui/switch/index.js';
+  import ConfirmDialog from '$lib/components/confirm/ConfirmDialog.svelte';
+  import { oidcProblem } from './oidc-problem.ts';
+
+  interface Props {
+    read: () => Promise<OidcProvider | undefined>;
+    save: (settings: OidcSettings) => Promise<OidcProvider>;
+    remove: () => Promise<void>;
+    onSignIn: () => Promise<void>;
+  }
+  let { read, save, remove, onSignIn }: Props = $props();
+  const uid = $props.id();
+  let provider = $state.raw<OidcProvider | undefined>(undefined);
+  let loaded = $state(false);
+  let busy = $state(false);
+  let issuer = $state('');
+  let clientId = $state('');
+  let secret = $state('');
+  let replaceSecret = $state(true);
+  let autoJoin = $state(true);
+  let enabled = $state(true);
+  let required = $state(false);
+  let problem = $state('');
+  let notice = $state('');
+  let confirmRemove = $state(false);
+  const enforced = $derived(provider?.ssoRequired ?? false);
+  const proven = $derived(
+    provider?.canRequireSso === true &&
+      enabled &&
+      issuer === provider.issuer &&
+      clientId === provider.clientId,
+  );
+
+  function accept(value: OidcProvider | undefined): void {
+    provider = value;
+    issuer = value?.issuer ?? '';
+    clientId = value?.clientId ?? '';
+    secret = '';
+    replaceSecret = value === undefined;
+    autoJoin = value?.autoJoin ?? true;
+    enabled = value?.enabled ?? true;
+    required = value?.ssoRequired ?? false;
+  }
+
+  async function load(): Promise<void> {
+    busy = true;
+    problem = '';
+    try {
+      accept(await read());
+      loaded = true;
+    } catch (error) {
+      problem = oidcProblem(error);
+    } finally {
+      busy = false;
+    }
+  }
+  onMount(() => {
+    void load();
+  });
+
+  async function submit(event: SubmitEvent): Promise<void> {
+    event.preventDefault();
+    if (busy) return;
+    busy = true;
+    problem = '';
+    notice = '';
+    try {
+      accept(
+        await save({
+          issuer,
+          clientId,
+          autoJoin,
+          enabled,
+          ssoRequired: required,
+          ...(replaceSecret ? { clientSecret: secret } : {}),
+        }),
+      );
+      notice = m.org_sso_saved();
+    } catch (error) {
+      problem = oidcProblem(error);
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function deleteProvider(): Promise<void> {
+    if (busy || enforced) return;
+    busy = true;
+    problem = '';
+    notice = '';
+    try {
+      await remove();
+      accept(undefined);
+      notice = m.org_sso_removed();
+    } catch (error) {
+      problem = oidcProblem(error);
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function signIn(): Promise<void> {
+    if (busy) return;
+    busy = true;
+    problem = '';
+    try {
+      await onSignIn();
+    } catch (error) {
+      problem = oidcProblem(error);
+      busy = false;
+    }
+  }
+
+  async function copy(): Promise<void> {
+    if (!provider) return;
+    try {
+      await navigator.clipboard.writeText(provider.redirectUri);
+      notice = m.org_sso_copied();
+    } catch {
+      problem = m.org_sso_copy_failed();
+    }
+  }
+</script>
+
+<svelte:window
+  onpageshow={(event: PageTransitionEvent) => {
+    if (event.persisted) busy = false;
+  }}
+/>
+
+<section class="grid min-w-0 gap-3" aria-labelledby="{uid}-title" data-testid="org-sso">
+  <h2 id="{uid}-title" class="text-base font-semibold">{m.org_sso_title()}</h2>
+  <p class="text-sm text-muted-foreground">{m.org_sso_intro()}</p>
+  <p role="alert" class="text-sm text-destructive empty:hidden">{problem}</p>
+  <p role="status" class="text-sm text-muted-foreground empty:hidden">{notice}</p>
+  {#if !loaded}
+    {#if busy}
+      <p class="text-sm">{m.app_loading()}</p>
+    {:else}
+      <Button variant="outline" onclick={() => void load()}>{m.app_retry()}</Button>
+    {/if}
+  {:else}
+    <form class="grid min-w-0 gap-4 rounded-md border p-4" onsubmit={(event) => void submit(event)}>
+      <div class="grid gap-1.5">
+        <Label for="{uid}-issuer">{m.org_sso_issuer()}</Label>
+        <Input
+          id="{uid}-issuer"
+          type="url"
+          bind:value={issuer}
+          required
+          disabled={busy || enforced}
+          autocomplete="off"
+          placeholder="https://login.example.com"
+          data-testid="sso-issuer"
+        />
+      </div>
+      <div class="grid gap-1.5">
+        <Label for="{uid}-client">{m.org_sso_client()}</Label>
+        <Input
+          id="{uid}-client"
+          bind:value={clientId}
+          required
+          disabled={busy || enforced}
+          autocomplete="off"
+          data-testid="sso-client"
+        />
+      </div>
+      <div class="grid gap-1.5">
+        {#if replaceSecret}
+          <Label for="{uid}-secret">{m.org_sso_secret()}</Label>
+          <Input
+            id="{uid}-secret"
+            type="password"
+            bind:value={secret}
+            disabled={busy}
+            autocomplete="new-password"
+            data-testid="sso-secret"
+          />
+          <p class="text-xs text-muted-foreground">{m.org_sso_secret_hint()}</p>
+        {:else}
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <span class="text-sm"
+              >{provider?.hasClientSecret
+                ? m.org_sso_secret_stored()
+                : m.org_sso_secret_none()}</span
+            >
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busy}
+              onclick={() => {
+                replaceSecret = true;
+                secret = '';
+              }}>{m.org_sso_change_secret()}</Button
+            >
+          </div>
+        {/if}
+      </div>
+      {#if provider}
+        <div class="grid min-w-0 gap-1.5">
+          <Label for="{uid}-callback">{m.org_sso_callback()}</Label>
+          <Input
+            id="{uid}-callback"
+            readonly
+            value={provider.redirectUri}
+            data-testid="sso-callback"
+          />
+          <Button class="justify-self-start" size="sm" variant="outline" onclick={() => void copy()}
+            >{m.org_sso_copy()}</Button
+          >
+          <p class="text-xs text-muted-foreground">{m.org_sso_callback_hint()}</p>
+        </div>
+      {:else}
+        <p class="text-xs text-muted-foreground">{m.org_sso_callback_after_save()}</p>
+      {/if}
+      <label class="flex items-start justify-between gap-3">
+        <span class="text-sm">{m.org_sso_enabled()}</span>
+        <Switch bind:checked={enabled} disabled={busy || enforced} data-testid="sso-enabled" />
+      </label>
+      <label class="flex items-start justify-between gap-3">
+        <span class="text-sm">{m.org_sso_auto_join()}</span>
+        <Switch bind:checked={autoJoin} disabled={busy} data-testid="sso-auto-join" />
+      </label>
+      <div class="grid gap-2 border-t pt-3">
+        <label class="flex items-start justify-between gap-3">
+          <span class="text-sm">{m.org_sso_required()}</span>
+          <Switch
+            bind:checked={required}
+            disabled={busy || (!required && !proven)}
+            data-testid="sso-required-switch"
+          />
+        </label>
+        <p class="text-xs text-muted-foreground">{m.org_sso_lockout_hint()}</p>
+        {#if !proven && !enforced}
+          <p class="text-sm">{m.org_sso_unproven()}</p>
+          {#if provider?.enabled}
+            <Button
+              class="justify-self-start"
+              variant="outline"
+              disabled={busy}
+              data-testid="sso-sign-in"
+              onclick={() => void signIn()}>{m.org_sso_sign_in()}</Button
+            >
+            <p class="text-xs text-muted-foreground">{m.org_sso_link_hint()}</p>
+          {/if}
+        {/if}
+        {#if enforced}
+          <p class="text-sm">{m.org_sso_enforced()}</p>
+        {/if}
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <Button
+          type="submit"
+          disabled={busy || !issuer.trim() || !clientId.trim()}
+          data-testid="sso-save">{busy ? m.account_working() : m.org_sso_save()}</Button
+        >
+        {#if provider}
+          <Button
+            variant="outline"
+            disabled={busy || enforced}
+            data-testid="sso-delete"
+            onclick={() => {
+              confirmRemove = true;
+            }}>{m.org_sso_delete()}</Button
+          >
+        {/if}
+      </div>
+    </form>
+  {/if}
+</section>
+
+<ConfirmDialog
+  bind:open={confirmRemove}
+  title={m.org_sso_delete_title()}
+  description={m.org_sso_delete_info()}
+  confirmLabel={m.org_sso_delete()}
+  destructive
+  onConfirm={() => void deleteProvider()}
+/>

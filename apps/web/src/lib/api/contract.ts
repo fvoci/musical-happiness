@@ -383,7 +383,8 @@ export interface paths {
          * The provider of an organization
          * @description The `OpenID Connect` provider people of the organization sign in through, without
          *     its client secret: `hasClientSecret` says whether there is one. 404 if the
-         *     organization has none.
+         *     organization has none. `canRequireSso` says whether the requesting session was
+         *     made through this enabled provider; it is false after its issuer or client changes.
          */
         get: operations["getOidcProvider"];
         /**
@@ -3451,6 +3452,11 @@ export interface components {
              *     and of its default workspace, by signing in. A guest signs in as a guest.
              */
             autoJoin: boolean;
+            /**
+             * @description Whether this session was made through this enabled provider. Changing the
+             *     issuer or client requires signing in through the replacement before enforcing it.
+             */
+            canRequireSso: boolean;
             /** @description The client identifier the provider gave this server. */
             clientId: string;
             /**

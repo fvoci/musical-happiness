@@ -151,12 +151,12 @@ impl App {
     /// # Errors
     ///
     /// Returns the store's error.
-    pub async fn oidc_provider(&self) -> Result<Option<OidcProvider>, AppError> {
+    pub async fn oidc_provider(&self, session: &Session) -> Result<Option<OidcProvider>, AppError> {
         Ok(self
             .store()
             .oidc_provider()
             .await?
-            .map(|stored| self.provider_view(&stored)))
+            .map(|stored| self.provider_view(&stored, session)))
     }
 
     /// Sets the provider of the organization `org_id`, which the handle reaches, after
@@ -251,7 +251,7 @@ impl App {
             }
             self.close_connections_shut_out(&stored).await;
         }
-        Ok(self.provider_view(&stored))
+        Ok(self.provider_view(&stored, session))
     }
 
     /// Removes the provider of the handle's organization, and the sign-ins under way
@@ -270,7 +270,7 @@ impl App {
         Ok(())
     }
 
-    fn provider_view(&self, stored: &StoredProvider) -> OidcProvider {
+    fn provider_view(&self, stored: &StoredProvider, session: &Session) -> OidcProvider {
         OidcProvider {
             issuer: stored.issuer.clone(),
             client_id: stored.client_id.clone(),
@@ -278,6 +278,8 @@ impl App {
             auto_join: stored.auto_join,
             enabled: stored.enabled,
             sso_required: stored.sso_required,
+            can_require_sso: stored.enabled
+                && session.login_provider_id.as_deref() == Some(stored.id.as_str()),
             redirect_uri: self.oidc_redirect_uri(&stored.org_id),
             create_at: stored.create_at,
             update_at: stored.update_at,

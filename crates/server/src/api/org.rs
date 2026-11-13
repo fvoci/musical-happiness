@@ -86,7 +86,8 @@ fn org_not_found() -> AppError {
 ///
 /// The `OpenID Connect` provider people of the organization sign in through, without
 /// its client secret: `hasClientSecret` says whether there is one. 404 if the
-/// organization has none.
+/// organization has none. `canRequireSso` says whether the requesting session was
+/// made through this enabled provider; it is false after its issuer or client changes.
 #[utoipa::path(
     get,
     path = "/org/{orgId}/oidc",
@@ -98,7 +99,7 @@ fn org_not_found() -> AppError {
 async fn handle_get_oidc_provider(org: OrgAdmin) -> ApiResult {
     let provider = org
         .app
-        .oidc_provider()
+        .oidc_provider(&org.session)
         .await?
         .ok_or_else(|| AppError::not_found("oidc provider"))?;
     Ok(json_response(&provider))

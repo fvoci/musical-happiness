@@ -404,13 +404,13 @@
     {@const closedOrgId = orgAdmin.orgId}
     <OrgPage
       admin={orgAdmin}
+      onSsoSignIn={() => toProvider(closedOrgId)}
       locale={workspace.locale}
       meId={workspace.me?.id}
       homeHref={router.href({})}
       workspaceHref={(workspaceId: string) => router.href({ workspaceId })}
     >
       {#snippet closed()}
-        <!-- The settings are the shell's: connecting single sign-on is done from the app's own page. -->
         <SsoRequired
           name=""
           others={openWorkspaces}

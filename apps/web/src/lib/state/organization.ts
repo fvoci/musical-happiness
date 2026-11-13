@@ -48,6 +48,7 @@ export {
   type AuditRecord,
 } from '../logic/audit.ts';
 import type { AuditRecord } from '../logic/audit.ts';
+import type { OidcProvider, OidcSettings } from './oidc.ts';
 
 export interface OrganizationPatch {
   name?: string;
@@ -60,6 +61,9 @@ export interface OrganizationPatch {
  * administrator of the organization it is not there (404).
  */
 export interface Organizations {
+  oidcProvider(orgId: string): Promise<OidcProvider | undefined>;
+  saveOidcProvider(orgId: string, settings: OidcSettings): Promise<OidcProvider>;
+  deleteOidcProvider(orgId: string): Promise<void>;
   /** The organization the reader administers; undefined when they administer none. */
   administered(): Promise<string | undefined>;
   organization(orgId: string): Promise<Organization>;

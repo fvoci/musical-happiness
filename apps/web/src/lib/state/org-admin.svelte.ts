@@ -5,6 +5,7 @@
  * lists stay as they were.
  */
 import { isBackendError, ssoOrgOf } from './backend.ts';
+import type { OidcProvider, OidcSettings } from './oidc.ts';
 import type {
   AuditRecord,
   Organization,
@@ -98,6 +99,26 @@ export class OrgAdmin {
 
   createWorkspace(name: string): Promise<boolean> {
     return this.#change(() => this.#api.createWorkspace(this.orgId, name));
+  }
+
+  oidcProvider(): Promise<OidcProvider | undefined> {
+    return this.#api.oidcProvider(this.orgId);
+  }
+
+  async saveOidcProvider(settings: OidcSettings): Promise<OidcProvider> {
+    try {
+      return await this.#api.saveOidcProvider(this.orgId, settings);
+    } finally {
+      await this.load();
+    }
+  }
+
+  async deleteOidcProvider(): Promise<void> {
+    try {
+      await this.#api.deleteOidcProvider(this.orgId);
+    } finally {
+      await this.load();
+    }
   }
 
   renameWorkspace(workspaceId: string, name: string): Promise<boolean> {
