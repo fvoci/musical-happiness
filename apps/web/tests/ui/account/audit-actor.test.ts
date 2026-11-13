@@ -13,12 +13,11 @@ it('distinguishes a server operator from a person whose account is gone', () => 
     createAt: 1,
   } as const;
   const records: AuditRecord[] = [
-    { ...base, id: 'operator', actor: null, actorKind: 'server_operator' },
+    { ...base, id: 'operator', actor: { kind: 'server_operator' } },
     {
       ...base,
       id: 'person',
-      actor: { id: 'former', username: '', displayName: '' },
-      actorKind: 'person',
+      actor: { kind: 'person', id: 'former', username: '', displayName: '' },
     },
   ];
   render(AuditList, { records, locale: 'en' });

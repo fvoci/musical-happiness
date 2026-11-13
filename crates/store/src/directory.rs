@@ -4,9 +4,7 @@
 //! through a provider comes back, what a login page shows of an organization, and which
 //! organization the token of an invitation leads into.
 //! And whether an object of the file storage is held, which is asked of every
-//! organization: an object's place is one across them. And the records of what the
-//! server's operator does to a person's password, written in each organization of
-//! theirs.
+//! organization: an object's place is one across them.
 //!
 //! Every function here runs one statement, or one short transaction, that reaches the
 //! rows of every organization ([`Tenant::System`](crate::Tenant::System)) and is
@@ -17,20 +15,18 @@
 use std::collections::BTreeSet;
 
 use fvoci_model::{
-    AuditAction, BoardType, LoginOrganization, OrgRole, User, UserWorkspace, Workspace,
-    WorkspaceRole, new_id,
+    BoardType, LoginOrganization, OrgRole, User, UserWorkspace, Workspace, WorkspaceRole, new_id,
 };
 use subtle::ConstantTimeEq as _;
 
-use crate::audit::{AuditActor, AuditEntry};
+use crate::Store;
 use crate::db::{Dialect, Id, Row, Scope, Sql};
 use crate::error::StoreError;
 use crate::file_info;
 use crate::loose_objects::LooseState;
 use crate::oidc::{FLOW_COLUMNS, LoginFlow, flow_from_row};
 use crate::uploads::{OpenUploads, UploadUsage};
-use crate::{Store, Tenant};
-use crate::{audit, invitations, users, workspaces};
+use crate::{invitations, users, workspaces};
 
 /// The organization that holds what the server ships with and is nobody's: the
 /// built-in templates. The schema makes it, under this identifier.
@@ -837,73 +833,6 @@ impl Store {
             .await
     }
 
-    /// Sets the password hash of the user with the given name, in any letter case, and
-    /// deletes their sessions, so that nobody stays signed in with the old password. For
-    /// a password the server's operator sets: recorded as theirs in every organization
-    /// the user is a member of ([`AuditAction::PasswordSetByOperator`]), with no word
-    /// of the password. Returns the identifier of that user.
-    ///
-    /// All of it happens or none.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::UserNotFound`] if no user has that name.
-    pub async fn reset_user_password(
-        &self,
-        username: &str,
-        password_hash: &str,
-    ) -> Result<String, StoreError> {
-        self.system()
-            .transaction(async |scope| {
-                let user_id = users::reset_password(scope, username, password_hash).await?;
-                record_in_organizations_of(scope, &user_id, AuditAction::PasswordSetByOperator)
-                    .await?;
-                Ok(user_id)
-            })
-            .await
-    }
-
-    /// Records that the server's operator made a link to set the password of the user
-    /// `user_id` anew ([`AuditAction::PasswordResetLinkMade`]), in every organization
-    /// they are a member of: one record each, with neither the link nor its token, and
-    /// not which organization asked. Returns in how many organizations it was recorded.
-    /// For a link stored elsewhere; a store function that stores the link records it in
-    /// the same transaction with `record_in_organizations_of`.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::Database`] if a statement fails.
-    pub async fn record_password_reset_link_made(
-        &self,
-        user_id: &str,
-    ) -> Result<usize, StoreError> {
-        self.system()
-            .transaction(async |scope| {
-                record_in_organizations_of(scope, user_id, AuditAction::PasswordResetLinkMade).await
-            })
-            .await
-    }
-
-    /// Whether the handle's organization is the instance's own: the oldest one in use,
-    /// which the routes that name no workspace work in ([`Store::only_organization`]) and
-    /// whose administrators are the instance's (`members::follow_instance_role`). Asked
-    /// with the system's reach, as the organization's wall hides the others.
-    pub(crate) async fn is_the_instances_organization(&self) -> Result<bool, StoreError> {
-        let Tenant::Org(org) = self.tenant() else {
-            return Ok(false);
-        };
-        self.system()
-            .with_conn(async |scope| {
-                let mut sql = scope.sql("SELECT id FROM organizations WHERE is_system = ");
-                sql.bind(false)
-                    .push_bind(" AND delete_at = ", 0_i64)
-                    .push(" ORDER BY create_at, id LIMIT 1");
-                let oldest = scope.fetch_optional(sql).await?.map(|row| row.id(0));
-                Ok(oldest.transpose()?.is_some_and(|id| id == org.to_string()))
-            })
-            .await
-    }
-
     /// What a login page may show of an organization: the one with the identifier, or
     /// with none the only organization in use if there is one only. `None` if there is
     /// no such organization, it is not in use, or it is the system's. Its name, and
@@ -967,32 +896,35 @@ fn role<R: std::str::FromStr<Err = fvoci_model::UnknownRole>>(
         })
 }
 
-/// Records `action` by the server's operator, done to the user `user_id`, in every
-/// organization in use that they are a member of, one record each, of no workspace;
-/// returns how many. Needs the system's reach: the wall hides the other organizations.
-/// What stores what is recorded (a reset link's token) calls it in its own
-/// transaction, so that neither is kept without the other.
-pub(crate) async fn record_in_organizations_of(
+/// Whether the organization of `scope` is the instance's own: the oldest one in use,
+/// which the routes that name no workspace work in ([`Store::only_organization`]) and
+/// whose administrators are the instance's (`members::follow_instance_role`). Asked in
+/// the caller's transaction, so that the answer holds for what it does; on PostgreSQL
+/// the wall is opened for this one statement, as the organization's wall hides the
+/// others, and closed again before anything else runs in it.
+pub(crate) async fn is_the_instances_organization(
     scope: &mut Scope<'_>,
-    user_id: &str,
-    action: AuditAction,
-) -> Result<usize, StoreError> {
-    let mut sql = scope.sql(
-        "SELECT m.org_id FROM organization_members AS m \
-         JOIN organizations AS o ON o.id = m.org_id WHERE m.user_id = ",
-    );
-    sql.bind(Id(user_id))
-        .push(" AND o.delete_at = 0 AND o.is_system = false ORDER BY m.org_id");
-    let organizations = scope
-        .fetch_all(sql)
-        .await?
-        .iter()
-        .map(|row| row.id(0))
-        .collect::<Result<Vec<_>, _>>()?;
-    for org_id in &organizations {
-        let entry =
-            AuditEntry::by(&AuditActor::ServerOperator, "", action, org_id).with_subject(user_id);
-        audit::record_entry_in(scope, org_id, &entry).await?;
+) -> Result<bool, StoreError> {
+    let Some(org) = scope.org_id() else {
+        return Ok(false);
+    };
+    let reach = |on: &str| format!("SELECT set_config('fvoci.system', '{on}', true)");
+    let postgres = scope.dialect() == Dialect::Postgres;
+    if postgres {
+        let sql = scope.sql(&reach("on"));
+        scope.fetch_optional(sql).await?;
     }
-    Ok(organizations.len())
+    let mut sql = scope.sql("SELECT id FROM organizations WHERE is_system = ");
+    sql.bind(false)
+        .push_bind(" AND delete_at = ", 0_i64)
+        .push(" ORDER BY create_at, id LIMIT 1");
+    let oldest = scope.fetch_optional(sql).await?;
+    if postgres {
+        let sql = scope.sql(&reach("off"));
+        scope.fetch_optional(sql).await?;
+    }
+    Ok(oldest
+        .map(|row| row.id(0))
+        .transpose()?
+        .is_some_and(|id| id == org))
 }

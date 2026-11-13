@@ -255,7 +255,7 @@ async fn a_removed_provider_is_not_brought_back_by_a_change_read_before() {
     assert_eq!(
         test.delete_oidc_provider(&new_id()).await.expect("removed"),
         Removal::Removed {
-            issuer: provider.issuer.clone()
+            provider: read.clone()
         }
     );
     let change = test
@@ -331,6 +331,13 @@ async fn an_enforced_provider_is_not_removed_until_it_is_released() {
     assert_eq!(refused, Removal::Enforced);
     assert_eq!(still.as_ref(), Some(&enforced), "as it was");
     let released = released.expect("it was enforced");
+    assert_eq!(
+        removed,
+        Removal::Removed {
+            provider: released.clone()
+        },
+        "the provider as released"
+    );
     assert!(!released.sso_required);
     assert!(
         released.update_at > enforced.update_at,
@@ -346,12 +353,6 @@ async fn an_enforced_provider_is_not_removed_until_it_is_released() {
         "nothing else of it changed"
     );
     assert_eq!(again, None, "nothing left to release");
-    assert_eq!(
-        removed,
-        Removal::Removed {
-            issuer: enforced.issuer.clone()
-        }
-    );
 }
 
 /// What a session must be made through to open an organization is answered to who has

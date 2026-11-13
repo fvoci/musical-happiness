@@ -82,7 +82,7 @@ async fn handle_admin_set_password(
         Ok(no_content())
     }
     .await;
-    record_operator("reset_password", Target::User(user_id.as_deref()), result)
+    record_operator(Command::ResetPassword(user_id.as_deref()), result)
 }
 
 /// Makes a user an administrator of the instance: the way back in when no
@@ -95,7 +95,7 @@ async fn handle_admin_make_admin(
         Ok(user) => (Some(user.id), Ok(no_content())),
         Err(error) => (app.operator_user_id(&username).await, Err(error)),
     };
-    record_operator("make_admin", Target::User(user_id.as_deref()), result)
+    record_operator(Command::MakeAdmin(user_id.as_deref()), result)
 }
 
 /// Releases an organization from taking no password (`ssoRequired` of its provider):
@@ -109,7 +109,7 @@ async fn handle_release_sso(State(app): State<App>, Path(org_id): Path<String>) 
         .await
         .map(|()| no_content());
     let org_id = fvoci_model::is_id(&org_id).then_some(org_id.as_str());
-    record_operator("release_sso", Target::Organization(org_id), result)
+    record_operator(Command::ReleaseSso(org_id), result)
 }
 
 /// The body of a request to compare the file storage with the records; none for a
@@ -152,39 +152,62 @@ async fn handle_reconcile_files(State(app): State<App>, body: Bytes) -> ApiResul
         Ok(json_response(&report))
     }
     .await;
-    record_operator("reconcile_files", Target::Server, result)
+    record_operator(Command::ReconcileFiles, result)
 }
 
-/// What an operator's command was about, as its line in the log names it.
+/// A command of the operator, with what it was about, as its line in the log names
+/// them.
 #[derive(Debug, Clone, Copy)]
-enum Target<'a> {
-    /// A user, by identifier where the name was one's.
-    User(Option<&'a str>),
-    /// An organization, by identifier where the path held one.
-    Organization(Option<&'a str>),
-    /// The whole server.
-    Server,
+enum Command<'a> {
+    /// Setting a user's password: the user, by identifier where the name was one's.
+    ResetPassword(Option<&'a str>),
+    /// Making a user an administrator of the instance: the user, as above.
+    MakeAdmin(Option<&'a str>),
+    /// Releasing an organization from taking no password: the organization, by
+    /// identifier where the path held one.
+    ReleaseSso(Option<&'a str>),
+    /// Comparing the file storage with the records: the whole server.
+    ReconcileFiles,
+}
+
+impl<'a> Command<'a> {
+    /// The command's name in the log.
+    const fn name(self) -> &'static str {
+        match self {
+            Self::ResetPassword(_) => "reset_password",
+            Self::MakeAdmin(_) => "make_admin",
+            Self::ReleaseSso(_) => "release_sso",
+            Self::ReconcileFiles => "reconcile_files",
+        }
+    }
+
+    /// The user it was about, and the organization; each empty for none.
+    fn target(self) -> (&'a str, &'a str) {
+        match self {
+            Self::ResetPassword(user_id) | Self::MakeAdmin(user_id) => {
+                (user_id.unwrap_or_default(), "")
+            }
+            Self::ReleaseSso(org_id) => ("", org_id.unwrap_or_default()),
+            Self::ReconcileFiles => ("", ""),
+        }
+    }
 }
 
 /// Writes one line of the log for each command the socket carried out, failures of
 /// validation and hashing included: the command, its target, and its outcome. Never
 /// what was sent with it. The changes an organization holds are in its records too.
-fn record_operator(command: &str, target: Target<'_>, result: ApiResult) -> ApiResult {
+fn record_operator(command: Command<'_>, result: ApiResult) -> ApiResult {
     let status = match &result {
         Ok(response) => response.status().as_u16(),
         Err(error) => error.status(),
     };
-    let (user_id, org_id) = match target {
-        Target::User(user_id) => (user_id, None),
-        Target::Organization(org_id) => (None, org_id),
-        Target::Server => (None, None),
-    };
+    let (user_id, org_id) = command.target();
     tracing::info!(
         target: "audit",
         actor = "operator",
-        command,
-        user_id = user_id.unwrap_or_default(),
-        org_id = org_id.unwrap_or_default(),
+        command = command.name(),
+        user_id,
+        org_id,
         result = if result.is_ok() { "succeeded" } else { "failed" },
         status,
     );

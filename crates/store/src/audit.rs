@@ -5,9 +5,9 @@
 //! good. A record is a workspace's (read by its members) or the organization's (read by
 //! its administrators).
 
-use fvoci_model::{
-    AuditAction, AuditActorKind, AuditPerson, AuditRecord, UnknownAuditActorKind, new_id,
-};
+use std::str::FromStr;
+
+use fvoci_model::{AuditAction, AuditPerson, AuditRecord, AuditRecordActor, new_id};
 
 use crate::db::{Bound, Id, OptId, Row, Scope, now_millis};
 use crate::error::StoreError;
@@ -34,13 +34,44 @@ impl AuditActor {
         }
     }
 
-    /// Which of the two it is, as the API names it.
-    #[must_use]
-    pub const fn kind(&self) -> AuditActorKind {
+    /// Which of the two it is, as the log stores it.
+    const fn kind(&self) -> ActorKind {
         match self {
-            Self::Person(_) => AuditActorKind::Person,
-            Self::ServerOperator => AuditActorKind::ServerOperator,
+            Self::Person(_) => ActorKind::Person,
+            Self::ServerOperator => ActorKind::ServerOperator,
         }
+    }
+}
+
+/// Which of the two an actor is, as the column `actor_kind` of the log spells it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ActorKind {
+    Person,
+    ServerOperator,
+}
+
+impl ActorKind {
+    const ALL: [Self; 2] = [Self::Person, Self::ServerOperator];
+
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Person => "person",
+            Self::ServerOperator => "server_operator",
+        }
+    }
+}
+
+impl FromStr for ActorKind {
+    type Err = StoreError;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        Self::ALL
+            .into_iter()
+            .find(|kind| kind.as_str() == text)
+            .ok_or_else(|| StoreError::Corrupt {
+                column: "actor_kind",
+                reason: format!("{text:?} is no audit actor kind"),
+            })
     }
 }
 
@@ -200,20 +231,11 @@ fn action(row: &Row, index: usize) -> Result<AuditAction, StoreError> {
     )
 }
 
-fn actor_kind(row: &Row, index: usize) -> Result<AuditActorKind, StoreError> {
-    row.text(index)?
-        .parse()
-        .map_err(|error: UnknownAuditActorKind| StoreError::Corrupt {
-            column: "actor_kind",
-            reason: error.to_string(),
-        })
-}
-
 /// The actor of a row, from its kind at `kind` and the person's identifier at `id`.
 fn actor(row: &Row, kind: usize, id: usize) -> Result<AuditActor, StoreError> {
-    Ok(match actor_kind(row, kind)? {
-        AuditActorKind::Person => AuditActor::Person(row.id(id)?),
-        AuditActorKind::ServerOperator => AuditActor::ServerOperator,
+    Ok(match row.text(kind)?.parse()? {
+        ActorKind::Person => AuditActor::Person(row.id(id)?),
+        ActorKind::ServerOperator => AuditActor::ServerOperator,
     })
 }
 
@@ -224,16 +246,14 @@ fn record(row: &Row) -> Result<AuditRecord, StoreError> {
     Ok(AuditRecord {
         id: row.id(0)?,
         action,
-        actor: if row.id(2)?.is_empty() {
-            None
-        } else {
-            Some(AuditPerson {
-                id: row.id(2)?,
+        actor: match actor(row, 11, 2)? {
+            AuditActor::Person(id) => AuditRecordActor::Person(AuditPerson {
+                id,
                 username: row.text(3)?,
                 display_name: row.text(4)?,
-            })
+            }),
+            AuditActor::ServerOperator => AuditRecordActor::ServerOperator,
         },
-        actor_kind: actor_kind(row, 11)?,
         subject: if subject_id.is_empty() {
             None
         } else {

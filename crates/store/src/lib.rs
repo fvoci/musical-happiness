@@ -33,6 +33,7 @@ mod observe;
 mod oidc;
 mod oidc_identities;
 mod oidc_pending;
+mod operator_records;
 mod org_admin;
 mod schema;
 mod server_lock;

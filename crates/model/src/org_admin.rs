@@ -227,43 +227,6 @@ impl FromStr for AuditAction {
     }
 }
 
-/// Whether a record was made by an account holder or through the local administration socket.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum AuditActorKind {
-    /// A signed-in person, whose identifier remains in the record.
-    Person,
-    /// The server operator, who acts without an account.
-    ServerOperator,
-}
-
-impl AuditActorKind {
-    /// The database and wire spelling.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Person => "person",
-            Self::ServerOperator => "server_operator",
-        }
-    }
-}
-
-/// Text that names no kind of actor of the audit log.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("{0:?} is no audit actor kind")]
-pub struct UnknownAuditActorKind(pub String);
-
-impl FromStr for AuditActorKind {
-    type Err = UnknownAuditActorKind;
-
-    fn from_str(text: &str) -> Result<Self, Self::Err> {
-        [Self::Person, Self::ServerOperator]
-            .into_iter()
-            .find(|kind| kind.as_str() == text)
-            .ok_or_else(|| UnknownAuditActorKind(text.to_owned()))
-    }
-}
-
 /// A user as a record of the audit log names them.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -276,6 +239,18 @@ pub struct AuditPerson {
     pub display_name: String,
 }
 
+/// Who did what a record of the audit log says: a person by their account, named as it
+/// is now (an account that is gone by its identifier alone), or the server's operator,
+/// who acts through the local administration socket without one. `kind` says which.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum AuditRecordActor {
+    /// A person, whose identifier stays in the record when the account goes.
+    Person(AuditPerson),
+    /// The server's operator.
+    ServerOperator,
+}
+
 /// One record of the audit log: who did what, to what and whom, and when.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -284,10 +259,8 @@ pub struct AuditRecord {
     pub id: String,
     /// What was done.
     pub action: AuditAction,
-    /// Who did it; absent only for a server operator.
-    pub actor: Option<AuditPerson>,
-    /// The origin of the action, independent of whether an account still exists.
-    pub actor_kind: AuditActorKind,
+    /// Who did it.
+    pub actor: AuditRecordActor,
     /// Whom it was done to, for an action that names somebody; `null` otherwise.
     pub subject: Option<AuditPerson>,
     /// What it was done to: a board, a workspace or the organization.

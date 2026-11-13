@@ -468,11 +468,10 @@ async fn only_the_password_set_is_recorded(
     assert_eq!(kept, before, "the other global commands add nothing");
     let subject = set.subject.as_ref().map(|subject| subject.id.as_str());
     assert_eq!(
-        (set.action, set.actor_kind, set.actor.as_ref()),
+        (set.action, &set.actor),
         (
             fvoci_model::AuditAction::PasswordSetByOperator,
-            fvoci_model::AuditActorKind::ServerOperator,
-            None
+            &fvoci_model::AuditRecordActor::ServerOperator
         ),
         "the operator's password set"
     );

@@ -99,14 +99,6 @@
         ],
         "type": "string"
       },
-      "AuditActorKind": {
-        "description": "Whether a record was made by an account holder or through the local administration socket.",
-        "enum": [
-          "person",
-          "server_operator"
-        ],
-        "type": "string"
-      },
       "AuditPerson": {
         "description": "A user as a record of the audit log names them.",
         "properties": {
@@ -138,19 +130,8 @@
             "description": "What was done."
           },
           "actor": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/AuditPerson",
-                "description": "Who did it; absent only for a server operator."
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "actorKind": {
-            "$ref": "#/components/schemas/AuditActorKind",
-            "description": "The origin of the action, independent of whether an account still exists."
+            "$ref": "#/components/schemas/AuditRecordActor",
+            "description": "Who did it."
           },
           "createAt": {
             "description": "When, in milliseconds since the epoch.",
@@ -187,7 +168,6 @@
         "required": [
           "action",
           "actor",
-          "actorKind",
           "createAt",
           "id",
           "subject",
@@ -195,6 +175,49 @@
           "targetName"
         ],
         "type": "object"
+      },
+      "AuditRecordActor": {
+        "description": "Who did what a record of the audit log says: a person by their account, named as it\nis now (an account that is gone by its identifier alone), or the server's operator,\nwho acts through the local administration socket without one. `kind` says which.",
+        "oneOf": [
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AuditPerson",
+                "description": "A person, whose identifier stays in the record when the account goes."
+              },
+              {
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "person"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "type": "object"
+              }
+            ],
+            "description": "A person, whose identifier stays in the record when the account goes."
+          },
+          {
+            "description": "The server's operator.",
+            "properties": {
+              "kind": {
+                "enum": [
+                  "server_operator"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          }
+        ]
       },
       "Block": {
         "description": "The basic data unit of a board.",

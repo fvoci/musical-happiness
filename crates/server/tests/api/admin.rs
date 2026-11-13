@@ -219,10 +219,9 @@ pub(crate) mod socket {
             .collect();
         assert_eq!(promoted.len(), 1);
         assert_eq!(
-            promoted[0].actor_kind,
-            fvoci_model::AuditActorKind::ServerOperator
+            promoted[0].actor,
+            fvoci_model::AuditRecordActor::ServerOperator
         );
-        assert!(promoted[0].actor.is_none());
         assert_eq!(
             promoted[0].subject.as_ref().expect("subject").id,
             th.client2.me().await.id

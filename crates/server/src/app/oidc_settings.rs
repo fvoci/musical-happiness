@@ -121,7 +121,7 @@ impl App {
         if let Some(existing) = &existing
             && existing.issuer != stored.issuer
         {
-            self.close_sessions_of_origin(&existing.issuer);
+            self.close_sessions_of_origin(existing);
         }
         sso::record_if_changed(existing.as_ref(), &stored, &session.user_id);
         if stored.sso_required {
@@ -149,10 +149,10 @@ impl App {
     /// password, and the store's error.
     pub async fn delete_oidc_provider(&self, actor_id: &str) -> Result<(), AppError> {
         match self.store().delete_oidc_provider(actor_id).await? {
-            Removal::Removed { issuer } => {
+            Removal::Removed { provider } => {
                 // The store ended the sessions made through it: what they had open, their
                 // seats in the rooms among it, ends with them.
-                self.close_sessions_of_origin(&issuer);
+                self.close_sessions_of_origin(&provider);
                 tracing::info!("the provider of an organization was removed");
             }
             Removal::NoneThere => {}
@@ -161,12 +161,11 @@ impl App {
         Ok(())
     }
 
-    /// Closes the connections of the sessions made through a provider of the handle's
-    /// organization under `issuer`, which the store ended.
-    pub(super) fn close_sessions_of_origin(&self, issuer: &str) {
-        if let Some(org_id) = self.store().tenant().org_id() {
-            self.ws().close_sessions_of_origin(&org_id, issuer);
-        }
+    /// Closes the connections of the sessions made through a provider of `provider`'s
+    /// organization under its issuer, which the store ended with it.
+    pub(super) fn close_sessions_of_origin(&self, provider: &StoredProvider) {
+        self.ws()
+            .close_sessions_of_origin(&provider.org_id, &provider.issuer);
     }
 
     pub(super) fn provider_view(

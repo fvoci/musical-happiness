@@ -92,9 +92,9 @@ pub use oidc::{
     OidcStartRequest, UnlinkRequest,
 };
 pub use org_admin::{
-    AuditAction, AuditActorKind, AuditPerson, AuditRecord, MAX_NAME_CHARS, OrgMember,
+    AuditAction, AuditPerson, AuditRecord, AuditRecordActor, MAX_NAME_CHARS, OrgMember,
     OrgRoleChange, OrgWorkspace, Organization, OrganizationPatch, UnknownAuditAction,
-    UnknownAuditActorKind, WorkspaceName,
+    WorkspaceName,
 };
 pub use organization::{
     OrgRole, UnknownRole, UserWorkspace, WorkspaceMember, WorkspaceRole, WorkspaceRoleChange,

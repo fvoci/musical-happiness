@@ -348,6 +348,11 @@ impl<'c> Scope<'c> {
         }
     }
 
+    /// The identifier of the organization the operation reaches, if it names one.
+    pub(crate) fn org_id(&self) -> Option<String> {
+        self.tenant.org_id()
+    }
+
     /// Whether the store's handle names an organization.
     pub(crate) fn has_org(&self) -> bool {
         matches!(self.tenant, Tenant::Org(_))

@@ -1,6 +1,6 @@
 //! Durable provider changes, operator attribution, and immutable records on both databases.
 use crate::common;
-use fvoci_model::{AuditAction, AuditActorKind, new_id};
+use fvoci_model::{AuditAction, AuditRecordActor, new_id};
 use fvoci_store::{AuditPlace, Paging, StoredProvider};
 
 fn settings() -> StoredProvider {
@@ -51,16 +51,14 @@ async fn operator_records_are_distinct_immutable_and_made_with_the_release() {
     assert_eq!(records.len(), 3);
     let operators: Vec<_> = records
         .iter()
-        .filter(|record| record.actor_kind == AuditActorKind::ServerOperator)
+        .filter(|record| record.actor == AuditRecordActor::ServerOperator)
         .collect();
     assert_eq!(operators.len(), 1);
     assert_eq!(operators[0].action, AuditAction::SsoReleased);
-    assert!(operators[0].actor.is_none());
-    for record in records
-        .iter()
-        .filter(|record| record.actor_kind == AuditActorKind::Person)
-    {
-        assert_eq!(record.actor.as_ref().expect("a person").id, actor);
+    for record in &records {
+        if let AuditRecordActor::Person(person) = &record.actor {
+            assert_eq!(person.id, actor);
+        }
     }
     for statement in [
         "UPDATE audit_log SET actor_kind = 'person' WHERE actor_kind = 'server_operator'",
@@ -154,8 +152,11 @@ async fn migration_keeps_existing_people_subjects_and_times() {
     assert_eq!(records.len(), 1);
     let after = &records[0];
     assert_eq!(after.id, record);
-    assert_eq!(after.actor_kind, AuditActorKind::Person);
-    assert_eq!(after.actor.as_ref().expect("actor").id, actor);
+    assert!(
+        matches!(&after.actor, AuditRecordActor::Person(person) if person.id == actor),
+        "{:?}",
+        after.actor
+    );
     assert_eq!(after.subject.as_ref().expect("subject").id, subject);
     assert_eq!(after.action, AuditAction::OrgAdminGranted);
     assert_eq!(after.target_id, org);
@@ -221,8 +222,7 @@ async fn an_operator_role_change_is_recorded_only_in_the_instances_organization(
         .await
         .expect("records");
     assert_eq!(records.len(), 1);
-    assert_eq!(records[0].actor_kind, AuditActorKind::ServerOperator);
-    assert!(records[0].actor.is_none());
+    assert_eq!(records[0].actor, AuditRecordActor::ServerOperator);
     assert_eq!(records[0].action, AuditAction::OrgAdminGranted);
     assert_eq!(records[0].subject.as_ref().expect("subject").id, user);
     if let Some(other) = other {

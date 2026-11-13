@@ -26,7 +26,7 @@
 
   function said(record: AuditRecord): string {
     const actor =
-      record.actorKind === 'server_operator' ? m.audit_server_operator() : named(record.actor);
+      record.actor.kind === 'server_operator' ? m.audit_server_operator() : named(record.actor);
     const subject = named(record.subject);
     const board = record.targetName ?? m.audit_a_board();
     const workspace = record.targetName ?? '';

@@ -74,11 +74,12 @@ async fn http_settings_cannot_claim_an_operator_actor() {
         1,
         "one provider configuration"
     );
+    let me = ts.client.me().await.id;
     for record in records {
-        assert_eq!(record.actor_kind, fvoci_model::AuditActorKind::Person);
-        assert_eq!(
-            record.actor.as_ref().expect("person").id,
-            ts.client.me().await.id
+        assert!(
+            matches!(&record.actor, fvoci_model::AuditRecordActor::Person(person) if person.id == me),
+            "{:?}",
+            record.actor
         );
     }
     ts.stop().await.expect("the server stops");

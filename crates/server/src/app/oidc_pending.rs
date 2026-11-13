@@ -91,7 +91,7 @@ impl App {
         let (before, provider) = (&applied.before, &applied.provider);
         tracing::info!(org_id = %provider.org_id, issuer = %provider.issuer, "the pending settings of a provider were tried and taken");
         if before.issuer != provider.issuer {
-            self.close_sessions_of_origin(&before.issuer);
+            self.close_sessions_of_origin(before);
         }
         if provider.sso_required {
             if provider.id != before.id {

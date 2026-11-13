@@ -36,12 +36,14 @@ export interface AuditPerson {
   displayName: string;
 }
 
+/** Who did it: a person by their account, or the server's operator, who has none. */
+export type AuditActor = (AuditPerson & { kind: 'person' }) | { kind: 'server_operator' };
+
 /** One record: who did what, to what and whom, and when. */
 export interface AuditRecord {
   id: string;
   action: AuditAction;
-  actor: AuditPerson | null;
-  actorKind: 'person' | 'server_operator';
+  actor: AuditActor;
   subject: AuditPerson | null;
   targetId: string;
   /** The board's title where the reader sees the board, the workspace's name; null otherwise. */

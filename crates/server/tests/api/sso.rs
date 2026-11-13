@@ -414,14 +414,18 @@ async fn the_administration_socket_releases_an_organization() {
         .ok_json();
     let operators: Vec<_> = records
         .iter()
-        .filter(|record| record["actorKind"] == "server_operator")
+        .filter(|record| record["actor"]["kind"] == "server_operator")
         .collect();
     assert_eq!(
         operators.len(),
         1,
         "only the effective socket release is recorded"
     );
-    assert!(operators[0]["actor"].is_null());
+    assert_eq!(
+        operators[0]["actor"],
+        serde_json::json!({ "kind": "server_operator" }),
+        "the operator, with nothing of a person"
+    );
     assert_eq!(operators[0]["action"], "sso_released");
     for missing in [new_id(), "no-identifier".to_owned()] {
         socket_request(

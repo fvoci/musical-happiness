@@ -145,11 +145,9 @@ async fn the_providers_sessions_end_with_its_removal_or_its_issuer() {
 
     assert_eq!(after_the_same_issuer, (true, true), "the issuer stayed");
     assert_eq!(after_another_issuer, (false, false), "everybody's ended");
-    assert_eq!(
-        removal,
-        Removal::Removed {
-            issuer: "https://two.example".to_owned()
-        }
+    assert!(
+        matches!(&removal, Removal::Removed { provider } if provider.issuer == "https://two.example"),
+        "{removal:?}"
     );
     assert!(!of_two_after, "ended with the removal");
     assert_eq!(

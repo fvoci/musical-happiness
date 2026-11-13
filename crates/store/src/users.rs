@@ -17,8 +17,8 @@ use crate::Store;
 use crate::audit::AuditActor;
 use crate::db::{Dialect, Id, Row, Scope, Sql, now_millis};
 use crate::error::{StoreError, Taken};
-use crate::members;
 use crate::sessions;
+use crate::{directory, members};
 
 /// The columns of a user, in the order [`user_from_row`] reads them.
 const USER_COLUMNS: &str =
@@ -207,13 +207,13 @@ impl Store {
         asker: Asker,
     ) -> Result<AdminChange, StoreError> {
         let is_admin = role == InstanceRole::Administrator;
-        let follows = self.is_the_instances_organization().await?;
         let actor = match asker {
             Asker::Administrator => AuditActor::Person(actor_id.to_owned()),
             Asker::Operator => AuditActor::ServerOperator,
         };
         self.transaction(async |scope| {
             lock_instance(scope).await?;
+            let follows = directory::is_the_instances_organization(scope).await?;
 
             let mut sql = select_users(scope);
             sql.push_bind(" AND id = ", Id(user_id));

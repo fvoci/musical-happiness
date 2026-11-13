@@ -910,16 +910,18 @@ fn rust_sources(directory: &Path, found: &mut Vec<std::path::PathBuf>) {
 }
 
 /// The files that may ask for the system's reach, by which a handle reaches the rows of
-/// every organization: the store itself, the directory, the changes of the data after
-/// a migration, and the one function of the server that its housekeeping works
-/// through. Anywhere else, a request would be let past the wall it is there to be held
+/// every organization: the store itself, the directory, the records of the server's
+/// operator in each organization of a person, the changes of the data after a
+/// migration, and the one function of the server that its housekeeping works through.
+/// Asked by the handle or by the setting of a transaction alike. Anywhere else, a request would be let past the wall it is there to be held
 /// by. (The system organization, which holds the built-in templates, is an
 /// organization like another to the wall: `Tenant::org(SYSTEM_ORG_ID)` is not this.)
 #[test]
 fn the_systems_reach_is_asked_for_in_few_places() {
-    const ALLOWED: [&str; 4] = [
+    const ALLOWED: [&str; 5] = [
         "store/src/lib.rs",
         "store/src/directory.rs",
+        "store/src/operator_records.rs",
         "store/src/data_steps.rs",
         "server/src/app/housekeeping.rs",
     ];
@@ -939,8 +941,10 @@ fn the_systems_reach_is_asked_for_in_few_places() {
             .to_string_lossy()
             .replace('\\', "/");
         let text = std::fs::read_to_string(&file).expect("a source file");
+        // A file's unit tests, after its `#[cfg(test)]`, are compiled into no server.
         let asks = text
             .lines()
+            .take_while(|line| line.trim() != "#[cfg(test)]")
             .filter(|line| !line.trim_start().starts_with("//"))
             .any(|line| {
                 // By the variant, also where it is imported by its bare name, and by
@@ -949,6 +953,7 @@ fn the_systems_reach_is_asked_for_in_few_places() {
                     || (line.contains("Tenant::{") && line.contains("System"))
                     || line.contains(".system()")
                     || line.contains("::system(")
+                    || line.contains("fvoci.system")
             });
         // The test support is compiled into no server.
         if asks && name != "store/src/testing.rs" {
@@ -1920,4 +1925,40 @@ async fn an_open_board_is_found_by_who_works_in_its_workspace() {
         "a guest who is on the board"
     );
     test.teardown().await;
+}
+
+/// Whether an organization is the instance's own is asked in the transaction of what
+/// depends on it, past the wall on PostgreSQL for that one statement: the oldest
+/// organization is, a later one is not, and afterwards the transaction reaches its own
+/// organization alone again.
+#[tokio::test]
+async fn the_instances_organization_is_asked_behind_a_wall_closed_again() {
+    let test = common::setup().await;
+    let own = test
+        .instances_organization_and_reach()
+        .await
+        .expect("asked");
+    let later = if common::db_type() == DbType::Postgres {
+        let (org, _) = common::organization(&test.system(), "Later").await;
+        let later = test.for_org(&org).expect("organization");
+        Some(
+            later
+                .instances_organization_and_reach()
+                .await
+                .expect("asked"),
+        )
+    } else {
+        None
+    };
+    test.teardown().await;
+
+    assert!(own.0, "the oldest organization is the instance's");
+    if let Some(later) = later {
+        assert_eq!(
+            later,
+            (false, 1),
+            "a later one is not, and sees itself alone"
+        );
+        assert_eq!(own.1, 1, "nor does the instance's see the others");
+    }
 }

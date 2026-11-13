@@ -438,6 +438,23 @@ impl Store {
         settings
     }
 
+    /// Whether the handle's organization is the instance's own, asked in a transaction
+    /// as a change of a role asks it, and how many organizations that transaction
+    /// reaches afterwards: for the test that the wall is closed again after it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if a statement fails.
+    pub async fn instances_organization_and_reach(&self) -> Result<(bool, i64), StoreError> {
+        self.transaction(async |scope| {
+            let answer = crate::directory::is_the_instances_organization(scope).await?;
+            let sql = scope.sql("SELECT count(*) FROM organizations");
+            let reached = scope.fetch_optional(sql).await?;
+            Ok((answer, reached.map_or(Ok(0), |row| row.int(0))?))
+        })
+        .await
+    }
+
     /// How many rows of a table this handle reaches, with no condition: for the tests
     /// of the wall between organizations.
     ///

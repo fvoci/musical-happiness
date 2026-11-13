@@ -16,7 +16,7 @@ use crate::audit::{self, AuditActor, AuditEntry};
 use crate::db::{Dialect, Id, OptId, Row, Scope, now_millis};
 use crate::error::{StoreError, Taken};
 use crate::trash::{self, Purged, Trashed};
-use crate::{Paging, Store, joinings, users, workspaces};
+use crate::{Paging, Store, directory, joinings, users, workspaces};
 
 /// What became of a change of a member's role in the organization.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -160,11 +160,11 @@ impl Store {
         role: OrgRole,
         actor_id: &str,
     ) -> Result<OrgRoleChange, StoreError> {
-        let the_instances = self.is_the_instances_organization().await?;
         self.transaction(async |scope| {
             // The instance's row first, as a change of who administers the instance
             // takes it: the two are one role for now (`members::follow_instance_role`).
             users::lock_instance(scope).await?;
+            let the_instances = directory::is_the_instances_organization(scope).await?;
             let org = held_by_admin(scope, actor_id).await?;
             let Some(current) = org_role_of(scope, user_id).await? else {
                 return Ok(OrgRoleChange::NotAMember);

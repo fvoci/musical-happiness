@@ -262,24 +262,25 @@ impl Store {
     /// Returns [`StoreError::NoOrganization`] if the handle names none, and
     /// [`StoreError::Database`] if a statement fails.
     pub async fn delete_oidc_provider(&self, actor_id: &str) -> Result<Removal, StoreError> {
-        let org_id = self.tenant().org_id().ok_or(StoreError::NoOrganization)?;
         self.transaction(async |scope| {
             hold_provider_of_organization(scope).await?;
-            let mut sql =
-                scope.sql("SELECT sso_required, issuer FROM oidc_providers WHERE org_id = ");
-            sql.bind(scope.org()?);
-            let issuer = match scope.fetch_optional(sql).await? {
+            let provider = match read_provider(scope).await? {
                 None => return Ok(Removal::NoneThere),
-                Some(row) if row.bool(0)? => return Ok(Removal::Enforced),
-                Some(row) => row.text(1)?,
+                Some(provider) if provider.sso_required => return Ok(Removal::Enforced),
+                Some(provider) => provider,
             };
             let mut sql = scope.sql("DELETE FROM oidc_providers WHERE org_id = ");
-            sql.bind(scope.org()?);
+            sql.bind(Id(&provider.org_id));
             scope.execute(sql).await?;
-            sessions::end_sessions_of_origin(scope, &org_id, &issuer).await?;
-            let entry = AuditEntry::new("", actor_id, AuditAction::OidcProviderRemoved, &org_id);
+            sessions::end_sessions_of_origin(scope, &provider.org_id, &provider.issuer).await?;
+            let entry = AuditEntry::new(
+                "",
+                actor_id,
+                AuditAction::OidcProviderRemoved,
+                &provider.org_id,
+            );
             audit::record_entry(scope, &entry).await?;
-            Ok(Removal::Removed { issuer })
+            Ok(Removal::Removed { provider })
         })
         .await
     }
@@ -689,8 +690,8 @@ pub enum Removal {
     /// It is removed, and the sessions made through a provider of the organization
     /// under its issuer ended with it.
     Removed {
-        /// The issuer the removed provider had.
-        issuer: String,
+        /// The provider as it was.
+        provider: StoredProvider,
     },
     /// The organization had none.
     NoneThere,

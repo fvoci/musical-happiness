@@ -2,7 +2,7 @@
 //! organization the person is a member of, one record each, as the operator's, and in
 //! no other organization.
 
-use fvoci_model::{AuditAction, AuditActorKind, AuditRecord};
+use fvoci_model::{AuditAction, AuditRecord, AuditRecordActor};
 use fvoci_store::{AuditPlace, Paging, Store, StoreError};
 
 use crate::common;
@@ -26,11 +26,10 @@ async fn operators_records(store: &Store, org_id: &str, user_id: &str) -> Vec<Au
         .into_iter()
         .map(|record| {
             assert_eq!(
-                record.actor_kind,
-                AuditActorKind::ServerOperator,
+                record.actor,
+                AuditRecordActor::ServerOperator,
                 "the operator's"
             );
-            assert_eq!(record.actor, None, "no person did it");
             assert_eq!(record.target_id, org_id, "the organization's own record");
             assert_eq!(
                 record.subject.as_ref().map(|subject| subject.id.as_str()),
