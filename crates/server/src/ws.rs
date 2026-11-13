@@ -9,7 +9,12 @@
 //! The commands and the binary frames of the bodies edited together are handed to the
 //! connection's seat among their rooms (`crate::collab::Seat`).
 
+mod subscriptions;
+#[cfg(feature = "test-util")]
+mod testing;
 mod writer;
+#[cfg(feature = "test-util")]
+pub use testing::SubscriptionPause;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -180,6 +185,7 @@ struct Listener {
     /// Why the hub gave the connection up, set before `closed` is cancelled.
     closed_because: Arc<OnceLock<Disconnect>>,
     workspaces: Vec<String>,
+    workspace_roles: HashMap<String, fvoci_model::WorkspaceRole>,
     blocks: Vec<String>,
     /// The shared boards whose read token this connection subscribed to blocks with.
     /// When such a board stops being shared under that token, the connection goes.
@@ -189,6 +195,8 @@ struct Listener {
 #[derive(Debug, Default)]
 struct Listeners {
     next_id: ListenerId,
+    /// Changes whenever access is revoked, including before a subscription is registered.
+    revision: u64,
     by_id: HashMap<ListenerId, Listener>,
     by_workspace: HashMap<String, Vec<ListenerId>>,
     by_block: HashMap<String, Vec<ListenerId>>,
@@ -255,6 +263,8 @@ struct HubInner {
     auth: Authenticator,
     ping_interval: Option<Duration>,
     metrics: Metrics,
+    #[cfg(feature = "test-util")]
+    subscription_pause: Mutex<Option<SubscriptionPause>>,
 }
 
 impl Hub {
@@ -272,6 +282,8 @@ impl Hub {
                 auth,
                 ping_interval,
                 metrics,
+                #[cfg(feature = "test-util")]
+                subscription_pause: Mutex::default(),
             }),
             audience,
         }
@@ -316,6 +328,7 @@ impl Hub {
                     closed: closed.clone(),
                     closed_because: Arc::clone(&closed_because),
                     workspaces: Vec::new(),
+                    workspace_roles: HashMap::new(),
                     blocks: Vec::new(),
                     shared_boards: Vec::new(),
                 },
@@ -342,7 +355,14 @@ impl Hub {
 
         let ping_interval = self.inner.ping_interval;
         let session_check = ping_interval.unwrap_or(SESSION_CHECK_WITHOUT_PING);
-        let mut writer = writer::spawn(sink, inbox, docs_outbox, ping_interval);
+        let mut writer = writer::spawn(
+            sink,
+            inbox,
+            docs_outbox,
+            ping_interval,
+            closed.clone(),
+            Arc::clone(&closed_because),
+        );
 
         let reason = tokio::select! {
             // First: when the hub gave the connection up, its reason is the one counted,
@@ -360,11 +380,13 @@ impl Hub {
             // the sessions that ended so are deleted only by the hourly clean-up.
             () = self.session_ends(token.as_deref(), session_check) => Disconnect::SessionEnded,
         };
+        let _ = closed_because.set(reason);
+        closed.cancel();
         metrics.websocket_closed(reason);
         docs.leave_all().await;
 
-        // Removing the listener drops its outbox, which ends the writer once it has sent
-        // what was queued. A peer that does not read would hold the writer forever.
+        // The cancelled writer discards queued changes. A peer that does not read
+        // must not hold its closing handshake forever.
         self.listeners().remove(id);
         if tokio::time::timeout(WRITER_GRACE, &mut writer)
             .await
@@ -437,98 +459,6 @@ impl Hub {
     /// server's own connection handling once they are upgraded.
     pub fn close(&self) {
         self.close_where(Disconnect::Shutdown, |_| true);
-    }
-
-    /// Handles one command. Returns `false` if the connection must be closed.
-    async fn handle(&self, id: ListenerId, command: Command) -> bool {
-        match command.action.as_str() {
-            "SUBSCRIBE_BLOCKS" | "UNSUBSCRIBE_BLOCKS" => {
-                let Some(board_id) = self.board_of_read_token(&command).await else {
-                    tracing::error!(action = %command.action, "websocket: rejected an invalid read token");
-                    return true;
-                };
-                let mut listeners = self.listeners();
-                if command.action == "SUBSCRIBE_BLOCKS" {
-                    subscribe_to_blocks(&mut listeners, id, &command.block_ids);
-                    if let Some(listener) = listeners.by_id.get_mut(&id)
-                        && !listener.shared_boards.contains(&board_id)
-                    {
-                        listener.shared_boards.push(board_id);
-                    }
-                } else {
-                    unsubscribe_from_blocks(&mut listeners, id, &command.block_ids);
-                }
-                return true;
-            }
-            _ => {}
-        }
-
-        let user_id = self
-            .listeners()
-            .by_id
-            .get(&id)
-            .map(|listener| listener.user_id.clone())
-            .unwrap_or_default();
-        if user_id.is_empty() {
-            tracing::error!(action = %command.action, "websocket: rejected an unauthenticated message");
-            return true;
-        }
-
-        match command.action.as_str() {
-            "SUBSCRIBE_WORKSPACE" => {
-                let workspace = &command.workspace_id;
-                if self.audience.is_in_workspace(&user_id, workspace).await {
-                    subscribe_to_workspace(&mut self.listeners(), id, &command.workspace_id);
-                } else {
-                    tracing::error!(workspace_id = %command.workspace_id, user_id, "websocket: no workspace access");
-                }
-            }
-            "UNSUBSCRIBE_WORKSPACE" => {
-                let mut listeners = self.listeners();
-                if let Some(listener) = listeners.by_id.get_mut(&id) {
-                    listener
-                        .workspaces
-                        .retain(|workspace| *workspace != command.workspace_id);
-                }
-                remove_from(&mut listeners.by_workspace, &command.workspace_id, id);
-            }
-            other => tracing::error!(action = other, "websocket: invalid action"),
-        }
-        true
-    }
-
-    /// A block subscription needs a workspace, blocks that all belong to one board, and that
-    /// board's read token. Returns the board, or `None` if the subscription is refused.
-    async fn board_of_read_token(&self, command: &Command) -> Option<String> {
-        if command.workspace_id.is_empty() {
-            return None;
-        }
-        let mut board_id = String::new();
-        for block_id in &command.block_ids {
-            let of_block = self
-                .audience
-                .board_of_shared_block(&command.workspace_id, block_id, &command.read_token)
-                .await
-                .ok()??;
-            if board_id.is_empty() {
-                board_id = of_block;
-            } else if board_id != of_block {
-                return None;
-            }
-        }
-        match self
-            .inner
-            .auth
-            .is_valid_read_token(&board_id, &command.read_token)
-            .await
-        {
-            Ok(true) => Some(board_id),
-            Ok(false) => None,
-            Err(error) => {
-                tracing::error!(%error, workspace_id = %command.workspace_id, "websocket: checking a read token failed");
-                None
-            }
-        }
     }
 
     // -- broadcasts -------------------------------------------------------------------

@@ -337,7 +337,11 @@ impl App {
             .join_workspace_as_org_admin(workspace_id, user_id)
             .await?
         {
-            Joining::Joined | Joining::Already => self.org_workspace(user_id, workspace_id).await,
+            Joining::Joined => {
+                self.ws().workspace_role_changed(workspace_id, user_id);
+                self.org_workspace(user_id, workspace_id).await
+            }
+            Joining::Already => self.org_workspace(user_id, workspace_id).await,
             Joining::NotFound => Err(workspace_not_found()),
             Joining::NoOrgAdmin => Err(AppError::not_found("organization")),
         }

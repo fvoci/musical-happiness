@@ -75,6 +75,7 @@ mod uploads;
 mod users;
 mod visibility;
 mod websocket;
+mod websocket_access;
 mod workspace_admin;
 mod workspace_members;
 mod workspace_removal;

@@ -20,6 +20,8 @@ pub(crate) enum Disconnect {
     SessionEnded,
     /// The read token it followed a shared board with stopped opening the board.
     ShareEnded,
+    /// Access to a subscribed workspace ended or its role changed.
+    AccessEnded,
     /// It did not read its messages as fast as they came.
     SlowConsumer,
     /// The server stopped. Counted as it stops, after the metrics listener closed, so a
@@ -28,11 +30,12 @@ pub(crate) enum Disconnect {
 }
 
 impl Disconnect {
-    const ALL: [Self; 6] = [
+    const ALL: [Self; 7] = [
         Self::ClientClosed,
         Self::ReadError,
         Self::SessionEnded,
         Self::ShareEnded,
+        Self::AccessEnded,
         Self::SlowConsumer,
         Self::Shutdown,
     ];
@@ -44,6 +47,7 @@ impl Disconnect {
             Self::ReadError => "read_error",
             Self::SessionEnded => "session_ended",
             Self::ShareEnded => "share_ended",
+            Self::AccessEnded => "access_ended",
             Self::SlowConsumer => "slow_consumer",
             Self::Shutdown => "shutdown",
         }
@@ -65,7 +69,7 @@ impl WebsocketMetrics {
             Opts::new(
                 "websocket_connections",
                 "How many websocket connections are open; one that ended is counted until \
-                 what was queued for it is sent, for five seconds at most.",
+                 its writer closes, for five seconds at most.",
             )
             .namespace(PREFIX),
         )?;
@@ -84,7 +88,7 @@ impl WebsocketMetrics {
                 "websocket_disconnections_total",
                 "How many websocket connections ended, by reason: client_closed (a close \
                  frame), read_error (broken off, or no websocket frame), session_ended, \
-                 share_ended, slow_consumer, shutdown (not seen: counted as the server \
+                 share_ended, access_ended, slow_consumer, shutdown (not seen: counted as the server \
                  stops).",
             )
             .namespace(PREFIX),

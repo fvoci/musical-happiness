@@ -13,6 +13,7 @@ fn add_listener(listeners: &mut Listeners, user_id: &str) -> ListenerId {
             closed: CancellationToken::new(),
             closed_because: Arc::default(),
             workspaces: Vec::new(),
+            workspace_roles: HashMap::new(),
             blocks: Vec::new(),
             shared_boards: Vec::new(),
         },
@@ -131,7 +132,7 @@ fn workspace_subscription() {
 }
 
 /// A workspace that goes to the trash is followed by nobody: each of its listeners stops
-/// following it, and what else they follow stays.
+/// following it and receives a close, reconnecting for any workspace still accessible.
 #[test]
 fn a_workspace_in_the_trash_is_followed_by_nobody() {
     let mut listeners = Listeners::default();
@@ -147,16 +148,14 @@ fn a_workspace_in_the_trash_is_followed_by_nobody() {
         !listeners.by_workspace.contains_key("trashed"),
         "nobody follows it"
     );
-    assert_eq!(
-        workspaces_of(&listeners, one),
-        ["kept"],
-        "the other one stays"
+    assert!(
+        listeners.by_id.is_empty(),
+        "both affected connections are closed"
     );
     assert!(
-        workspaces_of(&listeners, other).is_empty(),
-        "nothing else was followed"
+        workspace_listeners(&listeners, "kept").is_empty(),
+        "closed connections leave every index"
     );
-    assert_eq!(workspace_listeners(&listeners, "kept"), [one]);
 }
 
 /// `TestTeamSubscription/"Subscribe users to team retrieve by user"`: the listeners of
