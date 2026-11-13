@@ -1158,6 +1158,23 @@
         ],
         "type": "object"
       },
+      "FinishPasswordReset": {
+        "properties": {
+          "password": {
+            "description": "The new password: at least eight characters, at most 1024 bytes.",
+            "type": "string"
+          },
+          "token": {
+            "description": "The secret from the reset link's fragment.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "password",
+          "token"
+        ],
+        "type": "object"
+      },
       "GuestInvitationsChange": {
         "description": "A request to turn the invitations of guests to a workspace's boards on or off.",
         "properties": {
@@ -4632,6 +4649,44 @@
         "summary": "Bring a workspace back",
         "tags": [
           "organization"
+        ]
+      }
+    },
+    "/api/v1/password-reset/complete": {
+      "post": {
+        "description": "Consumes a reset token before its one-hour expiry and sets the new password.\nAll of the account's sessions and WebSocket connections end. A missing, expired\nor already used token answers the same 400, naming `token` in `errors`.",
+        "operationId": "completePasswordReset",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FinishPasswordReset"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "The password was reset; sign in again."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "security": [
+          {}
+        ],
+        "summary": "Finish resetting a password",
+        "tags": [
+          "auth"
         ]
       }
     },

@@ -982,5 +982,11 @@
   "org_rename_named": "Rename {name}",
   "org_delete_named": "Delete {name}",
   "org_restore_named": "Restore {name}",
-  "shell_switch_workspace_from": "Switch workspace: {name}"
+  "shell_switch_workspace_from": "Switch workspace: {name}",
+  "reset_title": "Choose a new password",
+  "reset_submit": "Reset password",
+  "reset_done": "Your password has been reset. Sign in again on each device.",
+  "reset_invalid": "This reset link is invalid or has expired. Ask for a new link.",
+  "reset_password": "New password",
+  "reset_sign_in": "Back to sign in"
 }

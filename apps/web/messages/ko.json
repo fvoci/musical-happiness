@@ -982,5 +982,11 @@
   "org_rename_named": "{name}의 이름 바꾸기",
   "org_delete_named": "{name} 지우기",
   "org_restore_named": "{name} 되살리기",
-  "shell_switch_workspace_from": "워크스페이스 바꾸기: {name}"
+  "shell_switch_workspace_from": "워크스페이스 바꾸기: {name}",
+  "reset_title": "새 비밀번호 설정",
+  "reset_submit": "비밀번호 재설정",
+  "reset_done": "비밀번호가 재설정되었습니다. 각 기기에서 다시 로그인하세요.",
+  "reset_invalid": "유효하지 않거나 만료된 재설정 링크입니다. 새 링크를 요청하세요.",
+  "reset_password": "새 비밀번호",
+  "reset_sign_in": "로그인으로 돌아가기"
 }

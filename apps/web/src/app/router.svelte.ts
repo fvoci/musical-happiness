@@ -23,6 +23,8 @@ import { afterOwnSteps, releaseOverlayEntries } from '$lib/layout/back.svelte.ts
 import { buildUrl, normalizeBasePath, type BoardPlace } from '$lib/logic/urls.ts';
 
 export interface Route {
+  /** The standalone password reset page; its token is in the URL fragment. */
+  passwordReset?: true;
   /** The organization whose screen is shown; then nothing else is. */
   orgId?: string | undefined;
   workspaceId: string | undefined;
@@ -81,6 +83,9 @@ export function parseRoute(pathname: string, basePath: string, search = ''): Rou
       }
     });
   if (segments.length === 0) return NOWHERE;
+  if (segments[0] === 'reset-password' && segments.length === 1) {
+    return { ...NOWHERE, passwordReset: true };
+  }
   if (segments[0] === 'invite' && segments.length === 2) {
     return { ...NOWHERE, invitation: segments[1] };
   }
@@ -179,6 +184,7 @@ export class Router {
       const next = parseRoute(location.pathname, this.basePath, location.search);
       const now = this.route;
       if (
+        next.passwordReset === now.passwordReset &&
         next.orgId === now.orgId &&
         next.workspaceId === now.workspaceId &&
         next.boardId === now.boardId &&

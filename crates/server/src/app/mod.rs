@@ -24,6 +24,7 @@ mod loose_objects;
 mod oidc;
 mod onboarding;
 mod org_admin;
+mod password_reset;
 mod readiness;
 mod reconcile;
 mod search;

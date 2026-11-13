@@ -45,6 +45,7 @@ mod onboarding;
 mod org_admin;
 mod org_admin_review;
 mod organizations;
+mod password_reset;
 mod paths;
 mod people;
 mod properties;

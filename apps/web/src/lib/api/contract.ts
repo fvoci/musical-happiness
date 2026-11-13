@@ -527,6 +527,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/password-reset/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Finish resetting a password
+         * @description Consumes a reset token before its one-hour expiry and sets the new password.
+         *     All of the account's sessions and WebSocket connections end. A missing, expired
+         *     or already used token answers the same 400, naming `token` in `errors`.
+         */
+        post: operations["completePasswordReset"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/ping": {
         parameters: {
             query?: never;
@@ -2974,6 +2996,12 @@ export interface components {
              */
             size: number;
         };
+        FinishPasswordReset: {
+            /** @description The new password: at least eight characters, at most 1024 bytes. */
+            password: string;
+            /** @description The secret from the reset link's fragment. */
+            token: string;
+        };
         /** @description A request to turn the invitations of guests to a workspace's boards on or off. */
         GuestInvitationsChange: {
             /** @description Whether the admins of the workspace's boards may invite guests to them. */
@@ -4822,6 +4850,37 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["OrgWorkspace"];
                 };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    completePasswordReset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FinishPasswordReset"];
+            };
+        };
+        responses: {
+            /** @description The password was reset; sign in again. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
             default: {
