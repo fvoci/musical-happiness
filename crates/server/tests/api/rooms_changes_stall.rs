@@ -7,7 +7,9 @@ use std::time::Duration;
 use tokio::time::Instant;
 
 use crate::common::{Setup, TEST_WORKSPACE_ID};
-use crate::rooms::{give, paragraphs, two_in_a_room};
+use serde_json::json;
+
+use crate::rooms::{Peer, give, paragraphs, two_in_a_room};
 
 /// How long the immediate check may wait for the store: one interval of the periodic
 /// check (`collab_recheck_seconds`).
@@ -75,6 +77,41 @@ async fn a_slow_permission_read_does_not_hold_other_changes_of_the_organization(
         answered,
         "adding a member to a board with no open room did not answer within {PROMPT:?} \
          (waited {waited:?}): it waited for another board's slow immediate check"
+    );
+    th.teardown().await;
+}
+
+/// The `DOC_LEFT` messages a peer is sent until nothing comes for a while.
+async fn left(peer: &mut Peer) -> Vec<serde_json::Value> {
+    peer.settle().await;
+    peer.unread()
+        .into_iter()
+        .filter(|message| message["action"] == json!("DOC_LEFT"))
+        .collect()
+}
+
+/// A change of the whole board (its minimum role) that leaves both members' roles as
+/// they are, and the store slow for one of them only. The read that is slow passes the
+/// pass's one deadline; every read after it in the pass has no time left and its
+/// member is put out with `document_unavailable` although the store would have
+/// answered at once that they may stay: here the board's admin, in their own card.
+#[tokio::test]
+async fn a_slow_permission_read_puts_out_nobody_whose_read_was_not_slow() {
+    let th = slow_store_deadline().start().await.init_basic().await;
+    let (table, mut owner, mut member) = two_in_a_room(&th, &paragraphs(&["first"])).await;
+    let _stalled = th.app.collab().stall_next_access_check();
+    th.client
+        .patch(
+            &format!("/w/{TEST_WORKSPACE_ID}/boards/{}", table.board_id),
+            &json!({"minimumRole": "viewer"}),
+        )
+        .await
+        .check_ok();
+    let (owner_left, member_left) = (left(&mut owner).await, left(&mut member).await);
+    assert!(
+        owner_left.is_empty() || member_left.is_empty(),
+        "both members were put out, though only one read was slow and both keep their \
+         roles: owner {owner_left:?}, member {member_left:?}"
     );
     th.teardown().await;
 }
