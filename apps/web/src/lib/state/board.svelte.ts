@@ -149,7 +149,7 @@ export class BoardStore {
   readonly #cardInverses = new Inverses<CardPatch>('updatedProperties', 'deletedProperties');
   readonly #viewInverses = new Inverses<BlockPatch>('updatedFields', 'deletedFields');
   readonly #boardInverses = new Inverses<BoardPatch>('updatedProperties', 'deletedProperties');
-  /** Readings again (`#refresh`) begun: the latest is the one that counts. */
+  /** Readings again (`refresh`) begun: the latest is the one that counts. */
   #refreshing = 0;
   /** Lists of members told by changes: a reading begun before the latest does not replace it. */
   #membersTold = 0;
@@ -341,7 +341,7 @@ export class BoardStore {
         this.openCard?.forget(change.blockIds);
         break;
       case 'resync':
-        void this.#refresh();
+        void this.refresh();
         break;
       default:
         break;
@@ -350,12 +350,12 @@ export class BoardStore {
 
   /**
    * Reads the board again over what is shown, after changes may have been
-   * missed (`resync`). Unlike `load`, the board stays on screen meanwhile;
+   * missed (`resync`, a card's room gone). Unlike `load`, the board stays;
    * what is read is merged with it (`reread`): a write under way, or a
    * change that arrived while reading, is not taken back. Of two readings
    * that overlap, the later one counts.
    */
-  async #refresh(): Promise<void> {
+  async refresh(): Promise<void> {
     if (this.status !== 'ready') return;
     this.#refreshing += 1;
     const heard = this.#lastComments.begin();

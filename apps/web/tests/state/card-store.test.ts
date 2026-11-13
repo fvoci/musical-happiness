@@ -28,6 +28,7 @@ async function inTheRoom() {
   });
   const me = board.workspace.me?.id ?? '';
   const otherId = [...world.users.keys()].find((id) => id !== me) ?? '';
+  // A member already keeps their role when added: it is set after.
   await backend.addMember(board.boardId, otherId, 'admin');
   await backend.setMemberRole(board.boardId, otherId, 'admin');
   const takenOff = () => made.other.removeMember(board.boardId, me);
@@ -133,15 +134,20 @@ describe('an open card', () => {
   });
 
   it('is missing when its room lets the reader go and the card is no longer theirs to read', async () => {
-    const { card, takenOff } = await inTheRoom();
+    const { card, board, backend, takenOff } = await inTheRoom();
     // Read again, the card is not there for the reader any more, as the server answers.
+    const read = vi.spyOn(backend, 'card');
+    const boardRead = vi.spyOn(board, 'refresh');
     await takenOff();
-    await vi.waitFor(() => {
-      expect(card.room?.reason).toBe('not_found');
-    });
     await vi.waitFor(() => {
       expect(card.missing).toBe(true);
     });
+    expect(card.room?.reason).toBe('not_found');
+    await settle();
+    // Once for the room put out, however often it says so; and the board is read again.
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(boardRead).toHaveBeenCalledTimes(1);
+    card.close();
   });
 
   it('stays when its room lets the reader go but the card can still be read', async () => {
@@ -156,6 +162,40 @@ describe('an open card', () => {
     await settle();
     expect(card.missing).toBe(false);
     expect(card.room?.reason).toBe('not_found');
+    card.close();
+  });
+
+  it('tells a session that ended when its room lets the reader go', async () => {
+    const { card, board, backend, takenOff } = await inTheRoom();
+    const ended = new BackendError(401);
+    vi.spyOn(backend, 'card').mockRejectedValue(ended);
+    const report = vi.spyOn(board.workspace, 'report');
+    await takenOff();
+    await vi.waitFor(() => {
+      expect(report).toHaveBeenCalledWith('load', ended);
+    });
+    expect(card.missing).toBe(false);
+    card.close();
+  });
+
+  it('takes no answer about a room it left meanwhile', async () => {
+    const { card, backend, takenOff } = await inTheRoom();
+    let answer: (error: unknown) => void = () => undefined;
+    const read = vi.spyOn(backend, 'card').mockReturnValue(
+      new Promise((_, reject) => {
+        answer = reject;
+      }),
+    );
+    await takenOff();
+    await vi.waitFor(() => {
+      expect(read).toHaveBeenCalled();
+    });
+    // The body is left (the card was deleted and its window made anew) before the answer.
+    card.closeBody();
+    answer(new BackendError(404));
+    await settle();
+    expect(card.missing).toBe(false);
+    card.close();
   });
 });
 

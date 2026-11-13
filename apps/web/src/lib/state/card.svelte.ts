@@ -155,7 +155,7 @@ export class CardStore {
       state: (state) => {
         if (this.#bodyDoc !== opened) return;
         const shut = state.status === 'out' && state.reason === 'not_found';
-        if (shut && this.room?.reason !== 'not_found') void this.#stillThere();
+        if (shut && this.room?.reason !== 'not_found') void this.#stillThere(opened);
         this.room = state;
         this.#showSaving(state.pending);
         // Without the room's document the body is the card's again: read what was missed.
@@ -172,14 +172,19 @@ export class CardStore {
   /**
    * The room let the reader go as it does for a card that is not there: the
    * card was deleted, or is no longer the reader's to read (taken off its
-   * board, out of its workspace). Which one, the card says.
+   * board, out of its workspace). The card says which, and the board is read
+   * again: one that is gone for the reader takes the card's window with it.
    */
-  async #stillThere(): Promise<void> {
+  async #stillThere(opened: BodyDoc): Promise<void> {
     try {
       await this.#backend.card(this.#boardId, this.cardId);
     } catch (error) {
-      const gone = isBackendError(error) && (error.status === 403 || error.status === 404);
-      if (gone && !this.#closed) this.missing = true;
+      // Of a room that is still this card's: not one left meanwhile, or of the card restored.
+      if (this.#bodyDoc !== opened || !isBackendError(error)) return;
+      if (error.status === 401) this.board.workspace.report('load', error);
+      if (error.status !== 403 && error.status !== 404) return;
+      this.missing = true;
+      void this.board.refresh();
     }
   }
 
