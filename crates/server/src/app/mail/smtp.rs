@@ -55,7 +55,7 @@ impl Smtp {
         };
         match self.transport.send_raw(&envelope, &bytes).await {
             Ok(_) => Outcome::Sent,
-            Err(error) => outcome_of(error.status().map(u16::from)),
+            Err(error) => outcome_of_error(&error),
         }
     }
 }
@@ -73,13 +73,29 @@ impl Outbound for Smtp {
     }
 }
 
-/// What an SMTP error makes of the attempt: a 5xx reply refuses the message for good
-/// (a `535` of the credentials too, as SMTP says it is final; it is counted, and logged
-/// with its code, for every message);
-/// a 4xx reply (`421`, `451`, `454`) and anything without a reply (the connection, TLS,
-/// a timeout) is worth another attempt. Only the reply code is kept, never its text.
+/// What an SMTP error makes of the attempt. A connection that cannot be made (a host
+/// name that names nothing, a refused connection, a TLS handshake that fails) closes the
+/// whole way; lettre tells it apart from the other failures only by its text, so the
+/// text is read here and nowhere else, and never kept.
+fn outcome_of_error(error: &lettre::transport::smtp::Error) -> Outcome {
+    if error.status().is_none() && error.to_string().starts_with(CONNECTION_ERROR) {
+        return Outcome::PathDown { code: None };
+    }
+    outcome_of(error.status().map(u16::from))
+}
+
+/// How lettre's text of a failure to connect starts.
+const CONNECTION_ERROR: &str = "Connection error";
+
+/// What an SMTP reply makes of the attempt: the relay refusing the server's credentials
+/// (`530` authentication required, `534` a mechanism too weak, `535` the credentials
+/// themselves) closes the whole way; any other 5xx refuses this message for good; a 4xx
+/// reply (`421`, `451`, `454`) and anything without a reply (a timeout, a connection
+/// lost in the middle) is worth another attempt. Only the reply code is kept, never its
+/// text.
 fn outcome_of(reply: Option<u16>) -> Outcome {
     match reply {
+        Some(code @ (530 | 534 | 535)) => Outcome::PathDown { code: Some(code) },
         Some(code @ 500..=599) => Outcome::Refused { code: Some(code) },
         code => Outcome::Later { after: None, code },
     }
@@ -109,6 +125,13 @@ mod tests {
 
     #[test]
     fn a_5xx_reply_refuses_for_good_and_anything_else_asks_for_later() {
+        for code in [530, 534, 535] {
+            assert_eq!(
+                outcome_of(Some(code)),
+                Outcome::PathDown { code: Some(code) },
+                "the relay refuses the credentials: the whole way is closed"
+            );
+        }
         assert_eq!(outcome_of(Some(550)), Outcome::Refused { code: Some(550) });
         assert_eq!(outcome_of(Some(554)), Outcome::Refused { code: Some(554) });
         for code in [Some(421), Some(451), Some(454), None] {

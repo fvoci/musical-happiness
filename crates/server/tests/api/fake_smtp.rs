@@ -30,6 +30,8 @@ struct Inbox {
     failures: AtomicUsize,
     /// Messages answered with a permanent refusal, before any `failures`.
     rejections: AtomicUsize,
+    /// Messages whose sender is answered `530` (authentication required).
+    unauthenticated: AtomicUsize,
     attempts: AtomicUsize,
     delay: Mutex<Duration>,
     /// Messages to recipients ending so are answered only once this is `None` again.
@@ -87,6 +89,11 @@ impl FakeSmtp {
     /// Refuses the next `count` messages for good (`550`).
     pub(crate) fn reject_next(&self, count: usize) {
         self.inbox.rejections.store(count, Ordering::SeqCst);
+    }
+    /// Answers the sender of the next `count` messages with `530`, as a relay that
+    /// wants credentials the server does not give: the whole way is closed.
+    pub(crate) fn require_credentials_next(&self, count: usize) {
+        self.inbox.unauthenticated.store(count, Ordering::SeqCst);
     }
     pub(crate) fn attempts(&self) -> usize {
         self.inbox.attempts.load(Ordering::SeqCst)
@@ -152,6 +159,14 @@ async fn serve(stream: TcpStream, inbox: Arc<Inbox>) -> std::io::Result<()> {
         let command = line.to_ascii_uppercase();
         let response: &[u8] = if command.starts_with("EHLO") {
             b"250-fake-smtp\r\n250 8BITMIME\r\n"
+        } else if command.starts_with("MAIL FROM:")
+            && inbox
+                .unauthenticated
+                .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+                .is_ok()
+        {
+            inbox.attempts.fetch_add(1, Ordering::SeqCst);
+            b"530 5.7.0 Authentication required\r\n"
         } else if command.starts_with("RCPT TO:") {
             recipient = line.trim()[8..].trim().trim_matches(['<', '>']).to_owned();
             b"250 OK\r\n"

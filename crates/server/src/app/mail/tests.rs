@@ -458,3 +458,91 @@ async fn an_invitation_waiting_for_a_sending_takes_no_turn_it_could_use_in_a_pau
         "the invitations that waited for a sending went after the pause: {attempts:?}"
     );
 }
+
+const DOWN: Outcome = Outcome::PathDown { code: Some(535) };
+
+/// The value of `fvoci_mail_path_down`.
+fn path_down(metrics: &Metrics) -> i64 {
+    let text = String::from_utf8(metrics.render().expect("kept").expect("rendered")).expect("text");
+    text.lines()
+        .find_map(|line| line.strip_prefix("fvoci_mail_path_down "))
+        .and_then(|value| value.parse().ok())
+        .expect("the gauge of the closed way")
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_closed_way_holds_invitations_and_tries_one_message_a_minute_recovery_first() {
+    let metrics = Metrics::kept().expect("metrics");
+    let fake = Fake::new(&[DOWN, DOWN, Outcome::Sent]);
+    let mailer = mailer_of(&fake, metrics.clone());
+    assert_eq!(path_down(&metrics), 0);
+    let invitation = send(&mailer, invitation(&mailer), "i@example.test");
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(path_down(&metrics), 1, "the first refusal closes the way");
+    let recovery = send(&mailer, reset(&mailer, "a"), "r@example.test");
+    recovery.await.expect("sent");
+    invitation.await.expect("sent");
+    assert_eq!(
+        fake.attempts(),
+        [
+            (0, "i@example.test".to_owned()),
+            (60, "r@example.test".to_owned()),
+            (120, "r@example.test".to_owned()),
+            (121, "i@example.test".to_owned()),
+        ],
+        "one attempt a minute, the recovery message's while it waits; the invitation \
+         goes once the way took a message"
+    );
+    assert_eq!(path_down(&metrics), 0, "open again");
+    for kind in [MailKind::PasswordReset, MailKind::Invitation] {
+        for class in [MailFailure::Permanent, MailFailure::Temporary] {
+            assert_eq!(
+                failed(&metrics, kind, class),
+                0,
+                "a closed way costs no message its attempts"
+            );
+        }
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_message_waits_for_a_closed_way_a_quarter_of_an_hour_at_most() {
+    let metrics = Metrics::kept().expect("metrics");
+    let fake = Fake::new(&[DOWN]);
+    let mailer = mailer_of(&fake, metrics.clone());
+    send(&mailer, reset(&mailer, "a"), "r@example.test")
+        .await
+        .expect("given up");
+    let times: Vec<u64> = fake.attempts().into_iter().map(|(at, _)| at).collect();
+    let expected: Vec<u64> = (0..=LONGEST_PATH_WAIT.as_secs()).step_by(60).collect();
+    assert_eq!(times, expected, "once a minute, more than three attempts");
+    assert_eq!(
+        failed(&metrics, MailKind::PasswordReset, MailFailure::Temporary),
+        1
+    );
+    assert_eq!(
+        failed(&metrics, MailKind::PasswordReset, MailFailure::Permanent),
+        0
+    );
+    assert_eq!(path_down(&metrics), 1, "nothing opened it");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_message_the_way_refuses_opens_a_closed_way_again() {
+    let fake = Fake::new(&[DOWN, Outcome::Refused { code: Some(550) }, Outcome::Sent]);
+    let metrics = Metrics::kept().expect("metrics");
+    let mailer = mailer_of(&fake, metrics.clone());
+    send(&mailer, reset(&mailer, "a"), "a@example.test")
+        .await
+        .expect("refused");
+    assert_eq!(
+        path_down(&metrics),
+        0,
+        "the way read the keys before it refused"
+    );
+    send(&mailer, invitation(&mailer), "i@example.test")
+        .await
+        .expect("sent");
+    let times: Vec<u64> = fake.attempts().into_iter().map(|(at, _)| at).collect();
+    assert_eq!(times, [0, 60, 61]);
+}

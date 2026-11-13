@@ -50,6 +50,12 @@ pub(crate) enum Outcome {
     /// Never: the way refused this message for good (a recipient it does not take, a
     /// message it will not carry); another attempt would get the same.
     Refused { code: Option<u16> },
+    /// The whole way is closed to this server: it refuses the server's keys, token,
+    /// signature or permissions (SMTP `530`, `535`; HTTP `401`, `403`), or cannot be
+    /// reached at all. No message goes until it opens again, so this counts against
+    /// none of the message's attempts: the queue holds invitations back and tries one
+    /// message now and then. `code` is the reply or status code, if there was one.
+    PathDown { code: Option<u16> },
 }
 
 /// A way of sending a message. One call is one attempt; the queue times it, paces it

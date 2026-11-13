@@ -36,6 +36,10 @@ const CLOSED: &str = "the mail semaphores are never closed";
 /// The longest a message waits for another attempt: a way that asks for longer has its
 /// message given up then, rather than asked again before it said.
 const LONGEST_RETRY_WAIT: Duration = Duration::from_mins(1);
+/// The longest a message waits for a closed way to open, from its first attempt the way
+/// refused so: a reset link is good for an hour, and the queue's places are for mail
+/// that may still go.
+const LONGEST_PATH_WAIT: Duration = Duration::from_mins(15);
 
 /// Why invitation messages were not queued; nothing of the request was.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -259,8 +263,10 @@ impl Queued {
     /// is held. The first attempt only then asks `write` for the message, so that what
     /// `write` creates (a reset token) is as young as can be.
     /// Attempts follow the way's [`Outcome`]: up to three while it asks for later, one
-    /// when it refuses. What became of the message is logged and counted here, without
-    /// a reply text, an address or a token.
+    /// when it refuses; while the way is closed, the message waits for the pace's next
+    /// attempt at it, which counts against none of the three, for up to
+    /// [`LONGEST_PATH_WAIT`]. What became of the message is logged and counted here,
+    /// without a reply text, an address or a token.
     ///
     /// # Errors
     /// Returns what `write` returned.
@@ -281,6 +287,8 @@ impl Queued {
         let mut write = Some(write);
         let mut message = None;
         let mut waits = RETRY_DELAYS.into_iter();
+        // When the way first refused this message's attempt as closed.
+        let mut closed_since = None;
         for attempt in 1.. {
             // An invitation's sendings first, its organization's and the invitations':
             // they keep waiting only invitations, and an invitation that has its turn
@@ -303,8 +311,8 @@ impl Queued {
                     code: None,
                 });
             drop(sending);
-            mailer.pace.observe(outcome);
             let way = outbound.name();
+            mailer.observe(way, outcome);
             let wait = match outcome {
                 Outcome::Sent => {
                     delivered = Delivered::Sent;
@@ -334,6 +342,23 @@ impl Queued {
                         break;
                     };
                     wait
+                }
+                Outcome::PathDown { code } => {
+                    let since = *closed_since.get_or_insert_with(tokio::time::Instant::now);
+                    if since.elapsed() >= LONGEST_PATH_WAIT {
+                        delivered = Delivered::GivenUp;
+                        tracing::warn!(
+                            kind = kind.as_str(),
+                            way,
+                            attempt,
+                            code,
+                            "mail given up: the way stayed closed"
+                        );
+                        mailer.metrics.mail_failed(kind, MailFailure::Temporary);
+                        break;
+                    }
+                    // The pace holds the next attempt until the way may be tried again.
+                    Duration::ZERO
                 }
             };
             tokio::time::sleep(wait).await;
@@ -404,6 +429,32 @@ impl Mailer {
                 .await
                 .expect(CLOSED),
             _held: held,
+        }
+    }
+
+    /// Tells the pace what an attempt through `way` became, and logs and counts the way
+    /// closing or opening: one line each time, whatever many messages found it so.
+    fn observe(&self, way: &'static str, outcome: Outcome) {
+        match self.pace.observe(outcome) {
+            Some(pace::PathChange::Closed) => {
+                let code = match outcome {
+                    Outcome::PathDown { code } => code,
+                    _ => None,
+                };
+                tracing::error!(
+                    way,
+                    code,
+                    "the way of sending is closed: it refuses the server's keys or \
+                     permissions, or cannot be reached; invitations wait and one message \
+                     is tried a minute"
+                );
+                self.metrics.mail_path_closed();
+            }
+            Some(pace::PathChange::Opened) => {
+                tracing::info!(way, "the way of sending is open again");
+                self.metrics.mail_path_opened();
+            }
+            None => {}
         }
     }
 

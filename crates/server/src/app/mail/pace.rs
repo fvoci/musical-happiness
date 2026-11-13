@@ -1,5 +1,6 @@
-//! The pace of all outgoing mail: `mail_per_second` attempts, recovery first, and
-//! invitations held back while the way keeps asking for later.
+//! The pace of all outgoing mail: `mail_per_second` attempts, recovery first,
+//! invitations held back while the way keeps asking for later, and one attempt now and
+//! then while the way is closed.
 
 use std::pin::pin;
 use std::sync::Mutex;
@@ -19,6 +20,10 @@ const PAUSE: Duration = Duration::from_mins(1);
 /// The longest invitations are held back for at once, whatever the way asked: the
 /// next attempt of a recovery message, or the end of this, finds out again.
 const LONGEST_PAUSE: Duration = Duration::from_mins(15);
+/// While the way is closed ([`Outcome::PathDown`]), one attempt goes this often, a
+/// waiting recovery message before any invitation: enough to find out it opened again,
+/// few enough not to hammer a provider that refuses the keys.
+pub(super) const PROBE_INTERVAL: Duration = Duration::from_mins(1);
 
 /// The turns of the attempts to send, shared by every message.
 #[derive(Debug)]
@@ -40,6 +45,17 @@ struct State {
     later_streak: u32,
     /// Until when invitations wait, while the way keeps asking for later.
     invitations_paused_until: Option<Instant>,
+    /// While the way is closed, when the next attempt may go.
+    next_probe: Option<Instant>,
+}
+
+/// What an attempt told of the way as a whole, when it changed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum PathChange {
+    /// The way was open and is closed now.
+    Closed,
+    /// The way was closed and took a message (or refused one, which it reads first).
+    Opened,
 }
 
 /// What a message of a kind waits for.
@@ -62,6 +78,7 @@ impl Pace {
                 resets_waiting: 0,
                 later_streak: 0,
                 invitations_paused_until: None,
+                next_probe: None,
             }),
             changed: Notify::new(),
         }
@@ -85,6 +102,9 @@ impl Pace {
                 let wait = state.wait_of(kind, now);
                 if matches!(wait, Wait::Nothing) {
                     state.next = state.next.max(now) + self.interval;
+                    if let Some(probe) = state.next_probe.as_mut() {
+                        *probe = now + PROBE_INTERVAL;
+                    }
                 }
                 wait
             };
@@ -103,19 +123,21 @@ impl Pace {
     }
 
     /// Learns from what an attempt became: the way asking for later, again and again,
-    /// holds invitations back; a message it took lets them go again.
-    pub(super) fn observe(&self, outcome: Outcome) {
+    /// holds invitations back; a closed way holds all mail but one attempt now and then;
+    /// a message it took lets them go again. Returns how the way as a whole changed.
+    pub(super) fn observe(&self, outcome: Outcome) -> Option<PathChange> {
         let mut state = self.state();
-        match outcome {
+        let now = Instant::now();
+        let change = match outcome {
             Outcome::Sent => {
                 state.later_streak = 0;
                 state.invitations_paused_until = None;
+                state.next_probe.take().map(|_| PathChange::Opened)
             }
             Outcome::Later { after, .. } => {
                 state.later_streak = state.later_streak.saturating_add(1);
                 if state.later_streak >= LATER_STREAK {
                     let pause = after.map_or(PAUSE, |after| after.clamp(PAUSE, LONGEST_PAUSE));
-                    let now = Instant::now();
                     let until = now + pause;
                     if state
                         .invitations_paused_until
@@ -133,12 +155,23 @@ impl Pace {
                             .map_or(until, |paused| paused.max(until)),
                     );
                 }
+                None
             }
-            // One message refused says nothing of the way's limits.
-            Outcome::Refused { .. } => return,
-        }
+            Outcome::PathDown { .. } => {
+                if state.next_probe.is_some() {
+                    None
+                } else {
+                    state.next_probe = Some(now + PROBE_INTERVAL);
+                    Some(PathChange::Closed)
+                }
+            }
+            // One message refused says nothing of the way's limits, but the way read the
+            // server's keys before it.
+            Outcome::Refused { .. } => state.next_probe.take().map(|_| PathChange::Opened),
+        };
         drop(state);
         self.changed.notify_waiters();
+        change
     }
 }
 
@@ -154,8 +187,11 @@ impl State {
                 return Wait::Until(until);
             }
         }
-        if self.next > now {
-            Wait::Until(self.next)
+        let next = self
+            .next_probe
+            .map_or(self.next, |probe| probe.max(self.next));
+        if next > now {
+            Wait::Until(next)
         } else {
             Wait::Nothing
         }
