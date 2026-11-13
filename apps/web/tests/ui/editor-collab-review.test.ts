@@ -106,15 +106,16 @@ describe('independent collaboration regressions', () => {
 
     editor.view.dispatch(editor.state.tr.delete(0, targetSize));
     finish('uploaded-picture');
+    // Its placeholder goes with its spot; the notice comes once the upload has ended.
     await vi.waitFor(() => {
       expect(container.querySelector('.doc-upload')).toBeNull();
+      expect(container.querySelector('.doc-editor-status')?.textContent).toContain(
+        'removed or changed',
+      );
     });
 
     const types: string[] = [];
     editor.state.doc.forEach((node) => types.push(node.type.name));
     expect(types).toEqual(['paragraph']);
-    expect(container.querySelector('.doc-editor-status')?.textContent).toContain(
-      'removed or changed',
-    );
   });
 });

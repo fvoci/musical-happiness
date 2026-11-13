@@ -76,8 +76,10 @@ function editFormulaAt(editor: Editor, position: number): void {
     if (!editor.isDestroyed) editor.off('transaction', watch);
   };
   editor.on('transaction', watch);
+  const before = latexOf(node);
   editMath({
-    latex: latexOf(node),
+    latex: before,
+    owner: editor.view,
     page: editor.view.dom.ownerDocument,
     anchor: () => {
       const at = where();
@@ -89,15 +91,23 @@ function editFormulaAt(editor: Editor, position: number): void {
       const at = where();
       const now = at === undefined ? undefined : editor.state.doc.nodeAt(at);
       if (at === undefined || !now) return;
-      if (!mayWrite(editor.view)) {
-        if (latex !== latexOf(now)) sayDropped(editor.view, 'refused');
+      // Nothing written in the box: whatever the formula holds now (somebody else's) stays.
+      const write = latex !== before;
+      if (write && !mayWrite(editor.view)) {
+        sayDropped(editor.view, 'refused');
         return;
       }
+      // Closed while read-only for a moment: kept, and the room sends it.
+      if (write && !editor.isEditable) sayDropped(editor.view, 'kept');
+      if (!write && !editor.isEditable) return;
       const transaction = editor.state.tr;
-      if (latex === '') transaction.delete(at, at + now.nodeSize);
-      else if (latex !== latexOf(now)) transaction.setNodeMarkup(at, undefined, { latex });
-      const after = Math.min(transaction.doc.content.size, latex === '' ? at : at + now.nodeSize);
-      transaction.setSelection(TextSelection.near(transaction.doc.resolve(after)));
+      if (write && latex === '') transaction.delete(at, at + now.nodeSize);
+      else if (write) transaction.setNodeMarkup(at, undefined, { latex });
+      const gone = write && latex === '';
+      const after = Math.min(transaction.doc.content.size, gone ? at : at + now.nodeSize);
+      if (editor.isEditable) {
+        transaction.setSelection(TextSelection.near(transaction.doc.resolve(after)));
+      }
       editor.view.dispatch(transaction);
       if (editor.isEditable) editor.view.focus();
     },

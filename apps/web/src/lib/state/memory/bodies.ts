@@ -62,3 +62,19 @@ export function openMemoryRoom(
     return (told) => openRoom(line, told);
   }, hears);
 }
+
+/**
+ * What the rooms took is written into the cards first (cards by identifier,
+ * or every card of boards), so that a card read, a copy or an archive has
+ * it: the read a copy of a card is made from, a copy or template of a
+ * board, an archive. The server is to do the same (R4).
+ */
+export function flushBodies(world: World, of: readonly (string | { id: string })[]): void {
+  for (const each of of) {
+    const id = typeof each === 'string' ? each : each.id;
+    const cards = world.boards.has(id)
+      ? world.blocksOf(id).filter((block) => block.type === 'card')
+      : [{ id }];
+    for (const card of cards) world.bodyFlushed?.(card.id);
+  }
+}

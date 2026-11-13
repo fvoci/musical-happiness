@@ -29,12 +29,13 @@
   import { getLocale } from '$lib/i18n/paraglide/runtime.js';
 
   import { BODY_FIELD, type BodyEditorProps } from './body-editor.ts';
-  import { setMayWrite } from './shared-place.ts';
+  import { setMayWrite, type DroppedWhy } from './shared-place.ts';
   import './editor.css';
   import './editing-place.css';
   import { loadEmoji, searchEmoji } from './emoji.ts';
   import { bodyExtensions } from './extensions.ts';
-  import { cancelMathEditing } from './math-editing.ts';
+  import { heldWritten, placeOf } from './editing-place.ts';
+  import { cancelMathEditing, mathDraftChanged } from './math-editing.ts';
   import { emptyDoc, isEmptyDoc, toStoredDoc, validateDoc, type DocNode } from './schema.ts';
   import { suggestionList } from './suggestion-list.ts';
   import { ImageUpload } from './uploads.ts';
@@ -59,6 +60,7 @@
     canWrite = false,
     onImageDropped,
     onFitsAgain,
+    onDraftDropped,
   }: BodyEditorProps = $props();
 
   let host: HTMLDivElement;
@@ -67,7 +69,7 @@
   /** Whether the document that was last read could not be loaded. */
   let unreadable = $state(false);
   /** A formula's source the reader wrote was not kept: they may no longer write. */
-  let formulaDropped = $state<'refused' | 'gone'>();
+  let formulaDropped = $state<DroppedWhy>();
   let uploads = $state(0);
   /** How the upload that ended last did, when that is to be said. */
   let uploadEnded = $state<'failed' | 'gone' | 'refused'>();
@@ -76,6 +78,7 @@
     if (unreadable) return m.editor_body_unreadable();
     if (formulaDropped === 'gone') return m.editor_formula_gone();
     if (formulaDropped === 'refused') return m.editor_formula_refused();
+    if (formulaDropped === 'kept') return m.editor_formula_kept();
     if (uploads > 0) return m.editor_image_uploading();
     if (uploadEnded === 'gone') return m.editor_image_gone();
     if (uploadEnded === 'refused') return m.editor_image_refused();
@@ -196,7 +199,7 @@
     editor = created;
     setMayWrite(created.view, {
       may: () => shared !== undefined && canWrite,
-      dropped: fromEditor((why: 'refused' | 'gone') => {
+      dropped: fromEditor((why: DroppedWhy) => {
         formulaDropped = why;
       }),
     });
@@ -210,6 +213,10 @@
     onEditor?.(created);
     return () => {
       shared?.off('afterTransaction', fits);
+      // Made anew for another document: what is still in a formula's field cannot go into it.
+      const place = placeOf(created.state);
+      const unsent = mathDraftChanged(created.view) || (place !== null && heldWritten(place));
+      if (shared && unsent) fromEditor(() => onDraftDropped?.())();
       cancelMathEditing();
       created.destroy();
     };

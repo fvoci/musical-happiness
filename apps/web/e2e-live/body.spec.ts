@@ -163,7 +163,8 @@ test('two people type in one body at once: each sees the other’s, and both sta
   const path = boardPath(board, board.viewId, cardId);
   const first = await pageOf(browser, path, owner);
   const second = await pageOf(browser, path, colleague);
-  const errors = [...watchErrors(first), ...watchErrors(second)];
+  // Read at the end: errors that come later are in them too.
+  const watched = [watchErrors(first), watchErrors(second)];
   for (const page of [first, second]) {
     await expect(page.getByTestId('card-body')).toHaveAttribute('data-editor', 'ready');
   }
@@ -196,7 +197,7 @@ test('two people type in one body at once: each sees the other’s, and both sta
   await first.context().close();
   await second.context().close();
   await api.dispose();
-  expect(errors).toEqual([]);
+  expect(watched.flat()).toEqual([]);
 });
 
 test('a viewer reads along and cannot write', async ({ browser, baseURL }) => {
@@ -215,7 +216,8 @@ test('a viewer reads along and cannot write', async ({ browser, baseURL }) => {
   const path = boardPath(board, board.viewId, cardId);
   const writer = await pageOf(browser, path, owner);
   const looker = await pageOf(browser, path, reader);
-  const errors = [...watchErrors(writer), ...watchErrors(looker)];
+  // Read at the end: errors that come later are in them too.
+  const watched = [watchErrors(writer), watchErrors(looker)];
   await expect(looker.getByTestId('card-body')).toHaveAttribute('data-editor', 'reading');
   await expect(looker.getByTestId('body-room-note')).toHaveText(
     'You can read this description but not change it.',
@@ -236,7 +238,7 @@ test('a viewer reads along and cannot write', async ({ browser, baseURL }) => {
   await writer.context().close();
   await looker.context().close();
   await api.dispose();
-  expect(errors).toEqual([]);
+  expect(watched.flat()).toEqual([]);
 });
 
 test('a connection that drops leaves the body read-only, and once back the reader goes on writing', async ({

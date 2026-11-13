@@ -72,7 +72,8 @@ import {
   type Role,
 } from './comments.ts';
 import { changeDisplayName } from './account.ts';
-import { checkedBody, checkedWhole, openMemoryRoom } from './bodies.ts';
+import { archiveOf } from './archive.ts';
+import { checkedBody, checkedWhole, flushBodies, openMemoryRoom } from './bodies.ts';
 import { checkRelations, renameCopied } from './references.ts';
 import { fail } from './refuse.ts';
 import {
@@ -490,6 +491,7 @@ export class MemoryBackend implements Backend {
 
   /** The blocks a copy of a board takes: all but its comments. */
   #copied(board: Board): StoredBlock[] {
+    flushBodies(this.world, [board]);
     return this.world.blocksOf(board.id).filter((block) => block.type !== 'comment');
   }
 
@@ -561,7 +563,7 @@ export class MemoryBackend implements Backend {
     const board = this.#board(boardId);
     // For its members, as on the server (an open board is readable, its parts are not).
     if (!this.#memberIds(boardId).includes(this.userId)) fail(403, 'not a member of the board');
-    return this.#archiveOf([board], options);
+    return archiveOf(this.world, [board], options);
   }
 
   async exportWorkspace(workspaceId: string, options?: DownloadOptions): Promise<DownloadedFile> {
@@ -573,21 +575,7 @@ export class MemoryBackend implements Backend {
         !board.isTemplate &&
         (board.type === 'O' || this.#memberIds(board.id).includes(this.userId)),
     );
-    return this.#archiveOf(boards, options);
-  }
-
-  #archiveOf(boards: readonly Board[], options: DownloadOptions | undefined): DownloadedFile {
-    const lines = [JSON.stringify({ version: MEMORY_ARCHIVE })];
-    for (const board of boards) {
-      lines.push(JSON.stringify({ type: 'board', data: board }));
-      for (const block of this.world.blocksOf(board.id)) {
-        lines.push(JSON.stringify({ type: 'block', data: block }));
-      }
-    }
-    const bytes = new Blob([`${lines.join('\n')}\n`], { type: 'application/octet-stream' });
-    options?.onProgress?.({ sentBytes: bytes.size, totalBytes: bytes.size });
-    const day = new Date(this.world.now()).toISOString().slice(0, 10);
-    return { bytes, name: `archive-${day}.boardarchive` };
+    return archiveOf(this.world, boards, options);
   }
 
   async importArchive(workspaceId: string, file: File, options?: UploadOptions) {
@@ -913,6 +901,7 @@ export class MemoryBackend implements Backend {
 
   async card(boardId: string, cardId: string): Promise<CardDetail> {
     await this.#enter('card');
+    flushBodies(this.world, [cardId]);
     return this.#commented(detailOf(this.#block(boardId, cardId, 'card') as StoredCard));
   }
 

@@ -25,7 +25,7 @@
   import type { BoardStore, CardStore } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
-  import { IMAGE_DROPPED, LATE_NOTE, lostNote, roomNote } from './body-notes.ts';
+  import { FORMULA_DROPPED, IMAGE_DROPPED, LATE_NOTE, lostNote, roomNote } from './body-notes.ts';
   import { keepCaret } from './caret-keeper.ts';
   import { editorChunk } from './editor-chunk.svelte.ts';
 
@@ -142,6 +142,9 @@
           }}
           onImageDropped={() => {
             card.sayLost(IMAGE_DROPPED);
+          }}
+          onDraftDropped={() => {
+            card.sayLost(FORMULA_DROPPED);
           }}
           users={people}
           {resolveUser}

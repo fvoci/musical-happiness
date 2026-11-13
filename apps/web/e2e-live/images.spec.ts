@@ -121,13 +121,13 @@ test('an image pasted into the body is a file of the board, and is drawn from th
 
   // Somebody who may only look sees it in the read-only view.
   const look = await (await browser.newContext({ locale: 'en-US' })).newPage();
-  errors.push(...watchErrors(look));
+  const lookErrors = watchErrors(look);
   await openCard(look, path, onlooker);
   await expect(look.getByTestId('card-body').locator('[contenteditable="true"]')).toHaveCount(0);
   await expect.poll(() => drawn(look.getByTestId('card-body'))).toEqual([3]);
   await look.context().close();
   await api.dispose();
-  expect(errors).toEqual([]);
+  expect([...errors, ...lookErrors]).toEqual([]);
 });
 
 test('a card does not close at once while an image is still going up for its body', async ({
@@ -220,7 +220,8 @@ test('an image going up lands where it was put while somebody else writes above 
   };
   const first = await pageOf(owner);
   const second = await pageOf(colleague);
-  const errors = [...watchErrors(first), ...watchErrors(second)];
+  // Read at the end: errors that come later are in them too.
+  const watched = [watchErrors(first), watchErrors(second)];
   const editorOf = (page: Page): Locator =>
     page.getByTestId('card-body').locator('[contenteditable]').first();
 
@@ -292,5 +293,5 @@ test('an image going up lands where it was put while somebody else writes above 
   await first.context().close();
   await second.context().close();
   await api.dispose();
-  expect(errors).toEqual([]);
+  expect(watched.flat()).toEqual([]);
 });

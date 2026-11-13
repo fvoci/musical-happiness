@@ -80,4 +80,6 @@ export interface BodyEditorProps {
    * made anew.
    */
   onFitsAgain?: () => void;
+  /** With `collab`: the editor went away with a formula's source written and not yet in the body. */
+  onDraftDropped?: () => void;
 }

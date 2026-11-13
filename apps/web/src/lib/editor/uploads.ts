@@ -13,7 +13,7 @@
  * (shared-place.ts), so that what others write meanwhile, before it or in
  * its block, does not move the image elsewhere. The image is not put in,
  * and that is said, when the block it was going into was deleted or made
- * anew (by anybody), when the reader may no longer write, and when the
+ * anew (by anybody; by the reader, when the spot itself is taken away), when the reader may no longer write, and when the
  * editor takes no change for now (content it cannot draw). An editor read
  * only for a moment (the connection away) takes it: the room sends it later.
  */
@@ -75,7 +75,11 @@ function follow(placeholder: Placeholder, tr: Transaction, before: EditorState):
     if (now !== undefined) return { ...placeholder, pos: now };
   }
   if (!tr.docChanged) return placeholder;
-  return { ...placeholder, pos: tr.mapping.map(placeholder.pos), stale: true };
+  // The reader's own change took away the spot itself (its line deleted, or text around it
+  // replaced): the image has nowhere to go, as when somebody else deleted it.
+  const mapped = tr.mapping.mapResult(placeholder.pos);
+  if (mapped.deletedAcross) return { ...placeholder, gone: true };
+  return { ...placeholder, pos: mapped.pos, stale: true };
 }
 
 /** Where the image of a placeholder goes now: a position, `null` when its block is gone. */

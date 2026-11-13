@@ -26,6 +26,8 @@ export interface MathEditingOptions {
   /** Nothing is to change. Called once, unless `apply` is. */
   cancel: () => void;
   page: Document;
+  /** Whose box it is (the editor's view): for `applyMathEditing` and `mathDraftChanged`. */
+  owner?: object;
 }
 
 /** Builds the dialog controls before any listeners for its lifetime are installed. */
@@ -79,7 +81,24 @@ function placeMathDialog(box: HTMLElement, options: MathEditingOptions, view: Wi
   box.style.top = `${fits ? below : rect.top - 6 - size.height}px`;
 }
 
-let open: { apply: () => void; cancel: () => void } | undefined;
+/** The keys of the field: Escape cancels, Enter keeps. */
+function fieldKeys(apply: () => void, cancel: () => void): (event: KeyboardEvent) => void {
+  return (event) => {
+    // While an input method is composing, its keys are not commands.
+    if (event.isComposing) return;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      cancel();
+    } else if (event.key === 'Enter') {
+      event.preventDefault();
+      apply();
+    }
+  };
+}
+
+let open:
+  { apply: () => void; cancel: () => void; owner?: object; changed: () => boolean } | undefined;
 
 /** Opens the box. Only one is open at a time; opening another applies the first. */
 export function editMath(options: MathEditingOptions): void {
@@ -152,18 +171,7 @@ export function editMath(options: MathEditingOptions): void {
     if (next instanceof Node && !box.contains(next)) apply();
   });
   field.addEventListener('input', redraw);
-  field.addEventListener('keydown', (event) => {
-    // While an input method is composing, its keys are not commands.
-    if (event.isComposing) return;
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      event.stopPropagation();
-      cancel();
-    } else if (event.key === 'Enter') {
-      event.preventDefault();
-      apply();
-    }
-  });
+  field.addEventListener('keydown', fieldKeys(apply, cancel));
   button(m.ui_done(), 'apply', apply);
   button(m.editor_math_remove(), 'remove', () => {
     field.value = '';
@@ -172,7 +180,12 @@ export function editMath(options: MathEditingOptions): void {
 
   box.append(field, preview, hint, buttons);
   page.body.append(box);
-  open = { apply, cancel };
+  open = {
+    apply,
+    cancel,
+    owner: options.owner,
+    changed: () => field.value.trim().slice(0, MAX_LATEX) !== options.latex,
+  };
   place();
   redraw();
   view?.addEventListener('resize', place);
@@ -188,4 +201,14 @@ export function editMath(options: MathEditingOptions): void {
  */
 export function cancelMathEditing(): void {
   open?.cancel();
+}
+
+/** Closes the box of `owner`, if it is open, keeping what was written (as Done does). */
+export function applyMathEditing(owner: object): void {
+  if (open?.owner === owner) open.apply();
+}
+
+/** Whether the box of `owner` is open with a source other than the one it opened with. */
+export function mathDraftChanged(owner: object): boolean {
+  return open?.owner === owner && open.changed();
 }

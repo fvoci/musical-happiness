@@ -184,8 +184,12 @@ export function onShared(view: EditorView, then: () => void): () => void {
   };
 }
 
-/** Why a formula's source was not kept: the reader may not write now, or its block is gone. */
-export type DroppedWhy = 'refused' | 'gone';
+/**
+ * What became of a formula's source the reader wrote when its field closed
+ * by itself: not kept (the reader may not write now, or its block is gone),
+ * or kept though the editor turned read-only for a moment.
+ */
+export type DroppedWhy = 'refused' | 'gone' | 'kept';
 
 interface Writer {
   /** The reader may still write while the editor is read-only for now. */
