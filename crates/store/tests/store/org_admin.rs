@@ -57,6 +57,7 @@ async fn private_board(store: &Store, workspace_id: &str, user_id: &str) -> Stri
         board_type: BoardType::Private,
         ..Board::default()
     };
+    common::works_in(store, workspace_id, user_id).await;
     store
         .insert_board_with_admin(&mut board, user_id)
         .await

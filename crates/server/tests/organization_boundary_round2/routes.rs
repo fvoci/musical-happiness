@@ -608,9 +608,22 @@ async fn a_category_path_rejects_a_board_the_user_is_on_in_a_workspace_they_are_
         board_type: BoardType::Private,
         ..Board::default()
     };
+    // Stored past the rule that only who works in a workspace is made the admin of a
+    // board there: the state is what the route must not be led astray by.
     ts.app
         .store()
-        .insert_board_with_admin(&mut board, &user_id)
+        .insert_board(&mut board, &user_id)
+        .await
+        .expect("a board of a workspace the user is not in");
+    ts.app
+        .store()
+        .save_member(&BoardMember {
+            board_id: board.id.clone(),
+            user_id: user_id.clone(),
+            scheme_admin: true,
+            scheme_editor: true,
+            ..BoardMember::default()
+        })
         .await
         .expect("the user is on a board of a workspace they are not in");
     let categories: Vec<CategoryBoards> = ts
@@ -1079,7 +1092,7 @@ async fn compare_query_targets(client: &Client, own: &Board, hidden: &Board) {
 async fn query_targets_and_bulk_id_bodies_hide_unjoined_workspaces() {
     let ts = Setup::native().start().await.init_basic().await;
     let own = ts.create_board(ROOT_WORKSPACE_ID, BoardType::Private).await;
-    let owner = ts.stranger().await;
+    let owner = ts.stranger_in(HIDDEN_WORKSPACE_ID).await;
     let mut hidden = Board {
         id: new_id(),
         workspace_id: HIDDEN_WORKSPACE_ID.to_owned(),
@@ -1154,7 +1167,7 @@ async fn an_invited_workspace_guest_reads_its_board_without_gaining_editor_right
     };
     ts.app
         .store()
-        .insert_board_with_admin(&mut board, &ts.stranger().await)
+        .insert_board_with_admin(&mut board, &ts.stranger_in(HIDDEN_WORKSPACE_ID).await)
         .await
         .expect("a hidden board");
     ts.client2

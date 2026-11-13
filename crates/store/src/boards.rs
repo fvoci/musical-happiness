@@ -111,7 +111,7 @@ impl Store {
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::NotFound`] if its creator does not work in its workspace.
+    /// Returns [`StoreError::NotFound`] if its creator does not work there, or a database error.
     pub async fn insert_board_with_admin(
         &self,
         board: &mut Board,

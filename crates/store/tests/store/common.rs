@@ -210,6 +210,24 @@ pub(crate) async fn workspace_of(store: &Store, users: &[&str]) -> String {
     workspace_id
 }
 
+/// Lets the user into the workspace as a member, unless they are in it: whom a board is
+/// stored for as its admin works in its workspace.
+pub(crate) async fn works_in(store: &Store, workspace_id: &str, user_id: &str) {
+    let found = store
+        .texts_unchecked(&format!(
+            "SELECT role FROM workspace_members \
+             WHERE workspace_id = '{workspace_id}' AND user_id = '{user_id}'"
+        ))
+        .await
+        .expect("the membership is looked for");
+    if found.is_empty() {
+        store
+            .add_workspace_member(workspace_id, user_id, fvoci_model::WorkspaceRole::Member)
+            .await
+            .expect("the user is let into the workspace");
+    }
+}
+
 /// `storetests.InsertBlocks`: inserts each block on its own.
 pub(crate) async fn insert_blocks(store: &Store, blocks: &mut [Block], user_id: &str) {
     for block in blocks {
