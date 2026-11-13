@@ -7,7 +7,6 @@ use serde_json::{Value, json};
 use tokio::time::Instant;
 
 use crate::board_broadcasts::WorkspaceSocket;
-use crate::boards::patch_board;
 use crate::common::{TEST_WORKSPACE_ID, TestServer};
 use crate::rooms::{Peer, Table, give, paragraphs, table};
 use crate::rooms_changes::{seldom, soon, workspace_admin};
@@ -36,6 +35,18 @@ async fn team_of_the_second(th: &TestServer, name: &str) -> String {
 
 fn team_path(team_id: &str, rest: &str) -> String {
     format!("/w/{TEST_WORKSPACE_ID}/teams/{team_id}{rest}")
+}
+
+/// Retitles the card of `table`, as its board's admin: a change of a block, which is
+/// told to the board's members as they are then, and changes nobody's access.
+async fn retitle(th: &TestServer, table: &Table, title: &str) {
+    th.client
+        .patch(
+            &format!("/w/{TEST_WORKSPACE_ID}/cards/{}", table.card_id),
+            &json!({ "title": title }),
+        )
+        .await
+        .check_ok();
 }
 
 fn assignment(table: &Table, team_id: &str) -> String {
@@ -209,11 +220,9 @@ async fn a_board_is_told_to_whoever_reads_it_through_a_team_until_they_leave_it(
     let user = th.client2.me().await.id;
     let mut socket = WorkspaceSocket::subscribe(&th, &th.client2, TEST_WORKSPACE_ID, &user).await;
 
-    patch_board(&th.client, &table.board_id, &json!({"title": "Told"}))
-        .await
-        .check_ok();
+    retitle(&th, &table, "Told").await;
     socket
-        .expect("UPDATE_BOARD", "/board/id", &table.board_id)
+        .expect("UPDATE_BLOCK", "/block/id", &table.card_id)
         .await;
     th.client
         .delete(&team_path(&team_id, &format!("/members/{user}")))
@@ -222,15 +231,55 @@ async fn a_board_is_told_to_whoever_reads_it_through_a_team_until_they_leave_it(
     socket
         .expect("DELETE_MEMBER", "/member/boardId", &table.board_id)
         .await;
-    patch_board(&th.client, &table.board_id, &json!({"title": "Not told"}))
-        .await
-        .check_ok();
+    retitle(&th, &table, "Not told").await;
     let heard = socket.drain().await;
     assert!(
         heard
             .iter()
-            .all(|message| message["action"] != json!("UPDATE_BOARD")),
+            .all(|message| message["action"] != json!("UPDATE_BLOCK")),
         "who left the team hears no more of the board: {heard:?}"
     );
+    th.teardown().await;
+}
+
+#[tokio::test]
+async fn a_board_is_told_to_whoever_joins_a_team_on_it_from_then_on() {
+    let th = seldom().start().await.init_basic().await;
+    workspace_admin(&th).await;
+    let table = table(&th, &paragraphs(&["first"])).await;
+    let made: Value = th
+        .client
+        .post(
+            &format!("/w/{TEST_WORKSPACE_ID}/teams"),
+            &json!({ "name": "Joined later" }),
+        )
+        .await
+        .ok_json();
+    let team_id = made["id"].as_str().expect("a team has an id").to_owned();
+    assign(&th, &table, &team_id, "viewer").await;
+    let user = th.client2.me().await.id;
+    let mut socket = WorkspaceSocket::subscribe(&th, &th.client2, TEST_WORKSPACE_ID, &user).await;
+
+    // Told to the board's members as they are before the person joins the team.
+    retitle(&th, &table, "Not told yet").await;
+    let heard = socket.drain().await;
+    assert!(
+        heard
+            .iter()
+            .all(|message| message["action"] != json!("UPDATE_BLOCK")),
+        "who is in no team of the board hears nothing of it: {heard:?}"
+    );
+    th.client
+        .put(
+            &team_path(&team_id, &format!("/members/{user}")),
+            &json!({}),
+        )
+        .await
+        .check_no_content();
+    retitle(&th, &table, "Told").await;
+    let told = socket
+        .expect("UPDATE_BLOCK", "/block/id", &table.card_id)
+        .await;
+    assert_eq!(told["block"]["title"], json!("Told"), "{told}");
     th.teardown().await;
 }

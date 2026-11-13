@@ -3,7 +3,7 @@
 use fvoci_model::{BoardMember, BoardRole, MinimumRole};
 
 use crate::db::{Id, Scope, Sql};
-use crate::{Store, StoreError, boards, directory, memberships_everywhere};
+use crate::{Store, StoreError, boards};
 
 impl Store {
     /// The highest team role of a current nonguest member on this board.
@@ -98,35 +98,7 @@ async fn extend_for_user(
     Ok(())
 }
 
-/// Adds to `members` the boards `user_id` has a role on through a team, of every
-/// organization, as `Store::board_memberships_of_user` lists the direct ones: of a
-/// workspace and an organization in use, that the session made through
-/// `login_provider` opens. Sorted by board.
-pub(crate) async fn extend_across_organizations(
-    scope: &mut Scope<'_>,
-    user_id: &str,
-    login_provider: Option<&str>,
-    members: &mut Vec<BoardMember>,
-) -> Result<(), StoreError> {
-    let mut sql = scope.sql(&format!(
-        "SELECT bt.board_id, tm.user_id, bt.role FROM board_teams AS bt \
-         JOIN {} tm ON tm.team_id = bt.team_id AND tm.org_id = bt.org_id \
-         AND tm.workspace_id = bt.workspace_id \
-         JOIN boards AS b ON b.id = bt.board_id \
-         JOIN workspaces AS t ON t.id = b.workspace_id \
-         JOIN organizations AS o ON o.id = t.org_id WHERE tm.user_id = ",
-        crate::teams::present_members(scope)
-    ));
-    sql.bind(Id(user_id))
-        .push(directory::IN_USE)
-        .push(&scope.same_organization(&[("bt", "b"), ("b", "t")]));
-    memberships_everywhere::push_opened_by(&mut sql, login_provider);
-    extend(scope, sql, members).await?;
-    members.sort_by(|a, b| a.board_id.cmp(&b.board_id));
-    Ok(())
-}
-
-async fn extend(
+pub(crate) async fn extend(
     scope: &mut Scope<'_>,
     sql: Sql,
     members: &mut Vec<BoardMember>,

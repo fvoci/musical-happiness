@@ -267,8 +267,11 @@ crates/store/src/visibility.rs | "teams",
 crates/store/src/visibility.rs | "team_members",
 crates/store/src/visibility.rs | "board_teams",
 crates/store/src/visibility.rs | a team's people
+crates/store/src/visibility.rs | a_write_of_a_teams_people
+crates/store/src/visibility.rs | INSERT INTO team_members (team_id,
+crates/store/src/visibility.rs | INSERT INTO board_teams (board_id, team_id, workspace_id, org_id, role) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (board_id, team_id, org_id)
+crates/store/src/visibility.rs | DELETE FROM teams WHERE
 
 # A user's board memberships in every organization count the roles of their teams too.
-crates/store/src/memberships_everywhere.rs | through a team
+crates/store/src/memberships_everywhere.rs
 crates/store/src/directory.rs | through a team
-crates/store/src/memberships_everywhere.rs | board_team_access

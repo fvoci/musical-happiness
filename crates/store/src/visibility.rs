@@ -599,6 +599,18 @@ mod tests {
     }
 
     #[test]
+    fn a_write_of_a_teams_people_or_roles_moves_the_revision() {
+        for statement in [
+            "INSERT INTO team_members (team_id, org_id, workspace_id, user_id) VALUES ($1, $2, $3, $4)",
+            "INSERT INTO board_teams (board_id, team_id, workspace_id, org_id, role) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (board_id, team_id, org_id) DO UPDATE SET role = EXCLUDED.role",
+            "DELETE FROM teams WHERE id = $1",
+        ] {
+            assert!(affects_visibility(statement), "{statement}");
+            assert!(writes_access(statement), "{statement}");
+        }
+    }
+
+    #[test]
     fn a_users_row_moves_the_revision_only_as_it_goes() {
         assert!(!affects_visibility(
             "UPDATE users SET props = $1 WHERE id = $2"

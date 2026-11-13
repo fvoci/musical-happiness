@@ -30,14 +30,41 @@ pub(crate) async fn of_user(
     push_opened_by(&mut sql, login_provider);
     sql.push(" ORDER BY bm.board_id");
     let mut members = boards::fetch_members(scope, sql).await?;
-    board_team_access::extend_across_organizations(scope, user_id, login_provider, &mut members)
-        .await?;
+    extend_across_organizations(scope, user_id, login_provider, &mut members).await?;
     Ok(members)
+}
+
+/// Adds to `members` the boards `user_id` has a role on through a team, of every
+/// organization, as `Store::board_memberships_of_user` lists the direct ones: of a
+/// workspace and an organization in use, that the session made through
+/// `login_provider` opens. Sorted by board.
+async fn extend_across_organizations(
+    scope: &mut Scope<'_>,
+    user_id: &str,
+    login_provider: Option<&str>,
+    members: &mut Vec<BoardMember>,
+) -> Result<(), StoreError> {
+    let mut sql = scope.sql(&format!(
+        "SELECT bt.board_id, tm.user_id, bt.role FROM board_teams AS bt \
+         JOIN {} tm ON tm.team_id = bt.team_id AND tm.org_id = bt.org_id \
+         AND tm.workspace_id = bt.workspace_id \
+         JOIN boards AS b ON b.id = bt.board_id \
+         JOIN workspaces AS t ON t.id = b.workspace_id \
+         JOIN organizations AS o ON o.id = t.org_id WHERE tm.user_id = ",
+        crate::teams::present_members(scope)
+    ));
+    sql.bind(Id(user_id))
+        .push(IN_USE)
+        .push(&scope.same_organization(&[("bt", "b"), ("b", "t")]));
+    push_opened_by(&mut sql, login_provider);
+    board_team_access::extend(scope, sql, members).await?;
+    members.sort_by(|a, b| a.board_id.cmp(&b.board_id));
+    Ok(())
 }
 
 /// Leaves out the workspaces `t` of an organization that takes only sessions made
 /// through its provider, unless the session was made through `login_provider`.
-pub(crate) fn push_opened_by(sql: &mut Sql, login_provider: Option<&str>) {
+fn push_opened_by(sql: &mut Sql, login_provider: Option<&str>) {
     sql.push(
         " AND NOT EXISTS (SELECT 1 FROM oidc_providers AS p \
          WHERE p.org_id = t.org_id AND p.sso_required = ",

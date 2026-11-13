@@ -491,3 +491,60 @@ async fn a_template_turned_private_or_open_says_nothing_of_its_team_readers() {
     }
     th.teardown().await;
 }
+
+/// A board a person reads through a team is listed among their memberships as their
+/// own boards are: not to a password session once its organization takes only
+/// sessions made through its provider.
+#[tokio::test]
+async fn a_board_of_a_team_is_listed_only_to_a_session_its_organization_takes() {
+    use crate::common::Client;
+    use crate::fake_oidc::FakeProvider;
+    use crate::oidc::{org_of, set_provider, with_key_and_private_addresses};
+    use crate::sso::{Passwords, admin_through_provider, require_sso};
+
+    let fake = FakeProvider::start().await;
+    let th = Setup::local_mode()
+        .trusting_oidc_provider(&fake.certificate_der)
+        .configure(with_key_and_private_addresses)
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let org_id = org_of(&th).await;
+    set_provider(&th, &org_id, &fake).await;
+    let owner = th.client.me().await.id;
+    let user = th.client2.me().await.id;
+    let board = board_with_admin(
+        &th,
+        new_board(ROOT_WORKSPACE_ID, BoardType::Private, "Walled"),
+        &owner,
+    )
+    .await;
+    let team = group(&th, &user, "Walled readers").await;
+    th.client
+        .put(
+            &format!(
+                "/w/{ROOT_WORKSPACE_ID}/boards/{}/teams/{}",
+                board.id, team.id
+            ),
+            &json!({"role":"viewer"}),
+        )
+        .await
+        .check_no_content();
+    let listed = async |client: &Client| -> bool {
+        let members: Vec<BoardMember> = client.get("/users/me/memberships").await.ok_json();
+        members.iter().any(|member| member.board_id == board.id)
+    };
+    assert!(listed(&th.client2).await, "the team's board is listed");
+
+    let admin = admin_through_provider(&th, &fake, &org_id).await;
+    require_sso(&admin, &org_id, &fake, Passwords::Refused)
+        .await
+        .check_ok();
+    assert!(
+        !listed(&th.client2).await,
+        "a password session lists no board of the organization, a team's neither"
+    );
+    th.teardown().await;
+    fake.stop();
+}
