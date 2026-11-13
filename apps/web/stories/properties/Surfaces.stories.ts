@@ -40,11 +40,16 @@ export const MultiSelectOnSheet: Story = {
 };
 
 export const PersonOnPopover: Story = {
-  args: { type: 'person', value: 'u-jisoo', presentation: 'popover', startOpen: true },
+  args: { type: 'person', value: 'example-member-1', presentation: 'popover', startOpen: true },
 };
 
 export const PersonOnSheet: Story = {
-  args: { type: 'multiPerson', value: ['u-jisoo'], presentation: 'sheet', startOpen: true },
+  args: {
+    type: 'multiPerson',
+    value: ['example-member-1'],
+    presentation: 'sheet',
+    startOpen: true,
+  },
 };
 
 export const DateOnPopover: Story = {
