@@ -287,10 +287,12 @@ impl App {
         match self.store().trash_workspace(workspace_id, actor_id).await {
             Ok(WorkspaceTrashing::Done) => {
                 self.ws().stop_following_workspace(workspace_id);
-                self.close_shared_readers(Some(workspace_id)).await?;
+                // The rooms ask again even if its links cannot be read now.
+                let readers = self.close_shared_readers(Some(workspace_id)).await;
                 self.collab()
                     .recheck_access(self, AccessScope::workspace(workspace_id))
                     .await;
+                readers?;
                 Ok(())
             }
             Ok(WorkspaceTrashing::NotFound) => Err(workspace_not_found()),

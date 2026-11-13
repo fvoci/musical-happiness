@@ -200,10 +200,14 @@ async fn the_first_signup_creates_the_organization_atomically() {
     };
     let (alpha, beta) = (registration("alpha"), registration("beta"));
     server.app.meet_next_signups(2);
-    let (a, b) = tokio::join!(
-        first.post("/register", &alpha),
-        second.post("/register", &beta)
-    );
+    let (a, b) = tokio::time::timeout(std::time::Duration::from_secs(30), async {
+        tokio::join!(
+            first.post("/register", &alpha),
+            second.post("/register", &beta)
+        )
+    })
+    .await
+    .expect("both sign-ups meet before the store (App::meet_next_signups) and answer");
     let successes = [&a, &b]
         .into_iter()
         .filter(|answer| answer.status == reqwest::StatusCode::CREATED)

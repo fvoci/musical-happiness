@@ -126,8 +126,9 @@ impl Hub {
     /// Splits who follows the board by its read token into who sees it as its member
     /// does, and who reads it by the link alone. A member is a connection of a user who
     /// holds a role on the board, is in its workspace, and whose session opens the
-    /// workspace's organization; anybody else, a connection without a session, and one
-    /// whose standing cannot be read now, reads by the link.
+    /// workspace's organization; anybody else, and a connection without a session,
+    /// reads by the link. A connection with a session whose standing cannot be read now
+    /// is closed as retryable: it reads anew rather than be told less than it may.
     async fn split_by_sight(
         &self,
         ids: &[ListenerId],
@@ -148,28 +149,44 @@ impl Hub {
                 .collect()
         };
         let (mut members, mut readers) = (Vec::new(), Vec::new());
-        if identities.iter().all(|(_, user, _)| user.is_empty()) {
-            readers.extend(identities.into_iter().map(|(id, _, _)| id));
+        let (signed_in, anonymous): (Vec<_>, Vec<_>) = identities
+            .into_iter()
+            .partition(|(_, user, _)| !user.is_empty());
+        readers.extend(anonymous.into_iter().map(|(id, _, _)| id));
+        if signed_in.is_empty() {
             return (members, readers);
         }
-        let board_members = self.audience.members(board_id).await.unwrap_or_default();
-        for (id, user, login_provider) in identities {
-            let on_board = !user.is_empty()
-                && board_members
-                    .iter()
-                    .any(|member| member.user_id == user && role_of(member).is_some());
-            let sees = on_board
-                && match self.audience.workspace_access(&user, workspace_id).await {
-                    Ok(Some(access)) => session_opens(
+        let board_members = match self.audience.members(board_id).await {
+            Ok(board_members) => board_members,
+            Err(error) => {
+                tracing::error!(%error, board_id, "websocket: reading the members of a shared board failed");
+                let unread: Vec<ListenerId> = signed_in.iter().map(|(id, _, _)| *id).collect();
+                self.close_unread(&unread);
+                return (members, readers);
+            }
+        };
+        for (id, user, login_provider) in signed_in {
+            let on_board = board_members
+                .iter()
+                .any(|member| member.user_id == user && role_of(member).is_some());
+            if !on_board {
+                readers.push(id);
+                continue;
+            }
+            match self.audience.workspace_access(&user, workspace_id).await {
+                Ok(Some(access))
+                    if session_opens(
                         access.required_provider.as_deref(),
                         login_provider.as_deref(),
-                    ),
-                    Ok(None) | Err(_) => false,
-                };
-            if sees {
-                members.push(id);
-            } else {
-                readers.push(id);
+                    ) =>
+                {
+                    members.push(id);
+                }
+                Ok(_) => readers.push(id),
+                Err(error) => {
+                    tracing::error!(%error, workspace_id, "websocket: reading a workspace's membership failed");
+                    self.close_unread(&[id]);
+                }
             }
         }
         (members, readers)
