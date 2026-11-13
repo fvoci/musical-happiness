@@ -69,6 +69,7 @@ import {
   roleOn,
   type Role,
 } from './comments.ts';
+import { memberRole, memberFileUrl } from './board-access.ts';
 import { changeDisplayName } from './account.ts';
 import { checkRelations, renameCopied } from './references.ts';
 import { fail } from './refuse.ts';
@@ -171,11 +172,7 @@ export class MemoryBackend implements Backend {
 
   /** The reader's role on the board; one they are no member of is not there for them, unless open (403). */
   #memberRole(boardId: string): Exclude<Role, ''> {
-    const board = this.#board(boardId);
-    const role = this.#roleOn(boardId);
-    if (role !== '') return role;
-    if (board.type === 'O') fail(403, 'access denied to board');
-    fail(404, 'no such board');
+    return memberRole(this.world, this.userId, boardId);
   }
 
   /**
@@ -884,7 +881,7 @@ export class MemoryBackend implements Backend {
 
   async views(boardId: string): Promise<BoardView[]> {
     await this.#enter('views');
-    this.#board(boardId);
+    this.#memberRole(boardId);
     return scramble(this.world.blocksOf(boardId).filter((block) => block.type === 'view')).map(
       viewOf,
     );
@@ -915,20 +912,21 @@ export class MemoryBackend implements Backend {
 
   async cards(boardId: string): Promise<CardSummary[]> {
     await this.#enter('cards');
-    this.#board(boardId);
+    this.#memberRole(boardId);
     const cards = this.world.blocksOf(boardId).filter((block) => block.type === 'card');
     return scramble(cards).map((card) => this.#commented(summaryOf(card as StoredCard)));
   }
 
   async cardPreviews(boardId: string): Promise<Map<string, CardPreview>> {
     await this.#enter('cardPreviews');
-    this.#board(boardId);
+    this.#memberRole(boardId);
     const cards = this.world.blocksOf(boardId).filter((block) => block.type === 'card');
     return new Map(cards.map((card) => [card.id, cardPreviewOf(card.body)]));
   }
 
   async card(boardId: string, cardId: string): Promise<CardDetail> {
     await this.#enter('card');
+    this.#memberRole(boardId);
     return this.#commented(detailOf(this.#block(boardId, cardId, 'card') as StoredCard));
   }
 
@@ -977,6 +975,7 @@ export class MemoryBackend implements Backend {
 
   async comments(boardId: string, cardId: string): Promise<Comment[]> {
     await this.#enter('comments');
+    this.#memberRole(boardId);
     this.#block(boardId, cardId, 'card');
     return scramble(this.world.childrenOf(cardId).filter((block) => block.type === 'comment')).map(
       commentOf,
@@ -1025,6 +1024,7 @@ export class MemoryBackend implements Backend {
 
   async attachments(boardId: string, cardId: string): Promise<Attachment[]> {
     await this.#enter('attachments');
+    this.#memberRole(boardId);
     this.#block(boardId, cardId, 'card');
     return scramble(
       this.world.childrenOf(cardId).filter((block) => block.type === 'attachment'),
@@ -1137,16 +1137,14 @@ export class MemoryBackend implements Backend {
 
   async fileBytes(boardId: string, fileId: string): Promise<Blob> {
     await this.#enter('fileBytes');
+    this.#memberRole(boardId);
     const file = this.world.files.get(fileId);
     if (file?.boardId !== boardId || !file.blob) fail(404, 'no such file');
     return file.blob;
   }
 
   fileUrl(boardId: string, fileId: string): string | undefined {
-    const file = this.world.files.get(fileId);
-    if (file?.boardId !== boardId || !file.blob) return undefined;
-    file.url ??= URL.createObjectURL(file.blob);
-    return file.url;
+    return memberFileUrl(this.world, this.userId, boardId, fileId);
   }
 
   // ------------------------------------------------------------ changes

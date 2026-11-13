@@ -27,6 +27,8 @@ test.describe.configure({ mode: 'parallel', timeout: 90_000 });
 /** What `window.fvociDev` offers a test (src/app/backend.ts). Only what is used here. */
 interface DevBackend {
   latency: number;
+  me(): Promise<{ id: string }>;
+  addMember(boardId: string, userId: string, role: 'editor'): Promise<unknown>;
   workspaces(): Promise<{ id: string }[]>;
   boards(workspaceId: string): Promise<{ id: string; title: string }[]>;
   views(boardId: string): Promise<{ id: string; title: string }[]>;
@@ -674,9 +676,12 @@ test('the other choice of a conflict shows the stored text and drops what the re
  * other write is certain to arrive first.
  */
 async function meetSomebodyElse(page: Page, place: Place, editor: Locator): Promise<void> {
-  await page.evaluate(() => {
+  await page.evaluate(async ({ boardId }) => {
+    // Both writers must be members before the private card can be read.
+    const other = await window.fvociDev.someoneElse().me();
+    await window.fvociDev.backend.addMember(boardId, other.id, 'editor');
     window.fvociDev.backend.latency = 1500;
-  });
+  }, place);
   await editor.click();
   await page.keyboard.press('Control+Home');
   await page.keyboard.type('Mine. ');

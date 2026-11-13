@@ -12,10 +12,10 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const WithValue: Story = { args: { value: 'jisoo@example.org' } };
+export const WithValue: Story = { args: { value: 'example-reader@example.test' } };
 
 export const Empty: Story = {};
 
-export const ReadOnly: Story = { args: { value: 'ada@example.org', readOnly: true } };
+export const ReadOnly: Story = { args: { value: 'example-guest@example.test', readOnly: true } };
 
-export const Editing: Story = { args: { value: 'jisoo@example.org', startOpen: true } };
+export const Editing: Story = { args: { value: 'example-reader@example.test', startOpen: true } };
