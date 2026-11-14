@@ -304,6 +304,10 @@ reasons! {
     InvitationMailLimit => "invitation_mail_limit", "Hourly invitation mail limit reached";
     /// The server holds as many invitation messages waiting to be sent as it may.
     MailQueueFull => "mail_queue_full", "Mail queue full";
+    /// The server has no search server: bodies are not searched.
+    SearchNotConfigured => "search_not_configured", "Search not configured";
+    /// The search server did not answer a search.
+    SearchUnavailable => "search_unavailable", "Search unavailable";
 }
 
 impl Reason {

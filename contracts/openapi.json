@@ -1131,6 +1131,10 @@
             "format": "int64",
             "type": "integer"
           },
+          "searchEnabled": {
+            "description": "Whether the bodies of cards can be searched (`searchWorkspaceContent`): the\nserver has a search server.",
+            "type": "boolean"
+          },
           "teammateNameDisplay": {
             "description": "How other users' names are displayed.",
             "type": "string"
@@ -1141,6 +1145,7 @@
           "featureFlags",
           "maxFileSize",
           "maxImportSize",
+          "searchEnabled",
           "teammateNameDisplay"
         ],
         "type": "object"
@@ -3022,6 +3027,16 @@
             "reason": "mail_queue_full",
             "title": "Mail queue full",
             "type": "/problems/mail-queue-full"
+          },
+          {
+            "reason": "search_not_configured",
+            "title": "Search not configured",
+            "type": "/problems/search-not-configured"
+          },
+          {
+            "reason": "search_unavailable",
+            "title": "Search unavailable",
+            "type": "/problems/search-unavailable"
           }
         ]
       },
@@ -3118,6 +3133,49 @@
           "email"
         ],
         "type": "object"
+      },
+      "SearchHit": {
+        "description": "One thing a search found: the user reads it now.",
+        "properties": {
+          "containerId": {
+            "description": "The identifier of the board it is on.",
+            "type": "string"
+          },
+          "id": {
+            "description": "The identifier of the card.",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/SearchKind",
+            "description": "What it is."
+          },
+          "snippet": {
+            "description": "A piece of its body around what matched, in stretches that follow one\nanother; empty where the body has changed since it was indexed, or has nothing\nto show.",
+            "items": {
+              "$ref": "#/components/schemas/SnippetPart"
+            },
+            "type": "array"
+          },
+          "title": {
+            "description": "Its title as it is now.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "containerId",
+          "id",
+          "kind",
+          "snippet",
+          "title"
+        ],
+        "type": "object"
+      },
+      "SearchKind": {
+        "description": "The kind of thing a search finds.",
+        "enum": [
+          "card"
+        ],
+        "type": "string"
       },
       "ServerMetadata": {
         "description": "What `ping` reports about the server.",
@@ -3299,6 +3357,24 @@
         },
         "required": [
           "enabled"
+        ],
+        "type": "object"
+      },
+      "SnippetPart": {
+        "description": "A stretch of a snippet: text as it is in the body, never markup.",
+        "properties": {
+          "matched": {
+            "description": "Whether the stretch is what the search matched.",
+            "type": "boolean"
+          },
+          "text": {
+            "description": "The text of the stretch.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "matched",
+          "text"
         ],
         "type": "object"
       },
@@ -10407,6 +10483,80 @@
           }
         },
         "summary": "Start the tour",
+        "tags": [
+          "workspaces"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/search": {
+      "get": {
+        "description": "The cards of the boards of the workspace that the user has a role on, their own or\na team's (an open board they have not joined is not searched), whose title and\nbody together hold every word of `q`.\nKorean is matched by its words, whatever particles and endings they carry, and a\ncompound by its parts too: \"환불 규정\" finds \"환불규정을\". Comments, property values\nand attached files are not searched, and neither are templates. Each hit is the\ncard as it is now: its `title`, the board it is on (`containerId`), and `snippet`,\na piece of its body in stretches of plain text, those that matched marked; the\nsnippet is empty for a body that changed a moment ago, or has nothing to show. The\nbest match first. Nothing says how many cards match in all.\n\nA `q` of more than 200 characters, a `kind` that is none and a `limit` outside 1\nto 50 are 400; a `q` that is empty finds nothing. A user who searches more often\nthan the server lets one is told to wait (429, `Retry-After`). Where the server\nhas no search server (`searchEnabled` of `getClientConfig` is false) the answer is\n404 with the reason `search_not_configured`, and while the search server does not\nanswer, 503 with the reason `search_unavailable`: nothing else of the server waits\nfor it.",
+        "operationId": "searchWorkspaceContent",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The words to find, at most 200 characters. Without it nothing is found.",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The kind of thing to find: `card`. Left out, every kind. Anything else is 400.",
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "How many hits to answer with at most, from 1 to 50; 20 if left out.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SearchHit"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "What was found."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Search what the cards of a workspace say",
         "tags": [
           "workspaces"
         ]

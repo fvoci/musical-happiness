@@ -1,0 +1,86 @@
+//! Searching what the cards of a workspace say.
+
+use axum::extract::RawQuery;
+use fvoci_model::{SearchHit, SearchKind};
+use utoipa_axum::router::OpenApiRouter;
+use utoipa_axum::routes;
+
+use super::cards::int_query_param;
+use super::contract::params::{ContentKind, ContentLimit, ContentText, MemberWorkspaceId};
+use super::contract::tag;
+use super::workspace::Ws;
+use super::{ApiResult, json_response, query_param};
+use crate::app::App;
+use crate::error::AppError;
+use crate::search::{Asked, MAX_LIMIT, MAX_TEXT_CHARS};
+
+/// How many hits a search answers with unless it asks for another number.
+const DEFAULT_LIMIT: i64 = 20;
+
+pub(super) fn routes() -> OpenApiRouter<App> {
+    OpenApiRouter::new().routes(routes!(handle_search_content))
+}
+
+/// Search what the cards of a workspace say
+///
+/// The cards of the boards of the workspace that the user has a role on, their own or
+/// a team's (an open board they have not joined is not searched), whose title and
+/// body together hold every word of `q`.
+/// Korean is matched by its words, whatever particles and endings they carry, and a
+/// compound by its parts too: "환불 규정" finds "환불규정을". Comments, property values
+/// and attached files are not searched, and neither are templates. Each hit is the
+/// card as it is now: its `title`, the board it is on (`containerId`), and `snippet`,
+/// a piece of its body in stretches of plain text, those that matched marked; the
+/// snippet is empty for a body that changed a moment ago, or has nothing to show. The
+/// best match first. Nothing says how many cards match in all.
+///
+/// A `q` of more than 200 characters, a `kind` that is none and a `limit` outside 1
+/// to 50 are 400; a `q` that is empty finds nothing. A user who searches more often
+/// than the server lets one is told to wait (429, `Retry-After`). Where the server
+/// has no search server (`searchEnabled` of `getClientConfig` is false) the answer is
+/// 404 with the reason `search_not_configured`, and while the search server does not
+/// answer, 503 with the reason `search_unavailable`: nothing else of the server waits
+/// for it.
+#[utoipa::path(
+    get,
+    path = "/w/{workspaceId}/search",
+    operation_id = "searchWorkspaceContent",
+    tag = tag::WORKSPACES,
+    params(MemberWorkspaceId, ContentText, ContentKind, ContentLimit),
+    responses((status = 200, description = "What was found.", body = Vec<SearchHit>)),
+)]
+async fn handle_search_content(ws: Ws, RawQuery(query): RawQuery) -> ApiResult {
+    let query = query.as_deref();
+    let text = query_param(query, "q");
+    if text.chars().count() > MAX_TEXT_CHARS {
+        return Err(AppError::bad_request(format_args!(
+            "`q` has more than {MAX_TEXT_CHARS} characters"
+        ))
+        .with_parameter("q"));
+    }
+    let kind = match query_param(query, "kind").as_str() {
+        "" => None,
+        word => Some(
+            word.parse::<SearchKind>()
+                .map_err(|error| AppError::bad_request(error).with_parameter("kind"))?,
+        ),
+    };
+    let limit = int_query_param(query, "limit", DEFAULT_LIMIT)?;
+    let limit = usize::try_from(limit)
+        .ok()
+        .filter(|limit| (1..=MAX_LIMIT).contains(limit))
+        .ok_or_else(|| {
+            AppError::bad_request(format_args!("`limit` is from 1 to {MAX_LIMIT}"))
+                .with_parameter("limit")
+        })?;
+    let found = ws
+        .app
+        .search_workspace(
+            &ws.session.user_id,
+            &ws.workspace_id,
+            &Asked { text, kind, limit },
+        )
+        .await?;
+    tracing::debug!(found = found.len(), "SearchContent");
+    Ok(json_response(&found))
+}

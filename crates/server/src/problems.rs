@@ -264,10 +264,28 @@ fn describe_reason(reason: Reason) -> &'static str {
             "Status 503. The server holds as many invitation messages waiting to be sent as \
              `mail_invitation_queue` allows. Nothing of this request was sent. Try again later."
         }
-        // The rest are the reasons of a body edited together, which the two functions
-        // below name one by one: a reason that is none of theirs fails the tests.
-        _ => describe_editing_together(reason),
+        // The rest are the reasons of the search of bodies and of a body edited together,
+        // which the functions below name one by one: a reason that is none of theirs
+        // fails the tests.
+        _ => describe_search(reason).unwrap_or_else(|| describe_editing_together(reason)),
     }
+}
+
+/// The descriptions of the reasons of the search of bodies.
+fn describe_search(reason: Reason) -> Option<&'static str> {
+    Some(match reason {
+        Reason::SearchNotConfigured => {
+            "Status 404. The server has no search server (`search_url`), or the one it has \
+             cannot hold the index: what cards say is not searched. `searchEnabled` of \
+             `getClientConfig` says so beforehand."
+        }
+        Reason::SearchUnavailable => {
+            "Status 503. The search server did not answer the search within three seconds, \
+             or refused it. Nothing else of the server depends on it: what is written \
+             meanwhile is found once the search server is back. Try again later."
+        }
+        _ => return None,
+    })
 }
 
 /// The descriptions of the reasons of uploads in parts and of archives.

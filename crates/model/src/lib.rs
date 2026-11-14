@@ -33,6 +33,7 @@ mod organization;
 mod problem;
 mod refusal;
 mod relation;
+mod search;
 mod serde_util;
 mod settings;
 mod sharing;
@@ -110,6 +111,7 @@ pub use relation::{
     RELATION_LIMIT, RELATION_PROPERTY_TYPE, RelationError, RelationProblem, RelationProperties,
     check_relation_value, relation_property_ids, tidy_copied_relations,
 };
+pub use search::{SearchHit, SearchKind, SnippetPart, UnknownSearchKind};
 pub use settings::{
     CLIENT_STATE_MAX_ENTRIES, CLIENT_STATE_MAX_NAME_LENGTH, CLIENT_STATE_MAX_VALUE_BYTES, CardOpen,
     ClientStateError, Density, HourCycle, Language, ParseSettingError, SettingName, SettingsError,

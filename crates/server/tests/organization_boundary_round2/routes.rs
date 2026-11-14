@@ -50,6 +50,7 @@ pub(super) const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
     ("DELETE", "/boards-and-blocks", "deleteBoardsAndBlocks"),
     ("PATCH", "/boards-and-blocks", "patchBoardsAndBlocks"),
     ("GET", "/boards/search?q=secret", "searchWorkspaceBoards"),
+    ("GET", "/search?q=secret", "searchWorkspaceContent"),
     ("DELETE", "/boards/{boardId}", "deleteBoard"),
     ("GET", "/boards/{boardId}", "getBoard"),
     ("PATCH", "/boards/{boardId}", "patchBoard"),
@@ -377,6 +378,12 @@ async fn compare_workspace_routes(client: &Client, user_id: &str, asker: Asker) 
             // The workspace is there for its guest: what is refused is what the path
             // names, the operation, or the empty body; nothing is done.
             REFUSED_IN_REACH.contains(&hidden.status) && absent.status == StatusCode::NOT_FOUND
+        } else if *operation == "searchWorkspaceContent" && asker == Asker::Guest {
+            // The workspace is there for its guest, and this server has no search
+            // server, which it says.
+            hidden.status == StatusCode::NOT_FOUND
+                && answer(&hidden).1["reason"] == "search_not_configured"
+                && absent.status == StatusCode::NOT_FOUND
         } else if *operation == "exportWorkspaceArchive" && asker == Asker::Guest {
             // The guest's archive has the boards the guest is on, none here.
             hidden.status == StatusCode::OK

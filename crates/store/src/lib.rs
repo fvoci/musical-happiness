@@ -44,6 +44,7 @@ mod operator_records;
 mod org_admin;
 mod password_reset;
 mod schema;
+mod search_docs;
 mod server_lock;
 mod sessions;
 mod sharing;
@@ -90,6 +91,7 @@ pub use oidc_identities::{LinkRefusal, Linked, LinkingSession, TiedIdentity, Unl
 pub use oidc_pending::{Applied, Binding, PendingProvider, PendingSettings, Trial, Tried};
 pub use org_admin::{Joining, OrgRoleChange, WorkspaceTrashing};
 pub use password_reset::PASSWORD_RESET_LIFETIME_MILLIS;
+pub use search_docs::SearchDocument;
 pub use server_lock::ServerLock;
 pub use sharing::SharingChange;
 pub use trash::{DeletedBlock, DeletedBoard, Purged};

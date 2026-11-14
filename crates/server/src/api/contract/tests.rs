@@ -553,6 +553,7 @@ const ORDERS: &[(&str, &str)] = &[
     ("reorderCategories", "in their new order"),
     ("reorderCategoryBoards", "in their new order"),
     ("searchWorkspaceBoards", "Oldest first"),
+    ("searchWorkspaceContent", "The best match first"),
 ];
 
 /// Whether what an operation answers is a list, or boards with their blocks.

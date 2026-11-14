@@ -589,7 +589,7 @@ fn config_error_and_request_json_members() {
         json!({
             "enablePublicSharedBoards": true,
             "teammateNameDisplay": "username", "featureFlags": {}, "maxFileSize": 7,
-            "maxImportSize": 9
+            "maxImportSize": 9, "searchEnabled": false
         })
     );
 

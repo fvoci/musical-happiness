@@ -20,6 +20,7 @@ use reqwest::RequestBuilder;
 use serde_json::{Value, json};
 
 use super::common::{ApiResponse, Client, PASSWORD, Setup, TestServer};
+use super::fake_search::{FakeSearch, document};
 use super::routes::WORKSPACE_ROUTES;
 use super::{db_type_of_the_tests, open};
 
@@ -263,21 +264,28 @@ async fn every_contract_operation_is_exercised_by_both_founders() {
     }
     let fake = super::fake_oidc::FakeProvider::start().await;
     let smtp = super::fake_smtp::FakeSmtp::start_on(0).await;
+    let index = FakeSearch::start().await;
     let server = Setup::local_mode()
         .trusting_oidc_provider(&fake.certificate_der)
         .smtp(smtp.settings())
+        .search(index.settings())
         .configure(open)
         .configure(identity::configure)
         .on_an_empty_database()
         .with_templates()
         .start()
         .await;
+    fvoci_server::search::tend(&server.app).await;
     let mut first = Case::founder(&server, "parity-first", Vec::new()).await;
     actions::exercise(&mut first).await;
+    search_content(&mut first, &index).await;
     service::exercise(&mut first, &server, &fake, &smtp).await;
     first.assert_complete();
     let mut second = Case::founder(&server, "parity-other", first.identifiers).await;
     actions::exercise(&mut second).await;
+    // The index now answers every search with the cards of both founders: what is the
+    // first's is forbidden to the second, as everywhere here.
+    search_content(&mut second, &index).await;
     service::exercise(&mut second, &server, &fake, &smtp).await;
     second.assert_complete();
     assert_eq!(
@@ -302,6 +310,31 @@ async fn every_contract_operation_is_exercised_by_both_founders() {
     }
     server.teardown().await;
     smtp.stop().await;
+}
+
+/// The founder searches what cards say, on a search server that answers every search
+/// with every card planted so far, of either organization.
+async fn search_content(case: &mut Case, index: &FakeSearch) {
+    let title = format!("{} secret", case.label);
+    let board = case
+        .run("createBoard", &[], json!({"title": title, "type": "P"}))
+        .await
+        .value();
+    let board = case.remember(&board, "id");
+    let card = case
+        .run(
+            "createCard",
+            &[("boardId", &board)],
+            json!({"title": title}),
+        )
+        .await
+        .value();
+    let card = case.remember(&card, "id");
+    index.plant(
+        &card,
+        document(&case.org, &case.workspace, &board, &title, ""),
+    );
+    case.present("searchWorkspaceContent", &[], &card).await;
 }
 
 /// Keep response semantics while replacing generated identifiers, times and the

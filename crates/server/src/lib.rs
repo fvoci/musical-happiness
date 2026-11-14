@@ -15,6 +15,7 @@ pub mod metrics;
 pub mod permissions;
 pub mod problems;
 pub mod scheduler;
+pub mod search;
 pub mod storage;
 pub mod web;
 pub mod webhook;
@@ -324,6 +325,7 @@ impl Server {
         let clean_up = start_session_clean_up(&self.app);
         let purge = start_trash_purge(&self.app);
         let uploads = start_upload_clean_up(&self.app);
+        let search = search::start_upkeep(&self.app);
 
         let service = self
             .router()
@@ -392,6 +394,9 @@ impl Server {
         clean_up.cancel().await;
         purge.cancel().await;
         uploads.cancel().await;
+        if let Some(search) = search {
+            search.cancel().await;
+        }
         served.context("serving HTTP")
     }
 

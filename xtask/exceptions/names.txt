@@ -125,6 +125,8 @@ crates/store/src/org_admin.rs | board_team_membership::remove_workspace_teams
 crates/server/src/app/teams.rs
 crates/server/src/app/mod.rs | teams
 crates/server/src/api/teams.rs
+crates/server/src/api/content_search.rs | a team's
+crates/server/src/search/find.rs | a team's
 crates/server/src/api/mod.rs | teams
 crates/server/src/api/contract/params.rs | Team
 crates/server/src/api/contract.rs | Team

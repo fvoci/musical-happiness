@@ -107,6 +107,7 @@ use crate::collab::Collab;
 use crate::config::Configuration;
 use crate::error::{AppError, Reason};
 use crate::metrics::{Metrics, OpenUploads, Pool};
+use crate::search::Search;
 use crate::storage::FileBackend;
 use crate::web::WebRoot;
 use crate::webhook::Webhook;
@@ -172,6 +173,8 @@ struct Inner {
     server_lock: server_lock::Holder,
     /// The limit on reads of shared boards whose token opens nothing.
     shared_reads: SharedReads,
+    /// The search of bodies, on the search server if one is configured.
+    search: Search,
     /// Sign-ups held until as many as it counts reach the store (`App::meet_next_signups`).
     #[cfg(feature = "test-util")]
     signups_meet: std::sync::Mutex<Option<Arc<tokio::sync::Barrier>>>,
@@ -261,6 +264,7 @@ impl App {
         let imports = slots(config.max_concurrent_imports);
         let collab = Collab::new(&config.collab)
             .context("unable to find the executable to start the collab workers from")?;
+        let search = Search::from_config(&config.search).context("unable to set up the search")?;
         Ok(Self {
             store,
             ws,
@@ -293,6 +297,7 @@ impl App {
                 collab,
                 server_lock: server_lock::Holder::default(),
                 shared_reads: SharedReads::default(),
+                search,
                 #[cfg(feature = "test-util")]
                 signups_meet: std::sync::Mutex::default(),
             }),
@@ -372,6 +377,11 @@ impl App {
     /// The session and read-token checks.
     pub fn authenticator(&self) -> &Authenticator {
         &self.inner.auth
+    }
+
+    /// The search of bodies.
+    pub fn search(&self) -> &Search {
+        &self.inner.search
     }
 
     /// The limit on reads of shared boards whose token opens nothing.
@@ -546,6 +556,7 @@ impl App {
             feature_flags: config.feature_flags.clone(),
             max_file_size: limits.largest_file,
             max_import_size: limits.largest_import,
+            search_enabled: self.search().enabled(),
         }
     }
 
