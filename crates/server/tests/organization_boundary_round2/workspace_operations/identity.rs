@@ -128,6 +128,29 @@ async fn sign_in(case: &mut Case, server: &TestServer, fake: &FakeProvider) {
     case.record("finishOidcLogin", &completed);
     linked(case, &newcomer, fake).await;
     pending(case, &newcomer, fake).await;
+    held(case).await;
+}
+
+/// The two ends of a sign-in held while an organization moves to another provider:
+/// no sign-in of this organization is held for the browser that asks, and each end
+/// answers so, the same in both organizations, and makes no session.
+async fn held(case: &mut Case) {
+    for operation in ["startOidcCarryOver", "finishHeldOidcLogin"] {
+        let request = super::with_query(case.request(operation, &[]), "org", &case.org);
+        let refused = Client::send(request).await;
+        assert_eq!(refused.status, StatusCode::CONFLICT, "{}", refused.text());
+        assert_eq!(
+            refused.value()["reason"],
+            "oidc_carry_over_refused",
+            "{}",
+            refused.text()
+        );
+        assert!(
+            refused.headers.get(header::SET_COOKIE).is_none(),
+            "{operation} sets no cookie when it is refused"
+        );
+        case.record(operation, &refused);
+    }
 }
 
 /// The provider's pending settings, by an administrator whose session was made through

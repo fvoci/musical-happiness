@@ -16,6 +16,10 @@
   (`/login?org=…`), or the only one of the server. A sign-in through the
   provider that went wrong comes back to this page with the name of what
   went wrong in `oidc_error`, which is told as a refusal is.
+
+  While that organization moves to another provider, a sign-in of somebody the
+  new provider does not know yet comes back with `oidc_held`: the page then asks
+  whether they had an account before it shows any form (`SignInChoice.svelte`).
 -->
 <script lang="ts">
   import { tick } from 'svelte';
@@ -28,6 +32,7 @@
 
   import { oidcProblemOf } from './oidc-problems.ts';
   import AccountFields from './AccountFields.svelte';
+  import SignInChoice from './SignInChoice.svelte';
   import {
     accountFieldsUnder,
     formProblemsOf,
@@ -46,11 +51,26 @@
      * (`Account.startOidc`); a refusal of the start rejects.
      */
     onOidcStart?: (orgId: string) => Promise<void>;
+    /**
+     * For a sign-in held for this browser: sends the browser to the provider the
+     * organization used before (`Account.startOidcCarryOver`); a refusal rejects.
+     */
+    onCarryOver?: (orgId: string) => Promise<void>;
+    /** Ends the held sign-in in a new account, signed in (`Account.finishHeldSignIn`). */
+    onStartAnew?: (orgId: string) => Promise<void>;
     /** Where "Forgot your password?" leads; the link shows only while the server sends mail. */
     forgotHref?: string;
   }
 
-  let { onSignIn, onRegister, optionsOf, onOidcStart, forgotHref }: Props = $props();
+  let {
+    onSignIn,
+    onRegister,
+    optionsOf,
+    onOidcStart,
+    onCarryOver,
+    onStartAnew,
+    forgotHref,
+  }: Props = $props();
 
   /** What the page's address says: the organization, and what went wrong. */
   const address = new URLSearchParams(location.search);
@@ -65,6 +85,16 @@
   );
 
   const oidcError = address.get('oidc_error');
+
+  /** The organization a sign-in is held for, until the reader goes back to the form. */
+  let heldFor = $state(address.has('oidc_held') ? askedOrg : undefined);
+
+  /** Back to the form: the address names the organization, and no held sign-in. */
+  function leaveChoice(): void {
+    if (heldFor === undefined) return;
+    history.replaceState(history.state, '', `${location.pathname}?org=${heldFor}`);
+    heldFor = undefined;
+  }
 
   let mode = $state<'signIn' | 'register'>('signIn');
   let login = $state('');
@@ -174,138 +204,150 @@
   {/if}
 {/snippet}
 
-<main class="grid min-h-dvh place-items-center p-4">
-  <form
-    class="grid w-full max-w-sm gap-4"
-    onsubmit={(event) => void submit(event)}
-    data-testid={mode === 'signIn' ? 'sign-in-form' : 'register-form'}
-  >
-    <div class="text-center">
-      <p class="text-2xl font-semibold tracking-tight" translate="no">{m.app_name()}</p>
-      <h1 class="mt-2 text-lg font-medium">
-        {mode === 'signIn' ? m.account_sign_in_title() : m.account_register_title()}
-      </h1>
-    </div>
-
-    {#if mode === 'signIn' && onOidcStart}
-      {#await organization then found}
-        {#if found}
-          <Button
-            type="button"
-            onclick={() => void startOidc(found.id)}
-            disabled={working}
-            variant="outline"
-            class="roomy:min-h-touch"
-            data-testid="oidc-continue"
-          >
-            {found.name
-              ? m.account_oidc_continue({ name: found.name })
-              : m.account_oidc_continue_unnamed()}
-          </Button>
-          <p class="text-center text-sm text-muted-foreground">{m.account_oidc_or()}</p>
-        {/if}
-      {/await}
-    {/if}
-
-    {#if mode === 'signIn'}
-      <div class="grid gap-1.5">
-        <Label for="account-login">{m.account_login()}</Label>
-        <Input
-          id="account-login"
-          name="login"
-          bind:value={login}
-          autocomplete="username"
-          required
-          aria-invalid={fieldProblems.login ? 'true' : undefined}
-          aria-describedby={fieldProblems.login ? 'account-login-problem' : undefined}
-          class="roomy:h-touch roomy:text-base"
-        />
-        {@render fieldProblem('login')}
+{#if heldFor !== undefined && onCarryOver && onStartAnew}
+  {@const orgId = heldFor}
+  {#await options then read}
+    <SignInChoice
+      name={read?.organization?.name ?? ''}
+      onCarryOver={() => onCarryOver(orgId)}
+      onStartAnew={() => onStartAnew(orgId)}
+      onCancel={leaveChoice}
+    />
+  {/await}
+{:else}
+  <main class="grid min-h-dvh place-items-center p-4">
+    <form
+      class="grid w-full max-w-sm gap-4"
+      onsubmit={(event) => void submit(event)}
+      data-testid={mode === 'signIn' ? 'sign-in-form' : 'register-form'}
+    >
+      <div class="text-center">
+        <p class="text-2xl font-semibold tracking-tight" translate="no">{m.app_name()}</p>
+        <h1 class="mt-2 text-lg font-medium">
+          {mode === 'signIn' ? m.account_sign_in_title() : m.account_register_title()}
+        </h1>
       </div>
-      <div class="grid gap-1.5">
-        <Label for="account-password">{m.account_password()}</Label>
-        <Input
-          id="account-password"
-          name="password"
-          type="password"
-          bind:value={password}
-          autocomplete="current-password"
-          required
-          aria-invalid={fieldProblems.password ? 'true' : undefined}
-          aria-describedby={fieldProblems.password ? 'account-password-problem' : undefined}
-          class="roomy:h-touch roomy:text-base"
-        />
-        {@render fieldProblem('password')}
-      </div>
-    {:else}
-      <div class="grid gap-1.5">
-        <Label for="account-organizationName">{m.account_organization_name()}</Label>
-        <Input
-          id="account-organizationName"
-          name="organizationName"
-          bind:value={organizationName}
-          autocomplete="organization"
-          required
-          aria-invalid={fieldProblems.organizationName ? 'true' : undefined}
-          aria-describedby={fieldProblems.organizationName
-            ? 'account-organizationName-problem account-organizationName-hint'
-            : 'account-organizationName-hint'}
-          class="roomy:h-touch roomy:text-base"
-        />
-        {@render fieldProblem('organizationName')}
-        <p id="account-organizationName-hint" class="text-xs text-muted-foreground">
-          {m.account_organization_name_hint()}
-        </p>
-      </div>
-      <AccountFields
-        bind:username
-        bind:displayName
-        bind:email
-        bind:password
-        problems={fieldProblems}
-      />
-    {/if}
 
-    {#if problem}
-      <p class="text-sm text-destructive" role="alert">{problem}</p>
-    {/if}
-
-    <Button type="submit" class="roomy:min-h-touch" disabled={working}>
-      {#if working}
-        {m.account_working()}
-      {:else}
-        {mode === 'signIn' ? m.account_sign_in() : m.account_register()}
+      {#if mode === 'signIn' && onOidcStart}
+        {#await organization then found}
+          {#if found}
+            <Button
+              type="button"
+              onclick={() => void startOidc(found.id)}
+              disabled={working}
+              variant="outline"
+              class="roomy:min-h-touch"
+              data-testid="oidc-continue"
+            >
+              {found.name
+                ? m.account_oidc_continue({ name: found.name })
+                : m.account_oidc_continue_unnamed()}
+            </Button>
+            <p class="text-center text-sm text-muted-foreground">{m.account_oidc_or()}</p>
+          {/if}
+        {/await}
       {/if}
-    </Button>
 
-    {#if mode === 'signIn' && forgotHref}
+      {#if mode === 'signIn'}
+        <div class="grid gap-1.5">
+          <Label for="account-login">{m.account_login()}</Label>
+          <Input
+            id="account-login"
+            name="login"
+            bind:value={login}
+            autocomplete="username"
+            required
+            aria-invalid={fieldProblems.login ? 'true' : undefined}
+            aria-describedby={fieldProblems.login ? 'account-login-problem' : undefined}
+            class="roomy:h-touch roomy:text-base"
+          />
+          {@render fieldProblem('login')}
+        </div>
+        <div class="grid gap-1.5">
+          <Label for="account-password">{m.account_password()}</Label>
+          <Input
+            id="account-password"
+            name="password"
+            type="password"
+            bind:value={password}
+            autocomplete="current-password"
+            required
+            aria-invalid={fieldProblems.password ? 'true' : undefined}
+            aria-describedby={fieldProblems.password ? 'account-password-problem' : undefined}
+            class="roomy:h-touch roomy:text-base"
+          />
+          {@render fieldProblem('password')}
+        </div>
+      {:else}
+        <div class="grid gap-1.5">
+          <Label for="account-organizationName">{m.account_organization_name()}</Label>
+          <Input
+            id="account-organizationName"
+            name="organizationName"
+            bind:value={organizationName}
+            autocomplete="organization"
+            required
+            aria-invalid={fieldProblems.organizationName ? 'true' : undefined}
+            aria-describedby={fieldProblems.organizationName
+              ? 'account-organizationName-problem account-organizationName-hint'
+              : 'account-organizationName-hint'}
+            class="roomy:h-touch roomy:text-base"
+          />
+          {@render fieldProblem('organizationName')}
+          <p id="account-organizationName-hint" class="text-xs text-muted-foreground">
+            {m.account_organization_name_hint()}
+          </p>
+        </div>
+        <AccountFields
+          bind:username
+          bind:displayName
+          bind:email
+          bind:password
+          problems={fieldProblems}
+        />
+      {/if}
+
+      {#if problem}
+        <p class="text-sm text-destructive" role="alert">{problem}</p>
+      {/if}
+
+      <Button type="submit" class="roomy:min-h-touch" disabled={working}>
+        {#if working}
+          {m.account_working()}
+        {:else}
+          {mode === 'signIn' ? m.account_sign_in() : m.account_register()}
+        {/if}
+      </Button>
+
+      {#if mode === 'signIn' && forgotHref}
+        {#await options then read}
+          {#if read?.mailEnabled}
+            <a href={forgotHref} class="text-center text-sm underline underline-offset-4"
+              >{m.reset_forgot()}</a
+            >
+          {/if}
+        {/await}
+      {/if}
+
+      <!-- Until the server has said whether it takes an account, neither is offered. -->
       {#await options then read}
-        {#if read?.mailEnabled}
-          <a href={forgotHref} class="text-center text-sm underline underline-offset-4"
-            >{m.reset_forgot()}</a
+        {#if mode === 'register' || read?.registrationOpen !== false}
+          <Button
+            variant="link"
+            class="roomy:min-h-touch"
+            disabled={working}
+            onclick={() => {
+              switchTo(mode === 'signIn' ? 'register' : 'signIn');
+            }}
           >
+            {mode === 'signIn' ? m.account_to_register() : m.account_to_sign_in()}
+          </Button>
+        {:else}
+          <p class="text-center text-sm text-muted-foreground" data-testid="invitation-needed">
+            {m.account_invitation_needed()}
+          </p>
         {/if}
       {/await}
-    {/if}
-
-    <!-- Until the server has said whether it takes an account, neither is offered. -->
-    {#await options then read}
-      {#if mode === 'register' || read?.registrationOpen !== false}
-        <Button
-          variant="link"
-          class="roomy:min-h-touch"
-          disabled={working}
-          onclick={() => {
-            switchTo(mode === 'signIn' ? 'register' : 'signIn');
-          }}
-        >
-          {mode === 'signIn' ? m.account_to_register() : m.account_to_sign_in()}
-        </Button>
-      {:else}
-        <p class="text-center text-sm text-muted-foreground" data-testid="invitation-needed">
-          {m.account_invitation_needed()}
-        </p>
-      {/if}
-    {/await}
-  </form>
-</main>
+    </form>
+  </main>
+{/if}

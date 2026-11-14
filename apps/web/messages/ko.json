@@ -1147,5 +1147,14 @@
   "org_sso_former_end": "일찍 끝내기",
   "org_sso_former_end_title": "옛 공급자의 연결용 기간을 지금 끝낼까요?",
   "org_sso_former_end_info": "아직 계정을 이어 받지 않은 구성원은 예전 로그인으로 계정을 이을 수 없게 됩니다. 되돌릴 수 없습니다.",
-  "org_sso_former_ended": "옛 공급자의 연결용 기간을 끝냈습니다."
+  "org_sso_former_ended": "옛 공급자의 연결용 기간을 끝냈습니다.",
+  "account_held_title": "쓰던 계정이 있나요?",
+  "account_held_info": "{name}의 로그인 방식이 바뀌었고, 이 로그인으로는 처음 오셨습니다. 전에 쓰던 계정이 있으면 예전 로그인으로 한 번 확인해 그 계정을 이어 쓰세요.",
+  "account_held_info_unnamed": "조직의 로그인 방식이 바뀌었고, 이 로그인으로는 처음 오셨습니다. 전에 쓰던 계정이 있으면 예전 로그인으로 한 번 확인해 그 계정을 이어 쓰세요.",
+  "account_held_carry_over": "이미 계정이 있음: 예전 로그인으로 잇기",
+  "account_held_carry_over_hint": "예전 로그인 화면에 갔다가 돌아옵니다. 보드와 카드가 그대로 있는, 쓰던 계정으로 들어옵니다.",
+  "account_held_start_anew": "새로 시작",
+  "account_held_start_anew_hint": "새 계정을 만듭니다. 전에 쓰던 계정과는 이어지지 않습니다.",
+  "account_held_cancel": "로그인 화면으로 돌아가기",
+  "account_oidc_carry_over_refused": "예전 로그인으로 계정을 잇지 못했습니다. 전에 쓰던 계정으로 로그인했는지 확인하고, 처음부터 다시 로그인해 주세요. 옮기는 기간이 끝났다면 조직 관리자에게 문의하세요."
 }

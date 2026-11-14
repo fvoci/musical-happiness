@@ -231,6 +231,7 @@ fn describe_reason(reason: Reason) -> &'static str {
         | Reason::OidcIdentityTaken
         | Reason::OidcEmailMismatch
         | Reason::OidcTrialAccount
+        | Reason::OidcCarryOverRefused
         | Reason::PasswordNotSet
         | Reason::LastSignIn
         | Reason::SsoRequired
@@ -557,6 +558,20 @@ fn describe_linking_and_enforcing(reason: Reason) -> Option<&'static str> {
              organization no more. Nothing is changed, no account is made and no \
              identity is tied: settings no administrator signs in through are not put in \
              use."
+        }
+        Reason::OidcCarryOverRefused => {
+            "Status 409 at `startOidcCarryOver` and `finishHeldOidcLogin`, and on the login \
+             page after a sign-in through the organization's former provider. While the \
+             provider an organization moved away from is kept (`former` of its provider), \
+             a sign-in of somebody who has no account is held for the browser for ten \
+             minutes, to be carried over to the account they had (by signing in through \
+             the former provider once) or to end in a new account. This is the one answer \
+             to everything that keeps that from happening: no sign-in is held for this \
+             browser, or it ended or was taken already; the former provider is kept no \
+             more; the provider changed meanwhile; the former provider vouched for nobody \
+             who has an account that is a member of the organization; or the held identity \
+             was tied to another account meanwhile. Nothing is changed: no identity is \
+             tied and no session made. Start again from the login page."
         }
         Reason::OidcEmailMismatch => {
             "On the login page, after a sign-in through a provider that was started to \

@@ -338,7 +338,8 @@ pub(crate) async fn try_execute_raw(dbconfig: &str, sql: &str) -> Result<u64, sq
 }
 
 /// The organization's provider of sign-ins (one, whoever sets it), the one it moved
-/// away from, its pending settings, and a sign-in through it that has not come back.
+/// away from, its pending settings, a sign-in through it that is held, and one that has
+/// not come back.
 pub(crate) async fn sign_in_under_way(store: &Store, name: &str) {
     let settings = |issuer: &str| fvoci_store::StoredProvider {
         id: String::new(),
@@ -386,6 +387,23 @@ pub(crate) async fn sign_in_under_way(store: &Store, name: &str) {
         .await
         .expect("asked")
         .expect("pending settings are stored");
+    store
+        .hold_oidc_sign_in(&fvoci_store::HeldSignIn {
+            held_hash: format!("held for {name}"),
+            org_id: provider.org_id.clone(),
+            provider_id: provider.id.clone(),
+            revision: provider.revision,
+            issuer: provider.issuer.clone(),
+            subject: name.to_owned(),
+            email: String::new(),
+            email_unverified: false,
+            name: String::new(),
+            preferred_username: String::new(),
+            create_at: 0,
+            expires_at: i64::MAX,
+        })
+        .await
+        .expect("a sign-in is held");
     store
         .create_oidc_login_flow(&fvoci_store::LoginFlow {
             state_hash: format!("state of {name}"),

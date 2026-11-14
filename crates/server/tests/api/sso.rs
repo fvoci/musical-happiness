@@ -448,6 +448,9 @@ const OPEN_TO_ANY_SESSION: &[&str] = &[
     "changePassword",
     // Recovering a password asks for no session; what it changes is the account's own.
     "completePasswordReset",
+    // The two ends of a sign-in held for a browser come before there is a session, as
+    // the sign-in itself does: they look at the browser's cookie of it, and at none.
+    "finishHeldOidcLogin",
     "finishOidcLogin",
     "getClientConfig",
     "getClientState",
@@ -476,6 +479,7 @@ const OPEN_TO_ANY_SESSION: &[&str] = &[
     "ready",
     "register",
     "requestPasswordReset",
+    "startOidcCarryOver",
     "startOidcLogin",
     "unlinkIdentity",
 ];

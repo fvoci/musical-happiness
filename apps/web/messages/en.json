@@ -1147,5 +1147,14 @@
   "org_sso_former_end": "End early",
   "org_sso_former_end_title": "End the previous provider's linking period now?",
   "org_sso_former_end_info": "Members who have not continued with their account yet can no longer connect it through their previous sign-in. This cannot be undone.",
-  "org_sso_former_ended": "The previous provider's linking period was ended."
+  "org_sso_former_ended": "The previous provider's linking period was ended.",
+  "account_held_title": "Do you already have an account?",
+  "account_held_info": "{name} changed how its people sign in, and this sign-in is new here. If you had an account before, confirm your previous sign-in once to continue with it.",
+  "account_held_info_unnamed": "The organization changed how its people sign in, and this sign-in is new here. If you had an account before, confirm your previous sign-in once to continue with it.",
+  "account_held_carry_over": "I have an account: continue with my previous sign-in",
+  "account_held_carry_over_hint": "You go to the previous sign-in page and come back, into the account you used, with its boards and cards.",
+  "account_held_start_anew": "Start fresh",
+  "account_held_start_anew_hint": "Makes a new account. It is not connected to an account you had before.",
+  "account_held_cancel": "Back to sign-in",
+  "account_oidc_carry_over_refused": "Your account could not be continued with the previous sign-in. Check that you signed in as the account you used before, then sign in again from the start. If the move period is over, ask an administrator of the organization."
 }

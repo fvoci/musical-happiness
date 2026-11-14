@@ -257,6 +257,10 @@ reasons! {
     /// A trial of a provider's pending settings ended in another account than the one
     /// of the administrator who started it: nothing is changed.
     OidcTrialAccount => "oidc_trial_account", "Trial in another account";
+    /// Nothing was carried over to the organization's provider: no sign-in is held for
+    /// the browser, the former provider is kept no more, or it vouched for nobody who
+    /// is a member with an account to carry over.
+    OidcCarryOverRefused => "oidc_carry_over_refused", "Account not carried over";
     /// The account has no password to confirm with.
     PasswordNotSet => "password_not_set", "Account without a password";
     /// The identity is the only way in to an account without a password.

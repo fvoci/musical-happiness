@@ -99,6 +99,7 @@ mod sharing;
 mod sidebar;
 mod sidebar_messages;
 mod sso;
+mod sso_carry_over;
 mod sso_move;
 mod sso_pending;
 mod sso_proof;

@@ -23,7 +23,7 @@ use crate::users::InstanceRole;
 /// The columns of a sign-in under way, in the order [`flow_from_row`] reads them.
 pub(crate) const FLOW_COLUMNS: &str = "state_hash, browser_hash, nonce, pkce_verifier, org_id, \
                                        provider_id, create_at, expires_at, link_session_id, \
-                                       pending_at, pending_by";
+                                       pending_at, pending_by, held_hash";
 
 /// The columns of a provider, in the order [`provider_from_row`] reads them.
 const PROVIDER_COLUMNS: &str = "id, org_id, issuer, client_id, client_secret, auto_join, enabled, \
@@ -133,6 +133,13 @@ pub enum FlowPurpose {
         pending_at: i64,
         /// The administrator who started it.
         user_id: String,
+    },
+    /// To sign in through the former provider, and so tie the identity of the held
+    /// sign-in to the account the former provider vouches for (`oidc_held.rs`). It
+    /// names the organization's provider, as every sign-in does, and ends with it.
+    CarryOver {
+        /// The digest of the held sign-in it carries over.
+        held_hash: String,
     },
 }
 
@@ -350,15 +357,16 @@ impl Store {
             let mut sql = scope.sql(
                 "INSERT INTO oidc_login_flows (state_hash, browser_hash, nonce, pkce_verifier, \
                  org_id, provider_id, create_at, expires_at, link_session_id, pending_at, \
-                 pending_by) SELECT ",
+                 pending_by, held_hash) SELECT ",
             );
-            let (link_session_id, pending_at, pending_by) = match &flow.purpose {
-                FlowPurpose::SignIn => ("", None, ""),
-                FlowPurpose::Link { session_id } => (session_id.as_str(), None, ""),
+            let (link_session_id, pending_at, pending_by, held_hash) = match &flow.purpose {
+                FlowPurpose::SignIn => ("", None, "", None),
+                FlowPurpose::Link { session_id } => (session_id.as_str(), None, "", None),
                 FlowPurpose::Trial {
                     pending_at,
                     user_id,
-                } => ("", Some(*pending_at), user_id.as_str()),
+                } => ("", Some(*pending_at), user_id.as_str(), None),
+                FlowPurpose::CarryOver { held_hash } => ("", None, "", Some(held_hash.clone())),
             };
             sql.bind(&flow.state_hash)
                 .push_bind(", ", &flow.browser_hash)
@@ -370,8 +378,18 @@ impl Store {
                 .push_bind(", ", OptId(link_session_id))
                 .push_bind(", ", Param::OptInt(pending_at))
                 .push_bind(", ", OptId(pending_by))
+                .push_bind(", ", Param::OptText(held_hash.clone()))
                 .push_bind(" FROM oidc_providers WHERE id = ", Id(&flow.provider_id))
                 .push_bind(" AND org_id = ", scope.org()?);
+            if let Some(held_hash) = held_hash {
+                // A sign-in to carry over a held sign-in that was taken starts nothing.
+                sql.push(
+                    " AND EXISTS (SELECT 1 FROM oidc_held_sign_ins AS held \
+                     WHERE held.provider_id = oidc_providers.id",
+                )
+                .push_bind(" AND held.held_hash = ", held_hash)
+                .push(")");
+            }
             if let Some(pending_at) = pending_at {
                 // A trial of settings that were thrown away or saved anew starts nothing.
                 sql.push(
@@ -848,7 +866,6 @@ async fn join_as_member(scope: &mut Scope<'_>, user_id: &str) -> Result<bool, St
     Ok(true)
 }
 
-/// Whether the user is a member of the scope's organization.
 /// Whether the user has a place in the transaction's organization: a member of it, or
 /// of one of its workspaces in use (a guest of a workspace is no member of the
 /// organization), as the wall counts them.
@@ -865,7 +882,8 @@ async fn has_place(scope: &mut Scope<'_>, user_id: &str) -> Result<bool, StoreEr
     Ok(scope.fetch_optional(sql).await?.is_some())
 }
 
-async fn is_member(scope: &mut Scope<'_>, user_id: &str) -> Result<bool, StoreError> {
+/// Whether the user is a member of the transaction's organization.
+pub(crate) async fn is_member(scope: &mut Scope<'_>, user_id: &str) -> Result<bool, StoreError> {
     let mut sql = scope.sql("SELECT 1 FROM organization_members WHERE org_id = ");
     sql.bind(scope.org()?)
         .push_bind(" AND user_id = ", Id(user_id));
@@ -922,13 +940,14 @@ pub(crate) fn flow_from_row(row: &Row) -> Result<LoginFlow, StoreError> {
         provider_id: row.id(5)?,
         create_at: row.int(6)?,
         expires_at: row.int(7)?,
-        purpose: match (row.id(8)?, row.opt_int(9)?) {
-            (session_id, _) if !session_id.is_empty() => FlowPurpose::Link { session_id },
-            (_, Some(pending_at)) => FlowPurpose::Trial {
+        purpose: match (row.id(8)?, row.opt_int(9)?, row.opt_text(11)?) {
+            (_, _, Some(held_hash)) => FlowPurpose::CarryOver { held_hash },
+            (session_id, _, None) if !session_id.is_empty() => FlowPurpose::Link { session_id },
+            (_, Some(pending_at), None) => FlowPurpose::Trial {
                 pending_at,
                 user_id: row.id(10)?,
             },
-            (_, None) => FlowPurpose::SignIn,
+            (_, None, None) => FlowPurpose::SignIn,
         },
     })
 }

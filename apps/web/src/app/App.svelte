@@ -60,7 +60,7 @@
   import Problems from './Problems.svelte';
   import { keepReturn, takeReturn } from './return-to.ts';
   import { parseRoute, type Router } from './router.svelte.ts';
-  import { signInOrganizations } from './sign-in-organizations.ts';
+  import { signInOrganizations, signInWays } from './sign-in-organizations.ts';
 
   let { router }: { router: Router } = $props();
 
@@ -386,9 +386,7 @@
       registered = { username: registration.username, email: registration.email };
     }}
     forgotHref={`${router.href({}).replace(/\/$/, '')}/forgot-password`}
-    optionsOf={(orgId: string | undefined) =>
-      account?.loginOptions(orgId) ?? Promise.resolve({ registrationOpen: true })}
-    onOidcStart={(orgId: string) => toProvider(orgId)}
+    {...signInWays(account, (orgId: string) => toProvider(orgId), router.href({}))}
   />
 {:else if workspace.status === 'failed' || workspace.status === 'signedOut'}
   <main class="grid min-h-dvh place-items-center p-4">

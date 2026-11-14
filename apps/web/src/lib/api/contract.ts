@@ -35,11 +35,90 @@ export interface paths {
          *     (`oidc_state_invalid` as `oidc-state-invalid`): `oidc_state_invalid`, `oidc_denied`,
          *     `oidc_token_refused`, `oidc_token_invalid`, `oidc_email_missing`,
          *     `oidc_email_unverified`, `oidc_email_taken`, `oidc_join_closed`,
-         *     `oidc_identity_taken`, `oidc_email_mismatch` or `oidc_unavailable`.
+         *     `oidc_identity_taken`, `oidc_email_mismatch`, `oidc_carry_over_refused` or
+         *     `oidc_unavailable`.
+         *
+         *     While the organization keeps the provider it moved away from (`former` of its
+         *     provider), a sign-in that vouches for somebody who has no account makes none: what
+         *     the provider said is held for this browser for ten minutes, under a cookie of its
+         *     own, and the browser goes to the login page with `oidc_held=1`, which asks whether
+         *     the person had an account: `startOidcCarryOver` if they had, `finishHeldOidcLogin`
+         *     if not. A sign-in through the former provider, which `startOidcCarryOver` starts,
+         *     comes back here too: it sets a session only by carrying the held sign-in over,
+         *     and otherwise goes to the login page with `oidc_carry_over_refused`.
          */
         get: operations["finishOidcLogin"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/oidc/held/carry-over": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Carry an account over through the former provider
+         * @description For the login page, after a sign-in through the provider of the organization `org`
+         *     was held for this browser (`finishOidcLogin` sent it to the login page with
+         *     `oidc_held=1`): for somebody who had an account before the organization moved to
+         *     this provider. Starts a sign-in through the organization's former provider and
+         *     answers where the page sends the browser, with the cookie of that sign-in. When
+         *     the browser comes back (`finishOidcLogin`), the former provider must vouch for an
+         *     identity tied to an account in use that is a member of the organization: the held
+         *     identity is then tied to that account, which is recorded in the organization's
+         *     audit log (`oidc_identity_carried_over`), and a session made through the
+         *     organization's provider is set. Both identities are shown by signing in, so no
+         *     email address is compared. The former provider signs nobody in otherwise: no
+         *     session is made through it.
+         *
+         *     409 with the reason `oidc_carry_over_refused` if no sign-in of the organization is
+         *     held for this browser (none, ended after ten minutes, taken already, or held for
+         *     another browser), or the organization keeps no former provider any more; the same
+         *     reason comes back on the login page (`oidc_error`) when the return carried nothing
+         *     over. 409 with `oidc_unavailable` if the former provider cannot be reached; 429
+         *     when this address made too many sign-ins of late.
+         */
+        post: operations["startOidcCarryOver"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/oidc/held/sign-in": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * End a held sign-in in a new account
+         * @description For the login page, after a sign-in through the provider of the organization `org`
+         *     was held for this browser: for somebody who had no account. The held sign-in ends
+         *     as a first sign-in through the provider does: an account is made for who the
+         *     provider vouched for, a member of the organization, if the organization lets
+         *     newcomers in and no account has their email address; the session comes in the
+         *     `Set-Cookie` header. The held sign-in is taken by this, whatever comes of it.
+         *
+         *     409 with the reason `oidc_carry_over_refused` if no sign-in of the organization is
+         *     held for this browser, or the provider changed since; 409 with the reason a first
+         *     sign-in is refused with otherwise (`oidc_join_closed`, `oidc_email_missing`,
+         *     `oidc_email_unverified`, `oidc_email_taken`, `oidc_unavailable`); 429 when this
+         *     address made too many sign-ins of late.
+         */
+        post: operations["finishHeldOidcLogin"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4639,6 +4718,130 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    startOidcCarryOver: {
+        parameters: {
+            query: {
+                /** @description The identifier of the organization whose provider the person signs in through. */
+                org: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Started: where the browser goes. */
+            200: {
+                headers: {
+                    /** @description The cookie of the sign-in. */
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OidcStart"];
+                };
+            };
+            /** @description No organization named (`org`). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Nothing to carry over, or the former provider cannot be reached. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Too many sign-ins from this address. `retryAfter`, and the `Retry-After` header, say how long to wait. */
+            429: {
+                headers: {
+                    /** @description How many seconds to wait before trying again. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    finishHeldOidcLogin: {
+        parameters: {
+            query: {
+                /** @description The identifier of the organization whose provider the person signs in through. */
+                org: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Signed in to a new account. */
+            204: {
+                headers: {
+                    /** @description The session cookie, and the cookie of the held sign-in cleared. */
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No organization named (`org`). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Nothing is held, or no account is made for the person. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Too many sign-ins from this address. `retryAfter`, and the `Retry-After` header, say how long to wait. */
+            429: {
+                headers: {
+                    /** @description How many seconds to wait before trying again. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
             default: {
