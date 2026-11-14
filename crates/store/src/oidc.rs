@@ -899,7 +899,7 @@ pub(crate) async fn has_place(scope: &mut Scope<'_>, user_id: &str) -> Result<bo
 }
 
 /// Whether the user is a member of the transaction's organization.
-pub(crate) async fn is_member(scope: &mut Scope<'_>, user_id: &str) -> Result<bool, StoreError> {
+async fn is_member(scope: &mut Scope<'_>, user_id: &str) -> Result<bool, StoreError> {
     let mut sql = scope.sql("SELECT 1 FROM organization_members WHERE org_id = ");
     sql.bind(scope.org()?)
         .push_bind(" AND user_id = ", Id(user_id));

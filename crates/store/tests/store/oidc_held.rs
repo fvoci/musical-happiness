@@ -332,6 +332,38 @@ async fn a_held_sign_in_is_carried_over_to_a_guests_account() {
     test.teardown().await;
 }
 
+/// A guest of a workspace of another organization has no place in this one, whatever
+/// identity of the former issuer their account has (a provider both organizations
+/// use): nothing is carried over. PostgreSQL alone holds two organizations.
+#[tokio::test]
+async fn a_guest_of_another_organization_carries_nothing_over() {
+    if common::db_type() != DbType::Postgres {
+        return;
+    }
+    let test = common::setup().await;
+    let (new, _) = moved(&test).await;
+    let nobodys = test.scoped(Tenant::Unset);
+    let (other_org, their_workspace) = common::organization(&nobodys, "other").await;
+    let theirs = test.for_org(&other_org).expect("an identifier");
+    let guest = common::user(&nobodys, "their guest").await;
+    theirs
+        .add_workspace_member(&their_workspace, &guest, WorkspaceRole::Guest)
+        .await
+        .expect("a guest of their workspace");
+    test.add_identity(&guest, at_the_old("their guest"), "")
+        .await
+        .expect("tied");
+    let asked = held(&new, "gwen");
+    assert!(test.hold_oidc_sign_in(&asked).await.expect("asked"), "held");
+    let before = left(&test).await;
+
+    let carried = carry(&test, &new.id, &asked, at_the_old("their guest"), THEN).await;
+
+    assert_eq!(carried, Err(CarryOverRefusal::NoPlace));
+    assert_eq!(left(&test).await, before, "nothing stored");
+    test.teardown().await;
+}
+
 /// What changes between holding and carrying over.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Meanwhile {
