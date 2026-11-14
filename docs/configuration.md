@@ -215,13 +215,13 @@ Cloudflare R2는 같은 규칙이 기본으로 7일이다. 다른 S3 호환 저�
 | `oci_user` | `FVOCI_OCI_USER` | 문자열 | `""` | `oci`일 때 필수. API 키를 가진 사용자의 OCID |
 | `oci_fingerprint` | `FVOCI_OCI_FINGERPRINT` | 문자열 | `""` | `oci`일 때 필수. 그 API 키의 지문: 콘솔이 보이는 꼴대로 소문자 16진수 두 자리 16쌍을 `:`로 이은 것(`12:34:…`). 다른 꼴은 시작하지 않는다 |
 | `oci_private_key_file` | `FVOCI_OCI_PRIVATE_KEY_FILE` | 문자열 | `""` | `oci`일 때 필수. API 키의 개인 키 파일(PEM, PKCS#8 또는 PKCS#1, 암호 없이, RSA 2048–8192비트). 시작할 때 읽고, 읽지 못하거나 쓸 수 없으면 이 키를 말하며(내용은 말하지 않고) 시작하지 않는다 |
-| `oci_compartment` | `FVOCI_OCI_COMPARTMENT` | 문자열 | `""` | `oci`일 때 필수. 승인된 보내는 사람(`smtp_from`)이 있는 구획의 OCID |
+| `oci_compartment` | `FVOCI_OCI_COMPARTMENT` | 문자열 | `""` | `oci`일 때 필수. 승인된 보내는 사람(`mail_from`)이 있는 구획의 OCID |
 | `smtp_host` | `FVOCI_SMTP_HOST` | 문자열 | `""` | SMTP 호스트 이름이나 IP. `mail_transport`가 비었을 때 이것이 있으면 SMTP로 보낸다. 스킴·포트·공백 없이 쓴다 |
 | `smtp_port` | `FVOCI_SMTP_PORT` | 정수(1–65535) | `587` | SMTP 포트 |
 | `smtp_tls` | `FVOCI_SMTP_TLS` | 문자열 | `"starttls"` | `starttls`(필수 업그레이드), `tls`(처음부터 TLS), `none`(암호화 없음). TLS는 시스템의 인증서 신뢰를 쓴다 |
 | `smtp_user` | `FVOCI_SMTP_USER` | 문자열 | `""` | SMTP 인증 사용자. 비밀번호와 함께 주거나 둘 다 비운다 |
 | `smtp_password` | `FVOCI_SMTP_PASSWORD` | 문자열 | `""` | SMTP 인증 비밀번호. 로그에 남기지 않는다 |
-| `smtp_from` | `FVOCI_SMTP_FROM` | 문자열 | `""` | 모든 메일(어느 길이든)의 보내는 주소 하나. 메일이 켜지면 필수이고 시작할 때 검사한다. 표시 이름과 줄바꿈은 받지 않는다 |
+| `mail_from` | `FVOCI_MAIL_FROM` | 문자열 | `""` | 모든 메일(어느 길이든)의 보내는 주소 하나. 메일이 켜지면 필수이고 시작할 때 검사한다. 표시 이름과 줄바꿈은 받지 않는다 |
 | `mail_per_second` | `FVOCI_MAIL_PER_SECOND` | 정수(1 이상) | `1` | 모든 메일(재설정과 초대, 다시 하는 것까지)이 함께 지키는 초당 보내기 시도 수. 기다리는 재설정 메일이 초대보다 먼저 차례를 얻는다. 기본 1은 새 공급자 계정(샌드박스)의 한도에도 맞는다: 공급자가 허락하는 만큼 올린다 |
 | `mail_reset_queue` | `FVOCI_MAIL_RESET_QUEUE` | 정수(1 이상) | `200` | 기다리거나 보내는 중인 비밀번호 재설정 메일의 천장. 차면 새 재설정 메일은 버리고(답은 그대로 204) 경고 로그와 `fvoci_password_reset_mail_dropped_total{reason="queue_full"}`에 센다 |
 | `mail_reset_per_account_hour` | `FVOCI_MAIL_RESET_PER_ACCOUNT_HOUR` | 정수(1 이상) | `3` | 한 계정에 지난 한 시간에 줄 세운 재설정 메일의 천장(메모리에서 센다). 넘으면 메일을 보내지 않고(답은 그대로 204) 정보 로그와 `fvoci_password_reset_mail_dropped_total{reason="account_limit"}`에 센다. 계정도 출처도 잠그지 않는다 |
@@ -254,7 +254,7 @@ Cloudflare R2는 같은 규칙이 기본으로 7일이다. 다른 S3 호환 저�
 
 ## 없앤 키
 
-원본 서버에 있었고 이 서버에는 없는 키다. 파일이 이 키에 뜻이 있는 값(빈 문자열, 0, `false`, `null`, 빈 목록이 아닌 것)을 주거나, 환경 변수(`FVOCI_` + 대문자)가 공백만이 아니면(`false`나 `0`이어도) **서버가 시작하지 않는다**. 말없이 무시하면 운영자가 적은 것과 다르게 돌기 때문이다.
+원본 서버에 있었거나 이름이 바뀌어 이 서버에는 없는 키다. 파일이 이 키에 뜻이 있는 값(빈 문자열, 0, `false`, `null`, 빈 목록이 아닌 것)을 주거나, 환경 변수(`FVOCI_` + 대문자)가 공백만이 아니면(`false`나 `0`이어도) **서버가 시작하지 않는다**. 말없이 무시하면 운영자가 적은 것과 다르게 돌기 때문이다.
 
 | 키 | 대신 |
 |---|---|
@@ -268,6 +268,7 @@ Cloudflare R2는 같은 규칙이 기본으로 7일이다. 다른 S3 호환 저�
 | `audit_cfg_file` | 감사 로그는 없다 |
 | `audit_cfg_json` | 위와 같다 |
 | `filess3config.trace` | S3 요청마다 로그를 남기지 않는다. 환경 변수는 `FVOCI_FILESS3CONFIG_TRACE`다 |
+| `smtp_from` | 이름이 바뀌었다: 모든 길의 보내는 주소는 `mail_from`(`FVOCI_MAIL_FROM`)이다 |
 
 ## 명령줄 인자
 

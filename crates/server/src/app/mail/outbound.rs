@@ -11,7 +11,7 @@ use super::content::Language;
 
 /// One message to one recipient, as every way of sending takes it.
 pub(crate) struct Outgoing {
-    /// The sender's address (`smtp_from`).
+    /// The sender's address (`mail_from`).
     pub(crate) from: String,
     /// The one recipient's address.
     pub(crate) to: String,

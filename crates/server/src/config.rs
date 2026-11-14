@@ -562,7 +562,7 @@ pub const MAX_UPLOAD_PART_BYTES: u64 = 5 * 1024 * 1024 * 1024;
 /// what to do instead; a key of `filess3config` as `filess3config.<key>`. A file or an
 /// environment that sets one to something is refused: a server that silently ignored it
 /// would run differently from what its operator wrote.
-const REMOVED_KEYS: [(&str, &str); 10] = [
+const REMOVED_KEYS: [(&str, &str); 11] = [
     (
         "dbtableprefix",
         "tables have fixed names; to keep them apart from other tables in one PostgreSQL \
@@ -600,6 +600,10 @@ const REMOVED_KEYS: [(&str, &str); 10] = [
     (
         "filess3config.trace",
         "requests to the object store are not logged one by one",
+    ),
+    (
+        "smtp_from",
+        "the sender of all mail, whatever its way, is mail_from (FVOCI_MAIL_FROM)",
     ),
 ];
 

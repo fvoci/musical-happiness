@@ -145,7 +145,7 @@ impl FakeProvider {
     /// waiting for it.
     pub(crate) fn settings(&self, provider: Provider) -> (SmtpSettings, MailSettings) {
         let smtp = SmtpSettings {
-            smtp_from: "sender@example.test".to_owned(),
+            mail_from: "sender@example.test".to_owned(),
             mail_per_second: 1000,
             ..SmtpSettings::default()
         };
