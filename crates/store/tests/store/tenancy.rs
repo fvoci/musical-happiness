@@ -578,23 +578,19 @@ async fn a_link_for_a_guest(store: &Store, board: &Board, user_id: &str) {
         .expect("a link is stored");
 }
 
-/// The document of a card's body that is edited together, with an update logged.
+/// The document of a card's body that is edited together: an update logged, a version kept.
 async fn a_body_edited_together(store: &Store, board_id: &str, user_id: &str) {
     let mut edited = fvoci_model::Block {
         id: new_id(),
         board_id: board_id.to_owned(),
         block_type: BlockType::Card,
+        body: crate::body_versions::body_showing("kept", &[]),
         ..fvoci_model::Block::default()
     };
     common::insert_blocks(store, std::slice::from_mut(&mut edited), user_id).await;
-    store
-        .create_body_doc(&edited.id, b"a state", b"a digest")
-        .await
-        .expect("a document is stored");
-    store
-        .append_body_updates(&edited.id, &[(b"an update", user_id)], &[])
-        .await
-        .expect("an update is logged");
+    let body = edited.body.clone();
+    crate::body_versions::type_body(store, &edited.id, body, user_id).await;
+    crate::body_versions::keep(store, &edited.id).await;
 }
 
 /// What two organizations store stays apart in every table of theirs, whatever the

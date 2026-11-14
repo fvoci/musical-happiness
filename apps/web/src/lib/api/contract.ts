@@ -2164,6 +2164,87 @@ export interface paths {
         patch: operations["patchCard"];
         trace?: never;
     };
+    "/api/v1/w/{workspaceId}/cards/{cardId}/body-versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The versions kept of a card's body
+         * @description The server keeps the body of a card as a version each time it changed: when the
+         *     last of those who wrote it since the newest version leaves it, at an interval
+         *     while it is edited on (its setting `collab_version_minutes`, ten minutes unless
+         *     set otherwise), and before and after a write of the whole body (`patchCard` and the
+         *     block routes). The newest first, each with when it was kept and who wrote the body
+         *     up to it, without the bodies (`getCardBodyVersion`). The server keeps the newest
+         *     of them (its setting `collab_body_versions`, fifty unless set otherwise), so the
+         *     numbers may leave the lowest out. Empty for a card whose body never changed since
+         *     versions were kept. For the members of the card's board, whatever
+         *     their role; to a user who is no member of it there is no such card, and a reader by
+         *     the board's read token has no session to ask with. A card in the trash is not
+         *     there (404); its versions come back with it, and go when it is gone for good.
+         */
+        get: operations["getCardBodyVersions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/cards/{cardId}/body-versions/{version}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A version kept of a card's body
+         * @description The version with its body, as `getCard` gives a body. For whom
+         *     `getCardBodyVersions` is for. A number the card has no version of, or has none of
+         *     any more, is 404.
+         */
+        get: operations["getCardBodyVersion"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/cards/{cardId}/body-versions/{version}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Go back to a version of a card's body
+         * @description Writes the body of the version to the card again, as a write of the whole body by
+         *     the caller: those who edit the card together are sent the body as a new document
+         *     (`contracts/websocket.md`), the body it replaces is kept as a version first, with
+         *     what they typed, and the body written is the card's newest version, by the
+         *     caller. The versions before stay as they are. A card that has that body already is
+         *     left as it is. For editors of the card's board (403 for its other members); to a
+         *     user who is no member of it there is no such card. A number the card has no
+         *     version of, or has none of any more, is 404. A version whose body may not be
+         *     stored any more, or shows an image whose file the board no longer has, is 409.
+         */
+        post: operations["restoreCardBodyVersion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/w/{workspaceId}/categories": {
         parameters: {
             query?: never;
@@ -3365,6 +3446,62 @@ export interface components {
         /** @description A document of the editor: a node of type `doc` whose `content` is its blocks. Which nodes, marks and attributes it may have, and how they nest, is the allowlist of `docs/s6-design.md` 5.7. At most 1 MiB as JSON, 32 levels deep and 20,000 nodes. */
         Body: {
             [key: string]: unknown;
+        };
+        /**
+         * @description A version kept of a card's body: the body as it was at a time, and who wrote it up
+         *     to then.
+         */
+        BodyVersion: {
+            /**
+             * @description Who wrote the body up to this version since the one before, in the order of
+             *     their identifiers: those who edited it and those who wrote it whole. Empty for
+             *     a body nobody is known to have written.
+             */
+            editors: string[];
+            /**
+             * @description Whether the body of this version is the one the card has now. Of versions
+             *     with the same body, the newest; of none while the card's editors have typed
+             *     what is not written to the card yet.
+             */
+            isCurrent: boolean;
+            /**
+             * Format: int64
+             * @description When the version was kept, in milliseconds since the Unix epoch. For a body
+             *     nobody is known to have written (one from before versions were kept, or from an
+             *     import), when the card was last changed.
+             */
+            keptAt: number;
+            /**
+             * Format: int64
+             * @description The place of the version among the card's, counted from 1. The server keeps the
+             *     newest ones: the lowest numbers go as new versions come.
+             */
+            version: number;
+        };
+        /** @description A version kept of a card's body, with the body. */
+        BodyVersionContent: {
+            body: components["schemas"]["Body"] | null;
+            /**
+             * @description Who wrote the body up to this version since the one before, in the order of
+             *     their identifiers. Empty for a body nobody is known to have written.
+             */
+            editors: string[];
+            /**
+             * @description Whether the body of this version is the one the card has now. Of versions
+             *     with the same body, the newest; of none while the card's editors have typed
+             *     what is not written to the card yet.
+             */
+            isCurrent: boolean;
+            /**
+             * Format: int64
+             * @description When the version was kept, in milliseconds since the Unix epoch.
+             */
+            keptAt: number;
+            /**
+             * Format: int64
+             * @description The place of the version among the card's, counted from 1.
+             */
+            version: number;
         };
         /** @description A card: a titled group of properties with a body on a board. */
         Card: {
@@ -8565,6 +8702,112 @@ export interface operations {
                 "application/json": components["schemas"]["CardPatch"];
             };
         };
+        responses: {
+            /** @description The card as it is now. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Card"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getCardBodyVersions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the card. */
+                cardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The versions, the newest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BodyVersion"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getCardBodyVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the card. */
+                cardId: string;
+                /** @description The number of the version of the card's body, as `getCardBodyVersions` lists it. */
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The version. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BodyVersionContent"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    restoreCardBodyVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the card. */
+                cardId: string;
+                /** @description The number of the version of the card's body, as `getCardBodyVersions` lists it. */
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description The card as it is now. */
             200: {

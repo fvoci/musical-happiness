@@ -507,6 +507,7 @@ const ORDERS: &[(&str, &str)] = &[
         "getBoardTeams",
         "Ordered by team name in any letter case, by code point, then by identifier",
     ),
+    ("getCardBodyVersions", "The newest first"),
     ("getCards", "Oldest first; the pages cut that order"),
     ("getCategories", "by `sortOrder`, lowest first"),
     ("getCommentVersions", "The first one first"),

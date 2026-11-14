@@ -3,13 +3,13 @@
 //! grew too large again from its body.
 
 use fvoci_model::Body;
-use fvoci_store::StoreError;
+use fvoci_store::{BodyBefore, StoreError, body_digest};
 use serde_json::Value;
-use sha2::{Digest as _, Sha256};
 use tokio::time::{Instant, sleep_until};
 
 use super::open::unexpected;
 use super::place::{Held, OpenDoc, Opening, died_over};
+use super::versions::Versioned;
 use super::{Collab, DocChange, FOLD_AFTER, REMAKE_RETRY, Taken, bytes};
 use crate::app::App;
 use crate::collab_worker::wire::{Answer, Request};
@@ -63,11 +63,21 @@ impl Collab {
         if let Some(repair) = &repair {
             entries.push((repair, ""));
         }
+        // Put down as having written since the newest version, unless they are: a
+        // body kept first is by those put down before.
+        let body_before = self.body_before_update(slot);
+        let known = user_id.is_empty()
+            || body_before == BodyBefore::Leave
+                && slot
+                    .open
+                    .as_ref()
+                    .is_some_and(|open| open.editors.iter().any(|editor| editor == user_id));
+        let new_editors: &[&str] = if known { &[] } else { &[user_id] };
         #[cfg(feature = "test-util")]
         self.paused_before_log().await;
         let logged = app
             .store()
-            .append_body_updates(card_id, &entries, &images)
+            .append_body_updates(card_id, &entries, &images, new_editors, body_before)
             .await;
         let seqs = match logged {
             Ok(seqs) => seqs,
@@ -87,6 +97,10 @@ impl Collab {
                 });
             }
         };
+        if body_before == BodyBefore::Keep {
+            // The store kept the body the card held, by those put down before.
+            super::versions::kept(slot);
+        }
         let open = slot.open.as_mut().expect("the document is open");
         let now = Instant::now();
         open.log_end = seqs.last().copied().unwrap_or(open.log_end);
@@ -95,6 +109,7 @@ impl Collab {
         open.last_update = now;
         open.first_unwritten.get_or_insert(now);
         self.schedule_write(app, card_id, open);
+        self.updated_by(slot, user_id);
         let remade = self.keep_up(app, card_id, slot).await;
         Ok(Taken {
             seq: seqs.first().copied().unwrap_or_default(),
@@ -210,6 +225,14 @@ impl Collab {
         body: Option<&Body>,
     ) -> Result<(), AppError> {
         self.remake_held(app, card_id, slot, body).await?;
+        // The body the card was written is no version until it is kept as one, and
+        // who is put down as having written since the newest may be so no more: a
+        // version kept with the write names them.
+        let due = Versioned::Due(self.version_clock());
+        if let Some(open) = slot.open.as_mut() {
+            open.versioned = due;
+            open.editors.clear();
+        }
         self.tell(app, card_id, DocChange::Replaced);
         Ok(())
     }
@@ -260,7 +283,7 @@ impl Collab {
             .await?;
         open.generation = generation;
         open.number = number;
-        let digest = digest_of(body);
+        let digest = body_digest(body);
         open.epoch = app
             .store()
             .remake_body_doc(card_id, &state, &digest)
@@ -283,13 +306,18 @@ impl Collab {
     /// past the document, whole: that body is not written over; the document is made
     /// again from it ([`DocChange::Replaced`]), and the updates the card did not hold
     /// are gone with the document before.
+    ///
+    /// The body the card then holds is kept as a version if one is due
+    /// ([`Collab::version_if_due`]).
     pub(super) async fn write_now(
         &self,
         app: &App,
         card_id: &str,
         slot: &mut Held,
     ) -> Result<(), AppError> {
-        self.write_or_replace(app, card_id, slot).await.map(drop)
+        self.write_or_replace(app, card_id, slot).await?;
+        self.version_if_due(app, card_id, slot).await;
+        Ok(())
     }
 
     /// As [`Collab::write_now`]; whether the card was written past the document, and the
@@ -307,7 +335,7 @@ impl Collab {
             return Ok(false);
         }
         let held = app.store().get_block(card_id).await?;
-        if digest_of(held.body.as_ref()) != open.body_digest {
+        if body_digest(held.body.as_ref()) != open.body_digest {
             self.replaced(app, card_id, slot, held.body.as_ref())
                 .await?;
             return Ok(true);
@@ -324,7 +352,7 @@ impl Collab {
                 Body::parse(value).map_err(AppError::internal)?
             }
         };
-        let digest = digest_of(body.as_ref());
+        let digest = body_digest(body.as_ref());
         let open = slot.open.as_ref().expect("the document is open");
         let through = open.log_end;
         let changed = digest != open.body_digest;
@@ -354,7 +382,7 @@ impl Collab {
             // again with the card as it is now.
             let held = app.store().get_block(card_id).await?;
             let open = slot.open.as_ref().expect("the document is open");
-            if digest_of(held.body.as_ref()) != open.body_digest {
+            if body_digest(held.body.as_ref()) != open.body_digest {
                 self.replaced(app, card_id, slot, held.body.as_ref())
                     .await?;
                 return Ok(true);
@@ -469,74 +497,4 @@ async fn announce(app: &App, card_id: &str) {
             .await;
         app_of_task.webhook().notify_update(&block).await;
     });
-}
-
-/// The digest of a body as `body_docs.body_digest` holds it: SHA-256 of its JSON with
-/// the members of every object in the order of their names and no space; of nothing for
-/// no body.
-pub(super) fn digest_of(body: Option<&Body>) -> Vec<u8> {
-    let mut json = Vec::new();
-    if let Some(body) = body {
-        write_canonical(body.document(), &mut json);
-    }
-    Sha256::digest(&json).to_vec()
-}
-
-/// Writes a JSON value with the members of every object in the order of their names.
-fn write_canonical(value: &Value, out: &mut Vec<u8>) {
-    match value {
-        Value::Object(members) => {
-            let mut names: Vec<&String> = members.keys().collect();
-            names.sort_unstable();
-            out.push(b'{');
-            for (index, name) in names.into_iter().enumerate() {
-                if index > 0 {
-                    out.push(b',');
-                }
-                write_canonical(&Value::String(name.clone()), out);
-                out.push(b':');
-                write_canonical(&members[name], out);
-            }
-            out.push(b'}');
-        }
-        Value::Array(items) => {
-            out.push(b'[');
-            for (index, item) in items.iter().enumerate() {
-                if index > 0 {
-                    out.push(b',');
-                }
-                write_canonical(item, out);
-            }
-            out.push(b']');
-        }
-        // A value with no members is written the same whatever the order of a map.
-        other => out.extend_from_slice(other.to_string().as_bytes()),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use serde_json::json;
-
-    use super::*;
-
-    #[test]
-    fn the_digest_of_a_body_does_not_depend_on_the_order_of_its_members() {
-        let one = Body::from_stored(json!({"type": "doc", "content": [{"type": "paragraph"}]}));
-        let other = Body::from_stored(
-            serde_json::from_str(r#"{"content":[{"type":"paragraph"}],"type":"doc"}"#)
-                .expect("JSON"),
-        );
-        assert_eq!(digest_of(Some(&one)), digest_of(Some(&other)));
-        assert_ne!(digest_of(Some(&one)), digest_of(None), "a body is not none");
-        let mut written = Vec::new();
-        write_canonical(
-            &json!({"b": [1, "x"], "a": {"d": null, "c": true}}),
-            &mut written,
-        );
-        assert_eq!(
-            String::from_utf8(written).expect("UTF-8"),
-            r#"{"a":{"c":true,"d":null},"b":[1,"x"]}"#
-        );
-    }
 }

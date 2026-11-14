@@ -27,7 +27,7 @@ use crate::error::StoreError;
 use crate::file_info;
 use crate::loose_objects::LooseState;
 use crate::uploads::{OpenUploads, UploadUsage};
-use crate::{invitations, memberships_everywhere, users, workspaces};
+use crate::{body_versions, invitations, memberships_everywhere, users, workspaces};
 
 mod sign_in;
 
@@ -204,8 +204,9 @@ fn push_seen(sql: &mut Sql, scope: &Scope<'_>, sight: Sight<'_>) {
     }
 }
 
-/// Pushes `OR` the condition that the user `id` authored a board, a block, or a kept
-/// comment version the seer reads, as `permissions::grant` has it: one they hold a
+/// Pushes `OR` the condition that the user `id` authored a board, a block, a kept
+/// comment version or a kept version of a card's body the seer reads, as
+/// `permissions::grant` has it: one they hold a
 /// role on, or an open template of a workspace they work in; of the workspace `within`
 /// names, as far as its [`Reach`] goes, or of any workspace in use the seer is a member
 /// of.
@@ -230,6 +231,13 @@ fn push_writer(sql: &mut Sql, scope: &Scope<'_>, seer_id: &str, within: Option<(
          WHERE cv.block_id = bl.id AND cv.written_by = users.id",
     )
     .push(&scope.same_organization(&[("cv", "bl")]))
+    .push(")) OR (")
+    .push(&body_versions::kept_types("bl.type"))
+    .push(
+        " AND EXISTS (SELECT 1 FROM body_version_editors ve \
+         WHERE ve.block_id = bl.id AND ve.version > 0 AND ve.user_id = users.id",
+    )
+    .push(&scope.same_organization(&[("ve", "bl")]))
     .push(
         ")))) OR EXISTS (SELECT 1 FROM deleted_blocks d \
          JOIN comment_versions cv ON cv.block_id = d.id \

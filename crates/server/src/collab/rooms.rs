@@ -46,6 +46,7 @@ use tokio_util::sync::CancellationToken;
 use super::frame::{self, Sync};
 use super::messages::{self, reason_of};
 use super::queue::{Capacity, NotQueued, Queue, Queued};
+use super::versions::Left;
 use super::{Collab, DocChange, DocEvent, Loaded, admission, refusals};
 use crate::app::{App, Asker};
 use crate::config::collab::CollabSettings;
@@ -239,6 +240,10 @@ struct Turn {
     members: Vec<Member>,
     /// The room is no longer among the rooms: who waited for it looks again.
     closed: bool,
+    /// The users whose leaving has the room ask for what was typed to be kept as a
+    /// version of the card's body: those whose updates it took since it last asked,
+    /// and, once it asked while one who typed stayed, all who were there to write.
+    typed: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -571,6 +576,7 @@ impl Collab {
         let reason = reason_of(&AppError::not_found("card"));
         for room in of_organization {
             let mut turn = room.turn.lock().await;
+            let before = turn.members.len();
             // From the last: a member put out takes the place of none not yet looked at.
             for index in (0..turn.members.len()).rev() {
                 let made_through = turn.members[index].connection.made_through.as_deref();
@@ -578,9 +584,10 @@ impl Collab {
                     turn.put_out(index, &reason);
                 }
             }
-            if turn.members.is_empty() {
+            if turn.members.len() < before {
                 drop(turn);
-                // Closing writes the body to the card: not for the request to wait on.
+                // Closing writes the body to the card, and so does keeping what one
+                // who was put out typed: not for the request to wait on.
                 let collab = self.clone();
                 tokio::spawn(async move {
                     let mut turn = room.turn.lock().await;
@@ -824,6 +831,9 @@ impl Collab {
                 // Told whatever waits for the sender: the update is logged, and is
                 // sent on to the others also if the sender is put out for its queue.
                 turn.answer(connection, doc, messages::ack(doc, epoch, taken.seq));
+                if !turn.typed.contains(&connection.user_id) {
+                    turn.typed.push(connection.user_id.clone());
+                }
                 if taken.remade {
                     // The update is in the body the document was made again from.
                     // If it cannot be opened for now, the room's task hears of the
@@ -933,9 +943,36 @@ impl Collab {
 
     /// Closes a held room that nobody is in: its document is closed, which writes its
     /// body to the card, and whoever comes next makes the room anew. The room is held
-    /// until the document is closed, so that the next opens it after.
+    /// until the document is closed, so that the next opens it after. A room that one
+    /// who typed has left, or writes in no more, asks for what was typed to be kept as
+    /// a version: it is, unless another who typed it is still there to write.
     async fn shut_if_empty(&self, room: &Arc<Room>, turn: &mut Turn) {
-        if !turn.members.is_empty() || turn.closed {
+        if turn.closed {
+            return;
+        }
+        if !turn.members.is_empty() {
+            if turn.typed.is_empty() {
+                return;
+            }
+            let mut writing: Vec<String> = turn
+                .members
+                .iter()
+                .filter(|member| member.mode == DocMode::Write)
+                .map(|member| member.connection.user_id.clone())
+                .collect();
+            writing.sort_unstable();
+            writing.dedup();
+            if turn.typed.iter().all(|by| writing.contains(by)) {
+                return;
+            }
+            // Whoever of them typed is not known here: the leaving of each asks again.
+            turn.typed = match self
+                .version_without_writers(&room.app, &room.card_id, room.gone.clone(), &writing)
+                .await
+            {
+                Left::Waiting => writing,
+                Left::Settled => Vec::new(),
+            };
             return;
         }
         turn.closed = true;

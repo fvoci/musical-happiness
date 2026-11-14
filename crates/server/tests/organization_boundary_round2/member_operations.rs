@@ -127,6 +127,7 @@ impl Named {
             .replace("{invitationId}", &self.invitation_id)
             .replace("{teamId}", &self.team)
             .replace("{partNumber}", "1")
+            .replace("{version}", "1")
     }
 
     fn body(&self, operation: &str) -> Value {
@@ -191,6 +192,15 @@ async fn organization(server: &TestServer, name: &str) -> Named {
         .await
         .value();
     let (wiki, page) = wiki_with_a_page(&founder, &at, name).await;
+    // A body written to the card is a version of it, which the member reads.
+    founder
+        .patch(
+            &format!("{at}/cards/{}", text(&card, "id")),
+            &json!({"readAt": card["updateAt"], "body": {"type": "doc", "content": [
+                {"type": "paragraph", "content": [{"type": "text", "text": "a body"}]}]}}),
+        )
+        .await
+        .check_ok();
     let file = Client::send(
         founder
             .request(Method::POST, &format!("{at}/boards/{board}/files"))
@@ -397,6 +407,8 @@ async fn every_contract_operation_answers_a_plain_member_alike_in_both_organizat
         "getWikis",
         "getPageTree",
         "getPage",
+        "getCardBodyVersions",
+        "getCardBodyVersion",
         "getUpload",
         "getSharedBoard",
         "getSharedCards",

@@ -203,6 +203,9 @@ async fn assert_fresh_retention(test: &common::TestStore, card: &str, user: &str
     );
     let system = test.system();
     let before_removal = crate::blocks::now_millis();
+    // One version of the body is kept, so that the one that shows the file, of the
+    // body before, goes with this write and is no reference.
+    test.set_body_versions_kept(1);
     test.patch_block(
         card,
         &BlockPatch {

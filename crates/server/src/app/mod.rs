@@ -9,6 +9,7 @@ mod auth;
 mod blocks;
 mod boards;
 mod boards_and_blocks;
+mod body_versions;
 mod cards;
 mod category;
 mod category_boards;
@@ -227,6 +228,7 @@ impl App {
             }
         }
         store.set_comment_versions_kept(config.max_comment_versions);
+        store.set_body_versions_kept(config.collab.collab_body_versions);
         // The authenticator reads what is no organization's (sessions), and asks the
         // directory whose a shared board is: it is given no organization to reach.
         let auth = Authenticator::new(store.scoped(Tenant::Unset), &config)?;

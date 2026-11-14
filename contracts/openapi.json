@@ -759,6 +759,84 @@
         "description": "A document of the editor: a node of type `doc` whose `content` is its blocks. Which nodes, marks and attributes it may have, and how they nest, is the allowlist of `docs/s6-design.md` 5.7. At most 1 MiB as JSON, 32 levels deep and 20,000 nodes.",
         "type": "object"
       },
+      "BodyVersion": {
+        "description": "A version kept of a card's body: the body as it was at a time, and who wrote it up\nto then.",
+        "properties": {
+          "editors": {
+            "description": "Who wrote the body up to this version since the one before, in the order of\ntheir identifiers: those who edited it and those who wrote it whole. Empty for\na body nobody is known to have written.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "isCurrent": {
+            "description": "Whether the body of this version is the one the card has now. Of versions\nwith the same body, the newest; of none while the card's editors have typed\nwhat is not written to the card yet.",
+            "type": "boolean"
+          },
+          "keptAt": {
+            "description": "When the version was kept, in milliseconds since the Unix epoch. For a body\nnobody is known to have written (one from before versions were kept, or from an\nimport), when the card was last changed.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "version": {
+            "description": "The place of the version among the card's, counted from 1. The server keeps the\nnewest ones: the lowest numbers go as new versions come.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "editors",
+          "isCurrent",
+          "keptAt",
+          "version"
+        ],
+        "type": "object"
+      },
+      "BodyVersionContent": {
+        "description": "A version kept of a card's body, with the body.",
+        "properties": {
+          "body": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Body",
+                "description": "The body of the card then; `null` if it had none."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "editors": {
+            "description": "Who wrote the body up to this version since the one before, in the order of\ntheir identifiers. Empty for a body nobody is known to have written.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "isCurrent": {
+            "description": "Whether the body of this version is the one the card has now. Of versions\nwith the same body, the newest; of none while the card's editors have typed\nwhat is not written to the card yet.",
+            "type": "boolean"
+          },
+          "keptAt": {
+            "description": "When the version was kept, in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "version": {
+            "description": "The place of the version among the card's, counted from 1.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "body",
+          "editors",
+          "isCurrent",
+          "keptAt",
+          "version"
+        ],
+        "type": "object"
+      },
       "Card": {
         "description": "A card: a titled group of properties with a body on a board.",
         "properties": {
@@ -9718,6 +9796,185 @@
           }
         },
         "summary": "Change a card",
+        "tags": [
+          "cards"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/cards/{cardId}/body-versions": {
+      "get": {
+        "description": "The server keeps the body of a card as a version each time it changed: when the\nlast of those who wrote it since the newest version leaves it, at an interval\nwhile it is edited on (its setting `collab_version_minutes`, ten minutes unless\nset otherwise), and before and after a write of the whole body (`patchCard` and the\nblock routes). The newest first, each with when it was kept and who wrote the body\nup to it, without the bodies (`getCardBodyVersion`). The server keeps the newest\nof them (its setting `collab_body_versions`, fifty unless set otherwise), so the\nnumbers may leave the lowest out. Empty for a card whose body never changed since\nversions were kept. For the members of the card's board, whatever\ntheir role; to a user who is no member of it there is no such card, and a reader by\nthe board's read token has no session to ask with. A card in the trash is not\nthere (404); its versions come back with it, and go when it is gone for good.",
+        "operationId": "getCardBodyVersions",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the card.",
+            "in": "path",
+            "name": "cardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/BodyVersion"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The versions, the newest first."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "The versions kept of a card's body",
+        "tags": [
+          "cards"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/cards/{cardId}/body-versions/{version}": {
+      "get": {
+        "description": "The version with its body, as `getCard` gives a body. For whom\n`getCardBodyVersions` is for. A number the card has no version of, or has none of\nany more, is 404.",
+        "operationId": "getCardBodyVersion",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the card.",
+            "in": "path",
+            "name": "cardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The number of the version of the card's body, as `getCardBodyVersions` lists it.",
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BodyVersionContent"
+                }
+              }
+            },
+            "description": "The version."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "A version kept of a card's body",
+        "tags": [
+          "cards"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/cards/{cardId}/body-versions/{version}/restore": {
+      "post": {
+        "description": "Writes the body of the version to the card again, as a write of the whole body by\nthe caller: those who edit the card together are sent the body as a new document\n(`contracts/websocket.md`), the body it replaces is kept as a version first, with\nwhat they typed, and the body written is the card's newest version, by the\ncaller. The versions before stay as they are. A card that has that body already is\nleft as it is. For editors of the card's board (403 for its other members); to a\nuser who is no member of it there is no such card. A number the card has no\nversion of, or has none of any more, is 404. A version whose body may not be\nstored any more, or shows an image whose file the board no longer has, is 409.",
+        "operationId": "restoreCardBodyVersion",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the card.",
+            "in": "path",
+            "name": "cardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The number of the version of the card's body, as `getCardBodyVersions` lists it.",
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Card"
+                }
+              }
+            },
+            "description": "The card as it is now."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Go back to a version of a card's body",
         "tags": [
           "cards"
         ]
