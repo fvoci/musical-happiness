@@ -285,7 +285,7 @@ async fn a_body_written_whole_is_a_version_and_so_is_the_one_before() {
 
 /// A body written whole while editors type: what they typed is kept as a version of
 /// theirs before the body that is written over it, by its writer. A write that is
-/// refused keeps what they typed too. Of a batch, the cards whose bodies changed.
+/// refused keeps nothing. Of a batch, the cards whose bodies changed.
 #[tokio::test]
 async fn a_body_written_whole_over_what_editors_typed_keeps_both() {
     let th = Setup::native().start().await.init_basic().await;
@@ -314,24 +314,27 @@ async fn a_body_written_whole_over_what_editors_typed_keeps_both() {
         )
         .await
         .check_status(StatusCode::CONFLICT);
-    let kept = versions(&th.client, &t.card_id).await;
     assert_eq!(
-        said(&kept),
-        [
-            (2, vec![user2.as_str()], true),
-            (1, vec![user1.as_str()], false)
-        ],
-        "what was typed is kept before the write that was refused"
-    );
-    assert_eq!(
-        lines(&th.client, &t.card_id, &kept[0]).await,
-        ["first", "typed"]
+        said(&versions(&th.client, &t.card_id).await),
+        [(1, vec![user1.as_str()], false)],
+        "the body before the typist came, and nothing of the write that was refused"
     );
 
     write_whole(&th.client, &t.card_id, &paragraphs(&["whole"])).await;
     let kept = versions(&th.client, &t.card_id).await;
-    assert_eq!(said(&kept)[0], (3, vec![user1.as_str()], true));
-    assert_eq!(kept.len(), 3, "{kept:?}");
+    assert_eq!(
+        said(&kept),
+        [
+            (3, vec![user1.as_str()], true),
+            (2, vec![user2.as_str()], false),
+            (1, vec![user1.as_str()], false)
+        ]
+    );
+    assert_eq!(
+        lines(&th.client, &t.card_id, &kept[1]).await,
+        ["first", "typed"],
+        "what was typed, kept before it was written over"
+    );
     // The typist's document is the body written whole; leaving it keeps nothing more.
     typist.leave().await;
     crate::rooms::no_rooms(&th).await;
@@ -357,10 +360,109 @@ async fn a_body_written_whole_over_what_editors_typed_keeps_both() {
         .check_no_content();
     assert_eq!(said(&versions(&th.client, &t.card_id).await)[0].0, 4);
     assert_eq!(
-        said(&versions(&th.client, other_id).await),
-        [(1, vec![user1.as_str()], true)],
-        "the body it had is kept, once"
+        versions(&th.client, other_id).await,
+        Vec::<Value>::new(),
+        "a body written as it was is no version"
     );
+    th.teardown().await;
+}
+
+/// A document that is opened again while it holds what no version does (an update
+/// that was refused closes and opens it) still has it kept when its editors leave,
+/// and the version names all of them: also one whose update came before.
+#[tokio::test]
+async fn a_document_opened_again_keeps_what_was_typed_before() {
+    let th = Setup::native().start().await.init_basic().await;
+    let e = editing(&th, &paragraphs(&["first"])).await;
+    let collab = e.app.collab();
+    let (editor, epoch) = joined(collab, &e.app, &e.card_id, 101).await;
+    collab
+        .take(
+            &e.app,
+            &e.card_id,
+            epoch,
+            &e.user1,
+            &editor.append_paragraph("typed"),
+        )
+        .await
+        .expect("taken");
+    let no_file = crate::collab_images::showing("7nothing.png");
+    collab
+        .take(&e.app, &e.card_id, epoch, &e.user2, &no_file)
+        .await
+        .expect_err("no file of the board: the document is opened again");
+    collab
+        .take(
+            &e.app,
+            &e.card_id,
+            epoch,
+            &e.user2,
+            &editor.append_paragraph("more"),
+        )
+        .await
+        .expect("taken by the document opened again");
+    collab.close(&e.app, &e.card_id).await.expect("closed");
+
+    let kept = versions(&th.client, &e.card_id).await;
+    let mut both = vec![e.user1.as_str(), e.user2.as_str()];
+    both.sort_unstable();
+    assert_eq!(
+        said(&kept),
+        [(2, both, true), (1, vec![e.user1.as_str()], false)]
+    );
+    assert_eq!(
+        lines(&th.client, &e.card_id, &kept[0]).await,
+        ["first", "typed", "more"]
+    );
+    assert_eq!(lines(&th.client, &e.card_id, &kept[1]).await, ["first"]);
+
+    // Opened again and left with only an update that was refused: what the first
+    // typed is kept all the same.
+    let (editor, epoch) = joined(collab, &e.app, &e.card_id, 102).await;
+    collab
+        .take(
+            &e.app,
+            &e.card_id,
+            epoch,
+            &e.user1,
+            &editor.append_paragraph("last"),
+        )
+        .await
+        .expect("taken");
+    collab
+        .take(&e.app, &e.card_id, epoch, &e.user2, &no_file)
+        .await
+        .expect_err("no file of the board");
+    collab.close(&e.app, &e.card_id).await.expect("closed");
+    let kept = versions(&th.client, &e.card_id).await;
+    assert_eq!(said(&kept)[0], (3, vec![e.user1.as_str()], true));
+    th.teardown().await;
+}
+
+/// The versions of a card in the trash are not there, and come back with the card.
+#[tokio::test]
+async fn the_versions_of_a_card_go_to_the_trash_and_come_back_with_it() {
+    let th = Setup::native().start().await.init_basic().await;
+    let t = table(&th, &paragraphs(&["first"])).await;
+    write_whole(&th.client, &t.card_id, &paragraphs(&["second"])).await;
+    let kept = versions(&th.client, &t.card_id).await;
+    assert_eq!(kept.len(), 2, "{kept:?}");
+    let block = crate::blocks::block_path(&t.board_id, &t.card_id);
+    let list = format!("{TEST_WS}/cards/{}/body-versions", t.card_id);
+
+    th.client.delete(&block).await.check_no_content();
+    for path in [list.clone(), format!("{list}/1")] {
+        th.client
+            .get(&path)
+            .await
+            .check_error(StatusCode::NOT_FOUND, "card not found");
+    }
+    th.client
+        .post_empty(&crate::blocks::undelete_path(&t.board_id, &t.card_id))
+        .await
+        .check_ok();
+    assert_eq!(versions(&th.client, &t.card_id).await, kept);
+    assert_eq!(lines(&th.client, &t.card_id, &kept[1]).await, ["first"]);
     th.teardown().await;
 }
 

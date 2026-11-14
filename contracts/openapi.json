@@ -714,14 +714,14 @@
         "description": "A version kept of a card's body: the body as it was at a time, and who wrote it up\nto then.",
         "properties": {
           "editors": {
-            "description": "Who wrote the body up to this version since the one before, in the order of\ntheir identifiers: those who edited it and those who wrote it whole, among them\nwho restored a version. For a body nobody is known to have written, who changed\nthe card last.",
+            "description": "Who wrote the body up to this version since the one before, in the order of\ntheir identifiers: those who edited it and those who wrote it whole. For a body\nnobody is known to have written, who changed the card last.",
             "items": {
               "type": "string"
             },
             "type": "array"
           },
           "isCurrent": {
-            "description": "Whether the body of this version is the one the card has now: restoring it\nchanges nothing.",
+            "description": "Whether the body of this version is the one the card has now.",
             "type": "boolean"
           },
           "keptAt": {
@@ -758,23 +758,23 @@
             ]
           },
           "editors": {
-            "description": "As `BodyVersion::editors`.",
+            "description": "Who wrote the body up to this version since the one before, in the order of\ntheir identifiers.",
             "items": {
               "type": "string"
             },
             "type": "array"
           },
           "isCurrent": {
-            "description": "As `BodyVersion::is_current`.",
+            "description": "Whether the body of this version is the one the card has now.",
             "type": "boolean"
           },
           "keptAt": {
-            "description": "As `BodyVersion::kept_at`.",
+            "description": "When the version was kept, in milliseconds since the Unix epoch.",
             "format": "int64",
             "type": "integer"
           },
           "version": {
-            "description": "As `BodyVersion::version`.",
+            "description": "The place of the version among the card's, counted from 1.",
             "format": "int64",
             "type": "integer"
           }
@@ -9214,7 +9214,7 @@
     },
     "/api/v1/w/{workspaceId}/cards/{cardId}/body-versions": {
       "get": {
-        "description": "The server keeps the body of a card as a version each time it changed: when the\nlast of those who edit it together leaves it, every `collab_version_minutes` while\nthey go on, and before and after a write of the whole body (`patchCard` and the\nblock routes). The newest first, each with when it was kept and who wrote the body\nup to it, without the bodies (`getCardBodyVersion`). The server keeps the newest\nones, its setting `collab_body_versions` in all. Empty for a card whose body never\nchanged since versions were kept. For the members of the card's board, whatever\ntheir role; to a user who is no member of it there is no such card, and a reader by\nthe board's read token has no session to ask with. A card in the trash is not\nthere (404); its versions come back with it, and go when it is gone for good.",
+        "description": "The server keeps the body of a card as a version each time it changed: when the\nlast of those who edit it together leaves it, and before and after a write of the\nwhole body (`patchCard` and the block routes). The newest first, each with when it\nwas kept and who wrote the body up to it, without the bodies\n(`getCardBodyVersion`). The server keeps the newest fifty. Empty for a card whose\nbody never changed since versions were kept. For the members of the card's board, whatever\ntheir role; to a user who is no member of it there is no such card, and a reader by\nthe board's read token has no session to ask with. A card in the trash is not\nthere (404); its versions come back with it, and go when it is gone for good.",
         "operationId": "getCardBodyVersions",
         "parameters": [
           {

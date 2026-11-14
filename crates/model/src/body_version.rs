@@ -17,12 +17,10 @@ pub struct BodyVersion {
     /// import), when the card was last changed.
     pub kept_at: i64,
     /// Who wrote the body up to this version since the one before, in the order of
-    /// their identifiers: those who edited it and those who wrote it whole, among them
-    /// who restored a version. For a body nobody is known to have written, who changed
-    /// the card last.
+    /// their identifiers: those who edited it and those who wrote it whole. For a body
+    /// nobody is known to have written, who changed the card last.
     pub editors: Vec<String>,
-    /// Whether the body of this version is the one the card has now: restoring it
-    /// changes nothing.
+    /// Whether the body of this version is the one the card has now.
     pub is_current: bool,
 }
 
@@ -30,13 +28,14 @@ pub struct BodyVersion {
 #[derive(Debug, Clone, PartialEq, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct BodyVersionContent {
-    /// As [`BodyVersion::version`].
+    /// The place of the version among the card's, counted from 1.
     pub version: i64,
-    /// As [`BodyVersion::kept_at`].
+    /// When the version was kept, in milliseconds since the Unix epoch.
     pub kept_at: i64,
-    /// As [`BodyVersion::editors`].
+    /// Who wrote the body up to this version since the one before, in the order of
+    /// their identifiers.
     pub editors: Vec<String>,
-    /// As [`BodyVersion::is_current`].
+    /// Whether the body of this version is the one the card has now.
     pub is_current: bool,
     /// The body of the card then; `null` if it had none.
     pub body: Option<Body>,

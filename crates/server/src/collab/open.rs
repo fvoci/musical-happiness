@@ -114,6 +114,14 @@ impl Collab {
         aside: Option<OwnedSemaphorePermit>,
     ) -> Result<OpenDoc, Opening> {
         let unwritten = stored.projected_seq < stored.log_end;
+        // Updates the card does not hold, or whose writers no version names (a keep
+        // that failed, a server that ended): a version is due at once, so that leaving
+        // the document keeps it, whoever opened it.
+        let versioned = if unwritten || !stored.unkept_editors.is_empty() {
+            Versioned::Due(Instant::now())
+        } else {
+            Versioned::Unknown
+        };
         let mut open = OpenDoc {
             worker,
             // Not open yet: no generation is 0.
@@ -136,8 +144,8 @@ impl Collab {
             last_update: Instant::now(),
             writing_scheduled: false,
             retry_at: None,
-            versioned: Versioned::Unknown,
-            editors: Vec::new(),
+            versioned,
+            editors: stored.unkept_editors,
             aside,
         };
         let opened = self

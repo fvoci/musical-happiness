@@ -12,7 +12,7 @@ use fvoci_model::{BlockPatch, BlockType, Body, BodyChange};
 
 use crate::Store;
 use crate::blocks;
-use crate::body_versions;
+use crate::body_versions::{self, BodyWrite};
 use crate::db::{Id, OptId, Param, Row, Scope, now_millis};
 use crate::error::StoreError;
 use crate::file_refs::{self, NewImages};
@@ -38,6 +38,9 @@ pub struct StoredDoc {
     pub last_writer: String,
     /// The updates after `state_seq`, in the order they were taken.
     pub updates: Vec<LoggedUpdate>,
+    /// Who is put down as having written the body since the block's newest version
+    /// ([`Store::append_body_updates`]): none once a version holds what they wrote.
+    pub unkept_editors: Vec<String>,
 }
 
 /// An update a document took.
@@ -114,6 +117,7 @@ impl Store {
                 epoch: row.int(5)?,
                 last_writer: row.id(6)?,
                 updates,
+                unkept_editors: body_versions::unkept_editors(scope, block_id).await?,
             }))
         })
         .await
@@ -315,7 +319,9 @@ impl Store {
                         read_at: Some(read_at),
                         ..BlockPatch::default()
                     };
-                    blocks::patch_block(scope, block_id, &patch, user_id).await?;
+                    // No version: the server keeps one when it is due.
+                    let projected = BodyWrite::Projected;
+                    blocks::patch_block(scope, block_id, &patch, user_id, projected).await?;
                 }
             }
             let mut sql = scope.sql("UPDATE body_docs SET projected_seq = ");

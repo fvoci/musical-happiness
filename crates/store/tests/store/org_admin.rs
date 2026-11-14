@@ -825,8 +825,7 @@ async fn card_with_body(store: &Store, board_id: &str, user_id: &str) -> String 
     store
         .keep_body_versions(&[fvoci_store::BodyToKeep {
             block: &card,
-            digest: b"a digest",
-            written_by: user_id,
+            written_by: Some(user_id),
         }])
         .await
         .expect("a version is kept");

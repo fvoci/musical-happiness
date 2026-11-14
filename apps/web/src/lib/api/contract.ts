@@ -2045,12 +2045,11 @@ export interface paths {
         /**
          * The versions kept of a card's body
          * @description The server keeps the body of a card as a version each time it changed: when the
-         *     last of those who edit it together leaves it, every `collab_version_minutes` while
-         *     they go on, and before and after a write of the whole body (`patchCard` and the
-         *     block routes). The newest first, each with when it was kept and who wrote the body
-         *     up to it, without the bodies (`getCardBodyVersion`). The server keeps the newest
-         *     ones, its setting `collab_body_versions` in all. Empty for a card whose body never
-         *     changed since versions were kept. For the members of the card's board, whatever
+         *     last of those who edit it together leaves it, and before and after a write of the
+         *     whole body (`patchCard` and the block routes). The newest first, each with when it
+         *     was kept and who wrote the body up to it, without the bodies
+         *     (`getCardBodyVersion`). The server keeps the newest fifty. Empty for a card whose
+         *     body never changed since versions were kept. For the members of the card's board, whatever
          *     their role; to a user who is no member of it there is no such card, and a reader by
          *     the board's read token has no session to ask with. A card in the trash is not
          *     there (404); its versions come back with it, and go when it is gone for good.
@@ -3160,15 +3159,11 @@ export interface components {
         BodyVersion: {
             /**
              * @description Who wrote the body up to this version since the one before, in the order of
-             *     their identifiers: those who edited it and those who wrote it whole, among them
-             *     who restored a version. For a body nobody is known to have written, who changed
-             *     the card last.
+             *     their identifiers: those who edited it and those who wrote it whole. For a body
+             *     nobody is known to have written, who changed the card last.
              */
             editors: string[];
-            /**
-             * @description Whether the body of this version is the one the card has now: restoring it
-             *     changes nothing.
-             */
+            /** @description Whether the body of this version is the one the card has now. */
             isCurrent: boolean;
             /**
              * Format: int64
@@ -3187,18 +3182,21 @@ export interface components {
         /** @description A version kept of a card's body, with the body. */
         BodyVersionContent: {
             body: components["schemas"]["Body"] | null;
-            /** @description As `BodyVersion::editors`. */
+            /**
+             * @description Who wrote the body up to this version since the one before, in the order of
+             *     their identifiers.
+             */
             editors: string[];
-            /** @description As `BodyVersion::is_current`. */
+            /** @description Whether the body of this version is the one the card has now. */
             isCurrent: boolean;
             /**
              * Format: int64
-             * @description As `BodyVersion::kept_at`.
+             * @description When the version was kept, in milliseconds since the Unix epoch.
              */
             keptAt: number;
             /**
              * Format: int64
-             * @description As `BodyVersion::version`.
+             * @description The place of the version among the card's, counted from 1.
              */
             version: number;
         };

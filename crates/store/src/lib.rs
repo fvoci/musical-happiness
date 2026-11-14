@@ -16,6 +16,7 @@ mod board_team_trash;
 mod board_teams;
 mod boards;
 mod boards_and_blocks;
+mod body_digest;
 mod body_docs;
 mod body_versions;
 mod card_values;
@@ -69,6 +70,7 @@ pub use audit::{AuditEntry, AuditPlace};
 pub use blocks::{BlockFilter, BodyPreview, DuplicateAs, ListedBlock, Paging, Previews};
 pub use board_membership::Standing;
 pub use boards::{Joined, MemberChange, PublicBoards};
+pub use body_digest::body_digest;
 pub use body_docs::{LoggedUpdate, StoredDoc};
 pub use body_versions::{BodyToKeep, DEFAULT_BODY_VERSIONS_KEPT, KeptVersion};
 pub use category_boards::{BoardPlace, BoardVisibility};
@@ -213,7 +215,7 @@ struct Inner {
     /// See [`Store::set_comment_versions_kept`].
     comment_versions_kept: std::sync::atomic::AtomicUsize,
     /// See [`Store::set_body_versions_kept`].
-    body_versions_kept: std::sync::atomic::AtomicUsize,
+    body_versions_kept: std::sync::atomic::AtomicU32,
     /// Who is told about the calls; see [`Store::observe`].
     observer: std::sync::OnceLock<Box<dyn Observer>>,
     visibility: visibility::Visibility,
@@ -324,9 +326,8 @@ impl Store {
                     usize::try_from(comment_versions::DEFAULT_COMMENT_VERSIONS_KEPT)
                         .unwrap_or(usize::MAX),
                 ),
-                body_versions_kept: std::sync::atomic::AtomicUsize::new(
-                    usize::try_from(body_versions::DEFAULT_BODY_VERSIONS_KEPT)
-                        .unwrap_or(usize::MAX),
+                body_versions_kept: std::sync::atomic::AtomicU32::new(
+                    body_versions::DEFAULT_BODY_VERSIONS_KEPT,
                 ),
                 observer: std::sync::OnceLock::new(),
                 visibility: visibility::Visibility::settling_for(visibility::settle_after(
@@ -535,7 +536,7 @@ impl Store {
         visibility: &visibility::Writing<'_>,
         operation: impl AsyncFnOnce(&mut Scope<'_>) -> Result<T, StoreError>,
     ) -> (Result<T, StoreError>, Access) {
-        let kept = self.comment_versions_kept();
+        let kept = self.versions_kept();
         match &self.inner.pool {
             Pool::Sqlite(pool) => {
                 let mut conn = match Watch::acquire(watch, pool).await {
@@ -603,7 +604,7 @@ impl Store {
         visibility: &visibility::Writing<'_>,
         operation: impl AsyncFnOnce(&mut Scope<'_>) -> Result<T, StoreError>,
     ) -> Result<T, StoreError> {
-        let kept = self.comment_versions_kept();
+        let kept = self.versions_kept();
         match &self.inner.pool {
             Pool::Sqlite(pool) => {
                 // One transaction at a time, in the order they come. SQLite has one

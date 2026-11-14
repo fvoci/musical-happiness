@@ -124,12 +124,12 @@ impl App {
         let board = self.store().get_board(&block.board_id).await?;
         if block.block_type == BlockType::Card {
             // A card stored again writes its body whole, around its document.
-            let (mut stored, writer) = (block.clone(), modified_by.to_owned());
+            let (mut stored, modified_by) = (block.clone(), modified_by.to_owned());
             let card_ids = vec![block.id.clone()];
             *block = self
                 .collab()
-                .write_whole(self, card_ids, modified_by, async move |app| {
-                    app.store().insert_block(&mut stored, &writer).await?;
+                .write_whole(self, card_ids, async move |app| {
+                    app.store().insert_block(&mut stored, &modified_by).await?;
                     Ok(stored)
                 })
                 .await?;
@@ -191,11 +191,11 @@ impl App {
             self.store().insert_blocks(blocks, modified_by).await?;
         } else {
             // Cards stored again write their bodies whole, around their documents.
-            let (mut stored, writer) = (blocks.to_vec(), modified_by.to_owned());
+            let (mut stored, modified_by) = (blocks.to_vec(), modified_by.to_owned());
             let stored = self
                 .collab()
-                .write_whole(self, card_ids, modified_by, async move |app| {
-                    app.store().insert_blocks(&mut stored, &writer).await?;
+                .write_whole(self, card_ids, async move |app| {
+                    app.store().insert_blocks(&mut stored, &modified_by).await?;
                     Ok(stored)
                 })
                 .await?;
@@ -236,12 +236,15 @@ impl App {
                 .await?;
         } else {
             // A whole body is written around the document of a body edited together.
-            let (block_id, patch, writer) =
+            let (block_id, patch, modified_by) =
                 (block_id.to_owned(), patch.clone(), modified_by.to_owned());
             let card_ids = vec![block_id.clone()];
             self.collab()
-                .write_whole(self, card_ids, modified_by, async move |app| {
-                    Ok(app.store().patch_block(&block_id, &patch, &writer).await?)
+                .write_whole(self, card_ids, async move |app| {
+                    Ok(app
+                        .store()
+                        .patch_block(&block_id, &patch, &modified_by)
+                        .await?)
                 })
                 .await?;
         }
@@ -289,10 +292,10 @@ impl App {
             let _structure = self.collab().changing_structure(self).await;
             self.store().patch_blocks(batch, modified_by).await?;
         } else {
-            let (batch, writer) = (batch.clone(), modified_by.to_owned());
+            let (batch, modified_by) = (batch.clone(), modified_by.to_owned());
             self.collab()
-                .write_whole(self, card_ids, modified_by, async move |app| {
-                    Ok(app.store().patch_blocks(&batch, &writer).await?)
+                .write_whole(self, card_ids, async move |app| {
+                    Ok(app.store().patch_blocks(&batch, &modified_by).await?)
                 })
                 .await?;
         }

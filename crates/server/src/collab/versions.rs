@@ -5,23 +5,21 @@
 //!
 //! - When the last of a room's writers leaves it, and when the room closes
 //!   ([`Collab::version_as_left`], [`Collab::version_without_writers`]).
-//! - Around a body written whole ([`super::whole`]): the body before, so that it can be
-//!   gone back to, and the body after, by its writer.
+//! - Around a body written whole: the store keeps the body before, so that it can be
+//!   gone back to, and the body after, by its writer, within that write
+//!   (`fvoci_store::Store::keep_body_versions`).
 //! - Before the first update a document takes after it was opened, if the card's body
 //!   is not its newest version ([`Collab::version_before_update`]): one written before
 //!   versions were kept, or past its document (an import, a copy), so that what the
 //!   editors change can be gone back to.
 
-use std::collections::HashMap;
-
-use fvoci_model::{Block, BlockType};
+use fvoci_model::BlockType;
 use fvoci_store::BodyToKeep;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 use super::Collab;
 use super::place::Held;
-use super::upkeep::digest_of;
 use crate::app::App;
 use crate::error::AppError;
 
@@ -57,10 +55,11 @@ impl Collab {
     /// it is not known to be one (see the module). What fails is logged: the update
     /// is taken all the same.
     pub(super) async fn version_before_update(&self, app: &App, card_id: &str, slot: &mut Held) {
-        let unknown = slot
-            .open
-            .as_ref()
-            .is_some_and(|open| open.versioned == Versioned::Unknown);
+        // Only of a card that holds all its document took: a version of less would
+        // take the names of those whose updates it lacks.
+        let unknown = slot.open.as_ref().is_some_and(|open| {
+            open.versioned == Versioned::Unknown && open.written_seq >= open.log_end
+        });
         if unknown && let Err(error) = self.keep_version(app, card_id, slot).await {
             tracing::error!(%error, card_id, "cannot keep a version of a card's body");
         }
@@ -129,42 +128,21 @@ impl Collab {
         card_id: &str,
         slot: &mut Held,
     ) -> Result<(), AppError> {
-        let cards = stored_cards(app, &[card_id.to_owned()]).await?;
-        keep_versions(app, &cards, "").await?;
+        let card = match app.store().get_block(card_id).await {
+            Ok(block) if block.block_type == BlockType::Card => block,
+            // No card (any more): nothing of it is kept.
+            Ok(_) => return Ok(()),
+            Err(error) if error.is_not_found() => return Ok(()),
+            Err(error) => return Err(error.into()),
+        };
+        let body = BodyToKeep {
+            block: &card,
+            written_by: None,
+        };
+        app.store().keep_body_versions(&[body]).await?;
         kept(slot);
         Ok(())
     }
-}
-
-/// Keeps the bodies cards hold as versions, each if it is not its card's newest; by
-/// `written_by` if they were written whole.
-///
-/// # Errors
-///
-/// Returns the store's error.
-pub(super) async fn keep_versions(
-    app: &App,
-    cards: &[Block],
-    written_by: &str,
-) -> Result<(), AppError> {
-    if cards.is_empty() {
-        return Ok(());
-    }
-    let digests: Vec<Vec<u8>> = cards
-        .iter()
-        .map(|card| digest_of(card.body.as_ref()))
-        .collect();
-    let bodies: Vec<BodyToKeep<'_>> = cards
-        .iter()
-        .zip(&digests)
-        .map(|(block, digest)| BodyToKeep {
-            block,
-            digest,
-            written_by,
-        })
-        .collect();
-    app.store().keep_body_versions(&bodies).await?;
-    Ok(())
 }
 
 /// Notes on a held slot that its card's body was kept as a version, or is its newest
@@ -177,30 +155,4 @@ pub(super) fn kept(slot: &mut Held) {
             open.versioned = Versioned::Kept;
         }
     }
-}
-
-/// Those of `card_ids` that are cards as `app` reaches them, not in the trash.
-///
-/// # Errors
-///
-/// Returns the store's error.
-pub(super) async fn stored_cards(app: &App, card_ids: &[String]) -> Result<Vec<Block>, AppError> {
-    let mut cards = Vec::with_capacity(card_ids.len());
-    for card_id in card_ids {
-        match app.store().get_block(card_id).await {
-            Ok(block) if block.block_type == BlockType::Card => cards.push(block),
-            Ok(_) => {}
-            Err(error) if error.is_not_found() => {}
-            Err(error) => return Err(error.into()),
-        }
-    }
-    Ok(cards)
-}
-
-/// The digests of the bodies of cards, by card.
-pub(super) fn digests_of(cards: &[Block]) -> HashMap<String, Vec<u8>> {
-    cards
-        .iter()
-        .map(|card| (card.id.clone(), digest_of(card.body.as_ref())))
-        .collect()
 }

@@ -3,7 +3,6 @@
 use fvoci_model::{
     Block, BlockPatch, BlockType, Board, BoardMember, BoardType, Body, BodyChange, User, new_id,
 };
-use fvoci_store::BodyToKeep;
 use serde_json::json;
 
 use crate::boards::{member, new_board};
@@ -142,25 +141,18 @@ async fn versioned_card(th: &TestServer, board_id: &str, owner: &str, leaver: &s
             ..BlockPatch::default()
         };
         store
-            .patch_block(&card.id, &patch, owner)
+            .patch_block(&card.id, &patch, writer)
             .await
             .expect("a body written");
-        let block = store.get_block(&card.id).await.expect("the card");
-        assert_eq!(
-            (block.created_by.as_str(), block.modified_by.as_str()),
-            (owner, owner),
-            "the leaver neither made the card nor changed it last"
-        );
-        let kept = store
-            .keep_body_versions(&[BodyToKeep {
-                block: &block,
-                digest: text.as_bytes(),
-                written_by: writer,
-            }])
-            .await
-            .expect("a version kept");
-        assert!(kept[0].is_some(), "a version of {text}");
     }
+    let block = store.get_block(&card.id).await.expect("the card");
+    assert_eq!(
+        (block.created_by.as_str(), block.modified_by.as_str()),
+        (owner, owner),
+        "the leaver neither made the card nor changed it last"
+    );
+    let versions = store.body_versions(&card.id).await.expect("the versions");
+    assert_eq!(versions[1].editors, [leaver], "the version before the last");
 }
 
 async fn named(client: &Client, workspace: &str, user: &str) -> Vec<User> {
