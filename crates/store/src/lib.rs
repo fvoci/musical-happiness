@@ -30,6 +30,7 @@ mod error;
 mod file_info;
 mod file_refs;
 mod invitations;
+mod invited_signups;
 mod joinings;
 mod loose_objects;
 mod members;
@@ -78,6 +79,7 @@ pub use directory::{Looking, Reach, SYSTEM_ORG_ID, SYSTEM_WORKSPACE_ID, Sight, W
 pub use error::{StoreError, Taken};
 pub use file_refs::NewImages;
 pub use invitations::{Acceptance, Accepted, Acceptor, Inviter, InviterOfBoard, MailedTo, NewLink};
+pub use invited_signups::InvitedConfirmation;
 pub use loose_objects::{LooseCounts, LooseObject, LooseState};
 pub use observe::{Access, Call, Observer, Outcome};
 pub use oidc::{

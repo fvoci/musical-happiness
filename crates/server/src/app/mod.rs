@@ -68,7 +68,7 @@ pub use export::ExportedArchive;
 pub(crate) use files::FILE;
 pub use housekeeping::WorkspacesPurged;
 pub use import::Imported;
-pub use invitations::{Accepting, Inviting};
+pub use invitations::{Accepting, Admission, Inviting};
 pub use limits::OrgLimits;
 pub use loose_objects::{RemovedObjects, WRITING_GRACE_MILLIS};
 pub use oidc::{

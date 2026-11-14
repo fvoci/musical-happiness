@@ -25,6 +25,7 @@ export const AUDIT_ACTIONS = [
   'oidc_provider_pending_discarded',
   'password_reset_link_made',
   'password_set_by_operator',
+  'email_verified_by_operator',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

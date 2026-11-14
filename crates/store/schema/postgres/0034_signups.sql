@@ -40,3 +40,30 @@ CREATE UNIQUE INDEX signups_token_hash_key ON signups (token_hash);
 CREATE INDEX signups_expires_at_idx ON signups (expires_at);
 CREATE INDEX signups_invitation_idx ON signups (invitation_id, invitation_org_id)
     WHERE invitation_id IS NOT NULL;
+
+-- The record of the server operator confirming the address of a registration made by
+-- the link of an invitation for members (the administration socket): of the
+-- organization it joins, of no workspace. A registration of its own starts its
+-- organization only then, and a guest is no member of the organization: neither is
+-- recorded.
+ALTER TABLE audit_log DROP CONSTRAINT audit_log_action_check;
+ALTER TABLE audit_log ADD CONSTRAINT audit_log_action_check CHECK (action IN (
+    'self_added_to_board', 'added_to_board',
+    'org_admin_joined', 'org_admin_left', 'org_admin_revoked',
+    'org_admin_granted', 'org_admin_removed',
+    'workspace_created', 'workspace_renamed', 'workspace_deleted', 'workspace_restored',
+    'public_links_disabled', 'public_links_enabled',
+    'oidc_provider_configured', 'oidc_provider_removed', 'sso_required', 'sso_released',
+    'oidc_provider_pending_saved', 'oidc_provider_pending_applied',
+    'oidc_provider_pending_discarded', 'password_reset_link_made',
+    'password_set_by_operator', 'email_verified_by_operator'));
+ALTER TABLE audit_log DROP CONSTRAINT audit_log_place_check;
+ALTER TABLE audit_log ADD CONSTRAINT audit_log_place_check CHECK (
+    workspace_id IS NOT NULL OR action IN (
+        'org_admin_granted', 'org_admin_removed', 'workspace_created', 'workspace_renamed',
+        'workspace_deleted', 'workspace_restored', 'public_links_disabled',
+        'public_links_enabled', 'oidc_provider_configured', 'oidc_provider_removed',
+        'sso_required', 'sso_released', 'oidc_provider_pending_saved',
+        'oidc_provider_pending_applied', 'oidc_provider_pending_discarded',
+        'password_reset_link_made', 'password_set_by_operator',
+        'email_verified_by_operator'));

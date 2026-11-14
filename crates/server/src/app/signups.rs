@@ -5,9 +5,10 @@
 use std::net::IpAddr;
 use std::time::Instant;
 
-use fvoci_model::{RegisterRequest, Session, new_id};
+use fvoci_model::{RegisterRequest, Session, User, new_id};
 use fvoci_store::{
-    Confirmed, Founding, Proof, SIGNUP_LIFETIME_MILLIS, Signup, SignupStart, StoreError,
+    Accepted, Confirmed, Founding, InvitedConfirmation, Proof, SIGNUP_LIFETIME_MILLIS, Signup,
+    SignupStart, StoreError,
 };
 
 use super::App;
@@ -16,6 +17,7 @@ use super::mail::{Content, Language, Letter};
 use crate::auth::limiter::RetryAfter;
 use crate::auth::now_millis;
 use crate::auth::secret::{new_secret, token_digest};
+use crate::collab::AccessScope;
 use crate::error::AppError;
 use crate::metrics::ResetMailDrop;
 
@@ -44,20 +46,8 @@ impl App {
         let _attempt = self.admit_registration(address)?;
         let user = self.new_account(&request.account()).await?;
         let now = now_millis();
-        let signup = Signup {
-            id: user.id,
-            username: user.username,
-            email: user.email,
-            display_name: user.display_name,
-            password_hash: user.password_hash,
-            language: Language::written_in(&request.language)
-                .map(Language::tag)
-                .unwrap_or_default()
-                .to_owned(),
-            start: SignupStart::Organization(request.organization_name.clone()),
-            create_at: now,
-            expires_at: now.saturating_add(SIGNUP_LIFETIME_MILLIS),
-        };
+        let start = SignupStart::Organization(request.organization_name.clone());
+        let signup = waiting(&user, &request.language, start, now);
         self.store()
             .create_signup(&signup, now)
             .await
@@ -66,6 +56,25 @@ impl App {
         let app = self.clone();
         self.spawn_background(async move { app.mail_signup_link(&signup, None).await });
         Ok(())
+    }
+
+    /// The registration of `user`, an account asked for by the link `invitation_id` from
+    /// a screen in `language`, to be stored as that link's (`reserve_invitation`). The
+    /// registrations that ended go first: they hold no name, but their rows do.
+    pub(super) async fn signup_by_link(
+        &self,
+        user: &User,
+        invitation_id: &str,
+        language: &str,
+        now: i64,
+    ) -> Result<Signup, AppError> {
+        self.store().remove_ended_signups(now).await?;
+        let start = SignupStart::Invitation {
+            id: invitation_id.to_owned(),
+            // The link's organization, which the store sets as it holds the link.
+            org_id: String::new(),
+        };
+        Ok(waiting(user, language, start, now))
     }
 
     /// Admits a request for a new confirmation link identically whether or not a
@@ -79,8 +88,8 @@ impl App {
     ///
     /// # Errors
     ///
-    /// Returns 404 where no mail is sent, 400 for a request
-    /// that names neither a name nor an address, and 429 for too many requests from
+    /// Returns 400 for a request that names neither a name nor an address, 404 where no
+    /// mail is sent, and 429 for too many requests from
     /// `address`.
     pub fn prepare_signup_mail(
         &self,
@@ -89,15 +98,15 @@ impl App {
         language: &str,
         address: Option<IpAddr>,
     ) -> Result<impl Future<Output = ()> + Send + 'static + use<>, AppError> {
-        if !self.config().mail_enabled() {
-            return Err(AppError::not_found("route"));
-        }
         let (username, email) = (username.trim().to_owned(), email.trim().to_owned());
         if username.is_empty() && email.is_empty() {
             return Err(AppError::bad_request(
                 "the user name or the email address of the registration is required",
             )
             .with_field("email"));
+        }
+        if !self.config().mail_enabled() {
+            return Err(AppError::not_found("route"));
         }
         let _request = self
             .inner
@@ -247,34 +256,86 @@ impl App {
         Ok((session_token, confirmed))
     }
 
-    /// Confirms the registration `proof` names, starting its organization as the first
-    /// of the server's, or a new one where the server takes several.
+    /// Confirms the registration with the user name `username`, in any letter case, on
+    /// the word of the server's operator (the administration socket), for a person whose
+    /// mail does not arrive: as its link would, but signing nobody in. A registration
+    /// made by a link for members is recorded as the operator's in the organization it
+    /// joins; one of its own starts its organization only now, and a guest is no member
+    /// of the organization, so neither is recorded. Returns the account's identifier.
+    ///
+    /// # Errors
+    ///
+    /// Returns 404 if no registration that waits has the name, the 404 of
+    /// [`App::accept_invitation`] if its link lets nobody in any more (and the
+    /// registration is removed), and as [`App::confirm_signup`] otherwise.
+    pub async fn confirm_signup_by_operator(&self, username: &str) -> Result<String, AppError> {
+        let confirmed = self
+            .confirm(Proof::Operator(username))
+            .await?
+            .ok_or_else(|| AppError::not_found("registration"))?;
+        Ok(confirmed.user.id)
+    }
+
+    /// Confirms the registration `proof` names: starts its organization, or lets its
+    /// account in by the link it was made by.
     async fn confirm(&self, proof: Proof<'_>) -> Result<Option<Confirmed>, AppError> {
         let now = now_millis();
-        let mut confirmed = if self.store().is_bootstrapped().await? {
+        let Some(signup) = self.store().signup_of(proof, now).await? else {
+            return Ok(None);
+        };
+        let confirmed = match &signup.start {
+            SignupStart::Organization(_) => self.confirm_founding(&signup, proof, now).await?,
+            SignupStart::Invitation { id, org_id } => {
+                self.confirm_invited(&signup, proof, (id, org_id), now)
+                    .await?
+            }
+        };
+        if let Some(confirmed) = &confirmed {
+            self.metrics().registered();
+            tracing::info!(
+                user_id = %confirmed.user.id,
+                workspace_id = %confirmed.workspace_id,
+                first = confirmed.user.is_admin,
+                "a registration was confirmed"
+            );
+        }
+        Ok(confirmed)
+    }
+
+    /// Confirms a registration of its own, starting its organization as the first of the
+    /// server's, or a new one where the server takes several.
+    async fn confirm_founding(
+        &self,
+        signup: &Signup,
+        proof: Proof<'_>,
+        now: i64,
+    ) -> Result<Option<Confirmed>, AppError> {
+        let store = self.store();
+        let mut confirmed = if store.is_bootstrapped().await? {
             Err(StoreError::NotFirstUser)
         } else {
-            self.store()
-                .confirm_signup(proof, Founding::First, now)
+            store
+                .confirm_signup(signup, proof, Founding::First, now)
                 .await
         };
+        let one_organization = !self.config().takes_several_organizations();
         if matches!(confirmed, Err(StoreError::NotFirstUser)) {
-            if !self.config().takes_several_organizations() {
+            if one_organization {
                 // Nobody else gets in without an invitation now: the registration is of
                 // no use, and its name and address are free again. A link of none
                 // confirms nothing, as anywhere.
-                if !self.store().discard_signup(proof, now).await? {
+                if !store.discard_signup(proof, now).await? {
                     return Ok(None);
                 }
                 return Err(AppError::invitation_required());
             }
-            confirmed = self.store().confirm_signup(proof, Founding::New, now).await;
-        } else if confirmed.as_ref().is_ok_and(Option::is_some)
-            && !self.config().takes_several_organizations()
-        {
+            confirmed = store
+                .confirm_signup(signup, proof, Founding::New, now)
+                .await;
+        } else if one_organization && confirmed.as_ref().is_ok_and(Option::is_some) {
             // The first user is in: no other registration of its own can start anything
             // on this server, and their names and addresses are free for invitations.
-            let removed = self.store().remove_founding_signups().await?;
+            let removed = store.remove_founding_signups().await?;
             if removed > 0 {
                 tracing::info!(
                     removed,
@@ -282,16 +343,83 @@ impl App {
                 );
             }
         }
-        let confirmed = confirmed.map_err(account_error)?;
-        if let Some(confirmed) = &confirmed {
-            self.metrics().registered();
-            tracing::info!(
-                user_id = %confirmed.user.id,
-                workspace_id = %confirmed.workspace_id,
-                first = confirmed.user.is_admin,
-                "a registration was confirmed and started an organization"
-            );
+        confirmed.map_err(account_error)
+    }
+
+    /// Confirms a registration made by the link `link` (its identifier and its
+    /// organization's), letting its account in as an acceptance would.
+    ///
+    /// # Errors
+    ///
+    /// Returns 404 (`invitation_unavailable`) if the link lets nobody in any more: the
+    /// registration is removed, and its use of the link given back.
+    async fn confirm_invited(
+        &self,
+        signup: &Signup,
+        proof: Proof<'_>,
+        (link_id, org_id): (&str, &str),
+        now: i64,
+    ) -> Result<Option<Confirmed>, AppError> {
+        let Some(app) = self.enter_org_for_sign_in(org_id) else {
+            return Err(AppError::internal(
+                "the organization of a registration as the store has it is no identifier",
+            ));
+        };
+        for _ in 0..super::invitations::ATTEMPTS {
+            let found = app.maker_of_link(link_id).await?;
+            let inviter = found
+                .as_ref()
+                .map(|(invitation, maker)| maker.inviter(&invitation.created_by));
+            let outcome = app
+                .store()
+                .confirm_invited_signup(signup, proof, inviter, now)
+                .await
+                .map_err(account_error)?;
+            match outcome {
+                InvitedConfirmation::Confirmed(confirmed) => {
+                    let accepted = Accepted {
+                        user_id: confirmed.user.id.clone(),
+                        workspace_id: confirmed.workspace_id.clone(),
+                        board_id: confirmed.board_id.clone(),
+                        used: true,
+                    };
+                    app.collab()
+                        .recheck_access(
+                            &app,
+                            AccessScope::workspace(&accepted.workspace_id)
+                                .of_user(&accepted.user_id),
+                        )
+                        .await;
+                    app.announce_admission(&accepted).await;
+                    return Ok(Some(*confirmed));
+                }
+                InvitedConfirmation::Unavailable => {
+                    return Err(AppError::invitation_unavailable());
+                }
+                InvitedConfirmation::Gone => return Ok(None),
+                // Whether the maker may still invite is asked again, of what they are now.
+                InvitedConfirmation::InviterChanged => {}
+            }
         }
-        Ok(confirmed)
+        // Changed every time: the registration stays, to be confirmed again.
+        Err(AppError::invitation_unavailable())
+    }
+}
+
+/// The registration of `user`, made now from a screen in `language`, to start `start`.
+fn waiting(user: &User, language: &str, start: SignupStart, now: i64) -> Signup {
+    Signup {
+        id: user.id.clone(),
+        username: user.username.clone(),
+        email: user.email.clone(),
+        display_name: user.display_name.clone(),
+        password_hash: user.password_hash.clone(),
+        language: Language::written_in(language)
+            .map(Language::tag)
+            .unwrap_or_default()
+            .to_owned(),
+        start,
+        create_at: now,
+        expires_at: now.saturating_add(SIGNUP_LIFETIME_MILLIS),
     }
 }

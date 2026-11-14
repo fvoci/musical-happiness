@@ -181,7 +181,7 @@ Cloudflare R2는 같은 규칙이 기본으로 7일이다. 다른 S3 호환 저�
 
 ## 키: 관리자 소켓과 웹훅
 
-관리 소켓에서 `POST /api/v1/admin/users/{username}/password-reset`을 보내면 `url`에 재설정 링크를 받는다. 운영자가 사용자에게 전달한다. 링크는 256비트 비밀값을 URL 조각(`#` 뒤)에 담고 서버에는 그 해시만 남는다. 비밀번호가 있는 활성 계정만 발급받는다. `POST /api/v1/password-reset/complete`에 `token`과 새 `password`를 보내면 1시간 안에 한 번 쓸 수 있고, 비밀번호 변경과 모든 세션 삭제가 함께 저장된다. 열린 WebSocket도 닫힌다. 관리 경로는 HTTP 리스너에서 열리지 않는다.
+관리 소켓에서 `POST /api/v1/admin/users/{username}/password-reset`을 보내면 `url`에 재설정 링크를 받는다. 운영자가 사용자에게 전달한다. 링크는 256비트 비밀값을 URL 조각(`#` 뒤)에 담고 서버에는 그 해시만 남는다. 비밀번호가 있는 활성 계정만 발급받는다. `POST /api/v1/password-reset/complete`에 `token`과 새 `password`를 보내면 1시간 안에 한 번 쓸 수 있고, 비밀번호 변경과 모든 세션 삭제가 함께 저장된다. 열린 WebSocket도 닫힌다. 관리 경로는 HTTP 리스너에서 열리지 않는다. 메일이 닿지 않는 사람의 가입은 `POST /api/v1/admin/users/{username}/email-verification`이 링크처럼 확인한다(로그인시키지는 않는다; 확인을 기다리는 가입이 없으면 404). 구성원 링크로 한 가입이면 들어간 조직에 운영자의 기록(`email_verified_by_operator`)이 남고, 제 조직을 세우는 가입과 손님은 그 전에 속한 조직이 없어 기록이 없다.
 
 
 | 키 | 환경 변수 | 타입 | 기본값 | 뜻과 범위 |

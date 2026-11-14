@@ -87,7 +87,11 @@ async fn request(
 /// before it. A missing, ended, used or replaced token answers 400, naming `token` in
 /// `errors`. On a server that takes one organization and has its first user by now,
 /// the registration is removed and the answer is 403 with the reason
-/// `invitation_required`. Requests are counted by where they come from, as
+/// `invitation_required`. A registration made by the link of an invitation
+/// (`acceptInvitation`) is let in as the acceptance would have let it in, and the answer
+/// names the board of a guest's link (`boardId`); if the link lets nobody in any more
+/// (revoked, or who made it may no longer invite), the registration is removed and the
+/// answer is 404 with the reason `invitation_unavailable`. Requests are counted by where they come from, as
 /// registrations are, and too many are 429.
 #[utoipa::path(
     post, path = "/email-verification/complete", operation_id = "completeEmailVerification",
@@ -120,7 +124,7 @@ async fn complete(
         .await?;
     let answer = AcceptedInvitation {
         workspace_id: confirmed.workspace_id,
-        board_id: None,
+        board_id: confirmed.board_id,
     };
     Ok(with_session_cookie(&app, &token, json_response(&answer)))
 }

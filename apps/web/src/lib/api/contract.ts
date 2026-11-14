@@ -130,7 +130,11 @@ export interface paths {
          *     before it. A missing, ended, used or replaced token answers 400, naming `token` in
          *     `errors`. On a server that takes one organization and has its first user by now,
          *     the registration is removed and the answer is 403 with the reason
-         *     `invitation_required`. Requests are counted by where they come from, as
+         *     `invitation_required`. A registration made by the link of an invitation
+         *     (`acceptInvitation`) is let in as the acceptance would have let it in, and the answer
+         *     names the board of a guest's link (`boardId`); if the link lets nobody in any more
+         *     (revoked, or who made it may no longer invite), the registration is removed and the
+         *     answer is 404 with the reason `invitation_unavailable`. Requests are counted by where they come from, as
          *     registrations are, and too many are 429.
          */
         post: operations["completeEmailVerification"];
@@ -216,6 +220,17 @@ export interface paths {
          *     stays what they are in it. The answer names the board then (`boardId`). The account
          *     is made, the membership stored and the use of the link counted together or not at
          *     all, and an acceptance that changes nothing uses nothing of the link.
+         *
+         *     On a server that asks for the email address of a registration to be confirmed
+         *     (`emailVerification` of `getLoginOptions`), a new `account` waits for its address,
+         *     unless the link was made for one recipient of a mailed guest link at that address,
+         *     which the mail proves: the answer is 202 with no body, nobody is let in, and the
+         *     link mailed to the address (`completeEmailVerification`) makes the account and lets
+         *     it in, as this acceptance would have, and signs it in. The registration counts as a
+         *     use of the link from the start, so a link for one guest lets nobody else in
+         *     meanwhile, and it holds its name and address as an account would. Not confirmed in
+         *     seven days, it is removed and gives the use back. `language` is the language of the
+         *     mail (English or Korean).
          *
          *     A session that the link's organization does not take (it takes no password,
          *     `ssoRequired`, and the session was not made through its provider) is 401 with the
@@ -2869,6 +2884,12 @@ export interface components {
         /** @description A request to accept a link. */
         AcceptInvitation: {
             account?: components["schemas"]["NewAccount"] | null;
+            /**
+             * @description The language tag of the screen the request comes from (`ko`, `en-GB`): the
+             *     language of the mail that confirms a new account's address, where the server asks
+             *     for that (English, Korean); English for any other.
+             */
+            language?: string;
             /** @description The token of the link. */
             token: string;
         };
@@ -2896,7 +2917,7 @@ export interface components {
          * @description What a record of the audit log says was done.
          * @enum {string}
          */
-        AuditAction: "self_added_to_board" | "added_to_board" | "org_admin_joined" | "org_admin_left" | "org_admin_revoked" | "org_admin_granted" | "org_admin_removed" | "workspace_created" | "workspace_renamed" | "workspace_deleted" | "workspace_restored" | "public_links_disabled" | "public_links_enabled" | "oidc_provider_configured" | "oidc_provider_removed" | "sso_required" | "sso_released" | "oidc_provider_pending_saved" | "oidc_provider_pending_applied" | "oidc_provider_pending_discarded" | "password_reset_link_made" | "password_set_by_operator";
+        AuditAction: "self_added_to_board" | "added_to_board" | "org_admin_joined" | "org_admin_left" | "org_admin_revoked" | "org_admin_granted" | "org_admin_removed" | "workspace_created" | "workspace_renamed" | "workspace_deleted" | "workspace_restored" | "public_links_disabled" | "public_links_enabled" | "oidc_provider_configured" | "oidc_provider_removed" | "sso_required" | "sso_released" | "oidc_provider_pending_saved" | "oidc_provider_pending_applied" | "oidc_provider_pending_discarded" | "password_reset_link_made" | "password_set_by_operator" | "email_verified_by_operator";
         /** @description A user as a record of the audit log names them. */
         AuditPerson: {
             /** @description The name the user shows; empty for none. */
@@ -4915,6 +4936,13 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["AcceptedInvitation"];
                 };
+            };
+            /** @description A new account waits for its email address to be confirmed by the link mailed to it. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Too many requests from where this one comes from, or the server has too much password work to do at the moment. */
             429: {

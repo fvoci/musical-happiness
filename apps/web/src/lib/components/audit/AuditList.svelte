@@ -75,6 +75,8 @@
         return m.audit_password_reset_link_made({ actor, subject });
       case 'password_set_by_operator':
         return m.audit_password_set_by_operator({ actor, subject });
+      case 'email_verified_by_operator':
+        return m.audit_email_verified_by_operator({ actor, subject });
     }
   }
 

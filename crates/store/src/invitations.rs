@@ -29,7 +29,7 @@ use crate::{Standing, Store};
 const COLUMNS: &str = "id, workspace_id, role, board_id, board_role, created_by, create_at, \
                        expires_at, max_uses, uses, parent_id, recipient";
 /// [`COLUMNS`] of the table as `i`.
-const COLUMNS_OF_I: &str = "i.id, i.workspace_id, i.role, i.board_id, i.board_role, \
+pub(crate) const COLUMNS_OF_I: &str = "i.id, i.workspace_id, i.role, i.board_id, i.board_role, \
                             i.created_by, i.create_at, i.expires_at, i.max_uses, i.uses, \
                             i.parent_id, i.recipient";
 
@@ -390,40 +390,10 @@ impl Store {
         inviter: Inviter<'_>,
     ) -> Result<Acceptance, StoreError> {
         self.transaction(async |scope| {
-            // Hold the board before its invitation and membership, as removal does.
-            // The acceptor's role then stays what was read until its write.
-            let sql = select_live_by_token(scope, token_hash, now)?;
-            let Some(row) = scope.fetch_optional(sql).await? else {
-                return Ok(Acceptance::Unavailable);
+            let link = match hold_live_link(scope, token_hash, now, inviter.standing).await? {
+                Ok(link) => link,
+                Err(refused) => return Ok(refused),
             };
-            if let Some(board_id) = invitation_from_row(&row)?.board_id {
-                // Team changes hold the organization before any board. Keep inherited
-                // board access stable through the grant; workspace links have no such role.
-                crate::org_admin::hold_organization_row(scope).await?;
-                if !lock_board(scope, &board_id).await? {
-                    return Ok(Acceptance::Unavailable);
-                }
-            }
-            // The link itself, held against the other acceptances of it: read again,
-            // it is live still, and its workspace still invites guests if it is for one.
-            let mut sql = select_live_by_token(scope, token_hash, now)?;
-            sql.push_bind(" AND (i.role <> ", WorkspaceRole::Guest.as_str())
-                .push_bind(
-                    " OR EXISTS (SELECT 1 FROM workspaces AS t WHERE t.id = i.workspace_id \
-                     AND t.guest_invitations = ",
-                    true,
-                )
-                .push("))");
-            if scope.dialect() == Dialect::Postgres {
-                sql.push(" FOR UPDATE OF i");
-            }
-            let Some(row) = scope.fetch_optional(sql).await? else {
-                return Ok(Acceptance::Unavailable);
-            };
-            let link = invitation_from_row(&row)?;
-            if !inviter_still(scope, &link, inviter.standing).await? {
-                return Ok(Acceptance::InviterChanged);
-            }
             let user_id = match acceptor {
                 Acceptor::Account(user_id) => user_id.to_owned(),
                 Acceptor::NewAccount(user) => {
@@ -431,47 +401,9 @@ impl Store {
                     user.id.clone()
                 }
             };
-            // What the link gives is said by its role: a row whose board does not go
-            // with its role is broken, and lets nobody in as anything.
-            let used = match (link.role, &link.board_id, link.board_role) {
-                (WorkspaceRole::Member, None, None) => {
-                    let_in_as_member(scope, &link.workspace_id, &user_id).await?
-                }
-                (WorkspaceRole::Guest, Some(board_id), Some(board_role)) => {
-                    let guest = BoardMember {
-                        board_id: board_id.clone(),
-                        user_id: user_id.clone(),
-                        ..BoardMember::default()
-                    }
-                    .with_role(Some(board_role));
-                    let let_in = let_in_as_guest(scope, &link.workspace_id, guest).await?;
-                    // Whom a manager who does not read the board puts on it is on the
-                    // record, by a link as by adding them.
-                    if let_in.onto_board && inviter.of_board == InviterOfBoard::ManagerOnly {
-                        let entry = AuditEntry::new(
-                            &link.workspace_id,
-                            &link.created_by,
-                            AuditAction::AddedToBoard,
-                            board_id,
-                        )
-                        .with_subject(&user_id);
-                        audit::record_entry(scope, &entry).await?;
-                    }
-                    let_in.changed
-                }
-                _ => {
-                    return Err(StoreError::Corrupt {
-                        column: "role",
-                        reason: "an invitation is for members, or for a guest of a board"
-                            .to_owned(),
-                    });
-                }
-            };
+            let used = let_in(scope, &link, &user_id, inviter.of_board).await?;
             if used {
-                let mut sql = scope.sql("UPDATE invitations SET uses = uses + 1 WHERE id = ");
-                sql.bind(Id(&link.id))
-                    .push_bind(" AND org_id = ", scope.org()?);
-                scope.execute(sql).await?;
+                count_uses(scope, &link.id, 1).await?;
             }
             Ok(Acceptance::Accepted(Accepted {
                 user_id,
@@ -482,6 +414,121 @@ impl Store {
         })
         .await
     }
+}
+
+/// Holds the live link of the scope's organization whose token has the digest
+/// `token_hash` at `now`, against the other acceptances of it, after its board and the
+/// organization's row for a guest's link (as removal holds them), and its maker's
+/// membership of the workspace if they are still `found`: the link, or what the
+/// acceptance is to answer instead.
+pub(crate) async fn hold_live_link(
+    scope: &mut Scope<'_>,
+    token_hash: &str,
+    now: i64,
+    found: Standing<'_>,
+) -> Result<Result<Invitation, Acceptance>, StoreError> {
+    // Hold the board before its invitation and membership, as removal does.
+    // The acceptor's role then stays what was read until its write.
+    let sql = select_live_by_token(scope, token_hash, now)?;
+    let Some(row) = scope.fetch_optional(sql).await? else {
+        return Ok(Err(Acceptance::Unavailable));
+    };
+    if let Some(board_id) = invitation_from_row(&row)?.board_id {
+        // Team changes hold the organization before any board. Keep inherited
+        // board access stable through the grant; workspace links have no such role.
+        crate::org_admin::hold_organization_row(scope).await?;
+        if !lock_board(scope, &board_id).await? {
+            return Ok(Err(Acceptance::Unavailable));
+        }
+    }
+    // The link itself, held against the other acceptances of it: read again,
+    // it is live still, and its workspace still invites guests if it is for one.
+    let mut sql = select_live_by_token(scope, token_hash, now)?;
+    push_invites(&mut sql);
+    if scope.dialect() == Dialect::Postgres {
+        sql.push(" FOR UPDATE OF i");
+    }
+    let Some(row) = scope.fetch_optional(sql).await? else {
+        return Ok(Err(Acceptance::Unavailable));
+    };
+    let link = invitation_from_row(&row)?;
+    if !inviter_still(scope, &link, found).await? {
+        return Ok(Err(Acceptance::InviterChanged));
+    }
+    Ok(Ok(link))
+}
+
+/// Pushes the condition that the link `i` is for members, or that its workspace still
+/// invites guests.
+pub(crate) fn push_invites(sql: &mut Sql) {
+    sql.push_bind(" AND (i.role <> ", WorkspaceRole::Guest.as_str())
+        .push_bind(
+            " OR EXISTS (SELECT 1 FROM workspaces AS t WHERE t.id = i.workspace_id \
+             AND t.guest_invitations = ",
+            true,
+        )
+        .push("))");
+}
+
+/// Lets the user `user_id` in by `link`, as [`Store::accept_invitation`] says, its
+/// maker being `of_board` to a guest's board; says whether anything changed, which
+/// counts as a use of the link.
+pub(crate) async fn let_in(
+    scope: &mut Scope<'_>,
+    link: &Invitation,
+    user_id: &str,
+    of_board: InviterOfBoard,
+) -> Result<bool, StoreError> {
+    // What the link gives is said by its role: a row whose board does not go
+    // with its role is broken, and lets nobody in as anything.
+    match (link.role, &link.board_id, link.board_role) {
+        (WorkspaceRole::Member, None, None) => {
+            let_in_as_member(scope, &link.workspace_id, user_id).await
+        }
+        (WorkspaceRole::Guest, Some(board_id), Some(board_role)) => {
+            let guest = BoardMember {
+                board_id: board_id.clone(),
+                user_id: user_id.to_owned(),
+                ..BoardMember::default()
+            }
+            .with_role(Some(board_role));
+            let let_in = let_in_as_guest(scope, &link.workspace_id, guest).await?;
+            // Whom a manager who does not read the board puts on it is on the
+            // record, by a link as by adding them.
+            if let_in.onto_board && of_board == InviterOfBoard::ManagerOnly {
+                let entry = AuditEntry::new(
+                    &link.workspace_id,
+                    &link.created_by,
+                    AuditAction::AddedToBoard,
+                    board_id,
+                )
+                .with_subject(user_id);
+                audit::record_entry(scope, &entry).await?;
+            }
+            Ok(let_in.changed)
+        }
+        _ => Err(StoreError::Corrupt {
+            column: "role",
+            reason: "an invitation is for members, or for a guest of a board".to_owned(),
+        }),
+    }
+}
+
+/// Counts `uses` more uses of the link `link_id` of the scope's organization, or gives
+/// some back where `uses` is negative (never below none).
+pub(crate) async fn count_uses(
+    scope: &mut Scope<'_>,
+    link_id: &str,
+    uses: i64,
+) -> Result<(), StoreError> {
+    let mut sql = scope.sql("UPDATE invitations SET uses = uses + ");
+    sql.bind(uses)
+        .push_bind(" WHERE id = ", Id(link_id))
+        .push_bind(" AND org_id = ", scope.org()?)
+        .push_bind(" AND uses + ", uses)
+        .push(" >= 0");
+    scope.execute(sql).await?;
+    Ok(())
 }
 
 /// Makes the user a member of the scope's organization and of the workspace; says
@@ -519,7 +566,7 @@ async fn let_in_as_member(
 /// workspace is held from here on: who takes them out, or makes them something else
 /// there, waits for the acceptance. The boards of the trash are held before the
 /// membership, as whoever changes a membership has them.
-async fn inviter_still(
+pub(crate) async fn inviter_still(
     scope: &mut Scope<'_>,
     link: &Invitation,
     found: Standing<'_>,
@@ -677,7 +724,7 @@ pub(crate) fn push_live(sql: &mut Sql, now: i64) {
         .push(" AND (i.max_uses IS NULL OR i.uses < i.max_uses)");
 }
 
-fn invitation_from_row(row: &Row) -> Result<Invitation, StoreError> {
+pub(crate) fn invitation_from_row(row: &Row) -> Result<Invitation, StoreError> {
     let corrupt = |column: &'static str| {
         move |error: fvoci_model::UnknownRole| StoreError::Corrupt {
             column,

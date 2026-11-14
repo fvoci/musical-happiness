@@ -5,7 +5,7 @@
 use fvoci_model::User;
 
 use crate::accounts::{self, Founding};
-use crate::db::{Dialect, Id, Row, Scope, Sql};
+use crate::db::{Dialect, Id, OptId, Row, Scope, Sql};
 use crate::error::{StoreError, Taken};
 use crate::{Store, users};
 
@@ -73,6 +73,14 @@ impl Signup {
 pub enum SignupStart {
     /// An organization of this name, with its first workspace of the same name.
     Organization(String),
+    /// The link of an invitation it was made by, which counts it as a use: in what it
+    /// lets in once the registration is confirmed, and given back if it is not.
+    Invitation {
+        /// The link.
+        id: String,
+        /// Its organization.
+        org_id: String,
+    },
 }
 
 /// How a registration is found to be confirmed.
@@ -102,11 +110,13 @@ pub struct Confirmed {
     pub org_id: String,
     /// The workspace the account first sees.
     pub workspace_id: String,
+    /// For a guest's link: the board it was let onto.
+    pub board_id: Option<String>,
 }
 
 /// The columns of a registration, in the order [`signup_from_row`] reads them.
 const COLUMNS: &str = "id, username, email, display_name, password_hash, language, \
-    organization_name, create_at, expires_at";
+    organization_name, create_at, expires_at, invitation_id, invitation_org_id";
 
 impl Store {
     /// Stores a registration whose address is to be confirmed, holding its name and
@@ -118,17 +128,26 @@ impl Store {
     /// that has not ended has the name or the address, in any letter case; and
     /// [`StoreError::Database`] if a statement fails.
     pub async fn create_signup(&self, signup: &Signup, now: i64) -> Result<(), StoreError> {
-        self.transaction(async |scope| {
-            remove_ended(scope, now).await?;
-            claim_account_names(scope).await?;
-            if let Some(taken) =
-                holder_of_names(scope, Holders::Accounts, &signup.username, &signup.email).await?
-            {
-                return Err(StoreError::Conflict(taken));
-            }
-            insert(scope, signup).await
-        })
-        .await
+        self.system()
+            .transaction(async |scope| {
+                remove_ended(scope, now).await?;
+                hold_names(scope, signup).await
+            })
+            .await
+    }
+
+    /// The registration `proof` names, if it has not ended by `now`, nor its link.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn signup_of(
+        &self,
+        proof: Proof<'_>,
+        now: i64,
+    ) -> Result<Option<Signup>, StoreError> {
+        self.with_conn(async |scope| find(scope, proof, now).await)
+            .await
     }
 
     /// The registration a login names, if it has not ended by `now`.
@@ -198,17 +217,14 @@ impl Store {
     /// [`Store::sign_up`].
     pub async fn confirm_signup(
         &self,
+        signup: &Signup,
         proof: Proof<'_>,
         founding: Founding,
         now: i64,
     ) -> Result<Option<Confirmed>, StoreError> {
-        let Some(signup) = self
-            .with_conn(async |scope| find(scope, proof, now).await)
-            .await?
-        else {
-            return Ok(None);
+        let SignupStart::Organization(name) = &signup.start else {
+            return Err(StoreError::not_found("registration of its own"));
         };
-        let SignupStart::Organization(name) = &signup.start;
         let existing = match founding {
             Founding::First => self.instance_organization().await?,
             Founding::New => None,
@@ -226,25 +242,30 @@ impl Store {
                     user,
                     org_id: org_id.clone(),
                     workspace_id,
+                    board_id: None,
                 }))
             })
             .await
     }
 
     /// Removes the registration `proof` names at `now`, unconfirmed: its name and
-    /// address are free again. Says whether there was one.
+    /// address are free again, and the use of a link it was made by is given back.
+    /// Says whether there was one.
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if a statement fails.
     pub async fn discard_signup(&self, proof: Proof<'_>, now: i64) -> Result<bool, StoreError> {
-        self.transaction(async |scope| {
-            let Some(signup) = find(scope, proof, now).await? else {
-                return Ok(false);
-            };
-            take(scope, &signup.id, proof, now).await
-        })
-        .await
+        self.system()
+            .transaction(async |scope| {
+                let Some(signup) = find(scope, proof, now).await? else {
+                    return Ok(false);
+                };
+                // The link before the registration, as a registration by it is made.
+                give_back_use(scope, &signup).await?;
+                take(scope, &signup.id, proof, now).await
+            })
+            .await
     }
 
     /// Whether the link of the registration `signup_id` is still the one of `digest`,
@@ -292,15 +313,16 @@ impl Store {
     ///
     /// Returns [`StoreError::Database`] if a statement fails; nothing is removed then.
     pub async fn remove_ended_signups(&self, now: i64) -> Result<u64, StoreError> {
-        self.transaction(async |scope| {
-            let removed = remove_ended(scope, now).await?;
-            let mut links =
-                scope.sql("UPDATE signups SET token_hash = NULL, token_expires_at = NULL");
-            links.push_bind(" WHERE token_expires_at <= ", now);
-            scope.execute(links).await?;
-            Ok(removed)
-        })
-        .await
+        self.system()
+            .transaction(async |scope| {
+                let removed = remove_ended(scope, now).await?;
+                let mut links =
+                    scope.sql("UPDATE signups SET token_hash = NULL, token_expires_at = NULL");
+                links.push_bind(" WHERE token_expires_at <= ", now);
+                scope.execute(links).await?;
+                Ok(removed)
+            })
+            .await
     }
 }
 
@@ -367,8 +389,28 @@ async fn holder_of_names(
     })
 }
 
+/// Stores `signup`, holding its name and address against every account and registration.
+///
+/// # Errors
+///
+/// Returns [`StoreError::Conflict`] if an account, deleted or not, or a registration
+/// that has not ended has the name or the address.
+pub(crate) async fn hold_names(scope: &mut Scope<'_>, signup: &Signup) -> Result<(), StoreError> {
+    claim_account_names(scope).await?;
+    if let Some(taken) =
+        holder_of_names(scope, Holders::Accounts, &signup.username, &signup.email).await?
+    {
+        return Err(StoreError::Conflict(taken));
+    }
+    insert(scope, signup).await
+}
+
 async fn insert(scope: &mut Scope<'_>, signup: &Signup) -> Result<(), StoreError> {
-    let SignupStart::Organization(organization_name) = &signup.start;
+    let (organization_name, invitation_id, invitation_org_id) = match &signup.start {
+        SignupStart::Organization(name) => (name.as_str(), "", ""),
+        // A name is never empty: none, for a registration by a link.
+        SignupStart::Invitation { id, org_id } => ("", id.as_str(), org_id.as_str()),
+    };
     let mut sql = scope.sql(&format!("INSERT INTO signups ({COLUMNS}) VALUES ("));
     sql.bind(Id(&signup.id))
         .push_bind(", ", &signup.username)
@@ -376,9 +418,12 @@ async fn insert(scope: &mut Scope<'_>, signup: &Signup) -> Result<(), StoreError
         .push_bind(", ", &signup.display_name)
         .push_bind(", ", &signup.password_hash)
         .push_bind(", ", &signup.language)
-        .push_bind(", ", organization_name)
+        .push_bind(", NULLIF(", organization_name)
+        .push(", '')")
         .push_bind(", ", signup.create_at)
         .push_bind(", ", signup.expires_at)
+        .push_bind(", ", OptId(invitation_id))
+        .push_bind(", ", OptId(invitation_org_id))
         .push(")");
     match scope.execute(sql).await {
         Ok(_) => Ok(()),
@@ -406,7 +451,7 @@ async fn find(
 
 /// Removes the registration `signup_id` if `proof` still names it at `now`; says
 /// whether it did. Of two transactions that take one, one does.
-async fn take(
+pub(crate) async fn take(
     scope: &mut Scope<'_>,
     signup_id: &str,
     proof: Proof<'_>,
@@ -432,11 +477,42 @@ fn push_proof(sql: &mut Sql, proof: Proof<'_>, now: i64) {
     }
 }
 
-/// Removes the registrations that ended by `now`; returns how many.
+/// Removes the registrations that ended by `now`, giving back the uses of the links
+/// they were made by first; returns how many. Needs the system's reach: the links are
+/// of every organization, and a statement the wall hides them from changes nothing.
 async fn remove_ended(scope: &mut Scope<'_>, now: i64) -> Result<u64, StoreError> {
+    let mut sql = scope.sql(&format!(
+        "SELECT {COLUMNS} FROM signups WHERE expires_at <= "
+    ));
+    sql.bind(now).push(" AND invitation_id IS NOT NULL");
+    let held = scope
+        .fetch_all(sql)
+        .await?
+        .iter()
+        .map(signup_from_row)
+        .collect::<Result<Vec<_>, _>>()?;
+    for signup in &held {
+        give_back_use(scope, signup).await?;
+    }
     let mut sql = scope.sql("DELETE FROM signups WHERE expires_at <= ");
     sql.bind(now);
     scope.execute(sql).await
+}
+
+/// Gives back the use a registration took of the link it was made by, if it was; the
+/// scope reaches the link's organization.
+pub(crate) async fn give_back_use(
+    scope: &mut Scope<'_>,
+    signup: &Signup,
+) -> Result<(), StoreError> {
+    if let SignupStart::Invitation { id, org_id } = &signup.start {
+        let mut sql = scope.sql("UPDATE invitations SET uses = uses - 1 WHERE id = ");
+        sql.bind(Id(id))
+            .push_bind(" AND org_id = ", Id(org_id))
+            .push(" AND uses > 0");
+        scope.execute(sql).await?;
+    }
+    Ok(())
 }
 
 fn signup_from_row(row: &Row) -> Result<Signup, StoreError> {
@@ -447,7 +523,13 @@ fn signup_from_row(row: &Row) -> Result<Signup, StoreError> {
         display_name: row.text(3)?,
         password_hash: row.text(4)?,
         language: row.text(5)?,
-        start: SignupStart::Organization(row.text(6)?),
+        start: match row.id(9)? {
+            invitation_id if invitation_id.is_empty() => SignupStart::Organization(row.text(6)?),
+            invitation_id => SignupStart::Invitation {
+                id: invitation_id,
+                org_id: row.id(10)?,
+            },
+        },
         create_at: row.int(7)?,
         expires_at: row.int(8)?,
     })

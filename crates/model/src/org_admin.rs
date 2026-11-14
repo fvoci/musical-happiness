@@ -152,11 +152,15 @@ pub enum AuditAction {
     /// The server operator set the password of a member (the subject). The target is
     /// the organization; one is written in each organization the person is in.
     PasswordSetByOperator,
+    /// The server operator confirmed the email address of a registration made by a
+    /// link for members, which made its account (the subject) a member. The target is
+    /// the organization it joined.
+    EmailVerifiedByOperator,
 }
 
 impl AuditAction {
     /// Every action, in the order of the declaration.
-    pub const ALL: [Self; 22] = [
+    pub const ALL: [Self; 23] = [
         Self::SelfAddedToBoard,
         Self::AddedToBoard,
         Self::OrgAdminJoined,
@@ -179,6 +183,7 @@ impl AuditAction {
         Self::OidcProviderPendingDiscarded,
         Self::PasswordResetLinkMade,
         Self::PasswordSetByOperator,
+        Self::EmailVerifiedByOperator,
     ];
 
     /// The wire and database form.
@@ -207,6 +212,7 @@ impl AuditAction {
             Self::OidcProviderPendingDiscarded => "oidc_provider_pending_discarded",
             Self::PasswordResetLinkMade => "password_reset_link_made",
             Self::PasswordSetByOperator => "password_set_by_operator",
+            Self::EmailVerifiedByOperator => "email_verified_by_operator",
         }
     }
 }
