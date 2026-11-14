@@ -65,6 +65,29 @@ impl BoardKind {
     }
 }
 
+impl std::fmt::Display for BoardKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// Error returned when a string names no kind of board.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[error("{0:?} is no kind of board")]
+pub struct ParseBoardKindError(String);
+
+impl FromStr for BoardKind {
+    type Err = ParseBoardKindError;
+
+    /// Reads the wire and database form ([`BoardKind::as_str`]), exactly.
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        Self::ALL
+            .into_iter()
+            .find(|kind| kind.as_str() == text)
+            .ok_or_else(|| ParseBoardKindError(text.to_owned()))
+    }
+}
+
 /// The kinds of container something reaches: what an operation is for, and what a list
 /// holds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -233,10 +256,10 @@ pub enum BoardError {
     /// The board is stored as of another kind than it was made as.
     #[error("a {stored} does not become a {asked}: the kind of a board never changes")]
     KindChanges {
-        /// The kind it is, in its wire form.
-        stored: &'static str,
-        /// The kind it was to become, in its wire form.
-        asked: &'static str,
+        /// The kind it is.
+        stored: BoardKind,
+        /// The kind it was to become.
+        asked: BoardKind,
     },
     /// A wiki is stored as a template.
     #[error("a wiki is no template")]

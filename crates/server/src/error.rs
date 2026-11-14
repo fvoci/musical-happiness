@@ -859,16 +859,16 @@ impl From<StoreError> for AppError {
             }
             // What a board of its kind is not: the member that says otherwise.
             StoreError::InvalidBoard(
-                BoardError::KindChanges { .. }
+                refused @ (BoardError::KindChanges { .. }
                 | BoardError::WikiIsTemplate
-                | BoardError::WikiHasCardProperties,
+                | BoardError::WikiHasCardProperties),
             ) => {
-                let member = match &error {
-                    StoreError::InvalidBoard(BoardError::WikiIsTemplate) => "isTemplate",
-                    StoreError::InvalidBoard(BoardError::WikiHasCardProperties) => "cardProperties",
+                let member = match refused {
+                    BoardError::WikiIsTemplate => "isTemplate",
+                    BoardError::WikiHasCardProperties => "cardProperties",
                     _ => "kind",
                 };
-                let mut error = Self::bad_request(error).with_field(member);
+                let mut error = Self::bad_request(refused).with_field(member);
                 error.subject = Some(Subject::Board);
                 error
             }

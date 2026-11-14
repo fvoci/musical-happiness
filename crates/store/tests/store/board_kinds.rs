@@ -3,7 +3,7 @@
 
 use fvoci_model::{
     Block, BlockType, Board, BoardError, BoardKind, BoardKinds, BoardPatch, BoardSearchField,
-    BoardType, JsonMap, new_id,
+    BoardType, JsonMap, MinimumRole, WorkspaceRole, new_id,
 };
 use fvoci_store::{DbType, PublicBoards, Store, StoreError};
 use serde_json::json;
@@ -58,8 +58,8 @@ async fn a_board_is_of_the_kind_it_was_made_as_whatever_stores_it_again() {
         assert_eq!(
             refusal(test.insert_board(&mut as_other, &user_id).await),
             BoardError::KindChanges {
-                stored: made.kind.as_str(),
-                asked: other.as_str(),
+                stored: made.kind,
+                asked: other,
             }
         );
         // A change that leaves the kind alone is stored, and the kind with it.
@@ -142,6 +142,32 @@ async fn every_list_of_boards_is_of_the_kinds_it_is_asked_for() {
     let workspace_id = common::workspace_of(&test, &[&user_id]).await;
     let board = stored(&test, &workspace_id, &user_id, BoardKind::Board).await;
     let wiki = stored(&test, &workspace_id, &user_id, BoardKind::Wiki).await;
+    // Somebody who is on both through a team only.
+    let (admin, through_team) = (
+        common::user(&test, "admin").await,
+        common::user(&test, "teammate").await,
+    );
+    for (who, role) in [
+        (&admin, WorkspaceRole::Admin),
+        (&through_team, WorkspaceRole::Member),
+    ] {
+        test.add_workspace_member(&workspace_id, who, role)
+            .await
+            .expect("the user is let into the workspace");
+    }
+    let team = test
+        .create_team(&workspace_id, "a team", &admin)
+        .await
+        .expect("a team is stored");
+    test.add_team_member(&workspace_id, &team, &through_team, &admin)
+        .await
+        .expect("a team member is stored");
+    for on in [&board, &wiki] {
+        let role = Some(MinimumRole::Editor);
+        test.set_board_team(&workspace_id, &on.id, &team, role, &admin)
+            .await
+            .expect("the team is on the board");
+    }
     let cases = [
         (BoardKinds::Boards, vec![board.id.as_str()]),
         (BoardKinds::Wikis, vec![wiki.id.as_str()]),
@@ -185,12 +211,21 @@ async fn every_list_of_boards_is_of_the_kinds_it_is_asked_for() {
             .iter()
             .map(|member| member.board_id.as_str())
             .collect();
+        let memberships = test
+            .board_memberships_of_user(&through_team, None, kinds)
+            .await
+            .expect("the memberships through the team");
+        let through: Vec<&str> = memberships
+            .iter()
+            .map(|member| member.board_id.as_str())
+            .collect();
         for (list, listed) in [
             ("of the user", ids(&of_user)),
             ("of the workspace", ids(&of_workspace)),
             ("found", ids(&found)),
             ("found in the workspace", ids(&found_there)),
             ("the user is on", member_of),
+            ("a team is on", through),
         ] {
             assert_eq!(&listed, expected, "the boards {list}, of {kinds:?}");
         }

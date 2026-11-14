@@ -1198,6 +1198,17 @@
             "description": "The identifier of the card or the board.",
             "type": "string"
           },
+          "kind": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BoardKind",
+                "description": "For a board, its kind: the trash of boards lists boards and wikis together. Left\nout for a card."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "title": {
             "description": "Its title when it was deleted.",
             "type": "string"
@@ -1207,6 +1218,7 @@
           "deletedAt",
           "deletedBy",
           "id",
+          "kind",
           "title"
         ],
         "type": "object"
@@ -6828,7 +6840,7 @@
         ]
       },
       "post": {
-        "description": "Makes boards and their blocks together, all or none, under identifiers the server\nmakes; the identifiers of the request only say which block belongs to which board\nand to which other block. The request needs at least one board and one block; every\nboard needs an `id`, and all boards are of one workspace. The user becomes the admin of\neach board, and each board that is no template is filed under the user's default\ncategory. They are boards: one whose `kind` is not `board` is 400 at `/kind`.",
+        "description": "Makes boards and their blocks together, all or none, under identifiers the server\nmakes; the identifiers of the request only say which block belongs to which board\nand to which other block. The request needs at least one board and one block; every\nboard needs an `id`, and all boards are of one workspace. The user becomes the admin of\neach board, and each board that is no template is filed under the user's default\ncategory. They are boards: one whose `kind` is not `board` is 400 at its `kind`.",
         "operationId": "createBoardsAndBlocks",
         "parameters": [
           {
@@ -7038,7 +7050,7 @@
         ]
       },
       "patch": {
-        "description": "For who may manage the board's properties. Changing `type` or `minimumRole` is for\nthe board's admins. A wiki is changed here too, by its identifier; it takes no card\nproperties (400 at `/cardProperties`), and nothing changes the `kind` of a board.",
+        "description": "For who may manage the board's properties. Changing `type` or `minimumRole` is for\nthe board's admins. A wiki is changed here too, by its identifier; it takes no card\nproperties (400 at `/updatedCardProperties`), and nothing changes the `kind` of a board.",
         "operationId": "patchBoard",
         "parameters": [
           {
@@ -10671,7 +10683,7 @@
     },
     "/api/v1/w/{workspaceId}/trash/boards": {
       "get": {
-        "description": "One page of the workspace's boards that are in the trash and that the user was an admin\nof when they were deleted, or every one of them for an administrator of the\nworkspace, which is who `undeleteBoard` lets bring them back: each\nwith its identifier, its title, when it was deleted and by whom. The last deleted\nfirst; the pages cut that order. A `page` or `perPage` that is no whole number is\n400. For users of the workspace.\n\nThe list is of one kind: the boards, or with `kind=wiki` the wikis, which go to the\ntrash and come back as boards do (`deleteBoard`, `undeleteBoard`).",
+        "description": "One page of the workspace's boards that are in the trash and that the user was an admin\nof when they were deleted, or every one of them for an administrator of the\nworkspace, which is who `undeleteBoard` lets bring them back: each\nwith its identifier, its title, when it was deleted and by whom. The last deleted\nfirst; the pages cut that order. A `page` or `perPage` that is no whole number is\n400. For users of the workspace.\n\nThe wikis in the trash are in the same list, which go there and come back as boards\ndo (`deleteBoard`, `undeleteBoard`): each entry says its `kind`.",
         "operationId": "getDeletedBoards",
         "parameters": [
           {
@@ -10701,15 +10713,6 @@
             "schema": {
               "format": "int64",
               "type": "integer"
-            }
-          },
-          {
-            "description": "Which kind the list is of: `board` (also when left out) or `wiki`. Anything else is 400.",
-            "in": "query",
-            "name": "kind",
-            "required": false,
-            "schema": {
-              "type": "string"
             }
           }
         ],

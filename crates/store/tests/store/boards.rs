@@ -3986,14 +3986,14 @@ async fn a_board_comes_back_from_the_trash_with_every_member_it_had() {
         .await
         .expect("the text on the card is stored");
 
-    // As stored, nothing that can be set is at its default.
+    // As stored, nothing that can be set is at its default; a wiki has no card properties.
     let board = test.get_board(&board.id).await.expect("the board is read");
     let members = members_of(&test, &board.id).await;
     let blocks = blocks_of(&test, &board.id).await;
     let note = test.get_block(&note.id).await.expect("the text is read");
     assert_eq!(
         members_at_their_default(&board, &Board::default()),
-        ["deleteAt"],
+        ["deleteAt", "kind"],
         "of the board: {board:?}"
     );
     assert_eq!(

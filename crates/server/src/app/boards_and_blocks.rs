@@ -55,8 +55,9 @@ impl App {
         user_id: &str,
         membership: CreatorMembership,
     ) -> Result<BoardsAndBlocks, AppError> {
-        for board in &created.boards {
-            self.require_makes(board)?;
+        for (index, board) in created.boards.iter().enumerate() {
+            self.require_makes(board)
+                .map_err(|error| error.under(&format!("/boards/{index}")))?;
         }
         let members = {
             let _structure = self.collab().changing_structure(self).await;

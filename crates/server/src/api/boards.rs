@@ -178,7 +178,7 @@ async fn handle_get_board(
 ///
 /// For who may manage the board's properties. Changing `type` or `minimumRole` is for
 /// the board's admins. A wiki is changed here too, by its identifier; it takes no card
-/// properties (400 at `/cardProperties`), and nothing changes the `kind` of a board.
+/// properties (400 at `/updatedCardProperties`), and nothing changes the `kind` of a board.
 #[utoipa::path(
     patch,
     path = "/w/{workspaceId}/boards/{boardId}",

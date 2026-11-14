@@ -466,9 +466,10 @@ fn ids(listed: &ApiResponse) -> Vec<String> {
     listed.iter().map(|entry| text(entry, "id")).collect()
 }
 
-/// The lists of boards, the search and the trash are of one kind each.
+/// The lists of boards and the search are of one kind each; the trash of boards holds
+/// both, and says of each which it is.
 #[tokio::test]
-async fn every_list_is_of_one_kind() {
+async fn every_list_is_of_its_kinds() {
     let world = World::start().await;
     let client = &world.ts.client;
     let (board, wiki) = (
@@ -496,21 +497,45 @@ async fn every_list_is_of_one_kind() {
         .await;
     assert_eq!(ids(&found), the_board, "the search is for boards");
 
-    // The trash is listed by kind, the boards unless the wikis are asked for.
     for things in [&board, &wiki] {
         let at = format!("{ROOT_WS}/boards/{}", things.container);
         client.delete(&at).await.check_done();
     }
-    let trash =
-        async |query: &str| ids(&client.get(&format!("{ROOT_WS}/trash/boards{query}")).await);
-    assert_eq!(trash("").await, the_board);
-    assert_eq!(trash("?kind=board").await, the_board);
-    assert_eq!(trash("?kind=wiki").await, the_wiki);
-    let neither = client
-        .get(&format!("{ROOT_WS}/trash/boards?kind=page"))
+    let trash = client.get(&format!("{ROOT_WS}/trash/boards")).await;
+    trash.check_done();
+    let mut listed: Vec<(String, String)> = trash
+        .value()
+        .as_array()
+        .expect("a list")
+        .iter()
+        .map(|entry| (text(entry, "kind"), text(entry, "id")))
+        .collect();
+    listed.sort();
+    assert_eq!(
+        listed,
+        [
+            ("board".to_owned(), board.container.clone()),
+            ("wiki".to_owned(), wiki.container.clone()),
+        ]
+    );
+    // A card in the trash says no kind.
+    let card = format!(
+        "{ROOT_WS}/boards/{}/blocks/{}",
+        board.container, board.block
+    );
+    let again = client
+        .post(
+            &format!("{ROOT_WS}/boards/{}/undelete", board.container),
+            &json!({}),
+        )
         .await;
-    neither.check_bad_request();
-    assert_eq!(neither.refused_at(), "parameter kind");
+    again.check_done();
+    client.delete(&card).await.check_done();
+    let cards = client
+        .get(&format!("{ROOT_WS}/boards/{}/trash/cards", board.container))
+        .await;
+    assert_eq!(ids(&cards), std::slice::from_ref(&board.block));
+    assert!(cards.value()[0].get("kind").is_none(), "{}", cards.text());
     world.ts.teardown().await;
 }
 
@@ -541,9 +566,9 @@ async fn what_names_a_wiki_in_a_body_or_a_query_is_refused_as_what_names_nothing
             &json!({"boards": [as_wiki], "blocks": [card]}),
         )
         .await;
-    for refused in [one, many] {
+    for (refused, at) in [(one, "/kind"), (many, "/boards/0/kind")] {
         refused.check_bad_request();
-        assert_eq!(refused.refused_at(), "/kind", "{}", refused.text());
+        assert_eq!(refused.refused_at(), at, "{}", refused.text());
     }
     assert_eq!(ids(&client.get(&format!("{ROOT_WS}/wikis")).await).len(), 1);
 
@@ -579,14 +604,21 @@ async fn what_names_a_wiki_in_a_body_or_a_query_is_refused_as_what_names_nothing
     .await;
     let copied =
         json!([{"boardId": board.container, "type": "card", "createAt": 1, "updateAt": 1}]);
-    for source in [&wiki.container, UNKNOWN_ID] {
+    let from = async |source: &str| {
         let path = format!(
             "{ROOT_WS}/boards/{}/blocks?sourceBoardId={source}",
             board.container
         );
-        let copied = client.post(&path, &copied).await;
-        assert!(!copied.status.is_success(), "{source}: {}", copied.text());
-    }
+        client.post(&path, &copied).await
+    };
+    let other = client
+        .post(&format!("{ROOT_WS}/boards"), &json!({"type": "P"}))
+        .await;
+    other.check_done();
+    from(&text(&other.value(), "id")).await.check_done();
+    let (of_wiki, nothing) = (from(&wiki.container).await, from(UNKNOWN_ID).await);
+    assert_eq!(answer(&of_wiki), answer(&nothing), "sourceBoardId");
+    assert!(!of_wiki.status.is_success(), "{}", of_wiki.text());
     client
         .put(
             &format!("{ROOT_WS}/guest-invitations"),
@@ -607,5 +639,50 @@ async fn what_names_a_wiki_in_a_body_or_a_query_is_refused_as_what_names_nothing
         .await;
     read.check_done();
     assert_ne!(read.value()["title"], "changed");
+    let card = client
+        .get(&format!("{ROOT_WS}/cards/{}", board.block))
+        .await;
+    card.check_done();
+    assert_eq!(card.value()["title"], "a card");
+    world.ts.teardown().await;
+}
+
+/// The audit of the workspace names the wiki an administrator of the workspace put
+/// themselves on, as it names a board, to who sees it.
+#[tokio::test]
+async fn the_audit_names_a_wiki_as_it_names_a_board() {
+    let world = World::start().await;
+    let (administrator, maker) = (&world.ts.client, &world.ts.client2);
+    let mut made = Vec::new();
+    for (path, title) in [("boards", "Roadmap"), ("wikis", "Plans")] {
+        let container = maker
+            .post(
+                &format!("{ROOT_WS}/{path}"),
+                &json!({"type": "P", "title": title}),
+            )
+            .await;
+        container.check_done();
+        let id = text(&container.value(), "id");
+        administrator
+            .post(
+                &format!("{ROOT_WS}/boards/{id}/members"),
+                &json!({"boardId": id, "userId": world.me, "schemeAdmin": true}),
+            )
+            .await
+            .check_done();
+        made.push((id, title));
+    }
+    let audit = administrator.get(&format!("{ROOT_WS}/audit")).await;
+    audit.check_done();
+    let audit = audit.value();
+    let records = audit.as_array().expect("a list");
+    for (id, title) in made {
+        let named: Vec<&Value> = records
+            .iter()
+            .filter(|record| record["targetId"] == json!(id))
+            .map(|record| &record["targetName"])
+            .collect();
+        assert_eq!(named, [&json!(title)], "the records about {title}");
+    }
     world.ts.teardown().await;
 }

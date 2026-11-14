@@ -340,11 +340,9 @@ impl App {
     /// until it is narrowed: what is the same for a board and a wiki (who is on it, its
     /// files, the rooms of its bodies) is asked of both.
     #[must_use]
-    pub fn reaching(&self, kinds: BoardKinds) -> Self {
-        Self {
-            kinds,
-            ..self.clone()
-        }
+    pub fn reaching(mut self, kinds: BoardKinds) -> Self {
+        self.kinds = kinds;
+        self
     }
 
     /// The kinds of board this handle reaches ([`App::reaching`]).

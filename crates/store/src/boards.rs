@@ -597,8 +597,8 @@ pub(crate) async fn insert_board(
         // A board is of the kind it was made as: nothing stores it as of another.
         if existing.kind != board.kind {
             return Err(BoardError::KindChanges {
-                stored: existing.kind.as_str(),
-                asked: board.kind.as_str(),
+                stored: existing.kind,
+                asked: board.kind,
             }
             .into());
         }

@@ -1302,7 +1302,7 @@ export interface paths {
          *     and to which other block. The request needs at least one board and one block; every
          *     board needs an `id`, and all boards are of one workspace. The user becomes the admin of
          *     each board, and each board that is no template is filed under the user's default
-         *     category. They are boards: one whose `kind` is not `board` is 400 at `/kind`.
+         *     category. They are boards: one whose `kind` is not `board` is 400 at its `kind`.
          */
         post: operations["createBoardsAndBlocks"];
         /**
@@ -1383,7 +1383,7 @@ export interface paths {
          * Change a board
          * @description For who may manage the board's properties. Changing `type` or `minimumRole` is for
          *     the board's admins. A wiki is changed here too, by its identifier; it takes no card
-         *     properties (400 at `/cardProperties`), and nothing changes the `kind` of a board.
+         *     properties (400 at `/updatedCardProperties`), and nothing changes the `kind` of a board.
          */
         patch: operations["patchBoard"];
         trace?: never;
@@ -2649,8 +2649,8 @@ export interface paths {
          *     first; the pages cut that order. A `page` or `perPage` that is no whole number is
          *     400. For users of the workspace.
          *
-         *     The list is of one kind: the boards, or with `kind=wiki` the wikis, which go to the
-         *     trash and come back as boards do (`deleteBoard`, `undeleteBoard`).
+         *     The wikis in the trash are in the same list, which go there and come back as boards
+         *     do (`deleteBoard`, `undeleteBoard`): each entry says its `kind`.
          */
         get: operations["getDeletedBoards"];
         put?: never;
@@ -3410,6 +3410,7 @@ export interface components {
             deletedBy: string;
             /** @description The identifier of the card or the board. */
             id: string;
+            kind: components["schemas"]["BoardKind"] | null;
             /** @description Its title when it was deleted. */
             title: string;
         };
@@ -9067,8 +9068,6 @@ export interface operations {
                 page?: number;
                 /** @description How many a page has. Left out, 100. Zero or less asks for all of them. */
                 perPage?: number;
-                /** @description Which kind the list is of: `board` (also when left out) or `wiki`. Anything else is 400. */
-                kind?: string;
             };
             header?: never;
             path: {

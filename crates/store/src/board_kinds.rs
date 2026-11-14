@@ -20,11 +20,8 @@ pub(crate) fn push_kinds(sql: &mut Sql, column: &str, kinds: BoardKinds) {
 
 /// The kind a stored text names.
 pub(crate) fn kind_from_text(text: &str) -> Result<BoardKind, StoreError> {
-    BoardKind::ALL
-        .into_iter()
-        .find(|kind| kind.as_str() == text)
-        .ok_or_else(|| StoreError::Corrupt {
-            column: "kind",
-            reason: format!("unknown board kind {text:?}"),
-        })
+    text.parse().map_err(|error| StoreError::Corrupt {
+        column: "kind",
+        reason: format!("{error}"),
+    })
 }

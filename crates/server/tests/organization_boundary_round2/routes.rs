@@ -1258,8 +1258,10 @@ async fn an_invited_workspace_guest_reads_its_board_without_gaining_editor_right
 #[tokio::test]
 async fn the_paths_from_before_the_workspace_are_not_there() {
     let ts = Setup::native().start().await.init_basic().await;
+    // The wikis came after the move, and were never anywhere else.
     let gone = WORKSPACE_ROUTES
         .iter()
+        .filter(|(_, suffix, _)| !suffix.starts_with("/wikis"))
         .filter(|(_, _, operation)| REACHED_BY_ITEM.contains(operation))
         .map(|(method, suffix, operation)| (*method, fill_with_nothing(suffix), *operation))
         .chain([

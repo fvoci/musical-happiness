@@ -74,7 +74,6 @@ parameter!(ParentId: Query "parentId", String, False, "Narrows the list to the b
 parameter!(BlockTypeFilter: Query "type", String, False, "Narrows the list to the blocks of this type. The word `unknown` narrows nothing.");
 parameter!(Page: Query "page", i64, False, "The page, counted from 0. Left out, the first one.");
 parameter!(PerPage: Query "perPage", i64, False, "How many a page has. Left out, 100. Zero or less asks for all of them.");
-parameter!(TrashKind: Query "kind", String, False, "Which kind the list is of: `board` (also when left out) or `wiki`. Anything else is 400.");
 parameter!(CappedPerPage: Query "perPage", i64, False, "How many a page has, at most 200. Left out, or zero or less, 50.");
 parameter!(SearchTerm: Query "q", String, False, "What to look for. Without it nothing is found.");
 parameter!(SearchField: Query "field", String, False, "What the term is matched against: `title` (also when left out), or `property_name`, for the boards whose own `properties` object has a member named exactly as the term. Anything else is 400.");

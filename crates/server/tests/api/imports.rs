@@ -209,6 +209,36 @@ async fn an_archive_that_names_the_workspace_teamid_is_imported() {
     ts.teardown().await;
 }
 
+/// An archive is of boards: one whose board says it is a wiki is refused, and nothing of
+/// it is stored. The kind `board`, which an export writes, is taken.
+#[tokio::test]
+async fn an_archive_makes_no_wiki() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let board_of = |kind: &str| {
+        json!({"type": "board", "data": {
+            "id": "b1", "workspaceId": TEST_WORKSPACE_ID, "type": "P", "kind": kind,
+            "title": format!("Archived {kind}"), "createAt": 1, "updateAt": 1,
+        }})
+    };
+    let archive = |kind: &str| archive_of(&board_of(kind), &[], zip::CompressionMethod::Deflated);
+    import(&ts.client, TEST_WORKSPACE_ID, &archive("wiki"))
+        .await
+        .check_bad_request();
+    import(&ts.client, TEST_WORKSPACE_ID, &archive("board"))
+        .await
+        .check_ok();
+    let titles: Vec<String> = boards_of(&ts)
+        .await
+        .into_iter()
+        .map(|board| board.title)
+        .filter(|title| title.starts_with("Archived"))
+        .collect();
+    assert_eq!(titles, ["Archived board"]);
+    let wikis = ts.client.get(&format!("{TEST_WS}/wikis")).await;
+    assert_eq!(wikis.value(), json!([]));
+    ts.teardown().await;
+}
+
 /// An upload of an archive is held to what an import takes, and is imported only into
 /// its workspace, by `importArchive`; one of a file is completed only by `completeUpload`.
 #[tokio::test]

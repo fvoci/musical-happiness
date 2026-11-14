@@ -105,8 +105,10 @@ impl App {
     }
 
     /// Refuses to make a board of a kind this handle does not reach
-    /// ([`App::reaching`]): every way a board is made asks here first, so that an
-    /// operation on boards makes no wiki, whatever its body says.
+    /// ([`App::reaching`]): every way a board is made of what a request says asks here
+    /// first, so that an operation on boards makes no wiki, whatever its body says. A
+    /// copy is of the kind of what it copies, and what comes back from the trash of
+    /// the kind it went as; the handle reached both before.
     ///
     /// # Errors
     ///

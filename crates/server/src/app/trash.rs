@@ -32,6 +32,7 @@ impl App {
                 title: deleted.block.title,
                 deleted_at: deleted.block.delete_at,
                 deleted_by: deleted.deleted_by,
+                kind: None,
             })
             .collect())
     }
@@ -74,6 +75,7 @@ impl App {
                 title: deleted.board.title,
                 deleted_at: deleted.board.delete_at,
                 deleted_by: deleted.deleted_by,
+                kind: Some(deleted.board.kind),
             })
             .collect())
     }
