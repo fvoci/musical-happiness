@@ -103,7 +103,7 @@
 | Storybook Playwright                   | `test:storybook`                  | 18369, `FVOCI_STORYBOOK_PORT` | 스스로 띄우고 끈다 |
 | Storybook 개발 서버                    | `pnpm --filter web run storybook` | 6006                          | `/`                |
 
-병렬 묶음마다 `FVOCI_E2E_PORT`·`FVOCI_LIVE_PORT`·`FVOCI_STORYBOOK_PORT`를 함께 정한다(지시문이 묶음마다 준다). `e2e:live`에 관해: 아카이브 검사에 `unzip`을 쓴다. 먼저 저장소 루트에서 `cargo build -p fvoci-server --bins --examples`와 `pnpm --filter web run build`를 한다. `FVOCI_STORE_TEST_CONN_STRING`에 CREATE 권한이 있는 NOSUPERUSER·NOBYPASSRLS PostgreSQL URL을 주고 `pnpm --filter web run e2e:live`를 실행한다. SQLite 서버와 다음 포트의 가짜 OIDC 공급자, 두·세 칸 뒤 포트의 가짜 SMTP와 그 받은편지함, 네 칸 뒤 포트의 열린 가입 PostgreSQL 서버(그 서버의 가짜 SMTP는 그로부터 두·세 칸 뒤)를 `target/web-live/`에 띄운다. 끝나면 서버와 전용 PostgreSQL 스키마를 정리한다. 테스트는 `e2e-live/`, 정한 것은 `docs/decisions.md`의 연결 8번.
+병렬 묶음마다 `FVOCI_E2E_PORT`·`FVOCI_LIVE_PORT`·`FVOCI_STORYBOOK_PORT`를 함께 정한다(지시문이 묶음마다 준다). `e2e:live`에 관해: 아카이브 검사에 `unzip`을 쓴다. 먼저 저장소 루트에서 `cargo build -p fvoci-server --bins --examples`와 `pnpm --filter web run build`를 한다. `FVOCI_STORE_TEST_CONN_STRING`에 CREATE 권한이 있는 NOSUPERUSER·NOBYPASSRLS PostgreSQL URL을 주고 `pnpm --filter web run e2e:live`를 실행한다. SQLite 서버와 다음 포트의 가짜 OIDC 공급자, 두·세 칸 뒤 포트의 가짜 SMTP와 그 받은편지함, 네 칸 뒤 포트의 열린 가입 PostgreSQL 서버, 여덟 칸 뒤 포트의 가입 주소를 메일로 확인하는 SQLite 서버(`email_verification`; 두 서버의 가짜 SMTP는 저마다 두·세 칸 뒤)를 `target/web-live/`에 띄운다. 끝나면 서버와 전용 PostgreSQL 스키마를 정리한다. 테스트는 `e2e-live/`, 정한 것은 `docs/decisions.md`의 연결 8번.
 
 `look`에 관해:
 

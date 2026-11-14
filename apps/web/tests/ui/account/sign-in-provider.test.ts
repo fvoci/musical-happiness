@@ -30,7 +30,7 @@ function mount(
   render(SignInPage, {
     props: {
       onSignIn: vi.fn(() => Promise.resolve()),
-      onRegister: vi.fn(() => Promise.resolve()),
+      onRegister: vi.fn(() => Promise.resolve('made' as const)),
       optionsOf: organizationOf,
       onOidcStart,
     },

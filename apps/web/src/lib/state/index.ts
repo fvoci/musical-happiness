@@ -34,6 +34,7 @@ export {
   type LoginOptions,
   type LoginOrganization,
   type NewAccount,
+  type Registered,
   type Registration,
   type SignInOrganization,
   type Sharing,

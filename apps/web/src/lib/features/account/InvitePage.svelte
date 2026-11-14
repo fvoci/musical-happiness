@@ -30,7 +30,9 @@
   import { Input } from '$lib/ui/input/index.js';
   import { Label } from '$lib/ui/label/index.js';
 
+  import type { WaitingAccount } from '$lib/state/email-verification.ts';
   import AccountFields from './AccountFields.svelte';
+  import CheckMailPage from './CheckMailPage.svelte';
   import {
     accountFieldsUnder,
     formProblemsOf,
@@ -44,7 +46,10 @@
     /** The name of whoever is signed in; undefined for nobody. */
     signedInAs: string | undefined;
     preview: (token: string) => Promise<InvitationPreview>;
-    accept: (token: string, account?: NewAccount) => Promise<AcceptedInvitation>;
+    /** Lets in, or makes a new account wait for its address to be confirmed (`waiting`). */
+    accept: (token: string, account?: NewAccount) => Promise<AcceptedInvitation | 'waiting'>;
+    /** Mails a new account that waits for its address a new link. */
+    onResend?: (waiting: WaitingAccount) => Promise<void>;
     onSignIn: (login: string, password: string) => Promise<void>;
     /** Shows where the invitation let the reader in. */
     onJoined: (accepted: AcceptedInvitation) => void;
@@ -64,6 +69,7 @@
     signedInAs,
     preview,
     accept,
+    onResend,
     onSignIn,
     onJoined,
     onSessionEnded,
@@ -96,6 +102,8 @@
   let gone = $state(false);
   /** Signed in on this page with an account they had: joining is one more step, taken at once. */
   let signedIn = $state(false);
+  /** The address a new account's link went to, while it waits for it. */
+  let waitingFor = $state<string | undefined>(undefined);
   /** The organization of the link takes no session but one of its single sign-on. */
   let ssoOrg = $state<string | undefined>(undefined);
 
@@ -135,11 +143,17 @@
     }
   }
 
+  /** Shows where an account that has one was let in. */
+  function letIn(accepted: AcceptedInvitation | 'waiting'): void {
+    // Who is signed in is let in at once: only a new account waits.
+    if (accepted !== 'waiting') onJoined(accepted);
+  }
+
   /** Joins as whoever is signed in. */
   function join(): Promise<void> {
     return run(undefined, async () => {
       try {
-        onJoined(await accept(token));
+        letIn(await accept(token));
       } catch (error) {
         // The session ended meanwhile: there is nobody to join as, and nothing
         // on this form of the page to sign in with.
@@ -161,6 +175,11 @@
           email: email.trim(),
           password,
         });
+        if (accepted === 'waiting') {
+          password = '';
+          waitingFor = email.trim();
+          return;
+        }
         // The account is there and let in. Should signing in fail, the form
         // to go on with is the one to sign in with, the name filled in.
         login = name;
@@ -172,7 +191,7 @@
     return run('signIn', async () => {
       if (!signedIn) await onSignIn(login.trim(), password);
       signedIn = true;
-      onJoined(await accept(token));
+      letIn(await accept(token));
     });
   }
 
@@ -243,139 +262,147 @@
   }}
 />
 
-<main class="grid min-h-dvh place-items-center p-4">
-  <div class="grid w-full max-w-sm gap-4" data-testid="invite-page">
-    <p class="text-center text-2xl font-semibold tracking-tight" translate="no">{m.app_name()}</p>
-    {#await shown}
-      <p class="text-center text-muted-foreground" role="status">{m.app_loading()}</p>
-    {:then { found, failed }}
-      {#if gone || (!found && !failed)}
-        {@render unavailable()}
-      {:else if !found}
-        <p class="text-center" role="alert">{m.invite_load_failed()}</p>
-        <Button
-          class="roomy:min-h-touch"
-          onclick={() => {
-            location.reload();
-          }}
-        >
-          {m.app_retry()}
-        </Button>
-      {:else if ssoOrg !== undefined}
-        {@const orgId = ssoOrg}
-        <div class="grid gap-4 text-center" data-testid="invite-sso">
-          {@render invitedTo(found)}
-          <p class="text-sm text-muted-foreground">{m.account_sso_required_text()}</p>
-          <!-- In the page from the start: a live region that appears with its words is often not read. -->
-          <p class="text-sm text-destructive empty:hidden" role="alert">{problem ?? ''}</p>
+{#if waitingFor !== undefined}
+  {@const address = waitingFor}
+  <CheckMailPage
+    email={address}
+    onResend={() => onResend?.({ email: address }) ?? Promise.resolve()}
+  />
+{:else}
+  <main class="grid min-h-dvh place-items-center p-4">
+    <div class="grid w-full max-w-sm gap-4" data-testid="invite-page">
+      <p class="text-center text-2xl font-semibold tracking-tight" translate="no">{m.app_name()}</p>
+      {#await shown}
+        <p class="text-center text-muted-foreground" role="status">{m.app_loading()}</p>
+      {:then { found, failed }}
+        {#if gone || (!found && !failed)}
+          {@render unavailable()}
+        {:else if !found}
+          <p class="text-center" role="alert">{m.invite_load_failed()}</p>
           <Button
             class="roomy:min-h-touch"
-            disabled={working}
-            onclick={() => void toSso(orgId)}
-            data-testid="invite-sso-continue"
+            onclick={() => {
+              location.reload();
+            }}
           >
-            {working ? m.account_working() : m.account_sso_continue()}
+            {m.app_retry()}
           </Button>
-        </div>
-      {:else if signedInAs !== undefined}
-        <div class="grid gap-4 text-center">
-          {@render invitedTo(found)}
-          <p class="text-sm text-muted-foreground">
-            {m.invite_joining_as({ name: signedInAs })}
-          </p>
-          {#if problem}
-            <p class="text-sm text-destructive" role="alert">{problem}</p>
-          {/if}
-          <Button
-            class="roomy:min-h-touch"
-            disabled={working}
-            onclick={() => void join()}
-            data-testid="invite-join"
-          >
-            {working ? m.account_working() : m.invite_join()}
-          </Button>
-        </div>
-      {:else}
-        <form
-          class="grid gap-4"
-          onsubmit={(event) => void submit(event)}
-          data-testid={mode === 'register' ? 'invite-register-form' : 'invite-sign-in-form'}
-        >
-          <div class="text-center">
+        {:else if ssoOrg !== undefined}
+          {@const orgId = ssoOrg}
+          <div class="grid gap-4 text-center" data-testid="invite-sso">
             {@render invitedTo(found)}
-            <h1 class="mt-2 text-sm text-muted-foreground">
-              {mode === 'register' ? m.invite_register_title() : m.invite_sign_in_title()}
-            </h1>
-          </div>
-
-          {#if mode === 'register'}
-            <AccountFields
-              bind:username
-              bind:displayName
-              bind:email
-              bind:password
-              problems={fieldProblems}
-            />
-          {:else}
-            <div class="grid gap-1.5">
-              <Label for="account-login">{m.account_login()}</Label>
-              <Input
-                id="account-login"
-                name="login"
-                bind:value={login}
-                autocomplete="username"
-                required
-                disabled={signedIn}
-                aria-invalid={fieldProblems.login ? 'true' : undefined}
-                aria-describedby={fieldProblems.login ? 'account-login-problem' : undefined}
-                class="roomy:h-touch roomy:text-base"
-              />
-              {@render fieldProblem('login')}
-            </div>
-            <div class="grid gap-1.5">
-              <Label for="account-password">{m.account_password()}</Label>
-              <Input
-                id="account-password"
-                name="password"
-                type="password"
-                bind:value={password}
-                autocomplete="current-password"
-                required
-                disabled={signedIn}
-                aria-invalid={fieldProblems.password ? 'true' : undefined}
-                aria-describedby={fieldProblems.password ? 'account-password-problem' : undefined}
-                class="roomy:h-touch roomy:text-base"
-              />
-              {@render fieldProblem('password')}
-            </div>
-          {/if}
-
-          {#if problem}
-            <p class="text-sm text-destructive" role="alert">{problem}</p>
-          {/if}
-
-          <Button type="submit" class="roomy:min-h-touch" disabled={working}>
-            {#if working}
-              {m.account_working()}
-            {:else}
-              {mode === 'register' ? m.invite_register() : m.invite_sign_in()}
-            {/if}
-          </Button>
-
-          {#if !signedIn}
+            <p class="text-sm text-muted-foreground">{m.account_sso_required_text()}</p>
+            <!-- In the page from the start: a live region that appears with its words is often not read. -->
+            <p class="text-sm text-destructive empty:hidden" role="alert">{problem ?? ''}</p>
             <Button
-              variant="link"
               class="roomy:min-h-touch"
               disabled={working}
-              onclick={() => {
-                switchTo(mode === 'register' ? 'signIn' : 'register');
-              }}
+              onclick={() => void toSso(orgId)}
+              data-testid="invite-sso-continue"
             >
-              {mode === 'register' ? m.invite_to_sign_in() : m.invite_to_register()}
+              {working ? m.account_working() : m.account_sso_continue()}
             </Button>
-          {/if}
-        </form>
-      {/if}
-    {/await}
-  </div>
-</main>
+          </div>
+        {:else if signedInAs !== undefined}
+          <div class="grid gap-4 text-center">
+            {@render invitedTo(found)}
+            <p class="text-sm text-muted-foreground">
+              {m.invite_joining_as({ name: signedInAs })}
+            </p>
+            {#if problem}
+              <p class="text-sm text-destructive" role="alert">{problem}</p>
+            {/if}
+            <Button
+              class="roomy:min-h-touch"
+              disabled={working}
+              onclick={() => void join()}
+              data-testid="invite-join"
+            >
+              {working ? m.account_working() : m.invite_join()}
+            </Button>
+          </div>
+        {:else}
+          <form
+            class="grid gap-4"
+            onsubmit={(event) => void submit(event)}
+            data-testid={mode === 'register' ? 'invite-register-form' : 'invite-sign-in-form'}
+          >
+            <div class="text-center">
+              {@render invitedTo(found)}
+              <h1 class="mt-2 text-sm text-muted-foreground">
+                {mode === 'register' ? m.invite_register_title() : m.invite_sign_in_title()}
+              </h1>
+            </div>
+
+            {#if mode === 'register'}
+              <AccountFields
+                bind:username
+                bind:displayName
+                bind:email
+                bind:password
+                problems={fieldProblems}
+              />
+            {:else}
+              <div class="grid gap-1.5">
+                <Label for="account-login">{m.account_login()}</Label>
+                <Input
+                  id="account-login"
+                  name="login"
+                  bind:value={login}
+                  autocomplete="username"
+                  required
+                  disabled={signedIn}
+                  aria-invalid={fieldProblems.login ? 'true' : undefined}
+                  aria-describedby={fieldProblems.login ? 'account-login-problem' : undefined}
+                  class="roomy:h-touch roomy:text-base"
+                />
+                {@render fieldProblem('login')}
+              </div>
+              <div class="grid gap-1.5">
+                <Label for="account-password">{m.account_password()}</Label>
+                <Input
+                  id="account-password"
+                  name="password"
+                  type="password"
+                  bind:value={password}
+                  autocomplete="current-password"
+                  required
+                  disabled={signedIn}
+                  aria-invalid={fieldProblems.password ? 'true' : undefined}
+                  aria-describedby={fieldProblems.password ? 'account-password-problem' : undefined}
+                  class="roomy:h-touch roomy:text-base"
+                />
+                {@render fieldProblem('password')}
+              </div>
+            {/if}
+
+            {#if problem}
+              <p class="text-sm text-destructive" role="alert">{problem}</p>
+            {/if}
+
+            <Button type="submit" class="roomy:min-h-touch" disabled={working}>
+              {#if working}
+                {m.account_working()}
+              {:else}
+                {mode === 'register' ? m.invite_register() : m.invite_sign_in()}
+              {/if}
+            </Button>
+
+            {#if !signedIn}
+              <Button
+                variant="link"
+                class="roomy:min-h-touch"
+                disabled={working}
+                onclick={() => {
+                  switchTo(mode === 'register' ? 'signIn' : 'register');
+                }}
+              >
+                {mode === 'register' ? m.invite_to_sign_in() : m.invite_to_register()}
+              </Button>
+            {/if}
+          </form>
+        {/if}
+      {/await}
+    </div>
+  </main>
+{/if}
