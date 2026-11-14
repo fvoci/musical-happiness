@@ -534,7 +534,7 @@ fn drop_orphans(boards_and_blocks: &mut BoardsAndBlocks) -> usize {
 
 /// Parses a board's `board.jsonl` into its boards, blocks and members, with a fresh
 /// modification time but the identifiers and the authors from the archive (the store
-/// keeps an author only who is a member of the organization).
+/// keeps an author only who is a member of the workspace and its organization).
 ///
 /// # Errors
 ///

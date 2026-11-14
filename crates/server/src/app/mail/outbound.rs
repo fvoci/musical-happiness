@@ -54,9 +54,9 @@ pub(crate) enum Outcome {
     /// signature or permissions (SMTP `530`, `534`, `535`, `538`; HTTP `401`, `403`),
     /// it answers a configuration every message meets alike (OCI's and Cloudflare's
     /// `404`, SES's paused account), or a connection to it cannot be made (each way
-    /// says which of its failures are such). No message goes until it opens again, so this counts against none of the
-    /// message's attempts: the queue holds invitations back and tries one message a
-    /// minute. `code` is the reply or status code, if there was one.
+    /// says which of its failures are such). No message goes until it opens again, so
+    /// this counts against none of the message's attempts: the queue holds invitations
+    /// back and tries one message a minute. `code` is the reply or status code, if there was one.
     PathDown { code: Option<u16> },
 }
 

@@ -21,7 +21,7 @@ impl Store {
     /// the handle's organization and of the board's workspace: somebody the importer, who
     /// works there, already sees. Any other author, or none, is the importer: an archive
     /// cannot make somebody of another organization, or of a workspace the importer does
-    /// not know, an author whom the workspace's readers would then be named.
+    /// not know, an author, whose name the workspace's readers would then be told.
     /// `boards_and_blocks` is updated to what was stored.
     ///
     /// # Errors
@@ -36,9 +36,10 @@ impl Store {
         self.transaction(async |scope| {
             let org = scope.org()?;
             let named = Named::of(boards_and_blocks);
-            let mut members = HashSet::new();
+            let mut members = Members::new();
             for (workspace_id, authors) in named.authors_by_workspace() {
-                members.extend(members_among(scope, &org, &workspace_id, &authors).await?);
+                let found = members_among(scope, &org, &workspace_id, &authors).await?;
+                members.insert(workspace_id, found);
             }
             create_boards_and_blocks(scope, boards_and_blocks, importer, NewImages::Unchecked)
                 .await?;
@@ -66,8 +67,8 @@ struct Named {
     workspaces: HashMap<String, String>,
 }
 
-/// A user kept as an author in a workspace: `(workspace_id, user_id)`.
-type Member = (String, String);
+/// The users who may stay authors, by the workspace they may stay authors in.
+type Members = HashMap<String, HashSet<String>>;
 
 impl Named {
     fn of(boards_and_blocks: &BoardsAndBlocks) -> Self {
@@ -135,14 +136,17 @@ impl Named {
         &self,
         scope: &mut Scope<'_>,
         boards_and_blocks: &mut BoardsAndBlocks,
-        members: &HashSet<Member>,
+        members: &Members,
         importer: &str,
     ) -> Result<(), StoreError> {
         let kept = |id: &String, named: Option<&Authors>| {
             let named = named?;
             let workspace_id = self.workspaces.get(id)?;
             let keep = |user: &String| {
-                if members.contains(&(workspace_id.clone(), user.clone())) {
+                if members
+                    .get(workspace_id)
+                    .is_some_and(|users| users.contains(user))
+                {
                     user.clone()
                 } else {
                     importer.to_owned()
@@ -176,13 +180,13 @@ impl Named {
 }
 
 /// The users of `ids` who are members of the organization `org` and of its workspace
-/// `workspace_id`, as `(workspace_id, user_id)`.
+/// `workspace_id`.
 async fn members_among(
     scope: &mut Scope<'_>,
     org: &Param,
     workspace_id: &str,
     ids: &[String],
-) -> Result<HashSet<Member>, StoreError> {
+) -> Result<HashSet<String>, StoreError> {
     let mut members = HashSet::new();
     for chunk in ids.chunks(CHUNK) {
         let mut sql = scope.sql(
@@ -197,7 +201,7 @@ async fn members_among(
             .bind_list(chunk.iter().map(|id| Id(id)))
             .push(")");
         for row in scope.fetch_all(sql).await? {
-            members.insert((workspace_id.to_owned(), row.id(0)?));
+            members.insert(row.id(0)?);
         }
     }
     Ok(members)
