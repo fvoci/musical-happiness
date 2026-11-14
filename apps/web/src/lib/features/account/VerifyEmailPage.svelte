@@ -15,21 +15,21 @@
   import { problemOf } from './problems.ts';
 
   interface Props {
-    /** The token from the link's fragment; empty for none. */
-    token: string;
+    /**
+     * The confirmation by the link's token, sent once by whoever opened the
+     * page, which goes on to where the account was let in; `undefined` for a
+     * link without a token.
+     */
+    confirming: Promise<Confirmed> | undefined;
     homeHref: string;
-    /** Confirms by the token, and goes on to where the account was let in. */
-    complete: (token: string) => Promise<Confirmed>;
     /** Mails a new link for the registration of the address. */
     resend: (email: string) => Promise<void>;
   }
 
-  let { token, homeHref, complete, resend }: Props = $props();
+  let { confirming, homeHref, resend }: Props = $props();
 
-  /** The confirmation, sent once for the token the page was opened with. */
-  const confirming = $derived(
-    token ? complete(token) : Promise.reject(new Error('the link has no token')),
-  );
+  /** What the page waits for: a link without a token confirms nothing. */
+  const shown = $derived(confirming ?? Promise.reject(new Error('the link has no token')));
 
   let email = $state('');
   let working = $state(false);
@@ -64,7 +64,7 @@
       <p class="text-2xl font-semibold tracking-tight" translate="no">{m.app_name()}</p>
       <h1 class="mt-2 text-lg font-medium">{m.verify_title()}</h1>
     </div>
-    {#await confirming}
+    {#await shown}
       <p role="status" data-testid="verify-status">{m.verify_working()}</p>
     {:then}
       <p role="status" data-testid="verify-status">{m.verify_done()}</p>

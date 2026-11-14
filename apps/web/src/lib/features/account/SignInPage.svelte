@@ -226,10 +226,12 @@
     fieldProblems = {};
   }
 
-  /** Back from waiting to the form, to register with another address. */
-  function signUpAgain(): void {
+  /** Back from waiting to the form, to register with another address: its first field. */
+  async function signUpAgain(): Promise<void> {
     waitingFor = undefined;
     switchTo('register');
+    await tick();
+    document.getElementById('account-organizationName')?.focus();
   }
 </script>
 
@@ -253,7 +255,7 @@
   <CheckMailPage
     email={address}
     onResend={() => onResend?.({ email: address }) ?? Promise.resolve()}
-    onSignUpAgain={signUpAgain}
+    onSignUpAgain={() => void signUpAgain()}
   />
 {:else if heldFor !== undefined && onCarryOver && onStartAnew}
   {@const orgId = heldFor}
@@ -354,6 +356,13 @@
           bind:password
           problems={fieldProblems}
         />
+        {#await options then read}
+          {#if read?.emailVerification}
+            <p class="text-xs text-muted-foreground" data-testid="verify-hint">
+              {m.verify_register_hint()}
+            </p>
+          {/if}
+        {/await}
       {/if}
 
       {#if problem}

@@ -164,3 +164,82 @@ fn now_millis() -> i64 {
     )
     .expect("a time in range")
 }
+
+/// The migration of the registrations makes `audit_log` again on SQLite, and changes its
+/// checks on PostgreSQL: the records it finds keep every column, the server's own and
+/// those of a provider's move with their issuer and identity, and the operator's new
+/// action is taken.
+#[tokio::test]
+async fn the_migration_of_the_registrations_keeps_every_record_of_the_audit_log() {
+    let database = common::empty_database().await;
+    fvoci_store::testing::migrate_to_before_signups(&database).await;
+    let (org, lapsed, carried, actor) = (new_id(), new_id(), new_id(), new_id());
+    common::execute_raw(
+        &common::raw_dbconfig(&database),
+        &format!(
+            "INSERT INTO organizations (id, name, settings, create_at, update_at) \
+             VALUES ('{org}', 'Org', '{{}}', 1, 1); \
+             INSERT INTO audit_log (id, org_id, actor_kind, action, target_id, create_at, detail) \
+             VALUES ('{lapsed}', '{org}', 'server', 'oidc_former_provider_lapsed', '{org}', 7, \
+             'https://old.example.test'); \
+             INSERT INTO audit_log (id, org_id, actor_id, action, target_id, subject_id, \
+             create_at, detail, identity) VALUES ('{carried}', '{org}', '{actor}', \
+             'oidc_identity_carried_over', '{org}', '{actor}', 8, 'https://new.example.test', \
+             'who@example.test');"
+        ),
+    )
+    .await;
+    let store = Store::connect(database.db_type(), database.dbconfig())
+        .await
+        .expect("migrated");
+    let ours = store.for_org(&org).expect("organization");
+    let records = ours
+        .audit_records(
+            fvoci_store::AuditPlace::Organization,
+            fvoci_store::Paging {
+                page: 0,
+                per_page: 100,
+            },
+        )
+        .await
+        .expect("records");
+    let of = |id: &str| {
+        records
+            .iter()
+            .find(|record| record.id == id)
+            .unwrap_or_else(|| panic!("the record {id} is kept: {records:?}"))
+    };
+    let lapsed = of(&lapsed);
+    assert_eq!(
+        lapsed.actor,
+        fvoci_model::AuditRecordActor::Server,
+        "{lapsed:?}"
+    );
+    assert_eq!(
+        lapsed.action,
+        fvoci_model::AuditAction::OidcFormerProviderLapsed
+    );
+    assert_eq!(lapsed.detail.as_deref(), Some("https://old.example.test"));
+    let carried = of(&carried);
+    assert_eq!(
+        carried.action,
+        fvoci_model::AuditAction::OidcIdentityCarriedOver
+    );
+    assert_eq!(carried.detail.as_deref(), Some("https://new.example.test"));
+    assert_eq!(carried.identity.as_deref(), Some("who@example.test"));
+    assert_eq!(carried.create_at, 8, "{carried:?}");
+
+    // The operator's confirmation is a record the log takes now.
+    common::execute_raw(
+        &common::raw_dbconfig(&database),
+        &format!(
+            "INSERT INTO audit_log (id, org_id, actor_kind, action, target_id, subject_id, \
+             create_at) VALUES ('{}', '{org}', 'server_operator', 'email_verified_by_operator', \
+             '{org}', '{actor}', 9);",
+            new_id()
+        ),
+    )
+    .await;
+    store.close().await;
+    database.remove().await;
+}

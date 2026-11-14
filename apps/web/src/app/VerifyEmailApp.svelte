@@ -8,11 +8,6 @@
   let { router }: { router: Router } = $props();
   const verification = startEmailVerification();
 
-  let token = $state(location.hash.slice(1));
-  function onhashchange(): void {
-    token = location.hash.slice(1);
-  }
-
   /**
    * Confirms, and goes to where the account was let in: the welcome board of an
    * organization it started (its tour), the board of a guest's link, or the
@@ -31,12 +26,21 @@
     return confirmed;
   }
 
+  /** Sends the confirmation of the token in the address, if it has one: once for each. */
+  function confirmFromAddress(): Promise<Confirmed> | undefined {
+    const token = location.hash.slice(1);
+    return token ? complete(token) : undefined;
+  }
+
+  let confirming = $state.raw(confirmFromAddress());
+  function onhashchange(): void {
+    confirming = confirmFromAddress();
+  }
+
   async function resend(email: string): Promise<void> {
     await (await verification).resend({ email }, getLocale());
   }
 </script>
 
 <svelte:window {onhashchange} />
-{#key token}
-  <VerifyEmailPage {token} homeHref={router.href({})} {complete} {resend} />
-{/key}
+<VerifyEmailPage {confirming} homeHref={router.href({})} {resend} />

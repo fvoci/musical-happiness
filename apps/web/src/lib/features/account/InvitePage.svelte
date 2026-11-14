@@ -33,6 +33,7 @@
   import type { WaitingAccount } from '$lib/state/email-verification.ts';
   import AccountFields from './AccountFields.svelte';
   import CheckMailPage from './CheckMailPage.svelte';
+  import ResendLink from './ResendLink.svelte';
   import {
     accountFieldsUnder,
     formProblemsOf,
@@ -102,6 +103,8 @@
   let gone = $state(false);
   /** Signed in on this page with an account they had: joining is one more step, taken at once. */
   let signedIn = $state(false);
+  /** The name or address a sign-in was refused for, as not confirmed yet. */
+  let unconfirmed = $state<string | undefined>(undefined);
   /** The address a new account's link went to, while it waits for it. */
   let waitingFor = $state<string | undefined>(undefined);
   /** The organization of the link takes no session but one of its single sign-on. */
@@ -120,10 +123,14 @@
     if (working) return;
     working = true;
     problem = undefined;
+    unconfirmed = undefined;
     fieldProblems = {};
     try {
       await step();
     } catch (error) {
+      if (form === 'signIn' && isBackendError(error) && error.reason === 'email_unverified') {
+        unconfirmed = login.trim();
+      }
       if (isBackendError(error) && error.reason === 'invitation_unavailable') {
         gone = true;
         return;
@@ -378,6 +385,10 @@
 
             {#if problem}
               <p class="text-sm text-destructive" role="alert">{problem}</p>
+            {/if}
+            {#if unconfirmed !== undefined && onResend}
+              {@const named = unconfirmed}
+              <ResendLink onResend={() => onResend({ username: named, email: named })} />
             {/if}
 
             <Button type="submit" class="roomy:min-h-touch" disabled={working}>

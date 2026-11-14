@@ -58,7 +58,8 @@ ALTER TABLE audit_log ADD CONSTRAINT audit_log_action_check CHECK (action IN (
     'oidc_provider_pending_discarded', 'password_reset_link_made',
     'password_set_by_operator',
     'oidc_former_provider_kept', 'oidc_former_provider_ended',
-    'oidc_former_provider_lapsed', 'oidc_identity_bound', 'oidc_identity_carried_over', 'email_verified_by_operator'));
+    'oidc_former_provider_lapsed', 'oidc_identity_bound', 'oidc_identity_carried_over',
+    'email_verified_by_operator'));
 ALTER TABLE audit_log DROP CONSTRAINT audit_log_place_check;
 ALTER TABLE audit_log ADD CONSTRAINT audit_log_place_check CHECK (
     workspace_id IS NOT NULL OR action IN (

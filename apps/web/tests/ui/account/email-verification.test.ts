@@ -58,6 +58,10 @@ describe('a registration that waits for its address', () => {
 
     await fireEvent.click(screen.getByRole('button', { name: 'Sign up again' }));
     expect(await screen.findByTestId('register-form')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByLabelText(/^organization name$/i)).toHaveFocus();
+    });
+    expect(screen.getByTestId('verify-hint')).toHaveTextContent('We will mail a link');
   });
 
   it('refuses a sign-in to it with a way to the link, and keeps the wrong password vague', async () => {
@@ -120,11 +124,11 @@ describe('the page of the confirmation link', () => {
     expect(parseRoute('/verify-email/secret', '').unknown).toBe(true);
   });
 
-  it('confirms by the token as it opens', async () => {
-    const complete = vi.fn((): Promise<Confirmed> =>
+  it('says the confirmation came through, sent once for the token', async () => {
+    const complete = vi.fn((_token: string): Promise<Confirmed> =>
       Promise.resolve({ workspaceId: 'w1', organizationStarted: true }),
     );
-    render(VerifyEmailPage, { token: 'secret', homeHref: '/', complete, resend: vi.fn() });
+    render(VerifyEmailPage, { confirming: complete('secret'), homeHref: '/', resend: vi.fn() });
     await waitFor(() => {
       expect(screen.getByTestId('verify-status')).toHaveTextContent('Your address is confirmed');
     });
@@ -140,7 +144,7 @@ describe('the page of the confirmation link', () => {
       ),
     );
     const resend = vi.fn(() => Promise.resolve());
-    render(VerifyEmailPage, { token: 'old', homeHref: '/', complete, resend });
+    render(VerifyEmailPage, { confirming: complete(), homeHref: '/', resend });
     expect(await screen.findByTestId('verify-problem')).toHaveTextContent(
       'invalid, has expired or was replaced',
     );
@@ -158,7 +162,7 @@ describe('the page of the confirmation link', () => {
     const complete = vi.fn(() =>
       Promise.reject(new BackendError(404, { reason: 'invitation_unavailable', detail: 'x' })),
     );
-    render(VerifyEmailPage, { token: 't', homeHref: '/', complete, resend: vi.fn() });
+    render(VerifyEmailPage, { confirming: complete(), homeHref: '/', resend: vi.fn() });
     expect(await screen.findByTestId('verify-problem')).toHaveTextContent(
       'This invite link cannot be used',
     );

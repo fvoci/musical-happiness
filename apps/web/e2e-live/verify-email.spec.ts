@@ -65,9 +65,16 @@ test('a registration waits for its mailed link, which signs in on the first boar
   await page.getByLabel('User name', { exact: true }).fill(who.username);
   await page.getByLabel('Email address').fill(who.email);
   await page.getByLabel('Password', { exact: true }).fill(who.password);
+  await expect(page.getByTestId('verify-hint')).toBeVisible();
   await page.getByRole('button', { name: 'Start organization' }).click();
   await expect(page.getByRole('heading', { name: 'Check your email' })).toBeFocused();
   await expect(page.getByTestId('check-mail')).toContainText(who.email);
+  // At a phone's width, nothing is wider than the screen.
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+  await page.setViewportSize({ width: 1280, height: 720 });
   await expect.poll(async () => (await links(baseURL, who.email)).length).toBe(1);
   await verifyShot(page, 'check-mail');
 
