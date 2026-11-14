@@ -98,6 +98,17 @@ const nameOf = (editor: Locator): Locator => editor.locator('.doc-caret-name');
 const moved = (editor: Locator): Promise<number> =>
   nameOf(editor).evaluate((name) => Number.parseFloat(name.style.getPropertyValue('--moved')) || 0);
 
+/** The text of a line ahead of the caret drawn in it; null when none is. */
+const ahead = (line: Locator): Promise<string | null> =>
+  line.evaluate((element) => {
+    const drawn = element.querySelector('.doc-caret');
+    if (!drawn) return null;
+    const range = document.createRange();
+    range.setStart(element, 0);
+    range.setEndBefore(drawn);
+    return range.toString();
+  });
+
 /** The name shows, and is within the body: placed a frame after it is drawn. */
 async function inside(editor: Locator): Promise<void> {
   await expect(caret(editor)).toHaveAttribute('data-named', '');
@@ -248,6 +259,11 @@ test('a syllable being composed is kept while the other moves and writes in the 
   await other.keyboard.type(' 아래.');
   await expect(theirs.locator('p')).toHaveText(['가앞에 나다 라마바하', 'Below. 아래.']);
   await compose('한');
+  // The other goes to the start of the line below, where they have not been. A caret is not
+  // held back, and what is said is heard in its order: once it is there in the reader's page,
+  // all they wrote has come, and waits.
+  await other.keyboard.press('Home');
+  await expect.poll(() => ahead(mine.locator('p').nth(1))).toBe('');
   await expect(mine.locator('p')).toHaveText(['가나다 라마바한', 'Below.']);
 
   // The syllable is committed and the next begins at once, as a keyboard does it: what waited
@@ -261,8 +277,33 @@ test('a syllable being composed is kept while the other moves and writes in the 
   for (const body of [mine, theirs]) {
     await expect(body.locator('p')).toHaveText(['가앞에 나다 라마바한글', 'Below. 아래.']);
   }
-  // The other's caret is where they are, in the line below.
-  await expect(mine.locator('p').nth(1).locator('.doc-caret')).toHaveCount(1);
+  // The other's caret is where they go, also behind what waited when it was written.
+  await other.keyboard.press('End');
+  await expect.poll(() => ahead(mine.locator('p').nth(1))).toBe('Below. 아래.');
+  await other.close();
+});
+
+test('a move of the caret by a key is kept while the other writes and moves', async ({ page }) => {
+  const { mine, theirs, other } = await twoTabs(page, ['a'.repeat(24), 'Below.']);
+  await theirs.locator('p').nth(1).click();
+  await other.keyboard.press('End');
+  await mine.locator('p').first().click();
+
+  // The other writes without a pause: every letter changes the body and moves their caret,
+  // and each comes to the reader's page between two of the reader's keys or in the moment
+  // after one. The browser moves the reader's caret itself (Home, an arrow) and tells the
+  // editor a moment later: no move is taken back by what came in meanwhile.
+  const written = 'x'.repeat(1200);
+  const writing = other.keyboard.type(written, { delay: 8 });
+  for (let round = 0; round < 12; round += 1) {
+    await page.keyboard.press('Home');
+    for (let step = 0; step < 20; step += 1) await page.keyboard.press('ArrowRight');
+    expect(await page.evaluate(() => getSelection()?.anchorOffset)).toBe(20);
+  }
+  await writing;
+  for (const body of [mine, theirs]) {
+    await expect(body.locator('p')).toHaveText(['a'.repeat(24), `Below.${written}`]);
+  }
   await other.close();
 });
 

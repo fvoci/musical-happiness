@@ -13,6 +13,7 @@ import type { BodyDoc, BodyDocHears } from '$lib/state/backend.ts';
 import { HELD_IDLE } from '$lib/state/doc-client.ts';
 import { tabKey } from '$lib/state/memory/room-docs.ts';
 import { FIELD } from '$lib/state/memory/rooms.ts';
+import type { StoredCard } from '$lib/state/memory/world.ts';
 
 import { setup } from './support.ts';
 
@@ -22,7 +23,7 @@ const hears = (): BodyDocHears => ({ state: () => undefined, discarded: () => un
 function tabOf(stored: ReturnType<typeof setup>['world'], cardId: string): string {
   const card = stored.blocks.get(cardId);
   if (card?.type !== 'card') throw new Error('no such card');
-  return tabKey(card, cardId, 1);
+  return tabKey(card as StoredCard, cardId, 1);
 }
 
 function world(): ReturnType<typeof setup> & { boardId: string; cardId: string } {

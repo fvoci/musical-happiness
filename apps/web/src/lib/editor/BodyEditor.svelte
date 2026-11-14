@@ -40,6 +40,7 @@
   import { bodyExtensions } from './extensions.ts';
   import { heldWritten, placeOf } from './editing-place.ts';
   import { cancelMathEditingOf, mathDraftChanged } from './math-editing.ts';
+  import { MovesKept } from './moves-kept.ts';
   import { emptyDoc, isEmptyDoc, toStoredDoc, validateDoc, type DocNode } from './schema.ts';
   import { suggestionList } from './suggestion-list.ts';
   import { fromUpload, ImageUpload } from './uploads.ts';
@@ -139,6 +140,12 @@
       });
     };
 
+  /** What binds the editor to a shared document, and keeps the reader's moves through what the others do. */
+  const sharing = (document: NonNullable<BodyEditorProps['collab']>) => [
+    Collaboration.configure({ document, field: BODY_FIELD }),
+    MovesKept,
+  ];
+
   onMount(() => {
     // Bound to a shared document, the editor takes what is in it; `doc` is not read.
     const shared = collab;
@@ -161,7 +168,7 @@
           }
         : { content: first ?? emptyDoc() }),
       extensions: [
-        ...(shared ? [Collaboration.configure({ document: shared, field: BODY_FIELD })] : []),
+        ...(shared ? sharing(shared) : []),
         ...(shared && carets ? [caretsOf({ ...carets, nameOf })] : []),
         ...bodyExtensions({
           history: !shared,
