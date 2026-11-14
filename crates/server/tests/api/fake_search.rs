@@ -73,6 +73,8 @@ struct State {
     down: AtomicBool,
     /// How long every request waits before it is answered.
     delay: Mutex<Duration>,
+    /// Whether a search is answered as one that ran out of the search server's time.
+    partial: AtomicBool,
     /// How many of the next writes of documents are refused.
     failing_writes: AtomicUsize,
     /// The `Authorization` header a request must carry, if any.
@@ -142,6 +144,7 @@ impl FakeSearch {
             nori: AtomicBool::new(true),
             down: AtomicBool::new(false),
             delay: Mutex::new(Duration::ZERO),
+            partial: AtomicBool::new(false),
             failing_writes: AtomicUsize::new(0),
             authorization: Mutex::new(None),
             indices: Mutex::default(),
@@ -185,6 +188,17 @@ impl FakeSearch {
     /// Answers again.
     pub(crate) fn come_up(&self) {
         self.state.down.store(false, Ordering::SeqCst);
+    }
+
+    /// Answers every search from now on as one that ran out of the search server's own
+    /// time, with what it found until then.
+    pub(crate) fn answer_in_part(&self) {
+        self.state.partial.store(true, Ordering::SeqCst);
+    }
+
+    /// Removes an index behind the server's back, as an operator might.
+    pub(crate) fn remove_index(&self, name: &str) {
+        self.state.indices.lock().expect("the indices").remove(name);
     }
 
     /// Makes every request wait so long before it is answered.
@@ -522,10 +536,13 @@ fn search(state: &State, name: &str, request: &Value) -> Response {
         .as_str()
         .unwrap_or_default();
     let words: Vec<String> = asked.split_whitespace().map(str::to_lowercase).collect();
-    let size = request["size"]
-        .as_u64()
-        .and_then(|size| usize::try_from(size).ok())
-        .unwrap_or(10);
+    let count = |member: &str, default: usize| {
+        request[member]
+            .as_u64()
+            .and_then(|count| usize::try_from(count).ok())
+            .unwrap_or(default)
+    };
+    let (from, size) = (count("from", 0), count("size", 10));
     let planted = state.planted.lock().expect("the planted documents");
     let mut hits: Vec<Value> = planted
         .iter()
@@ -542,9 +559,9 @@ fn search(state: &State, name: &str, request: &Value) -> Response {
             hits.push(hit(id, document, &words));
         }
     }
-    hits.truncate(size);
+    let hits: Vec<Value> = hits.into_iter().skip(from).take(size).collect();
     axum::Json(json!({
-        "took": 1, "timed_out": false,
+        "took": 1, "timed_out": state.partial.load(Ordering::SeqCst),
         "_shards": {"total": 1, "successful": 1, "skipped": 0, "failed": 0},
         "hits": {"max_score": 1.0, "hits": hits},
     }))

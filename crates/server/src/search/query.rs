@@ -68,17 +68,19 @@ impl Scope<'_> {
         }
     }
 
-    /// The request that finds up to `size` documents of the scope by `text`.
+    /// The request that finds up to `size` documents of the scope by `text`, past
+    /// the `from` that match best.
     ///
     /// A document is found if its title and text together hold every word of `text`,
     /// as Korean or as the standard analyser reads them; one whose title holds them, or
     /// that holds them next to one another, comes first. Of a document only its
     /// identifier, the digest it was indexed with and a marked piece of its text come
     /// back, and no count of what matched.
-    pub(crate) fn search(&self, text: &str, size: usize) -> Value {
+    pub(crate) fn search(&self, text: &str, from: usize, size: usize) -> Value {
         let every_word =
             |field: &str| json!({"match": {field: {"query": text, "operator": "and"}}});
         json!({
+            "from": from,
             "size": size,
             "_source": ["digest"],
             "track_total_hits": false,
@@ -130,7 +132,7 @@ mod tests {
             kind: Some(SearchKind::Card),
         };
         assert_eq!(
-            filter(&workspace.search("환불", 10)),
+            filter(&workspace.search("환불", 0, 10)),
             [
                 json!({"term": {"orgId": "o1"}}),
                 json!({"term": {"workspaceId": "w1"}}),
@@ -145,7 +147,7 @@ mod tests {
             kind: None,
         };
         assert_eq!(
-            filter(&wide.search("환불", 10)),
+            filter(&wide.search("환불", 0, 10)),
             [
                 json!({"term": {"orgId": "o1"}}),
                 json!({"term": {"workspaceId": "w1"}}),
@@ -162,7 +164,7 @@ mod tests {
             containers: Containers::All,
             kind: None,
         };
-        let request = scope.search(typed, 5);
+        let request = scope.search(typed, 20, 5);
         let mut places = 0;
         let mut pending = vec![&request];
         while let Some(value) = pending.pop() {
@@ -183,7 +185,10 @@ mod tests {
             places, 5,
             "the two it must match and the three it is ranked by"
         );
-        assert_eq!(request["size"], 5);
+        assert_eq!(
+            (&request["from"], &request["size"]),
+            (&json!(20), &json!(5))
+        );
         assert_eq!(request["track_total_hits"], false);
     }
 }

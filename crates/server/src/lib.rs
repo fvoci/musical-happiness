@@ -394,9 +394,7 @@ impl Server {
         clean_up.cancel().await;
         purge.cancel().await;
         uploads.cancel().await;
-        if let Some(search) = search {
-            search.cancel().await;
-        }
+        search::stop_upkeep(search).await;
         served.context("serving HTTP")
     }
 

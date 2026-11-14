@@ -234,14 +234,14 @@ Cloudflare R2는 같은 규칙이 기본으로 7일이다. 다른 S3 호환 저�
 
 ## 키: 본문 검색
 
-카드의 제목과 본문은 따로 띄우는 검색 서버로 찾는다: Elasticsearch나 OpenSearch(둘 다 같은 요청으로 쓴다)에 한국어 형태소 분석기 nori 플러그인(`analysis-nori`)이 있어야 한다. `search_url`이 비어 있으면 본문 검색은 없다: `getClientConfig`의 `searchEnabled`가 `false`이고 `searchWorkspaceContent`는 404(`search_not_configured`)이며, DB로 대신 찾지 않는다. 브라우저는 검색 서버에 닿지 않는다. 서버는 `search_index`라는 색인 하나를 스스로 만든다(한국어는 nori로 읽되 복합어는 통째로도 나눠서도 싣고, 같은 글을 표준 분석기로도 한 번 더 싣는다). 그 이름의 색인이 없으면 만들고, 이 서버가 다른 판의 정의로 만든 것이면 지우고 다시 만든다. 이 서버가 만들지 않은 색인이 그 이름에 있으면 건드리지 않고, nori가 없으면 색인을 만들지 못한다: 두 경우 모두 까닭을 로그에 남기고 검색을 끈 채 서버는 뜬다(고친 뒤 서버를 다시 시작한다). 검색 서버가 답하지 않는 것은 서버의 시작을 막지 않는다: 답할 때까지 1초에서 60초까지 간격을 늘려 가며 다시 묻는다. 검색 요청은 검색 서버를 3초까지 기다리고, 답이 없거나 거절되면 503(`search_unavailable`)이다. `/ready`와 다른 조작은 검색 서버를 기다리지 않는다. 검색 서버의 답은 그대로 믿지 않는다: 답에 든 카드마다 DB에서 지금 그 사람이 읽는 것인지 다시 확인하고, 제목과 보드는 DB의 것을 답한다. 검색 서버로의 요청은 리다이렉트를 따르지 않고 프록시 환경 변수를 쓰지 않는다. 비밀 값(`search_password`, `search_api_key`)은 로그·오류·`Debug`에 나오지 않는다.
+카드의 제목과 본문은 따로 띄우는 검색 서버로 찾는다: Elasticsearch나 OpenSearch(둘 다 같은 요청으로 쓴다)에 한국어 형태소 분석기 nori 플러그인(`analysis-nori`)이 있어야 한다. `search_url`이 비어 있으면 본문 검색은 없다: `getClientConfig`의 `searchEnabled`가 `false`이고 `searchWorkspaceContent`는 404(`search_not_configured`)이며, DB로 대신 찾지 않는다. 브라우저는 검색 서버에 닿지 않는다. 서버는 `search_index`라는 색인 하나를 스스로 만든다(한국어는 nori로 읽되 복합어는 통째로도 나눠서도 싣고, 같은 글을 표준 분석기로도 한 번 더 싣는다). 그 이름의 색인이 없으면 만들고(서버가 도는 동안 사라져도 다시 만든다), 이 서버가 더 옛 판의 정의로 만든 것이면 지우고 다시 만든다. 이 서버가 만들지 않은 색인이나 더 새 서버가 만든 색인이 그 이름에 있으면 건드리지 않고, nori가 없으면 색인을 만들지 못한다: 이 경우들은 까닭을 로그에 남기고 검색을 끈 채 서버는 뜬다(고친 뒤 서버를 다시 시작한다). 검색 서버가 답하지 않는 것은 서버의 시작을 막지 않는다: 답할 때까지 1초에서 60초까지 간격을 늘려 가며 다시 묻는다. 검색 요청은 검색 서버를 3초까지 기다리고, 답이 없거나 거절되거나 일부만 답하면 503(`search_unavailable`)이다. `/ready`와 다른 조작은 검색 서버를 기다리지 않는다. 검색 서버의 답은 그대로 믿지 않는다: 답에 든 카드마다 DB에서 지금 그 사람이 읽는 것인지 다시 확인하고, 제목과 보드는 DB의 것을 답한다. 그래서 모자라면 그 3초 안에서 다음 것을 더 물어 채운다: 답의 개수는 걸러진 것이 있었는지를 말하지 않는다. 서버가 멈출 때는 검색 서버로 가던 요청을 1초까지만 기다린다. 검색 서버로의 요청은 리다이렉트를 따르지 않고 프록시 환경 변수를 쓰지 않는다. 비밀 값(`search_password`, `search_api_key`)은 로그·오류·`Debug`에 나오지 않는다.
 
 | 키 | 환경 변수 | 형 | 기본값 | 뜻 |
 |---|---|---|---|---|
 | `search_url` | `FVOCI_SEARCH_URL` | 문자열 | `""` | 검색 서버의 주소(`https://호스트[:포트]`, 경로·질의·자격 없이). `http`는 루프백 IP로 쓴 주소(`127.0.0.1`, `[::1]`)만 받는다(이름은 받지 않는다). 비우면 본문 검색이 없고, 그때 아래의 자격 키가 있으면 그 키를 말하며 시작하지 않는다 |
-| `search_username` | `FVOCI_SEARCH_USERNAME` | 문자열 | `""` | 검색 서버에 HTTP Basic으로 로그인할 사용자. `search_password`와 함께 준다. 두 검색 서버가 모두 받는다 |
-| `search_password` | `FVOCI_SEARCH_PASSWORD` | 문자열 | `""` | 그 사용자의 비밀번호 |
-| `search_api_key` | `FVOCI_SEARCH_API_KEY` | 문자열 | `""` | Elasticsearch의 API 키(인코딩된 꼴). `Authorization: ApiKey …`로 보낸다. OpenSearch는 이 방식을 받지 않는다. 사용자·비밀번호와 함께 주면 시작하지 않는다 |
+| `search_username` | `FVOCI_SEARCH_USERNAME` | 문자열 | `""` | 검색 서버에 HTTP Basic으로 로그인할 사용자(`:`와 제어 문자는 쓰지 못한다). `search_password`와 함께 준다. 두 검색 서버가 모두 받는다 |
+| `search_password` | `FVOCI_SEARCH_PASSWORD` | 문자열 | `""` | 그 사용자의 비밀번호(제어 문자는 쓰지 못한다) |
+| `search_api_key` | `FVOCI_SEARCH_API_KEY` | 문자열 | `""` | Elasticsearch의 API 키(인코딩된 꼴). `Authorization: ApiKey …`로 보낸다(공백 없는 ASCII). OpenSearch는 이 방식을 받지 않는다. 사용자·비밀번호와 함께 주면 시작하지 않는다 |
 | `search_index` | `FVOCI_SEARCH_INDEX` | 문자열 | `"fvoci"` | 이 서버의 색인 이름. 소문자·숫자·`-`·`_`로 100자까지, 글자나 숫자로 시작한다. 서버 하나에 색인 하나다: 같은 검색 서버를 여러 fvoci 서버가 쓰면 저마다 다른 이름을 준다 |
 | `search_requests_per_second` | `FVOCI_SEARCH_REQUESTS_PER_SECOND` | 정수 | `5` | 한 사람이 1초에 할 수 있는 검색 수(쉬었다가는 한 번에 그 두 배까지). 넘으면 429와 `Retry-After`. `0`이면 한도가 없다 |
 

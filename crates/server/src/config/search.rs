@@ -180,14 +180,14 @@ impl SearchSettings {
         if basic && !self.search_api_key.is_empty() {
             bail!("search_api_key is set together with search_username or search_password");
         }
-        for (key, value) in [
-            ("search_password", &self.search_password),
-            ("search_api_key", &self.search_api_key),
-        ] {
-            // What goes into a header: printable ASCII, said without the character.
-            if !value.chars().all(|c| c.is_ascii_graphic()) {
-                bail!("{key} has a character it cannot have");
-            }
+        // The key goes into a header as it is: printable ASCII. Said without the
+        // character, as of every secret.
+        if !self.search_api_key.chars().all(|c| c.is_ascii_graphic()) {
+            bail!("search_api_key has a character it cannot have");
+        }
+        // A user and a password are sent encoded: anything but a control character.
+        if self.search_password.chars().any(char::is_control) {
+            bail!("search_password has a character it cannot have");
         }
         if !self.search_api_key.is_empty() {
             return Ok(SearchCredentials::ApiKey(self.search_api_key.clone()));
@@ -198,8 +198,7 @@ impl SearchSettings {
         if self.search_username.is_empty() || self.search_password.is_empty() {
             bail!("search_username and search_password are given together");
         }
-        if self.search_username.contains(':')
-            || !self.search_username.chars().all(|c| c.is_ascii_graphic())
+        if self.search_username.contains(':') || self.search_username.chars().any(char::is_control)
         {
             bail!("search_username has a character it cannot have");
         }
@@ -336,12 +335,14 @@ mod tests {
             with("", "", "secret-key"),
             Ok(SearchCredentials::ApiKey("secret-key".to_owned()))
         );
+        with("검색", "secret pass 비밀", "").expect("any text but control characters");
         for (username, password, api_key) in [
             ("fvoci", "", ""),
             ("", "secret-pass", ""),
             ("fvoci", "secret-pass", "secret-key"),
             ("fv:oci", "secret-pass", ""),
-            ("fvoci", "secret pass", ""),
+            ("fvoci", "secret\tpass", ""),
+            ("fv\noci", "secret-pass", ""),
             ("", "", "secret-key\nX-Other: 1"),
         ] {
             let error = with(username, password, api_key).expect_err("refused");

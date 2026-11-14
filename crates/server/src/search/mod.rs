@@ -18,7 +18,7 @@ mod query;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-pub use find::{Asked, MAX_LIMIT, MAX_TEXT_CHARS};
+pub use find::{Asked, AskedError, MAX_LIMIT, MAX_TEXT_CHARS};
 
 use client::{Client, ClientError, IndexFound};
 use limit::Limiter;
@@ -34,6 +34,9 @@ const UPKEEP_INTERVAL: Duration = Duration::from_secs(1);
 const FIRST_PAUSE: Duration = Duration::from_secs(1);
 /// See [`FIRST_PAUSE`].
 const LONGEST_PAUSE: Duration = Duration::from_secs(60);
+/// How long stopping waits for a run of the upkeep that is under way: a request to a
+/// search server that does not answer is not waited for.
+const STOP_WAIT: Duration = Duration::from_secs(1);
 
 /// The search of bodies, as the server is configured: on a search server, or none.
 #[derive(Debug)]
@@ -43,7 +46,7 @@ pub struct Search {
 
 /// The search server and what is known of the index on it.
 #[derive(Debug)]
-struct Engine {
+pub(crate) struct Engine {
     client: Client,
     limiter: Limiter,
     index: Mutex<IndexState>,
@@ -53,7 +56,7 @@ struct Engine {
 
 /// What is known of the index on the search server.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum IndexState {
+pub(crate) enum IndexState {
     /// Nothing yet: the search server has not answered.
     Unknown,
     /// It is there, made from this server's definition.
@@ -68,6 +71,8 @@ enum IndexState {
 struct Pause {
     until: Option<Instant>,
     failures: u32,
+    /// Why the last run failed.
+    last: Option<ClientError>,
 }
 
 impl Pause {
@@ -75,14 +80,17 @@ impl Pause {
         self.until.is_none_or(|until| now >= until)
     }
 
-    /// Notes a failure at `now`. Returns whether it is the first in a row.
-    fn failed(&mut self, now: Instant) -> bool {
+    /// Notes a failure at `now`. Returns whether it is news: the first in a row, or
+    /// another failure than the one before.
+    fn failed(&mut self, now: Instant, error: ClientError) -> bool {
         let pause = FIRST_PAUSE
             .saturating_mul(2_u32.saturating_pow(self.failures))
             .min(LONGEST_PAUSE);
         self.until = Some(now + pause);
         self.failures = self.failures.saturating_add(1);
-        self.failures == 1
+        let news = self.last.as_ref() != Some(&error);
+        self.last = Some(error);
+        news
     }
 }
 
@@ -123,14 +131,14 @@ impl Search {
 }
 
 impl Engine {
-    fn index_state(&self) -> IndexState {
+    pub(super) fn index_state(&self) -> IndexState {
         *self
             .index
             .lock()
             .expect("the lock of the index state is not poisoned")
     }
 
-    fn set_index_state(&self, state: IndexState) {
+    pub(super) fn set_index_state(&self, state: IndexState) {
         *self
             .index
             .lock()
@@ -143,6 +151,15 @@ impl Engine {
     async fn ensure_index(&self) -> Result<IndexState, ClientError> {
         match self.client.describe_index().await? {
             IndexFound::Ours { version } if version == index::VERSION => Ok(IndexState::Ready),
+            IndexFound::Ours { version } if version > index::VERSION => {
+                tracing::error!(
+                    index = version,
+                    server = index::VERSION,
+                    "the search index was made by a newer server; it is left as it is, \
+                     and bodies are not searched"
+                );
+                Ok(IndexState::Refused)
+            }
             IndexFound::Ours { version } => {
                 tracing::info!(
                     from = version,
@@ -198,11 +215,34 @@ pub async fn tend(app: &App) {
             engine.set_index_state(IndexState::Refused);
         }
         Err(error) => {
-            // Said once for a row of failures: the next ones say the same.
-            if pause.failed(Instant::now()) {
-                tracing::warn!(%error, "the search index could not be looked after; trying again");
+            // Said once for a row of the same failure: the next ones say the same.
+            let refused = matches!(error, ClientError::Refused { .. });
+            if pause.failed(Instant::now(), error.clone()) {
+                if refused {
+                    tracing::error!(
+                        %error,
+                        "the search server refused the search index; trying again"
+                    );
+                } else {
+                    tracing::warn!(
+                        %error,
+                        "the search index could not be looked after; trying again"
+                    );
+                }
             }
         }
+    }
+}
+
+/// Stops the task of the upkeep, waiting a moment for a run that is under way and no
+/// longer: what a run has not settled is done again by the next server.
+pub(crate) async fn stop_upkeep(task: Option<RecurringTask>) {
+    if let Some(task) = task
+        && tokio::time::timeout(STOP_WAIT, task.cancel())
+            .await
+            .is_err()
+    {
+        tracing::info!("the upkeep of the search was under way when the server stopped");
     }
 }
 
@@ -228,16 +268,21 @@ mod tests {
     #[test]
     fn a_server_that_does_not_answer_is_left_alone_twice_as_long_each_time() {
         let start = Instant::now();
+        let down = || ClientError::Unreachable(client::NoAnswer::Connection);
         let mut pause = Pause::default();
         assert!(pause.is_over(start));
-        assert!(pause.failed(start), "the first of a row");
+        assert!(pause.failed(start, down()), "the first of a row");
         assert!(!pause.is_over(start));
         assert!(pause.is_over(start + FIRST_PAUSE));
-        assert!(!pause.failed(start));
+        assert!(!pause.failed(start, down()), "the same again is no news");
         assert!(!pause.is_over(start + FIRST_PAUSE));
         assert!(pause.is_over(start + FIRST_PAUSE * 2));
+        assert!(
+            pause.failed(start, ClientError::Unreadable),
+            "another failure"
+        );
         for _ in 0..40 {
-            pause.failed(start);
+            pause.failed(start, down());
         }
         assert!(pause.is_over(start + LONGEST_PAUSE), "never longer");
     }

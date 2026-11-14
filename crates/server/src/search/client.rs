@@ -25,12 +25,50 @@ const MOST_BODY: usize = 8 * 1024 * 1024;
 /// The most of the name of an error that is kept.
 const MOST_KIND: usize = 64;
 
+/// Why no answer came from the search server.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NoAnswer {
+    /// The connection could not be opened: nothing listens there, or its certificate
+    /// does not hold.
+    Connection,
+    /// The answer did not come in the time the request had.
+    Timeout,
+    /// Anything else: the connection broke, or the request could not be sent.
+    Other,
+}
+
+impl std::fmt::Display for NoAnswer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Connection => "no connection",
+            Self::Timeout => "no answer in time",
+            Self::Other => "the request failed",
+        })
+    }
+}
+
+impl From<&reqwest::Error> for NoAnswer {
+    fn from(error: &reqwest::Error) -> Self {
+        if error.is_timeout() {
+            Self::Timeout
+        } else if error.is_connect() {
+            Self::Connection
+        } else {
+            Self::Other
+        }
+    }
+}
+
 /// Why a request to the search server came to nothing.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub(crate) enum ClientError {
     /// No answer: the connection failed, or the answer did not come in time.
-    #[error("the search server did not answer")]
-    Unreachable,
+    #[error("the search server did not answer ({0})")]
+    Unreachable(NoAnswer),
+    /// A search was answered with a part of what matches: it ran out of the search
+    /// server's own time, or some of the index did not answer.
+    #[error("the search server answered a search in part")]
+    Partial,
     /// The search server has no analyser of Korean text.
     #[error("the search server has no nori analysis plugin")]
     NoNori,
@@ -45,6 +83,13 @@ pub(crate) enum ClientError {
     /// An answer that is not what the search server answers such a request with.
     #[error("the search server's answer could not be read")]
     Unreadable,
+}
+
+impl ClientError {
+    /// Whether the search server said that the index is not there.
+    pub(crate) fn is_missing_index(&self) -> bool {
+        matches!(self, Self::Refused { status: 404, kind } if kind == "index_not_found_exception")
+    }
 }
 
 /// What is at the name of the index.
@@ -158,13 +203,16 @@ impl Client {
             }
         };
         let exchange = async {
-            let mut response = request.send().await.map_err(|_| ClientError::Unreachable)?;
+            let mut response = request
+                .send()
+                .await
+                .map_err(|error| ClientError::Unreachable(NoAnswer::from(&error)))?;
             let status = response.status().as_u16();
             let mut body = Vec::new();
             while let Some(chunk) = response
                 .chunk()
                 .await
-                .map_err(|_| ClientError::Unreachable)?
+                .map_err(|error| ClientError::Unreachable(NoAnswer::from(&error)))?
             {
                 if body.len() + chunk.len() > MOST_BODY {
                     return Err(ClientError::Unreadable);
@@ -178,7 +226,7 @@ impl Client {
         };
         tokio::time::timeout(timeout, exchange)
             .await
-            .unwrap_or(Err(ClientError::Unreachable))
+            .unwrap_or(Err(ClientError::Unreachable(NoAnswer::Timeout)))
     }
 
     /// What is at the name of the index.
@@ -250,26 +298,37 @@ impl Client {
         }
     }
 
-    /// Finds up to `size` documents of `scope` by `text`, the best match first, within
-    /// `timeout`.
+    /// Finds up to `size` documents of `scope` by `text`, past the `from` that match
+    /// best, the best match first, within `timeout`.
     ///
     /// # Errors
     ///
-    /// Returns why nothing was found out: an index that is not there is a refusal.
+    /// Returns why nothing was found out: an index that is not there is a refusal, and
+    /// an answer that holds a part of what matches is none.
     pub(crate) async fn search(
         &self,
         scope: &Scope<'_>,
         text: &str,
+        from: usize,
         size: usize,
         timeout: Duration,
     ) -> Result<Vec<Hit>, ClientError> {
         let request = self
             .http
             .post(self.url("/_search"))
-            .json(&scope.search(text, size));
+            .json(&scope.search(text, from, size));
         let answer = self.send(request, timeout).await?;
         if let Some(refusal) = answer.refusal() {
             return Err(refusal);
+        }
+        let timed_out = answer.body["timed_out"].as_bool().unwrap_or(false);
+        let failed_shards = answer
+            .body
+            .pointer("/_shards/failed")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+        if timed_out || failed_shards > 0 {
+            return Err(ClientError::Partial);
         }
         let hits = answer
             .body

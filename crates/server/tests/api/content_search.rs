@@ -303,6 +303,18 @@ async fn a_stale_index_shows_nobody_what_they_do_not_read_now() {
         .expect("the third user becomes a guest of the test workspace");
     let stranger = th.stranger_in(TEST_WORKSPACE_ID).await;
     let store = th.app.store();
+    // The first user administers the test workspace: they manage every board of it,
+    // and read those they have a role on.
+    store
+        .execute_unchecked(&format!(
+            "UPDATE workspace_members SET role = 'admin' WHERE user_id = '{user1}' \
+             AND workspace_id = '{TEST_WORKSPACE_ID}'"
+        ))
+        .await
+        .expect("the first user becomes an administrator of the test workspace");
+    // A board of the first user in the root workspace: a search there asks the index.
+    th.create_board(crate::common::ROOT_WORKSPACE_ID, BoardType::Private)
+        .await;
 
     // An open board, and a card of it that every member reads.
     let open: Board = th
@@ -351,6 +363,35 @@ async fn a_stale_index_shows_nobody_what_they_do_not_read_now() {
         .check_ok();
     let left_card = new_card(&th.client, &left.id, "떠난 카드", "환불").await;
     delete_member(&th.client, &member(&left.id, &user2))
+        .await
+        .check_no_content();
+    // A private board the second user reads through a team, and is no member of.
+    let teamed = private_board(&th.client, "Teamed").await;
+    let team: fvoci_model::Team = th
+        .client
+        .post(&format!("{TEST_WS}/teams"), &json!({"name": "Support"}))
+        .await
+        .ok_json();
+    th.client
+        .put(
+            &format!("{TEST_WS}/teams/{}/members/{user2}", team.id),
+            &json!({}),
+        )
+        .await
+        .check_no_content();
+    th.client
+        .put(
+            &format!("{TEST_WS}/boards/{}/teams/{}", teamed.id, team.id),
+            &json!({"role": "viewer"}),
+        )
+        .await
+        .check_no_content();
+    let teamed_card = new_card(&th.client, &teamed.id, "팀의 카드", "환불").await;
+    // A card of a board that went to the trash whole.
+    let gone = private_board(&th.client, "Gone").await;
+    let gone_card = new_card(&th.client, &gone.id, "지운 보드의 카드", "환불").await;
+    th.client
+        .delete(&format!("{TEST_WS}/boards/{}", gone.id))
         .await
         .check_no_content();
     // A card in the trash, and one that went from there for good.
@@ -414,6 +455,9 @@ async fn a_stale_index_shows_nobody_what_they_do_not_read_now() {
         (managed_card.clone(), open.id.clone()),
         (invited_card.id.clone(), invited.id.clone()),
         (left_card.id.clone(), left.id.clone()),
+        (teamed_card.id.clone(), teamed.id.clone()),
+        (gone_card.id.clone(), gone.id.clone()),
+        (gone_card.id.clone(), open.id.clone()),
         (trashed.id.clone(), open.id.clone()),
         (purged.id.clone(), open.id.clone()),
         (hidden_card.clone(), open.id.clone()),
@@ -447,14 +491,16 @@ async fn a_stale_index_shows_nobody_what_they_do_not_read_now() {
             &unjoined_card.id,
             &private_card.id,
             &invited_card.id,
-            &left_card.id
+            &left_card.id,
+            &teamed_card.id
         ]),
         "the first user reads their boards, and no board they only manage"
     );
     assert_eq!(
         found(&member_found),
-        sorted(&[&open_card.id]),
-        "the second user reads the open board they joined, and no board they left"
+        sorted(&[&open_card.id, &teamed_card.id]),
+        "the second user reads the open board they joined and a team's board, and no board \
+         they left"
     );
     assert_eq!(
         found(&guest_found),
@@ -475,7 +521,7 @@ async fn a_stale_index_shows_nobody_what_they_do_not_read_now() {
         .expect("found");
     assert_eq!(private_hit.container_id, private.id);
     assert_eq!(private_hit.title, "비공개 카드");
-    assert!(asked >= 3, "the search server was asked: {asked}");
+    assert_eq!(asked, 4, "the search server was asked every time");
 }
 
 #[tokio::test]
@@ -739,4 +785,26 @@ async fn a_user_of_more_boards_than_a_request_lists_is_searched_for_in_the_works
         json!({"term": {"workspaceId": TEST_WORKSPACE_ID}})
     );
     assert_eq!(asked[0].body["size"], 35, "five times what was asked for");
+}
+
+#[tokio::test]
+async fn an_index_that_went_is_made_again_and_a_partial_answer_is_none() {
+    let fake = FakeSearch::start().await;
+    let th = started(&fake).await;
+    th.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+
+    fake.remove_index(INDEX);
+    let gone = search(&th.client, TEST_WS, "환불").await;
+    fvoci_server::search::tend(&th.app).await;
+    let back = search(&th.client, TEST_WS, "환불").await;
+    let made = fake.index_definition(INDEX);
+    fake.answer_in_part();
+    let partial = search(&th.client, TEST_WS, "환불").await;
+    th.teardown().await;
+
+    gone.check_status(StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(gone.check_problem()["reason"], "search_unavailable");
+    back.check_ok();
+    assert!(made.is_some(), "the upkeep made the index again");
+    partial.check_status(StatusCode::SERVICE_UNAVAILABLE);
 }

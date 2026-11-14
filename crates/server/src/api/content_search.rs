@@ -12,7 +12,7 @@ use super::workspace::Ws;
 use super::{ApiResult, json_response, query_param};
 use crate::app::App;
 use crate::error::AppError;
-use crate::search::{Asked, MAX_LIMIT, MAX_TEXT_CHARS};
+use crate::search::{Asked, AskedError};
 
 /// How many hits a search answers with unless it asks for another number.
 const DEFAULT_LIMIT: i64 = 20;
@@ -32,7 +32,8 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 /// card as it is now: its `title`, the board it is on (`containerId`), and `snippet`,
 /// a piece of its body in stretches of plain text, those that matched marked; the
 /// snippet is empty for a body that changed a moment ago, or has nothing to show. The
-/// best match first. Nothing says how many cards match in all.
+/// best match first. Nothing says how many cards match in all: fewer than `limit`
+/// means that no more of what the user reads matches.
 ///
 /// A `q` of more than 200 characters, a `kind` that is none and a `limit` outside 1
 /// to 50 are 400; a `q` that is empty finds nothing. A user who searches more often
@@ -51,13 +52,6 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 )]
 async fn handle_search_content(ws: Ws, RawQuery(query): RawQuery) -> ApiResult {
     let query = query.as_deref();
-    let text = query_param(query, "q");
-    if text.chars().count() > MAX_TEXT_CHARS {
-        return Err(AppError::bad_request(format_args!(
-            "`q` has more than {MAX_TEXT_CHARS} characters"
-        ))
-        .with_parameter("q"));
-    }
     let kind = match query_param(query, "kind").as_str() {
         "" => None,
         word => Some(
@@ -66,20 +60,17 @@ async fn handle_search_content(ws: Ws, RawQuery(query): RawQuery) -> ApiResult {
         ),
     };
     let limit = int_query_param(query, "limit", DEFAULT_LIMIT)?;
-    let limit = usize::try_from(limit)
-        .ok()
-        .filter(|limit| (1..=MAX_LIMIT).contains(limit))
-        .ok_or_else(|| {
-            AppError::bad_request(format_args!("`limit` is from 1 to {MAX_LIMIT}"))
-                .with_parameter("limit")
-        })?;
+    // A number that is no count of hits is out of range as one too large is.
+    let limit = usize::try_from(limit).unwrap_or(0);
+    let asked = Asked::new(&query_param(query, "q"), kind, limit).map_err(|error| {
+        AppError::bad_request(error).with_parameter(match error {
+            AskedError::TextTooLong => "q",
+            AskedError::LimitOutOfRange => "limit",
+        })
+    })?;
     let found = ws
         .app
-        .search_workspace(
-            &ws.session.user_id,
-            &ws.workspace_id,
-            &Asked { text, kind, limit },
-        )
+        .search_workspace(&ws.session.user_id, &ws.workspace_id, &asked)
         .await?;
     tracing::debug!(found = found.len(), "SearchContent");
     Ok(json_response(&found))
