@@ -12,6 +12,7 @@ import path from 'node:path';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { boardPath } from './address.ts';
+import { focusAtEnd } from './embeds.support.ts';
 import { screensDir } from './screens.ts';
 
 test.describe.configure({ mode: 'parallel', timeout: 90_000 });
@@ -115,8 +116,9 @@ test('the versions of a body are listed and read, and one is restored: not an un
   await expect(page.getByTestId('body-versions-empty')).toBeVisible();
   await closeVersions(page);
 
-  await editor(page).click();
-  await page.keyboard.press('Control+End');
+  await focusAtEnd(page.getByTestId('card-body'));
+  // The editor takes the focus a frame later, and a key before that goes nowhere.
+  await expect(editor(page)).toBeFocused();
   await page.keyboard.press('Enter');
   await page.keyboard.type('Typed now');
   await expect(editor(page)).toContainText('Typed now');
@@ -264,8 +266,8 @@ test.describe('pictures', () => {
       await page.keyboard.press('Escape');
 
       await writtenWholeElsewhere(page, place, '다음 주 화요일까지 초안을 올립니다.');
-      await editor(page).click();
-      await page.keyboard.press('Control+End');
+      await focusAtEnd(page.getByTestId('card-body'));
+      await expect(editor(page)).toBeFocused();
       await page.keyboard.type(' 검토는 목요일에 합니다.');
       // Taken by the room before the next body is written whole over it.
       await expect(page.getByTestId('card-save-state')).toHaveAttribute('data-state', 'saved');

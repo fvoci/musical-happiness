@@ -7,6 +7,8 @@
  */
 import { expect, test, type APIRequestContext, type Browser, type Page } from '@playwright/test';
 
+import { focusAtEnd } from '../e2e/embeds.support.ts';
+
 import {
   boardPath,
   makeBoard,
@@ -71,11 +73,15 @@ const versions = (page: Page) => page.getByTestId('body-versions');
 const rows = (page: Page) => versions(page).locator('[data-version]');
 const shown = (page: Page) => page.getByTestId('body-version');
 
-/** Types at the end of the body, once the editor has the focus and the caret is there. */
+/**
+ * Types at the end of the body, once the room's document is all there: the
+ * caret is put through the editor, which a click and a key can race while
+ * the document is still being received. The editor takes the focus a frame
+ * later, and a key before that goes nowhere.
+ */
 async function typeAtEnd(page: Page, text: string, newLine = false): Promise<void> {
-  await editor(page).click();
+  await focusAtEnd(page.getByTestId('card-body'));
   await expect(editor(page)).toBeFocused();
-  await page.keyboard.press('Control+End');
   if (newLine) await page.keyboard.press('Enter');
   await page.keyboard.type(text);
 }
