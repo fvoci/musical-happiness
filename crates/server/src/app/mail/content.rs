@@ -169,12 +169,12 @@ mod tests {
         }
     }
 
-    /// Words a member invitation does not use: until someone has signed up and works
-    /// with others, the product names neither the workspace nor the organization.
-    const UNSAID: [&str; 4] = ["workspace", "워크스페이스", "organization", "조직"];
+    /// Words an invitation does not use: until someone has signed up and works with
+    /// others, the product does not name the workspace (the organization it may).
+    const UNSAID: [&str; 2] = ["workspace", "워크스페이스"];
 
     #[test]
-    fn invitations_name_no_workspace_or_organization_in_either_language() {
+    fn invitations_name_no_workspace_in_either_language() {
         use fvoci_model::WorkspaceRole;
         for language in [Language::English, Language::Korean] {
             for role in [

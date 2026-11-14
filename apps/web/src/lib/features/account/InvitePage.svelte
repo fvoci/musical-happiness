@@ -199,20 +199,16 @@
 {#snippet invitedTo(found: InvitationPreview)}
   <p class="text-lg font-medium" data-testid="invite-summary">
     {#if found.boardTitle !== undefined}
-      {@const board = found.boardTitle || m.invite_board_untitled()}
-      {#if found.workspaceName}
-        {m.invite_summary_board({
-          inviter: found.inviterName,
-          workspace: found.workspaceName,
-          board,
-        })}
-      {:else}
-        {m.invite_summary_board_unnamed({ inviter: found.inviterName, board })}
-      {/if}
-    {:else if found.workspaceName}
-      {m.invite_summary({ inviter: found.inviterName, workspace: found.workspaceName })}
+      {m.invite_summary_board({
+        inviter: found.inviterName,
+        workspace: found.workspaceName || m.invite_workspace_unnamed(),
+        board: found.boardTitle || m.invite_board_untitled(),
+      })}
     {:else}
-      {m.invite_summary_unnamed({ inviter: found.inviterName })}
+      {m.invite_summary({
+        inviter: found.inviterName,
+        workspace: found.workspaceName || m.invite_workspace_unnamed(),
+      })}
     {/if}
   </p>
 {/snippet}

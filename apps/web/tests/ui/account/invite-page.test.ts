@@ -80,13 +80,16 @@ describe('the page of an invitation', () => {
     );
   });
 
-  it('says where to without naming a workspace or an organization when the workspace has no name, in both languages', async () => {
-    const unsaid = /workspace|organization|워크스페이스|조직/i;
+  it('names the organization, never a workspace, when the workspace has no name, in both languages', async () => {
     const cases = [
-      { locale: 'en', board: undefined, want: 'Ada invited you to join them' },
-      { locale: 'en', board: 'Roadmap', want: 'Ada invited you to the board “Roadmap”' },
-      { locale: 'ko', board: undefined, want: 'Ada 님이 함께하자고 초대했습니다' },
-      { locale: 'ko', board: 'Roadmap', want: 'Ada 님이 보드 “Roadmap”에 초대했습니다' },
+      { locale: 'en', board: undefined, want: 'Ada invited you to their organization' },
+      {
+        locale: 'en',
+        board: 'Roadmap',
+        want: 'Ada invited you to the board “Roadmap” of their organization',
+      },
+      { locale: 'ko', board: undefined, want: 'Ada 님이 조직에 초대했습니다' },
+      { locale: 'ko', board: 'Roadmap', want: 'Ada 님이 조직의 보드 “Roadmap”에 초대했습니다' },
     ] as const;
     try {
       for (const { locale, board, want } of cases) {
@@ -101,8 +104,6 @@ describe('the page of an invitation', () => {
         });
         const summary = await screen.findByTestId('invite-summary');
         expect(summary.textContent.trim()).toBe(want);
-        expect(summary.textContent).not.toMatch(unsaid);
-        // The rest of the page may name the organization, never a workspace.
         expect(screen.getByTestId('invite-page').textContent).not.toMatch(
           /workspace|워크스페이스/i,
         );
