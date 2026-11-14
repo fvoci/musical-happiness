@@ -177,7 +177,8 @@ export class ServerRequests implements TrashReads {
     const request: Schemas['RegisterRequest'] = {
       ...accountOf(registration),
       organizationName: registration.organizationName,
-      language,
+      // The language of the confirmation mail, where the server sends one.
+      ...(language ? { language } : {}),
     };
     // 201 with the account, or 202 with nothing: the address is to be confirmed first.
     const made = await this.#http.request<Schemas['User'] | undefined>(
@@ -210,7 +211,7 @@ export class ServerRequests implements TrashReads {
   ): Promise<AcceptedInvitation | 'waiting'> {
     const request: Schemas['AcceptInvitation'] = {
       token,
-      language,
+      ...(language ? { language } : {}),
       ...(account ? { account: accountOf(account) } : {}),
     };
     // 202 with nothing: the new account waits for its address to be confirmed.
