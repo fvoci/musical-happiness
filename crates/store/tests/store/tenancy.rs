@@ -578,23 +578,19 @@ async fn a_link_for_a_guest(store: &Store, board: &Board, user_id: &str) {
         .expect("a link is stored");
 }
 
-/// The document of a card's body that is edited together, with an update logged.
+/// The document of a card's body that is edited together: an update logged, a version kept.
 async fn a_body_edited_together(store: &Store, board_id: &str, user_id: &str) {
     let mut edited = fvoci_model::Block {
         id: new_id(),
         board_id: board_id.to_owned(),
         block_type: BlockType::Card,
+        body: crate::body_versions::body_showing("kept", &[]),
         ..fvoci_model::Block::default()
     };
     common::insert_blocks(store, std::slice::from_mut(&mut edited), user_id).await;
-    store
-        .create_body_doc(&edited.id, b"a state", b"a digest")
-        .await
-        .expect("a document is stored");
-    store
-        .append_body_updates(&edited.id, &[(b"an update", user_id)], &[])
-        .await
-        .expect("an update is logged");
+    let body = edited.body.clone();
+    crate::body_versions::type_body(store, &edited.id, body, user_id).await;
+    crate::body_versions::keep(store, &edited.id).await;
 }
 
 /// What two organizations store stays apart in every table of theirs, whatever the
@@ -880,11 +876,12 @@ fn rust_sources(directory: &Path, found: &mut Vec<std::path::PathBuf>) {
 /// organization like another to the wall: `Tenant::org(SYSTEM_ORG_ID)` is not this.)
 #[test]
 fn the_systems_reach_is_asked_for_in_few_places() {
-    const ALLOWED: [&str; 7] = [
+    const ALLOWED: [&str; 8] = [
         "store/src/lib.rs",
         "store/src/directory.rs",
         "store/src/directory/sign_in.rs",
         "store/src/operator_records.rs",
+        "store/src/signups.rs",
         "store/src/data_steps.rs",
         "store/src/visibility.rs",
         "server/src/app/housekeeping.rs",
@@ -1858,12 +1855,13 @@ async fn an_open_board_is_found_by_who_works_in_its_workspace() {
     let board_id = board(&test, &workspace_id, &member, "open to the workspace").await;
 
     let found_by = async |user_id: &str| {
+        let (open, boards) = (PublicBoards::Include, fvoci_model::BoardKinds::Boards);
         let of_the_workspace = test
-            .get_boards_for_user_and_workspace(user_id, &workspace_id, PublicBoards::Include)
+            .get_boards_for_user_and_workspace(user_id, &workspace_id, open, boards)
             .await
             .expect("the boards of the workspace are read");
         let searched = test
-            .search_boards_for_user("open", Title, user_id, PublicBoards::Include)
+            .search_boards_for_user("open", Title, user_id, open, boards)
             .await
             .expect("the boards are searched");
         (of_the_workspace.len(), searched.len())

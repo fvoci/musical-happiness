@@ -9,6 +9,7 @@ mod auth;
 mod blocks;
 mod boards;
 mod boards_and_blocks;
+mod body_versions;
 mod cards;
 mod category;
 mod category_boards;
@@ -30,6 +31,7 @@ mod oidc_pending;
 mod oidc_settings;
 mod onboarding;
 mod org_admin;
+mod pages;
 mod password_reset;
 mod presence;
 mod readiness;
@@ -48,6 +50,7 @@ pub use slots::Slot;
 pub(crate) use startup::{open_store, prepare_store};
 mod shared_reads;
 mod sharing;
+mod signups;
 mod sso;
 mod startup;
 mod store_metrics;
@@ -69,7 +72,7 @@ pub use export::ExportedArchive;
 pub(crate) use files::FILE;
 pub use housekeeping::WorkspacesPurged;
 pub use import::Imported;
-pub use invitations::{Accepting, Inviting};
+pub use invitations::{Accepting, Admission, Inviting};
 pub use limits::OrgLimits;
 pub use loose_objects::{RemovedObjects, WRITING_GRACE_MILLIS};
 pub use oidc::{
@@ -94,7 +97,7 @@ use std::sync::Arc;
 
 use anyhow::Context as _;
 
-use fvoci_model::ClientConfig;
+use fvoci_model::{BoardKinds, ClientConfig};
 use fvoci_store::{Store, Tenant};
 use serde::Serialize;
 use tokio_util::task::TaskTracker;
@@ -130,6 +133,9 @@ pub struct App {
     /// another workspace is not there for this handle. `None` reaches every workspace
     /// of the organization.
     workspace: Option<Arc<str>>,
+    /// The kinds of board this handle reaches ([`App::reaching`]): a board of another
+    /// kind is not there for it, nor what is on one.
+    kinds: BoardKinds,
 }
 
 #[derive(Debug)]
@@ -223,6 +229,7 @@ impl App {
             }
         }
         store.set_comment_versions_kept(config.max_comment_versions);
+        store.set_body_versions_kept(config.collab.collab_body_versions);
         // The authenticator reads what is no organization's (sessions), and asks the
         // directory whose a shared board is: it is given no organization to reach.
         let auth = Authenticator::new(store.scoped(Tenant::Unset), &config)?;
@@ -265,6 +272,7 @@ impl App {
             store,
             ws,
             workspace: None,
+            kinds: BoardKinds::Every,
             inner: Arc::new(Inner {
                 reset_limiter: LoginLimiter::new(Limits::from_config(&config)),
                 mail: mail::Mailer::new(
@@ -329,7 +337,25 @@ impl App {
             ws,
             store,
             workspace: None,
+            kinds: self.kinds,
         }
+    }
+
+    /// The same handle, reaching boards of `kinds` only: for an operation that is about
+    /// what a board holds (cards, views) or about what a wiki holds (pages), to which a
+    /// container of the other kind is one that is not there. A handle reaches both kinds
+    /// until it is narrowed: what is the same for a board and a wiki (who is on it, its
+    /// files, the rooms of its bodies) is asked of both.
+    #[must_use]
+    pub fn reaching(mut self, kinds: BoardKinds) -> Self {
+        self.kinds = kinds;
+        self
+    }
+
+    /// The kinds of board this handle reaches ([`App::reaching`]).
+    #[must_use]
+    pub fn kinds(&self) -> BoardKinds {
+        self.kinds
     }
 
     /// The same handle, for a request that names the workspace in its path: a board of
@@ -352,11 +378,15 @@ impl App {
             .is_none_or(|ours| ours == workspace_id)
     }
 
-    /// Whether the board is there for this handle: a built-in template always, any other
-    /// board if its workspace is ([`App::reaches_workspace`]).
+    /// Whether the board is there for this handle: one of a kind it reaches
+    /// ([`App::reaching`]) that is a built-in template or of a workspace it reaches
+    /// ([`App::reaches_workspace`]). The one place that says so: every way to a board, to
+    /// what is on it and to what is stored for it asks here, or reads a list of the
+    /// handle's kinds.
     #[must_use]
     pub fn reaches_board(&self, board: &fvoci_model::Board) -> bool {
-        board.is_builtin || self.reaches_workspace(&board.workspace_id)
+        self.kinds.holds(board.kind)
+            && (board.is_builtin || self.reaches_workspace(&board.workspace_id))
     }
 
     /// The database, as this handle reaches it.

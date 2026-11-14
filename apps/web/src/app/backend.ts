@@ -8,7 +8,9 @@
  * The page says which (`chosenBackend`). Each is fetched as a chunk of its
  * own, so the app the server serves does not carry the one in memory.
  */
+import { getLocale } from '$lib/i18n/paraglide/runtime.js';
 import type { Account, Backend, People } from '$lib/state/index.ts';
+import type { EmailVerification, WaitingAccount } from '$lib/state/email-verification.ts';
 import type { PasswordRecovery } from '$lib/state/password-recovery.ts';
 import type { Organizations } from '$lib/state/organization.ts';
 
@@ -137,6 +139,21 @@ async function startMemory(): Promise<StartedBackend> {
     someoneElse: asSomeoneElse,
   };
   return { backend };
+}
+
+/** Confirming a registration's address is available before there is an account. */
+export async function startEmailVerification(): Promise<EmailVerification> {
+  const [{ ServerEmailVerification }, { Http }] = await Promise.all([
+    import('$lib/api/email-verification.ts'),
+    import('$lib/api/http.ts'),
+  ]);
+  const base = readBasePath(document);
+  return new ServerEmailVerification(new Http(base === '' ? '' : `/${base}`));
+}
+
+/** Mails a registration that waits for its address a new link, in the page's language. */
+export async function resendLink(waiting: WaitingAccount): Promise<void> {
+  await (await startEmailVerification()).resend(waiting, getLocale());
 }
 
 /** Recovery is available before there is an account or a workspace to load. */

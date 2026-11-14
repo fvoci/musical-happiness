@@ -3,14 +3,15 @@
 
 use std::sync::atomic::Ordering;
 
-use fvoci_model::{Block, BlockType, Body};
-use fvoci_store::{LoggedUpdate, StoreError, StoredDoc};
+use fvoci_model::{Block, Body};
+use fvoci_store::{LoggedUpdate, StoreError, StoredDoc, body_digest};
 use tokio::sync::OwnedSemaphorePermit;
 use tokio::time::Instant;
 
 use super::place::{OpenDoc, Opening};
+use super::versions::Versioned;
 use super::worker::CallError;
-use super::{Collab, DocChange, given, refusals, upkeep};
+use super::{Collab, DocChange, given, refusals};
 use crate::app::App;
 use crate::collab_worker::wire::{Answer, DocNumber, Request, Share, Source};
 use crate::error::{AppError, Reason};
@@ -62,7 +63,7 @@ impl Collab {
         let (generation, state, state_bytes) = self
             .open_from_body(worker, number, block.body.as_ref(), Share::Kept)
             .await?;
-        let digest = upkeep::digest_of(block.body.as_ref());
+        let digest = body_digest(block.body.as_ref());
         if let Err(error) = app
             .store()
             .create_body_doc(&block.id, &state, &digest)
@@ -87,6 +88,8 @@ impl Collab {
             last_update: Instant::now(),
             writing_scheduled: false,
             retry_at: None,
+            versioned: Versioned::Unknown,
+            editors: Vec::new(),
             aside: None,
         })
     }
@@ -111,6 +114,14 @@ impl Collab {
         aside: Option<OwnedSemaphorePermit>,
     ) -> Result<OpenDoc, Opening> {
         let unwritten = stored.projected_seq < stored.log_end;
+        // Updates the card does not hold, or whose writers no version names (a keep
+        // that failed, a server that ended): a version is due at once, so that leaving
+        // the document keeps it, whoever opened it.
+        let versioned = if unwritten || !stored.unkept_editors.is_empty() {
+            Versioned::Due(self.version_clock())
+        } else {
+            Versioned::Unknown
+        };
         let mut open = OpenDoc {
             worker,
             // Not open yet: no generation is 0.
@@ -133,6 +144,8 @@ impl Collab {
             last_update: Instant::now(),
             writing_scheduled: false,
             retry_at: None,
+            versioned,
+            editors: stored.unkept_editors,
             aside,
         };
         let opened = self
@@ -157,7 +170,7 @@ impl Collab {
             }
             return self.made_from_card(app, block, open).await;
         }
-        let written_elsewhere = upkeep::digest_of(block.body.as_ref()) != open.body_digest;
+        let written_elsewhere = body_digest(block.body.as_ref()) != open.body_digest;
         if !unwritten && written_elsewhere {
             return self.made_from_card(app, block, open).await;
         }
@@ -327,10 +340,11 @@ impl Collab {
     }
 }
 
-/// The card of that identifier as `app` reaches it.
+/// The card or the page of that identifier as `app` reaches it: the block whose body
+/// has a room.
 async fn card(app: &App, card_id: &str) -> Result<Block, Opening> {
     match app.store().get_block(card_id).await {
-        Ok(block) if block.block_type == BlockType::Card => Ok(block),
+        Ok(block) if block.block_type.has_room() => Ok(block),
         Ok(_) | Err(StoreError::NotFound(_)) => Err(AppError::not_found("card").into()),
         Err(error) => Err(error.into()),
     }

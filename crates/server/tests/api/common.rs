@@ -493,6 +493,7 @@ impl TestServer {
                 password: password.to_owned(),
                 display_name: String::new(),
                 organization_name: ORG_NAME.to_owned(),
+                language: String::new(),
             };
             self.anonymous()
                 .post("/register", &request)
@@ -1081,6 +1082,18 @@ impl ApiResponse {
     #[track_caller]
     pub(crate) fn value(&self) -> Value {
         self.json()
+    }
+
+    /// The answer without the two members that name the request (`instance`,
+    /// `requestId`): the status and what is left of the body, `null` for a body that
+    /// is no JSON. Two answers that are equal by it tell their asker the same.
+    pub(crate) fn problem(&self) -> (StatusCode, Value) {
+        let mut body: Value = serde_json::from_slice(&self.body).unwrap_or(Value::Null);
+        if let Some(object) = body.as_object_mut() {
+            object.remove("instance");
+            object.remove("requestId");
+        }
+        (self.status, body)
     }
 
     /// The detail of an error answer: English text for developers.

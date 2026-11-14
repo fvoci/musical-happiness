@@ -1,4 +1,5 @@
-//! Blocks: the basic unit of board content (cards, views, comments and attachments).
+//! Blocks: the basic unit of board content (cards, views, comments and attachments) and
+//! of a wiki's (pages).
 
 use std::fmt;
 use std::str::FromStr;
@@ -10,6 +11,7 @@ use thiserror::Error;
 use crate::JsonMap;
 use crate::body::{Body, BodyChange};
 use crate::card_property::{CardPropertyError, PersonProperties, validate_block_properties};
+use crate::page::{PAGE_ICON_FIELD, PAGE_ORDER_FIELD, is_order_value};
 use crate::relation::RelationError;
 use crate::serde_util::null_as_default;
 
@@ -29,7 +31,8 @@ pub const CARD_FIELDS_MAX_CHARS: usize = 64_000;
 
 /// The type of a block.
 ///
-/// A new block has one of four types ([`BlockType::is_current`]). Blocks stored before a
+/// A new block of a board has one of four types ([`BlockType::is_current`]), and a wiki
+/// has pages ([`crate::Page`]). Blocks stored before a
 /// card's content became its body have others, among them type strings the server knows
 /// nothing about (the original's web app had `h1` and `list-item`); those are read and
 /// returned verbatim, kept in [`BlockType::Other`].
@@ -46,6 +49,8 @@ pub enum BlockType {
     Comment,
     /// A file attachment on a card.
     Attachment,
+    /// A page of a wiki ([`crate::Page`]).
+    Page,
     /// Any other type string, kept as sent, such as a content block type of the original
     /// (`text`, `image`, ...): no block is stored with one. The empty string means "no
     /// type".
@@ -53,17 +58,28 @@ pub enum BlockType {
 }
 
 impl BlockType {
+    /// The types whose body is edited together, in a room of the block's own: a card
+    /// and a page. A comment's body is written whole by its author.
+    pub const WITH_ROOM: [Self; 2] = [Self::Card, Self::Page];
+
     /// Returns `true` for the types that may have a body: a card and a comment
-    /// (`docs/s6-design.md` 5.7).
+    /// (`docs/s6-design.md` 5.7), and a page.
     #[must_use]
     pub fn has_body(&self) -> bool {
-        matches!(self, Self::Card | Self::Comment)
+        matches!(self, Self::Card | Self::Comment | Self::Page)
     }
 
-    /// Returns `true` for the types a block may be given: a card, a view, a comment and
-    /// an attachment (`docs/s6-design.md` 5.7). The content blocks that were stored
-    /// before a card's content became its body were deleted by a data step of migration
-    /// 8.
+    /// Returns `true` for the types whose body has a room ([`Self::WITH_ROOM`]).
+    #[must_use]
+    pub fn has_room(&self) -> bool {
+        Self::WITH_ROOM.contains(self)
+    }
+
+    /// Returns `true` for the types a block may be given by a write of blocks: a card,
+    /// a view, a comment and an attachment (`docs/s6-design.md` 5.7). The content
+    /// blocks that were stored before a card's content became its body were deleted by
+    /// a data step of migration 8. A page is no such type: the operations of pages make
+    /// and change it, which keep it in its place in the tree of its wiki.
     #[must_use]
     pub fn is_current(&self) -> bool {
         matches!(
@@ -77,7 +93,7 @@ impl BlockType {
     #[must_use]
     pub fn fields_max_chars(&self) -> usize {
         match self {
-            Self::Card | Self::Comment | Self::Attachment => CARD_FIELDS_MAX_CHARS,
+            Self::Card | Self::Comment | Self::Attachment | Self::Page => CARD_FIELDS_MAX_CHARS,
             Self::View | Self::Board | Self::Other(_) => BLOCK_FIELDS_MAX_CHARS,
         }
     }
@@ -90,6 +106,7 @@ impl BlockType {
             Self::View => "view",
             Self::Comment => "comment",
             Self::Attachment => "attachment",
+            Self::Page => "page",
             Self::Other(other) => other,
         }
     }
@@ -107,6 +124,7 @@ impl BlockType {
             "view" => Self::View,
             "comment" => Self::Comment,
             "attachment" => Self::Attachment,
+            "page" => Self::Page,
             _ => return None,
         })
     }
@@ -154,7 +172,7 @@ pub struct ParseBlockTypeError(String);
 impl FromStr for BlockType {
     type Err = ParseBlockTypeError;
 
-    /// Parses one of the five known block types, ignoring ASCII case.
+    /// Parses one of the known block types, ignoring ASCII case.
     ///
     /// Unlike the `From<&str>` conversion, which keeps unknown strings, this rejects them.
     /// It is the strict form used for the `type` query parameter.
@@ -207,8 +225,8 @@ pub enum BlockError {
     /// ([`crate::check_relation_value`]), or a block that is no card of the board.
     #[error(transparent)]
     InvalidRelation(#[from] RelationError),
-    /// A block that is neither a card nor a comment has a body.
-    #[error("only a card or a comment has a body")]
+    /// A block that is no card, comment or page has a body.
+    #[error("only a card, a comment or a page has a body")]
     BodyNotAllowed,
     /// An image of the body that the write makes the block show newly names no file
     /// that the block's board has when the write is stored.
@@ -226,16 +244,48 @@ pub enum BlockError {
         /// What its value must be.
         expected: &'static str,
     },
+    /// A field of a page has a value of the wrong kind: `icon` a string, `order` an
+    /// order ([`crate::order_between`]), or either `null`.
+    #[error("the field {field} of a page must be {expected}")]
+    InvalidPageField {
+        /// The field.
+        field: &'static str,
+        /// What its value must be.
+        expected: &'static str,
+    },
+    /// A write of blocks gives the type of a page, as the type of a new block or of a
+    /// patch: see [`BlockError::type_not_current`].
+    #[error("a page is made and changed by the operations of pages")]
+    PageByBlocks,
+    /// A page is stored on a board: a page is a block of a wiki.
+    #[error("a page is a block of a wiki, not of a board")]
+    PageOffWiki,
+    /// A block that is no page is stored on a wiki: a wiki has pages only.
+    #[error("the blocks of a wiki are pages")]
+    NotPageOnWiki,
+    /// The parent of a page is no page: a page is at the top of its wiki or below a
+    /// page of it.
+    #[error("the parent of a page is a page of its wiki")]
+    PageNotBelowPage,
+    /// The page a new page is to go right after is no page of the same parent.
+    #[error("the page to go after is no page of the same parent")]
+    AfterNotSibling,
 }
 
-/// One rule of [`CARD_FIELD_KINDS`]: the field, its kind as a message names it, and
-/// whether a value is of that kind.
-type CardFieldKind = (&'static str, &'static str, fn(&Value) -> bool);
+/// The fields of a page whose value has one kind, as [`CARD_FIELD_KINDS`] has a card's.
+const PAGE_FIELD_KINDS: [FieldKind; 2] = [
+    (PAGE_ICON_FIELD, "a string", Value::is_string),
+    (PAGE_ORDER_FIELD, "an order the server made", is_order_value),
+];
+
+/// One rule of [`CARD_FIELD_KINDS`] or [`PAGE_FIELD_KINDS`]: the field, its kind as a
+/// message names it, and whether a value is of that kind.
+type FieldKind = (&'static str, &'static str, fn(&Value) -> bool);
 
 /// The fields of a card whose value has one kind. Anything else breaks the reading of
 /// the card ([`crate::Card::from_block`]). `null` is taken as absent and is of every
 /// kind.
-const CARD_FIELD_KINDS: [CardFieldKind; 2] = [
+const CARD_FIELD_KINDS: [FieldKind; 2] = [
     ("icon", "a string", Value::is_string),
     ("isTemplate", "a boolean", Value::is_boolean),
 ];
@@ -258,6 +308,9 @@ impl BlockError {
     /// [`TYPE_SHOWN_CHARS`] characters of it.
     #[must_use]
     pub fn type_not_current(block_type: &BlockType) -> Self {
+        if *block_type == BlockType::Page {
+            return Self::PageByBlocks;
+        }
         let name = block_type.as_str();
         Self::TypeNotCurrent(match name.char_indices().nth(TYPE_SHOWN_CHARS) {
             Some((end, _)) => format!("{}…", &name[..end]),
@@ -285,8 +338,9 @@ pub struct Block {
     /// The schema version of the block.
     #[serde(deserialize_with = "null_as_default")]
     pub schema: i64,
-    /// The block type: `card`, `view`, `comment` or `attachment`. No request makes a
-    /// block of another type or patches one into it (400 naming `type`).
+    /// The block type: `card`, `view`, `comment` or `attachment` on a board, and `page`
+    /// on a wiki. No request of blocks makes a block of another type or patches one
+    /// into it (400 naming `type`), nor a page: `createPage` makes those.
     #[serde(rename = "type")]
     #[serde(deserialize_with = "null_as_default")]
     #[schema(value_type = String)]
@@ -295,14 +349,15 @@ pub struct Block {
     #[serde(deserialize_with = "null_as_default")]
     pub title: String,
     /// Type-specific data, free-form: serialized, at most 64,000 characters for a card, a
-    /// comment or an attachment and 800,000 for a view or a block of another type. The
-    /// `icon` of a card is a string and its `isTemplate` a boolean, or either `null`
-    /// (400 naming `fields` otherwise).
+    /// comment, an attachment or a page and 800,000 for a view or a block of another
+    /// type. The `icon` of a card is a string and its `isTemplate` a boolean, or either
+    /// `null` (400 naming `fields` otherwise). A page has its `icon` and its `order`
+    /// here, as `Page` gives them.
     #[serde(deserialize_with = "null_as_default")]
     #[schema(value_type = Object)]
     pub fields: JsonMap,
-    /// The body of a card or a comment; `null` for a block without one. Only those two
-    /// have one: a body on another block is refused (400 naming `body`). Every image of
+    /// The body of a card, a comment or a page; `null` for a block without one. Only
+    /// those have one: a body on another block is refused (400 naming `body`). Every image of
     /// it shows a file of the block's board. Whoever reads it by the board's link gets
     /// every mention with an empty `userId`: a shape that is only sent, which a write
     /// would have refused.
@@ -357,16 +412,24 @@ impl Block {
         if self.title.contains('\0') {
             return Err(BlockError::NulInTitle);
         }
-        if self.block_type == BlockType::Card {
-            for (field, expected, is_of_kind) in CARD_FIELD_KINDS {
-                if self
-                    .fields
-                    .get(field)
-                    .is_some_and(|value| !value.is_null() && !is_of_kind(value))
-                {
+        let of_another_kind = |kinds: &[FieldKind]| {
+            kinds.iter().copied().find(|(field, _, is_of_kind)| {
+                let value = self.fields.get(*field);
+                value.is_some_and(|value| !value.is_null() && !is_of_kind(value))
+            })
+        };
+        match self.block_type {
+            BlockType::Card => {
+                if let Some((field, expected, _)) = of_another_kind(&CARD_FIELD_KINDS) {
                     return Err(BlockError::InvalidCardField { field, expected });
                 }
             }
+            BlockType::Page => {
+                if let Some((field, expected, _)) = of_another_kind(&PAGE_FIELD_KINDS) {
+                    return Err(BlockError::InvalidPageField { field, expected });
+                }
+            }
+            _ => {}
         }
         // Serializing a map with string keys cannot fail; if it ever did, the fields would
         // not be storable either.

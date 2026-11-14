@@ -11,6 +11,11 @@
   Where the server takes nobody without an invitation (it has its organization), the
   page offers no form to make an account, and says what to ask for instead.
 
+  Where the server confirms addresses, making an account makes nothing yet: the
+  page says to check the mail, whose link makes the account and signs in. A
+  sign-in to a registration that is not confirmed (its right password) is told
+  so, with a button that mails the link again.
+
   An organization whose people sign in through its provider has a button
   for that above the form: the organization the page's address names
   (`/login?org=…`), or the only one of the server. A sign-in through the
@@ -25,13 +30,21 @@
   import { tick } from 'svelte';
 
   import { m } from '$lib/i18n/paraglide/messages.js';
-  import { isBackendError, type LoginOptions, type Registration } from '$lib/state/index.ts';
+  import {
+    isBackendError,
+    type LoginOptions,
+    type Registered,
+    type Registration,
+  } from '$lib/state/index.ts';
+  import type { WaitingAccount } from '$lib/state/email-verification.ts';
   import { Button } from '$lib/ui/button/index.js';
   import { Input } from '$lib/ui/input/index.js';
   import { Label } from '$lib/ui/label/index.js';
 
   import { oidcProblemOf } from './oidc-problems.ts';
   import AccountFields from './AccountFields.svelte';
+  import CheckMailPage from './CheckMailPage.svelte';
+  import ResendLink from './ResendLink.svelte';
   import SignInChoice from './SignInChoice.svelte';
   import {
     accountFieldsUnder,
@@ -43,7 +56,10 @@
 
   interface Props {
     onSignIn: (login: string, password: string) => Promise<void>;
-    onRegister: (registration: Registration) => Promise<void>;
+    /** Makes the account, or nothing yet where its address is to be confirmed (`waiting`). */
+    onRegister: (registration: Registration) => Promise<Registered>;
+    /** Mails a registration that waits for its address a new link (`EmailVerification.resend`). */
+    onResend?: (waiting: WaitingAccount) => Promise<void>;
     /** What the page shows of the server (`Account.loginOptions`). */
     optionsOf?: (orgId: string | undefined) => Promise<LoginOptions>;
     /**
@@ -65,6 +81,7 @@
   let {
     onSignIn,
     onRegister,
+    onResend,
     optionsOf,
     onOidcStart,
     onCarryOver,
@@ -112,6 +129,11 @@
   let working = $state(false);
   let problem = $state<string | undefined>(oidcError ? oidcProblemOf(oidcError) : undefined);
 
+  /** The address a registration's link went to, while the page waits for it. */
+  let waitingFor = $state<string | undefined>(undefined);
+  /** The name or address a sign-in was refused for, as not confirmed yet. */
+  let unconfirmed = $state<string | undefined>(undefined);
+
   /** What is wrong with each field, where the server said so of the field. */
   let fieldProblems = $state.raw<FieldProblems>({});
 
@@ -153,10 +175,11 @@
     if (working) return;
     working = true;
     problem = undefined;
+    unconfirmed = undefined;
     fieldProblems = {};
     try {
       if (mode === 'register') {
-        await onRegister({
+        const registered = await onRegister({
           organizationName: organizationName.trim(),
           username: username.trim(),
           // Trimmed by the server, as it counts white space.
@@ -164,6 +187,11 @@
           email: email.trim(),
           password,
         });
+        if (registered === 'waiting') {
+          password = '';
+          waitingFor = email.trim();
+          return;
+        }
         // The account is there now. Should signing in fail, the form to try
         // again is the one to sign in with, the name filled in.
         login = username.trim();
@@ -173,6 +201,9 @@
         await onSignIn(login.trim(), password);
       }
     } catch (error) {
+      if (mode === 'signIn' && isBackendError(error) && error.reason === 'email_unverified') {
+        unconfirmed = login.trim();
+      }
       // `mode` is the form the refused request was sent from: the link that
       // turns one form into the other is off while a request is under way.
       const said = formProblemsOf(error, FIELDS[mode]);
@@ -191,7 +222,16 @@
   function switchTo(next: 'signIn' | 'register'): void {
     mode = next;
     problem = undefined;
+    unconfirmed = undefined;
     fieldProblems = {};
+  }
+
+  /** Back from waiting to the form, to register with another address: its first field. */
+  async function signUpAgain(): Promise<void> {
+    waitingFor = undefined;
+    switchTo('register');
+    await tick();
+    document.getElementById('account-organizationName')?.focus();
   }
 </script>
 
@@ -210,7 +250,14 @@
   {/if}
 {/snippet}
 
-{#if heldFor !== undefined && onCarryOver && onStartAnew}
+{#if waitingFor !== undefined}
+  {@const address = waitingFor}
+  <CheckMailPage
+    email={address}
+    onResend={() => onResend?.({ email: address }) ?? Promise.resolve()}
+    onSignUpAgain={() => void signUpAgain()}
+  />
+{:else if heldFor !== undefined && onCarryOver && onStartAnew}
   {@const orgId = heldFor}
   <SignInChoice
     name={heldName}
@@ -309,10 +356,22 @@
           bind:password
           problems={fieldProblems}
         />
+        {#await options then read}
+          {#if read?.emailVerification}
+            <p class="text-xs text-muted-foreground" data-testid="verify-hint">
+              {m.verify_register_hint()}
+            </p>
+          {/if}
+        {/await}
       {/if}
 
       {#if problem}
         <p class="text-sm text-destructive" role="alert">{problem}</p>
+      {/if}
+      {#if unconfirmed !== undefined && onResend}
+        {@const named = unconfirmed}
+        <!-- The name or the address: the server looks for a registration by either. -->
+        <ResendLink onResend={() => onResend({ username: named, email: named })} />
       {/if}
 
       <Button type="submit" class="roomy:min-h-touch" disabled={working}>

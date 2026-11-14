@@ -9,14 +9,18 @@
 mod accounts;
 mod audit;
 mod blocks;
+mod board_kinds;
 mod board_membership;
+mod board_search;
 mod board_team_access;
 mod board_team_membership;
 mod board_team_trash;
 mod board_teams;
 mod boards;
 mod boards_and_blocks;
+mod body_digest;
 mod body_docs;
+mod body_versions;
 mod card_values;
 mod categories;
 mod category_boards;
@@ -30,6 +34,7 @@ mod error;
 mod file_info;
 mod file_refs;
 mod invitations;
+mod invited_signups;
 mod joinings;
 mod loose_objects;
 mod members;
@@ -42,11 +47,14 @@ mod oidc_identities;
 mod oidc_pending;
 mod operator_records;
 mod org_admin;
+mod page_places;
+mod pages;
 mod password_reset;
 mod schema;
 mod server_lock;
 mod sessions;
 mod sharing;
+mod signups;
 mod subscriptions;
 mod teams;
 #[cfg(feature = "test-util")]
@@ -70,7 +78,9 @@ pub use audit::{AuditEntry, AuditPlace};
 pub use blocks::{BlockFilter, BodyPreview, DuplicateAs, ListedBlock, Paging, Previews};
 pub use board_membership::Standing;
 pub use boards::{Joined, MemberChange, PublicBoards};
+pub use body_digest::body_digest;
 pub use body_docs::{LoggedUpdate, StoredDoc};
+pub use body_versions::{BodyBefore, DEFAULT_BODY_VERSIONS_KEPT, KeptVersion};
 pub use category_boards::{BoardPlace, BoardVisibility};
 pub use comment_versions::DEFAULT_COMMENT_VERSIONS_KEPT;
 pub use connect::DbType;
@@ -79,6 +89,7 @@ pub use directory::{Looking, Reach, SYSTEM_ORG_ID, SYSTEM_WORKSPACE_ID, Sight, W
 pub use error::{StoreError, Taken};
 pub use file_refs::NewImages;
 pub use invitations::{Acceptance, Accepted, Acceptor, Inviter, InviterOfBoard, MailedTo, NewLink};
+pub use invited_signups::InvitedConfirmation;
 pub use loose_objects::{LooseCounts, LooseObject, LooseState};
 pub use observe::{Access, Call, Observer, Outcome};
 pub use oidc::{
@@ -92,6 +103,10 @@ pub use org_admin::{Joining, OrgRoleChange, WorkspaceTrashing};
 pub use password_reset::PASSWORD_RESET_LIFETIME_MILLIS;
 pub use server_lock::ServerLock;
 pub use sharing::SharingChange;
+pub use signups::{
+    Confirmed, Proof, SIGNUP_LIFETIME_MILLIS, SIGNUP_LINK_LIFETIME_MILLIS, Signup, SignupLookup,
+    SignupStart,
+};
 pub use trash::{DeletedBlock, DeletedBoard, Purged};
 pub use uploads::{OpenUploads, PartRecord, UploadUsage};
 pub use users::{AdminChange, InstanceRole, Preference};
@@ -214,6 +229,8 @@ struct Inner {
     sqlite_writers: tokio::sync::Mutex<()>,
     /// See [`Store::set_comment_versions_kept`].
     comment_versions_kept: std::sync::atomic::AtomicUsize,
+    /// See [`Store::set_body_versions_kept`].
+    body_versions_kept: std::sync::atomic::AtomicU32,
     /// Who is told about the calls; see [`Store::observe`].
     observer: std::sync::OnceLock<Box<dyn Observer>>,
     visibility: visibility::Visibility,
@@ -323,6 +340,9 @@ impl Store {
                 comment_versions_kept: std::sync::atomic::AtomicUsize::new(
                     usize::try_from(comment_versions::DEFAULT_COMMENT_VERSIONS_KEPT)
                         .unwrap_or(usize::MAX),
+                ),
+                body_versions_kept: std::sync::atomic::AtomicU32::new(
+                    body_versions::DEFAULT_BODY_VERSIONS_KEPT,
                 ),
                 observer: std::sync::OnceLock::new(),
                 visibility: visibility::Visibility::settling_for(visibility::settle_after(
@@ -531,7 +551,7 @@ impl Store {
         visibility: &visibility::Writing<'_>,
         operation: impl AsyncFnOnce(&mut Scope<'_>) -> Result<T, StoreError>,
     ) -> (Result<T, StoreError>, Access) {
-        let kept = self.comment_versions_kept();
+        let kept = self.versions_kept();
         match &self.inner.pool {
             Pool::Sqlite(pool) => {
                 let mut conn = match Watch::acquire(watch, pool).await {
@@ -599,7 +619,7 @@ impl Store {
         visibility: &visibility::Writing<'_>,
         operation: impl AsyncFnOnce(&mut Scope<'_>) -> Result<T, StoreError>,
     ) -> Result<T, StoreError> {
-        let kept = self.comment_versions_kept();
+        let kept = self.versions_kept();
         match &self.inner.pool {
             Pool::Sqlite(pool) => {
                 // One transaction at a time, in the order they come. SQLite has one

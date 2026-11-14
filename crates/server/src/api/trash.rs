@@ -10,8 +10,7 @@ use super::cards::page_params;
 use super::contract::params::MemberWorkspaceId;
 use super::contract::params::{BoardId, Page, PerPage, WorkspaceId};
 use super::contract::tag;
-use super::workspace::TextWs;
-use super::workspace::Ws;
+use super::workspace::{TextWsModule, Ws};
 use super::{ApiResult, json_response, require_board_permission};
 use crate::app::App;
 use crate::permissions::BoardPermission;
@@ -66,6 +65,9 @@ async fn handle_get_deleted_cards(
 /// with its identifier, its title, when it was deleted and by whom. The last deleted
 /// first; the pages cut that order. A `page` or `perPage` that is no whole number is
 /// 400. For users of the workspace.
+///
+/// The wikis in the trash are in the same list, which go there and come back as boards
+/// do (`deleteBoard`, `undeleteBoard`): each entry says its `kind`.
 #[utoipa::path(
     get,
     path = "/w/{workspaceId}/trash/boards",
@@ -74,7 +76,10 @@ async fn handle_get_deleted_cards(
     params(WorkspaceId, Page, PerPage),
     responses((status = 200, description = "The deleted boards of the page.", body = Vec<DeletedItem>)),
 )]
-async fn handle_get_deleted_boards(TextWs(ws): TextWs, RawQuery(query): RawQuery) -> ApiResult {
+async fn handle_get_deleted_boards(
+    TextWsModule(ws): TextWsModule,
+    RawQuery(query): RawQuery,
+) -> ApiResult {
     let ws = ws.require_no_guest()?;
     let (page, per_page) = page_params(query.as_deref())?;
     Ok(json_response(

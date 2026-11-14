@@ -4,17 +4,17 @@
 
 use std::future::Future;
 
-use fvoci_model::{Block, BlockPatch, BlockType};
+use fvoci_model::{Block, BlockPatch};
+use fvoci_store::body_digest;
 
 use super::place::Held;
-use super::upkeep::digest_of;
 use super::{Collab, DocChange, refusals};
 use crate::app::App;
 use crate::error::AppError;
 
-/// The cards whose bodies a batch of patches writes: of `blocks`, those read for
-/// `block_ids`, the cards whose patch (at the same place as their identifier) sets a
-/// body.
+/// The cards and pages whose bodies a batch of patches writes: of `blocks`, those
+/// read for `block_ids`, the ones whose body has a room and whose patch (at the same
+/// place as their identifier) sets a body.
 #[must_use]
 pub fn cards_written_whole(
     blocks: &[Block],
@@ -28,7 +28,7 @@ pub fn cards_written_whole(
             !patch.body.is_keep()
                 && blocks
                     .iter()
-                    .any(|block| &block.id == *block_id && block.block_type == BlockType::Card)
+                    .any(|block| &block.id == *block_id && block.block_type.has_room())
         })
         .map(|(block_id, _)| block_id.clone())
         .collect()
@@ -48,6 +48,9 @@ impl Collab {
     /// - after, an open document whose card holds another body now is made again from
     ///   that body, and the room is told ([`super::DocChange::Replaced`]). A document
     ///   that is not open is made again from its card's body when it is opened.
+    ///
+    /// The store keeps the versions of such a write within it
+    /// (`fvoci_store::Store::patch_block`): the body before and the body after.
     ///
     /// # Errors
     ///
@@ -112,7 +115,7 @@ impl Collab {
             // Not open (its worker ended over it, or it was opened for its log alone),
             // with a room all the same: the room holds the document before the write,
             // and is told to open it anew.
-            if written.is_ok() && self.has_room(app, &card_id) {
+            if written.is_ok() && self.room_is_open(app, &card_id) {
                 self.tell(app, &card_id, DocChange::Closed);
             }
             self.retire(&mut slot);
@@ -167,7 +170,7 @@ impl Collab {
         if slot
             .open
             .as_ref()
-            .is_some_and(|open| digest_of(body.as_ref()) == open.body_digest)
+            .is_some_and(|open| body_digest(body.as_ref()) == open.body_digest)
         {
             return;
         }
@@ -175,6 +178,10 @@ impl Collab {
             // Closed by the failure: the room is told, and opens it from the card.
             tracing::error!(%error, card_id, "cannot make a document again from a body written whole");
             self.tell(app, card_id, DocChange::Closed);
+            return;
         }
+        // The store kept that body as a version within the write, and named those put
+        // down as having written before it.
+        super::versions::kept(slot);
     }
 }

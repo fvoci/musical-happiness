@@ -12,7 +12,7 @@ use super::contract::bodies::SharingRequest;
 use super::contract::params::BoardId;
 use super::contract::params::MemberWorkspaceId;
 use super::contract::tag;
-use super::workspace::Ws;
+use super::workspace::WsModule;
 
 use super::{ApiResult, json_response};
 use super::{decode_json, json_object, require_board_permission};
@@ -55,7 +55,10 @@ async fn require_share_permission(
     params(MemberWorkspaceId, BoardId),
     responses((status = 200, description = "The sharing state.", body = Sharing)),
 )]
-async fn handle_get_sharing(ws: Ws, Path((_, board_id)): Path<(String, String)>) -> ApiResult {
+async fn handle_get_sharing(
+    WsModule(ws): WsModule,
+    Path((_, board_id)): Path<(String, String)>,
+) -> ApiResult {
     require_share_permission(&ws.app, &ws.session.user_id, &board_id).await?;
     let sharing = ws.app.sharing(&board_id).await?;
     tracing::debug!(board_id, enabled = sharing.enabled, "GET sharing");
@@ -121,7 +124,7 @@ fn sharing_change(body: &Bytes) -> Result<SharingChange, AppError> {
     )),
 )]
 async fn handle_post_sharing(
-    ws: Ws,
+    WsModule(ws): WsModule,
     Path((_, board_id)): Path<(String, String)>,
     body: Bytes,
 ) -> ApiResult {

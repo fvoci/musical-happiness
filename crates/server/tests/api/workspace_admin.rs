@@ -22,7 +22,7 @@ fn answer(response: &ApiResponse) -> (StatusCode, Value) {
 }
 
 /// Makes the second user an administrator of the test workspace; returns their identifier.
-async fn workspace_admin(th: &TestServer) -> String {
+pub(crate) async fn workspace_admin(th: &TestServer) -> String {
     let user_id = th.client2.me().await.id;
     th.app
         .store()

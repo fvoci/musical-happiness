@@ -16,6 +16,7 @@ mod cards;
 mod categories;
 mod config;
 pub mod contract;
+mod email_verification;
 mod files;
 mod invitation_mail;
 mod invitations;
@@ -27,6 +28,7 @@ mod onboarding;
 mod org;
 mod org_admin;
 mod password_reset;
+mod recovery;
 mod search;
 mod session;
 mod shared;
@@ -38,6 +40,7 @@ mod templates;
 mod trash;
 mod uploads;
 mod users;
+mod wikis;
 mod workspace;
 mod workspace_members;
 
@@ -111,6 +114,7 @@ fn routes() -> Routes {
         .merge(auth::routes())
         .merge(blocks::routes())
         .merge(boards::routes())
+        .merge(wikis::routes())
         .merge(boards_and_blocks::routes())
         .merge(cards::routes())
         .merge(trash::routes())
@@ -140,6 +144,7 @@ fn routes() -> Routes {
     let unauthenticated = OpenApiRouter::new()
         .merge(auth::unauthenticated_routes())
         .merge(password_reset::routes())
+        .merge(email_verification::routes())
         .merge(invitations::unauthenticated_routes())
         .merge(oidc::unauthenticated_routes())
         .merge(system::routes());

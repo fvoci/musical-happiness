@@ -153,7 +153,7 @@ async fn invitation(case: &mut Case, server: &TestServer, smtp: &FakeSmtp) {
     )
     .await
     .check_no_content();
-    let letter = mail_to(case, smtp, &mailed).await;
+    let letter = mail_to(case, smtp, &mailed, "/invite/").await;
     assert!(
         letter.contains(token),
         "the mail carries this organization's invitation"
@@ -176,13 +176,70 @@ async fn invitation(case: &mut Case, server: &TestServer, smtp: &FakeSmtp) {
             }),
         )
         .await;
-    assert!(accepted.status.is_success(), "{}", accepted.text());
+    // A link for members proves no address: the new account waits for its own.
+    assert_eq!(accepted.status.as_u16(), 202, "{}", accepted.text());
+    case.record("acceptInvitation", &accepted);
+    let invited = format!("{}-invited@example.test", case.label);
+    let resent = server
+        .anonymous()
+        .post("/email-verification/request", &json!({"email": invited}))
+        .await;
+    resent.check_no_content();
+    case.record("requestEmailVerification", &resent);
+    let confirmed = confirm(server, smtp, &invited, &case.forbidden, 2).await;
     assert_eq!(
-        accepted.value()["workspaceId"],
+        confirmed.value()["workspaceId"],
         case.workspace,
         "invitation joins its own workspace"
     );
-    case.record("acceptInvitation", &accepted);
+    case.record("completeEmailVerification", &confirmed);
+}
+
+/// Confirms the registration of `recipient` by the newest of the `count` confirmation
+/// mails it is to have, which must name nothing of `forbidden`.
+pub(super) async fn confirm(
+    server: &TestServer,
+    smtp: &FakeSmtp,
+    recipient: &str,
+    forbidden: &[String],
+    count: usize,
+) -> super::ApiResponse {
+    let letter = tokio::time::timeout(std::time::Duration::from_secs(15), async {
+        loop {
+            let mut letters: Vec<String> = smtp
+                .messages()
+                .await
+                .into_iter()
+                .filter(|message| {
+                    message.recipient == recipient && message.decoded.contains("/verify-email#")
+                })
+                .map(|message| message.decoded)
+                .collect();
+            if letters.len() >= count {
+                return letters.pop().expect("the newest");
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the confirmation mail arrives");
+    for value in forbidden {
+        assert!(
+            !letter.contains(value.as_str()),
+            "mail to {recipient} leaked first-organization data {value}"
+        );
+    }
+    let link = letter
+        .lines()
+        .find(|line| line.starts_with("http") && line.contains("/verify-email#"))
+        .expect("the confirmation mail has its link");
+    let token = link.split_once('#').expect("a fragment").1.trim();
+    let confirmed = server
+        .anonymous()
+        .post("/email-verification/complete", &json!({"token": token}))
+        .await;
+    assert_eq!(confirmed.status.as_u16(), 200, "{}", confirmed.text());
+    confirmed
 }
 
 /// The invited account recovers its password from the mail its own organization sent.
@@ -195,7 +252,7 @@ async fn recovery(case: &mut Case, server: &TestServer, smtp: &FakeSmtp) {
         .await;
     requested.check_no_content();
     case.record("requestPasswordReset", &requested);
-    let letter = mail_to(case, smtp, &email).await;
+    let letter = mail_to(case, smtp, &email, "/reset-password#").await;
     let link = letter
         .lines()
         .find(|line| line.starts_with("http") && line.contains("/reset-password#"))
@@ -220,16 +277,14 @@ async fn recovery(case: &mut Case, server: &TestServer, smtp: &FakeSmtp) {
     assert_eq!(again.status.as_u16(), 204, "the new password signs in");
 }
 
-/// The decoded mail to `recipient`, which must name nothing of the other organization.
-async fn mail_to(case: &Case, smtp: &FakeSmtp, recipient: &str) -> String {
+/// The decoded mail to `recipient` that holds `containing`, which must name nothing of
+/// the other organization.
+async fn mail_to(case: &Case, smtp: &FakeSmtp, recipient: &str, containing: &str) -> String {
     let letter = tokio::time::timeout(std::time::Duration::from_secs(15), async {
         loop {
-            if let Some(found) = smtp
-                .messages()
-                .await
-                .into_iter()
-                .find(|message| message.recipient == recipient)
-            {
+            if let Some(found) = smtp.messages().await.into_iter().find(|message| {
+                message.recipient == recipient && message.decoded.contains(containing)
+            }) {
                 return found.decoded;
             }
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;

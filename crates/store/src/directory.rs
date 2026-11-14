@@ -15,7 +15,8 @@
 use std::collections::BTreeSet;
 
 use fvoci_model::{
-    BoardMember, BoardType, OrgRole, User, UserWorkspace, Workspace, WorkspaceRole, new_id,
+    BoardKind, BoardKinds, BoardMember, BoardType, OrgRole, User, UserWorkspace, Workspace,
+    WorkspaceRole, new_id,
 };
 use subtle::ConstantTimeEq as _;
 
@@ -26,7 +27,7 @@ use crate::error::StoreError;
 use crate::file_info;
 use crate::loose_objects::LooseState;
 use crate::uploads::{OpenUploads, UploadUsage};
-use crate::{invitations, memberships_everywhere, users, workspaces};
+use crate::{body_versions, invitations, memberships_everywhere, users, workspaces};
 
 mod sign_in;
 
@@ -203,8 +204,9 @@ fn push_seen(sql: &mut Sql, scope: &Scope<'_>, sight: Sight<'_>) {
     }
 }
 
-/// Pushes `OR` the condition that the user `id` authored a board, a block, or a kept
-/// comment version the seer reads, as `permissions::grant` has it: one they hold a
+/// Pushes `OR` the condition that the user `id` authored a board, a block, a kept
+/// comment version or a kept version of a card's body the seer reads, as
+/// `permissions::grant` has it: one they hold a
 /// role on, or an open template of a workspace they work in; of the workspace `within`
 /// names, as far as its [`Reach`] goes, or of any workspace in use the seer is a member
 /// of.
@@ -229,6 +231,13 @@ fn push_writer(sql: &mut Sql, scope: &Scope<'_>, seer_id: &str, within: Option<(
          WHERE cv.block_id = bl.id AND cv.written_by = users.id",
     )
     .push(&scope.same_organization(&[("cv", "bl")]))
+    .push(")) OR (")
+    .push(&body_versions::with_room_sql("bl.type"))
+    .push(
+        " AND EXISTS (SELECT 1 FROM body_version_editors ve \
+         WHERE ve.block_id = bl.id AND ve.version > 0 AND ve.user_id = users.id",
+    )
+    .push(&scope.same_organization(&[("ve", "bl")]))
     .push(
         ")))) OR EXISTS (SELECT 1 FROM deleted_blocks d \
          JOIN comment_versions cv ON cv.block_id = d.id \
@@ -639,11 +648,11 @@ impl Store {
             .await
     }
 
-    /// The user's board memberships in live workspaces of every organization, direct
-    /// and through a team (`inherited_role`), ordered by board identifier. Only the
-    /// named user's memberships are returned, and only of the organizations a session
-    /// made through `login_provider` (`None` for a password) opens: one that takes only
-    /// sessions of another provider is left out.
+    /// The user's memberships of boards of `kinds` in live workspaces of every
+    /// organization, direct and through a team (`inherited_role`), ordered by board
+    /// identifier. Only the named user's memberships are returned, and only of the
+    /// organizations a session made through `login_provider` (`None` for a password)
+    /// opens: one that takes only sessions of another provider is left out.
     ///
     /// # Errors
     ///
@@ -652,10 +661,11 @@ impl Store {
         &self,
         user_id: &str,
         login_provider: Option<&str>,
+        kinds: BoardKinds,
     ) -> Result<Vec<BoardMember>, StoreError> {
         self.system()
             .with_conn(async |scope| {
-                memberships_everywhere::of_user(scope, user_id, login_provider).await
+                memberships_everywhere::of_user(scope, user_id, login_provider, kinds).await
             })
             .await
     }
@@ -700,7 +710,8 @@ impl Store {
     }
 
     /// The organization of a board that is shared, for whoever holds its read token;
-    /// `None` if the board is not shared, is not there, or the token is not its own.
+    /// `None` if the board is not shared, is not there, is a wiki, or the token is not
+    /// its own: a read token opens the cards of a board, and a wiki has none.
     /// Nothing of the system organization is shared, nothing of a workspace or an
     /// organization that was deleted, and nothing of an organization that turned its
     /// public links off.
@@ -726,6 +737,7 @@ impl Store {
                 sql.bind(Id(board_id))
                     .push_bind(" AND s.enabled = ", true)
                     .push_bind(" AND o.public_links = ", true)
+                    .push_bind(" AND b.kind = ", BoardKind::Board.as_str())
                     .push(IN_USE)
                     .push(&scope.same_organization(&[("s", "b"), ("b", "t")]));
                 let Some(row) = scope.fetch_optional(sql).await? else {

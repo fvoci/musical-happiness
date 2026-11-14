@@ -104,6 +104,26 @@ impl App {
         }))
     }
 
+    /// Refuses to make a board of a kind this handle does not reach
+    /// ([`App::reaching`]): every way a board is made of what a request says asks here
+    /// first, so that an operation on boards makes no wiki, whatever its body says. A
+    /// copy is of the kind of what it copies, and what comes back from the trash of
+    /// the kind it went as; the handle reached both before.
+    ///
+    /// # Errors
+    ///
+    /// Returns 400 naming `kind`.
+    pub(super) fn require_makes(&self, board: &Board) -> Result<(), AppError> {
+        if self.kinds.holds(board.kind) {
+            return Ok(());
+        }
+        Err(AppError::bad_request(format_args!(
+            "this operation makes no {}",
+            board.kind.as_str()
+        ))
+        .with_field("kind"))
+    }
+
     /// The user's upload that is still going and the parts it has received, as
     /// [`App::upload`] gives them, if it is of this handle's workspace: the workspace an
     /// archive is imported into, or the one of the board a file is for, in the trash too.

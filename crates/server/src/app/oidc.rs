@@ -205,6 +205,7 @@ impl App {
             organization,
             registration_open: self.takes_registrations().await?,
             mail_enabled: self.config().mail_enabled(),
+            email_verification: self.verifies_email(),
         })
     }
 

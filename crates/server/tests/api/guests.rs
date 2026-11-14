@@ -23,7 +23,7 @@ fn answer(response: &ApiResponse) -> (StatusCode, Value) {
 }
 
 /// Makes the second user a guest of the test workspace and returns their identifier.
-async fn guest_of_the_workspace(th: &TestServer) -> String {
+pub(crate) async fn guest_of_the_workspace(th: &TestServer) -> String {
     let user_id = th.client2.me().await.id;
     th.app
         .store()

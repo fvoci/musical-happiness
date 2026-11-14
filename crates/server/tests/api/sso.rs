@@ -446,6 +446,8 @@ async fn the_administration_socket_releases_an_organization() {
 /// that does not open the organization still does.
 const OPEN_TO_ANY_SESSION: &[&str] = &[
     "changePassword",
+    // Confirming a registration's address asks for no session: there is no account yet.
+    "completeEmailVerification",
     // Recovering a password asks for no session; what it changes is the account's own.
     "completePasswordReset",
     // The two ends of a sign-in held for a browser come before there is a session, as
@@ -478,6 +480,7 @@ const OPEN_TO_ANY_SESSION: &[&str] = &[
     "previewInvitation",
     "ready",
     "register",
+    "requestEmailVerification",
     "requestPasswordReset",
     "startOidcCarryOver",
     "startOidcLogin",

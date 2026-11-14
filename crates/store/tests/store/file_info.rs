@@ -506,7 +506,7 @@ async fn a_file_no_block_shows_is_collected_after_the_grace_period() {
         .expect_err("the record of a collected file is gone");
     assert!(matches!(error, StoreError::NotFound(_)), "{error:?}");
 
-    // The body no longer shows its file.
+    // The body no longer shows its file; the version kept of the body before does.
     card.body = None;
     store
         .insert_block(&mut card, &user_id)
@@ -517,6 +517,18 @@ async fn a_file_no_block_shows_is_collected_after_the_grace_period() {
         .delete_block(&image.id, &user_id)
         .await
         .expect("the image is deleted");
+    assert_eq!(
+        collected(store, later).await,
+        Vec::<String>::new(),
+        "a version of the body can be gone back to with its file"
+    );
+    // Once that version is kept no longer, nothing shows the file.
+    store.set_body_versions_kept(1);
+    card.body = card_showing(board_id, &[]).body;
+    store
+        .insert_block(&mut card, &user_id)
+        .await
+        .expect("the card is changed again");
     assert_eq!(collected(store, later).await, ["7body.png"]);
 
     // Once the image is gone for good, so is what it showed.

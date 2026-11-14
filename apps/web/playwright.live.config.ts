@@ -17,6 +17,8 @@ const PORT = Number(process.env.FVOCI_LIVE_PORT ?? 18510);
 /** The tests of the first use of a server (e2e-live/first-use.spec.ts). */
 const FIRST_USE = /first-use\.spec\.ts$/;
 const ORGANIZATIONS = /organizations\.spec\.ts$/;
+/** The tests of a server that confirms the address of a registration by mail. */
+const VERIFYING = /verify-email\.spec\.ts$/;
 
 /** The tests that close the server's one organization to passwords. */
 const SSO = /(^|\/)sso(-operator|-pending|-provider-move)?\.spec\.ts$/;
@@ -41,7 +43,7 @@ export default defineConfig({
     { name: 'first-use', testMatch: FIRST_USE, use: { ...devices['Desktop Chrome'] } },
     {
       name: 'desktop',
-      testIgnore: [FIRST_USE, ORGANIZATIONS, SSO],
+      testIgnore: [FIRST_USE, ORGANIZATIONS, SSO, VERIFYING],
       dependencies: ['first-use'],
       use: { ...devices['Desktop Chrome'] },
     },
@@ -55,6 +57,11 @@ export default defineConfig({
       name: 'organizations',
       testMatch: ORGANIZATIONS,
       use: { ...devices['Desktop Chrome'], baseURL: `http://localhost:${PORT + 4}` },
+    },
+    {
+      name: 'verifying',
+      testMatch: VERIFYING,
+      use: { ...devices['Desktop Chrome'], baseURL: `http://localhost:${PORT + 8}` },
     },
   ],
   webServer: [
@@ -70,6 +77,14 @@ export default defineConfig({
     },
     {
       command: `node tools/live-server.ts ${PORT + 4} --organizations`,
+      wait: { stdout: /live: http/ },
+      stdout: 'pipe',
+      stderr: 'pipe',
+      timeout: 60_000,
+      gracefulShutdown: { signal: 'SIGTERM', timeout: 15_000 },
+    },
+    {
+      command: `node tools/live-server.ts ${PORT + 8} --verifying`,
       wait: { stdout: /live: http/ },
       stdout: 'pipe',
       stderr: 'pipe',

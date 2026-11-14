@@ -30,6 +30,7 @@ pub(crate) mod tag {
     pub(crate) const USERS: &str = "users";
     pub(crate) const WORKSPACES: &str = "workspaces";
     pub(crate) const BOARDS: &str = "boards";
+    pub(crate) const WIKIS: &str = "wikis";
     pub(crate) const MEMBERS: &str = "members";
     pub(crate) const SHARING: &str = "sharing";
     pub(crate) const BLOCKS: &str = "blocks";
@@ -42,7 +43,7 @@ pub(crate) mod tag {
 }
 
 /// The tags in the order the document lists them, each with what it is about.
-const TAGS: [(&str, &str); 14] = [
+const TAGS: [(&str, &str); 15] = [
     (
         tag::SYSTEM,
         "Whether the server is there, and what a client must know before it signs in.",
@@ -60,6 +61,12 @@ const TAGS: [(&str, &str); 14] = [
         "The workspaces a user is a member of, what is in a workspace, and its users.",
     ),
     (tag::BOARDS, "Boards and templates."),
+    (
+        tag::WIKIS,
+        "Wikis and their pages. A wiki is a board of the kind `wiki`: who is on it, its \
+         sharing, its files, its place in the sidebar and in the trash are asked as a \
+         board's are, under `/boards/{boardId}` with the wiki's identifier.",
+    ),
     (tag::MEMBERS, "Who is on a board, and with which role."),
     (tag::SHARING, "Sharing a board with whoever has its link."),
     (
@@ -199,6 +206,7 @@ enum Members {
 const SCHEMAS: &[(&str, Members)] = &[
     // What the server answers with.
     ("AcceptedInvitation", Members::AllBut(&["boardId"])),
+    ("EmailVerified", Members::AllBut(&["boardId"])),
     ("Block", Members::AllBut(&["editedAt"])),
     ("Body", Members::AsWritten),
     ("Board", Members::All),
@@ -209,6 +217,8 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("BoardTeam", Members::All),
     ("BoardTeamRole", Members::AsWritten),
     ("BoardsAndBlocks", Members::All),
+    ("BodyVersion", Members::All),
+    ("BodyVersionContent", Members::All),
     ("Card", Members::AllBut(&["preview"])),
     ("CardPreview", Members::All),
     ("Category", Members::All),
@@ -216,7 +226,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("CategoryBoards", Members::All),
     ("ClientConfig", Members::All),
     ("CommentVersion", Members::All),
-    ("DeletedItem", Members::All),
+    ("DeletedItem", Members::AllBut(&["kind"])),
     ("FileInfo", Members::All),
     ("ImportResult", Members::All),
     ("InvalidInput", Members::Only(&["detail", "reason"])),
@@ -271,6 +281,8 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("WorkspaceMember", Members::All),
     ("WorkspaceRole", Members::AsWritten),
     ("OrgRole", Members::AsWritten),
+    ("Page", Members::All),
+    ("PageNode", Members::All),
     ("WorkspaceRoleChange", Members::All),
     // What a request carries.
     ("AcceptInvitation", Members::Only(&["token"])),
@@ -291,6 +303,8 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("DeleteBoardsAndBlocks", Members::Only(&["boards"])),
     ("FileForm", Members::AsWritten),
     ("FinishPasswordReset", Members::All),
+    ("CompleteEmailVerification", Members::All),
+    ("RequestEmailVerification", Members::Only(&[])),
     ("RequestPasswordReset", Members::Only(&["email"])),
     ("GuestInvitationsChange", Members::All),
     ("ImportRequest", Members::AsWritten),
@@ -305,6 +319,9 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("NewBlock", Members::AsWritten),
     ("NewBoard", Members::AsWritten),
     ("NewBoardsAndBlocks", Members::AsWritten),
+    ("NewWiki", Members::AsWritten),
+    ("NewPage", Members::Only(&[])),
+    ("PagePatch", Members::Only(&[])),
     ("NewCard", Members::AsWritten),
     ("NewCategory", Members::AsWritten),
     ("NewInvitation", Members::Only(&["role"])),
@@ -336,6 +353,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("UserIds", Members::AsWritten),
     ("UserPreferencesPatch", Members::Only(&[])),
     // Closed sets of words.
+    ("BoardKind", Members::AsWritten),
     ("BoardType", Members::AsWritten),
     ("CardOpen", Members::AsWritten),
     ("CategoryType", Members::AsWritten),

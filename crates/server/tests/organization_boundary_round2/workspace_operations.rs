@@ -40,7 +40,12 @@ struct Case {
 }
 
 impl Case {
-    async fn founder(server: &TestServer, name: &str, forbidden: Vec<String>) -> Self {
+    async fn founder(
+        server: &TestServer,
+        smtp: &super::fake_smtp::FakeSmtp,
+        name: &str,
+        forbidden: Vec<String>,
+    ) -> Self {
         let registered = server
             .anonymous()
             .post(
@@ -51,7 +56,10 @@ impl Case {
                 }),
             )
             .await;
-        registered.check_created();
+        // The server confirms addresses: the registration waits for its mailed link.
+        assert_eq!(registered.status.as_u16(), 202, "{}", registered.text());
+        let email = format!("{name}@example.test");
+        let confirmed = service::confirm(server, smtp, &email, &forbidden, 1).await;
         let logged_in = server
             .anonymous()
             .post("/login", &json!({"username": name, "password": PASSWORD}))
@@ -108,6 +116,7 @@ impl Case {
             forbidden,
         };
         case.record("register", &registered);
+        case.record("completeEmailVerification", &confirmed);
         case.record("login", &logged_in);
         case
     }
@@ -268,15 +277,16 @@ async fn every_contract_operation_is_exercised_by_both_founders() {
         .smtp(smtp.settings())
         .configure(open)
         .configure(identity::configure)
+        .configure(|config| config.mail.email_verification = true)
         .on_an_empty_database()
         .with_templates()
         .start()
         .await;
-    let mut first = Case::founder(&server, "parity-first", Vec::new()).await;
+    let mut first = Case::founder(&server, &smtp, "parity-first", Vec::new()).await;
     actions::exercise(&mut first).await;
     service::exercise(&mut first, &server, &fake, &smtp).await;
     first.assert_complete();
-    let mut second = Case::founder(&server, "parity-other", first.identifiers).await;
+    let mut second = Case::founder(&server, &smtp, "parity-other", first.identifiers).await;
     actions::exercise(&mut second).await;
     service::exercise(&mut second, &server, &fake, &smtp).await;
     second.assert_complete();

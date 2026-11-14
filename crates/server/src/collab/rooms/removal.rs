@@ -49,6 +49,9 @@ impl Collab {
                     Ok(())
                 } else {
                     let written = collab.write_now(&app, &card_id, &mut slot).await;
+                    if written.is_ok() {
+                        collab.version_as_left(&app, &card_id, &mut slot).await;
+                    }
                     collab.forget(&mut slot).await;
                     written
                 };
