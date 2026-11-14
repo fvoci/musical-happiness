@@ -398,7 +398,7 @@ async fn handle_restore_card_body_version(
     .await?;
     let block = ws
         .app
-        .restore_body_version(&card.id, version_number(&version)?, user_id)
+        .restore_body_version(&card, version_number(&version)?, user_id)
         .await?;
     let restored = ws.app.card_of_block(&block).await?;
     tracing::debug!(board_id = %restored.board_id, card_id = %restored.id, user_id, "RestoreCardBodyVersion");

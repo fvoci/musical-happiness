@@ -118,6 +118,17 @@ async fn cards(case: &mut Case, board: &str) -> String {
         "a kept body",
     )
     .await;
+    // Another body, so that the restore writes the card's.
+    let read = case
+        .run("getCard", &[("cardId", &card)], json!({}))
+        .await
+        .value();
+    case.run(
+        "patchCard",
+        &[("cardId", &card)],
+        json!({"readAt": read["updateAt"], "body": null}),
+    )
+    .await;
     case.run(
         "restoreCardBodyVersion",
         &[("cardId", &card), ("version", "1")],

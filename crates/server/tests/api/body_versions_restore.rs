@@ -4,9 +4,10 @@
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
+use crate::board_broadcasts::WorkspaceSocket;
 use crate::body_versions::{lines, said, versions};
 use crate::collab::{body_of, card};
-use crate::common::{Client, ROOT_WS, Setup, TEST_WS};
+use crate::common::{Client, ROOT_WS, Setup, TEST_WORKSPACE_ID, TEST_WS};
 use crate::rooms::{
     Incoming, QUIET, give, lines_of, paragraphs, table, two_in_a_room, write_whole,
 };
@@ -62,6 +63,11 @@ async fn a_version_restored_is_sent_to_the_room_and_keeps_what_was_typed() {
             (2, vec![user1.as_str()], false),
             (1, Vec::new(), false)
         ]
+    );
+    assert_eq!(
+        card(&th.client, &t.card_id).await.modified_by,
+        user2,
+        "written by who restored it"
     );
     assert_eq!(
         lines(&th.client, &t.card_id, &kept[1]).await,
@@ -121,7 +127,12 @@ async fn a_version_restored_is_the_cards_body_and_the_same_body_again_is_nothing
         .await
         .check_ok();
 
+    let mut listener = WorkspaceSocket::subscribe(&th, &th.client, TEST_WORKSPACE_ID, &user1).await;
     assert_eq!(restore(&th.client, &t.card_id, 1).await, ["first"]);
+    let told = listener
+        .expect("UPDATE_BLOCK", "/block/id", &t.card_id)
+        .await;
+    assert_eq!(told["block"]["modifiedBy"], json!(user1), "{told}");
     assert_eq!(
         Some(lines_of(
             body_of(&card(&th.client, &t.card_id).await).as_ref()
@@ -144,15 +155,16 @@ async fn a_version_restored_is_the_cards_body_and_the_same_body_again_is_nothing
         "no body"
     );
     assert_eq!(body_of(&card(&th.client, &t.card_id).await), None);
+    listener
+        .expect("UPDATE_BLOCK", "/block/id", &t.card_id)
+        .await;
 
     // The body the card has, by its newest version and by an older one.
     let before = card(&th.client, &t.card_id).await;
     let kept = versions(&th.client, &t.card_id).await;
     assert_eq!(kept.len(), 5, "{kept:?}");
     let mut reader = crate::rooms::Peer::connect(&th.client, 101).await;
-    reader
-        .joined(crate::common::TEST_WORKSPACE_ID, &t.card_id)
-        .await;
+    reader.joined(TEST_WORKSPACE_ID, &t.card_id).await;
     for same in [5, 3] {
         assert_eq!(
             restore(&th.client, &t.card_id, same).await,
@@ -166,6 +178,66 @@ async fn a_version_restored_is_the_cards_body_and_the_same_body_again_is_nothing
         "the card is not written"
     );
     assert_eq!(reader.incoming(QUIET).await, Incoming::Nothing);
+    let heard = listener.drain().await;
+    assert!(
+        heard
+            .iter()
+            .all(|message| message["action"] != json!("UPDATE_BLOCK")),
+        "a restore that writes nothing tells nobody: {heard:?}"
+    );
+    th.teardown().await;
+}
+
+/// The oldest version a server keeps is restored as any other: it goes as the body
+/// restored comes as the newest, and is the card's body. A version that shows an image
+/// is restored with it, while the board has its file.
+#[tokio::test]
+async fn the_oldest_version_and_one_with_an_image_are_restored() {
+    let th = Setup::native()
+        .configure(|config| config.collab.collab_body_versions = 2)
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let t = table(&th, &paragraphs(&["first"])).await;
+    let user1 = th.client.me().await.id;
+    let uploaded = crate::files::upload(&th.client, &t.board_id, "picture.png", b"png").await;
+    let file_id = crate::files::uploaded_id(&uploaded);
+    let pictured = json!({"type": "doc", "content": [
+        {"type": "paragraph", "content": [{"type": "text", "text": "pictured"}]},
+        {"type": "image", "attrs": {"fileId": file_id}},
+    ]});
+    write_whole(&th.client, &t.card_id, &pictured).await;
+    let kept = versions(&th.client, &t.card_id).await;
+    assert_eq!(said(&kept).len(), 2, "{kept:?}");
+
+    assert_eq!(restore(&th.client, &t.card_id, 1).await, ["first"]);
+    assert_eq!(
+        said(&versions(&th.client, &t.card_id).await),
+        [
+            (3, vec![user1.as_str()], true),
+            (2, vec![user1.as_str()], false)
+        ],
+        "the version restored went, and its body is the newest"
+    );
+    th.client
+        .post_empty(&restore_path(&t.card_id, 1))
+        .await
+        .check_error(StatusCode::NOT_FOUND, "version not found");
+
+    let restored: Value = th
+        .client
+        .post_empty(&restore_path(&t.card_id, 2))
+        .await
+        .ok_json();
+    assert_eq!(restored["body"], pictured, "with its image");
+    assert_eq!(
+        said(&versions(&th.client, &t.card_id).await),
+        [
+            (4, vec![user1.as_str()], true),
+            (3, vec![user1.as_str()], false)
+        ]
+    );
     th.teardown().await;
 }
 
