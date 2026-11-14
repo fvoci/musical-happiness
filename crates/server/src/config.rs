@@ -558,8 +558,9 @@ pub const MIN_UPLOAD_PART_BYTES: u64 = 5 * 1024 * 1024;
 /// The largest part an S3 multipart upload takes, and so the largest part size.
 pub const MAX_UPLOAD_PART_BYTES: u64 = 5 * 1024 * 1024 * 1024;
 
-/// Keys of the original server's configuration that this server no longer has, each with
-/// what to do instead; a key of `filess3config` as `filess3config.<key>`. A file or an
+/// Keys this server does not read, of the original server's configuration or under an
+/// earlier name, each with what to do instead; a key of `filess3config` as
+/// `filess3config.<key>`. A file or an
 /// environment that sets one to something is refused: a server that silently ignored it
 /// would run differently from what its operator wrote.
 const REMOVED_KEYS: [(&str, &str); 11] = [
@@ -725,8 +726,11 @@ impl Configuration {
         }
 
         for (key, instead) in REMOVED_KEYS {
-            let from_env = env(&env_name(key)).is_some_and(|text| !text.trim().is_empty());
-            if from_env || value_of(&keys, key).is_some_and(|value| !is_unset(value)) {
+            let variable = env_name(key);
+            if env(&variable).is_some_and(|text| !text.trim().is_empty()) {
+                bail!("{variable}, the variable of {key}, is no longer read: {instead}");
+            }
+            if value_of(&keys, key).is_some_and(|value| !is_unset(value)) {
                 bail!("{key} is no longer a setting: {instead}");
             }
         }

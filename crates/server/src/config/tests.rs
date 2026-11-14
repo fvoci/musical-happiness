@@ -236,8 +236,14 @@ fn the_old_name_of_the_sender_is_refused_with_the_new_one() {
     assert!(error.contains("FVOCI_MAIL_FROM"), "{error}");
     assert!(!error.contains("sender@example.test"), "{error}");
     let env = |name: &str| (name == "FVOCI_SMTP_FROM").then(|| "sender@example.test".to_owned());
-    let error = Configuration::parse("{}", env).expect_err("its variable too");
-    assert!(error.to_string().contains("mail_from"), "{error}");
+    let error = Configuration::parse("{}", env)
+        .expect_err("its variable too")
+        .to_string();
+    assert!(
+        error.contains("FVOCI_SMTP_FROM"),
+        "the variable is named: {error}"
+    );
+    assert!(error.contains("mail_from"), "{error}");
     let config = Configuration::parse(r#"{"mail_from": "sender@example.test"}"#, no_env)
         .expect("the sender under its name");
     assert_eq!(config.smtp.mail_from, "sender@example.test");
