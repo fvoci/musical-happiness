@@ -223,7 +223,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("CategoryBoards", Members::All),
     ("ClientConfig", Members::All),
     ("CommentVersion", Members::All),
-    ("DeletedItem", Members::All),
+    ("DeletedItem", Members::AllBut(&["kind"])),
     ("FileInfo", Members::All),
     ("ImportResult", Members::All),
     ("InvalidInput", Members::Only(&["detail", "reason"])),

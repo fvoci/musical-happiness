@@ -255,7 +255,7 @@ pub struct NewPage {
     /// empty, the page is at the top of the wiki.
     pub parent_id: String,
     /// The identifier of the page it goes right after: a page of the same parent. Empty
-    /// for the first place; left out, the last place.
+    /// for the first place; left out or `null`, the last place.
     pub after: Option<String>,
 }
 
@@ -276,6 +276,10 @@ impl NewPage {
 
 /// What a title that is too long is refused with.
 const TITLE_TOO_LONG: &str = "the title is longer than 16383 characters";
+const _: () = assert!(
+    BLOCK_TITLE_MAX_CHARS == 16_383,
+    "TITLE_TOO_LONG names the limit"
+);
 
 /// What a new body without `readAt` is refused with.
 const READ_AT_MISSING: &str =

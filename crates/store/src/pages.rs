@@ -124,19 +124,23 @@ async fn order_among_siblings(
     } else {
         sql.push_bind(" AND parent_id = ", Id(&page.parent_id));
     }
-    // By order and then by identifier, as the tree lists them.
-    let mut siblings: Vec<(String, String)> = Vec::new();
+    let mut siblings: Vec<PageNode> = Vec::new();
     for row in &scope.fetch_all(sql).await? {
         let fields = row.json_map(1, "fields")?;
         let order = fields.get(PAGE_ORDER_FIELD).and_then(Value::as_str);
-        siblings.push((order.unwrap_or_default().to_owned(), row.id(0)?));
+        siblings.push(PageNode {
+            id: row.id(0)?,
+            order: order.unwrap_or_default().to_owned(),
+            ..PageNode::default()
+        });
     }
-    siblings.sort();
+    // In the order the tree lists them in, by the one rule of it.
+    sort_pages(&mut siblings);
     let (before, behind) = match after {
         None => (siblings.last(), None),
         Some("") => (None, siblings.first()),
         Some(after) => {
-            let Some(at) = siblings.iter().position(|(_, id)| id == after) else {
+            let Some(at) = siblings.iter().position(|page| page.id == after) else {
                 return Err(StoreError::InvalidBlock {
                     id: page.id.clone(),
                     source: BlockError::AfterNotSibling,
@@ -146,8 +150,8 @@ async fn order_among_siblings(
         }
     };
     let (before, behind) = (
-        before.map(|(order, _)| order.as_str()),
-        behind.map(|(order, _)| order.as_str()),
+        before.map(|page| page.order.as_str()),
+        behind.map(|page| page.order.as_str()),
     );
     order_between(before, behind).map_err(|error| StoreError::Corrupt {
         column: "fields",

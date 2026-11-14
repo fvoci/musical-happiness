@@ -210,7 +210,8 @@ async fn an_archive_that_names_the_workspace_teamid_is_imported() {
 }
 
 /// An archive is of boards: one whose board says it is a wiki is refused, and nothing of
-/// it is stored. The kind `board`, which an export writes, is taken.
+/// it is stored, the boards before the wiki neither. The kind `board`, which an export
+/// writes, is taken.
 #[tokio::test]
 async fn an_archive_makes_no_wiki() {
     let ts = Setup::native().start().await.init_basic().await;
@@ -224,6 +225,24 @@ async fn an_archive_makes_no_wiki() {
     import(&ts.client, TEST_WORKSPACE_ID, &archive("wiki"))
         .await
         .check_bad_request();
+    // A board first and the wiki after it: the board is not stored before the refusal.
+    let wiki_line = format!("{}\n", board_of("wiki")).into_bytes();
+    let board_then_wiki = archive_of(
+        &board_of("board"),
+        &[("b2/board.jsonl", &wiki_line)],
+        zip::CompressionMethod::Deflated,
+    );
+    let refused = import(&ts.client, TEST_WORKSPACE_ID, &board_then_wiki).await;
+    refused.check_bad_request();
+    // It is said of the archive, and of no member of the request, which has none of it.
+    assert_eq!(refused.refused_place(), None, "{}", refused.text());
+    assert!(
+        !boards_of(&ts)
+            .await
+            .iter()
+            .any(|board| board.title.starts_with("Archived")),
+        "a board of a refused archive is stored"
+    );
     import(&ts.client, TEST_WORKSPACE_ID, &archive("board"))
         .await
         .check_ok();

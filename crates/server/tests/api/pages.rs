@@ -6,7 +6,7 @@ use fvoci_model::{Page, PageNode};
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
-use crate::common::{ApiResponse, Client, Setup, TEST_WS, TestServer};
+use crate::common::{ApiResponse, Client, Setup, TEST_WS, TestServer, UNKNOWN_ID};
 
 /// A document that says `text`.
 fn body_of(text: &str) -> Value {
@@ -221,7 +221,7 @@ async fn a_page_goes_where_the_request_says_and_takes_what_is_below_it_along() {
     assert_eq!(titles_below(client, &pages, &b2.id).await, ["b2x"]);
 
     // A parent that is no page of the wiki, and a page to go after that is no sibling.
-    for parent in [elsewhere.id.as_str(), crate::common::UNKNOWN_ID] {
+    for parent in [elsewhere.id.as_str(), UNKNOWN_ID] {
         let refused = client.post(&pages, &json!({"parentId": parent})).await;
         check_refused_at(&refused, "/parentId");
     }
@@ -349,5 +349,36 @@ async fn the_operations_of_blocks_and_cards_neither_make_nor_reach_a_page() {
         .get(&format!("{TEST_WS}/cards/{card}"))
         .await
         .check_ok();
+
+    // Nobody subscribes to a page: it is no block to subscribe to.
+    let me = client.me().await.id;
+    let subscription = |block: &str| {
+        json!({
+            "blockId": block, "blockType": "card", "subscriberId": me, "subscriberType": "user",
+        })
+    };
+    let subscriptions = format!("{TEST_WS}/subscriptions");
+    let (to_page, to_nothing) = (
+        client.post(&subscriptions, &subscription(&page.id)).await,
+        client.post(&subscriptions, &subscription(UNKNOWN_ID)).await,
+    );
+    to_page.check_not_found();
+    assert_eq!(to_page.problem(), to_nothing.problem());
+
+    // A page in the trash is not brought back as a block, by its wiki or by a board.
+    client
+        .delete(&format!("{pages}/{}", page.id))
+        .await
+        .check_status(StatusCode::NO_CONTENT);
+    for at in [&of_wiki, &blocks] {
+        client
+            .post_empty(&format!("{at}/{}/undelete", page.id))
+            .await
+            .check_not_found();
+    }
+    client
+        .get(&format!("{pages}/{}", page.id))
+        .await
+        .check_not_found();
     ts.teardown().await;
 }

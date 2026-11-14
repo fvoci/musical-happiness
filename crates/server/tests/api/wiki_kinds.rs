@@ -500,6 +500,16 @@ async fn every_list_is_of_its_kinds() {
         .get(&format!("{ROOT_WS}/boards/search?q=findable"))
         .await;
     assert_eq!(ids(&found), the_board, "the search is for boards");
+    let exported = client.get(&format!("{ROOT_WS}/archive/export")).await;
+    exported.check_done();
+    let archive = zip::ZipArchive::new(std::io::Cursor::new(exported.body))
+        .expect("the export is an archive");
+    let boards_in: Vec<String> = archive
+        .file_names()
+        .filter_map(Result::ok)
+        .filter_map(|name| name.strip_suffix("/board.jsonl").map(str::to_owned))
+        .collect();
+    assert_eq!(boards_in, the_board, "the export is of boards");
 
     for things in [&board, &wiki] {
         let at = format!("{ROOT_WS}/boards/{}", things.container);

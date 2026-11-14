@@ -3625,7 +3625,7 @@ export interface components {
             deletedBy: string;
             /** @description The identifier of the card or the board. */
             id: string;
-            kind: components["schemas"]["BoardKind"] | null;
+            kind?: components["schemas"]["BoardKind"] | null;
             /** @description Its title when it was deleted. */
             title: string;
         };
@@ -4060,7 +4060,7 @@ export interface components {
         NewPage: {
             /**
              * @description The identifier of the page it goes right after: a page of the same parent. Empty
-             *     for the first place; left out, the last place.
+             *     for the first place; left out or `null`, the last place.
              */
             after?: string | null;
             /** @description The page's icon, at most one grapheme. Left out, none. */

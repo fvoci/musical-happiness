@@ -1254,7 +1254,6 @@
           "deletedAt",
           "deletedBy",
           "id",
-          "kind",
           "title"
         ],
         "type": "object"
@@ -2103,7 +2102,7 @@
         "description": "A page to make.",
         "properties": {
           "after": {
-            "description": "The identifier of the page it goes right after: a page of the same parent. Empty\nfor the first place; left out, the last place.",
+            "description": "The identifier of the page it goes right after: a page of the same parent. Empty\nfor the first place; left out or `null`, the last place.",
             "type": [
               "string",
               "null"

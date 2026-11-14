@@ -123,15 +123,6 @@ impl BoardKinds {
     }
 }
 
-impl From<BoardKind> for BoardKinds {
-    fn from(kind: BoardKind) -> Self {
-        match kind {
-            BoardKind::Board => Self::Boards,
-            BoardKind::Wiki => Self::Wikis,
-        }
-    }
-}
-
 /// A role on a board, from least to most privileged.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum BoardRole {
