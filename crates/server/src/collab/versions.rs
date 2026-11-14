@@ -43,6 +43,16 @@ pub(super) enum Versioned {
     Due(Instant),
 }
 
+/// What became of what was typed in a room that one who typed it has left.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Left {
+    /// A version holds it: nothing waits on who stays.
+    Settled,
+    /// No version holds it yet: one who stays wrote it too, or it could not be told
+    /// or kept now. The room asks again when one of them leaves.
+    Waiting,
+}
+
 impl Collab {
     /// Notes that an open document took an update by `user_id`: a version is due
     /// `collab_version_minutes` after the first one no version holds, and the user
@@ -126,11 +136,9 @@ impl Collab {
     /// version holds. What fails is logged: who wrote stays put down, and the version
     /// is kept later.
     pub(super) async fn version_as_left(&self, app: &App, card_id: &str, slot: &mut Held) {
-        let unkept = slot
-            .open
-            .as_ref()
-            .is_some_and(|open| matches!(open.versioned, Versioned::Due(_)));
-        if unkept && let Err(error) = self.keep_version(app, card_id, slot).await {
+        if unkept(slot)
+            && let Err(error) = self.keep_version(app, card_id, slot).await
+        {
             tracing::error!(%error, card_id, "cannot keep a version of a card's body");
         }
     }
@@ -138,17 +146,17 @@ impl Collab {
     /// For a room that one who typed has left, or writes in no more: writes the body
     /// of its open document to the card and keeps it as a version, if the document
     /// took updates no version holds and none of them is by one of `writing`, the
-    /// users still in the room to write. Whether the room is to ask again when one of
-    /// those leaves: one of them wrote it, or it could not be told or kept now (the
-    /// document is not open, and is opened with a version due; the store failed,
-    /// which is logged). What is not kept by then is when the room closes.
+    /// users still in the room to write. What is not kept, by a store that failed
+    /// (which is logged) or of a document that is not open (whoever reaches it next
+    /// opens it with a version due), is kept when one of them leaves, and at the
+    /// latest when the room closes.
     pub(super) async fn version_without_writers(
         &self,
         app: &App,
         card_id: &str,
         gone: CancellationToken,
         writing: &[String],
-    ) -> bool {
+    ) -> Left {
         let writing = writing.to_vec();
         let left = self
             .on_slot_while(
@@ -158,29 +166,32 @@ impl Collab {
                 move |collab, app, card_id, mut slot| async move {
                     let Some(open) = slot.open.as_ref() else {
                         collab.retire(&mut slot);
-                        return Ok(true);
+                        return Ok(Left::Waiting);
                     };
-                    if !matches!(open.versioned, Versioned::Due(_)) {
-                        return Ok(false);
+                    if !unkept(&slot) {
+                        return Ok(Left::Settled);
                     }
                     if open.editors.iter().any(|editor| writing.contains(editor)) {
-                        return Ok(true);
+                        return Ok(Left::Waiting);
                     }
-                    let written = collab.write_now(&app, &card_id, &mut slot).await;
-                    if written.is_ok() {
-                        collab.version_as_left(&app, &card_id, &mut slot).await;
-                    }
+                    let kept = match collab.write_now(&app, &card_id, &mut slot).await {
+                        // Not what the write kept itself, a version being due.
+                        Ok(()) if unkept(&slot) => {
+                            collab.keep_version(&app, &card_id, &mut slot).await
+                        }
+                        written => written,
+                    };
                     collab.retire(&mut slot);
-                    written.map(|()| false)
+                    kept.map(|()| Left::Settled)
                 },
             )
             .await;
         match left {
-            Ok(ask_again) => ask_again,
-            Err(error) if error.is_not_found() => false,
+            Ok(left) => left,
+            Err(error) if error.is_not_found() => Left::Settled,
             Err(error) => {
                 tracing::error!(%error, card_id, "cannot keep a version of a body its writers left");
-                true
+                Left::Waiting
             }
         }
     }
@@ -198,6 +209,13 @@ impl Collab {
         kept(slot);
         Ok(())
     }
+}
+
+/// Whether the open document of a held slot took updates no version holds.
+fn unkept(slot: &Held) -> bool {
+    slot.open
+        .as_ref()
+        .is_some_and(|open| matches!(open.versioned, Versioned::Due(_)))
 }
 
 /// Notes on a held slot that its card's body was kept as a version, or is its newest

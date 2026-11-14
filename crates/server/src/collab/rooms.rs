@@ -46,6 +46,7 @@ use tokio_util::sync::CancellationToken;
 use super::frame::{self, Sync};
 use super::messages::{self, reason_of};
 use super::queue::{Capacity, NotQueued, Queue, Queued};
+use super::versions::Left;
 use super::{Collab, DocChange, DocEvent, Loaded, admission, refusals};
 use crate::app::{App, Asker};
 use crate::config::collab::CollabSettings;
@@ -965,13 +966,12 @@ impl Collab {
                 return;
             }
             // Whoever of them typed is not known here: the leaving of each asks again.
-            turn.typed = if self
+            turn.typed = match self
                 .version_without_writers(&room.app, &room.card_id, room.gone.clone(), &writing)
                 .await
             {
-                writing
-            } else {
-                Vec::new()
+                Left::Waiting => writing,
+                Left::Settled => Vec::new(),
             };
             return;
         }
