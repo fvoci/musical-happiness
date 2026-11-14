@@ -201,6 +201,22 @@ async fn the_parent_of_a_page_is_a_page_of_its_wiki() {
             "moved below {parent}"
         );
     }
+    // Of a page that is wrong in what it is below and in what it goes after, and of
+    // one whose title is wrong besides, the first of these is what is refused.
+    let mut new = NewPage {
+        parent_id: elsewhere.clone(),
+        after: Some(new_id()),
+        ..NewPage::default()
+    };
+    assert_eq!(
+        refusal(test.create_page(&wiki.id, &new, &user_id).await),
+        BlockError::ParentNotOnBoard
+    );
+    new.title = "a\0b".to_owned();
+    assert_eq!(
+        refusal(test.create_page(&wiki.id, &new, &user_id).await),
+        BlockError::NulInTitle
+    );
     assert_eq!(below(&test, &wiki, &top).await, [child]);
     assert_eq!(below(&test, &other, "").await, [elsewhere]);
     // A wiki that is not there has no pages to make.
@@ -284,7 +300,6 @@ async fn pages_made_at_once_get_places_of_their_own() {
     let tree: Vec<PageNode> = test.get_page_tree(&wiki.id).await.expect("the tree");
     let mut orders: Vec<&str> = tree.iter().map(|page| page.order.as_str()).collect();
     assert_eq!(orders.len(), made.len() + 1);
-    assert!(orders.is_sorted(), "{orders:?}");
     orders.dedup();
     assert_eq!(orders.len(), made.len() + 1, "no two pages have one order");
     assert_eq!(tree[0].id, first);

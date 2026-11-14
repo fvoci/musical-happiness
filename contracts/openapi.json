@@ -2627,7 +2627,8 @@
         "type": "object"
       },
       "PagePatch": {
-        "description": "What a page is changed to. A member that is left out stays as it is.",
+        "additionalProperties": false,
+        "description": "What a page is changed to. A member that is left out stays as it is. Where the page\nis in the tree is none of them: a member the patch does not have is refused, so\nthat a request to move the page does not pass for one that did.",
         "properties": {
           "body": {
             "oneOf": [
@@ -11527,7 +11528,7 @@
     },
     "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}": {
       "delete": {
-        "description": "The page goes to the trash with every page below it, for editors of the wiki. The\nwiki's members are told with `DELETE_BLOCK` of the page; the pages below it went\nwith it.",
+        "description": "The page goes to the trash with every page below it, for editors of the wiki. The\nwiki's members are told with `UPDATE_BLOCK` of the page alone, whose `deleteAt` is\nnot 0, as for any block that is deleted; the pages below it went with it and are\nnot told of one by one.",
         "operationId": "deletePage",
         "parameters": [
           {

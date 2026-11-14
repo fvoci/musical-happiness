@@ -876,7 +876,9 @@ impl From<StoreError> for AppError {
             // the block. A parent that is no block of the board, whether it is none at all
             // or another board's: the answer does not tell the two apart. A block without a
             // board is no request's mistake.
-            StoreError::InvalidBlock { id, source } if source != BlockError::EmptyBoardId => {
+            StoreError::InvalidBlock { id, source }
+                if !matches!(source, BlockError::EmptyBoardId) =>
+            {
                 let mut error = Self::from(source);
                 error.subject = Some(Subject::Block(id));
                 error

@@ -279,7 +279,7 @@ async fn handle_patch_page(
         .app
         .patch_block(
             &page.id,
-            &patch.to_block_patch(),
+            &patch.into_block_patch(),
             user_id,
             ChangeNotification::Send,
         )
@@ -291,8 +291,9 @@ async fn handle_patch_page(
 /// Delete a page
 ///
 /// The page goes to the trash with every page below it, for editors of the wiki. The
-/// wiki's members are told with `DELETE_BLOCK` of the page; the pages below it went
-/// with it.
+/// wiki's members are told with `UPDATE_BLOCK` of the page alone, whose `deleteAt` is
+/// not 0, as for any block that is deleted; the pages below it went with it and are
+/// not told of one by one.
 #[utoipa::path(
     delete,
     path = "/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}",

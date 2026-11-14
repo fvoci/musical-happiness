@@ -5,21 +5,8 @@
 
 use fvoci_model::{BoardKind, BoardKinds};
 
-use crate::db::{Id, Scope, Sql};
+use crate::db::Sql;
 use crate::error::StoreError;
-
-/// The kind of the board with the identifier; `None` if there is no such board.
-pub(crate) async fn kind_of(
-    scope: &mut Scope<'_>,
-    board_id: &str,
-) -> Result<Option<BoardKind>, StoreError> {
-    let mut sql = scope.sql("SELECT kind FROM boards WHERE id = ");
-    sql.bind(Id(board_id));
-    match scope.fetch_optional(sql).await? {
-        Some(row) => Ok(Some(kind_from_text(&row.text(0)?)?)),
-        None => Ok(None),
-    }
-}
 
 /// Pushes ` AND <column> = <kind>` for kinds that are one kind, and nothing for both.
 /// `column` names the kind column of the boards read, with its alias.

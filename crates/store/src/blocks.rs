@@ -685,12 +685,12 @@ async fn insert_block_at(
     }
     // One writer per board at a time, from before anything is read: the parent that is
     // found below is still there when the block is stored.
-    if !boards::lock_board(scope, &block.board_id).await? {
+    let Some(kind) = boards::lock_board_of_kind(scope, &block.board_id).await? else {
         return Err(StoreError::not_found(format_args!(
             "board ID={} of block {}",
             block.board_id, block.id
         )));
-    }
+    };
     // Asked here so that a parent that is none, or another board's, is the request's
     // mistake and not a constraint the database reports.
     let parent_type = if block.parent_id.is_empty() {
@@ -707,7 +707,7 @@ async fn insert_block_at(
     user_id.clone_into(&mut block.modified_by);
 
     let existing = find_block(scope, &block.id).await?;
-    page_places::check(scope, block, parent_type.as_ref()).await?;
+    page_places::check(block, kind, parent_type.as_ref())?;
     comment_places::check(scope, block, parent_type.as_ref(), existing.as_ref()).await?;
     let named = card_values::check_written(scope, block, existing.as_ref()).await?;
     if let Some(existing) = existing {

@@ -263,19 +263,19 @@ pub enum BlockError {
 }
 
 /// The fields of a page whose value has one kind, as [`CARD_FIELD_KINDS`] has a card's.
-const PAGE_FIELD_KINDS: [CardFieldKind; 2] = [
+const PAGE_FIELD_KINDS: [FieldKind; 2] = [
     (PAGE_ICON_FIELD, "a string", Value::is_string),
     (PAGE_ORDER_FIELD, "an order the server made", is_order_value),
 ];
 
-/// One rule of [`CARD_FIELD_KINDS`]: the field, its kind as a message names it, and
-/// whether a value is of that kind.
-type CardFieldKind = (&'static str, &'static str, fn(&Value) -> bool);
+/// One rule of [`CARD_FIELD_KINDS`] or [`PAGE_FIELD_KINDS`]: the field, its kind as a
+/// message names it, and whether a value is of that kind.
+type FieldKind = (&'static str, &'static str, fn(&Value) -> bool);
 
 /// The fields of a card whose value has one kind. Anything else breaks the reading of
 /// the card ([`crate::Card::from_block`]). `null` is taken as absent and is of every
 /// kind.
-const CARD_FIELD_KINDS: [CardFieldKind; 2] = [
+const CARD_FIELD_KINDS: [FieldKind; 2] = [
     ("icon", "a string", Value::is_string),
     ("isTemplate", "a boolean", Value::is_boolean),
 ];
@@ -402,20 +402,20 @@ impl Block {
         if self.title.contains('\0') {
             return Err(BlockError::NulInTitle);
         }
-        let of_another_kind = |kinds: [CardFieldKind; 2]| {
-            kinds.into_iter().find(|(field, _, is_of_kind)| {
+        let of_another_kind = |kinds: &[FieldKind]| {
+            kinds.iter().copied().find(|(field, _, is_of_kind)| {
                 let value = self.fields.get(*field);
                 value.is_some_and(|value| !value.is_null() && !is_of_kind(value))
             })
         };
         match self.block_type {
             BlockType::Card => {
-                if let Some((field, expected, _)) = of_another_kind(CARD_FIELD_KINDS) {
+                if let Some((field, expected, _)) = of_another_kind(&CARD_FIELD_KINDS) {
                     return Err(BlockError::InvalidCardField { field, expected });
                 }
             }
             BlockType::Page => {
-                if let Some((field, expected, _)) = of_another_kind(PAGE_FIELD_KINDS) {
+                if let Some((field, expected, _)) = of_another_kind(&PAGE_FIELD_KINDS) {
                     return Err(BlockError::InvalidPageField { field, expected });
                 }
             }

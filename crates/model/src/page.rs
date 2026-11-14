@@ -13,7 +13,7 @@ use thiserror::Error;
 use crate::body::{Body, BodyChange};
 use crate::card::{ICON_OF_SEVERAL, is_icon};
 use crate::refusal::{RefusalReason, Refusals};
-use crate::{Block, BlockPatch, JsonMap};
+use crate::{BLOCK_TITLE_MAX_CHARS, Block, BlockPatch, JsonMap};
 
 /// The field of a page that holds its icon, usually one emoji: a string.
 pub const PAGE_ICON_FIELD: &str = "icon";
@@ -173,16 +173,15 @@ pub struct PageNode {
     pub update_at: i64,
 }
 
-impl PageNode {
-    /// What the tree lists of the page `block`.
-    #[must_use]
-    pub fn of(block: &Block) -> Self {
+/// What the tree lists of the page that the block is.
+impl From<Block> for PageNode {
+    fn from(block: Block) -> Self {
         Self {
-            id: block.id.clone(),
-            parent_id: block.parent_id.clone(),
-            title: block.title.clone(),
             icon: text_field(&block.fields, PAGE_ICON_FIELD),
             order: text_field(&block.fields, PAGE_ORDER_FIELD),
+            id: block.id,
+            parent_id: block.parent_id,
+            title: block.title,
             create_at: block.create_at,
             update_at: block.update_at,
         }
@@ -265,21 +264,28 @@ impl NewPage {
     ///
     /// # Errors
     ///
-    /// Returns the icon if it is more than one grapheme.
+    /// Returns the title if it is longer than a block's may be, and the icon if it is
+    /// more than one grapheme.
     pub fn check_request(&self) -> Result<(), Refusals> {
         let mut refused = Refusals::new();
+        refuse_title(&mut refused, Some(&self.title));
         refuse_icon(&mut refused, Some(&self.icon));
         refused.into_result()
     }
 }
 
+/// What a title that is too long is refused with.
+const TITLE_TOO_LONG: &str = "the title is longer than 16383 characters";
+
 /// What a new body without `readAt` is refused with.
 const READ_AT_MISSING: &str =
     "a new body is sent with readAt, the updateAt of the page as it was read";
 
-/// What a page is changed to. A member that is left out stays as it is.
+/// What a page is changed to. A member that is left out stays as it is. Where the page
+/// is in the tree is none of them: a member the patch does not have is refused, so
+/// that a request to move the page does not pass for one that did.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, utoipa::ToSchema)]
-#[serde(default, rename_all = "camelCase")]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct PagePatch {
     /// The new title.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -303,31 +309,41 @@ impl PagePatch {
     ///
     /// # Errors
     ///
-    /// Returns every member that is refused: an icon of more than one grapheme, and a
-    /// new body without `readAt`.
+    /// Returns every member that is refused: a title longer than a block's may be, an
+    /// icon of more than one grapheme, and a new body without `readAt`.
     pub fn check_request(&self) -> Result<(), Refusals> {
         let mut refused = Refusals::new();
         if !self.body.is_keep() && self.read_at.is_none() {
             refused.refuse("readAt", RefusalReason::Required, READ_AT_MISSING);
         }
+        refuse_title(&mut refused, self.title.as_deref());
         refuse_icon(&mut refused, self.icon.as_deref());
         refused.into_result()
     }
 
     /// The patch of the page's block that does what this patch says.
     #[must_use]
-    pub fn to_block_patch(&self) -> BlockPatch {
+    pub fn into_block_patch(self) -> BlockPatch {
         let mut updated_fields = JsonMap::new();
-        if let Some(icon) = &self.icon {
-            updated_fields.insert(PAGE_ICON_FIELD.to_owned(), Value::from(icon.clone()));
+        if let Some(icon) = self.icon {
+            updated_fields.insert(PAGE_ICON_FIELD.to_owned(), Value::from(icon));
         }
         BlockPatch {
-            title: self.title.clone(),
+            title: self.title,
             updated_fields,
-            body: self.body.clone(),
+            body: self.body,
             read_at: self.read_at,
             ..BlockPatch::default()
         }
+    }
+}
+
+/// Refuses a title longer than a block's may be ([`BLOCK_TITLE_MAX_CHARS`]), where a
+/// request sends one: named here, which the refusal of the block that is stored does
+/// not do.
+fn refuse_title(refused: &mut Refusals, title: Option<&str>) {
+    if title.is_some_and(|title| title.chars().count() > BLOCK_TITLE_MAX_CHARS) {
+        refused.refuse("title", RefusalReason::TooLong, TITLE_TOO_LONG);
     }
 }
 
@@ -520,7 +536,7 @@ mod tests {
         };
         block.fields.insert(PAGE_ICON_FIELD.to_owned(), json!("👋"));
         block.fields.insert(PAGE_ORDER_FIELD.to_owned(), json!("V"));
-        let node = PageNode::of(&block);
+        let node = PageNode::from(block.clone());
         let page = Page::from(block);
         assert_eq!(
             (
@@ -556,7 +572,7 @@ mod tests {
             ..PagePatch::default()
         };
         assert_eq!(patch.check_request(), Ok(()));
-        let of_block = patch.to_block_patch();
+        let of_block = patch.into_block_patch();
         assert_eq!(of_block.title.as_deref(), Some("Start"));
         assert_eq!(
             of_block.updated_fields.get(PAGE_ICON_FIELD),
@@ -564,18 +580,28 @@ mod tests {
         );
         assert!(of_block.parent_id.is_none() && of_block.block_type.is_none());
 
+        let long = "t".repeat(BLOCK_TITLE_MAX_CHARS + 1);
+        assert!(
+            TITLE_TOO_LONG.contains(&BLOCK_TITLE_MAX_CHARS.to_string()),
+            "the refusal says the limit there is"
+        );
         let refused = PagePatch {
+            title: Some(long.clone()),
             icon: Some("ab".to_owned()),
             body: BodyChange::Clear,
             ..PagePatch::default()
         };
         let refused = refused.check_request().expect_err("refused");
-        assert_eq!(refused.len(), 2, "{refused}");
+        assert_eq!(refused.len(), 3, "{refused}");
         let new = NewPage {
+            title: long,
             icon: "ab".to_owned(),
             ..NewPage::default()
         };
-        assert!(new.check_request().is_err());
+        let refused = new.check_request().expect_err("refused");
+        assert_eq!(refused.len(), 2, "{refused}");
+        let moved: Result<PagePatch, _> = serde_json::from_value(json!({"parentId": "p"}));
+        assert!(moved.is_err(), "a patch has no place to move the page to");
     }
 
     #[test]

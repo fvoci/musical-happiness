@@ -11,7 +11,7 @@ use fvoci_model::{
 use serde_json::Value;
 
 use crate::db::{Id, Scope};
-use crate::{Store, StoreError, blocks, boards};
+use crate::{Store, StoreError, blocks, boards, comment_places, page_places};
 
 impl Store {
     /// Makes a page of the wiki as `new` says, at the place it asks for among the pages
@@ -31,7 +31,9 @@ impl Store {
         user_id: &str,
     ) -> Result<Block, StoreError> {
         self.transaction(async |scope| {
-            boards::hold_board(scope, wiki_id).await?;
+            let Some(kind) = boards::lock_board_of_kind(scope, wiki_id).await? else {
+                return Err(StoreError::not_found(format_args!("board ID={wiki_id}")));
+            };
             let mut page = Block {
                 id: new_id(),
                 board_id: wiki_id.to_owned(),
@@ -43,13 +45,28 @@ impl Store {
             if new.parent_id != wiki_id {
                 page.parent_id.clone_from(&new.parent_id);
             }
-            let order = order_among_siblings(scope, &page, new.after.as_deref()).await?;
-            page.fields
-                .insert(PAGE_ORDER_FIELD.to_owned(), Value::from(order));
             if !new.icon.is_empty() {
                 page.fields
                     .insert(PAGE_ICON_FIELD.to_owned(), Value::from(new.icon.clone()));
             }
+            // What the page says of itself and where it goes below are refused before
+            // its place among its siblings is: of a request that is wrong in both, the
+            // parent is named, whose pages the place was to be among.
+            let invalid = |source| StoreError::InvalidBlock {
+                id: page.id.clone(),
+                source,
+            };
+            page.validate().map_err(invalid)?;
+            let parent_type = if page.parent_id.is_empty() {
+                None
+            } else {
+                let found = comment_places::type_on_board(scope, &page.parent_id, wiki_id).await?;
+                Some(found.ok_or_else(|| invalid(BlockError::ParentNotOnBoard))?)
+            };
+            page_places::check(&page, kind, parent_type.as_ref())?;
+            let order = order_among_siblings(scope, &page, new.after.as_deref()).await?;
+            page.fields
+                .insert(PAGE_ORDER_FIELD.to_owned(), Value::from(order));
             blocks::insert_block(scope, &mut page, user_id).await?;
             Ok(page)
         })
@@ -74,7 +91,7 @@ impl Store {
             let rows = scope.fetch_all(sql).await?;
             let mut pages = Vec::with_capacity(rows.len());
             for row in &rows {
-                pages.push(PageNode::of(&Block {
+                pages.push(PageNode::from(Block {
                     id: row.id(0)?,
                     parent_id: row.id(1)?,
                     title: row.text(2)?,

@@ -3,29 +3,27 @@
 
 use fvoci_model::{Block, BlockError, BlockType, BoardKind};
 
-use crate::board_kinds;
-use crate::db::Scope;
 use crate::error::StoreError;
 
 /// Checks that a block that is written is of a type its board's kind has, and that a
-/// page is below nothing but a page. The block's board is held, so its kind and the
-/// parent that was found stay as they are until the block is stored. `parent_type` is
-/// the type of the block's parent on its board, `None` if it has none.
-pub(crate) async fn check(
-    scope: &mut Scope<'_>,
+/// page is below nothing but a page. The block's board is held, so the parent that
+/// was found stays as it is until the block is stored. `kind` is the kind of the
+/// block's board, and `parent_type` the type of the block's parent on that board,
+/// `None` if it has none.
+pub(crate) fn check(
     block: &Block,
+    kind: BoardKind,
     parent_type: Option<&BlockType>,
 ) -> Result<(), StoreError> {
     let is_page = block.block_type == BlockType::Page;
-    let on_wiki = board_kinds::kind_of(scope, &block.board_id).await? == Some(BoardKind::Wiki);
-    let refused = match (on_wiki, is_page) {
-        (false, false) => return Ok(()),
-        (false, true) => BlockError::PageOffWiki,
-        (true, false) => BlockError::NotPageOnWiki,
-        (true, true) if parent_type.is_none_or(|parent| *parent == BlockType::Page) => {
+    let refused = match (kind, is_page) {
+        (BoardKind::Board, false) => return Ok(()),
+        (BoardKind::Board, true) => BlockError::PageOffWiki,
+        (BoardKind::Wiki, false) => BlockError::NotPageOnWiki,
+        (BoardKind::Wiki, true) if parent_type.is_none_or(|parent| *parent == BlockType::Page) => {
             return Ok(());
         }
-        (true, true) => BlockError::PageNotBelowPage,
+        (BoardKind::Wiki, true) => BlockError::PageNotBelowPage,
     };
     Err(StoreError::InvalidBlock {
         id: block.id.clone(),

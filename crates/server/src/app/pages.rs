@@ -4,6 +4,7 @@
 use fvoci_model::{NewPage, Page, PageNode};
 
 use super::App;
+use super::blocks::{ChangeAction, ChangeNotification, log_notification};
 use crate::error::AppError;
 
 impl App {
@@ -43,6 +44,7 @@ impl App {
                 .await;
             app.webhook().notify_update(&made).await;
         });
+        log_notification(ChangeNotification::Send, ChangeAction::Add, &block.id);
         Ok(Page::from(block))
     }
 }

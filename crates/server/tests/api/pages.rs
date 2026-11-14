@@ -169,10 +169,23 @@ async fn the_body_of_a_page_is_written_whole_by_who_read_the_page_last() {
         "/title",
     );
     check_refused_at(&client.post(&pages, &json!({"icon": "ab"})).await, "/icon");
-    client
-        .post(&pages, &json!({"order": "V"}))
-        .await
-        .check_bad_request();
+    // A title that is too long is named, in a new page and in a change.
+    let long = json!({"title": "t".repeat(fvoci_model::BLOCK_TITLE_MAX_CHARS + 1)});
+    check_refused_at(&client.post(&pages, &long).await, "/title");
+    check_refused_at(&client.patch(&at, &long).await, "/title");
+    // A member a page is not made with, or changed by: the place is the server's, and
+    // a change that would move the page is refused, not taken for one that did nothing.
+    for (unknown, sent) in [
+        (client.post(&pages, &json!({"order": "V"})).await, "order"),
+        (
+            client.patch(&at, &json!({"parentId": ""})).await,
+            "parentId",
+        ),
+        (client.patch(&at, &json!({"after": ""})).await, "after"),
+    ] {
+        unknown.check_bad_request();
+        assert!(unknown.error_message().contains(sent), "{}", unknown.text());
+    }
     assert_eq!(client.get(&at).await.ok_json::<Page>(), cleared);
 
     ts.teardown().await;
@@ -218,6 +231,9 @@ async fn a_page_goes_where_the_request_says_and_takes_what_is_below_it_along() {
             .await;
         check_refused_at(&refused, "/after");
     }
+    // Wrong in both, the parent is named: its pages are those the place is among.
+    let both = json!({"parentId": elsewhere.id, "after": d.id});
+    check_refused_at(&client.post(&pages, &both).await, "/parentId");
     // A page is of the wiki of its path.
     let through_other = format!("{other_pages}/{}", b.id);
     client.get(&through_other).await.check_not_found();
@@ -276,10 +292,10 @@ async fn the_operations_of_blocks_and_cards_neither_make_nor_reach_a_page() {
         "boards": [{"id": "b", "type": "P"}],
         "blocks": [{"id": "p", "boardId": "b", "type": "page", "createAt": 1, "updateAt": 1}],
     });
-    client
+    let with_board = client
         .post(&format!("{TEST_WS}/boards-and-blocks"), &with_board)
-        .await
-        .check_bad_request();
+        .await;
+    check_refused_at(&with_board, "/blocks/0/type");
 
     // The page is no block and no card to the operations of boards, by its wiki or alone.
     let of_wiki = format!("{TEST_WS}/boards/{wiki_id}/blocks");

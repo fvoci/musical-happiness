@@ -24,7 +24,7 @@ pub enum ChangeNotification {
 
 /// What happened to a block, as the notification service names it.
 #[derive(Debug, Clone, Copy)]
-enum ChangeAction {
+pub(super) enum ChangeAction {
     Add,
     Update,
     Delete,
@@ -513,7 +513,11 @@ impl App {
 
 /// The whole of a notification on a standalone server: the log line the original's
 /// notification service writes for a block change.
-fn log_notification(notification: ChangeNotification, action: ChangeAction, block_id: &str) {
+pub(super) fn log_notification(
+    notification: ChangeNotification,
+    action: ChangeAction,
+    block_id: &str,
+) {
     if notification == ChangeNotification::Send {
         tracing::debug!(action = action.as_str(), block_id, "Block change event");
     }

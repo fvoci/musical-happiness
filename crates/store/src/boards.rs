@@ -8,8 +8,8 @@ use std::collections::BTreeSet;
 use std::fmt::Write as _;
 
 use fvoci_model::{
-    Board, BoardError, BoardKinds, BoardMember, BoardPatch, BoardRole, BoardType, JsonMap,
-    MinimumRole,
+    Board, BoardError, BoardKind, BoardKinds, BoardMember, BoardPatch, BoardRole, BoardType,
+    JsonMap, MinimumRole,
 };
 use md5::{Digest as _, Md5};
 use serde_json::Value;
@@ -815,12 +815,24 @@ pub(crate) async fn save_member(
 /// PostgreSQL the board's row is locked, in the mode that leaves alone rows of other
 /// tables that are stored for the board at the same time.
 pub(crate) async fn lock_board(scope: &mut Scope<'_>, board_id: &str) -> Result<bool, StoreError> {
-    let mut sql = scope.sql("SELECT id FROM boards WHERE id = ");
+    Ok(lock_board_of_kind(scope, board_id).await?.is_some())
+}
+
+/// Locks a board as [`lock_board`] does, and says of what kind it is, which stays as
+/// it is whatever is written; `None` if there is no such board.
+pub(crate) async fn lock_board_of_kind(
+    scope: &mut Scope<'_>,
+    board_id: &str,
+) -> Result<Option<BoardKind>, StoreError> {
+    let mut sql = scope.sql("SELECT kind FROM boards WHERE id = ");
     sql.bind(Id(board_id));
     if scope.dialect() == Dialect::Postgres {
         sql.push(" FOR NO KEY UPDATE");
     }
-    Ok(scope.fetch_optional(sql).await?.is_some())
+    match scope.fetch_optional(sql).await? {
+        Some(row) => Ok(Some(board_kinds::kind_from_text(&row.text(0)?)?)),
+        None => Ok(None),
+    }
 }
 
 /// Locks a board as [`lock_board`] does; one that is not there is not found.

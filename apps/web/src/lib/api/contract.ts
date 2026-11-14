@@ -2877,8 +2877,9 @@ export interface paths {
         /**
          * Delete a page
          * @description The page goes to the trash with every page below it, for editors of the wiki. The
-         *     wiki's members are told with `DELETE_BLOCK` of the page; the pages below it went
-         *     with it.
+         *     wiki's members are told with `UPDATE_BLOCK` of the page alone, whose `deleteAt` is
+         *     not 0, as for any block that is deleted; the pages below it went with it and are
+         *     not told of one by one.
          */
         delete: operations["deletePage"];
         options?: never;
@@ -4223,7 +4224,11 @@ export interface components {
              */
             updateAt: number;
         };
-        /** @description What a page is changed to. A member that is left out stays as it is. */
+        /**
+         * @description What a page is changed to. A member that is left out stays as it is. Where the page
+         *     is in the tree is none of them: a member the patch does not have is refused, so
+         *     that a request to move the page does not pass for one that did.
+         */
         PagePatch: {
             body?: components["schemas"]["Body"] | null;
             /** @description The new icon, at most one grapheme; empty for none. */
