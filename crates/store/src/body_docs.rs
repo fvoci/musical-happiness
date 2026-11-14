@@ -387,8 +387,8 @@ impl Store {
         .await
     }
 
-    /// The documents whose block does not hold their body yet, or is a card that holds
-    /// a body its editors wrote since its newest version, with the organization of each: what a
+    /// The documents whose block does not hold their body yet, or is a card or a page that
+    /// holds a body its editors wrote since its newest version, with the organization of each: what a
     /// server that ended before it wrote and kept them has to. Blocks in the trash
     /// are left out; theirs is written when they are opened again.
     ///
@@ -408,7 +408,7 @@ impl Store {
                 // Only the body of a card or a page is kept: of a block that is one no
                 // more, the names stay put down, and nothing is to see to.
                 " WHERE d.projected_seq < d.log_end OR (",
-                &body_versions::kept_types("b.type"),
+                &body_versions::with_room_sql("b.type"),
                 " AND EXISTS (SELECT 1 FROM body_version_editors e WHERE e.block_id = d.block_id",
                 &format!(" AND e.version = {}", body_versions::PENDING),
                 &scope.same_organization(&[("e", "d")]),

@@ -469,13 +469,15 @@ async fn versions_stay_in_the_trash_and_go_with_the_card() {
 }
 
 /// The body of a page is kept as that of a card: written whole it keeps the body
-/// after, and what its editors typed is seen to until the server keeps it.
+/// after, and before it what its editors typed; what they typed is seen to until the
+/// server keeps it.
 #[tokio::test]
 async fn the_body_of_a_page_is_kept_as_that_of_a_card() {
     let test = common::setup().await;
     let store = &test.store;
     let author = common::user(store, "pam.beesly").await;
-    let workspace_id = common::workspace_of(store, &[&author]).await;
+    let editor = common::user(store, "jim.halpert").await;
+    let workspace_id = common::workspace_of(store, &[&author, &editor]).await;
     let mut wiki = Board {
         kind: BoardKind::Wiki,
         ..new_board(&new_id(), &workspace_id, BoardType::Private)
@@ -502,9 +504,22 @@ async fn the_body_of_a_page_is_kept_as_that_of_a_card() {
     let unfinished = store.unfinished_body_docs().await.expect("read");
     let unfinished: Vec<&str> = unfinished.iter().map(|(id, _)| id.as_str()).collect();
     assert_eq!(unfinished, [page_id.as_str()], "typed and not kept yet");
-    assert_eq!(keep(store, &page_id).await, Some(3));
-    assert_eq!(store.unfinished_body_docs().await.expect("read"), []);
+    // Written whole over what was typed: what was typed is kept first, by who typed it.
+    write_body(store, &page_id, body_showing("four", &[]), &editor).await;
+    assert_eq!(
+        texts(store, &page_id).await[..2],
+        [(4, "four".to_owned()), (3, "three".to_owned())]
+    );
     let versions = store.body_versions(&page_id).await.expect("the versions");
-    assert_eq!(versions[0].editors, std::slice::from_ref(&author));
+    assert_eq!(versions[1].editors, std::slice::from_ref(&author));
+    assert_eq!(store.unfinished_body_docs().await.expect("read"), []);
+
+    type_body(store, &page_id, body_showing("five", &[]), &author).await;
+    assert_eq!(
+        keep(store, &page_id).await,
+        Some(5),
+        "kept as the server asks"
+    );
+    assert_eq!(store.unfinished_body_docs().await.expect("read"), []);
     test.teardown().await;
 }

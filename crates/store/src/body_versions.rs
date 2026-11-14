@@ -33,7 +33,7 @@ pub(crate) const PENDING: i64 = 0;
 
 /// The SQL condition that `column`, the type of a block, is one whose body is kept
 /// ([`BlockType::WITH_ROOM`]).
-pub(crate) fn kept_types(column: &str) -> String {
+pub(crate) fn with_room_sql(column: &str) -> String {
     let types = BlockType::WITH_ROOM.map(|with_room| format!("'{}'", with_room.as_str()));
     format!("{column} IN ({})", types.join(", "))
 }
@@ -248,7 +248,7 @@ struct Kept {
 /// Keeps the versions a write of a card's body whole brings, within that write: the
 /// body before, if it is not the card's newest version yet (by its editors, if any
 /// typed it), and the body after, by `user_id`. Nothing for a write that
-/// leaves the body as it was, and for a block that is no card. The caller puts down
+/// leaves the body as it was, and for a block whose body has no room. The caller puts down
 /// the files the card shows after.
 pub(crate) async fn record_change(
     scope: &mut Scope<'_>,

@@ -232,7 +232,7 @@ fn push_writer(sql: &mut Sql, scope: &Scope<'_>, seer_id: &str, within: Option<(
     )
     .push(&scope.same_organization(&[("cv", "bl")]))
     .push(")) OR (")
-    .push(&body_versions::kept_types("bl.type"))
+    .push(&body_versions::with_room_sql("bl.type"))
     .push(
         " AND EXISTS (SELECT 1 FROM body_version_editors ve \
          WHERE ve.block_id = bl.id AND ve.version > 0 AND ve.user_id = users.id",
