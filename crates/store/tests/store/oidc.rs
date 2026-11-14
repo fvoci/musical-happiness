@@ -37,6 +37,7 @@ fn join_task(
                 issuer: ISSUER,
                 subject: SUBJECT,
             },
+            proved_email: None,
         };
         store
             .finish_oidc_sign_in(&provider_id, 1, account, &mut session, &new_id())
@@ -823,4 +824,87 @@ async fn one_identity_linked_by_two_accounts_at_once_is_tied_to_one() {
         assert_eq!(tied, expected, "round {round}: tied to the one alone");
     }
     assert_eq!(switched_off, Err(LinkRefusal::ProviderGone));
+}
+
+/// A first sign-in at an address that is an account's own by the time it is stored (a
+/// registration at it was confirmed while the person was at the provider) makes no
+/// second account; a registration that waits at the address goes with the sign-in.
+#[tokio::test]
+async fn a_first_sign_in_makes_way_at_its_address_or_makes_no_account() {
+    let test = common::setup().await;
+    let (_, _, provider) = known_account_and_provider(&test).await;
+    let newcomer = |username: &str| fvoci_model::User {
+        id: new_id(),
+        username: username.to_owned(),
+        ..fvoci_model::User::default()
+    };
+    let first_sign_in = async |user: &mut fvoci_model::User, subject: &str, email: &str| {
+        let mut session = Session {
+            id: new_id(),
+            created_at: 1,
+            expires_at: i64::MAX,
+            ..Session::default()
+        };
+        let account = OidcAccount::New {
+            user,
+            identity: Identity {
+                issuer: ISSUER,
+                subject,
+            },
+            provider_email: email,
+        };
+        test.finish_oidc_sign_in(&provider, 1, account, &mut session, &new_id())
+            .await
+    };
+
+    // The account of `known_account_and_provider` has this address as its own.
+    let refused = first_sign_in(
+        &mut newcomer("newcomer"),
+        "a-newcomer",
+        "Existing-Identity@example.com",
+    )
+    .await;
+    assert!(
+        matches!(
+            refused,
+            Err(fvoci_store::StoreError::Conflict(fvoci_store::Taken::Email))
+        ),
+        "the address is an account's: {refused:?}"
+    );
+    assert!(
+        test.get_user_by_username("newcomer")
+            .await
+            .is_err_and(|error| error.is_not_found()),
+        "no account was made"
+    );
+
+    // A registration waits at another address, under the name the newcomer comes with.
+    let now = 1_000;
+    let waiting = fvoci_store::Signup {
+        id: new_id(),
+        username: "newcomer".to_owned(),
+        email: "newcomer@example.com".to_owned(),
+        display_name: String::new(),
+        password_hash: "hash".to_owned(),
+        language: String::new(),
+        start: fvoci_store::SignupStart::Organization("Theirs".to_owned()),
+        browser_hash: String::new(),
+        create_at: now,
+        expires_at: i64::MAX,
+    };
+    test.scoped(Tenant::Unset)
+        .create_signup(&waiting, None, now)
+        .await
+        .expect("it waits");
+    let mut user = newcomer("newcomer");
+    let joined = first_sign_in(&mut user, "a-newcomer", "NEWCOMER@example.com").await;
+    assert_eq!(joined.expect("stored"), Ok(true), "let in, under its name");
+    assert!(
+        test.live_signup(fvoci_store::SignupLookup::Username("newcomer"), now)
+            .await
+            .expect("read")
+            .is_none(),
+        "the registration went with the sign-in"
+    );
+    test.teardown().await;
 }

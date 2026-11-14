@@ -22,14 +22,14 @@ const RESEND: &str = "/email-verification/request";
 
 /// The same server and database, started again with registrations confirmed by mail
 /// sent through `smtp`: as an operator turns the switch on.
-async fn switched_on(mut th: TestServer, smtp: &FakeSmtp) -> TestServer {
+pub(crate) async fn switched_on(mut th: TestServer, smtp: &FakeSmtp) -> TestServer {
     th.config.smtp = smtp.settings();
     th.config.mail.email_verification = true;
     th.killed_and_started_again(async |_| {}).await
 }
 
 /// The messages `smtp` holds once the background work is done.
-async fn settled(th: &TestServer, smtp: &FakeSmtp) -> Vec<Received> {
+pub(crate) async fn settled(th: &TestServer, smtp: &FakeSmtp) -> Vec<Received> {
     assert!(
         th.app.finish_background(Duration::from_secs(10)).await,
         "the mail is done with"

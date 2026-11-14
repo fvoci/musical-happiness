@@ -92,6 +92,7 @@ async fn enforced(store: &Store, pending_issuer: &str) -> Enforced {
         user_id: &admin.id,
         password_hash: &admin.password_hash,
         identity: at_one,
+        proved_email: None,
     };
     store
         .finish_oidc_sign_in(&provider.id, provider.revision, known, &mut session, DIGEST)

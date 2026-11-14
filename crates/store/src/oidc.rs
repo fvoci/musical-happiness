@@ -469,7 +469,12 @@ impl Store {
     /// A new account ([`OidcAccount::New`]) is stored with no password (an empty
     /// hash, which no password matches) and no email address of its own:
     /// `provider_email`, the address the provider gave, is kept with the identity,
-    /// unchecked, and holds no account's place. `user` is updated to what was stored:
+    /// unchecked, and holds no account's place.
+    ///
+    /// A registration that waits for the address the provider vouches for to be
+    /// confirmed is removed with the sign-in, new account or known: the provider's
+    /// word stands for the mail's, and no second account comes of the registration.
+    /// The use it took of a link is given back. `user` is updated to what was stored:
     /// the current time as creation and modification time, not deleted, no
     /// administrator of the instance. It joins the organization and its default
     /// workspace. A known account ([`OidcAccount::Known`]) joins them if it has no
@@ -479,7 +484,8 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::Conflict`] if another account has the new account's name
-    /// in any letter case, or the identity is another account's already;
+    /// in any letter case, the identity is another account's already, or
+    /// ([`crate::Taken::Email`]) an account has the provider's address as its own by now;
     /// [`StoreError::NoOrganization`] if the handle names no organization; and
     /// [`StoreError::Database`] if a statement fails. Nothing is stored then.
     pub async fn finish_oidc_sign_in(
@@ -694,6 +700,7 @@ pub(crate) async fn admit(
             if !auto_join {
                 return Ok(Err(OidcRefusal::JoinClosed));
             }
+            accounts::take_address_from_signup(scope, provider_email).await?;
             user.password_hash = String::new();
             user.email = String::new();
             accounts::insert_account(scope, user, InstanceRole::User).await?;
@@ -706,6 +713,7 @@ pub(crate) async fn admit(
             user_id,
             password_hash,
             identity,
+            proved_email,
         } => {
             // Held, the account waits for an unlinking under way, which ends the
             // sessions of the identity: one made after it is refused here.
@@ -717,13 +725,18 @@ pub(crate) async fn admit(
             user_id.clone_into(&mut session.user_id);
             // A guest of one of its workspaces is let in as they are, and joins
             // nothing: their board is what they have there.
-            if has_place(scope, user_id).await? {
+            let joined = if has_place(scope, user_id).await? {
                 false
             } else if auto_join {
                 join_as_member(scope, user_id).await?
             } else {
                 return Ok(Err(OidcRefusal::JoinClosed));
+            };
+            // Let in: only now does a registration at the address go.
+            if let Some(email) = proved_email {
+                accounts::discard_signup_at(scope, email).await?;
             }
+            joined
         }
     }))
 }
@@ -807,6 +820,10 @@ pub enum OidcAccount<'a> {
         password_hash: &'a str,
         /// Who the provider vouches for, which must still be the account's.
         identity: Identity<'a>,
+        /// The address the provider vouches for at this sign-in, if it does: a
+        /// registration that waits at it is removed. None for a trial of pending
+        /// settings, which is its administrator's look at them and removes nothing.
+        proved_email: Option<&'a str>,
     },
     /// A new account for the identity, with the address the provider gave.
     New {
