@@ -42,6 +42,8 @@ import { dropCardsOn } from './card-drop.ts';
 import { CardStore } from './card.svelte.ts';
 import { lastCommentsOf } from './last-comments.ts';
 import { propertyMovesOf } from './property-moves.ts';
+import { authorIds, memberId } from './user-names.ts';
+import { readBoard } from './board-load.ts';
 import { addMemberTo, boardOfWorkspace, roleFlags, roleOf, type CardDrop } from './board-parts.ts';
 import { orderMembers, orderViews } from './order.ts';
 import {
@@ -185,18 +187,12 @@ export class BoardStore {
       this.#stopWatching = this.#backend.watchBoard(this.boardId, (change) => {
         this.#apply(change);
       });
-      const [board, views, cards, members] = await Promise.all([
-        boardOfWorkspace(this.#backend, this.boardId, this.workspace.info?.id),
-        this.#backend.views(this.boardId),
-        this.#backend.cards(this.boardId),
-        this.#backend.members(this.boardId),
-      ]);
+      const [board, views, cards, members] = await readBoard(this.workspace, this.boardId);
       this.board = board;
       this.views = views;
       this.cards = cards;
       this.members = members;
       this.status = 'ready';
-      void this.workspace.learnUsers(members.map((member) => member.userId));
     } catch (error) {
       this.status = 'failed';
       if (isBackendError(error) && error.status === 404) this.missing = true;
@@ -333,7 +329,7 @@ export class BoardStore {
       case 'members':
         this.#membersTold += 1;
         this.members = change.members;
-        void this.workspace.learnUsers(change.members.map((member) => member.userId));
+        void this.workspace.learnUsers(change.members.map(memberId), { members: true });
         break;
       case 'blocks':
         for (const block of change.blocks) {
@@ -375,12 +371,7 @@ export class BoardStore {
     const viewsBefore = this.views.map((view) => view.id);
     const membersTold = this.#membersTold;
     try {
-      const [board, views, cards, members] = await Promise.all([
-        boardOfWorkspace(this.#backend, this.boardId, this.workspace.info?.id),
-        this.#backend.views(this.boardId),
-        this.#backend.cards(this.boardId),
-        this.#backend.members(this.boardId),
-      ]);
+      const [board, views, cards, members] = await readBoard(this.workspace, this.boardId);
       // A newer reading has begun meanwhile: it is the one that counts.
       if (reading !== this.#refreshing) return;
       if (this.#boardWrites.receive(board)) this.#takeBoard(board);
@@ -390,7 +381,7 @@ export class BoardStore {
       this.cards = reread(shown, read, cardsBefore, (card) => this.#cardWrites.receive(card));
       if (membersTold === this.#membersTold) {
         this.members = members;
-        void this.workspace.learnUsers(members.map((member) => member.userId));
+        void this.workspace.learnUsers(members.map(memberId), { members: true });
       }
       const open = this.openCard;
       if (open) {
@@ -418,6 +409,7 @@ export class BoardStore {
   #receiveCard(incoming: CardSummary): void {
     const card = this.#lastComments.merge(incoming, this.card(incoming.id));
     if (!this.#cardWrites.receive(card)) return;
+    void this.workspace.learnUsers(authorIds([card]));
     this.cards = take(this.cards, card);
     this.openCard?.cardChanged(card);
   }
@@ -516,6 +508,7 @@ export class BoardStore {
     return this.#perform(
       async () => {
         const card = await this.#backend.createCard(this.boardId, draft);
+        void this.workspace.learnUsers(authorIds([card]));
         this.cards = take(this.cards, card);
         return card;
       },

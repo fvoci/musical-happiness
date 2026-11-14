@@ -203,22 +203,44 @@ fn push_seen(sql: &mut Sql, scope: &Scope<'_>, sight: Sight<'_>) {
     }
 }
 
-/// Pushes `OR` the condition that the user `id` created or last changed a block of a
-/// board the seer reads, as the server's `permissions::grant` has it: one they hold a
+/// Pushes `OR` the condition that the user `id` authored a board, a block, or a kept
+/// comment version the seer reads, as `permissions::grant` has it: one they hold a
 /// role on, or an open template of a workspace they work in; of the workspace `within`
 /// names, as far as its [`Reach`] goes, or of any workspace in use the seer is a member
 /// of.
 fn push_writer(sql: &mut Sql, scope: &Scope<'_>, seer_id: &str, within: Option<(&str, Reach)>) {
     sql.push(
-        " OR EXISTS (SELECT 1 FROM blocks AS bl JOIN boards AS b ON b.id = bl.board_id \
+        " OR EXISTS (SELECT 1 FROM boards AS b \
          JOIN workspace_members AS me ON me.workspace_id = b.workspace_id \
          JOIN workspaces AS t ON t.id = b.workspace_id \
          JOIN organizations AS o ON o.id = t.org_id \
-         WHERE (bl.created_by = users.id OR bl.modified_by = users.id) AND me.user_id = ",
+         WHERE me.user_id = ",
     )
     .bind(Id(seer_id))
     .push(IN_USE)
-    .push(&scope.same_organization(&[("bl", "b"), ("b", "t"), ("me", "t")]));
+    .push(&scope.same_organization(&[("b", "t"), ("me", "t")]))
+    .push(
+        " AND (b.created_by = users.id OR EXISTS (SELECT 1 FROM blocks bl WHERE bl.board_id = b.id",
+    )
+    .push(&scope.same_organization(&[("bl", "b")]))
+    .push(
+        " AND (bl.created_by = users.id OR bl.modified_by = users.id \
+         OR (bl.type = 'comment' AND EXISTS (SELECT 1 FROM comment_versions cv \
+         WHERE cv.block_id = bl.id AND cv.written_by = users.id",
+    )
+    .push(&scope.same_organization(&[("cv", "bl")]))
+    .push(
+        ")))) OR EXISTS (SELECT 1 FROM deleted_blocks d \
+         JOIN comment_versions cv ON cv.block_id = d.id \
+         WHERE d.board_id = b.id AND cv.written_by = users.id",
+    )
+    .push(&scope.same_organization(&[("d", "b"), ("cv", "d")]))
+    .push(" AND ")
+    .push(match scope.dialect() {
+        Dialect::Sqlite => "json_extract(d.block, '$.type') = 'comment'",
+        Dialect::Postgres => "d.block->>'type' = 'comment'",
+    })
+    .push("))");
     let open_where_seer_works = match within {
         Some((workspace_id, reach)) => {
             sql.push_bind(" AND b.workspace_id = ", Id(workspace_id));

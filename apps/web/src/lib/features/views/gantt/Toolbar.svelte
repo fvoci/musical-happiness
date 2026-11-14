@@ -7,8 +7,7 @@
   a card it comes after has ended) and how many cards are on a loop, each
   only where there are any, with their mark, word and count (the word is
   not left to the colour and the mark on a narrow page: the row scrolls),
-  and the cards without a date, as the calendar has them: the word where
-  the pane has room, the mark and the count always. The first two are
+  and the cards without a date: the word, mark and count always. The first two are
   buttons that go to the next such card. Where no card with a bar is on a
   loop, the cards on one without a date are counted instead (a loop of
   them alone was shown nowhere): the button opens their list, which marks
@@ -17,8 +16,8 @@
   focus when its count comes to nothing stays until the focus leaves it, and
   a change of the counts is said to a screen reader.
 
-  The row scrolls sideways where it is too narrow for all of it (a phone,
-  and counts of several digits).
+  The tools scroll sideways where the row is too narrow for all of them.
+  "No date" stays beside them, so its count and way into the list remain in sight.
 -->
 <script lang="ts">
   import CalendarOffIcon from '@lucide/svelte/icons/calendar-off';
@@ -126,74 +125,79 @@
 
 <div
   data-testid="gantt-toolbar"
-  class="flex h-12 shrink-0 [scrollbar-width:none] items-center gap-1 overflow-x-auto border-b px-1.5 @columns/pane:px-3"
+  class="flex h-12 shrink-0 items-center gap-1 border-b px-1.5 @columns/pane:px-3"
 >
-  <Button
-    variant="outline"
-    data-testid="gantt-today"
-    class="roomy:h-touch roomy:px-3"
-    onclick={ontoday}
+  <div
+    data-testid="gantt-tools"
+    class="-mx-1 flex h-full min-w-0 flex-1 [scrollbar-width:none] items-center gap-1 overflow-x-auto px-1"
   >
-    {m.calendar_today()}
-  </Button>
-  <!-- At an end of the steps a button stays where it is and does nothing: the focus is not lost. -->
-  <IconButton
-    label={m.gantt_zoom_out()}
-    data-testid="gantt-zoom-out"
-    aria-disabled={farther === undefined}
-    class="aria-disabled:opacity-40"
-    onclick={() => {
-      if (farther) onzoom(farther);
-    }}
-  >
-    <ZoomOutIcon />
-  </IconButton>
-  <span
-    data-testid="gantt-zoom"
-    aria-live="polite"
-    class="sr-only text-sm text-muted-foreground @columns/pane:not-sr-only"
-  >
-    <span class="sr-only">{m.gantt_zoom_step({ step: ZOOM_NAMES[zoom]() })}</span>
-    <span aria-hidden="true">{ZOOM_NAMES[zoom]()}</span>
-  </span>
-  <IconButton
-    label={m.gantt_zoom_in()}
-    data-testid="gantt-zoom-in"
-    aria-disabled={closer === undefined}
-    class="aria-disabled:opacity-40"
-    onclick={() => {
-      if (closer) onzoom(closer);
-    }}
-  >
-    <ZoomInIcon />
-  </IconButton>
-  <div class="min-w-1 flex-1"></div>
-  <!-- Said when a count changes, also when it comes to nothing: the buttons come and go without a word. -->
-  <span class="sr-only" aria-live="polite" data-testid="gantt-problems">
-    {related ? m.gantt_problems({ late, loops }) : ''}
-  </span>
-  {#if late > 0 || kept === 'gantt-late'}
-    {@render problem(
-      'gantt-late',
-      TriangleAlertIcon,
-      m.gantt_late(),
-      m.gantt_late_next({ count: late }),
-      late,
-      onlate,
-    )}
-  {/if}
-  {#if loops > 0 || kept === 'gantt-loops'}
-    {@render problem(
-      'gantt-loops',
-      RepeatIcon,
-      m.gantt_loop(),
-      loopsUndated
-        ? m.gantt_loop_undated_next({ count: loops })
-        : m.gantt_loop_next({ count: loops }),
-      loops,
-      onloop,
-    )}
-  {/if}
+    <Button
+      variant="outline"
+      data-testid="gantt-today"
+      class="roomy:h-touch roomy:px-3"
+      onclick={ontoday}
+    >
+      {m.calendar_today()}
+    </Button>
+    <!-- At an end of the steps a button stays where it is and does nothing: the focus is not lost. -->
+    <IconButton
+      label={m.gantt_zoom_out()}
+      data-testid="gantt-zoom-out"
+      aria-disabled={farther === undefined}
+      class="aria-disabled:opacity-40"
+      onclick={() => {
+        if (farther) onzoom(farther);
+      }}
+    >
+      <ZoomOutIcon />
+    </IconButton>
+    <span
+      data-testid="gantt-zoom"
+      aria-live="polite"
+      class="sr-only text-sm text-muted-foreground @columns/pane:not-sr-only"
+    >
+      <span class="sr-only">{m.gantt_zoom_step({ step: ZOOM_NAMES[zoom]() })}</span>
+      <span aria-hidden="true">{ZOOM_NAMES[zoom]()}</span>
+    </span>
+    <IconButton
+      label={m.gantt_zoom_in()}
+      data-testid="gantt-zoom-in"
+      aria-disabled={closer === undefined}
+      class="aria-disabled:opacity-40"
+      onclick={() => {
+        if (closer) onzoom(closer);
+      }}
+    >
+      <ZoomInIcon />
+    </IconButton>
+    <div class="min-w-1 flex-1"></div>
+    <!-- Said when a count changes, also when it comes to nothing: the buttons come and go without a word. -->
+    <span class="sr-only" aria-live="polite" data-testid="gantt-problems">
+      {related ? m.gantt_problems({ late, loops }) : ''}
+    </span>
+    {#if late > 0 || kept === 'gantt-late'}
+      {@render problem(
+        'gantt-late',
+        TriangleAlertIcon,
+        m.gantt_late(),
+        m.gantt_late_next({ count: late }),
+        late,
+        onlate,
+      )}
+    {/if}
+    {#if loops > 0 || kept === 'gantt-loops'}
+      {@render problem(
+        'gantt-loops',
+        RepeatIcon,
+        m.gantt_loop(),
+        loopsUndated
+          ? m.gantt_loop_undated_next({ count: loops })
+          : m.gantt_loop_next({ count: loops }),
+        loops,
+        onloop,
+      )}
+    {/if}
+  </div>
   <Button
     bind:ref={undatedButton}
     variant="ghost"
@@ -207,7 +211,7 @@
     onclick={onundated}
   >
     <CalendarOffIcon />
-    <span class="hidden @columns/pane:inline">{m.calendar_undated()}</span>
+    <span>{m.calendar_undated()}</span>
     {#if undatedLoops > 0}
       <RepeatIcon data-mark="loop" class="text-destructive" />
     {/if}

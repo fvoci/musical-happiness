@@ -18,6 +18,15 @@ describe('a created by property', () => {
     expect(container).toHaveTextContent('Unknown user');
   });
 
+  it('names an author who left from the people known, though they are not offered', () => {
+    const card = testCard();
+    card.createdBy = 'user-gone';
+    const named = [{ id: 'user-gone', username: 'leaver', displayName: 'Lee' }];
+    const { container } = mount('createdBy', undefined, { card, named });
+    expect(container).toHaveTextContent('Lee (@leaver)');
+    expect(container).not.toHaveTextContent('Unknown user');
+  });
+
   it('shows nothing for a card without a creator', () => {
     const card = testCard();
     card.createdBy = '';

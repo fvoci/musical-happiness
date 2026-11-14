@@ -39,6 +39,7 @@ import { BoardStore } from './board.svelte.ts';
 import { hiddenBoardsOf, sidebarOf, withoutBoard, type SidebarCategory } from './order.ts';
 import { SidebarWrites } from './sidebar-writes.ts';
 import { Transfers } from './transfers.svelte.ts';
+import { UserNames, type Learning } from './user-names.ts';
 import * as entry from './workspace-entry.ts';
 import { reread } from './write.ts';
 
@@ -368,30 +369,16 @@ export class Workspace {
     this.problems = this.problems.filter((problem) => problem.id !== id);
   }
 
+  readonly #userNames = new UserNames(this);
+
   /**
    * Reads the people among `userIds` the workspace has no name for yet: the
    * members of a board, say, when the list of the workspace did not bring them.
    * Failing, the names stay unknown and nothing is told: nothing else
-   * depends on them. A session that is over still signs out.
+   * depends on them. A session that is over still signs out. (`UserNames`.)
    */
-  async learnUsers(userIds: readonly string[]): Promise<void> {
-    const workspace = this.info;
-    const missing = userIds.filter(
-      (id, at) => userIds.indexOf(id) === at && this.#usersById[id] === undefined,
-    );
-    if (!workspace || missing.length === 0) return;
-    try {
-      const found = await this.backend.usersById(workspace.id, missing);
-      if (this.info !== workspace) return;
-      // Another read may have brought some of them meanwhile.
-      this.users = [
-        ...this.users,
-        ...found.filter((user) => this.#usersById[user.id] === undefined),
-      ];
-    } catch (error) {
-      if (isBackendError(error) && error.status === 401) this.report('load', error);
-      else if (!isBackendError(error)) console.error(error);
-    }
+  async learnUsers(userIds: readonly string[], learning: Learning = {}): Promise<void> {
+    await this.#userNames.learn(userIds, learning);
   }
 
   /**

@@ -64,6 +64,7 @@ mod organizations;
 mod password_reset;
 mod paths;
 mod people;
+mod people_authors;
 mod presence;
 mod properties;
 mod public_link_readers;

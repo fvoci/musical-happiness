@@ -111,7 +111,7 @@ export async function addMemberTo(
   try {
     const member = await board.workspace.backend.addMember(board.boardId, userId, role);
     board.members = [...board.members.filter((one) => one.userId !== userId), member];
-    void board.workspace.learnUsers([userId]);
+    void board.workspace.learnUsers([userId], { members: true });
   } catch (error) {
     board.workspace.report('save', error);
   }

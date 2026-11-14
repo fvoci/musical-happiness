@@ -8,6 +8,7 @@
 import { isBackendError } from './backend.ts';
 import { boardOfWorkspace } from './board-parts.ts';
 import type { BoardStore } from './board.svelte.ts';
+import { memberId } from './user-names.ts';
 
 /**
  * Whether the board the store failed to open as missing is one the reader
@@ -24,7 +25,7 @@ export async function readManagedOnly(store: BoardStore): Promise<boolean> {
     if (board.type !== 'P' || board.isTemplate) return false;
     store.board = board;
     store.members = members;
-    void store.workspace.learnUsers(members.map((member) => member.userId));
+    void store.workspace.learnUsers(members.map(memberId), { members: true });
     return true;
   } catch (error) {
     if (isBackendError(error) && (error.status === 404 || error.status === 403)) return false;

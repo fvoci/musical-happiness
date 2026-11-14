@@ -14,7 +14,6 @@
  * room's is the newer.
  */
 import type { DocNode } from '../editor/schema.ts';
-
 import {
   isBackendError,
   isConflict,
@@ -28,6 +27,7 @@ import {
 import type { BoardStore } from './board.svelte.ts';
 import { REJOIN_SPACING, afterPutOut, type CommentEdit, type Upload } from './card-parts.ts';
 import { byCreation } from './order.ts';
+import { authorIds } from './user-names.ts';
 import type { LoadStatus } from './workspace.svelte.ts';
 import { reread, take } from './write.ts';
 
@@ -107,7 +107,9 @@ export class CardStore {
         this.#backend.comments(this.#boardId, this.cardId),
         this.#backend.attachments(this.#boardId, this.cardId),
       ]);
+      if (this.#closed) return;
       this.#takeDetail(detail);
+      void this.board.workspace.learnUsers(authorIds(comments));
       this.#comments = comments;
       this.#attachments = attachments;
       this.status = 'ready';
@@ -284,6 +286,7 @@ export class CardStore {
   /** A comment or an attachment arrived from the backend. */
   receive(block: Comment | Attachment): void {
     if (block.parentId !== this.cardId) return;
+    void this.board.workspace.learnUsers(authorIds([block]));
     if (block.type === 'comment') this.#comments = take(this.#comments, block);
     else this.#attachments = take(this.#attachments, block);
   }
@@ -308,6 +311,7 @@ export class CardStore {
       // Closed meanwhile, or a later reading has begun (asked again: the
       // check above was before the wait, which TypeScript does not see).
       if (this.#isClosed() || reading !== this.#refreshing) return;
+      void this.board.workspace.learnUsers(authorIds(comments));
       this.#comments = reread(this.#comments, comments, commentsBefore);
       this.#attachments = reread(this.#attachments, attachments, attachmentsBefore);
     } catch (error) {

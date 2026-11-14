@@ -22,6 +22,7 @@ import {
 } from '../../logic/wire.ts';
 import type { Category, User } from '../backend.ts';
 
+import { seedUsers } from './users.ts';
 import { memberOf } from './backend.ts';
 import { World, type StoredBlock } from './world.ts';
 
@@ -181,7 +182,7 @@ export function seedWorld(templates: readonly SeedTemplate[]): SeededWorld {
       deleteAt: 0,
     };
   });
-  for (const user of users) world.users.set(user.id, user);
+  seedUsers(world, users);
   const reader = users[0];
   if (!reader) throw new Error('the seed has no people');
   world.settings.set(reader.id, { ...DEFAULT_ACCOUNT_SETTINGS });

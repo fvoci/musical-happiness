@@ -396,6 +396,9 @@ export function safeSvg(markup: string, options: SafeSvgOptions = {}): SVGSVGEle
   const root = parsed.body.firstElementChild;
   if (parsed.body.children.length !== 1 || !root) return undefined;
   if (root.localName !== 'svg' || root.namespaceURI !== SVG_NAMESPACE) return undefined;
+  // Every direct child is counted, even when dropped, and the root counts too.
+  // Refuse a tree that is already too wide before rebuilding any of its shapes.
+  if (root.childElementCount >= MAX_ELEMENTS) return undefined;
   const rootId = root.getAttribute('id') ?? '';
   if (!NAME.test(rootId)) return undefined;
   const scope = `#${rootId}`;
