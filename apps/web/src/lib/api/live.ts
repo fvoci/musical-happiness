@@ -10,8 +10,10 @@
  * grows (it shrinks back once a connection has held), and every listener is
  * then told to read again (`resync`): what happened in between is not
  * known. The browser saying it is online again, or the reader signing in
- * (`restart`), opens it at once. Nothing is opened before a workspace is
- * entered; entering another one moves the subscription over to it.
+ * (`restart`), opens it at once; the browser saying it is offline drops it
+ * at once (a connection that died says nothing for a long while). Nothing
+ * is opened before a workspace is entered; entering another one moves the
+ * subscription over to it.
  *
  * Members and categories come in pieces, and being added to a board or
  * taken off one sends no message of the board. So a member message has the
@@ -115,6 +117,12 @@ export class LiveChanges {
     );
     globalThis.addEventListener('online', () => {
       if (this.#wanted() && !this.#socket) this.#openNow();
+    });
+    globalThis.addEventListener('offline', () => {
+      const socket = this.#socket;
+      if (!socket) return;
+      this.#dropped(socket);
+      socket.close();
     });
   }
 
@@ -234,15 +242,24 @@ export class LiveChanges {
       else if (typeof event.data === 'string') void this.#receive(event.data);
     });
     socket.addEventListener('close', (event: CloseEvent) => {
-      if (this.#socket !== socket) return;
-      clearTimeout(this.#steady);
-      this.#socket = undefined;
-      this.#subscribed = false;
-      this.#failures += 1;
-      this.rooms.down();
-      this.presence.down();
-      this.#again(event.code === TRY_AGAIN);
+      this.#dropped(socket, event.code === TRY_AGAIN);
     });
+  }
+
+  /**
+   * The connection `socket` is gone, if it was the one: the rooms and the
+   * visits hear, and it is opened again after a wait (`spread`: the server
+   * asked to try again).
+   */
+  #dropped(socket: WebSocket, spread = false): void {
+    if (this.#socket !== socket) return;
+    clearTimeout(this.#steady);
+    this.#socket = undefined;
+    this.#subscribed = false;
+    this.#failures += 1;
+    this.rooms.down();
+    this.presence.down();
+    this.#again(spread);
   }
 
   /** Opens again after the wait of the failures so far; `spread` adds a random part of it. */
