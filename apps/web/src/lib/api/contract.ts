@@ -1057,8 +1057,8 @@ export interface paths {
          *     No card names a user: `createdBy` and `modifiedBy` are empty, the values of person
          *     properties are emptied, and values of properties the board does not define are left
          *     out. The preview's text has no mentions in it, and its image `getSharedFile` gives.
-         *     A reference in a body names a card of this board or nothing, as in
-         *     `getSharedBlocks`. Oldest first; the pages cut that order.
+         *     A card comes without its body, so with nothing a body names. Oldest first; the
+         *     pages cut that order.
          */
         get: operations["getSharedCards"];
         put?: never;

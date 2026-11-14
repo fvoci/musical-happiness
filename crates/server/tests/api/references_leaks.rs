@@ -5,7 +5,8 @@
 //! server gives of a card that names things the reader does not read: the card, the
 //! blocks and the cards of its board with their previews, the versions of its body,
 //! the archive of the board, the room of the body, what a connection is told of a
-//! change, and what a webhook is posted. Each is searched for the title.
+//! change, and what a webhook is posted. Each is searched for the title. So is what
+//! the server gives of a page that names such things.
 
 use std::io::{Cursor, Read as _};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -17,7 +18,7 @@ use serde_json::{Value, json};
 use crate::common::{Client, ROOT_WS, Setup, TEST_WORKSPACE_ID, TEST_WS, TestServer};
 use crate::references::{HIDDEN, made};
 use crate::references_shared::references_in;
-use crate::references_to::{body_naming, card_names, card_of, comment_naming};
+use crate::references_to::{body_naming, card_names, card_of, comment_naming, page_names};
 use crate::rooms::{Peer, give};
 use crate::websocket::{Socket, subscribe_to_workspace};
 
@@ -59,19 +60,9 @@ async fn given(reader: &Client, board: &str, source: &str) -> Vec<Given> {
         format!("{TEST_WS}/references/search?q={HIDDEN}"),
         format!("{TEST_WS}/references/search?q="),
     ];
-    let versions = format!("{TEST_WS}/cards/{source}/body-versions");
-    let listed = reader.get(&versions).await;
-    for version in listed.value().as_array().into_iter().flatten() {
-        paths.push(format!("{versions}/{}", version["version"]));
-    }
-    paths.push(versions);
+    paths.extend(versions_of(reader, source).await);
     for path in paths {
-        let answer = reader.get(&path).await;
-        all.push(Given {
-            succeeded: answer.status.is_success(),
-            bytes: answer.body.clone(),
-            what: path,
-        });
+        all.push(got(reader, path).await);
     }
     let archive = reader
         .get(&format!("{TEST_WS}/boards/{board}/archive/export"))
@@ -91,36 +82,61 @@ async fn given(reader: &Client, board: &str, source: &str) -> Vec<Given> {
         bytes: entries,
     });
 
-    // The room of the body: what it answers, and every frame of the document.
+    all.push(room_of(reader, source).await);
+    all
+}
+
+/// What `reader` is answered at the path.
+async fn got(reader: &Client, path: String) -> Given {
+    let answer = reader.get(&path).await;
+    Given {
+        succeeded: answer.status.is_success(),
+        bytes: answer.body,
+        what: path,
+    }
+}
+
+/// The paths of the versions of the body of a card, and of their list.
+async fn versions_of(reader: &Client, id: &str) -> Vec<String> {
+    let versions = format!("{TEST_WS}/cards/{id}/body-versions");
+    let listed = reader.get(&versions).await;
+    let mut paths: Vec<String> = listed
+        .value()
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|version| format!("{versions}/{}", version["version"]))
+        .collect();
+    paths.push(versions);
+    paths
+}
+
+/// The room of the body of a card or a page: what it answers, and every frame of the
+/// document.
+async fn room_of(reader: &Client, id: &str) -> Given {
     let mut peer = Peer::connect(reader, 77).await;
-    let answer = peer.join(TEST_WORKSPACE_ID, source).await;
+    let answer = peer.join(TEST_WORKSPACE_ID, id).await;
     let mut frames = answer.to_string().into_bytes();
     for frame in &peer.taken {
         frames.extend(&frame.payload);
     }
-    all.push(Given {
+    Given {
         what: "the room".to_owned(),
         succeeded: answer["action"] == "DOC_JOINED" && !peer.taken.is_empty(),
         bytes: frames,
-    });
-    all
+    }
 }
 
 /// What a connection of `reader` that follows the workspace is told when the owner
-/// writes the card again, naming `targets`.
-async fn told_of_a_change(
-    th: &TestServer,
-    reader: &Client,
-    source: &str,
-    targets: &[&str],
-) -> Given {
+/// writes the card or the page at `path` again, naming `targets`.
+async fn told_of_a_change(th: &TestServer, reader: &Client, path: &str, targets: &[&str]) -> Given {
     let mut socket = Socket::connect_as(reader).await;
     subscribe_to_workspace(th, &mut socket, TEST_WORKSPACE_ID, &reader.me().await.id).await;
-    let path = format!("{TEST_WS}/cards/{source}");
-    let read_at = th.client.get(&path).await.value()["updateAt"].clone();
+    let source = path.rsplit('/').next().expect("a path");
+    let read_at = th.client.get(path).await.value()["updateAt"].clone();
     th.client
         .patch(
-            &path,
+            path,
             &json!({"readAt": read_at, "body": body_naming("again", targets)}),
         )
         .await
@@ -138,40 +154,65 @@ async fn told_of_a_change(
     }
 }
 
-/// Whether every way must have given the reader something.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Ways {
-    /// A member who edits the board is refused nothing.
-    AllGive,
-    /// A guest, or one who only manages, is refused some: what they are given is searched.
-    SomeGive,
-}
-
 /// Gives the second user everything of a card that names `targets`, none of which that
 /// user reads, and looks for the title in it.
-async fn check_nothing_tells_the_title(th: &TestServer, targets: &[&str], ways: Ways) {
+async fn check_nothing_tells_the_title(th: &TestServer, targets: &[&str]) {
     let reader = &th.client2;
     let (board, source) = source_naming(th, targets).await;
     let mut all = given(reader, &board, &source).await;
-    all.push(told_of_a_change(th, reader, &source, targets).await);
-    for one in &all {
+    let path = format!("{TEST_WS}/cards/{source}");
+    all.push(told_of_a_change(th, reader, &path, targets).await);
+    check_all(&all);
+    // The identifiers are the body's, and go where the body goes.
+    let card = reader.get(&path).await;
+    card.check_ok();
+    assert_eq!(
+        references_in(&card.value()["body"]),
+        targets,
+        "the body names by identifier"
+    );
+}
+
+/// Checks that nothing given tells the title, and that every way gave something: a
+/// refusal tells no title, and would pin nothing.
+fn check_all(all: &[Given]) {
+    for one in all {
         assert!(!one.tells(HIDDEN), "{} tells the title", one.what);
         assert!(
-            one.succeeded || ways == Ways::SomeGive,
+            one.succeeded,
             "{} gave nothing: {}",
             one.what,
             String::from_utf8_lossy(&one.bytes)
         );
     }
-    // The identifiers are the body's, and go where the body goes.
-    let card = reader.get(&format!("{TEST_WS}/cards/{source}")).await;
-    if card.status.is_success() {
-        assert_eq!(
-            references_in(&card.value()["body"]),
-            targets,
-            "the body names by identifier"
-        );
+}
+
+/// A page that names what its reader does not read: the page, the pages of its wiki,
+/// what names it, the room of its body, and what a connection is told when it changes.
+/// The versions of a page's body have no route yet.
+#[tokio::test]
+async fn nothing_a_page_gives_tells_the_title_of_what_it_names() {
+    let th = Setup::native().start().await.init_basic().await;
+    let (owner, reader) = (&th.client, &th.client2);
+    let private = made(owner, TEST_WS, "P", HIDDEN).await;
+    let held = made(owner, TEST_WS, "P", "held").await;
+    give(&th, &held.wiki, &reader.me().await.id, "editor").await;
+    let targets = private.both();
+    page_names(owner, TEST_WS, &held, &targets).await;
+
+    let pages = format!("{TEST_WS}/wikis/{}/pages", held.wiki);
+    let page = format!("{pages}/{}", held.page);
+    let to_it = format!("{TEST_WS}/references/to/{}", held.page);
+    let mut all = Vec::new();
+    for path in [page.clone(), pages, to_it] {
+        all.push(got(reader, path).await);
     }
+    all.push(room_of(reader, &held.page).await);
+    all.push(told_of_a_change(&th, reader, &page, &targets).await);
+    check_all(&all);
+    let read = reader.get(&page).await;
+    assert_eq!(references_in(&read.value()["body"]), targets);
+    th.teardown().await;
 }
 
 /// A member of the workspace who is on neither the board nor the wiki of what is
@@ -182,7 +223,7 @@ async fn nothing_tells_a_member_the_title_of_what_is_on_a_board_they_are_not_on(
     let private = made(&th.client, TEST_WS, "P", HIDDEN).await;
     let open = made(&th.client, TEST_WS, "O", HIDDEN).await;
     let targets = [private.both(), open.both()].concat();
-    check_nothing_tells_the_title(&th, &targets, Ways::AllGive).await;
+    check_nothing_tells_the_title(&th, &targets).await;
     th.teardown().await;
 }
 
@@ -194,7 +235,7 @@ async fn nothing_tells_a_guest_the_title_of_what_they_were_not_invited_to() {
     let private = made(&th.client, TEST_WS, "P", HIDDEN).await;
     let open = made(&th.client, TEST_WS, "O", HIDDEN).await;
     let targets = [private.both(), open.both()].concat();
-    check_nothing_tells_the_title(&th, &targets, Ways::SomeGive).await;
+    check_nothing_tells_the_title(&th, &targets).await;
     th.teardown().await;
 }
 
@@ -205,7 +246,7 @@ async fn nothing_tells_who_only_manages_the_title_of_what_is_on_the_board() {
     let th = Setup::native().start().await.init_basic().await;
     crate::workspace_admin::workspace_admin(&th).await;
     let private = made(&th.client, TEST_WS, "P", HIDDEN).await;
-    check_nothing_tells_the_title(&th, &private.both(), Ways::SomeGive).await;
+    check_nothing_tells_the_title(&th, &private.both()).await;
     th.teardown().await;
 }
 
@@ -234,7 +275,7 @@ async fn nothing_tells_the_title_of_what_is_of_another_workspace_or_organization
         targets.push(card.id);
     }
     let targets: Vec<&str> = targets.iter().map(String::as_str).collect();
-    check_nothing_tells_the_title(&th, &targets, Ways::AllGive).await;
+    check_nothing_tells_the_title(&th, &targets).await;
     th.teardown().await;
 }
 

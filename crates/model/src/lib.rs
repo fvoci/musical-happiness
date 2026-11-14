@@ -64,8 +64,8 @@ pub use board::{
 };
 pub use board_teams::{BoardTeam, BoardTeamRole};
 pub use boards_and_blocks::{
-    BoardsAndBlocks, BoardsAndBlocksError, DeleteBoardsAndBlocks, PatchBoardsAndBlocks,
-    generate_boards_and_blocks_ids, renew_boards_and_blocks_ids,
+    BoardsAndBlocks, BoardsAndBlocksError, DeleteBoardsAndBlocks, PatchBoardsAndBlocks, Renewed,
+    generate_boards_and_blocks_ids, renew_boards_and_blocks_ids, renew_boards_and_blocks_ids_told,
 };
 pub use body::{
     BODY_MAX_BYTES, BODY_MAX_DEPTH, BODY_MAX_NODES, BODY_VERSION, Body, BodyChange, BodyError,

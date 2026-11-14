@@ -1,7 +1,5 @@
 //! Cards: a typed view over blocks of type `card`.
 
-use std::collections::HashSet;
-
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
@@ -159,15 +157,6 @@ impl Card {
         people.hide_values(&mut self.properties);
         if let Some(body) = self.body.as_mut() {
             body.clear_mentions();
-        }
-    }
-
-    /// Empties what the references of the body name, but for the cards of `shown`, as
-    /// a block's are for whoever reads with a read token alone
-    /// ([`Block::keep_references_to`]).
-    pub fn keep_references_to(&mut self, shown: &HashSet<String>) {
-        if let Some(body) = self.body.as_mut() {
-            body.clear_references_but(shown);
         }
     }
 

@@ -46,6 +46,18 @@ pub fn renew_block_ids(
     relations: &RelationProperties,
     unmatched: UnmatchedRelation,
 ) {
+    renew_block_ids_told(blocks, relations, unmatched, &|_| false);
+}
+
+/// Does what [`renew_block_ids`] does and returns the new identifier of each block
+/// that `told` picks by its old one, by that old one. What names such a block from outside `blocks` (a body
+/// of another board of the same archive) can then be pointed at its copy.
+pub(crate) fn renew_block_ids_told(
+    blocks: &mut [Block],
+    relations: &RelationProperties,
+    unmatched: UnmatchedRelation,
+    told: &dyn Fn(&str) -> bool,
+) -> HashMap<String, String> {
     // The board of each card: a copy names a copied card of its own board only.
     let card_boards: HashMap<String, String> = blocks
         .iter()
@@ -58,13 +70,13 @@ pub fn renew_block_ids(
     // order they were made, and a list of blocks is by creation time and then by
     // identifier, so blocks that are stored in one millisecond come back in the order
     // they were sent in. Blocks that share an identifier share the new one too, which
-    // is only kept for the blocks something refers to: no other block needs to learn
-    // the new value of the rest.
+    // is only kept for the blocks something refers to and those asked for (`told`): no
+    // other block needs to learn the new value of the rest.
     let mut renamed: HashMap<String, String> = HashMap::new();
     let new_ids: Vec<String> = blocks
         .iter()
         .map(|block| {
-            if referenced.contains(block.id.as_str()) {
+            if referenced.contains(block.id.as_str()) || told(&block.id) {
                 renamed
                     .entry(block.id.clone())
                     .or_insert_with(new_id)
@@ -112,6 +124,8 @@ pub fn renew_block_ids(
             body.rename_references(|id| renamed.get(id).cloned());
         }
     }
+    renamed.retain(|old, _| told(old));
+    renamed
 }
 
 /// What the blocks refer to by identifier ([`generate_block_ids`]): boards, parents,

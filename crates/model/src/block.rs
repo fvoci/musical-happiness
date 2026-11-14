@@ -495,7 +495,7 @@ impl Block {
     /// the workspace that reader is told nothing ([`Body::clear_references_but`]).
     ///
     /// [`Body::clear_references_but`]: crate::Body::clear_references_but
-    pub fn keep_references_to(&mut self, shown: &HashSet<String>) {
+    pub fn clear_references_but(&mut self, shown: &HashSet<String>) {
         if let Some(body) = self.body.as_mut() {
             body.clear_references_but(shown);
         }

@@ -20,9 +20,12 @@ const SHOWN_COLUMNS: &str = "id, board_id, parent_id, type, title, fields, updat
 /// The member of a card's fields that says it is a template of its board's cards.
 const IS_TEMPLATE_FIELD: &str = "isTemplate";
 
-/// How many blocks a search reads at a time while it looks for titles, and how many
-/// identifiers one statement is asked about.
+/// How many blocks a search reads at a time while it looks for titles.
 const SEARCHED_AT_ONCE: u16 = 500;
+
+/// How many identifiers one statement is asked about: well under the parameters a
+/// statement of either database takes.
+const ASKED_AT_ONCE: usize = 500;
 
 /// The block of a row read with [`SHOWN_COLUMNS`]: what it is, where it is and what it
 /// is called, and no body.
@@ -106,7 +109,7 @@ impl Store {
         }
         self.with_conn(async |scope| {
             let mut cards = HashSet::new();
-            for some in ids.chunks(usize::from(SEARCHED_AT_ONCE)) {
+            for some in ids.chunks(ASKED_AT_ONCE) {
                 let mut sql = scope.sql("SELECT id FROM blocks WHERE board_id = ");
                 sql.bind(Id(board_id))
                     .push_bind(" AND type = ", BlockType::Card.as_str())

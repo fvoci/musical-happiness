@@ -209,7 +209,69 @@ async fn an_imported_archive_names_the_imported_cards_in_its_bodies() {
         .filter(|block| block.block_type == BlockType::Comment)
         .collect();
     let named = references_in(&serde_json::to_value(&comments[0].body).expect("JSON"));
-    assert!(named.len() == 1 && named[0] != source.a, "{named:?}");
+    let cards: Vec<Block> = th
+        .client
+        .get(&format!(
+            "{TEST_WS}/boards/{}/blocks?type=card",
+            imported.id
+        ))
+        .await
+        .ok_json();
+    let copy_of_a = cards.iter().find(|card| card.title == "A");
+    assert_eq!(named, [copy_of_a.expect("the copy of A").id.as_str()]);
+    th.teardown().await;
+}
+
+/// An archive of a workspace holds its boards: a body that names a card of another
+/// board of the archive names the copy of that card, whichever of the two boards the
+/// archive has first, and that is counted for the copies.
+#[tokio::test]
+async fn an_imported_archive_of_boards_names_the_copies_on_its_other_boards() {
+    let th = Setup::native().start().await.init_basic().await;
+    let user = &th.client;
+    let board_of = async |title: &str| -> String {
+        let board: Board = user
+            .post(
+                &format!("{TEST_WS}/boards"),
+                &json!({"workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": title}),
+            )
+            .await
+            .created_json();
+        board.id
+    };
+    let (one, two) = (board_of("One").await, board_of("Two").await);
+    let a = card_of(user, TEST_WS, &one, "A").await;
+    let b = card_of(user, TEST_WS, &two, "B").await;
+    card_names(user, TEST_WS, &a, &[&b]).await;
+    card_names(user, TEST_WS, &b, &[&a]).await;
+    let archive = user.get(&format!("{TEST_WS}/archive/export")).await;
+    archive.check_ok();
+    import(user, TEST_WORKSPACE_ID, &archive.body)
+        .await
+        .check_ok();
+
+    let boards: Vec<Board> = user.get(&format!("{TEST_WS}/boards")).await.ok_json();
+    let copy_of = async |title: &str, source: &str, card: &str| -> Block {
+        let board = boards
+            .iter()
+            .find(|each| each.title == title && each.id != source);
+        let board = board.expect("the imported board");
+        let blocks = with_bodies(user, &board.id).await;
+        let copy = blocks.into_iter().find(|block| block.title == card);
+        copy.expect("the copy of the card")
+    };
+    let (copy_of_a, copy_of_b) = (
+        copy_of("One", &one, "A").await,
+        copy_of("Two", &two, "B").await,
+    );
+    let names = |block: &Block| references_in(&serde_json::to_value(&block.body).expect("JSON"));
+    assert_eq!(names(&copy_of_a), [copy_of_b.id.as_str()]);
+    assert_eq!(names(&copy_of_b), [copy_of_a.id.as_str()]);
+    assert_eq!(naming(user, &copy_of_b.id).await, [copy_of_a.id.as_str()]);
+    assert_eq!(naming(user, &copy_of_a.id).await, [copy_of_b.id.as_str()]);
+    // The sources name each other as they did, and nothing of the copies names them.
+    assert_eq!(naming(user, &b).await, [a.as_str()]);
+    assert_eq!(naming(user, &a).await, [b.as_str()]);
     th.teardown().await;
 }
 

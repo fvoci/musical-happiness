@@ -6498,7 +6498,7 @@
     },
     "/api/v1/shared/{boardId}/cards": {
       "get": {
-        "description": "What `getCards` gives of the board, read with its read token as `getSharedBoard` is.\nNo card names a user: `createdBy` and `modifiedBy` are empty, the values of person\nproperties are emptied, and values of properties the board does not define are left\nout. The preview's text has no mentions in it, and its image `getSharedFile` gives.\nA reference in a body names a card of this board or nothing, as in\n`getSharedBlocks`. Oldest first; the pages cut that order.",
+        "description": "What `getCards` gives of the board, read with its read token as `getSharedBoard` is.\nNo card names a user: `createdBy` and `modifiedBy` are empty, the values of person\nproperties are emptied, and values of properties the board does not define are left\nout. The preview's text has no mentions in it, and its image `getSharedFile` gives.\nA card comes without its body, so with nothing a body names. Oldest first; the\npages cut that order.",
         "operationId": "getSharedCards",
         "parameters": [
           {

@@ -471,6 +471,10 @@ async fn the_cards_of_a_board_are_told_among_many_identifiers() {
         ..Block::default()
     };
     let mut cards: Vec<Block> = (0..600).map(|_| block(&board, BlockType::Card)).collect();
+    // A template of the board's cards is a card of the board.
+    cards[0]
+        .fields
+        .insert("isTemplate".to_owned(), serde_json::Value::Bool(true));
     common::insert_blocks(store, &mut cards, &user).await;
     let mut others = vec![
         block(&other, BlockType::Card),

@@ -154,7 +154,7 @@ impl App {
 
     /// The cards of the board among what the bodies name: all that whoever reads the
     /// board by its link is shown of the references of its bodies
-    /// ([`Block::keep_references_to`]). That reader is told what is on the board and
+    /// ([`Block::clear_references_but`]). That reader is told what is on the board and
     /// nothing else of the workspace: a reference to a page, to a card of another
     /// board, to what is in the trash or to nothing goes out without its identifier,
     /// each like the others.
@@ -165,12 +165,9 @@ impl App {
     pub async fn cards_named_on(
         &self,
         board_id: &str,
-        bodies: &[&Body],
+        bodies: impl IntoIterator<Item = &Body>,
     ) -> Result<HashSet<String>, AppError> {
-        let mut named: Vec<&str> = bodies
-            .iter()
-            .flat_map(|body| body.reference_ids())
-            .collect();
+        let mut named: Vec<&str> = bodies.into_iter().flat_map(Body::reference_ids).collect();
         named.sort_unstable();
         named.dedup();
         Ok(self.store().cards_on_board_among(board_id, &named).await?)

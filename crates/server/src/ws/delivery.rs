@@ -59,7 +59,9 @@ impl Hub {
 
     /// Tells who follows the block's board by its read token of the block: who sees
     /// the board as its member does ([`Self::split_by_sight`]) as a member is told it,
-    /// whoever reads it by the link alone without the users it names.
+    /// whoever reads it by the link alone without the users it names, and without what
+    /// its body names that is no card of the board. If what to leave out cannot be
+    /// read, those readers are closed and not told.
     pub(super) async fn send_public_block(
         &self,
         ids: &[ListenerId],
@@ -92,10 +94,10 @@ impl Hub {
                 None
             } else {
                 match self.audience.unsaid_by_link(block).await {
-                    Ok((people, shown)) => {
+                    Ok(unsaid) => {
                         let mut public = block.clone();
-                        public.hide_people(&people);
-                        public.keep_references_to(&shown);
+                        public.hide_people(&unsaid.people);
+                        public.clear_references_but(&unsaid.shown);
                         text_of(&UpdateBlockMessage {
                             action: "UPDATE_BLOCK",
                             workspace_id,

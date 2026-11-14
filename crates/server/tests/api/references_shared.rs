@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
-use crate::common::{Client, Setup, TEST_WORKSPACE_ID, TEST_WS, UNKNOWN_ID};
+use crate::common::{Client, Setup, TEST_WORKSPACE_ID, TEST_WS, TestServer, UNKNOWN_ID};
 use crate::references::{HIDDEN, made};
 use crate::references_to::{body_naming, card_names, card_of, comment_naming};
 use crate::websocket::Socket;
@@ -34,14 +34,25 @@ fn block_of<'a>(blocks: &'a Value, id: &str) -> &'a Value {
         .unwrap_or_else(|| panic!("no block {id} in {blocks}"))
 }
 
-/// A card of a shared board names a card beside it, itself, and much that is not of
-/// the board: a card and a page elsewhere, a card of the board in the trash, and
-/// nothing. Whoever reads by the link, with a session or without, gets the first two
-/// and an empty identifier for each of the rest, by HTTP and when the card changes;
-/// a member on the board's own routes gets them all.
-#[tokio::test]
-async fn a_reader_by_a_link_is_told_of_the_cards_of_the_board_and_of_nothing_else() {
-    let th = Setup::local_mode().start().await.init_basic().await;
+/// A shared board whose card `source` names a card beside it, a template of the
+/// board's cards, itself, and much that is not of the board: a card and a page
+/// elsewhere, a page, a card of the board in the trash, and nothing. A comment on it
+/// names a card elsewhere and the card beside it.
+struct Shared {
+    board: String,
+    token: String,
+    source: String,
+    comment: String,
+    beside: String,
+    /// What the card names, as it was written.
+    named: Vec<String>,
+    /// What of that is not of the board.
+    outside: Vec<String>,
+    /// What whoever reads by the link is told the card names.
+    kept: Vec<String>,
+}
+
+async fn shared_board(th: &TestServer) -> Shared {
     let owner = &th.client;
     let shared = made(owner, TEST_WS, "P", "shared").await;
     let elsewhere = made(owner, TEST_WS, "P", HIDDEN).await;
@@ -49,28 +60,58 @@ async fn a_reader_by_a_link_is_told_of_the_cards_of_the_board_and_of_nothing_els
     let beside = card_of(owner, TEST_WS, board, "beside").await;
     let gone = card_of(owner, TEST_WS, board, HIDDEN).await;
     let source = card_of(owner, TEST_WS, board, "source").await;
-    let outside = [
-        elsewhere.card.as_str(),
-        elsewhere.page.as_str(),
-        shared.page.as_str(),
-        gone.as_str(),
-        UNKNOWN_ID,
+    let template = owner
+        .post(
+            &format!("{TEST_WS}/boards/{board}/cards"),
+            &json!({"title": "a template", "isTemplate": true}),
+        )
+        .await;
+    template.check_created();
+    let template = template.value()["id"].as_str().expect("an id").to_owned();
+    let outside = vec![
+        elsewhere.card.clone(),
+        elsewhere.page.clone(),
+        shared.page.clone(),
+        gone.clone(),
+        UNKNOWN_ID.to_owned(),
     ];
-    let mut named = vec![beside.as_str()];
-    named.extend(outside);
-    named.push(&source);
-    card_names(owner, TEST_WS, &source, &named).await;
+    let mut named = vec![beside.clone()];
+    named.extend(outside.iter().cloned());
+    named.extend([source.clone(), template.clone()]);
+    let targets: Vec<&str> = named.iter().map(String::as_str).collect();
+    card_names(owner, TEST_WS, &source, &targets).await;
     let comment = comment_naming(owner, board, &source, &[&elsewhere.card, &beside]).await;
     owner
         .delete(&format!("{TEST_WS}/boards/{board}/blocks/{gone}"))
         .await
         .check_no_content();
-    let token = th.share(board).await;
+    let mut kept = vec![beside.clone()];
+    kept.extend(outside.iter().map(|_| String::new()));
+    kept.extend([source.clone(), template]);
+    Shared {
+        token: th.share(board).await,
+        board: shared.board,
+        source,
+        comment,
+        beside,
+        named,
+        outside,
+        kept,
+    }
+}
 
-    let kept = [beside.as_str(), "", "", "", "", "", source.as_str()];
+/// Whoever reads by the link, with a session or without, gets the cards of the board
+/// that a body names (a template among them) and an empty identifier for each of the
+/// rest; a member on the board's own routes gets them all.
+#[tokio::test]
+async fn a_reader_by_a_link_is_told_of_the_cards_of_the_board_and_of_nothing_else() {
+    let th = Setup::local_mode().start().await.init_basic().await;
+    let owner = &th.client;
+    let shared = shared_board(&th).await;
+    let (board, token, source) = (&shared.board, &shared.token, &shared.source);
     let tells_nothing = |text: &str, what: &str| {
-        for id in outside {
-            assert!(!text.contains(id), "{what} tells of {id}: {text}");
+        for id in &shared.outside {
+            assert!(!text.contains(id.as_str()), "{what} tells of {id}: {text}");
         }
         assert!(!text.contains(HIDDEN), "{what}: {text}");
     };
@@ -84,10 +125,23 @@ async fn a_reader_by_a_link_is_told_of_the_cards_of_the_board_and_of_nothing_els
         all.check_ok();
         tells_nothing(&all.text(), "every block");
         let blocks = all.value();
-        assert_eq!(references_in(&block_of(&blocks, &source)["body"]), kept);
         assert_eq!(
-            references_in(&block_of(&blocks, &comment)["body"]),
-            ["", beside.as_str()]
+            references_in(&block_of(&blocks, source)["body"]),
+            shared.kept
+        );
+        assert_eq!(
+            references_in(&block_of(&blocks, &shared.comment)["body"]),
+            ["", shared.beside.as_str()]
+        );
+        // The cards come with no body (an empty one), so with nothing a body names.
+        let cards = reader
+            .get(&format!("/shared/{board}/cards?readToken={token}"))
+            .await
+            .value();
+        let cards = cards.as_array().expect("a list");
+        assert!(
+            !cards.is_empty() && cards.iter().all(|card| card["body"].is_null()),
+            "{cards:?}"
         );
         for rest in [
             format!("blocks?blockId={source}"),
@@ -107,50 +161,75 @@ async fn a_reader_by_a_link_is_told_of_the_cards_of_the_board_and_of_nothing_els
         .get(&format!("{TEST_WS}/boards/{board}/blocks?all=true"))
         .await
         .value();
-    assert_eq!(references_in(&block_of(&own, &source)["body"]), named);
-
-    told_of_a_change(&th.anonymous(), owner, &token, &source, &named, &kept).await;
+    assert_eq!(references_in(&block_of(&own, source)["body"]), shared.named);
     th.teardown().await;
 }
 
-/// The card is written again while a connection follows it by the link: what that
-/// connection is told of the change names what `kept` says and nothing of `named`
-/// besides.
-async fn told_of_a_change(
-    reader: &Client,
-    owner: &Client,
-    token: &str,
-    source: &str,
-    named: &[&str],
-    kept: &[&str],
-) {
-    let mut socket = Socket::connect_as(&reader.as_browser()).await;
-    socket
-        .send(json!({
-            "action": "SUBSCRIBE_BLOCKS", "workspaceId": TEST_WORKSPACE_ID,
-            "readToken": token, "blockIds": [source],
-        }))
+/// A connection that follows the card by the link is told of a change of the card,
+/// and of a comment on it, without what is not of the board: one without a session,
+/// and one of a user who is signed in and not on the board.
+#[tokio::test]
+async fn a_connection_by_a_link_is_told_of_changes_without_what_is_not_of_the_board() {
+    let th = Setup::local_mode().start().await.init_basic().await;
+    let shared = shared_board(&th).await;
+    for reader in [th.anonymous().as_browser(), th.client2.clone()] {
+        let mut socket = Socket::connect_as(&reader).await;
+        socket
+            .send(json!({
+                "action": "SUBSCRIBE_BLOCKS", "workspaceId": TEST_WORKSPACE_ID,
+                "readToken": shared.token, "blockIds": [shared.source],
+            }))
+            .await;
+        let told = told_of_the_card(&mut socket, &th.client, &shared).await;
+        assert_eq!(references_in(&told["block"]["body"]), shared.kept, "{told}");
+        // A comment on the card is told to who follows the card.
+        let elsewhere = shared.outside[0].as_str();
+        comment_naming(
+            &th.client,
+            &shared.board,
+            &shared.source,
+            &[elsewhere, &shared.beside],
+        )
         .await;
+        let of_the_comment = loop {
+            let message = socket.next_json(Duration::from_secs(5)).await;
+            let message = message.expect("the reader is told of the comment");
+            if message["block"]["type"] == "comment" {
+                break message;
+            }
+        };
+        assert_eq!(
+            references_in(&of_the_comment["block"]["body"]),
+            ["", shared.beside.as_str()],
+            "{of_the_comment}"
+        );
+        for told in [told, of_the_comment] {
+            let text = told.to_string();
+            for id in &shared.outside {
+                assert!(!text.contains(id.as_str()), "tells of {id}: {text}");
+            }
+        }
+    }
+    th.teardown().await;
+}
+
+/// The card is written again until the connection, which follows it by the link, is
+/// told: the first thing it is told of the card.
+async fn told_of_the_card(socket: &mut Socket, owner: &Client, shared: &Shared) -> Value {
+    let named: Vec<&str> = shared.named.iter().map(String::as_str).collect();
     // No acknowledgement: the card is written until the subscription shows.
-    let path = format!("{TEST_WS}/cards/{source}");
-    let mut told = None;
+    let path = format!("{TEST_WS}/cards/{}", shared.source);
     for round in 0..50 {
         let read_at = owner.get(&path).await.value()["updateAt"].clone();
-        let body = body_naming(&format!("round {round}"), named);
+        let body = body_naming(&format!("round {round}"), &named);
         owner
             .patch(&path, &json!({"readAt": read_at, "body": body}))
             .await
             .check_ok();
         if let Some(message) = socket.next_json(Duration::from_millis(100)).await {
-            told = Some(message);
-            break;
+            assert_eq!(message["action"], json!("UPDATE_BLOCK"), "{message}");
+            return message;
         }
     }
-    let told = told.expect("the reader is told of the card");
-    assert_eq!(told["action"], json!("UPDATE_BLOCK"), "{told}");
-    assert_eq!(references_in(&told["block"]["body"]), kept, "{told}");
-    let text = told.to_string();
-    for id in named.iter().filter(|id| !kept.contains(id)) {
-        assert!(!text.contains(id), "the change tells of {id}: {text}");
-    }
+    panic!("the reader is not told of the card");
 }
