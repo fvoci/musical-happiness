@@ -40,14 +40,28 @@
     onCreate: (draft: PageDraft) => void;
     /** Asks to delete a page; left out where pages are not deleted here. */
     onDelete?: ((page: WikiPage) => void) | undefined;
+    /** A page is being made: no other is asked for meanwhile. */
+    busy?: boolean;
   }
 
-  let { wiki, currentId, open, pageHref, onOpenPage, onCreate, onDelete }: Props = $props();
+  let {
+    wiki,
+    currentId,
+    open,
+    pageHref,
+    onOpenPage,
+    onCreate,
+    onDelete,
+    busy = false,
+  }: Props = $props();
 
   const uid = $props.id();
   const rows = $derived(pageRows(wiki.tree, (pageId) => open.has(pageId)));
-  /** The page that holds the tree's place in the tab order, as the reader last moved to it. */
-  let moved = $state<string | undefined>(undefined);
+  /**
+   * The page that holds the tree's place in the tab order: the page shown,
+   * or the one the reader moved to since it was shown.
+   */
+  let moved = $derived<string | undefined>(currentId);
   const active = $derived(
     [moved, currentId, rows[0]?.page.id].find(
       (pageId) => pageId !== undefined && rows.some((row) => row.page.id === pageId),
@@ -67,6 +81,9 @@
   }
 
   function onkeydown(event: KeyboardEvent): void {
+    // The keys of the tree are its items'; a button inside an item keeps its own.
+    if (event.defaultPrevented || !(event.target instanceof HTMLElement)) return;
+    if (event.target.getAttribute('role') !== 'treeitem') return;
     const at = rows.findIndex((row) => row.page.id === active);
     const row = rows[at];
     if (!row || event.altKey || event.ctrlKey || event.metaKey) return;
@@ -74,7 +91,7 @@
       event.preventDefault();
       void focusOn(to?.page.id);
     };
-    if (event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey)) {
+    if (wiki.canEdit && (event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey))) {
       event.preventDefault();
       menuOf = row.page.id;
       return;
@@ -171,6 +188,7 @@
       <IconButton
         label={m.wiki_new_page()}
         data-testid="new-page"
+        disabled={busy}
         class="text-muted-foreground"
         onclick={() => {
           onCreate({});
@@ -254,6 +272,8 @@
                 () => menuOf === page.id,
                 (shown: boolean) => {
                   menuOf = shown ? page.id : undefined;
+                  // Closed, the menu gives the focus back to its page, where the keys of the tree are.
+                  if (!shown) void focusOn(page.id);
                 }
               }
               {title}

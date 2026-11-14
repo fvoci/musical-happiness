@@ -119,10 +119,14 @@ test('the pages of a wiki are made as a tree, named, and there again after a rel
   expect(parentOf.get('Getting started')).toBe(welcome);
   expect(pages.find((one) => one.id === welcome)?.icon).not.toBe('');
 
-  // Read anew at the child's address: the same tree, the child shown, its parent open.
+  // Read anew at the child's address, its parent folded before: the same tree, the
+  // child shown, and its parent open again, for the page shown is in sight.
   await showTree(page);
   await treeItem(page, 'Getting started').click();
   await expect(page).toHaveURL(`/w/${workspaceId}/wikis/${wikiId}/${child}`);
+  await showTree(page);
+  await treeItem(page, 'Welcome').getByRole('button', { name: 'Fold Welcome' }).click();
+  await expect(treeItem(page, 'Getting started')).toHaveCount(0);
   await page.reload();
   await expect(page).toHaveURL(`/w/${workspaceId}/wikis/${wikiId}/${child}`);
   await expect(page.getByTestId('page-title')).toHaveValue('Getting started');

@@ -78,9 +78,10 @@
   const above = $derived(page ? ancestorsOf(wiki.pages, page.pageId).join(' ') : '');
   $effect(() => {
     const ids = above;
+    const target = open;
     if (ids !== '')
       untrack(() => {
-        open.set(ids.split(' '));
+        target.set(ids.split(' '));
       });
   });
 
@@ -103,9 +104,10 @@
     target?.focus();
   }
 
-  /** Puts the drawer away, the focus back on the button that opened it. */
-  function closeDrawer(): void {
+  /** Puts the drawer away, the focus back on the button that opened it once it is no longer inert. */
+  async function closeDrawer(): Promise<void> {
     drawer = false;
+    await tick();
     opener?.focus();
   }
 
@@ -116,24 +118,59 @@
     },
   );
 
+  /** Shows a page; chosen in the drawer, the drawer goes and its button has the focus. */
   function show(pageId: string): void {
-    drawer = false;
+    if (drawerOut) void closeDrawer();
     made = undefined;
     onOpenPage(pageId);
   }
 
+  /** A page is being made: a second click does not make another. */
+  let creating = $state(false);
+
   async function create(draft: PageDraft): Promise<void> {
-    const madePage = await whileHere(wiki.workspace, () => wiki.createPage(draft));
-    if (!madePage) return;
-    if (madePage.parentId) open.set([madePage.parentId]);
-    show(madePage.id);
-    made = madePage.id;
+    if (creating) return;
+    creating = true;
+    try {
+      const madePage = await whileHere(wiki.workspace, () => wiki.createPage(draft));
+      if (!madePage) return;
+      if (madePage.parentId) open.set([madePage.parentId]);
+      if (drawerOut) drawer = false;
+      made = undefined;
+      onOpenPage(madePage.id);
+      // The page made takes the caret in its title (`PageView`), not the drawer's button.
+      made = madePage.id;
+    } finally {
+      creating = false;
+    }
   }
 
+  /** The places of the drawer the Tab key stops at, in order. */
+  const stops = (within: HTMLElement): HTMLElement[] =>
+    Array.from(
+      within.querySelectorAll<HTMLElement>(
+        'button:not([tabindex="-1"]):not(:disabled), a[href]:not([tabindex="-1"]), [tabindex="0"]',
+      ),
+    );
+
   function onkeydown(event: KeyboardEvent): void {
-    if (event.key !== 'Escape' || !drawerOut || event.defaultPrevented) return;
-    event.preventDefault();
-    closeDrawer();
+    if (!drawerOut || event.defaultPrevented || !panel) return;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      void closeDrawer();
+    } else if (event.key === 'Tab') {
+      // A modal drawer: Tab goes round inside it.
+      const inside = stops(panel);
+      const [first, last] = [inside[0], inside.at(-1)];
+      const at = document.activeElement;
+      if (!event.shiftKey && at === last) {
+        event.preventDefault();
+        first?.focus();
+      } else if (event.shiftKey && at === first) {
+        event.preventDefault();
+        last?.focus();
+      }
+    }
   }
 </script>
 
@@ -153,7 +190,7 @@
       aria-label={m.wiki_close_tree()}
       data-testid="page-tree-scrim"
       class="absolute inset-0 z-20 animate-in cursor-default scrim duration-200 fade-in-0"
-      onclick={closeDrawer}
+      onclick={() => void closeDrawer()}
     ></button>
   {/if}
 
@@ -180,7 +217,7 @@
   >
     {#if drawerOut}
       <div class="flex shrink-0 justify-end px-1 pt-1">
-        <IconButton label={m.wiki_close_tree()} onclick={closeDrawer}>
+        <IconButton label={m.wiki_close_tree()} onclick={() => void closeDrawer()}>
           <XIcon />
         </IconButton>
       </div>
@@ -193,6 +230,7 @@
       onOpenPage={show}
       onCreate={(draft: PageDraft) => void create(draft)}
       {onDelete}
+      busy={creating}
     />
   </div>
 
@@ -237,6 +275,7 @@
             <Button
               class="roomy:min-h-touch"
               data-testid="wiki-first-page"
+              disabled={creating}
               onclick={() => void create({})}
             >
               <FilePlusIcon aria-hidden="true" />

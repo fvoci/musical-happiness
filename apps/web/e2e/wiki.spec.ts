@@ -167,6 +167,38 @@ test.describe('the pages of a wiki', () => {
     await expect(title).toHaveValue('Welcome');
     await showTree(page);
     await expect(treeItem(page, 'Welcome')).toBeVisible();
+    await hideTree(page);
+    await page.getByTestId('undo').click();
+    await expect(page.getByTestId('page-add-icon')).toBeVisible();
+    await expect(page.getByTestId('page-icon')).toHaveCount(0);
+  });
+
+  test('in a narrow pane the tree is a drawer that takes the focus, keeps it, and gives it back', async ({
+    page,
+  }) => {
+    await openApp(page);
+    await newWiki(page, 'Handbook');
+    await page.getByTestId('wiki-first-page').click();
+    await nameThePage(page, 'Welcome');
+    const opener = page.getByTestId('open-page-tree');
+    test.skip(!(await opener.isVisible()), 'the tree is a column beside the page here');
+
+    const drawer = page.getByRole('dialog', { name: 'Pages' });
+    await opener.click();
+    await expect(treeItem(page, 'Welcome')).toBeFocused();
+    // Tab goes round inside the drawer.
+    for (let step = 0; step < 4; step += 1) await page.keyboard.press('Tab');
+    expect(await drawer.evaluate((element) => element.contains(document.activeElement))).toBe(true);
+    await page.keyboard.press('Escape');
+    await expect(drawer).toBeHidden();
+    await expect(opener).toBeFocused();
+
+    // A page chosen in the drawer is shown, the drawer gone and its button focused.
+    await opener.click();
+    await expect(treeItem(page, 'Welcome')).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(drawer).toBeHidden();
+    await expect(opener).toBeFocused();
   });
 
   test('a page that is not there is not found', async ({ page }) => {

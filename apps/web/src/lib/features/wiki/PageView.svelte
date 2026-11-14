@@ -92,8 +92,10 @@
 
   function onblur(): void {
     editing = false;
+    const typed = unsaved !== undefined;
     save();
-    draft = draft.trim();
+    // Nothing typed: the title as it is now, which somebody else may have changed meanwhile.
+    draft = typed ? draft.trim() : page.title;
   }
 
   // A page just made takes the caret in its title, also when it was shown before it was known to be new.
