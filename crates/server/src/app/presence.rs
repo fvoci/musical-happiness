@@ -66,12 +66,9 @@ impl App {
 }
 
 /// Whether `card_id` is a card of the board `board_id`, or a page of the wiki of that
-/// identifier, not deleted.
+/// identifier, not deleted: a block whose body has a room, on the board the visit was
+/// let onto. Its body is not read.
 async fn is_open_card(app: &App, board_id: &str, card_id: &str) -> Result<bool, AppError> {
-    let card = match app.block(card_id).await {
-        Ok(card) => card,
-        Err(error) if error.kind() == crate::error::ErrorKind::NotFound => return Ok(false),
-        Err(error) => return Err(error),
-    };
-    Ok(card.board_id == board_id && card.block_type.has_room() && card.delete_at == 0)
+    let on = app.store().board_of_card(card_id).await?;
+    Ok(on.as_deref() == Some(board_id))
 }

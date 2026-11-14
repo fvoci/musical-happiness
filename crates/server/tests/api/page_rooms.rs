@@ -7,13 +7,14 @@ use fvoci_model::Page;
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
+use crate::board_broadcasts::WorkspaceSocket;
 use crate::common::{Client, Setup, TEST_WORKSPACE_ID, TEST_WS, TestServer};
 use crate::presence::{people, visit};
-use crate::rooms::{PATIENCE, Peer, give, lines_of, paragraphs, table};
+use crate::rooms::{PATIENCE, Peer, QUIET, give, lines_of, paragraphs, table};
 use crate::websocket::Socket;
 
 /// A wiki for the invited only in the test workspace, made by the first client's
-/// user, with a page whose body is `body`.
+/// user, with a page.
 struct Desk {
     wiki_id: String,
     page_id: String,
@@ -29,6 +30,7 @@ impl Desk {
     }
 }
 
+/// A [`Desk`] whose page has the body `body`.
 async fn desk(th: &TestServer, body: &Value) -> Desk {
     let wiki = th
         .client
@@ -110,6 +112,8 @@ async fn two_users_edit_a_page_together_and_converge() {
     let user2 = th.client2.me().await.id;
     give(&th, &d.wiki_id, &user2, "editor").await;
 
+    let mut listener =
+        WorkspaceSocket::subscribe(&th, &th.client2, TEST_WORKSPACE_ID, &user2).await;
     let mut one = Peer::connect(&th.client, 101).await;
     let mut two = Peer::connect(&th.client2, 102).await;
     let joined = one.joined(TEST_WORKSPACE_ID, &d.page_id).await;
@@ -154,6 +158,20 @@ async fn two_users_edit_a_page_together_and_converge() {
         page.modified_by
     );
     assert_eq!(page.title, "Edited together", "the body only is written");
+    // The wiki's members are told of the page as it is written, as of any block.
+    let mut told = listener
+        .expect("UPDATE_BLOCK", "/block/id", &d.page_id)
+        .await;
+    while told["block"]["body"] != merged {
+        told = listener
+            .expect("UPDATE_BLOCK", "/block/id", &d.page_id)
+            .await;
+    }
+    assert_eq!(
+        (&told["block"]["type"], &told["block"]["boardId"]),
+        (&json!("page"), &json!(d.wiki_id)),
+        "{told}"
+    );
 
     // Who comes later is sent all of it.
     let mut three = Peer::connect(&th.client2, 103).await;
@@ -236,8 +254,7 @@ async fn the_room_of_a_page_is_for_whom_its_wiki_lets_in() {
     let mut two = Peer::connect(&th.client2, 102).await;
     one.joined(TEST_WORKSPACE_ID, &d.page_id).await;
 
-    // Not on the wiki: as for no page. The wiki itself is no page, nor a card's
-    // board a page's.
+    // Not on the wiki: as for no page. Nor is the wiki itself a page.
     let refused = json!({
         "action": "DOC_REFUSED", "workspaceId": TEST_WORKSPACE_ID, "cardId": d.page_id,
         "reason": "not_found",
@@ -287,8 +304,9 @@ async fn the_room_of_a_page_is_for_whom_its_wiki_lets_in() {
 }
 
 /// A page that is deleted, with a page above it or with its wiki, has no room any
-/// more: who was in it is put out, and what they typed last is in the body the trash
-/// keeps. The pages of a wiki that comes back have their rooms again.
+/// more: who was in it is put out, and what they typed last is written to the page
+/// before it goes, so that the trash keeps it. A wiki that comes back has the page
+/// with that body, for who reads it and for who comes into its room.
 #[tokio::test]
 async fn deleting_a_page_or_its_wiki_closes_the_rooms_of_what_goes_with_it() {
     for target in ["page", "page above", "wiki"] {
@@ -296,16 +314,20 @@ async fn deleting_a_page_or_its_wiki_closes_the_rooms_of_what_goes_with_it() {
         let d = desk(&th, &paragraphs(&["above"])).await;
         let below = json!({"title": "Below", "parentId": d.page_id});
         let below = written(&th.client, &d.pages(), below, &paragraphs(&["first"])).await;
+        let below_at = format!("{}/{}", d.pages(), below.id);
         let mut writer = Peer::connect(&th.client, 101).await;
         writer.joined(TEST_WORKSPACE_ID, &below.id).await;
         writer.write_acked("the last edit").await;
         let wanted = writer.body();
+        let stored = body_of(&read(&th.client, &below_at).await);
+        assert_ne!(stored, wanted, "the room has not written the page yet");
 
         let wiki = format!("{TEST_WS}/boards/{}", d.wiki_id);
         let gone = match target {
-            "page" => format!("{}/{}", d.pages(), below.id),
+            "page" => below_at.clone(),
             "page above" => d.page(),
-            _ => wiki.clone(),
+            "wiki" => wiki.clone(),
+            other => unreachable!("no such target: {other}"),
         };
         th.client.delete(&gone).await.check_no_content();
         let left = writer.text("DOC_LEFT").await;
@@ -313,27 +335,24 @@ async fn deleting_a_page_or_its_wiki_closes_the_rooms_of_what_goes_with_it() {
         assert_eq!(th.app.collab().rooms(), 0, "{target}");
         let again = writer.join(TEST_WORKSPACE_ID, &below.id).await;
         assert_eq!(again["action"], json!("DOC_REFUSED"), "{target}: {again}");
+        // Written by the deletion, not by a room that opens later.
+        let trashed = th.app.store().get_deleted_block(&below.id).await;
+        let kept = trashed.expect("in the trash").block.body;
+        assert_eq!(
+            kept.map(|body| body.document().clone()),
+            wanted,
+            "{target}: the trash keeps the last edit"
+        );
         if target == "wiki" {
             th.client
                 .post_empty(&format!("{wiki}/undelete"))
                 .await
                 .check_ok();
+            let back = body_of(&read(&th.client, &below_at).await);
+            assert_eq!(back, wanted, "the page comes back as it went");
             let mut reopened = Peer::connect(&th.client, 203).await;
             reopened.joined(TEST_WORKSPACE_ID, &below.id).await;
-            assert_eq!(reopened.body(), wanted, "the wiki comes back with it");
-        } else {
-            let trashed = th
-                .app
-                .store()
-                .get_deleted_block(&below.id)
-                .await
-                .expect("in the trash");
-            let kept = trashed.block.body.as_ref();
-            assert_eq!(
-                kept.map(|body| body.document().clone()),
-                wanted,
-                "{target}: the trash keeps the last edit"
-            );
+            assert_eq!(reopened.body(), wanted, "and its room with it");
         }
         th.teardown().await;
     }
@@ -372,6 +391,17 @@ async fn an_open_page_is_named_in_the_presence_of_its_wiki() {
         open_of_other(&shown),
         json!([]),
         "a card of a board is no page of the wiki"
+    );
+    // A page that is deleted is open no more for who visits again: on the wiki still.
+    visit(&mut two, &d.wiki_id, &d.page_id).await;
+    let _ = people(&mut one, 2).await;
+    th.client.delete(&d.page()).await.check_no_content();
+    visit(&mut two, &d.wiki_id, "").await;
+    let _ = people(&mut one, 2).await;
+    visit(&mut two, &d.wiki_id, &d.page_id).await;
+    assert!(
+        one.next_json(QUIET).await.is_none(),
+        "a deleted page is no open page: the roster stays as it was"
     );
     th.teardown().await;
 }

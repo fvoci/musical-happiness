@@ -58,6 +58,10 @@ pub enum BlockType {
 }
 
 impl BlockType {
+    /// The types whose body is edited together, in a room of the block's own: a card
+    /// and a page. A comment's body is written whole by its author.
+    pub const WITH_ROOM: [Self; 2] = [Self::Card, Self::Page];
+
     /// Returns `true` for the types that may have a body: a card and a comment
     /// (`docs/s6-design.md` 5.7), and a page.
     #[must_use]
@@ -65,12 +69,10 @@ impl BlockType {
         matches!(self, Self::Card | Self::Comment | Self::Page)
     }
 
-    /// Returns `true` for the types whose body is edited together, in a room of the
-    /// block's own: a card and a page. A comment's body is written whole by its
-    /// author.
+    /// Returns `true` for the types whose body has a room ([`Self::WITH_ROOM`]).
     #[must_use]
     pub fn has_room(&self) -> bool {
-        matches!(self, Self::Card | Self::Page)
+        Self::WITH_ROOM.contains(self)
     }
 
     /// Returns `true` for the types a block may be given by a write of blocks: a card,

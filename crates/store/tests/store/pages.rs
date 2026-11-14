@@ -380,12 +380,16 @@ async fn the_body_of_a_page_has_a_room_in_its_wiki_as_that_of_a_card_in_its_boar
     ];
     common::insert_blocks(&test, &mut on_board, &user_id).await;
     let [card, view] = &on_board;
+    let mut comment = [block(&board.id, &card.id, BlockType::Comment)];
+    common::insert_blocks(&test, &mut comment, &user_id).await;
 
     for (block_id, expected) in [
         (&page_id, Some(&wiki.id)),
         (&card.id, Some(&board.id)),
-        // A view has no body, and a wiki is no block of itself.
+        // A view has no body, a comment's is written whole by its author, and a wiki
+        // is no block of itself.
         (&view.id, None),
+        (&comment[0].id, None),
         (&wiki.id, None),
     ] {
         let found = test
@@ -394,7 +398,5 @@ async fn the_body_of_a_page_has_a_room_in_its_wiki_as_that_of_a_card_in_its_boar
             .expect("the board of the block is read");
         assert_eq!(found.as_ref(), expected, "{block_id}");
     }
-    assert!(BlockType::Page.has_room() && BlockType::Card.has_room());
-    assert!(!BlockType::Comment.has_room(), "a comment is written whole");
     test.teardown().await;
 }

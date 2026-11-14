@@ -474,6 +474,20 @@ mod tests {
             BlockError::type_not_current(&page),
             BlockError::PageByBlocks
         );
+        // Its body is edited together as a card's is, and no other block's.
+        let with_room: Vec<&str> = [
+            "card",
+            "page",
+            "comment",
+            "view",
+            "attachment",
+            "board",
+            "text",
+        ]
+        .into_iter()
+        .filter(|name| BlockType::from(*name).has_room())
+        .collect();
+        assert_eq!(with_room, ["card", "page"]);
     }
 
     #[test]

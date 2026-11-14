@@ -112,7 +112,7 @@ impl Collab {
             // Not open (its worker ended over it, or it was opened for its log alone),
             // with a room all the same: the room holds the document before the write,
             // and is told to open it anew.
-            if written.is_ok() && self.has_room(app, &card_id) {
+            if written.is_ok() && self.room_is_open(app, &card_id) {
                 self.tell(app, &card_id, DocChange::Closed);
             }
             self.retire(&mut slot);
