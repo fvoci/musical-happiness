@@ -122,6 +122,7 @@ mod websocket;
 mod websocket_access;
 mod websocket_documents;
 mod websocket_organizations;
+mod wiki_isolation;
 mod wiki_kinds;
 mod workspace_admin;
 mod workspace_members;

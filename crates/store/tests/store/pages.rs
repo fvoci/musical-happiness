@@ -5,7 +5,7 @@ use fvoci_model::{
     Block, BlockError, BlockPatch, BlockType, Board, BoardKind, BoardKinds, BoardType, NewPage,
     PageNode, new_id,
 };
-use fvoci_store::{Store, StoreError};
+use fvoci_store::{DbType, Store, StoreError, Tenant};
 
 use crate::boards::new_board;
 use crate::common;
@@ -398,5 +398,94 @@ async fn the_body_of_a_page_has_a_room_in_its_wiki_as_that_of_a_card_in_its_boar
             .expect("the board of the block is read");
         assert_eq!(found.as_ref(), expected, "{block_id}");
     }
+    test.teardown().await;
+}
+
+/// The wikis and pages of two organizations stay apart (PostgreSQL; SQLite holds one
+/// organization): a handle of one finds no tree and no page of the other's, makes no
+/// page in the other's wiki, and takes no page of the other's for a parent or a
+/// sibling of its own.
+#[tokio::test]
+async fn the_pages_of_two_organizations_are_out_of_each_others_reach() {
+    if common::db_type() != DbType::Postgres {
+        return;
+    }
+    let test = common::setup().await;
+    let unset = test.scoped(Tenant::Unset);
+    let (other_org, their_workspace) = common::organization(&unset, "the other").await;
+    let ours = &test.store;
+    let theirs = test.for_org(&other_org).expect("an identifier");
+    let user_id = common::user(ours, "anybody").await;
+    let workspace_id = common::workspace(ours).await;
+    let wiki_in = async |store: &Store, workspace_id: &str| {
+        let mut wiki = Board {
+            kind: BoardKind::Wiki,
+            ..new_board(&new_id(), workspace_id, BoardType::Open)
+        };
+        store
+            .insert_board(&mut wiki, &user_id)
+            .await
+            .expect("the wiki is stored");
+        wiki
+    };
+    let our_wiki = wiki_in(ours, &workspace_id).await;
+    let their_wiki = wiki_in(&theirs, &their_workspace).await;
+    let our_page = page(ours, &our_wiki, "", None).await;
+    let their_page = page(&theirs, &their_wiki, "", None).await;
+
+    // Their wiki has no tree for us and takes no page of ours; their page is no block.
+    for store in [ours, &unset] {
+        let tree = store.get_page_tree(&their_wiki.id).await.expect("a tree");
+        assert!(tree.is_empty(), "{tree:?}");
+        let found = store.board_of_card(&their_page).await.expect("read");
+        assert_eq!(found, None, "the wiki of their page");
+    }
+    let made = ours
+        .create_page(&their_wiki.id, &NewPage::default(), &user_id)
+        .await;
+    assert!(
+        matches!(&made, Err(error) if error.is_not_found()),
+        "{made:?}"
+    );
+    let read = ours.get_block(&their_page).await;
+    assert!(
+        matches!(&read, Err(error) if error.is_not_found()),
+        "{read:?}"
+    );
+    let wikis = ours
+        .get_boards_of_workspace(&their_workspace, BoardKinds::Wikis)
+        .await
+        .expect("the wikis of the workspace");
+    assert!(wikis.is_empty(), "{wikis:?}");
+
+    // Nor is their page a parent or a sibling for a page of ours.
+    let below_theirs = NewPage {
+        parent_id: their_page.clone(),
+        ..NewPage::default()
+    };
+    assert_eq!(
+        refusal(
+            ours.create_page(&our_wiki.id, &below_theirs, &user_id)
+                .await
+        ),
+        BlockError::ParentNotOnBoard
+    );
+    let after_theirs = NewPage {
+        after: Some(their_page.clone()),
+        ..NewPage::default()
+    };
+    assert_eq!(
+        refusal(
+            ours.create_page(&our_wiki.id, &after_theirs, &user_id)
+                .await
+        ),
+        BlockError::AfterNotSibling
+    );
+
+    // Each has its own, as it was.
+    assert_eq!(below(ours, &our_wiki, "").await, [our_page]);
+    let found = theirs.board_of_card(&their_page).await.expect("read");
+    assert_eq!(found.as_ref(), Some(&their_wiki.id));
+    assert_eq!(below(&theirs, &their_wiki, "").await, [their_page]);
     test.teardown().await;
 }
