@@ -4,13 +4,11 @@ use std::future::Future;
 use std::pin::Pin;
 use std::time::Duration;
 
-use anyhow::Context as _;
 use lettre::address::Envelope;
 use lettre::transport::smtp::authentication::Credentials;
 use lettre::{Address, AsyncSmtpTransport, AsyncTransport as _, Tokio1Executor};
-use mail_builder::MessageBuilder;
-use mail_builder::headers::raw::Raw;
 
+use super::mime;
 use super::outbound::{Outbound, Outcome, Outgoing};
 use crate::config::smtp::{SmtpSettings, SmtpTls};
 
@@ -55,7 +53,7 @@ impl Smtp {
         };
         match self.transport.send_raw(&envelope, &bytes).await {
             Ok(_) => Outcome::Sent,
-            Err(error) => outcome_of(error.status().map(u16::from)),
+            Err(error) => outcome_of_error(&error),
         }
     }
 }
@@ -73,13 +71,44 @@ impl Outbound for Smtp {
     }
 }
 
-/// What an SMTP error makes of the attempt: a 5xx reply refuses the message for good
-/// (a `535` of the credentials too, as SMTP says it is final; it is counted, and logged
-/// with its code, for every message);
-/// a 4xx reply (`421`, `451`, `454`) and anything without a reply (the connection, TLS,
-/// a timeout) is worth another attempt. Only the reply code is kept, never its text.
+/// What an SMTP error makes of the attempt. A connection that cannot be made (a host
+/// name that names nothing, a refused connection, a TLS handshake that fails), a relay
+/// without the STARTTLS that `smtp_tls` asks for, and one with no authentication the
+/// credentials can use close the whole way. lettre tells these apart from the other
+/// failures only by their text, so the text is read here and nowhere else, and never
+/// kept. A relay that does not answer in time is worth another attempt, as a timeout
+/// is anywhere else; one that refuses the server at its greeting (`554`) cannot be told
+/// apart from one that refuses a recipient, and refuses the message.
+fn outcome_of_error(error: &lettre::transport::smtp::Error) -> Outcome {
+    if error.status().is_none() {
+        let text = error.to_string();
+        if CLOSED_WAY_ERRORS
+            .iter()
+            .any(|closed| text.starts_with(closed))
+        {
+            return Outcome::PathDown { code: None };
+        }
+    }
+    outcome_of(error.status().map(u16::from))
+}
+
+/// How lettre's texts of the failures that close the whole way start: no connection,
+/// no STARTTLS, no authentication mechanism in common.
+const CLOSED_WAY_ERRORS: [&str; 3] = [
+    "Connection error",
+    "internal client error: STARTTLS is not supported",
+    "internal client error: No compatible authentication mechanism",
+];
+
+/// What an SMTP reply makes of the attempt: the relay refusing the server's credentials
+/// (`530` authentication required, `534` a mechanism too weak, `535` the credentials
+/// themselves, `538` authentication only over encryption) closes the whole way; any other 5xx refuses this message for good; a 4xx
+/// reply (`421`, `451`, `454`) and anything without a reply (a timeout, a connection
+/// lost in the middle) is worth another attempt. Only the reply code is kept, never its
+/// text.
 fn outcome_of(reply: Option<u16>) -> Outcome {
     match reply {
+        Some(code @ (530 | 534 | 535 | 538)) => Outcome::PathDown { code: Some(code) },
         Some(code @ 500..=599) => Outcome::Refused { code: Some(code) },
         code => Outcome::Later { after: None, code },
     }
@@ -89,18 +118,7 @@ fn outcome_of(reply: Option<u16>) -> Outcome {
 fn build(message: &Outgoing) -> anyhow::Result<(Envelope, Vec<u8>)> {
     let from: Address = message.from.parse()?;
     let envelope = Envelope::new(Some(from), vec![message.to.parse()?])?;
-    let domain = message.from.split_once('@').context("invalid sender")?.1;
-    let message_id = format!("{}@{domain}", crate::auth::secret::new_secret());
-    let bytes = MessageBuilder::new()
-        .from(message.from.as_str())
-        .to(message.to.as_str())
-        .message_id(message_id)
-        .header("Content-Language", Raw::new(message.language.tag()))
-        .subject(message.subject)
-        .text_body(message.plain.as_str())
-        .html_body(message.html.as_str())
-        .write_to_vec()?;
-    Ok((envelope, bytes))
+    Ok((envelope, mime::message(message)?))
 }
 
 #[cfg(test)]
@@ -108,7 +126,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_5xx_reply_refuses_for_good_and_anything_else_asks_for_later() {
+    fn a_refusal_of_the_credentials_closes_the_way() {
+        for code in [530, 534, 535, 538] {
+            assert_eq!(
+                outcome_of(Some(code)),
+                Outcome::PathDown { code: Some(code) },
+                "the relay refuses the credentials: the whole way is closed"
+            );
+        }
+    }
+
+    #[test]
+    fn another_5xx_reply_refuses_for_good_and_anything_else_asks_for_later() {
         assert_eq!(outcome_of(Some(550)), Outcome::Refused { code: Some(550) });
         assert_eq!(outcome_of(Some(554)), Outcome::Refused { code: Some(554) });
         for code in [Some(421), Some(451), Some(454), None] {

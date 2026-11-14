@@ -2,26 +2,29 @@
 //! pace for all, and bounded attempts. How a message leaves is the [`Outbound`]'s.
 
 mod content;
+mod mime;
 mod outbound;
 mod pace;
+mod provider;
 mod quota;
 mod share;
 mod smtp;
 #[cfg(test)]
 mod tests;
 
-use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use crate::auth::limiter::RetryAfter;
+use crate::config::mail::{MailSettings, Way, is_loopback_url};
 use crate::config::smtp::SmtpSettings;
 use crate::metrics::{MailFailure, MailKind, Metrics, ResetMailDrop};
 
 pub(super) use content::{Content, Language};
 use outbound::{Outbound, Outcome, Outgoing};
+pub(super) use share::Organizations;
 
 /// At most four messages are being sent at once; HTTP requests never wait for them.
 const CONNECTIONS: usize = 4;
@@ -33,9 +36,14 @@ const ATTEMPT_TIMEOUT: Duration = Duration::from_secs(10);
 const RETRY_DELAYS: [Duration; 2] = [Duration::from_secs(1), Duration::from_secs(4)];
 /// What a mail semaphore's acquire expects: none is ever closed.
 const CLOSED: &str = "the mail semaphores are never closed";
-/// The longest a message waits for another attempt: a way that asks for longer has its
-/// message given up then, rather than asked again before it said.
-const LONGEST_RETRY_WAIT: Duration = Duration::from_mins(1);
+/// The longest a message waits for another attempt, as long as invitations are held
+/// back at most: a way that asks for longer has its message given up then, rather than
+/// asked again before it said. SES asks to wait up to ten minutes when it throttles.
+const LONGEST_RETRY_WAIT: Duration = Duration::from_mins(15);
+/// The longest a recovery message waits for a closed way to open, from the first of its
+/// attempts the way refused so: a reset link is good for an hour, and the queue's
+/// places are for mail that may still go. Invitations wait as long as it stays closed.
+const LONGEST_PATH_WAIT: Duration = Duration::from_mins(15);
 
 /// Why invitation messages were not queued; nothing of the request was.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -44,7 +52,7 @@ pub(super) enum InvitationRefusal {
     WorkspaceHourlyLimit(Duration),
     /// The organization queued its hourly limit; the oldest of those leave after this.
     OrgHourlyLimit(Duration),
-    /// The organization holds half of the invitation queue.
+    /// The organization holds its share of the invitation queue.
     OrgShareFull,
     /// The invitation queue holds as many messages as it may.
     QueueFull,
@@ -83,28 +91,41 @@ impl std::fmt::Debug for Mailer {
 }
 
 impl Mailer {
-    /// `server_root` is where the links of the mail lead; the way of sending is SMTP
-    /// when `smtp_host` is set.
+    /// `server_root` is where the links of the mail lead; the way of sending is the one
+    /// `mail` names (`mail_transport`, or SMTP when `smtp_host` is set).
     ///
     /// # Errors
     /// Returns an error for settings that are invalid or cannot make the way.
     pub(super) fn new(
         settings: &SmtpSettings,
+        mail: &MailSettings,
         server_root: &str,
         metrics: Metrics,
     ) -> anyhow::Result<Self> {
         settings.check()?;
-        if settings.enabled() && is_loopback_root(server_root) {
+        let way = mail.way(settings)?;
+        if way.is_some() && is_loopback_root(server_root) {
             tracing::warn!(
                 server_root,
                 "mail is sent, but serverroot is a loopback address: its links lead nowhere \
                  for their recipients"
             );
         }
-        let outbound: Option<Arc<dyn Outbound>> = if settings.enabled() {
-            Some(Arc::new(smtp::Smtp::new(settings, ATTEMPT_TIMEOUT)?))
-        } else {
-            None
+        let outbound: Option<Arc<dyn Outbound>> = match way {
+            None => None,
+            Some(Way::Smtp) => Some(Arc::new(smtp::Smtp::new(settings, ATTEMPT_TIMEOUT)?)),
+            Some(Way::Cloudflare(keys)) => Some(Arc::new(provider::cloudflare::Cloudflare::new(
+                keys,
+                provider::client(ATTEMPT_TIMEOUT)?,
+            ))),
+            Some(Way::Ses(keys)) => Some(Arc::new(provider::ses::Ses::new(
+                keys,
+                provider::client(ATTEMPT_TIMEOUT)?,
+            )?)),
+            Some(Way::Oci(keys)) => Some(Arc::new(provider::oci::Oci::new(
+                keys,
+                provider::client(ATTEMPT_TIMEOUT)?,
+            )?)),
         };
         Self::with_outbound(settings, outbound, metrics)
     }
@@ -127,7 +148,10 @@ impl Mailer {
             workspace_quota: Arc::default(),
             workspace_per_hour: settings.invitation_mail_per_hour,
             org_quota: Arc::default(),
-            org_shares: Arc::new(share::OrgShares::new(settings.mail_invitation_queue / 2)),
+            org_shares: Arc::new(share::OrgShares::new(
+                settings.mail_invitation_queue,
+                settings.invitation_mail_recipients,
+            )),
             reset_quota: Arc::default(),
             reset_per_hour: settings.mail_reset_per_account_hour,
             pace: Arc::new(pace::Pace::new(settings.mail_per_second)),
@@ -160,14 +184,16 @@ impl Mailer {
     /// Takes the places of all `messages` of one invitation request of the workspace
     /// `workspace_id` in the organization `org_id`, or none of them. In this order, the
     /// workspace's hourly limit, the organization's (`org_per_hour`), the
-    /// organization's half of the queue and the queue must each take them all: a
-    /// workspace or an organization past its hour is told when to come back even while
-    /// the queue is full, and one organization never holds the whole queue.
+    /// organization's share of the queue among the server's `organizations` and the
+    /// queue must each take them all: a workspace or an organization past its hour is
+    /// told when to come back even while the queue is full, and an organization of
+    /// several never holds so much that one more finds no room.
     pub(super) fn queue_invitations(
         &self,
         workspace_id: &str,
         org_id: &str,
         org_per_hour: u32,
+        organizations: Organizations,
         messages: u32,
     ) -> Result<Vec<Queued>, InvitationRefusal> {
         let now = Instant::now();
@@ -178,7 +204,7 @@ impl Mailer {
                     .take(org_id, messages, org_per_hour, now, || {
                         let orgs = self
                             .org_shares
-                            .take(org_id, messages)
+                            .take(org_id, messages, organizations)
                             .ok_or(InvitationRefusal::OrgShareFull)?;
                         let places = Arc::clone(&self.invitation_queue)
                             .try_acquire_many_owned(messages)
@@ -215,25 +241,7 @@ impl Mailer {
 /// `localhost`, a loopback address (also one mapped into IPv6), or the unspecified one.
 /// A root that is no URL is left to the configuration's own checks.
 fn is_loopback_root(server_root: &str) -> bool {
-    let Ok(url) = reqwest::Url::parse(server_root) else {
-        return false;
-    };
-    let Some(host) = url.host_str() else {
-        return false;
-    };
-    // A URL writes an IPv6 address in brackets, and an IPv4 one in its usual form.
-    if let Ok(address) = host
-        .trim_start_matches('[')
-        .trim_end_matches(']')
-        .parse::<IpAddr>()
-    {
-        let address = address.to_canonical();
-        address.is_loopback() || address.is_unspecified()
-    } else {
-        // The parser writes the name in lower case; a trailing dot names the same host.
-        let name = host.trim_end_matches('.');
-        name == "localhost" || name.ends_with(".localhost")
-    }
+    reqwest::Url::parse(server_root).is_ok_and(|url| is_loopback_url(&url))
 }
 
 /// One message's place in its queue, held until the message was delivered or given up.
@@ -259,18 +267,23 @@ impl Queued {
     /// is held. The first attempt only then asks `write` for the message, so that what
     /// `write` creates (a reset token) is as young as can be.
     /// Attempts follow the way's [`Outcome`]: up to three while it asks for later, one
-    /// when it refuses. What became of the message is logged and counted here, without
-    /// a reply text, an address or a token.
+    /// when it refuses; while the way is closed, the message waits for the pace's next
+    /// attempt at it, which counts against none of the three (a recovery message for
+    /// up to [`LONGEST_PATH_WAIT`]). Each attempt after the first asks `still` whether the
+    /// message stands, and stops if not. What became of the message is logged and counted here,
+    /// without a reply text, an address or a token.
     ///
     /// # Errors
     /// Returns what `write` returned.
-    pub(super) async fn deliver<E, Writing>(
+    pub(super) async fn deliver<E, Writing, Checking>(
         self,
         mailer: &Mailer,
         write: impl FnOnce() -> Writing,
+        mut still: impl FnMut() -> Checking,
     ) -> Result<Delivered, E>
     where
         Writing: Future<Output = Result<Letter, E>>,
+        Checking: Future<Output = Result<bool, E>>,
     {
         let Some(outbound) = mailer.outbound.as_ref() else {
             tracing::warn!("a message was queued while outgoing mail is disabled");
@@ -280,15 +293,46 @@ impl Queued {
         let kind = self.kind;
         let mut write = Some(write);
         let mut message = None;
-        let mut waits = RETRY_DELAYS.into_iter();
+        let mut tried = Tried {
+            waits: RETRY_DELAYS.into_iter(),
+            closed_since: None,
+        };
         for attempt in 1.. {
+            // A recovery message's quarter of an hour starts when it first waits for a
+            // closed way, whether or not an attempt of its own found it so.
+            if kind == MailKind::PasswordReset && mailer.pace.is_closed() {
+                tried
+                    .closed_since
+                    .get_or_insert_with(tokio::time::Instant::now);
+            }
             // An invitation's sendings first, its organization's and the invitations':
             // they keep waiting only invitations, and an invitation that has its turn
             // has them, so it neither spends a turn waiting nor uses one after a pause.
             let held = mailer.invitation_sendings(self.org.as_ref()).await;
-            mailer.pace.turn(kind).await;
+            if !mailer.turn(kind, tried.closed_since).await {
+                delivered = Delivered::GivenUp;
+                tracing::warn!(
+                    kind = kind.as_str(),
+                    way = outbound.name(),
+                    attempt,
+                    "mail given up: the way stayed closed"
+                );
+                mailer.metrics.mail_failed(kind, MailFailure::Temporary);
+                break;
+            }
             let sending = mailer.sending(held).await;
             let message: &Outgoing = if let Some(ref message) = message {
+                // What it was written of may have changed while it waited (a closed way
+                // holds an invitation for as long as it stays closed).
+                if !still().await? {
+                    delivered = Delivered::Withdrawn;
+                    tracing::info!(
+                        kind = kind.as_str(),
+                        attempt,
+                        "mail withdrawn: it no longer stands"
+                    );
+                    break;
+                }
                 message
             } else {
                 let write = write
@@ -303,43 +347,121 @@ impl Queued {
                     code: None,
                 });
             drop(sending);
-            mailer.pace.observe(outcome);
             let way = outbound.name();
-            let wait = match outcome {
-                Outcome::Sent => {
-                    delivered = Delivered::Sent;
+            mailer.observe(way, outcome);
+            match mailer.after_attempt(
+                kind,
+                Attempt {
+                    way,
+                    number: attempt,
+                    outcome,
+                },
+                &mut tried,
+            ) {
+                Next::Done(done) => {
+                    delivered = done;
                     break;
                 }
-                Outcome::Refused { code } => {
-                    delivered = Delivered::Refused;
-                    tracing::warn!(
-                        kind = kind.as_str(),
-                        way,
-                        attempt,
-                        code,
-                        "mail refused for good"
-                    );
-                    mailer.metrics.mail_failed(kind, MailFailure::Permanent);
-                    break;
-                }
-                Outcome::Later { after, code } => {
-                    tracing::warn!(kind = kind.as_str(), way, attempt, code, "mail deferred");
-                    // A way that asks for longer than another attempt may wait is
-                    // not asked again before it said.
-                    let wait = waits.next().map(|backoff| after.unwrap_or(backoff));
-                    let Some(wait) = wait.filter(|wait| *wait <= LONGEST_RETRY_WAIT) else {
-                        delivered = Delivered::GivenUp;
-                        tracing::warn!(kind = kind.as_str(), way, attempt, "mail given up");
-                        mailer.metrics.mail_failed(kind, MailFailure::Temporary);
-                        break;
-                    };
-                    wait
-                }
-            };
-            tokio::time::sleep(wait).await;
+                Next::Wait(wait) => tokio::time::sleep(wait).await,
+            }
         }
         drop((self.place, self.org));
         Ok(delivered)
+    }
+}
+
+/// What a message has had of its attempts so far.
+struct Tried {
+    /// The waits before the attempts that are left after the way asked for later.
+    waits: std::array::IntoIter<Duration, 2>,
+    /// Since when the way has been closed to this message's attempts, if it is.
+    closed_since: Option<tokio::time::Instant>,
+}
+
+/// One attempt and what it became.
+#[derive(Clone, Copy)]
+struct Attempt {
+    way: &'static str,
+    /// The attempt's number, from 1.
+    number: u32,
+    outcome: Outcome,
+}
+
+/// What a message does after an attempt.
+enum Next {
+    /// No more attempts: this became of it.
+    Done(Delivered),
+    /// Another attempt, after this; a closed way's attempt waits for the pace instead.
+    Wait(Duration),
+}
+
+impl Mailer {
+    /// Waits for the turn of a message of `kind`. A recovery message that the way has
+    /// been closed to since `closed_since` waits until [`LONGEST_PATH_WAIT`] from then
+    /// at most: its link ages, and its place is for mail that may still go. An
+    /// invitation waits for as long as the way stays closed. Returns whether the turn
+    /// came.
+    async fn turn(&self, kind: MailKind, closed_since: Option<tokio::time::Instant>) -> bool {
+        let turn = self.pace.turn(kind);
+        match closed_since {
+            Some(since) if kind == MailKind::PasswordReset => {
+                tokio::time::timeout_at(since + LONGEST_PATH_WAIT, turn)
+                    .await
+                    .is_ok()
+            }
+            _ => {
+                turn.await;
+                true
+            }
+        }
+    }
+
+    /// Decides what follows `attempt` of a message of `kind`, and logs and counts a
+    /// message given up.
+    fn after_attempt(&self, kind: MailKind, attempt: Attempt, tried: &mut Tried) -> Next {
+        let Attempt {
+            way,
+            number: attempt,
+            outcome,
+        } = attempt;
+        if !matches!(outcome, Outcome::PathDown { .. }) {
+            tried.closed_since = None;
+        }
+        match outcome {
+            Outcome::Sent => Next::Done(Delivered::Sent),
+            Outcome::Refused { code } => {
+                tracing::warn!(
+                    kind = kind.as_str(),
+                    way,
+                    attempt,
+                    code,
+                    "mail refused for good"
+                );
+                self.metrics.mail_failed(kind, MailFailure::Permanent);
+                Next::Done(Delivered::Refused)
+            }
+            Outcome::Later { after, code } => {
+                tracing::warn!(kind = kind.as_str(), way, attempt, code, "mail deferred");
+                // A way that asks for longer than another attempt may wait is not asked
+                // again before it said.
+                let wait = tried.waits.next().map(|backoff| after.unwrap_or(backoff));
+                if let Some(wait) = wait.filter(|wait| *wait <= LONGEST_RETRY_WAIT) {
+                    Next::Wait(wait)
+                } else {
+                    tracing::warn!(kind = kind.as_str(), way, attempt, "mail given up");
+                    self.metrics.mail_failed(kind, MailFailure::Temporary);
+                    Next::Done(Delivered::GivenUp)
+                }
+            }
+            Outcome::PathDown { .. } => {
+                tried
+                    .closed_since
+                    .get_or_insert_with(tokio::time::Instant::now);
+                // The pace holds the next attempt until the way may be tried again, and
+                // [`Mailer::turn`] ends a recovery message's wait.
+                Next::Wait(Duration::ZERO)
+            }
+        }
     }
 }
 
@@ -352,6 +474,9 @@ pub(super) enum Delivered {
     Refused,
     /// The way asked for later at every attempt, or for longer than it may wait.
     GivenUp,
+    /// Its next attempt found that it no longer stands (its link revoked or ended,
+    /// its sender no longer allowed): nothing more was sent.
+    Withdrawn,
     /// Nothing was sent: mail is off.
     Unwritten,
 }
@@ -404,6 +529,32 @@ impl Mailer {
                 .await
                 .expect(CLOSED),
             _held: held,
+        }
+    }
+
+    /// Tells the pace what an attempt through `way` became, and logs and counts the way
+    /// closing or opening: one line each time, whatever many messages found it so.
+    fn observe(&self, way: &'static str, outcome: Outcome) {
+        match self.pace.observe(outcome) {
+            Some(pace::PathChange::Closed) => {
+                let code = match outcome {
+                    Outcome::PathDown { code } => code,
+                    _ => None,
+                };
+                tracing::error!(
+                    way,
+                    code,
+                    "the way of sending is closed: it refuses the server's keys or \
+                     permissions, or cannot be reached; invitations wait and one message \
+                     is tried a minute"
+                );
+                self.metrics.mail_path_closed();
+            }
+            Some(pace::PathChange::Opened) => {
+                tracing::info!(way, "the way of sending is open again");
+                self.metrics.mail_path_opened();
+            }
+            None => {}
         }
     }
 

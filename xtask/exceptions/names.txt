@@ -278,3 +278,7 @@ crates/store/src/directory.rs | through a team
 crates/server/src/api/users.rs | through a team of its workspace
 crates/server/src/api/users.rs | (`synthetic`, with the team's role in
 crates/server/src/api/users.rs | a guest is in no team
+
+# The signing string of OCI's published example request, which the signature test
+# verifies byte for byte: its instances are named so in Oracle's documentation.
+crates/server/src/app/mail/provider/http_signature.rs | displayName=TeamXInstances

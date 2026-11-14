@@ -105,6 +105,7 @@ pub(crate) struct Setup {
     configure: Vec<fn(&mut Configuration)>,
     admin_socket: Option<PathBuf>,
     smtp: Option<fvoci_server::config::smtp::SmtpSettings>,
+    mail: Option<fvoci_server::config::mail::MailSettings>,
     tls_files: Option<TlsFiles>,
     database_role: DatabaseRole,
     database: Database,
@@ -191,6 +192,20 @@ impl Setup {
         self
     }
 
+    /// Sends mail by the way of `settings` (a fake provider's), with the limits of
+    /// `smtp`.
+    pub(crate) fn mail(
+        mut self,
+        (smtp, mail): (
+            fvoci_server::config::smtp::SmtpSettings,
+            fvoci_server::config::mail::MailSettings,
+        ),
+    ) -> Self {
+        self.smtp = Some(smtp);
+        self.mail = Some(mail);
+        self
+    }
+
     /// Opens the administration socket at `path` (`enablelocalmode`).
     pub(crate) fn admin_socket(mut self, path: &Path) -> Self {
         self.admin_socket = Some(path.to_owned());
@@ -258,6 +273,9 @@ impl Setup {
             .clone_from(&self.oidc_roots);
         if let Some(smtp) = self.smtp {
             config.smtp = smtp;
+        }
+        if let Some(mail) = self.mail {
+            config.mail = mail;
         }
         for change in &self.configure {
             change(&mut config);
@@ -740,6 +758,20 @@ impl Client {
             base_url: base_url.to_owned(),
             token: token.to_owned(),
             carrier: Carrier::Bearer,
+        }
+    }
+
+    /// This client, answered with a redirect instead of following it: a test server's
+    /// `serverroot` is the default, which leads to whatever listens on port 8000 of the
+    /// machine, if anything does.
+    pub(crate) fn not_following_redirects(&self) -> Self {
+        Self {
+            http: reqwest::Client::builder()
+                .redirect(reqwest::redirect::Policy::none())
+                .timeout(Duration::from_secs(30))
+                .build()
+                .expect("an HTTP client can be built"),
+            ..self.clone()
         }
     }
 

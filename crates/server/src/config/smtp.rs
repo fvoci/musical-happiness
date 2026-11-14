@@ -51,7 +51,7 @@ pub struct SmtpSettings {
     pub smtp_user: String,
     /// SMTP authentication password; omitted from debug output.
     pub smtp_password: String,
-    /// Sender email address, without a display name.
+    /// The sender's address of all mail, whatever its way, without a display name.
     pub smtp_from: String,
     /// How many attempts to send all mail makes a second, recovery first; at least one.
     pub mail_per_second: u32,
@@ -61,14 +61,15 @@ pub struct SmtpSettings {
     /// answered as any other and send nothing.
     pub mail_reset_per_account_hour: u32,
     /// The most invitation messages waiting or being delivered; more are refused (503).
-    /// One organization holds at most half of them.
+    /// Among several organizations, one holds at most half of what the others leave.
     pub mail_invitation_queue: u32,
     /// The most recipients one invitation mail request names (400 beyond).
     pub invitation_mail_recipients: u32,
     /// The most invitation messages one workspace queues in an hour (429 beyond).
     pub invitation_mail_per_hour: u32,
     /// The most invitation messages one organization queues in an hour (429 beyond),
-    /// until organizations have limits of their own (`App::limits`).
+    /// until organizations have limits of their own (`App::limits`); at least
+    /// `invitation_mail_per_hour`.
     pub invitation_mail_per_org_hour: u32,
 }
 
@@ -132,7 +133,9 @@ impl SmtpSettings {
         !self.smtp_host.is_empty()
     }
 
-    /// Validates the transport settings without contacting the mail server.
+    /// Validates the limits and the relay's settings without contacting it; the
+    /// sender, and whether the relay is the way mail leaves, are
+    /// [`MailSettings::way`](super::mail::MailSettings::way)'s.
     ///
     /// # Errors
     /// Returns an error naming invalid or incomplete settings, without credentials.
@@ -160,7 +163,8 @@ impl SmtpSettings {
         if recipients > self.mail_invitation_queue / 2 {
             bail!(
                 "mail_invitation_queue ({}) must be at least twice invitation_mail_recipients \
-                 ({recipients}): one organization holds half of it, and half must hold a request",
+                 ({recipients}): an organization of several holds half of what the others \
+                 leave, and half must hold a request",
                 self.mail_invitation_queue
             );
         }
@@ -175,14 +179,17 @@ impl SmtpSettings {
                 bail!("{key} ({limit}) must be at least invitation_mail_recipients ({recipients})");
             }
         }
+        // A workspace is in an organization: its hour above the organization's would
+        // be a limit nobody reaches, and the organization's the one that holds.
+        if self.invitation_mail_per_org_hour < self.invitation_mail_per_hour {
+            bail!(
+                "invitation_mail_per_org_hour ({}) must be at least invitation_mail_per_hour ({})",
+                self.invitation_mail_per_org_hour,
+                self.invitation_mail_per_hour
+            );
+        }
         if self.smtp_user.is_empty() != self.smtp_password.is_empty() {
             bail!("smtp_user and smtp_password must be supplied together");
-        }
-        if !self.enabled() {
-            if !self.smtp_from.is_empty() || !self.smtp_user.is_empty() {
-                bail!("smtp_host is required when mail settings are supplied");
-            }
-            return Ok(());
         }
         if self
             .smtp_host
@@ -190,9 +197,6 @@ impl SmtpSettings {
             .any(|c| c.is_whitespace() || c.is_control() || matches!(c, '/' | '@' | '#' | '?'))
         {
             bail!("smtp_host must be a host name or IP address");
-        }
-        if !fvoci_model::is_email_valid(&self.smtp_from) {
-            bail!("smtp_from must be a single email address");
         }
         Ok(())
     }
@@ -238,6 +242,7 @@ mod tests {
             ("mail_invitation_queue", 39),
             ("invitation_mail_per_hour", 19),
             ("invitation_mail_per_org_hour", 19),
+            ("invitation_mail_per_org_hour", 99),
         ] {
             for host in ["", "smtp.example.test"] {
                 let mut json = serde_json::json!({"smtp_host": host});

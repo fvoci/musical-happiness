@@ -92,12 +92,16 @@ fn send(mailer: &Mailer, queued: Queued, to: &str) -> tokio::task::JoinHandle<()
     let to = to.to_owned();
     tokio::spawn(async move {
         let written = queued
-            .deliver(&mailer, || async {
-                Ok::<_, ()>(Letter {
-                    to,
-                    content: Content::reset("https://example.test/reset", Language::English),
-                })
-            })
+            .deliver(
+                &mailer,
+                || async {
+                    Ok::<_, ()>(Letter {
+                        to,
+                        content: Content::reset("https://example.test/reset", Language::English),
+                    })
+                },
+                || async { Ok(true) },
+            )
             .await;
         assert!(written.is_ok());
     })
@@ -109,7 +113,7 @@ fn reset(mailer: &Mailer, account: &str) -> Queued {
 
 fn invitation(mailer: &Mailer) -> Queued {
     mailer
-        .queue_invitations("workspace", "org", 300, 1)
+        .queue_invitations("workspace", "org", 300, Organizations::Several, 1)
         .expect("a place")
         .pop()
         .expect("one")
@@ -319,30 +323,35 @@ async fn recovery_keeps_the_pace_while_invitations_wait_and_another_backs_off() 
 }
 
 #[test]
-fn an_organization_holds_half_of_the_invitation_queue_within_its_own_hour() {
+fn an_organization_holds_its_share_of_the_invitation_queue_within_its_own_hour() {
     let fake = Fake::new(&[Outcome::Sent]);
     let mailer = mailer_with(
         &fake,
         Metrics::none(),
         SmtpSettings {
             mail_invitation_queue: 6,
+            invitation_mail_recipients: 3,
             ..SmtpSettings::default()
         },
     );
     let held = mailer
-        .queue_invitations("w1", "a", 300, 3)
+        .queue_invitations("w1", "a", 300, Organizations::Several, 3)
         .expect("half of the queue");
     assert_eq!(held.len(), 3);
     assert_eq!(
-        mailer.queue_invitations("w2", "a", 300, 1).err(),
+        mailer
+            .queue_invitations("w2", "a", 300, Organizations::Several, 1)
+            .err(),
         Some(InvitationRefusal::OrgShareFull),
         "another workspace of the same organization counts in its share"
     );
     let other = mailer
-        .queue_invitations("w3", "b", 300, 3)
+        .queue_invitations("w3", "b", 300, Organizations::Several, 3)
         .expect("another organization has its own half");
     assert_eq!(
-        mailer.queue_invitations("w4", "c", 1, 1).err(),
+        mailer
+            .queue_invitations("w4", "c", 1, Organizations::Several, 1)
+            .err(),
         Some(InvitationRefusal::QueueFull)
     );
     assert_eq!(
@@ -352,25 +361,31 @@ fn an_organization_holds_half_of_the_invitation_queue_within_its_own_hour() {
     );
     drop(other);
     mailer
-        .queue_invitations("w4", "c", 1, 1)
+        .queue_invitations("w4", "c", 1, Organizations::Several, 1)
         .expect("the refusal took nothing of c's hour");
     drop(held);
     assert!(matches!(
-        mailer.queue_invitations("w5", "d", 2, 3).err(),
+        mailer
+            .queue_invitations("w5", "d", 2, Organizations::Several, 3)
+            .err(),
         Some(InvitationRefusal::OrgHourlyLimit(_))
     ));
     mailer
-        .queue_invitations("w5", "d", 3, 3)
+        .queue_invitations("w5", "d", 3, Organizations::Several, 3)
         .expect("the organization's own limit");
     assert!(
         matches!(
-            mailer.queue_invitations("w6", "d", 3, 1).err(),
+            mailer
+                .queue_invitations("w6", "d", 3, Organizations::Several, 1)
+                .err(),
             Some(InvitationRefusal::OrgHourlyLimit(_))
         ),
         "the hour counts every workspace of the organization"
     );
     assert!(
-        mailer.queue_invitations("w6", "e", 300, 1).is_ok(),
+        mailer
+            .queue_invitations("w6", "e", 300, Organizations::Several, 1)
+            .is_ok(),
         "nothing of the refusals was kept"
     );
 }
@@ -390,7 +405,7 @@ async fn invitations_never_take_the_last_sending_and_one_organization_takes_two(
     let mut sending = Vec::new();
     for (org, count) in [("a", 3), ("b", 1), ("c", 1)] {
         for (n, queued) in mailer
-            .queue_invitations(org, org, 300, count)
+            .queue_invitations(org, org, 300, Organizations::Several, count)
             .expect("places")
             .into_iter()
             .enumerate()
@@ -430,7 +445,7 @@ async fn an_invitation_waiting_for_a_sending_takes_no_turn_it_could_use_in_a_pau
     let mut waiting = Vec::new();
     for org in ["a", "b", "c"] {
         let mut queued = mailer
-            .queue_invitations(org, org, 300, 2)
+            .queue_invitations(org, org, 300, Organizations::Several, 2)
             .expect("places")
             .into_iter();
         let first = queued.next().expect("one");
@@ -457,4 +472,225 @@ async fn an_invitation_waiting_for_a_sending_takes_no_turn_it_could_use_in_a_pau
         early.is_empty(),
         "the invitations that waited for a sending went after the pause: {attempts:?}"
     );
+}
+
+const DOWN: Outcome = Outcome::PathDown { code: Some(535) };
+
+/// The value of `fvoci_mail_path_down`.
+fn path_down(metrics: &Metrics) -> i64 {
+    let text = String::from_utf8(metrics.render().expect("kept").expect("rendered")).expect("text");
+    text.lines()
+        .find_map(|line| line.strip_prefix("fvoci_mail_path_down "))
+        .and_then(|value| value.parse().ok())
+        .expect("the gauge of the closed way")
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_closed_way_holds_invitations_and_tries_one_message_a_minute_recovery_first() {
+    let metrics = Metrics::kept().expect("metrics");
+    let fake = Fake::new(&[DOWN, DOWN, Outcome::Sent]);
+    let mailer = mailer_of(&fake, metrics.clone());
+    assert_eq!(path_down(&metrics), 0);
+    let invitation = send(&mailer, invitation(&mailer), "i@example.test");
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(path_down(&metrics), 1, "the first refusal closes the way");
+    let recovery = send(&mailer, reset(&mailer, "a"), "r@example.test");
+    recovery.await.expect("sent");
+    invitation.await.expect("sent");
+    assert_eq!(
+        fake.attempts(),
+        [
+            (0, "i@example.test".to_owned()),
+            (60, "r@example.test".to_owned()),
+            (120, "r@example.test".to_owned()),
+            (121, "i@example.test".to_owned()),
+        ],
+        "one attempt a minute, the recovery message's while it waits; the invitation \
+         goes once the way took a message"
+    );
+    assert_eq!(path_down(&metrics), 0, "open again");
+    for kind in [MailKind::PasswordReset, MailKind::Invitation] {
+        for class in [MailFailure::Permanent, MailFailure::Temporary] {
+            assert_eq!(
+                failed(&metrics, kind, class),
+                0,
+                "a closed way costs no message its attempts"
+            );
+        }
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_message_waits_for_a_closed_way_a_quarter_of_an_hour_at_most() {
+    let metrics = Metrics::kept().expect("metrics");
+    let fake = Fake::new(&[DOWN]);
+    let mailer = mailer_of(&fake, metrics.clone());
+    send(&mailer, reset(&mailer, "a"), "r@example.test")
+        .await
+        .expect("given up");
+    let times: Vec<u64> = fake.attempts().into_iter().map(|(at, _)| at).collect();
+    let expected: Vec<u64> = (0..=LONGEST_PATH_WAIT.as_secs()).step_by(60).collect();
+    assert_eq!(times, expected, "once a minute, more than three attempts");
+    assert_eq!(
+        failed(&metrics, MailKind::PasswordReset, MailFailure::Temporary),
+        1
+    );
+    assert_eq!(
+        failed(&metrics, MailKind::PasswordReset, MailFailure::Permanent),
+        0
+    );
+    assert_eq!(path_down(&metrics), 1, "nothing opened it");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_message_the_way_refuses_opens_a_closed_way_again() {
+    let fake = Fake::new(&[DOWN, Outcome::Refused { code: Some(550) }, Outcome::Sent]);
+    let metrics = Metrics::kept().expect("metrics");
+    let mailer = mailer_of(&fake, metrics.clone());
+    send(&mailer, reset(&mailer, "a"), "a@example.test")
+        .await
+        .expect("refused");
+    assert_eq!(
+        path_down(&metrics),
+        0,
+        "the way read the keys before it refused"
+    );
+    send(&mailer, invitation(&mailer), "i@example.test")
+        .await
+        .expect("sent");
+    let times: Vec<u64> = fake.attempts().into_iter().map(|(at, _)| at).collect();
+    assert_eq!(times, [0, 60, 61]);
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_invitation_is_held_while_the_way_stays_closed_and_never_given_up_for_it() {
+    let metrics = Metrics::kept().expect("metrics");
+    let fake = Fake::new(&[DOWN]);
+    let mailer = mailer_of(&fake, metrics.clone());
+    let invitation = send(&mailer, invitation(&mailer), "i@example.test");
+    tokio::time::sleep(Duration::from_mins(40)).await;
+    assert!(!invitation.is_finished(), "held, not given up");
+    assert_eq!(
+        failed(&metrics, MailKind::Invitation, MailFailure::Temporary),
+        0
+    );
+    let times: Vec<u64> = fake.attempts().into_iter().map(|(at, _)| at).collect();
+    assert_eq!(
+        times,
+        (0..40 * 60).step_by(60).collect::<Vec<u64>>(),
+        "with no recovery message waiting, it tries the way once a minute"
+    );
+    invitation.abort();
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_recovery_message_waiting_for_a_closed_way_gives_up_without_its_turn() {
+    let mailer = mailer_of(&Fake::new(&[]), Metrics::none());
+    let _ = mailer.pace.observe(DOWN);
+    let now = tokio::time::Instant::now();
+    assert!(
+        mailer.turn(MailKind::PasswordReset, Some(now)).await,
+        "the next attempt comes within its quarter of an hour"
+    );
+    let _ = mailer.pace.observe(DOWN);
+    let waited_long = now
+        .checked_sub(LONGEST_PATH_WAIT)
+        .expect("the paused clock starts later than a quarter of an hour")
+        + Duration::from_secs(30);
+    let started = tokio::time::Instant::now();
+    assert!(
+        !mailer
+            .turn(MailKind::PasswordReset, Some(waited_long))
+            .await,
+        "its quarter of an hour ends before the next attempt"
+    );
+    assert!(started.elapsed() <= Duration::from_secs(30));
+    assert!(
+        mailer.turn(MailKind::Invitation, Some(waited_long)).await,
+        "an invitation waits for as long as it takes"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_refusal_without_a_reply_of_the_way_leaves_it_closed() {
+    let metrics = Metrics::kept().expect("metrics");
+    let fake = Fake::new(&[DOWN, Outcome::Refused { code: None }, Outcome::Sent]);
+    let mailer = mailer_of(&fake, metrics.clone());
+    send(&mailer, reset(&mailer, "a"), "a@example.test")
+        .await
+        .expect("refused");
+    assert_eq!(path_down(&metrics), 1, "nothing was read of the way");
+}
+
+#[test]
+fn three_busy_organizations_leave_a_fourth_room_and_one_alone_takes_all() {
+    let fake = Fake::new(&[Outcome::Sent]);
+    let mailer = mailer_of(&fake, Metrics::none());
+    // A workspace a request, so that only the shares and the queue say no.
+    let request = std::sync::atomic::AtomicU32::new(0);
+    let queue = |org: &str, organizations, messages| {
+        let n = request.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        mailer.queue_invitations(&format!("w{n}"), org, 1000, organizations, messages)
+    };
+    let fill = |org: &str| {
+        let mut held = Vec::new();
+        loop {
+            match queue(org, Organizations::Several, 20) {
+                Ok(places) => held.extend(places),
+                Err(refusal) => {
+                    assert_eq!(refusal, InvitationRefusal::OrgShareFull, "{org}");
+                    return held;
+                }
+            }
+        }
+    };
+    // The default queue of 200 and requests of 20: half of what the others leave.
+    let first = fill("a");
+    let second = fill("b");
+    let third = fill("c");
+    assert_eq!((first.len(), second.len(), third.len()), (100, 40, 20));
+    let fourth = queue("d", Organizations::Several, 20).expect("a fourth organization finds room");
+    let fifth = queue("e", Organizations::Several, 20).expect("and a fifth, the last room");
+    assert_eq!(
+        queue("f", Organizations::Several, 1).err(),
+        Some(InvitationRefusal::QueueFull)
+    );
+    drop((first, second, third, fourth, fifth));
+
+    let alone: Vec<Queued> = (0..10)
+        .flat_map(|_| queue("a", Organizations::One, 20).expect("the whole queue"))
+        .collect();
+    assert_eq!(alone.len(), 200);
+    assert_eq!(
+        queue("a", Organizations::One, 1).err(),
+        Some(InvitationRefusal::QueueFull),
+        "the queue, not a share of it"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_message_that_no_longer_stands_is_withdrawn_before_its_next_attempt() {
+    let fake = Fake::new(&[DOWN, Outcome::Sent]);
+    let mailer = mailer_of(&fake, Metrics::none());
+    let stands = std::sync::atomic::AtomicBool::new(true);
+    let queued = invitation(&mailer);
+    let delivering = queued.deliver(
+        &mailer,
+        || async {
+            Ok::<_, ()>(Letter {
+                to: "i@example.test".to_owned(),
+                content: Content::reset("https://example.test/reset", Language::English),
+            })
+        },
+        || async { Ok(stands.load(std::sync::atomic::Ordering::SeqCst)) },
+    );
+    let mut delivering = std::pin::pin!(delivering);
+    // The first attempt finds the way closed; meanwhile its link is revoked.
+    tokio::select! {
+        _ = &mut delivering => panic!("held while the way is closed"),
+        () = tokio::time::sleep(Duration::from_secs(30)) => {}
+    }
+    stands.store(false, std::sync::atomic::Ordering::SeqCst);
+    assert_eq!(delivering.await, Ok(Delivered::Withdrawn));
+    assert_eq!(fake.attempts().len(), 1, "nothing more was sent");
 }

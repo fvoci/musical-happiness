@@ -680,12 +680,12 @@ export interface paths {
         /**
          * Request a password reset
          * @description Answers 204 with an empty body for an existing account, an absent account and
-         *     an account without a password. Lookup and SMTP delivery run in the background;
+         *     an account without a password. Lookup and delivery run in the background;
          *     the request never waits for either. Accounts without passwords receive no mail.
          *     Requests are limited by address only, with the login setting of attempts per minute
          *     and a separate counter (429); never by email. An account is sent at most
          *     `mail_reset_per_account_hour` messages an hour: more requests are answered the same
-         *     and send nothing. Without SMTP this route answers 404.
+         *     and send nothing. A server that sends no mail answers 404.
          */
         post: operations["requestPasswordReset"];
         delete?: never;
@@ -2245,7 +2245,8 @@ export interface paths {
         /**
          * The invitations of a workspace
          * @description The links into the workspace that are not ended, not used as often as they may be
-         *     and not revoked. One of them may let nobody in all the same, while who made it may
+         *     and not revoked, and a used one while a guest link made like it for one recipient of
+         *     its mail (`parentId`) is still out, unused. One of them may let nobody in all the same, while who made it may
          *     not invite as they did: it is listed, so that it can be revoked. Its
          *     administrators get all of them, anybody else
          *     who works there the links they made themselves. No link comes with its token, which
@@ -2297,24 +2298,27 @@ export interface paths {
         /**
          * Email an invitation
          * @description Queues a separate message for each unique email address with an existing link.
-         *     The token must name a live invitation of this workspace, and the sender must
-         *     still be allowed to make that kind of invitation. The same checks are repeated
-         *     before each delivery. A member link is sent as it is, its expiry and uses unchanged.
+         *     The token must name an invitation of this workspace that is neither revoked nor
+         *     ended (a member link must let somebody in still), and the sender must still be
+         *     allowed to make that kind of invitation. The same checks are repeated before each
+         *     delivery. A member link is sent as it is, its expiry and uses unchanged.
          *     A guest link lets one person in once, so it is not sent: each recipient gets a
          *     one-use guest link of their own, to the same board in the same role and ending
-         *     with it, made by the sender as their message leaves (and revoked if the mail server
-         *     refuses that message for good); the named link is left as it is, and messages go
-         *     out only while it is live and unused. Invalid recipients reject the whole request
-         *     before sending.
+         *     with it, made by the sender as their message leaves, naming the named link as its
+         *     `parentId` and the address as its `recipient` (and revoked if that message is
+         *     refused for good or given up). The named link is left as it is; messages go out
+         *     whether or not it was used, and revoking it revokes its children nobody used.
+         *     Invalid recipients reject the whole request before sending.
          *     Each message is in the recipient's language when the mail is written in it, else the
-         *     sender's setting, else `language`, else English. No SMTP means 404.
+         *     sender's setting, else `language`, else English. A server that sends no mail answers 404.
          *     A request names at most `invitation_mail_recipients` addresses, repeats counted
          *     (400, `too_many_recipients`). Its messages are queued all or none: 429
          *     (`invitation_mail_limit`, with `Retry-After`) when the workspace would pass
          *     `invitation_mail_per_hour` messages within an hour or its organization its own
          *     hourly limit (`invitation_mail_per_org_hour`), and 503 (`mail_queue_full`) when the
-         *     organization's half of the server's invitation queue, or the queue, cannot hold them
-         *     all. A refused request sends nothing.
+         *     server's invitation queue cannot hold them all, or, on a server of several
+         *     organizations, the organization's share of it (half of what the others leave, at
+         *     least one request). A refused request sends nothing.
          */
         post: operations["emailInvitation"];
         delete?: never;
@@ -2335,10 +2339,11 @@ export interface paths {
         post?: never;
         /**
          * Revoke an invitation
-         * @description The link lets nobody in from now on. The workspace's administrators revoke any link
-         *     into it, anybody else who works there the links they made themselves. A link that
-         *     is not there, that no longer lets anybody in, or that is not the user's to revoke
-         *     is 404, the same for each.
+         * @description The link lets nobody in from now on, nor do the guest links made like it for the
+         *     recipients of its mail that nobody used yet. The workspace's administrators revoke
+         *     any link into it, anybody else who works there the links they made themselves. A
+         *     link that is not there, that is revoked or ended already, or that is not the user's
+         *     to revoke is 404, the same for each; a used link that has not ended is revoked.
          *
          *     A guest of the workspace is told that it is not there (404).
          */
@@ -3478,6 +3483,13 @@ export interface components {
              *     until it ends.
              */
             maxUses?: number | null;
+            /**
+             * @description For a guest link made for one recipient of a mailed guest link: the link it was
+             *     made like. Revoking that one revokes this one while nobody used it.
+             */
+            parentId?: string | null;
+            /** @description For such a link: the address it was mailed to. */
+            recipient?: string | null;
             /** @description What whoever accepts becomes in the workspace: `member`, or `guest`. */
             role: components["schemas"]["WorkspaceRole"];
             /** @description The token of the link: in the answer that makes the link, and in no other. */

@@ -55,7 +55,7 @@ impl App {
     /// answer cannot tell (`mail_reset_per_account_hour`).
     ///
     /// # Errors
-    /// Returns 404 without SMTP, 400 for a malformed email, or 429 for too many
+    /// Returns 404 without mail, 400 for a malformed email, or 429 for too many
     /// requests from this address, independently of login limits.
     pub fn prepare_password_reset(
         &self,
@@ -63,7 +63,7 @@ impl App {
         language: &str,
         address: Option<IpAddr>,
     ) -> Result<impl Future<Output = ()> + Send + 'static + use<>, AppError> {
-        if !self.config().smtp.enabled() {
+        if !self.config().mail_enabled() {
             return Err(AppError::not_found("route"));
         }
         let email = email.trim().to_lowercase();
@@ -124,13 +124,18 @@ impl App {
         };
         // The link is made once the message has its turn: its hour starts as it leaves.
         queued
-            .deliver(&self.inner.mail, || async {
-                let link = self.reset_link_for(&user.id, Asked::ByMail).await?;
-                Ok::<_, AppError>(Letter {
-                    to: user.email.clone(),
-                    content: Content::reset(&link, language),
-                })
-            })
+            .deliver(
+                &self.inner.mail,
+                || async {
+                    let link = self.reset_link_for(&user.id, Asked::ByMail).await?;
+                    Ok::<_, AppError>(Letter {
+                        to: user.email.clone(),
+                        content: Content::reset(&link, language),
+                    })
+                },
+                // The link was made for this message, and holds until it is used or ends.
+                || async { Ok(true) },
+            )
             .await?;
         Ok(())
     }

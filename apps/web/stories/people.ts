@@ -27,7 +27,21 @@ export class ExamplePeople implements People {
       displayName: `Example member ${index} · 이름이 긴 예시 구성원`,
       role: index === 0 ? 'admin' : index % 3 === 0 ? 'guest' : 'member',
     }));
-    this.#links = count === 0 ? [] : [this.link('member'), this.link('guest')];
+    const guest = this.link('guest');
+    this.#links =
+      count === 0
+        ? []
+        : [
+            this.link('member'),
+            guest,
+            // Its own identifier, so the links the stories make keep their numbers.
+            {
+              ...guest,
+              id: 'example-invitation-mailed',
+              parentId: guest.id,
+              recipient: 'guest@example.test',
+            },
+          ];
   }
 
   private async request(write = false): Promise<void> {

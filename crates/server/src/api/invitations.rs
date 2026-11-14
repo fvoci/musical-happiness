@@ -157,7 +157,8 @@ async fn guest_of<'r>(ws: &Ws, request: &'r NewInvitation) -> Result<Inviting<'r
 /// The invitations of a workspace
 ///
 /// The links into the workspace that are not ended, not used as often as they may be
-/// and not revoked. One of them may let nobody in all the same, while who made it may
+/// and not revoked, and a used one while a guest link made like it for one recipient of
+/// its mail (`parentId`) is still out, unused. One of them may let nobody in all the same, while who made it may
 /// not invite as they did: it is listed, so that it can be revoked. Its
 /// administrators get all of them, anybody else
 /// who works there the links they made themselves. No link comes with its token, which
@@ -190,10 +191,11 @@ struct InvitationPlace {
 
 /// Revoke an invitation
 ///
-/// The link lets nobody in from now on. The workspace's administrators revoke any link
-/// into it, anybody else who works there the links they made themselves. A link that
-/// is not there, that no longer lets anybody in, or that is not the user's to revoke
-/// is 404, the same for each.
+/// The link lets nobody in from now on, nor do the guest links made like it for the
+/// recipients of its mail that nobody used yet. The workspace's administrators revoke
+/// any link into it, anybody else who works there the links they made themselves. A
+/// link that is not there, that is revoked or ended already, or that is not the user's
+/// to revoke is 404, the same for each; a used link that has not ended is revoked.
 ///
 /// A guest of the workspace is told that it is not there (404).
 #[utoipa::path(

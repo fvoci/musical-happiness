@@ -17,7 +17,9 @@ use fvoci_model::{
     INVITATION_LIFETIME_MILLIS, Invitation, InvitationPreview, NewAccount, Workspace,
     WorkspaceRole,
 };
-use fvoci_store::{Acceptance, Acceptor, Inviter, InviterOfBoard, NewLink, Standing, StoreError};
+use fvoci_store::{
+    Acceptance, Acceptor, Inviter, InviterOfBoard, MailedTo, NewLink, Standing, StoreError,
+};
 
 use super::auth::account_error;
 use super::{App, Asker, BoardAccess};
@@ -98,17 +100,19 @@ impl App {
         inviting: Inviting<'_>,
     ) -> Result<Invitation, AppError> {
         let ends = now_millis().saturating_add(INVITATION_LIFETIME_MILLIS);
-        self.store_link(workspace_id, created_by, inviting, ends)
+        self.store_link(workspace_id, created_by, inviting, ends, None)
             .await
     }
 
-    /// Stores a new link that ends at `expires_at`, and returns it with its token.
+    /// Stores a new link that ends at `expires_at`, `mailed` for one recipient of a link
+    /// if it is, and returns it with its token.
     async fn store_link(
         &self,
         workspace_id: &str,
         created_by: &str,
         inviting: Inviting<'_>,
         expires_at: i64,
+        mailed: Option<MailedTo<'_>>,
     ) -> Result<Invitation, AppError> {
         let token = new_secret();
         let (guest_of, max_uses) = match inviting {
@@ -125,6 +129,7 @@ impl App {
             now: now_millis(),
             expires_at,
             max_uses,
+            mailed,
         };
         let mut invitation = match self.store().create_invitation(&link).await {
             Ok(invitation) => invitation,
@@ -150,8 +155,9 @@ impl App {
         Ok(invitation)
     }
 
-    /// The live links into the workspace that the user sees: all of them for who
-    /// invites its members, their own for anybody else. The newest first, and none
+    /// The links into the workspace that the user sees (the live ones, and a used one
+    /// while an unused child of it is out): all of them for who invites its members,
+    /// their own for anybody else. The newest first, and none
     /// with its token.
     ///
     /// # Errors
@@ -170,9 +176,9 @@ impl App {
             .await?)
     }
 
-    /// Revokes a live link into the workspace: any of them for who invites its
-    /// members, one of their own for anybody else. The link lets nobody in from then
-    /// on.
+    /// Revokes a link into the workspace that is neither revoked nor ended, used or
+    /// not, with its children nobody used: any of them for who invites its members, one
+    /// of their own for anybody else. The link lets nobody in from then on.
     ///
     /// # Errors
     ///

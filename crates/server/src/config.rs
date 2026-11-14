@@ -22,6 +22,7 @@ pub const DEFAULT_MAX_REQUEST_BYTES: u64 = 4 * 1024 * 1024;
 
 pub mod collab;
 mod keys;
+pub mod mail;
 mod scrapes;
 mod secret_key;
 pub mod smtp;
@@ -277,9 +278,13 @@ pub struct Configuration {
     /// The keys `collab_*` (editing a body together).
     #[serde(flatten)]
     pub collab: collab::CollabSettings,
-    /// SMTP transport settings; an empty host disables outgoing mail.
+    /// SMTP transport settings and the limits of all mail; an empty host disables
+    /// outgoing mail unless `mail_transport` names a provider.
     #[serde(flatten)]
     pub smtp: smtp::SmtpSettings,
+    /// The way mail leaves (`mail_transport`) and the keys of the providers' APIs.
+    #[serde(flatten)]
+    pub mail: mail::MailSettings,
     /// Whether to skip importing the built-in templates at startup. Not a configuration
     /// file key; the test harness sets it so a server that does not need templates
     /// starts quickly, as the original's `SkipTemplateInit` does.
@@ -347,6 +352,7 @@ impl Default for Configuration {
             password_hash_queue_seconds: 5,
             collab: collab::CollabSettings::default(),
             smtp: smtp::SmtpSettings::default(),
+            mail: mail::MailSettings::default(),
             skip_template_init: false,
         }
     }
@@ -357,6 +363,7 @@ impl std::fmt::Debug for Configuration {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Configuration")
             .field("smtp", &self.smtp)
+            .field("mail", &self.mail)
             .field("server_root", &self.server_root)
             .field("port", &self.port)
             .field("db_type", &self.db_type)
@@ -643,6 +650,12 @@ pub const ORG_CREATION_FIRST_USER_ONLY: &str = "first_user_only";
 pub const ORG_CREATION_OPEN: &str = "open";
 
 impl Configuration {
+    /// Whether the server sends mail: `mail_transport` names a way, or `smtp_host` is
+    /// set.
+    pub fn mail_enabled(&self) -> bool {
+        self.mail.enabled(&self.smtp)
+    }
+
     /// Whether the server takes in several organizations (`org_creation` is `open`).
     pub fn takes_several_organizations(&self) -> bool {
         self.org_creation == ORG_CREATION_OPEN
@@ -697,6 +710,7 @@ impl Configuration {
             .into_iter()
             .chain(collab::ENV_KEYS)
             .chain(smtp::ENV_KEYS)
+            .chain(mail::ENV_KEYS)
         {
             let name = env_name(key);
             if let Some(text) = env(&name)
@@ -726,6 +740,7 @@ impl Configuration {
 
         scrapes::check_token_is_text(&keys)?;
         smtp::check_password_is_text(&keys)?;
+        mail::check_secrets_are_text(&keys)?;
         let secret_key = secret_key::read(&keys, &env, is_unset)?;
         let mut config: Self = serde_json::from_value(Value::Object(keys))
             .context("a key has a value of the wrong type")?;
@@ -828,6 +843,7 @@ impl Configuration {
         }
         self.check_upload_limits()?;
         self.smtp.check()?;
+        self.mail.way(&self.smtp)?;
         self.metrics_address()?;
         self.check_metrics_token()?;
         match self.files_driver.as_str() {

@@ -191,7 +191,7 @@ impl App {
         Ok(LoginOptions {
             organization,
             registration_open: self.takes_registrations().await?,
-            mail_enabled: self.config().smtp.enabled(),
+            mail_enabled: self.config().mail_enabled(),
         })
     }
 

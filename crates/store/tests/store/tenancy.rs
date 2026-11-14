@@ -572,6 +572,7 @@ async fn a_link_for_a_guest(store: &Store, board: &Board, user_id: &str) {
             now: 0,
             expires_at: i64::MAX,
             max_uses: Some(1),
+            mailed: None,
         })
         .await
         .expect("a link is stored");

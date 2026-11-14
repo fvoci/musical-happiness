@@ -49,7 +49,7 @@ pub(super) fn routes() -> Router<App> {
         .method_not_allowed_fallback(|| async { AppError::method_not_allowed() })
 }
 
-/// Makes a single-use link for an operator to deliver without SMTP.
+/// Makes a single-use link for an operator to deliver without mail.
 async fn handle_password_reset_link(
     State(app): State<App>,
     Path(username): Path<String>,

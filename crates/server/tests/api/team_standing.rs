@@ -146,6 +146,7 @@ async fn stale_invitation(
             now: 1,
             expires_at: 100,
             max_uses: None,
+            mailed: None,
         })
         .await
         .expect("create the invitation");

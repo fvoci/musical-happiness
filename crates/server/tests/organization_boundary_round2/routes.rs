@@ -749,6 +749,7 @@ async fn a_link_into(ts: &crate::common::TestServer, workspace_id: &str, maker: 
             now: 0,
             expires_at: i64::MAX,
             max_uses: None,
+            mailed: None,
         })
         .await
         .expect("a link into the workspace")

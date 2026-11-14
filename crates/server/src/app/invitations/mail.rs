@@ -4,20 +4,24 @@ use std::collections::BTreeSet;
 
 use fvoci_model::{Invitation, InvitationMail, WorkspaceRole};
 
-use super::super::mail::{Content, Delivered, InvitationRefusal, Language, Letter, Queued};
+use super::super::mail::{
+    Content, Delivered, InvitationRefusal, Language, Letter, Organizations, Queued,
+};
 use super::{App, Inviting};
 use crate::auth::{now_millis, secret::token_digest};
 use crate::error::{AppError, Reason};
+use fvoci_store::MailedTo;
 
 impl App {
     /// Queues individual messages carrying this workspace's existing invitation.
     ///
     /// # Errors
-    /// Returns 404 without SMTP or a usable link in this workspace, 403 when the
+    /// Returns 404 without mail or a usable link in this workspace, 403 when the
     /// sender cannot invite, 400 if any recipient is not a single email address or
     /// there are more than `invitation_mail_recipients`, 429 when the workspace's or the
-    /// organization's hourly limit would be passed, and 503 when the organization's half
-    /// of the invitation queue or the queue cannot hold them all.
+    /// organization's hourly limit would be passed, and 503 when the invitation queue or,
+    /// among several organizations, the organization's share of it cannot hold them
+    /// all.
     /// Any refusal queues none of the messages.
     pub async fn email_invitation(
         &self,
@@ -25,7 +29,7 @@ impl App {
         sender: &str,
         mut request: InvitationMail,
     ) -> Result<(), AppError> {
-        if !self.config().smtp.enabled() {
+        if !self.config().mail_enabled() {
             return Err(AppError::not_found("route"));
         }
         let limit = self.config().smtp.invitation_mail_recipients;
@@ -66,6 +70,7 @@ impl App {
                 "invitation mail outside an organization",
             ));
         };
+        let organizations = self.organizations().await?;
         let queued = self
             .inner
             .mail
@@ -73,6 +78,7 @@ impl App {
                 workspace_id,
                 &org,
                 self.limits().invitation_mail_per_hour,
+                organizations,
                 count,
             )
             .map_err(|refused| match refused {
@@ -112,17 +118,42 @@ impl App {
         Ok(())
     }
 
+    /// Whether the server holds one organization or several, as the invitation queue
+    /// shares itself: one on SQLite, which holds one; on PostgreSQL, one when one only is
+    /// in use, whatever `org_creation` says now (it may have been `open` before).
+    async fn organizations(&self) -> Result<Organizations, AppError> {
+        if self.config().db_type == "sqlite3" {
+            return Ok(Organizations::One);
+        }
+        // What a login page shows without a name: the only organization in use, if
+        // there is one only.
+        Ok(if self.store().login_organization(None).await?.is_some() {
+            Organizations::One
+        } else {
+            Organizations::Several
+        })
+    }
+
     async fn invitation_for_mail(
         &self,
         workspace_id: &str,
         sender: &str,
         token: &str,
     ) -> Result<Invitation, AppError> {
+        // A member link is mailed as it is, so it must let somebody in still; a guest
+        // link is only what each recipient's own link is made like, and goes out after
+        // it was used too (while it is neither revoked nor ended).
         let invitation = self
             .store()
-            .live_invitation(&token_digest(token), now_millis())
+            .unended_invitation(&token_digest(token), now_millis())
             .await?
             .filter(|invitation| invitation.workspace_id == workspace_id)
+            .filter(|invitation| {
+                invitation.role == WorkspaceRole::Guest
+                    || invitation
+                        .max_uses
+                        .is_none_or(|most| invitation.uses < most)
+            })
             .ok_or_else(|| AppError::not_found("invitation"))?;
         if self
             .inviter_who_may_still_invite(&invitation)
@@ -157,47 +188,67 @@ impl App {
         let requested = Language::written_in(&request.language);
         let root = self.config().server_root.trim_end_matches('/');
         for (recipient, place) in request.recipients.into_iter().zip(queued) {
-            // The guest link made for this recipient, if one was.
-            let mut made = None;
+            // The guest link made for this recipient, if one was: its identifier and
+            // its token.
+            let made: std::sync::Mutex<Option<(String, String)>> = std::sync::Mutex::default();
             let delivered = place
-                .deliver(&self.inner.mail, || async {
-                    // Permissions and expiry may have changed while this waited its turn.
-                    let invitation = self
-                        .invitation_for_mail(workspace_id, sender, &request.token)
-                        .await?;
-                    let recipient_language = match self.store().get_user_by_email(&recipient).await
-                    {
-                        Ok(user) => Language::written_in(
-                            self.user_settings(&user.id).await?.language.as_str(),
-                        ),
-                        Err(error) if error.is_not_found() => None,
-                        Err(error) => return Err(AppError::from(error)),
-                    };
-                    let language =
-                        Language::first_of([recipient_language, sender_language, requested]);
-                    let token = match invitation.role {
-                        // A guest link lets one person in once: each recipient has their
-                        // own, made by the sender as their message leaves.
-                        WorkspaceRole::Guest => {
-                            let link = self.guest_link_like(&invitation, sender).await?;
-                            made = Some(link.id);
-                            link.token
-                                .ok_or_else(|| AppError::internal("a new link without its token"))?
-                        }
-                        // Members share the one link.
-                        _ => request.token.clone(),
-                    };
-                    let link = format!("{root}/invite/{token}");
-                    Ok(Letter {
-                        content: Content::invitation(&link, language, invitation.role),
-                        to: recipient,
-                    })
-                })
+                .deliver(
+                    &self.inner.mail,
+                    || async {
+                        // Permissions and expiry may have changed while this waited its turn.
+                        let invitation = self
+                            .invitation_for_mail(workspace_id, sender, &request.token)
+                            .await?;
+                        let recipient_language =
+                            match self.store().get_user_by_email(&recipient).await {
+                                Ok(user) => Language::written_in(
+                                    self.user_settings(&user.id).await?.language.as_str(),
+                                ),
+                                Err(error) if error.is_not_found() => None,
+                                Err(error) => return Err(AppError::from(error)),
+                            };
+                        let language =
+                            Language::first_of([recipient_language, sender_language, requested]);
+                        let token = match invitation.role {
+                            // A guest link lets one person in once: each recipient has their
+                            // own, made by the sender as their message leaves.
+                            WorkspaceRole::Guest => {
+                                let link = self
+                                    .guest_link_like(&invitation, sender, &recipient)
+                                    .await?;
+                                let token = link.token.ok_or_else(|| {
+                                    AppError::internal("a new link without its token")
+                                })?;
+                                *made
+                                    .lock()
+                                    .expect("the link made is never held across a panic") =
+                                    Some((link.id, token.clone()));
+                                token
+                            }
+                            // Members share the one link.
+                            _ => request.token.clone(),
+                        };
+                        let link = format!("{root}/invite/{token}");
+                        Ok(Letter {
+                            content: Content::invitation(&link, language, invitation.role),
+                            to: recipient,
+                        })
+                    },
+                    // A message held a while (a closed way) goes only while what it was written
+                    // of stands: its link, and who may send it.
+                    || self.invitation_mail_stands(workspace_id, sender, &request.token, &made),
+                )
                 .await?;
-            // Nobody holds the link of a message refused for good: it goes with it. A
-            // failure here is logged; the other recipients are still sent theirs.
-            if delivered == Delivered::Refused
-                && let Some(id) = made
+            // Nobody holds the link of a message refused for good or given up: it goes
+            // with it, and the sender may mail the link again. A failure here is logged;
+            // the other recipients are still sent theirs.
+            let made = made
+                .into_inner()
+                .expect("the link made is never held across a panic");
+            if matches!(
+                delivered,
+                Delivered::Refused | Delivered::GivenUp | Delivered::Withdrawn
+            ) && let Some((id, _)) = made
             {
                 match self
                     .store()
@@ -221,13 +272,48 @@ impl App {
         Ok(())
     }
 
+    /// Whether an invitation message written a while ago still stands: the link it was
+    /// mailed of is neither revoked nor ended and its sender may still send it, and the
+    /// guest link made for its recipient, if one was, is live still.
+    ///
+    /// # Errors
+    /// Returns what failed other than a refusal.
+    async fn invitation_mail_stands(
+        &self,
+        workspace_id: &str,
+        sender: &str,
+        token: &str,
+        made: &std::sync::Mutex<Option<(String, String)>>,
+    ) -> Result<bool, AppError> {
+        match self.invitation_for_mail(workspace_id, sender, token).await {
+            Ok(_) => {}
+            Err(error) if error.is_refusal() => return Ok(false),
+            Err(error) => return Err(error),
+        }
+        let child = made
+            .lock()
+            .expect("the link made is never held across a panic")
+            .as_ref()
+            .map(|(_, token)| token_digest(token));
+        let Some(child) = child else {
+            return Ok(true);
+        };
+        Ok(self
+            .store()
+            .live_invitation(&child, now_millis())
+            .await?
+            .is_some())
+    }
+
     /// A new one-use guest link like `invitation` (its board, its role on it and its
-    /// end), made by `sender` for one recipient of its mail, with its token. The caller
-    /// has asked whether `sender` may make such a link.
+    /// end), made by `sender` for `recipient` of its mail, with its token, and recorded
+    /// as `invitation`'s child mailed to `recipient`. The caller has asked whether
+    /// `sender` may make such a link.
     async fn guest_link_like(
         &self,
         invitation: &Invitation,
         sender: &str,
+        recipient: &str,
     ) -> Result<Invitation, AppError> {
         let (Some(board_id), Some(role)) = (invitation.board_id.as_deref(), invitation.board_role)
         else {
@@ -240,6 +326,10 @@ impl App {
             sender,
             Inviting::Guest { board_id, role },
             invitation.expires_at,
+            Some(MailedTo {
+                parent_id: &invitation.id,
+                recipient,
+            }),
         )
         .await
     }

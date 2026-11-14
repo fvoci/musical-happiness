@@ -1,7 +1,8 @@
-//! The metrics of outgoing mail: the messages given up, by kind and by why. No label
-//! names an address, an account or a reply of the mail provider.
+//! The metrics of outgoing mail: the messages given up, by kind and by why, and whether
+//! the way of sending is closed. No label names an address, an account or a reply of
+//! the mail provider.
 
-use prometheus::{IntCounter, IntCounterVec, Opts, Registry};
+use prometheus::{IntCounter, IntCounterVec, IntGauge, Opts, Registry};
 
 use super::{Metrics, PREFIX};
 
@@ -64,6 +65,7 @@ impl MailFailure {
 pub(super) struct MailMetrics {
     /// By [`MailKind::index`], then by [`MailFailure::index`].
     failed: [[IntCounter; 2]; 2],
+    path_down: IntGauge,
 }
 
 impl MailMetrics {
@@ -87,7 +89,17 @@ impl MailMetrics {
                 counter
             })
         });
-        Ok(Self { failed })
+        let path_down = IntGauge::with_opts(
+            Opts::new(
+                "mail_path_down",
+                "1 while the way of sending is closed to this server (it refuses the \
+                 server's keys, token or permissions, or cannot be reached): \
+                 invitations wait and one message is tried a minute; 0 otherwise.",
+            )
+            .namespace(PREFIX),
+        )?;
+        registry.register(Box::new(path_down.clone()))?;
+        Ok(Self { failed, path_down })
     }
 }
 
@@ -96,6 +108,20 @@ impl Metrics {
     pub(crate) fn mail_failed(&self, kind: MailKind, class: MailFailure) {
         if let Some(kept) = &self.kept {
             kept.mail.failed[kind.index()][class.index()].inc();
+        }
+    }
+
+    /// Records that the way of sending closed.
+    pub(crate) fn mail_path_closed(&self) {
+        if let Some(kept) = &self.kept {
+            kept.mail.path_down.set(1);
+        }
+    }
+
+    /// Records that the way of sending opened again.
+    pub(crate) fn mail_path_opened(&self) {
+        if let Some(kept) = &self.kept {
+            kept.mail.path_down.set(0);
         }
     }
 }
