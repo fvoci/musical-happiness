@@ -25,6 +25,11 @@ export const AUDIT_ACTIONS = [
   'oidc_provider_pending_discarded',
   'password_reset_link_made',
   'password_set_by_operator',
+  'oidc_former_provider_kept',
+  'oidc_former_provider_ended',
+  'oidc_former_provider_lapsed',
+  'oidc_identity_bound',
+  'oidc_identity_carried_over',
   'email_verified_by_operator',
 ] as const;
 
@@ -37,8 +42,12 @@ export interface AuditPerson {
   displayName: string;
 }
 
-/** Who did it: a person by their account, or the server's operator, who has none. */
-export type AuditActor = (AuditPerson & { kind: 'person' }) | { kind: 'server_operator' };
+/**
+ * Who did it: a person by their account, the server's operator, who has none, or the
+ * server itself, for what ends when its time runs out.
+ */
+export type AuditActor =
+  (AuditPerson & { kind: 'person' }) | { kind: 'server_operator' } | { kind: 'server' };
 
 /** One record: who did what, to what and whom, and when. */
 export interface AuditRecord {
@@ -50,4 +59,12 @@ export interface AuditRecord {
   /** The board's title where the reader sees the board, the workspace's name; null otherwise. */
   targetName: string | null;
   createAt: number;
+  /** The issuer a record of a provider's move names; null for the others. */
+  detail: string | null;
+  /**
+   * Who the identity a record of `oidc_identity_bound` or `oidc_identity_carried_over`
+   * tied is: the address its provider gave, or its subject. Null for the others, and in
+   * a workspace's records.
+   */
+  identity: string | null;
 }

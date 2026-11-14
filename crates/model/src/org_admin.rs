@@ -152,6 +152,24 @@ pub enum AuditAction {
     /// The server operator set the password of a member (the subject). The target is
     /// the organization; one is written in each organization the person is in.
     PasswordSetByOperator,
+    /// The provider's issuer changed, and the provider before (`detail` is its
+    /// issuer) is kept for a while, for its people to carry their accounts over.
+    OidcFormerProviderKept,
+    /// An administrator ended the keeping of the former provider (`detail` is its
+    /// issuer) before its time.
+    OidcFormerProviderEnded,
+    /// The time the former provider (`detail` is its issuer) was kept for ran out:
+    /// the server's own doing.
+    OidcFormerProviderLapsed,
+    /// The trial that made the pending settings the provider's tied who the new
+    /// issuer (`detail`) vouches for (`identity`) to the account of the administrator
+    /// who tried them (the actor and the subject), who had signed in through the
+    /// provider before a moment earlier.
+    OidcIdentityBound,
+    /// Somebody with a place in the organization (the actor and the subject) carried
+    /// their account over: who the new issuer (`detail`) vouches for (`identity`) is
+    /// tied to the account the former provider vouched for.
+    OidcIdentityCarriedOver,
     /// The server operator confirmed the email address of a registration made by a
     /// link for members, which made its account (the subject) a member. The target is
     /// the organization it joined.
@@ -160,7 +178,7 @@ pub enum AuditAction {
 
 impl AuditAction {
     /// Every action, in the order of the declaration.
-    pub const ALL: [Self; 23] = [
+    pub const ALL: [Self; 28] = [
         Self::SelfAddedToBoard,
         Self::AddedToBoard,
         Self::OrgAdminJoined,
@@ -183,6 +201,11 @@ impl AuditAction {
         Self::OidcProviderPendingDiscarded,
         Self::PasswordResetLinkMade,
         Self::PasswordSetByOperator,
+        Self::OidcFormerProviderKept,
+        Self::OidcFormerProviderEnded,
+        Self::OidcFormerProviderLapsed,
+        Self::OidcIdentityBound,
+        Self::OidcIdentityCarriedOver,
         Self::EmailVerifiedByOperator,
     ];
 
@@ -212,6 +235,11 @@ impl AuditAction {
             Self::OidcProviderPendingDiscarded => "oidc_provider_pending_discarded",
             Self::PasswordResetLinkMade => "password_reset_link_made",
             Self::PasswordSetByOperator => "password_set_by_operator",
+            Self::OidcFormerProviderKept => "oidc_former_provider_kept",
+            Self::OidcFormerProviderEnded => "oidc_former_provider_ended",
+            Self::OidcFormerProviderLapsed => "oidc_former_provider_lapsed",
+            Self::OidcIdentityBound => "oidc_identity_bound",
+            Self::OidcIdentityCarriedOver => "oidc_identity_carried_over",
             Self::EmailVerifiedByOperator => "email_verified_by_operator",
         }
     }
@@ -246,8 +274,9 @@ pub struct AuditPerson {
 }
 
 /// Who did what a record of the audit log says: a person by their account, named as it
-/// is now (an account that is gone by its identifier alone), or the server's operator,
-/// who acts through the local administration socket without one. `kind` says which.
+/// is now (an account that is gone by its identifier alone), the server's operator,
+/// who acts through the local administration socket without one, or the server
+/// itself, for what its timers do. `kind` says which.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AuditRecordActor {
@@ -255,10 +284,12 @@ pub enum AuditRecordActor {
     Person(AuditPerson),
     /// The server's operator.
     ServerOperator,
+    /// The server itself: what ends when its time runs out.
+    Server,
 }
 
 /// One record of the audit log: who did what, to what and whom, and when.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct AuditRecord {
     /// The record's identifier.
@@ -276,6 +307,31 @@ pub struct AuditRecord {
     pub target_name: Option<String>,
     /// When, in milliseconds since the epoch.
     pub create_at: i64,
+    /// The issuer a record of a provider's move names (`oidc_former_provider_…`,
+    /// `oidc_identity_…`); `null` for the others.
+    pub detail: Option<String>,
+    /// Who the identity a record of `oidc_identity_bound` or
+    /// `oidc_identity_carried_over` tied is: the email address its provider gave, or
+    /// its subject where it gave none, as it was then. `null` for the others, and in
+    /// the records of a workspace: the organization's are read by its administrators
+    /// alone.
+    pub identity: Option<String>,
+}
+
+impl std::fmt::Debug for AuditRecord {
+    /// Leaves out who an identity it tied is: an address, kept out of the logs.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AuditRecord")
+            .field("id", &self.id)
+            .field("action", &self.action)
+            .field("actor", &self.actor)
+            .field("subject", &self.subject)
+            .field("target_id", &self.target_id)
+            .field("target_name", &self.target_name)
+            .field("create_at", &self.create_at)
+            .field("detail", &self.detail)
+            .finish_non_exhaustive()
+    }
 }
 
 #[cfg(test)]

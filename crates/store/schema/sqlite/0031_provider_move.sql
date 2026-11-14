@@ -1,39 +1,24 @@
--- Registrations whose email address is not confirmed yet: the same as
--- schema/postgres/0034_signups.sql, which says what they are, without the wall.
-CREATE TABLE signups (
-    id TEXT NOT NULL PRIMARY KEY,
-    username TEXT NOT NULL,
-    email TEXT NOT NULL,
-    display_name TEXT NOT NULL DEFAULT '',
-    password_hash TEXT NOT NULL,
-    language TEXT NOT NULL DEFAULT '',
-    organization_name TEXT,
-    invitation_id TEXT REFERENCES invitations (id) ON DELETE CASCADE,
-    invitation_org_id TEXT,
-    token_hash TEXT,
-    token_expires_at BIGINT,
+-- Moving an organization from one provider to another: the same as
+-- schema/postgres/0031_provider_move.sql, which says what it is, without the wall.
+CREATE TABLE oidc_former_providers (
+    org_id TEXT NOT NULL PRIMARY KEY REFERENCES organizations (id) ON DELETE CASCADE,
+    issuer TEXT NOT NULL,
+    client_id TEXT NOT NULL,
+    client_secret TEXT NOT NULL,
     create_at BIGINT NOT NULL,
-    expires_at BIGINT NOT NULL,
-    CHECK ((organization_name IS NULL) <> (invitation_id IS NULL)),
-    CHECK ((invitation_id IS NULL) = (invitation_org_id IS NULL)),
-    CHECK ((token_hash IS NULL) = (token_expires_at IS NULL))
+    expires_at BIGINT NOT NULL
 );
-CREATE UNIQUE INDEX signups_username_key ON signups (lower(username));
-CREATE UNIQUE INDEX signups_email_key ON signups (lower(email));
-CREATE UNIQUE INDEX signups_token_hash_key ON signups (token_hash);
-CREATE INDEX signups_expires_at_idx ON signups (expires_at);
-CREATE INDEX signups_invitation_idx ON signups (invitation_id, invitation_org_id)
-    WHERE invitation_id IS NOT NULL;
+CREATE INDEX oidc_former_providers_expires_at_idx ON oidc_former_providers (expires_at);
 
--- The record of the server operator confirming the address of a registration, as
--- schema/postgres/0034_signups.sql says: SQLite changes no check in place, so the table
--- is made again, as in 0029, with its triggers.
+-- The records of a move, their `detail`, and the server as an actor: SQLite changes no
+-- check in place, so the table is made again, as in 0029, with its triggers.
 CREATE TABLE audit_log_new (
     id TEXT NOT NULL PRIMARY KEY,
     org_id TEXT NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
     workspace_id TEXT REFERENCES workspaces (id) ON DELETE CASCADE,
     actor_id TEXT,
-    actor_kind TEXT NOT NULL DEFAULT 'person' CHECK (actor_kind IN ('person', 'server_operator')),
+    actor_kind TEXT NOT NULL DEFAULT 'person'
+        CHECK (actor_kind IN ('person', 'server_operator', 'server')),
     action TEXT NOT NULL CHECK (action IN (
         'self_added_to_board', 'added_to_board',
         'org_admin_joined', 'org_admin_left', 'org_admin_revoked',
@@ -43,12 +28,16 @@ CREATE TABLE audit_log_new (
         'oidc_provider_configured', 'oidc_provider_removed', 'sso_required', 'sso_released',
         'oidc_provider_pending_saved', 'oidc_provider_pending_applied',
         'oidc_provider_pending_discarded', 'password_reset_link_made',
-        'password_set_by_operator', 'email_verified_by_operator')),
+        'password_set_by_operator',
+        'oidc_former_provider_kept', 'oidc_former_provider_ended',
+        'oidc_former_provider_lapsed', 'oidc_identity_bound',
+        'oidc_identity_carried_over')),
     target_id TEXT NOT NULL,
     subject_id TEXT,
     create_at BIGINT NOT NULL,
+    detail TEXT,
     CHECK ((actor_kind = 'person' AND actor_id IS NOT NULL)
-        OR (actor_kind = 'server_operator' AND actor_id IS NULL)),
+        OR (actor_kind IN ('server_operator', 'server') AND actor_id IS NULL)),
     -- A record of a workspace is of one, and one of the organization of none but its
     -- own.
     CHECK (workspace_id IS NOT NULL OR action IN (
@@ -58,7 +47,9 @@ CREATE TABLE audit_log_new (
         'sso_required', 'sso_released', 'oidc_provider_pending_saved',
         'oidc_provider_pending_applied', 'oidc_provider_pending_discarded',
         'password_reset_link_made', 'password_set_by_operator',
-        'email_verified_by_operator'))
+        'oidc_former_provider_kept', 'oidc_former_provider_ended',
+        'oidc_former_provider_lapsed', 'oidc_identity_bound',
+        'oidc_identity_carried_over'))
 );
 INSERT INTO audit_log_new (id, org_id, workspace_id, actor_id, actor_kind, action, target_id,
     subject_id, create_at)

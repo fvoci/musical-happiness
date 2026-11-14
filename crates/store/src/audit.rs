@@ -9,54 +9,60 @@ use std::str::FromStr;
 
 use fvoci_model::{AuditAction, AuditPerson, AuditRecord, AuditRecordActor, new_id};
 
-use crate::db::{Bound, Id, OptId, Row, Scope, now_millis};
+use crate::db::{Bound, Id, OptId, Param, Row, Scope, now_millis};
 use crate::error::StoreError;
 use crate::{Paging, Store};
 
-/// Who did what a record says: a person by their account, or the server's operator
-/// (through the local administration socket), who has none. Chosen by the entry point
-/// of the change, never taken from what a request says.
+/// Who did what a record says: a person by their account, the server's operator
+/// (through the local administration socket), who has none, or the server itself, for
+/// what its timers do. Chosen by the entry point of the change, never taken from what
+/// a request says.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AuditActor {
     /// The user with this identifier, kept when the account goes.
     Person(String),
     /// Who runs the server.
     ServerOperator,
+    /// The server itself: what ends when its time runs out.
+    Server,
 }
 
 impl AuditActor {
-    /// The identifier of the person, or `None` for the server's operator.
+    /// The identifier of the person, or `None` for the server and its operator.
     #[must_use]
     pub fn person_id(&self) -> Option<&str> {
         match self {
             Self::Person(id) => Some(id),
-            Self::ServerOperator => None,
+            Self::ServerOperator | Self::Server => None,
         }
     }
 
-    /// Which of the two it is, as the log stores it.
+    /// Which of them it is, as the log stores it.
     const fn kind(&self) -> ActorKind {
         match self {
             Self::Person(_) => ActorKind::Person,
             Self::ServerOperator => ActorKind::ServerOperator,
+            Self::Server => ActorKind::Server,
         }
     }
 }
 
-/// Which of the two an actor is, as the column `actor_kind` of the log spells it.
+/// Which of them an actor is, as the column `actor_kind` of the log spells it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ActorKind {
     Person,
     ServerOperator,
+    Server,
 }
 
 impl ActorKind {
-    const ALL: [Self; 2] = [Self::Person, Self::ServerOperator];
+    const ALL: [Self; 3] = [Self::Person, Self::ServerOperator, Self::Server];
 
     const fn as_str(self) -> &'static str {
         match self {
             Self::Person => "person",
             Self::ServerOperator => "server_operator",
+            Self::Server => "server",
         }
     }
 }
@@ -78,7 +84,7 @@ impl FromStr for ActorKind {
 /// One record of the audit log as it is written: who did what to what (and whom), in
 /// which workspace, and when. The organization is the one of the store's handle, or
 /// the one named to `record_entry_in`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct AuditEntry {
     /// The workspace it was done in; empty for what was done to the organization.
     pub workspace_id: String,
@@ -92,6 +98,26 @@ pub struct AuditEntry {
     pub subject_id: String,
     /// When, in milliseconds since the epoch; set when the record is written.
     pub create_at: i64,
+    /// The issuer a record of a provider's move names; empty for the others.
+    pub detail: String,
+    /// Who an identity a record of a move tied is: the email address its provider
+    /// gave, or its subject; empty for the others.
+    pub identity: String,
+}
+
+impl std::fmt::Debug for AuditEntry {
+    /// Leaves out who the identity is.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AuditEntry")
+            .field("workspace_id", &self.workspace_id)
+            .field("actor", &self.actor)
+            .field("action", &self.action)
+            .field("target_id", &self.target_id)
+            .field("subject_id", &self.subject_id)
+            .field("create_at", &self.create_at)
+            .field("detail", &self.detail)
+            .finish_non_exhaustive()
+    }
 }
 
 impl AuditEntry {
@@ -120,6 +146,8 @@ impl AuditEntry {
             target_id: target_id.to_owned(),
             subject_id: String::new(),
             create_at: 0,
+            detail: String::new(),
+            identity: String::new(),
         }
     }
 
@@ -127,6 +155,28 @@ impl AuditEntry {
     #[must_use]
     pub fn with_subject(mut self, subject_id: &str) -> Self {
         subject_id.clone_into(&mut self.subject_id);
+        self
+    }
+
+    /// The record with the issuer it names.
+    #[must_use]
+    pub fn with_detail(mut self, detail: &str) -> Self {
+        detail.clone_into(&mut self.detail);
+        self
+    }
+
+    /// The record with who the identity it tied is: `email`, the address its provider
+    /// gave, without the blanks around it, or `oidc_subject`, the identity's subject at
+    /// its issuer, where that leaves nothing.
+    #[must_use]
+    pub(crate) fn with_identity(mut self, email: &str, oidc_subject: &str) -> Self {
+        let email = email.trim();
+        let shown = if email.is_empty() {
+            oidc_subject
+        } else {
+            email
+        };
+        shown.clone_into(&mut self.identity);
         self
     }
 }
@@ -151,8 +201,8 @@ impl Store {
     pub async fn get_audit_log(&self, workspace_id: &str) -> Result<Vec<AuditEntry>, StoreError> {
         self.with_conn(async |scope| {
             let mut sql = scope.sql(
-                "SELECT workspace_id, actor_id, action, target_id, subject_id, create_at, actor_kind \
-                 FROM audit_log WHERE workspace_id = ",
+                "SELECT workspace_id, actor_id, action, target_id, subject_id, create_at, \
+                 actor_kind, detail FROM audit_log WHERE workspace_id = ",
             );
             sql.bind(Id(workspace_id)).push(" ORDER BY create_at, id");
             scope
@@ -167,6 +217,9 @@ impl Store {
                         target_id: row.id(3)?,
                         subject_id: row.id(4)?,
                         create_at: row.int(5)?,
+                        detail: row.text(7)?,
+                        // Of the organization's records alone, which are no workspace's.
+                        identity: String::new(),
                     })
                 })
                 .collect()
@@ -193,13 +246,14 @@ impl Store {
             let mut sql = scope.sql(
                 "SELECT a.id, a.action, a.actor_id, actor.username, actor.display_name, \
                  a.subject_id, subject.username, subject.display_name, a.target_id, w.name, \
-                 a.create_at, a.actor_kind FROM audit_log AS a \
+                 a.create_at, a.actor_kind, a.detail, a.identity FROM audit_log AS a \
                  LEFT JOIN users AS actor ON actor.id = a.actor_id \
                  LEFT JOIN users AS subject ON subject.id = a.subject_id \
                  LEFT JOIN workspaces AS w ON w.id = a.target_id AND w.org_id = a.org_id \
                  WHERE a.org_id = ",
             );
             sql.bind(scope.org()?);
+            let identities = Identities::of(place);
             match place {
                 AuditPlace::Workspace(workspace_id) => {
                     sql.push_bind(" AND a.workspace_id = ", Id(workspace_id));
@@ -216,7 +270,12 @@ impl Store {
                         i64::from(paging.page) * i64::from(paging.per_page),
                     );
             }
-            scope.fetch_all(sql).await?.iter().map(record).collect()
+            scope
+                .fetch_all(sql)
+                .await?
+                .iter()
+                .map(|row| record(row, identities))
+                .collect()
         })
         .await
     }
@@ -236,10 +295,30 @@ fn actor(row: &Row, kind: usize, id: usize) -> Result<AuditActor, StoreError> {
     Ok(match row.text(kind)?.parse()? {
         ActorKind::Person => AuditActor::Person(row.id(id)?),
         ActorKind::ServerOperator => AuditActor::ServerOperator,
+        ActorKind::Server => AuditActor::Server,
     })
 }
 
-fn record(row: &Row) -> Result<AuditRecord, StoreError> {
+/// Whether the records read tell who an identity they tied is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Identities {
+    /// Told: the organization's records, which its administrators alone read.
+    Told,
+    /// Not told: a workspace's, read by its members. No such record is a
+    /// workspace's; it would not be told if one were.
+    Withheld,
+}
+
+impl Identities {
+    const fn of(place: AuditPlace<'_>) -> Self {
+        match place {
+            AuditPlace::Organization => Self::Told,
+            AuditPlace::Workspace(_) => Self::Withheld,
+        }
+    }
+}
+
+fn record(row: &Row, identities: Identities) -> Result<AuditRecord, StoreError> {
     let subject_id = row.id(5)?;
     let target_name = row.text(9)?;
     let action = action(row, 1)?;
@@ -253,6 +332,7 @@ fn record(row: &Row) -> Result<AuditRecord, StoreError> {
                 display_name: row.text(4)?,
             }),
             AuditActor::ServerOperator => AuditRecordActor::ServerOperator,
+            AuditActor::Server => AuditRecordActor::Server,
         },
         subject: if subject_id.is_empty() {
             None
@@ -267,6 +347,11 @@ fn record(row: &Row) -> Result<AuditRecord, StoreError> {
         // A board's identifier is no workspace's: the join finds none for it.
         target_name: (!target_name.is_empty()).then_some(target_name),
         create_at: row.int(10)?,
+        detail: row.opt_text(12)?,
+        identity: match identities {
+            Identities::Told => row.opt_text(13)?,
+            Identities::Withheld => None,
+        },
     })
 }
 
@@ -298,7 +383,7 @@ async fn insert_entry(
 ) -> Result<(), StoreError> {
     let mut sql = scope.sql(
         "INSERT INTO audit_log (id, org_id, workspace_id, actor_id, action, target_id, \
-         subject_id, create_at, actor_kind) VALUES (",
+         subject_id, create_at, actor_kind, detail, identity) VALUES (",
     );
     sql.bind(Id(&new_id()))
         .push_bind(", ", org)
@@ -309,6 +394,14 @@ async fn insert_entry(
         .push_bind(", ", OptId(&entry.subject_id))
         .push_bind(", ", now_millis())
         .push_bind(", ", entry.actor.kind().as_str())
+        .push_bind(
+            ", ",
+            Param::OptText((!entry.detail.is_empty()).then(|| entry.detail.clone())),
+        )
+        .push_bind(
+            ", ",
+            Param::OptText((!entry.identity.is_empty()).then(|| entry.identity.clone())),
+        )
         .push(")");
     scope.execute(sql).await?;
     Ok(())

@@ -131,6 +131,21 @@ export interface Account {
    * tie who the provider says they are to the account they are signed in to.
    */
   startOidc(orgId: string, linkPassword?: string): Promise<string>;
+  /**
+   * For a sign-in the server holds for this browser while the organization
+   * moves to another provider (the login page's `oidc_held`): starts a sign-in
+   * through the provider the organization used before, the address the browser
+   * is then sent to. It comes back signed in to the account the reader had,
+   * with the new sign-in connected to it. 409 with `oidc_carry_over_refused`
+   * when nothing is held for this browser, or the old provider is kept no more.
+   */
+  startOidcCarryOver(orgId: string): Promise<string>;
+  /**
+   * Ends the held sign-in in a new account instead, as a first sign-in through
+   * the provider does; the session comes with the answer. 409 with the reason
+   * a first sign-in is refused with, or `oidc_carry_over_refused`.
+   */
+  finishHeldSignIn(orgId: string): Promise<void>;
   /** The sign-ins connected to the reader's account, oldest first. */
   identities(): Promise<LinkedIdentity[]>;
   /**

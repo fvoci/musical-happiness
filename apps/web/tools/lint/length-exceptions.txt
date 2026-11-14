@@ -14,7 +14,7 @@
 # file <lines> <path>
 # function <lines> <path> <name>
 
-file 526 src/app/App.svelte
+file 524 src/app/App.svelte
 file 954 src/lib/api/backend.ts
 file 525 src/lib/features/shell/SidebarList.svelte
 file 890 src/lib/logic/wire.ts

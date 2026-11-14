@@ -186,7 +186,7 @@ async fn a_change_of_the_provider_made_from_an_old_reading_is_not_stored() {
         revision: 0,
     };
     let none_read = test
-        .put_oidc_provider_as_read(&provider("first", ""), None, &new_id())
+        .put_oidc_provider_as_read(&provider("first", ""), None, &new_id(), Duration::ZERO)
         .await
         .expect("stored")
         .expect("none was there, as read");
@@ -204,16 +204,26 @@ async fn a_change_of_the_provider_made_from_an_old_reading_is_not_stored() {
         none_read.update_at
     );
     let stale = test
-        .put_oidc_provider_as_read(&provider("first", ""), Some(&none_read), &new_id())
+        .put_oidc_provider_as_read(
+            &provider("first", ""),
+            Some(&none_read),
+            &new_id(),
+            Duration::ZERO,
+        )
         .await
         .expect("asked");
     let stored = test.oidc_provider().await.expect("read").expect("stored");
     let fresh = test
-        .put_oidc_provider_as_read(&provider("third", ""), Some(&later), &new_id())
+        .put_oidc_provider_as_read(
+            &provider("third", ""),
+            Some(&later),
+            &new_id(),
+            Duration::ZERO,
+        )
         .await
         .expect("asked");
     let none_stale = test
-        .put_oidc_provider_as_read(&provider("fourth", ""), None, &new_id())
+        .put_oidc_provider_as_read(&provider("fourth", ""), None, &new_id(), Duration::ZERO)
         .await
         .expect("asked");
     test.teardown().await;
@@ -259,7 +269,7 @@ async fn a_removed_provider_is_not_brought_back_by_a_change_read_before() {
         }
     );
     let change = test
-        .put_oidc_provider_as_read(&provider, Some(&read), &new_id())
+        .put_oidc_provider_as_read(&provider, Some(&read), &new_id(), Duration::ZERO)
         .await
         .expect("asked");
     let after = test.oidc_provider().await.expect("read");
@@ -271,7 +281,7 @@ async fn a_removed_provider_is_not_brought_back_by_a_change_read_before() {
         ..read.clone()
     };
     let change_again = test
-        .put_oidc_provider_as_read(&provider, Some(&of_the_removed), &new_id())
+        .put_oidc_provider_as_read(&provider, Some(&of_the_removed), &new_id(), Duration::ZERO)
         .await
         .expect("asked");
     test.teardown().await;
@@ -462,6 +472,7 @@ async fn enforcing_and_removing_at_once_leave_no_organization_without_its_provid
                         &provider_that(Enforcement::On),
                         Some(&read),
                         &new_id(),
+                        Duration::ZERO,
                     )
                     .await
             })

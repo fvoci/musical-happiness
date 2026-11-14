@@ -27,7 +27,8 @@ use super::contract::params::{
 use super::contract::tag;
 use super::{ApiResult, decode_json, json_object, json_response, query_param};
 use crate::app::{
-    App, BackTo, Callback, FinishedLogin, LOGIN_FLOW_LIFETIME_MILLIS, LoginFailure, StartedLogin,
+    App, BackTo, Callback, FinishedLogin, HELD_SIGN_IN_LIFETIME_MILLIS, LOGIN_FLOW_LIFETIME_MILLIS,
+    LoginFailure, StartedLogin,
 };
 use crate::auth::token::{Credential, Https, cookie_value, query_value};
 use crate::client_address::ClientAddress;
@@ -39,6 +40,10 @@ use crate::error::AppError;
 const FLOW_COOKIE_SECURE: &str = "__Host-fvoci_oidc";
 /// The same cookie where the server is reached over plain HTTP.
 const FLOW_COOKIE_PLAIN: &str = "fvoci_oidc";
+/// The cookie of the sign-in held for a browser (`oidc_held.rs`), over HTTPS.
+const HELD_COOKIE_SECURE: &str = "__Host-fvoci_oidc_held";
+/// The same cookie where the server is reached over plain HTTP.
+const HELD_COOKIE_PLAIN: &str = "fvoci_oidc_held";
 
 /// The routes anyone may call: they come before there is a session.
 pub(super) fn unauthenticated_routes() -> OpenApiRouter<App> {
@@ -46,6 +51,7 @@ pub(super) fn unauthenticated_routes() -> OpenApiRouter<App> {
         .routes(routes!(handle_login_options))
         .routes(routes!(handle_start))
         .routes(routes!(handle_callback))
+        .merge(super::oidc_held::routes())
 }
 
 /// What the login page shows
@@ -209,14 +215,28 @@ pub(super) fn started_response(app: &App, started: StartedLogin) -> Response {
 /// makes them the provider's and sets the session, made through them, and the browser
 /// goes to the organization's page (`/org/{orgId}`) with `oidc_pending=applied`; one
 /// that fails changes nothing, and goes there with `oidc_pending_error` naming the
-/// reason as `oidc_error` does.
+/// reason as `oidc_error` does (among them `oidc_trial_account` and
+/// `oidc_trial_stale`).
 ///
 /// Otherwise the browser goes to the login page of the organization (`/login?org=…`),
 /// with the reason of what went wrong in `oidc_error`, by the name of its problem
 /// (`oidc_state_invalid` as `oidc-state-invalid`): `oidc_state_invalid`, `oidc_denied`,
 /// `oidc_token_refused`, `oidc_token_invalid`, `oidc_email_missing`,
 /// `oidc_email_unverified`, `oidc_email_taken`, `oidc_join_closed`,
-/// `oidc_identity_taken`, `oidc_email_mismatch` or `oidc_unavailable`.
+/// `oidc_identity_taken`, `oidc_email_mismatch`, `oidc_carry_over_refused` or
+/// `oidc_unavailable`.
+///
+/// While the organization keeps the provider it moved away from (`former` of its
+/// provider), a sign-in that vouches for somebody who has no account makes none: what
+/// the provider said is held for this browser for ten minutes, under a cookie of its
+/// own, and the browser goes to the login page with `oidc_held=1`, which asks whether
+/// the person had an account: `startOidcCarryOver` if they had, `finishHeldOidcLogin`
+/// if not. A sign-in through the former provider, which `startOidcCarryOver` starts,
+/// comes back here too: it sets a session only by carrying the held sign-in over.
+/// Where nothing is carried over it goes to the login page with
+/// `oidc_carry_over_refused`, and where the sign-in itself failed (refused by the
+/// former provider, its token not taken, not this browser's) with that reason, as
+/// any sign-in does.
 #[utoipa::path(
     get,
     path = "/auth/oidc/callback/{orgId}",
@@ -226,10 +246,10 @@ pub(super) fn started_response(app: &App, started: StartedLogin) -> Response {
     security(()),
     responses((
         status = 303,
-        description = "To the web app, signed in or (with `oidc_linked=1`) linked, to the login page, or to the organization's page after a trial.",
+        description = "To the web app, signed in or (with `oidc_linked=1`) linked; to the login page, with `oidc_error` for a sign-in that failed or `oidc_held=1` for one that is held; or to the organization's page after a trial.",
         headers(
             ("Location" = String, description = "Where the browser goes."),
-            ("Set-Cookie" = String, description = "The session cookie, unless the sign-in linked or failed, and the cookie of the sign-in cleared."),
+            ("Set-Cookie" = String, description = "The session cookie, unless the sign-in linked, is held or failed; the cookie of the held sign-in, set where one is held and cleared where one was carried over or left behind; and the cookie of the sign-in cleared."),
         ),
     )),
 )]
@@ -252,7 +272,9 @@ async fn handle_callback(
             Some(Credential::Cookie(token)) => Some(token),
             Some(Credential::Bearer(_)) | None => None,
         },
+        held_secret: cookie_value(&headers, held_cookie_name(&app)),
     };
+    let came_with_held = callback.held_secret.is_some();
     let returned = app
         .finish_oidc_login(&callback, &user_agent(&headers))
         .await;
@@ -279,13 +301,46 @@ async fn handle_callback(
                 failure.name()
             ))
         }
+        // Held: the login page asks whether the person had an account, and the
+        // browser keeps the cookie of what is held for it.
+        (Ok(FinishedLogin::Held { secret }), org_id) => {
+            let mut response = see_other(&held_page(&app, org_id));
+            let seconds = HELD_SIGN_IN_LIFETIME_MILLIS / 1000;
+            let cookie = browser_cookie(&app, held_cookie_name(&app), &secret, seconds);
+            response.headers_mut().append(SET_COOKIE, cookie);
+            return Ok(with_flow_cookie_cleared(&app, response));
+        }
         (Err(failure), _) => to_login_page(&app, org_id, failure),
     };
-    // The sign-in is over, whatever came of it.
+    // A sign-in held for this browser before is over with this one: carried over, or
+    // left behind by a sign-in that went another way.
+    if came_with_held {
+        let cleared = browser_cookie(&app, held_cookie_name(&app), "", 0);
+        response.headers_mut().append(SET_COOKIE, cleared);
+    }
+    Ok(with_flow_cookie_cleared(&app, response))
+}
+
+/// `response` with the cookie of the sign-in cleared: the sign-in is over, whatever
+/// came of it.
+fn with_flow_cookie_cleared(app: &App, mut response: Response) -> Response {
     response
         .headers_mut()
-        .append(SET_COOKIE, flow_cookie(&app, "", 0));
-    Ok(response)
+        .append(SET_COOKIE, flow_cookie(app, "", 0));
+    response
+}
+
+/// The login page of the organization `org_id`, where it is an identifier, as it asks
+/// whoever a sign-in is held for whether they had an account.
+fn held_page(app: &App, org_id: Option<&str>) -> String {
+    let mut location = format!("{}login?", app_root(app));
+    if let Some(org_id) = org_id.filter(|org_id| fvoci_model::is_id(org_id)) {
+        location.push_str("org=");
+        location.push_str(org_id);
+        location.push('&');
+    }
+    location.push_str("oidc_held=1");
+    location
 }
 
 /// The password of a request to start a sign-in that links; `None` for a body that is
@@ -370,18 +425,37 @@ fn flow_cookie_name(app: &App) -> &'static str {
     }
 }
 
-/// The cookie of a sign-in: not readable by scripts, sent along with the browser's
-/// return from the provider (a top-level navigation, which `SameSite=Lax` lets
-/// through), for the whole host as the `__Host-` prefix wants.
+/// The name of the cookie of the sign-in held for a browser, as [`flow_cookie_name`]
+/// names the one of a sign-in under way.
+pub(super) fn held_cookie_name(app: &App) -> &'static str {
+    if app.authenticator().origins().https() == Https::Yes {
+        HELD_COOKIE_SECURE
+    } else {
+        HELD_COOKIE_PLAIN
+    }
+}
+
+/// The cookie of a sign-in.
 fn flow_cookie(app: &App, secret: &str, max_age_seconds: i64) -> HeaderValue {
+    browser_cookie(app, flow_cookie_name(app), secret, max_age_seconds)
+}
+
+/// A cookie that ties a sign-in to this browser: not readable by scripts, sent along
+/// with the browser's return from the provider (a top-level navigation, which
+/// `SameSite=Lax` lets through), for the whole host as the `__Host-` prefix wants.
+pub(super) fn browser_cookie(
+    app: &App,
+    name: &str,
+    secret: &str,
+    max_age_seconds: i64,
+) -> HeaderValue {
     let secure = if app.authenticator().origins().https() == Https::Yes {
         "; Secure"
     } else {
         ""
     };
     let cookie = format!(
-        "{}={secret}; Max-Age={max_age_seconds}; Path=/; HttpOnly; SameSite=Lax{secure}",
-        flow_cookie_name(app)
+        "{name}={secret}; Max-Age={max_age_seconds}; Path=/; HttpOnly; SameSite=Lax{secure}"
     );
     // A secret is base64url text and the rest is fixed: always a valid header value.
     HeaderValue::from_str(&cookie).unwrap_or_else(|_| HeaderValue::from_static(""))

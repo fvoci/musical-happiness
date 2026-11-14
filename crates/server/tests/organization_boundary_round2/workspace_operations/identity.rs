@@ -128,13 +128,42 @@ async fn sign_in(case: &mut Case, server: &TestServer, fake: &FakeProvider) {
     case.record("finishOidcLogin", &completed);
     linked(case, &newcomer, fake).await;
     pending(case, &newcomer, fake).await;
+    held(case).await;
+}
+
+/// The two ends of a sign-in held while an organization moves to another provider:
+/// no sign-in of this organization is held for the browser that asks, and each end
+/// answers so, the same in both organizations, and makes no session.
+async fn held(case: &mut Case) {
+    for operation in ["startOidcCarryOver", "finishHeldOidcLogin"] {
+        let request = super::with_query(case.request(operation, &[]), "org", &case.org);
+        let refused = Client::send(request).await;
+        assert_eq!(refused.status, StatusCode::CONFLICT, "{}", refused.text());
+        assert_eq!(
+            refused.value()["reason"],
+            "oidc_carry_over_refused",
+            "{}",
+            refused.text()
+        );
+        let sets_a_session = refused
+            .headers
+            .get_all(header::SET_COOKIE)
+            .iter()
+            .filter_map(|cookie| cookie.to_str().ok())
+            .any(|cookie| cookie.contains("session=") && !cookie.contains("Max-Age=0"));
+        assert!(
+            !sets_a_session,
+            "{operation} sets no session when it is refused"
+        );
+        case.record(operation, &refused);
+    }
 }
 
 /// The provider's pending settings, by an administrator whose session was made through
 /// it: the newcomer, made one, requires single sign-on, saves another secret, which
-/// waits aside, starts a trial of it and throws it away, and takes the requirement off
-/// again; then the founder makes them a member again, so that what follows is as
-/// before.
+/// waits aside, starts a trial of it and throws it away, ends the keeping of a former
+/// provider, and takes the requirement off again; then the founder makes them a
+/// member again, so that what follows is as before.
 async fn pending(case: &mut Case, newcomer: &Client, fake: &FakeProvider) {
     let id = newcomer.me().await.id;
     case.run("putOrgRole", &[("userId", &id)], json!({"role": "admin"}))
@@ -175,6 +204,16 @@ async fn pending(case: &mut Case, newcomer: &Client, fake: &FakeProvider) {
     case.send(
         "deleteOidcPending",
         newcomer.request(Method::DELETE, &discard),
+    )
+    .await;
+    // The organization moved from no other provider: there is no former one to end,
+    // and ending none answers the same.
+    let former = format!("{path}/former");
+    case.send(
+        "deleteOidcFormerProvider",
+        newcomer
+            .request(Method::DELETE, &former)
+            .json(&json!({"createAt": 1})),
     )
     .await;
     let released = Client::send(

@@ -506,6 +506,7 @@ async fn send_no_referrer(request: Request, next: middleware::Next) -> Response 
 /// while it serves; this is for its tests.
 pub async fn keep_house(app: &App) {
     clean_up_sessions(app).await;
+    app.end_lapsed_former_providers().await;
     // What became of each job is the metrics' to count, where the tasks run them.
     let _ = purge_trash(app).await;
     let _ = collect_unreferenced_files(app).await;
@@ -639,15 +640,19 @@ async fn remove_doomed_objects(app: &App) -> JobOutcome {
     }
 }
 
-/// Starts the task that deletes the sessions that have ended, and the registrations
-/// that were not confirmed in their seven days. It runs once at the
+/// Starts the task that deletes the sessions that have ended, the former providers
+/// whose time ran out, and the registrations that were not confirmed in their seven
+/// days. It runs once at the
 /// start, so that a server that is restarted often still gets to it, and then every
 /// interval.
 fn start_session_clean_up(app: &App) -> RecurringTask {
     let app = app.clone();
     RecurringTask::spawn_starting_now("cleanUpSessions", CLEAN_UP_SESSIONS_INTERVAL, move || {
         let app = app.clone();
-        async move { clean_up_sessions(&app).await }
+        async move {
+            clean_up_sessions(&app).await;
+            app.end_lapsed_former_providers().await;
+        }
     })
 }
 

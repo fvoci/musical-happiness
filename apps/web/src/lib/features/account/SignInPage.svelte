@@ -21,6 +21,10 @@
   (`/login?org=…`), or the only one of the server. A sign-in through the
   provider that went wrong comes back to this page with the name of what
   went wrong in `oidc_error`, which is told as a refusal is.
+
+  While that organization moves to another provider, a sign-in of somebody the
+  new provider does not know yet comes back with `oidc_held`: the page then asks
+  whether they had an account before it shows any form (`SignInChoice.svelte`).
 -->
 <script lang="ts">
   import { tick } from 'svelte';
@@ -41,6 +45,7 @@
   import AccountFields from './AccountFields.svelte';
   import CheckMailPage from './CheckMailPage.svelte';
   import ResendLink from './ResendLink.svelte';
+  import SignInChoice from './SignInChoice.svelte';
   import {
     accountFieldsUnder,
     formProblemsOf,
@@ -62,11 +67,27 @@
      * (`Account.startOidc`); a refusal of the start rejects.
      */
     onOidcStart?: (orgId: string) => Promise<void>;
+    /**
+     * For a sign-in held for this browser: sends the browser to the provider the
+     * organization used before (`Account.startOidcCarryOver`); a refusal rejects.
+     */
+    onCarryOver?: (orgId: string) => Promise<void>;
+    /** Ends the held sign-in in a new account, signed in (`Account.finishHeldSignIn`). */
+    onStartAnew?: (orgId: string) => Promise<void>;
     /** Where "Forgot your password?" leads; the link shows only while the server sends mail. */
     forgotHref?: string;
   }
 
-  let { onSignIn, onRegister, onResend, optionsOf, onOidcStart, forgotHref }: Props = $props();
+  let {
+    onSignIn,
+    onRegister,
+    onResend,
+    optionsOf,
+    onOidcStart,
+    onCarryOver,
+    onStartAnew,
+    forgotHref,
+  }: Props = $props();
 
   /** What the page's address says: the organization, and what went wrong. */
   const address = new URLSearchParams(location.search);
@@ -81,6 +102,22 @@
   );
 
   const oidcError = address.get('oidc_error');
+
+  /** The organization a sign-in is held for, until the reader goes back to the form. */
+  let heldFor = $state(address.has('oidc_held') ? askedOrg : undefined);
+
+  /** The name of the organization a sign-in is held for, once the server has said it. */
+  const heldName = $derived(
+    options?.then((read) => read?.organization?.name ?? '') ?? Promise.resolve(''),
+  );
+
+  /** Back to the form: the address names the organization, and no held sign-in. */
+  function leaveChoice(): void {
+    if (heldFor === undefined) return;
+    const named = new URLSearchParams({ org: heldFor });
+    history.replaceState(history.state, '', `${location.pathname}?${named}`);
+    heldFor = undefined;
+  }
 
   let mode = $state<'signIn' | 'register'>('signIn');
   let login = $state('');
@@ -217,6 +254,14 @@
     email={address}
     onResend={() => onResend?.({ email: address }) ?? Promise.resolve()}
     onSignUpAgain={signUpAgain}
+  />
+{:else if heldFor !== undefined && onCarryOver && onStartAnew}
+  {@const orgId = heldFor}
+  <SignInChoice
+    name={heldName}
+    onCarryOver={() => onCarryOver(orgId)}
+    onStartAnew={() => onStartAnew(orgId)}
+    onCancel={leaveChoice}
   />
 {:else}
   <main class="grid min-h-dvh place-items-center p-4">

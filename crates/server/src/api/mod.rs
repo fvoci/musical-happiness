@@ -23,6 +23,7 @@ mod invitations;
 mod limits;
 mod members;
 mod oidc;
+mod oidc_held;
 mod onboarding;
 mod org;
 mod org_admin;

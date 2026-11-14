@@ -21,6 +21,7 @@ pub const ENV_PREFIX: &str = "FVOCI_";
 pub const DEFAULT_MAX_REQUEST_BYTES: u64 = 4 * 1024 * 1024;
 
 pub mod collab;
+mod env;
 mod keys;
 pub mod mail;
 mod scrapes;
@@ -181,6 +182,10 @@ pub struct Configuration {
     /// on its own network. Off, such a provider is neither stored nor signed in
     /// through.
     pub oidc_allow_private_addresses: bool,
+    /// How many days the provider an organization moves away from (another issuer) is
+    /// kept, for its people to carry their accounts over to the new one. Zero keeps
+    /// none. An organization's limit: read through `App::limits`.
+    pub oidc_former_provider_days: u32,
     /// The key the server seals what it keeps secret in the database with: the client
     /// secrets of the providers. Read from `FVOCI_SECRET_KEY` only, never from the
     /// file, and never written by `Debug`. Without it no provider can be stored.
@@ -323,6 +328,7 @@ impl Default for Configuration {
             show_full_name: false,
             auth_mode: "native".to_owned(),
             oidc_allow_private_addresses: false,
+            oidc_former_provider_days: 30,
             secret_key: None,
             oidc_extra_root_certificates: Vec::new(),
             org_creation: ORG_CREATION_FIRST_USER_ONLY.to_owned(),
@@ -396,6 +402,7 @@ impl std::fmt::Debug for Configuration {
                 "oidc_allow_private_addresses",
                 &self.oidc_allow_private_addresses,
             )
+            .field("oidc_former_provider_days", &self.oidc_former_provider_days)
             .field("secret_key", &self.secret_key)
             .field("org_creation", &self.org_creation)
             .field("server_lock_wait_seconds", &self.server_lock_wait_seconds)
@@ -467,7 +474,7 @@ enum EnvKind {
 /// example `FVOCI_SESSION_IDLE_DAYS` and `FVOCI_FILESS3CONFIG_BUCKET`. The S3 credentials
 /// have none: the S3 client reads them from the `AWS_*` variables when `accesskeyid` is
 /// empty.
-const ENV_KEYS: [(&str, EnvKind); 59] = [
+const ENV_KEYS: [(&str, EnvKind); 60] = [
     ("serverroot", EnvKind::Text),
     ("port", EnvKind::Number),
     ("dbtype", EnvKind::Text),
@@ -502,6 +509,7 @@ const ENV_KEYS: [(&str, EnvKind); 59] = [
     ("showfullname", EnvKind::Flag),
     ("authmode", EnvKind::Text),
     ("oidc_allow_private_addresses", EnvKind::Flag),
+    ("oidc_former_provider_days", EnvKind::Number),
     ("org_creation", EnvKind::Text),
     ("websocket_ping_seconds", EnvKind::Number),
     ("public_link_connections_per_board", EnvKind::Number),
@@ -721,7 +729,7 @@ impl Configuration {
             if let Some(text) = env(&name)
                 && !scrapes::is_unset_token(key, &text)
             {
-                set_value(&mut keys, key, env_value(&name, &text, kind)?);
+                set_value(&mut keys, key, env::env_value(&name, &text, kind)?);
             }
         }
 
@@ -764,6 +772,11 @@ impl Configuration {
     /// How long after signing in a session ends, in milliseconds.
     pub fn session_max_millis(&self) -> i64 {
         i64::from(self.session_max_days).saturating_mul(MILLIS_PER_DAY)
+    }
+
+    /// How long the provider an organization moves away from is kept.
+    pub fn oidc_former_provider_kept(&self) -> std::time::Duration {
+        std::time::Duration::from_hours(u64::from(self.oidc_former_provider_days) * 24)
     }
 
     /// How long a deleted board or block stays in the trash, in milliseconds.
@@ -964,30 +977,6 @@ fn lower_case_keys(map: Map<String, Value>) -> Map<String, Value> {
     map.into_iter()
         .map(|(key, value)| (key.to_lowercase(), value))
         .collect()
-}
-
-fn env_value(name: &str, text: &str, kind: EnvKind) -> anyhow::Result<Value> {
-    Ok(match kind {
-        EnvKind::Text => Value::from(text),
-        EnvKind::Number => {
-            let number: i64 = text
-                .trim()
-                .parse()
-                .with_context(|| format!("{name}={text:?} is not a whole number"))?;
-            Value::from(number)
-        }
-        EnvKind::Flag => match text.trim().to_lowercase().as_str() {
-            "true" | "1" | "t" | "yes" | "on" => Value::Bool(true),
-            "false" | "0" | "f" | "no" | "off" => Value::Bool(false),
-            _ => bail!("{name}={text:?} is not true or false"),
-        },
-        EnvKind::List => Value::from(
-            text.split(',')
-                .map(str::trim)
-                .filter(|item| !item.is_empty())
-                .collect::<Vec<&str>>(),
-        ),
-    })
 }
 
 #[cfg(test)]
