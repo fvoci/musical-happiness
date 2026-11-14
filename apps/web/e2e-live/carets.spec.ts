@@ -183,6 +183,8 @@ test('a connection cut for five seconds: the body is read-only meanwhile, and bo
   let open: { page: WebSocketRoute; server: WebSocketRoute } | undefined;
   let held = false;
   let away = false;
+  // What her page says to come into the room, and the binary frames it is sent after each.
+  const joins: { said: string; frames: Buffer[] }[] = [];
   await second.routeWebSocket(/\/ws$/, (socket) => {
     if (away) {
       void socket.close();
@@ -190,9 +192,13 @@ test('a connection cut for five seconds: the body is read-only meanwhile, and bo
     }
     const server = socket.connectToServer();
     socket.onMessage((message) => {
+      if (typeof message === 'string' && message.includes('JOIN_DOC')) {
+        joins.push({ said: message, frames: [] });
+      }
       if (!held) server.send(message);
     });
     server.onMessage((message) => {
+      if (typeof message !== 'string') joins.at(-1)?.frames.push(message);
       if (!held) socket.send(message);
     });
     open = { page: socket, server };
@@ -252,6 +258,14 @@ test('a connection cut for five seconds: the body is read-only meanwhile, and bo
     await expect(page.getByTestId('body-lost')).toHaveCount(0);
   }
   await expect(second.getByTestId('body-room-note')).toHaveCount(0);
+  // She came in the first time holding nothing, and was sent the whole (a sync step 2); the
+  // second time she named the document she held, and was sent the server's state vector (a
+  // step 1) and then what she lacked. (A frame: room, kind, epoch, kind of sync message.)
+  const [firstJoin, again] = [joins[0], joins.at(-1)];
+  expect(firstJoin?.said).not.toContain('stateVector');
+  expect(firstJoin?.frames[0]?.[3]).toBe(1);
+  expect(JSON.parse(again?.said ?? '{}')).toMatchObject({ epoch: 1, stateVector: /^[\w+/]+=*$/ });
+  expect(again?.frames.slice(0, 2).map((frame) => frame[3])).toEqual([0, 1]);
   // Each sees the other again: Ada's caret is told to who came in, Bora's once she is in the body.
   await expect(carets(second)).toHaveCount(1);
   await editor(second).locator('p').nth(1).click();

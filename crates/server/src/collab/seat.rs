@@ -12,7 +12,7 @@ use tokio_util::sync::CancellationToken;
 use super::frame::{self, Carried, Received, Sync};
 use super::messages::{self, reason_of};
 use super::queue::Outgoing;
-use super::rooms::Connection;
+use super::rooms::{Connection, Held};
 use super::{Collab, caret, refusals};
 use crate::app::{App, Asker};
 use crate::error::AppError;
@@ -29,6 +29,10 @@ struct Command {
     workspace_id: String,
     card_id: String,
     doc: u32,
+    /// Of a `JOIN_DOC`: the making of the document the connection holds, if it holds
+    /// one, and its state vector in base64.
+    epoch: i64,
+    state_vector: String,
 }
 
 /// What a command or frame that is answered with a whole document counts as, in
@@ -198,6 +202,8 @@ impl Seat {
         let Command {
             workspace_id,
             card_id,
+            epoch,
+            state_vector,
             ..
         } = command;
         let admitted = self.rate.admits(WHOLE_DOCUMENT);
@@ -213,11 +219,14 @@ impl Seat {
             let (collab, home) = (self.collab.clone(), self.home.clone());
             let connection = Arc::clone(&self.connection);
             let (workspace, card) = (workspace_id.clone(), card_id.clone());
-            self.step(async move {
+            let held = Held::of(epoch, &state_vector);
+            // Boxed: what letting a connection in holds is large, and is no part of
+            // what serving the connection holds.
+            self.step(Box::pin(async move {
                 collab
-                    .enter(&connection, &home, doc, &workspace, &card)
+                    .enter(&connection, &home, doc, (&workspace, &card), held)
                     .await
-            })
+            }))
             .await
         } else {
             None

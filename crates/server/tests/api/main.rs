@@ -91,6 +91,7 @@ mod rooms_limits;
 mod rooms_measure;
 mod rooms_org;
 mod rooms_readers;
+mod rooms_rejoin;
 mod rooms_review;
 mod rooms_snapshots;
 mod rooms_teams;

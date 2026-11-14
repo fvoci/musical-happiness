@@ -171,6 +171,8 @@ pub(crate) struct Peer {
     /// What it was told of carets that no test asked for yet, in the order it came:
     /// of whatever room the frame named.
     pub(crate) carets: VecDeque<Told>,
+    /// The state vector the server last sent it (a sync step 1), if it sent one.
+    pub(crate) asked: Option<Vec<u8>>,
 }
 
 impl Peer {
@@ -214,6 +216,7 @@ impl Peer {
             texts: VecDeque::new(),
             taken: Vec::new(),
             carets: VecDeque::new(),
+            asked: None,
         }
     }
 
@@ -304,6 +307,13 @@ impl Peer {
                 if frame.doc != self.doc || frame.epoch != self.epoch {
                     return true;
                 }
+                if frame.sync == STEP_1 {
+                    // The server's state vector: what it holds, for the peer to send
+                    // what it lacks. The document follows.
+                    self.asked = Some(frame.payload.clone());
+                    self.taken.push(frame);
+                    return true;
+                }
                 assert!(matches!(frame.sync, STEP_2 | UPDATE), "{frame:?}");
                 if let Some(editor) = &self.editor {
                     editor.receive(&frame.payload);
@@ -392,6 +402,47 @@ impl Peer {
                 self.texts
             );
         }
+    }
+
+    /// Asks to come into the room of a card as a connection that holds the document
+    /// already (it was away): the join names the epoch and the state vector of what
+    /// its editor holds. Waits for `DOC_JOINED` and the document that follows it,
+    /// which is taken into the editor it holds unless it is of another epoch; the
+    /// answer.
+    pub(crate) async fn join_holding(&mut self, workspace_id: &str, card_id: &str) -> Value {
+        use base64::Engine as _;
+        let held = base64::engine::general_purpose::STANDARD.encode(self.editor().state_vector());
+        self.join_saying(workspace_id, card_id, self.epoch, &held)
+            .await
+    }
+
+    /// As [`Self::join_holding`], saying what `epoch` and `state_vector` say it holds.
+    pub(crate) async fn join_saying(
+        &mut self,
+        workspace_id: &str,
+        card_id: &str,
+        epoch: i64,
+        state_vector: &str,
+    ) -> Value {
+        self.send_json(json!({
+            "action": "JOIN_DOC", "workspaceId": workspace_id, "cardId": card_id,
+            "epoch": epoch, "stateVector": state_vector,
+        }))
+        .await;
+        self.asked = None;
+        let joined = self.text("DOC_JOINED").await;
+        self.doc = u32::try_from(joined["doc"].as_u64().expect("a room")).expect("32 bits");
+        let epoch = joined["epoch"].as_i64().expect("an epoch");
+        if epoch != self.epoch {
+            self.epoch = epoch;
+            self.editor = None;
+        }
+        let before = self.taken.len();
+        let document = |frame: &Frame| frame.sync == STEP_2;
+        while !self.taken[before..].iter().any(document) {
+            assert!(self.step(PATIENCE).await, "the document follows");
+        }
+        joined
     }
 
     /// Comes into the room of a card, which it is let into.

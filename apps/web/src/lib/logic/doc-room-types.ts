@@ -45,12 +45,18 @@ export interface RoomHears {
   carets(carets: RoomCarets): void;
 }
 
+/** The document a reader holds as they ask to be let in again: its epoch and its state vector. */
+export interface RoomHeld {
+  epoch: number;
+  stateVector: Uint8Array;
+}
+
 /** What a room says. */
 export interface RoomPort {
   /** The connection is there now: the room may be joined (`up` is told only of later ones). */
   readonly connected: boolean;
-  /** Sends `JOIN_DOC` for the card. */
-  join(): void;
+  /** Sends `JOIN_DOC` for the card; with `held`, as one who holds its document already. */
+  join(held?: RoomHeld): void;
   /** Sends a binary frame. */
   send(frame: Uint8Array<ArrayBuffer>): void;
   /** Leaves the room, also one a join still on its way will be let into, and hears no more. */
@@ -87,8 +93,8 @@ export type RoomEvent =
   | { type: 'settle' };
 
 export type RoomEffect =
-  /** Send `JOIN_DOC`. */
-  | { type: 'join' }
+  /** Send `JOIN_DOC`; with `held`, naming the document held: its epoch, and its state vector. */
+  | { type: 'join'; held: number | undefined }
   | { type: 'send'; frame: RoomFrame }
   /** Send the reader's caret. */
   | { type: 'tell'; carets: RoomCarets }
@@ -104,6 +110,8 @@ export type RoomEffect =
   | { type: 'drop' }
   /** Say (`missing`) what the document held has that `have` lacks. */
   | { type: 'offer'; have: Uint8Array }
+  /** Say (`missing`) what the document held has that a holder of the state vector `theirs` lacks. */
+  | { type: 'answer'; theirs: Uint8Array }
   /** Changes of the reader were dropped with their document; `why` is a reason of the server's, or `document_reset`. */
   | { type: 'discarded'; why: string }
   | { type: 'timer'; timer: RoomTimer; wait: number }

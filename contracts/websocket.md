@@ -1,6 +1,6 @@
 # WebSocket `/ws`의 메시지
 
-적은 때: 2026-11-11 04:14 KST(본문의 공동 편집, 6절은 2026-11-13 04:41 KST, 그 커서는 2026-11-14 23:20 KST, 보드의 있음 7절은 2026-11-13 19:41 KST. 서버가 구독을 끝낼 때의 알림, 3절은 2026-11-14 01:35 KST. 팀의 조작, 3절과 6절은 2026-11-14 06:55 KST). 서버가 **지금** 주고받는 것을 모양을 바꾸지 않고 적었다(`crates/server/src/ws.rs`, 핸드셰이크는 `crates/server/src/lib.rs`의 `handle_websocket`). OpenAPI는 WebSocket을 적지 못하므로 계약 파일 `contracts/openapi.json` 밖에 둔다.
+적은 때: 2026-11-11 04:14 KST(본문의 공동 편집, 6절은 2026-11-13 04:41 KST, 그 커서는 2026-11-14 23:20 KST, 다시 들기는 2026-11-15 01:40 KST, 보드의 있음 7절은 2026-11-13 19:41 KST. 서버가 구독을 끝낼 때의 알림, 3절은 2026-11-14 01:35 KST. 팀의 조작, 3절과 6절은 2026-11-14 06:55 KST). 서버가 **지금** 주고받는 것을 모양을 바꾸지 않고 적었다(`crates/server/src/ws.rs`, 핸드셰이크는 `crates/server/src/lib.rs`의 `handle_websocket`). OpenAPI는 WebSocket을 적지 못하므로 계약 파일 `contracts/openapi.json` 밖에 둔다.
 
 - 메시지마다의 멤버와 타입은 기계가 읽는 `contracts/websocket.json`에 있다. 서버의 테스트(`crates/server/tests/api/websocket.rs`의 `messages_match_the_websocket_contract`, 본문의 공동 편집(6절)의 `DOC_…`은 `rooms_contract.rs`의 `the_messages_of_the_rooms_match_the_websocket_contract`)가 서버가 실제로 보낸 메시지를 그 파일과 견준다: 맨 위 멤버가 정확히 그 이름들이고, 실린 객체(`board`, `block` 등)의 멤버는 계약 파일의 같은 이름의 스키마에 있는 것들이다. 테스트가 보는 것은 **메시지**뿐이다. 명령(2절)과 `session`·`sent` 표시는 이 문서와 코드를 사람이 맞춰 둔다. 실린 객체의 멤버는 이름만 견주고 타입은 계약 파일의 스키마를 따른다. Binary 프레임(6절)의 바이트는 `crates/server/src/collab/frame.rs`의 테스트와 `rooms.rs`의 테스트가 따로 쓴 부호화로 견준다. 커서의 바이트는 편집기의 라이브러리(y-protocols, Yjs)로 찍은 `contracts/caret-vectors.json`에 서버(`collab/caret.rs`)와 웹앱의 테스트가 함께 견준다.
 - 메시지가 싣는 보드, 블록, 멤버, 카테고리는 계약의 `Board`, `Block`, `BoardMember`, `Category`와 같은 모양이다. `Block`은 본문(`body`, `docs/contract-pending.md` 1절)을 싣는다.
@@ -35,7 +35,7 @@
 | `UNSUBSCRIBE_WORKSPACE` | 필요 | `workspaceId` | 그만 받는다 |
 | `SUBSCRIBE_BLOCKS` | 없어도 된다 | `workspaceId`, `readToken`, `blockIds` | 공유 보드의 블록들을 읽기 토큰으로 따라간다. `blockIds`가 모두 한 보드의 것이고 `readToken`이 그 보드의 공유 토큰이며 `workspaceId`가 그 보드의 워크스페이스여야 한다. 하나라도 어긋나면 명령 전체를 무시한다 |
 | `UNSUBSCRIBE_BLOCKS` | 없어도 된다 | 같다 | 그 블록들을 그만 따라간다. 같은 검사를 한다(저장소에서 읽지 못하면 검사 없이 그만 따라간다) |
-| `JOIN_DOC` | 필요 | `workspaceId`, `cardId` | 카드 본문을 함께 고치는 방에 들어간다(6절). 답은 `DOC_JOINED`나 `DOC_REFUSED` |
+| `JOIN_DOC` | 필요 | `workspaceId`, `cardId`, 문서를 쥔 채 다시 들 때만 `epoch`, `stateVector` | 카드 본문을 함께 고치는 방에 들어간다(6절). 답은 `DOC_JOINED`나 `DOC_REFUSED` |
 | `LEAVE_DOC` | 필요 | `doc` | `DOC_JOINED`가 알려 준 번호의 방에서 나온다. 답이 없다 |
 | `SET_PRESENCE` | 읽기 토큰이면 불필요 | `workspaceId`, `boardId`, `cardId`, `readToken` | 보드 방문과 연 카드를 알린다(7절). 답이 없다 |
 
@@ -162,12 +162,13 @@
 
 | 답 | 멤버 | 뜻 |
 |---|---|---|
-| `DOC_JOINED` | `workspaceId`, `cardId`, `doc`, `epoch`, `mode` | 방에 들었다. `doc`은 이 연결에서 그 방을 가리키는 번호(1부터, 들어올 때마다 새 번호)이고 뒤의 메시지와 프레임이 모두 이 번호로 방을 가리킨다. `epoch`은 문서의 세대(아래), `mode`는 `write`나 `read`. **그 방의 다음 Binary 프레임이 문서 전체다**(sync step 2. 그 사이에 다른 방이나 구독의 메시지가 낄 수 있다) |
+| `DOC_JOINED` | `workspaceId`, `cardId`, `doc`, `epoch`, `mode` | 방에 들었다. `doc`은 이 연결에서 그 방을 가리키는 번호(1부터, 들어올 때마다 새 번호)이고 뒤의 메시지와 프레임이 모두 이 번호로 방을 가리킨다. `epoch`은 문서의 세대(아래), `mode`는 `write`나 `read`. **그 방의 다음 Binary 프레임이 문서다**: 전체(sync step 2), 쥔 문서를 알리고 다시 든 연결에는 step 1과 차이(아래 "다시 들기"). 그 사이에 다른 방이나 구독의 메시지가 낄 수 있다 |
 | `DOC_REFUSED` | `workspaceId`, `cardId`, `reason` | 들지 못했다. `reason`은 아래 표 |
 
 - **누가 드나.** 카드의 보드에서 카드를 고칠 수 있으면(편집 역할부터) `write`, 보드를 읽을 수만 있으면(보기·댓글 역할, 열린 템플릿을 읽는 워크스페이스 구성원) `read`로 든다. 그 밖의 사용자, 세션 없는 연결(공유 보드를 읽기 토큰으로 따라가는 연결도), 비밀번호를 받지 않는 조직(`ssoRequired`)의 카드에 그 공급자로 만들지 않은 세션의 연결(HTTP의 401 `sso_required`에 해당한다), 없는 카드, 카드가 아닌 블록, `workspaceId`가 카드의 보드가 있는 워크스페이스가 아닌 것은 모두 `reason`이 `not_found`인 같은 `DOC_REFUSED`다. `workspaceId`나 `cardId`가 64바이트를 넘는 `JOIN_DOC`은 답 없이 버린다. 들 수 있는지는 카드가 어느 보드의 것인지만 읽어 가른다: 본문은 들인 뒤에 읽으므로 거절은 본문의 크기와 상관없이 같은 일을 한다.
 - **클라이언트는 빈 문서로 든다.** 문서는 서버가 카드의 본문에서 만든다. 클라이언트가 본문에서 스스로 만든 문서는 서버의 것과 다른 문서여서 합치면 내용이 두 번 든다.
-- 이미 든 카드에 다시 `JOIN_DOC`을 보내면 새 번호로 새로 들고(문서 전체를 다시 받는다) 앞의 번호는 더 방이 아니다(그 번호의 기다리던 Binary 프레임은 버려진다). 거절되면 앞의 것이 그대로다.
+- 이미 든 카드에 다시 `JOIN_DOC`을 보내면 새 번호로 새로 들고(문서를 다시 받는다) 앞의 번호는 더 방이 아니다(그 번호의 기다리던 Binary 프레임은 버려진다). 거절되면 앞의 것이 그대로다.
+- **다시 들기.** 문서를 쥔 채 다시 드는 클라이언트(연결이 끊겼다 붙었다, 방에서 내보내졌다)는 `JOIN_DOC`에 쥔 문서의 세대 `epoch`과 그 상태 벡터 `stateVector`(Yjs version 1, base64)를 싣는다. 방의 세대가 그 `epoch`이면 서버는 `DOC_JOINED` 뒤에 **step 1**(서버 문서의 상태 벡터)과 **step 2**(클라이언트의 상태 벡터에 없는 것)를 이 차례로 보낸다: 첫 프레임이 step 1이면 뒤따르는 step 2는 전체가 아니라 차이다. 클라이언트는 차이를 쥔 문서에 합치고, 서버가 받았다고 답하지 않은 자기 변경이 있으면 받은 상태 벡터에 없는 것(`encodeStateAsUpdate(문서, 그 상태 벡터)`: 문서의 지움은 모두 실린다)을 변경 하나로 보낸다(답은 `DOC_ACK`. 서버에 이미 있던 것이 섞여도 문서는 그대로다). 세대가 다르거나, `stateVector`가 없거나 base64가 아니거나 상태 벡터로 읽히지 않으면 서버는 전체(step 2 하나)를 보낸다: 다른 세대의 전체는 쥔 문서를 버리고 받고(아래 "세대"), 같은 세대의 전체는 쥔 문서에 합친다. 받아들여지지 않은 변경이 든 문서(`DOC_NACK` 뒤)는 쥐었다고 알리지 않는다.
 - `LEAVE_DOC`(`doc`)으로 나온다. 연결이 끊겨도 나온다. 나온 뒤에도 그 번호로 이미 보낸 것이 조금 더 올 수 있다: 모르는 번호의 메시지와 프레임은 버린다.
 - 마지막 연결이 나가면 서버가 문서를 닫으며 본문을 카드에 쓴다. 그 전에도 마지막 변경 2초 뒤(늦어도 첫 변경 10초 뒤)에 쓴다.
 
@@ -187,12 +188,13 @@ sync 종류부터 끝까지는 y-protocols의 sync 메시지 그대로다(`write
 
 | 누가 | 프레임 | 서버가 하는 일 |
 |---|---|---|
-| 서버 | step 2 | `DOC_JOINED`와 `DOC_RESET` 뒤 그 방의 첫 프레임: 문서 전체. step 1의 답: 그 상태 벡터에 없는 것 |
+| 서버 | step 1 | 쥔 문서를 알리고 다시 든 연결에만, `DOC_JOINED` 뒤 그 방의 첫 프레임: 서버 문서의 상태 벡터("다시 들기") |
+| 서버 | step 2 | `DOC_JOINED`와 `DOC_RESET` 뒤 그 방의 첫 프레임: 문서 전체(위의 step 1 뒤에서는 차이). step 1의 답: 그 상태 벡터에 없는 것 |
 | 서버 | update | 다른 연결의 변경, 서버가 고친 것, 즉시 재확인 동안 받지 못한 것(아래) |
 | 클라이언트 | step 1 | 그 연결에만 step 2로 답한다. 세대가 다르거나 상태 벡터가 아니면 답하지 않는다. `read`도 보낼 수 있다 |
 | 클라이언트 | update, step 2 | 둘 다 변경으로 받는다(아래). 답은 `DOC_ACK`나 `DOC_NACK` |
 
-서버는 step 1을 보내지 않는다: 클라이언트는 서버에 없는 것을 갖고 들어오지 않는다(오프라인 편집이 없다). 이 모양이 아닌 프레임(끝나지 않는 수, 길이가 남은 바이트와 다름)과 들지 않은 방의 프레임은 답 없이 버린다.
+서버가 step 1을 보내는 것은 그때뿐이다: 처음 드는 클라이언트는 서버에 없는 것을 갖고 들어오지 않는다(오프라인 편집이 없다). 이 모양이 아닌 프레임(끝나지 않는 수, 길이가 남은 바이트와 다름)과 들지 않은 방의 프레임은 답 없이 버린다.
 
 ### 커서
 

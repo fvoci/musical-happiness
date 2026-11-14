@@ -43,7 +43,13 @@ import {
   SYNC_STEP_2,
   SYNC_UPDATE,
 } from '../../logic/doc-frame.ts';
-import type { DocMode, RoomLine, RoomMessage, RoomPort } from '../../logic/doc-room-types.ts';
+import type {
+  DocMode,
+  RoomHeld,
+  RoomLine,
+  RoomMessage,
+  RoomPort,
+} from '../../logic/doc-room-types.ts';
 import { ROOM_LIMITS } from '../../logic/doc-room.ts';
 
 import { roleOn } from './comments.ts';
@@ -113,9 +119,9 @@ export class MemoryRooms {
       const port: RoomPort = {
         connected: true,
         // What a seat says reaches the room after the user's latency, as over a network.
-        join: () => {
+        join: (held) => {
           this.#hear(seat, () => {
-            this.#join(seat, boardId, cardId);
+            this.#join(seat, boardId, cardId, held);
           });
         },
         send: (bytes) => {
@@ -225,7 +231,7 @@ export class MemoryRooms {
     this.#channel?.postMessage(message);
   }
 
-  #join(seat: Seat, boardId: string, cardId: string): void {
+  #join(seat: Seat, boardId: string, cardId: string, held?: RoomHeld): void {
     const mode = this.#modeOf(seat.user, boardId, cardId);
     // Refused, the room before (if any) stays the seat's.
     if (mode === undefined) {
@@ -241,7 +247,14 @@ export class MemoryRooms {
     seat.mode = mode;
     room.seats.add(seat);
     this.#say(seat, { message: { action: 'DOC_JOINED', doc, epoch: room.epoch, mode } });
-    this.#sendWhole(seat, room, Y.encodeStateAsUpdate(room.doc));
+    // Who holds this document already is sent the room's state vector and what they lack of it.
+    const lacked = held?.epoch === room.epoch ? lackedBy(room.doc, held.stateVector) : undefined;
+    if (lacked) {
+      const vector = Y.encodeStateVector(room.doc);
+      const asked = { doc, epoch: room.epoch, sync: SYNC_STEP_1, payload: vector };
+      this.#say(seat, { frame: encodeDocFrame(asked) });
+    }
+    this.#sendWhole(seat, room, lacked ?? Y.encodeStateAsUpdate(room.doc));
     this.#carets.joined(room, seat);
   }
 
@@ -437,6 +450,15 @@ export class MemoryRooms {
     Y.applyUpdate(room.doc, message.update, this);
     this.#spread(room, message.update, undefined);
     this.#changed(room);
+  }
+}
+
+/** What `doc` has that a holder of `stateVector` lacks; undefined when that is no state vector. */
+function lackedBy(doc: Y.Doc, stateVector: Uint8Array): Uint8Array | undefined {
+  try {
+    return Y.encodeStateAsUpdate(doc, stateVector);
+  } catch {
+    return undefined;
   }
 }
 

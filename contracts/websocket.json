@@ -42,7 +42,9 @@
       "members": {
         "action": "string",
         "workspaceId": "string",
-        "cardId": "string"
+        "cardId": "string",
+        "epoch": "integer",
+        "stateVector": "string"
       }
     },
     "LEAVE_DOC": {
@@ -235,15 +237,15 @@
     },
     {
       "name": "kind",
-      "is": "0: a sync message; a frame of another kind is dropped"
+      "is": "0: a sync message, 1: carets; a frame of another kind is dropped"
     },
     {
       "name": "epoch",
-      "is": "which making of the document the message is about"
+      "is": "which making of the document the frame is about"
     },
     {
       "name": "sync",
-      "is": "0: step 1 (a state vector), 1: step 2 (what the receiver is missing), 2: update"
+      "is": "of a sync message only (a frame of carets has none): 0: step 1 (a state vector), 1: step 2 (what the receiver is missing), 2: update"
     },
     {
       "name": "length",
@@ -251,7 +253,7 @@
     },
     {
       "name": "payload",
-      "is": "bytes, to the end of the frame: a Yjs state vector or update, version 1"
+      "is": "bytes, to the end of the frame: a Yjs state vector or update, version 1; of carets, an awareness update of y-protocols"
     }
   ]
 }

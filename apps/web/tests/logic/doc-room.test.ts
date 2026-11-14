@@ -354,6 +354,83 @@ describe('receiving the document again', () => {
     expect(room.of('offer')).toHaveLength(1);
   });
 
+  it('a connection that came back names the document held, and answers the state vector of the server with what it lacks', () => {
+    const STEP_1 = 0;
+    const theirs = new Uint8Array([1, 9, 3]);
+    const room = new Harness();
+    room.joined(1, 7);
+    room.take({ type: 'down' });
+    room.write();
+    // The join says which document is held: the server may send what it lacks, not the whole.
+    expect(room.take({ type: 'up' })).toContainEqual({ type: 'join', held: 7 });
+    room.take({
+      type: 'message',
+      message: { action: 'DOC_JOINED', doc: 2, epoch: 7, mode: 'write' },
+    });
+    // The server's state vector first: nothing is done with it yet.
+    room.take({ type: 'frame', frame: { doc: 2, epoch: 7, sync: STEP_1, payload: theirs } });
+    expect(room.effects).toEqual([]);
+    expect(room.room.status.phase).toBe('receiving');
+    room.take({ type: 'frame', frame: { doc: 2, epoch: 7, sync: STEP_2, payload: WHOLE } });
+    expect(room.of('apply')).toEqual([{ type: 'apply', update: WHOLE }]);
+    expect(room.of('answer')).toEqual([{ type: 'answer', theirs }]);
+    expect(room.of('offer')).toEqual([]);
+    // What the server lacks goes to it as a change, and is answered.
+    const lacked = update();
+    room.take({ type: 'missing', update: lacked });
+    room.take({ type: 'timer', timer: 'flush' });
+    expect(room.sent()).toEqual([{ doc: 2, epoch: 7, sync: UPDATE, payload: lacked }]);
+    expect(room.room.status.pending).toBe(true);
+    room.take({ type: 'message', message: { action: 'DOC_ACK', doc: 2, epoch: 7 } });
+    expect(room.room.status.pending).toBe(false);
+
+    // Nothing written meanwhile: the state vector is not answered.
+    room.take({ type: 'down' });
+    room.take({ type: 'up' });
+    room.take({
+      type: 'message',
+      message: { action: 'DOC_JOINED', doc: 3, epoch: 7, mode: 'write' },
+    });
+    room.take({ type: 'frame', frame: { doc: 3, epoch: 7, sync: STEP_1, payload: theirs } });
+    room.take({ type: 'frame', frame: { doc: 3, epoch: 7, sync: STEP_2, payload: WHOLE } });
+    expect(room.of('answer')).toEqual([]);
+    expect(room.room.status).toMatchObject({ phase: 'joined', writable: true, pending: false });
+  });
+
+  it('names no document when the one held is to be dropped, and takes a state vector of another epoch for nothing', () => {
+    const STEP_1 = 0;
+    const room = new Harness();
+    room.joined(1, 7);
+    room.write();
+    // A change refused: the document is the reader's alone, and is not named.
+    const refused = room.take({
+      type: 'message',
+      message: { action: 'DOC_NACK', doc: 1, epoch: 7, reason: 'update_refused' },
+    });
+    expect(refused).toContainEqual({ type: 'join', held: undefined });
+    // Holding none, none is named.
+    expect(new Harness().take({ type: 'up' })).toContainEqual({ type: 'join', held: undefined });
+
+    // Made anew meanwhile: a state vector of the new epoch is no word about the one held.
+    const away = new Harness();
+    away.joined(1, 7);
+    away.take({ type: 'down' });
+    away.write();
+    away.take({ type: 'up' });
+    away.take({
+      type: 'message',
+      message: { action: 'DOC_JOINED', doc: 2, epoch: 9, mode: 'write' },
+    });
+    away.take({
+      type: 'frame',
+      frame: { doc: 2, epoch: 9, sync: STEP_1, payload: new Uint8Array([0]) },
+    });
+    away.take({ type: 'frame', frame: { doc: 2, epoch: 9, sync: STEP_2, payload: WHOLE } });
+    expect(away.of('fresh')).toHaveLength(1);
+    expect(away.of('answer')).toEqual([]);
+    expect(away.of('discarded')).toHaveLength(1);
+  });
+
   it('a dropped connection with the document made anew meanwhile: the change written is said lost', () => {
     const room = new Harness();
     room.joined(1, 7);

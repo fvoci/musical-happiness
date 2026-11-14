@@ -20,13 +20,26 @@
  * `DOC_NACK`: the refused change is in the reader's document alone, so the
  * room is joined once more and the document dropped for the server's (a
  * change the server only could not take just now is kept and offered
- * again). `DOC_LEFT`, and a connection that came back: joined again, and a
- * document of the same `epoch` goes on with what the server lacks of it.
+ * again). `DOC_LEFT`, and a connection that came back: joined again, saying
+ * which document is held, and one of the same `epoch` goes on: the server
+ * sends its state vector and what the reader lacks, or the whole, and what
+ * it lacks of the reader's goes to it.
  * Whenever a document is dropped with changes of the reader the server never
  * took, that is said (`discarded`).
  */
 
-import { packUpdates, SYNC_STEP_2 as STEP_2, SYNC_UPDATE as UPDATE } from './doc-frame.ts';
+import { packUpdates, SYNC_STEP_1, SYNC_STEP_2, SYNC_UPDATE } from './doc-frame.ts';
+import {
+  ANSWER_WAIT,
+  FINAL,
+  FLUSH_WAIT,
+  PACE,
+  PACE_WAIT,
+  RESET_WAIT,
+  RETRY_WAITS,
+  ROOM_LIMITS,
+  type RoomLimits,
+} from './doc-room-waits.ts';
 import type {
   DocMode,
   RoomEffect,
@@ -39,34 +52,13 @@ import type {
 } from './doc-room-types.ts';
 
 export type * from './doc-room-types.ts';
-
-export interface RoomLimits {
-  /** The largest update the server takes, in bytes (`collab_update_bytes`). */
-  updateBytes: number;
-}
-
-export const ROOM_LIMITS: RoomLimits = { updateBytes: 64 * 1024 };
-
-/**
- * How long changes are gathered into one frame, and the pause between two
- * frames, in milliseconds: at most 33 frames a second where the server
- * allows 50.
- */
-export const FLUSH_WAIT = 30;
-/** How long a refusal as out of step waits for the `DOC_RESET` that explains it. */
-export const RESET_WAIT = 1500;
-/** The wait before joining again after being put out for sending or reading at the wrong pace. */
-export const PACE_WAIT = 1000;
-/** The waits before trying again what was refused for now, by tries; the last repeats. */
-const RETRY_WAITS = [1000, 2000, 5000, 15_000, 30_000];
-
-/** How long a join waits for its answer before it is taken as refused for now. */
-const ANSWER_WAIT = 10_000;
-
-/** A reason that does not pass by waiting: the card is not there for the reader. */
-const FINAL = new Set(['not_found']);
-/** Being put out for these says nothing against the document: the room is joined again as it was left. */
-const PACE = new Set(['too_many_frames', 'connection_too_slow']);
+export {
+  FLUSH_WAIT,
+  PACE_WAIT,
+  RESET_WAIT,
+  ROOM_LIMITS,
+  type RoomLimits,
+} from './doc-room-waits.ts';
 
 export class DocRoom {
   readonly #merge: (updates: Uint8Array[]) => Uint8Array;
@@ -79,8 +71,10 @@ export class DocRoom {
   #doc: number | undefined;
   /** The epoch of the document held. */
   #epoch: number | undefined;
-  /** The next frame of the room is the whole document of this epoch. */
+  /** The next frames of the room are the document of this epoch: the whole, or the server's state vector and what the one held lacks. */
   #expect: number | undefined;
+  /** The server's state vector, sent before what the document held lacks. */
+  #theirs: Uint8Array | undefined;
   /** A whole document of the epoch held is merged into it; otherwise it takes its place. */
   #keep = true;
   /** Why the document held is not kept. */
@@ -193,7 +187,9 @@ export class DocRoom {
     this.#expect = undefined;
     this.#phase = this.#epoch === undefined ? 'joining' : 'receiving';
     this.#joinSent = true;
-    this.#effects.push({ type: 'join' });
+    // A document held and kept is named: the server sends what it lacks, not the whole.
+    const held = this.#keep ? this.#epoch : undefined;
+    this.#effects.push({ type: 'join', held });
     this.#effects.push({ type: 'timer', timer: 'answer', wait: ANSWER_WAIT });
   }
 
@@ -218,6 +214,7 @@ export class DocRoom {
     this.#doc = undefined;
     this.#stale = 0;
     this.#expect = undefined;
+    this.#theirs = undefined;
     this.#waiting = false;
     this.#cancel('reset');
     this.#unqueue();
@@ -376,13 +373,16 @@ export class DocRoom {
   #frame(frame: RoomFrame): void {
     if (frame.doc !== this.#doc) return;
     if (this.#expect !== undefined) {
-      // Of the document before: the whole of the new one is the first frame of its epoch.
-      if (frame.epoch !== this.#expect || frame.sync !== STEP_2) return;
-      this.#whole(frame.payload, frame.epoch);
+      // Of the document before: the new one comes in the first frames of its epoch.
+      if (frame.epoch !== this.#expect) return;
+      // The server's state vector first: what follows is what the document held lacks.
+      if (frame.sync === SYNC_STEP_1 && this.#keep && frame.epoch === this.#epoch) {
+        this.#theirs = frame.payload;
+      } else if (frame.sync === SYNC_STEP_2) this.#whole(frame.payload, frame.epoch);
       return;
     }
     if (frame.epoch !== this.#epoch) return;
-    if (frame.sync === STEP_2 || frame.sync === UPDATE) {
+    if (frame.sync === SYNC_STEP_2 || frame.sync === SYNC_UPDATE) {
       this.#effects.push({ type: 'apply', update: frame.payload });
     }
   }
@@ -391,12 +391,15 @@ export class DocRoom {
     this.#expect = undefined;
     const resumed = this.#waiting;
     this.#waiting = false;
+    const theirs = this.#theirs;
+    this.#theirs = undefined;
     if (this.#epoch === epoch && this.#keep) {
       this.#effects.push({ type: 'apply', update });
-      // The same document: what the server lacks of the reader's changes goes to it again.
+      // The same document: what the server lacks of the reader's changes goes to it again,
+      // by its state vector if it sent one, else by the whole it sent.
       if (this.#pending && (this.#phase !== 'joined' || resumed)) {
         this.#unqueue();
-        this.#effects.push({ type: 'offer', have: update });
+        this.#effects.push(theirs ? { type: 'answer', theirs } : { type: 'offer', have: update });
       }
     } else {
       if (this.#pending)
@@ -479,7 +482,7 @@ export class DocRoom {
       this.#buffer = [];
     }
     for (let payload = this.#outbox.shift(); payload; payload = this.#outbox.shift()) {
-      this.#effects.push({ type: 'send', frame: { doc, epoch, sync: UPDATE, payload } });
+      this.#effects.push({ type: 'send', frame: { doc, epoch, sync: SYNC_UPDATE, payload } });
       this.#unacked += 1;
       if (!all && !tooLarge) break;
     }

@@ -191,9 +191,16 @@ class RoomClient implements BodyDoc {
 
   #run(effect: Exclude<RoomEffect, { type: 'changed' }>): void {
     switch (effect.type) {
-      case 'join':
-        this.#port.join();
+      case 'join': {
+        const doc = effect.held === undefined ? undefined : this.#doc;
+        this.#port.join(doc && { epoch: effect.held ?? 0, stateVector: Y.encodeStateVector(doc) });
         break;
+      }
+      case 'answer': {
+        const doc = this.#doc;
+        if (doc) this.#take({ type: 'missing', update: lackedBy(doc, effect.theirs) });
+        break;
+      }
       case 'send':
         this.#port.send(encodeDocFrame(effect.frame));
         break;
@@ -302,6 +309,18 @@ export function missingFrom(doc: Y.Doc, whole: Uint8Array): Uint8Array | undefin
     return undefined;
   } finally {
     theirs.destroy();
+  }
+}
+
+/**
+ * What `doc` has that a holder of the state vector `theirs` lacks, with
+ * every deletion `doc` knows of; undefined when `theirs` is no state vector.
+ */
+function lackedBy(doc: Y.Doc, theirs: Uint8Array): Uint8Array | undefined {
+  try {
+    return Y.encodeStateAsUpdate(doc, theirs);
+  } catch {
+    return undefined;
   }
 }
 

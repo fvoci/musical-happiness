@@ -25,12 +25,14 @@ mod access;
 mod carets;
 mod held;
 mod index;
+mod joining;
 #[cfg(feature = "test-util")]
 mod pauses;
 mod removal;
 mod walls;
 
 pub(crate) use access::AccessScope;
+pub(super) use joining::Held;
 pub(crate) use walls::{AccessChange, Wall};
 
 use std::collections::HashMap;
@@ -602,10 +604,11 @@ impl Collab {
     }
 
     /// Lets a connection into the room of a card of a board of `workspace_id`, to be
-    /// known there as `doc`, and sends it `DOC_JOINED` and the whole document. A
-    /// connection that is in the room already is in it anew: what it knew the room
-    /// as before is no room of its any more. `home` is the application as the
-    /// connection's handshake reached it.
+    /// known there as `doc`, and sends it `DOC_JOINED` and the document: the whole of
+    /// it, or what the connection lacks of the document it `held`
+    /// ([`Self::first_of`]). A connection that is in the room already is in it anew:
+    /// what it knew the room as before is no room of its any more. `home` is the
+    /// application as the connection's handshake reached it.
     ///
     /// # Errors
     ///
@@ -619,8 +622,8 @@ impl Collab {
         connection: &Arc<Connection>,
         home: &App,
         doc: u32,
-        workspace_id: &str,
-        card_id: &str,
+        (workspace_id, card_id): (&str, &str),
+        held: Option<Held>,
     ) -> Result<(), AppError> {
         let limits = &self.inner.rooms;
         // Before anything is asked of the store: a connection that is in as many
@@ -678,11 +681,13 @@ impl Collab {
                 return Err(AppError::not_found("card"));
             }
             let epoch = loaded.epoch;
-            let whole = frame::message(Sync::Missing, &loaded.state);
             let joined = messages::joined(workspace_id, card_id, doc, epoch, admitted.mode);
-            let queued = connection
-                .queue
-                .push([Queued::text(doc, joined), Queued::sync(doc, epoch, &whole)]);
+            let first = self.first_of(&room, &loaded, held.as_ref()).await;
+            let first = first.iter().map(|sync| Queued::sync(doc, epoch, sync));
+            let first: Vec<Queued> = std::iter::once(Queued::text(doc, joined))
+                .chain(first)
+                .collect();
+            let queued = connection.queue.push(first);
             // Counted among the connection's rooms before it is a member: a connection
             // that ended meanwhile is no member of a room nobody would take it out of.
             if queued.is_err() || !connection.join(doc, &room) {
