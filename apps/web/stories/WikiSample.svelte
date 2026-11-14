@@ -14,7 +14,11 @@
 
   import { exampleWorkspace } from './workspace.ts';
 
-  let { empty = false, readOnly = false }: { empty?: boolean; readOnly?: boolean } = $props();
+  let {
+    empty = false,
+    readOnly = false,
+    manager = false,
+  }: { empty?: boolean; readOnly?: boolean; manager?: boolean } = $props();
 
   const example = exampleWorkspace();
   let wiki = $state.raw<WikiStore | undefined>(undefined);
@@ -28,7 +32,11 @@
       title: 'Handbook · 안내서',
       type: 'P',
     });
-    await author.addMember(made.id, 'example-reader', readOnly ? 'viewer' : 'editor');
+    await author.addMember(
+      made.id,
+      'example-reader',
+      readOnly ? 'viewer' : manager ? 'admin' : 'editor',
+    );
     let deepest: string | undefined;
     if (!empty) {
       const welcome = await wikis.createPage(made.id, { title: 'Welcome · 환영', icon: '👋' });
@@ -79,6 +87,8 @@
       onOpenPage={(id: string) => {
         shown = id;
       }}
+      onEditWiki={() => undefined}
+      onDeleteWiki={() => undefined}
     >
       {#snippet missingPage()}
         <p>{m.app_problem_load()}</p>

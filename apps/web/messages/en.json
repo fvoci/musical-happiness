@@ -1242,7 +1242,6 @@
   "wiki_delete_page_title": "Delete this page?",
   "wiki_delete_page_alone": "Are you sure you want to delete the page “{title}”? This cannot be undone.",
   "wiki_delete_page_below": "Are you sure you want to delete the page “{title}”? The pages below it ({count}) will be deleted with it. This cannot be undone.",
-  "wiki_delete_confirm": "Delete",
   "wiki_body_invalid": "This page’s text cannot be shown.",
   "wiki_body_joining": "Opening the page to edit it together…",
   "wiki_body_receiving": "Receiving the page again…",

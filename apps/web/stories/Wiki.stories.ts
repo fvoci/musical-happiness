@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/svelte';
 import { expect, userEvent, waitFor } from 'storybook/test';
 import WikiSample from './WikiSample.svelte';
-import { storyElement } from './interactions.ts';
+import { clickStory, storyElement } from './interactions.ts';
 
 const meta = {
   title: 'Wiki/Pages',
@@ -30,6 +30,13 @@ export const ReadOnly: Story = {
   play: async ({ canvasElement }) => {
     await storyElement(canvasElement, 'h1[data-testid="page-title"]');
     await expect(canvasElement.querySelector('[data-testid="new-page"]')).toBeNull();
+  },
+};
+export const ManagersMenu: Story = {
+  args: { manager: true },
+  play: async ({ canvasElement }) => {
+    await clickStory(canvasElement, '[data-testid="wiki-menu"]');
+    await storyElement(canvasElement, '[data-action="edit-wiki"]');
   },
 };
 export const KeyboardInTheTree: Story = {

@@ -16,12 +16,22 @@
 <script lang="ts">
   import { untrack } from 'svelte';
 
+  import ConfirmDialog from '$lib/components/confirm/ConfirmDialog.svelte';
   import CardBody from '$lib/features/card/CardBody.svelte';
+  import WikiSettingsDialog from '$lib/features/wiki/WikiSettingsDialog.svelte';
   import WikiJoin from '$lib/features/wiki/WikiJoin.svelte';
   import WikiScreen from '$lib/features/wiki/WikiScreen.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
-  import { firstPage } from '$lib/logic/page-tree.ts';
-  import { shownWiki, WikiStore, type PageStore, type Workspace } from '$lib/state/index.ts';
+  import { firstPage, withDescendants } from '$lib/logic/page-tree.ts';
+  import {
+    shownWiki,
+    whileHere,
+    WikiStore,
+    type PageStore,
+    type WikiLooks,
+    type WikiPage,
+    type Workspace,
+  } from '$lib/state/index.ts';
 
   import NotFound from './NotFound.svelte';
   import type { Router } from './router.svelte.ts';
@@ -84,6 +94,25 @@
     wiki?.presence.setCard(pageId);
   });
 
+  /** The page the reader asked to delete, while it is asked whether to. */
+  let deleting = $state.raw<WikiPage | undefined>(undefined);
+  let deleteOpen = $state(false);
+  /** How many pages are below the page to delete: they go with it. */
+  const below = $derived(deleting && wiki ? withDescendants(wiki.pages, deleting.id).size - 1 : 0);
+  let settingsOpen = $state(false);
+  let deleteWikiOpen = $state(false);
+
+  /** Deletes the wiki; the page goes on to the first board or wiki of the sidebar. */
+  async function deleteWiki(store: WikiStore): Promise<void> {
+    const done = await whileHere(workspace, async () => {
+      await workspace.deleteBoard(store.wikiId);
+      return true;
+    });
+    if (!done || workspace.boards.some((left) => left.id === store.wikiId)) return;
+    const next = workspace.sidebar.flatMap((entry) => entry.boards)[0];
+    if (next) router.openBoard(next);
+  }
+
   // The page of the address is the one open; none without one.
   $effect(() => {
     const shown = wiki;
@@ -123,6 +152,16 @@
       notice = undefined;
     }}
     pageHref={(id: string) => router.href({ ...router.route, pageId: id })}
+    onDelete={(page: WikiPage) => {
+      deleting = page;
+      deleteOpen = true;
+    }}
+    onEditWiki={() => {
+      settingsOpen = true;
+    }}
+    onDeleteWiki={() => {
+      deleteWikiOpen = true;
+    }}
     onOpenPage={(id: string) => {
       router.openPage(id);
     }}
@@ -135,4 +174,33 @@
       <CardBody board={wiki} card={page} of="page" testId="page-body" />
     {/snippet}
   </WikiScreen>
+  {@const store = wiki}
+  {@const title = deleting?.title || m.wiki_page_untitled()}
+  <ConfirmDialog
+    bind:open={deleteOpen}
+    title={m.wiki_delete_page_title()}
+    description={below > 0
+      ? m.wiki_delete_page_below({ title, count: below })
+      : m.wiki_delete_page_alone({ title })}
+    confirmLabel={m.shared_delete()}
+    destructive
+    onConfirm={() => {
+      if (deleting) void store.deletePage(deleting.id);
+    }}
+  />
+  {#if store.wiki}
+    <WikiSettingsDialog
+      bind:open={settingsOpen}
+      wiki={store.wiki}
+      onSave={(looks: WikiLooks) => void store.changeWiki(looks)}
+    />
+  {/if}
+  <ConfirmDialog
+    bind:open={deleteWikiOpen}
+    title={m.shell_delete_wiki_title()}
+    description={m.shell_delete_wiki_info({ title: store.wiki?.title || m.wiki_untitled() })}
+    confirmLabel={m['DeleteBoardDialog.confirm-delete']()}
+    destructive
+    onConfirm={() => void deleteWiki(store)}
+  />
 {/if}

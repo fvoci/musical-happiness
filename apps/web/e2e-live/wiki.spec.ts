@@ -222,9 +222,14 @@ test('two people write one page together, see each other on it, and the tree fol
   await expect(treeItem(second, 'Elsewhere')).toBeVisible();
   await hideTree(second);
 
-  // The page is deleted elsewhere: it and the page below it leave the tree, and the
-  // reader on it is told and taken to the first page left.
-  await api.delete(`${inWorkspace}/wikis/${wiki.id}/pages/${welcome}`);
+  // The first deletes the page, asked first and told the page below goes too: it and
+  // the page below it leave the second's tree, and the second is told and moved on.
+  await pageAction(first, 'Welcome', 'delete');
+  const asked = first.getByTestId('confirm-dialog');
+  await expect(asked).toContainText('(1)');
+  await asked.getByRole('button', { name: 'Delete' }).click();
+  await showTree(first);
+  expect(await treeShape(first)).toEqual(['Elsewhere']);
   await expect(second.getByTestId('wiki-notice')).toContainText('Welcome');
   await expect(second).toHaveURL(`/w/${workspaceId}/wikis/${wiki.id}/${other}`);
   await expect(second.getByTestId('page-title')).toHaveValue('Elsewhere');
@@ -233,5 +238,53 @@ test('two people write one page together, see each other on it, and the tree fol
   for (const errors of watched) expect(errors).toEqual([]);
   await first.context().close();
   await second.context().close();
+  await api.dispose();
+});
+
+test('a wiki is renamed and described, deleted from its menu, and restored from the trash', async ({
+  page,
+  baseURL,
+}) => {
+  const base = baseURL ?? '';
+  const owner = person('wiki-keeper');
+  await register(base, owner);
+  const api = await signedIn(base, owner);
+  const { workspaceId } = await makeBoard(api, { title: 'Roadmap' });
+  const inWorkspace = `/api/v1/w/${workspaceId}`;
+  const errors = watchErrors(page);
+  await page.goto('/');
+  await signInOnPage(page, owner);
+  const wikiId = await newWiki(page, 'Handbook');
+  await page.getByTestId('wiki-first-page').click();
+  await nameThePage(page, 'Welcome');
+
+  await showTree(page);
+  await page.getByTestId('wiki-menu').click();
+  await page.locator('[data-action="edit-wiki"]').click();
+  const settings = page.getByTestId('wiki-settings');
+  await settings.getByTestId('wiki-settings-name').fill('Guide');
+  await settings.getByTestId('wiki-settings-description').fill('How we work.');
+  await settings.getByTestId('wiki-settings-save').click();
+  await expect(page.getByTestId('wiki-header-title')).toHaveText('Guide');
+  await expect
+    .poll(async () => {
+      const wikis = (await (await api.get(`${inWorkspace}/wikis`)).json()) as Schemas['Board'][];
+      const found = wikis.find((one) => one.id === wikiId);
+      return [found?.title, found?.description];
+    })
+    .toEqual(['Guide', 'How we work.']);
+
+  await page.getByTestId('wiki-menu').click();
+  await page.locator('[data-action="delete-wiki"]').click();
+  await page.getByTestId('confirm-dialog').getByRole('button', { name: 'Delete' }).click();
+  await expect(wikiScreen(page)).toHaveCount(0);
+  await sidebar(page).getByRole('button', { name: 'Trash' }).click();
+  const item = page.getByTestId('board-trash').locator('li', { hasText: 'Guide' });
+  await expect(item.getByTestId('trash-kind')).toHaveText('wiki');
+  await item.getByRole('button', { name: /^Restore/ }).click();
+  await page.keyboard.press('Escape');
+  await sidebar(page).getByRole('link', { name: 'Guide, wiki' }).click();
+  await expect(page.getByTestId('page-title')).toHaveValue('Welcome');
+  expect(errors).toEqual([]);
   await api.dispose();
 });

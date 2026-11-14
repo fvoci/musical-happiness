@@ -83,7 +83,10 @@ export async function nameThePage(page: Page, title: string): Promise<void> {
 /** Brings the tree into view: nothing to do in a wide pane, the drawer in a narrow one. */
 export async function showTree(page: Page): Promise<void> {
   const opener = page.getByTestId('open-page-tree');
-  if (await opener.isVisible()) await opener.click();
+  // Not when the drawer is out already (the button is behind it then).
+  if ((await opener.isVisible()) && (await opener.getAttribute('aria-expanded')) !== 'true') {
+    await opener.click();
+  }
   await expect(pageTree(page)).toBeVisible();
 }
 

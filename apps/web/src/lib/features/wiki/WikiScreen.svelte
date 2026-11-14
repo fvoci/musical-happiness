@@ -34,6 +34,7 @@
   import { Button } from '$lib/ui/button/index.js';
 
   import PageTree from './PageTree.svelte';
+  import WikiHeader from './WikiHeader.svelte';
   import PageView from './PageView.svelte';
   import { TreeOpen } from './tree-open.svelte.ts';
 
@@ -48,6 +49,10 @@
     body: Snippet<[PageStore]>;
     /** Asks to delete a page; left out where pages are not deleted here. */
     onDelete?: ((page: WikiPage) => void) | undefined;
+    /** Asks to edit the wiki's name, description and icon (its managers'). */
+    onEditWiki: () => void;
+    /** Asks to delete the wiki (its managers'). */
+    onDeleteWiki: () => void;
     /** Something to tell at the head of the page (a page shown was deleted). */
     notice?: string | undefined;
     onDismissNotice?: (() => void) | undefined;
@@ -63,6 +68,8 @@
     missingPage,
     body,
     onDelete,
+    onEditWiki,
+    onDeleteWiki,
     notice,
     onDismissNotice,
     takeFocus = false,
@@ -219,6 +226,7 @@
         </IconButton>
       </div>
     {/if}
+    <WikiHeader {wiki} onEdit={onEditWiki} onDelete={onDeleteWiki} />
     <PageTree
       {wiki}
       currentId={page?.pageId}

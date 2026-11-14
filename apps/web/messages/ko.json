@@ -1242,7 +1242,6 @@
   "wiki_delete_page_title": "페이지 삭제 확인",
   "wiki_delete_page_alone": "“{title}” 페이지를 삭제하시겠습니까? 되돌릴 수 없습니다.",
   "wiki_delete_page_below": "“{title}” 페이지를 삭제하시겠습니까? 아래에 있는 페이지 {count}개도 함께 삭제되며, 되돌릴 수 없습니다.",
-  "wiki_delete_confirm": "삭제",
   "wiki_body_invalid": "이 페이지의 본문은 표시할 수 없습니다.",
   "wiki_body_joining": "함께 고치려고 본문을 여는 중…",
   "wiki_body_receiving": "본문을 다시 받는 중…",
