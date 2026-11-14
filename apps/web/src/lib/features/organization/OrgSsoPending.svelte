@@ -6,9 +6,9 @@
   Settings of another issuer move the organization to another provider, where
   the administrator's identity is usually connected to no account yet. The
   sign-in through them connects it to the administrator's own account only from
-  a session made through the current provider within the last five minutes: the
-  section says until when that holds, or asks to sign in again first, which
-  comes back to this page.
+  a session made through the current provider no more than five minutes before
+  the sign-in comes back: the section says until when that holds, or offers to
+  sign in again first, which comes back to this page.
 -->
 <script lang="ts">
   import { m } from '$lib/i18n/paraglide/messages.js';
@@ -20,8 +20,6 @@
     pending: OidcPendingProvider;
     /** Whether the pending settings are of another issuer than the provider's. */
     moves: boolean;
-    /** When the settings were read, in milliseconds since the epoch. */
-    readAt: number;
     busy: boolean;
     onTry: () => void;
     onDiscard: () => void;
@@ -30,14 +28,13 @@
     /** Omitted in the app: the reader's zone. A fixed zone is useful for examples. */
     timeZone?: string;
   }
-  let { pending, moves, readAt, busy, onTry, onDiscard, onSignInAgain, timeZone }: Props = $props();
+  let { pending, moves, busy, onTry, onDiscard, onSignInAgain, timeZone }: Props = $props();
   const uid = $props.id();
-  /** Until when a trial from this session connects a new identity; undefined when it does not. */
-  const bindsUntil = $derived(
-    pending.bindsIdentityUntil !== null && pending.bindsIdentityUntil > readAt
-      ? pending.bindsIdentityUntil
-      : undefined,
-  );
+  /**
+   * Until when a sign-in through them from this session connects a new identity, as
+   * the server judged by its own clock when it was read; undefined when it does not.
+   */
+  const bindsUntil = $derived(pending.bindsIdentityUntil ?? undefined);
   const until = $derived(
     bindsUntil === undefined
       ? ''

@@ -840,9 +840,10 @@ pub enum OidcRefusal {
     /// The account was deleted, given a password, or its identity unlinked, while
     /// signing in.
     AccountChanged,
-    /// A trial of the pending settings ended in another account than the one of the
-    /// administrator who started it, or that one administers the organization no
-    /// more.
+    /// A trial of the pending settings vouched for somebody who is not the
+    /// administrator who started it (an identity of another account, or one that is
+    /// nobody's where the settings do not move the organization to its issuer), or
+    /// that administrator administers the organization no more.
     NotTheTrier,
     /// A trial of pending settings of another issuer vouched for an identity tied to
     /// no account, and the session it was started from does not show that the trier

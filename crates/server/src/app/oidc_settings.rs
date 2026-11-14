@@ -223,9 +223,11 @@ impl App {
                     client_id: pending.client_id.clone(),
                     has_client_secret: !pending.sealed_client_secret.is_empty(),
                     create_at: pending.create_at,
+                    // Judged by the server's clock: past it, the page is told none.
                     binds_identity_until: (pending.issuer != stored.issuer
                         && sso::proves(session, stored))
-                    .then(|| session.created_at.saturating_add(FRESH_SIGN_IN_MILLIS)),
+                    .then(|| session.created_at.saturating_add(FRESH_SIGN_IN_MILLIS))
+                    .filter(|until| *until > now_millis()),
                 }),
             former: former.map(|former| OidcFormerProvider {
                 issuer: former.issuer.clone(),

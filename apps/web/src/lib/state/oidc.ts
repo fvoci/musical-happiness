@@ -31,10 +31,11 @@ export interface OidcPendingProvider {
   hasClientSecret: boolean;
   createAt: number;
   /**
-   * For settings of another issuer: until when a trial started from this session
-   * also connects an identity there that is nobody's yet to the reader's account
-   * (five minutes after the session was made through the current provider). Null
-   * for a session that was not, and for settings of the same issuer.
+   * For settings of another issuer: until when a sign-in through them from this
+   * session, back by then, also connects an identity there that is nobody's yet to
+   * the reader's account (five minutes after the session was made through the
+   * current provider). Null once that has passed by the server's clock, for a
+   * session that was not made so, and for settings of the same issuer.
    */
   bindsIdentityUntil: number | null;
 }

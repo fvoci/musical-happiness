@@ -7,8 +7,8 @@ use fvoci_model::{AuditAction, AuditRecordActor, OrgRole, Session, User, new_id}
 use std::time::Duration;
 
 use fvoci_store::{
-    AuditPlace, DbType, FormerEnd, FormerProvider, Identity, OidcAccount, Paging, PendingSettings,
-    Removal, Store, StoredProvider, Tenant, Trial, Tried,
+    AuditPlace, DbType, FormerEnd, FormerProvider, Identity, Paging, PendingSettings, Removal,
+    Store, StoredProvider, Tenant, Trial, Tried,
 };
 
 use crate::common;
@@ -423,11 +423,11 @@ async fn a_trial_that_moves_keeps_the_provider_before() {
                     trier_id: &trier.id,
                     keep_former: kept_for,
                 },
-                Tried::Account(OidcAccount::Known {
+                Tried::Known {
                     user_id: &trier.id,
                     password_hash: &trier.password_hash,
                     identity,
-                }),
+                },
                 &mut session,
                 "the digest of the trial's session",
             )

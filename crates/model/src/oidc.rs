@@ -93,11 +93,12 @@ pub struct OidcPendingProvider {
     pub has_client_secret: bool,
     /// When they were saved, in milliseconds since the Unix epoch.
     pub create_at: i64,
-    /// Until when a trial started from the session that asks ties an identity of
-    /// another issuer that is nobody's yet to the administrator's own account, in
-    /// milliseconds since the Unix epoch: five minutes after the session was made
-    /// through the provider as it is stored. `null` for a session that was not, or
-    /// for pending settings of the same issuer, which tie nothing.
+    /// Until when a trial from the session that asks, come back by then, ties an
+    /// identity of another issuer that is nobody's yet to the administrator's own
+    /// account, in milliseconds since the Unix epoch: five minutes after the session
+    /// was made through the provider as it is stored. `null` once that has passed,
+    /// for a session that was not made so, and for pending settings of the same
+    /// issuer, which tie nothing.
     pub binds_identity_until: Option<i64>,
 }
 

@@ -21,7 +21,7 @@ use crate::auth::oidc::provider::IdClaims;
 use crate::auth::secret::token_digest;
 use crate::error::{AppError, Reason};
 
-/// How long before a trial is started its administrator may have signed in through
+/// How long before a trial comes back its administrator may have signed in through
 /// the provider, at the most, for the trial to tie an identity that is nobody's to
 /// their account, in milliseconds: who only holds an older session binds nothing.
 pub(super) const FRESH_SIGN_IN_MILLIS: i64 = 5 * 60 * 1000;
@@ -117,8 +117,8 @@ impl App {
     /// its organization: the identity is tied to the account of the administrator
     /// who started the trial, and the settings applied, if the browser came back
     /// with the session the trial was started from and that session was made through
-    /// the provider as it is no more than [`FRESH_SIGN_IN_MILLIS`] before the trial
-    /// was started. What decides is read where it is stored
+    /// the provider as it is no more than [`FRESH_SIGN_IN_MILLIS`] before this
+    /// moment: the trial is to come back within them. What decides is read where it is stored
     /// (`Store::finish_oidc_trial`). No address is compared: who signed in through
     /// the provider a moment ago is who tries.
     pub(super) async fn bind_by_trial(
@@ -146,7 +146,7 @@ impl App {
                 now,
                 idle_since: now.saturating_sub(self.config().session_idle_millis()),
             },
-            made_since: end.started_at.saturating_sub(FRESH_SIGN_IN_MILLIS),
+            made_since: now.saturating_sub(FRESH_SIGN_IN_MILLIS),
         };
         let applied = self
             .store()

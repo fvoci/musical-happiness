@@ -246,8 +246,8 @@ impl Store {
     /// pending settings move the organization to another issuer and the trial was
     /// started from a session of the trier's that the browser still has, made through
     /// the provider as it is, at its revision, no earlier than
-    /// [`Binding::made_since`]: who only holds a session, and cannot sign in through
-    /// the provider, binds nothing.
+    /// [`Binding::made_since`], a moment before the trial ends: who only holds a
+    /// session, and cannot sign in through the provider, binds nothing.
     ///
     /// Then the pending settings are made the provider's, as a save of them would
     /// (another issuer ends the sessions of the one before, and keeps the provider
@@ -292,14 +292,19 @@ impl Store {
             }
             let subject = tried.identity().subject.to_owned();
             let joined = match tried {
-                Tried::Account(account) => {
-                    let is_the_trier = matches!(
-                        &account,
-                        OidcAccount::Known { user_id, .. } if *user_id == trier_id
-                    );
-                    if !is_the_trier {
+                Tried::Known {
+                    user_id,
+                    password_hash,
+                    identity,
+                } => {
+                    if user_id != trier_id {
                         return Ok(Err(OidcRefusal::NotTheTrier));
                     }
+                    let account = OidcAccount::Known {
+                        user_id,
+                        password_hash,
+                        identity,
+                    };
                     let newcomers = Newcomers::from(&before);
                     match oidc::admit(scope, account, newcomers, session).await? {
                         Ok(joined) => joined,
@@ -307,7 +312,10 @@ impl Store {
                     }
                 }
                 Tried::Unbound(binding) => {
-                    let moving = (&before, &pending);
+                    let moving = Moving {
+                        before: &before,
+                        pending: &pending,
+                    };
                     if let Err(refusal) = bind_to_trier(scope, &binding, trier_id, moving).await? {
                         return Ok(Err(refusal));
                     }
@@ -356,9 +364,16 @@ impl Store {
 /// Who the pending settings vouched for at the end of a trial.
 #[derive(Debug)]
 pub enum Tried<'a> {
-    /// Somebody whose identity is tied to an account already: the trier's, or the
-    /// trial is refused.
-    Account(OidcAccount<'a>),
+    /// Somebody whose identity is tied to an account in use already: the trier's,
+    /// or the trial is refused.
+    Known {
+        /// The account of the identity.
+        user_id: &'a str,
+        /// Its password hash as it was read: empty for an account without one.
+        password_hash: &'a str,
+        /// Who the pending settings vouched for, which must still be the account's.
+        identity: Identity<'a>,
+    },
     /// Somebody whose identity is tied to no account: bound to the trier's by a
     /// trial started from a session made just now, or the trial is refused.
     Unbound(Binding<'a>),
@@ -368,7 +383,7 @@ impl Tried<'_> {
     /// Who the pending settings vouched for.
     fn identity(&self) -> Identity<'_> {
         match self {
-            Self::Account(account) => account.identity(),
+            Self::Known { identity, .. } => *identity,
             Self::Unbound(binding) => binding.identity,
         }
     }
@@ -376,7 +391,7 @@ impl Tried<'_> {
 
 /// An identity to tie to the account of the administrator who tries the pending
 /// settings, and what shows that it is they who try.
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct Binding<'a> {
     /// Who the pending settings vouched for: tied to no account when it was read.
     pub identity: Identity<'a>,
@@ -386,22 +401,39 @@ pub struct Binding<'a> {
     /// The session the trial was started from, as the browser brings it back.
     pub session: LinkingSession<'a>,
     /// The earliest time that session may have been made at, in milliseconds since
-    /// the Unix epoch: a moment before the trial was started.
+    /// the Unix epoch: a moment before the trial comes back.
     pub made_since: i64,
 }
 
+impl std::fmt::Debug for Binding<'_> {
+    /// Leaves out the address and the session.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Binding")
+            .field("issuer", &self.identity.issuer)
+            .field("made_since", &self.made_since)
+            .finish_non_exhaustive()
+    }
+}
+
+/// The provider of an organization and the pending settings that a trial is about to
+/// make its own.
+#[derive(Debug, Clone, Copy)]
+struct Moving<'a> {
+    before: &'a StoredProvider,
+    pending: &'a PendingProvider,
+}
+
 /// Ties the identity of `binding` to the account of the trier, in the trial's
-/// transaction, where `moving` (the provider and its pending settings) moves the
-/// organization to another issuer, the one the identity is of, and the session the
+/// transaction, where `moving` moves the organization to another issuer, the one the identity is of, and the session the
 /// trial was started from shows that the trier signed in through the provider just
 /// now ([`is_made_just_now`]); and records it as the trier's.
 async fn bind_to_trier(
     scope: &mut Scope<'_>,
     binding: &Binding<'_>,
     trier_id: &str,
-    moving: (&StoredProvider, &PendingProvider),
+    moving: Moving<'_>,
 ) -> Result<Result<(), OidcRefusal>, StoreError> {
-    let (before, pending) = moving;
+    let Moving { before, pending } = moving;
     // Settings of the same issuer vouch for the people the provider vouches for
     // already: another of them is another person, not the trier under a new name.
     if pending.issuer == before.issuer || binding.identity.issuer != pending.issuer {

@@ -275,11 +275,12 @@ async fn handle_delete_oidc_former(org: OrgAdmin, body: Bytes) -> ApiResult {
 /// administrator's is at an issuer the organization moves to, is tied to their own
 /// account by the trial, in the transaction that applies the settings and recorded
 /// (`oidc_identity_bound`), only if the trial was started from a session made through
-/// the organization's provider as it is stored no more than five minutes before
-/// (`bindsIdentityUntil` of the pending settings), and the browser comes back with
-/// that session: who only holds a session cannot sign in through the provider again,
-/// and ties nothing. Otherwise it is refused with `oidc_trial_stale`: sign in through
-/// the provider again (`startOidcLogin`) and try within five minutes. Pending
+/// the organization's provider as it is stored, the browser comes back with that
+/// session, and it comes back no more than five minutes after that session was made
+/// (`bindsIdentityUntil` of the pending settings): who only holds a session cannot
+/// sign in through the provider again, and ties nothing. Otherwise it is refused with
+/// `oidc_trial_stale`: sign in through the provider again (`startOidcLogin`) and
+/// finish the trial within five minutes. Pending
 /// settings of the same issuer tie nothing.
 ///
 /// 409 with the reason `oidc_unavailable` if there are no pending settings, the

@@ -470,6 +470,8 @@ async fn another_issuer_is_bound_and_applied_from_a_session_made_just_now() {
     let (ts, org_id, admin) = moving(&fake, &other).await;
     let path = format!("/org/{org_id}/oidc");
     let users_before = ts.app.store().count_rows("users").await.expect("counted");
+    // Four of the five minutes are gone.
+    age(&ts, &admin, 4).await;
     let waiting: OidcProvider = admin.get(&path).await.ok_json();
 
     let tried = try_pending(&ts, &other, &admin, &org_id).await;
@@ -479,9 +481,10 @@ async fn another_issuer_is_bound_and_applied_from_a_session_made_just_now() {
     let until = waiting
         .pending
         .and_then(|pending| pending.binds_identity_until);
+    let minute = 60 * 1000;
     assert!(
-        until.is_some_and(|until| until > now_millis()),
-        "the session was made just now: {until:?}"
+        until.is_some_and(|until| until > now_millis() && until < now_millis() + 2 * minute),
+        "the session was made four minutes ago: {until:?}"
     );
     assert_eq!(
         tried.location,
@@ -551,10 +554,7 @@ async fn an_older_session_binds_nothing_until_the_administrator_signs_in_again()
     let until = waiting
         .pending
         .and_then(|pending| pending.binds_identity_until);
-    assert!(
-        until.is_some_and(|until| until < now_millis()),
-        "the time to bind has passed: {until:?}"
-    );
+    assert_eq!(until, None, "the time to bind has passed");
     assert_eq!((stale.location, stale.token), (refused, None));
     let (bound, still, actions) = after_the_refusals;
     assert_eq!(bound, None, "tied to nobody");

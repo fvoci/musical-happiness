@@ -553,10 +553,10 @@ fn describe_linking_and_enforcing(reason: Reason) -> Option<&'static str> {
         }
         Reason::OidcTrialAccount => {
             "On the organization's page, after a trial of its provider's pending settings \
-             (`startOidcTrial`): the identity the provider vouched for is another \
-             account's than the one of the administrator who started the trial (or of a \
-             deleted account, or tied to none where the settings are of the same issuer), \
-             or that administrator administers the organization no more. Nothing is \
+             (`startOidcTrial`): the identity the provider vouched for is not the \
+             administrator's who started the trial (it is another account's, or a deleted \
+             account's, or tied to none where the settings are of the same issuer and so \
+             tie nothing), or that administrator administers the organization no more. Nothing is \
              changed, no account is made and no identity is tied: settings no \
              administrator signs in through are not put in use."
         }
@@ -565,11 +565,11 @@ fn describe_linking_and_enforcing(reason: Reason) -> Option<&'static str> {
              (`startOidcTrial`) that are of another issuer: the identity that issuer \
              vouched for is tied to no account yet, and the trial ties it to the \
              administrator's own only when it was started from a session made through \
-             the organization's provider, as it is stored, no more than five minutes \
-             before, and the browser came back with that session. Who only holds an \
-             older session, and does not sign in through the provider, ties nothing. \
-             Nothing is changed. Sign in through the organization's provider again \
-             (`startOidcLogin`), and start the trial within five minutes \
+             the organization's provider, as it is stored, and the browser came back \
+             with that session no more than five minutes after it was made. Who only \
+             holds an older session, and does not sign in through the provider, ties \
+             nothing. Nothing is changed. Sign in through the organization's provider \
+             again (`startOidcLogin`), and finish the trial within five minutes \
              (`bindsIdentityUntil` of the pending settings says until when)."
         }
         Reason::OidcCarryOverRefused => {

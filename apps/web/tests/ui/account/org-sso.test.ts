@@ -238,7 +238,8 @@ describe('the SSO settings', () => {
       clientId: 'client',
       hasClientSecret: true,
       createAt: 2,
-      bindsIdentityUntil: Date.now() - 1,
+      // Passed, by the server's clock: it answers none.
+      bindsIdentityUntil: null,
     };
     const { onSignIn, onTry } = mount({ ...enforced, pending: moving });
     expect(await screen.findByTestId('sso-pending-binding')).toHaveTextContent(
@@ -286,7 +287,7 @@ describe('the SSO settings', () => {
   it('says to sign in again when a trial came back too late to connect the identity', async () => {
     history.replaceState(null, '', '/org/o?oidc_pending_error=oidc-trial-stale');
     mount();
-    await screen.findByText(/Sign in through the current provider again, then try/);
+    await screen.findByText(/Sign in through the current provider again, then finish/);
     expect(location.search).toBe('');
   });
 

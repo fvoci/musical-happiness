@@ -131,6 +131,8 @@ struct Asked<'a> {
     session_id: &'a str,
     token_digest: &'a str,
     made_since: i64,
+    /// The session must have been used after this time.
+    idle_since: i64,
 }
 
 async fn try_unbound(
@@ -157,7 +159,7 @@ async fn try_unbound(
             session_id: asked.session_id,
             token_digest: asked.token_digest,
             now: NOW,
-            idle_since: 0,
+            idle_since: asked.idle_since,
         },
         made_since: asked.made_since,
     };
@@ -205,6 +207,7 @@ async fn a_session_made_just_now_binds_the_identity_and_applies_the_settings() {
             session_id: &organization.session_id,
             token_digest: DIGEST,
             made_since: MADE,
+            idle_since: 0,
         },
     )
     .await
@@ -270,6 +273,15 @@ enum Lacking {
     AnothersSession,
     /// The session was made at another revision of the provider.
     AnotherRevision,
+    /// The session was made through another provider's row, at the same revision.
+    AnotherProvider,
+    /// The session was made through a provider of another organization, at the same
+    /// revision.
+    AnotherOrganization,
+    /// The session was not used since before the idle limit.
+    Idle,
+    /// The administrator's account was deleted.
+    AccountDeleted,
     /// The session was made with a password, through no provider.
     NoProvider,
     /// The session ended.
@@ -280,6 +292,37 @@ enum Lacking {
     TiedToAnother,
     /// The identity is of another issuer than the pending settings'.
     AnotherIssuer,
+}
+
+/// Makes what is stored lack `lacking`: the administrator's session, their account,
+/// or their role. Those that are a matter of what the trial is asked with are the
+/// test's to set.
+async fn spoil(store: &Store, organization: &Enforced, lacking: Lacking) {
+    let session = |column: &str| {
+        format!(
+            "UPDATE sessions SET {column} WHERE id = '{}'",
+            organization.session_id
+        )
+    };
+    let admin = &organization.admin.id;
+    let sql = match lacking {
+        Lacking::AnotherRevision => session("login_revision = login_revision + 1"),
+        Lacking::AnotherProvider => session(&format!("login_provider_id = '{}'", new_id())),
+        Lacking::AnotherOrganization => session(&format!("login_org_id = '{}'", new_id())),
+        Lacking::NoProvider => session(
+            "login_provider_id = NULL, login_org_id = NULL, login_issuer = NULL, \
+             login_subject = NULL, login_revision = NULL",
+        ),
+        Lacking::Ended => session(&format!("expires_at = {NOW}")),
+        Lacking::AccountDeleted => format!("UPDATE users SET delete_at = 1 WHERE id = '{admin}'"),
+        Lacking::NoAdministrator => format!(
+            "UPDATE organization_members SET role = '{}' WHERE user_id = '{admin}'",
+            OrgRole::Member.as_str()
+        ),
+        asked_with => panic!("{asked_with:?} is a matter of what the trial is asked with"),
+    };
+    let changed = store.execute_unchecked(&sql).await;
+    assert_eq!(changed.expect("changed"), 1, "{lacking:?}: one row");
 }
 
 /// Each of them refuses, and leaves everything as it was: no identity tied, no
@@ -293,6 +336,10 @@ async fn anything_less_binds_nothing_and_applies_nothing() {
         (Lacking::AnotherSession, NotFresh),
         (Lacking::AnothersSession, NotFresh),
         (Lacking::AnotherRevision, NotFresh),
+        (Lacking::AnotherProvider, NotFresh),
+        (Lacking::AnotherOrganization, NotFresh),
+        (Lacking::Idle, NotFresh),
+        (Lacking::AccountDeleted, NotFresh),
         (Lacking::NoProvider, NotFresh),
         (Lacking::Ended, NotFresh),
         (Lacking::NoAdministrator, NotTheTrier),
@@ -308,12 +355,7 @@ async fn anything_less_binds_nothing_and_applies_nothing() {
             session_id: &organization.session_id,
             token_digest: DIGEST,
             made_since: MADE,
-        };
-        let change = |column: &str| {
-            format!(
-                "UPDATE sessions SET {column} WHERE id = '{}'",
-                organization.session_id
-            )
+            idle_since: 0,
         };
         let other_session = new_id();
         match lacking {
@@ -321,40 +363,19 @@ async fn anything_less_binds_nothing_and_applies_nothing() {
             Lacking::AnotherToken => asked.token_digest = "another digest",
             Lacking::AnotherSession => asked.session_id = &other_session,
             Lacking::AnothersSession => asked.trier_id = &another.id,
-            Lacking::AnotherRevision => {
-                let sql = change("login_revision = login_revision + 1");
-                test.execute_unchecked(&sql).await.expect("changed");
-            }
-            Lacking::NoProvider => {
-                let sql = change(
-                    "login_provider_id = NULL, login_org_id = NULL, login_issuer = NULL, \
-                     login_subject = NULL, login_revision = NULL",
-                );
-                test.execute_unchecked(&sql).await.expect("changed");
-            }
-            Lacking::Ended => {
-                let sql = change(&format!("expires_at = {NOW}"));
-                test.execute_unchecked(&sql).await.expect("changed");
-            }
-            Lacking::NoAdministrator => {
-                let sql = format!(
-                    "UPDATE organization_members SET role = '{}' WHERE user_id = '{}'",
-                    OrgRole::Member.as_str(),
-                    organization.admin.id
-                );
-                test.execute_unchecked(&sql).await.expect("changed");
-            }
-            Lacking::TiedToAnother => {
-                test.add_identity(&another.id, at_two(), "")
-                    .await
-                    .expect("tied");
-            }
+            Lacking::Idle => asked.idle_since = MADE,
             Lacking::AnotherIssuer => {
                 asked.identity = Identity {
                     issuer: "https://elsewhere.example.test",
                     subject: "the administrator elsewhere",
                 };
             }
+            Lacking::TiedToAnother => {
+                test.add_identity(&another.id, at_two(), "")
+                    .await
+                    .expect("tied");
+            }
+            stored => spoil(&test, &organization, stored).await,
         }
         let before = left(&test).await;
 
@@ -391,6 +412,7 @@ async fn settings_of_the_same_issuer_bind_nothing() {
             session_id: &organization.session_id,
             token_digest: DIGEST,
             made_since: MADE,
+            idle_since: 0,
         },
     )
     .await;

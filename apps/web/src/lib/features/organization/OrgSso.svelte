@@ -39,8 +39,6 @@
   let problem = $state('');
   let notice = $state('');
   let confirmRemove = $state(false);
-  /** When the provider shown was read: what it says of this moment is said of then. */
-  let readAt = $state(Date.now());
   const enforced = $derived(provider?.ssoRequired ?? false);
   /** Another issuer or client than the stored one: the server asks for its secret anew. */
   const changed = $derived(
@@ -61,7 +59,6 @@
 
   function accept(value: OidcProvider | undefined): void {
     provider = value;
-    readAt = Date.now();
     issuer = value?.issuer ?? '';
     clientId = value?.clientId ?? '';
     secret = '';
@@ -362,7 +359,6 @@
         <OrgSsoPending
           pending={provider.pending}
           moves={provider.pending.issuer !== provider.issuer}
-          {readAt}
           {busy}
           onTry={() => void tryPending()}
           onDiscard={() => void throwAway()}

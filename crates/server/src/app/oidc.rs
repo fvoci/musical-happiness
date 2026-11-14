@@ -493,7 +493,6 @@ impl App {
             } => Ending::Trial(TrialEnd {
                 pending_at: *pending_at,
                 trier_id: user_id,
-                started_at: flow.create_at,
                 session_id,
                 came_with: callback.session_token.as_deref(),
             }),
@@ -758,16 +757,26 @@ impl App {
                 .finish_oidc_sign_in(&stored.id, stored.revision, account, session, digest)
                 .await?
                 .map(|joined| (joined, None)),
-            Ending::Trial(end) => self
-                .store()
-                .finish_oidc_trial(
-                    self.trial_of(stored, end),
-                    Tried::Account(account),
-                    session,
-                    digest,
-                )
-                .await?
-                .map(|applied| (applied.joined, Some(applied))),
+            Ending::Trial(end) => {
+                // A trial makes no account: one that came to make one is no trier's.
+                let OidcAccount::Known {
+                    user_id,
+                    password_hash,
+                    identity,
+                } = account
+                else {
+                    return Ok(Err(OidcRefusal::NotTheTrier));
+                };
+                let tried = Tried::Known {
+                    user_id,
+                    password_hash,
+                    identity,
+                };
+                self.store()
+                    .finish_oidc_trial(self.trial_of(stored, end), tried, session, digest)
+                    .await?
+                    .map(|applied| (applied.joined, Some(applied)))
+            }
         })
     }
 }
@@ -855,18 +864,26 @@ pub(super) enum Ending<'a> {
 }
 
 /// The end of a trial of the pending settings, as the sign-in that came back names it.
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub(super) struct TrialEnd<'a> {
     /// When the pending settings were saved.
     pub(super) pending_at: i64,
     /// The administrator who started it.
     pub(super) trier_id: &'a str,
-    /// When it was started, in milliseconds since the Unix epoch.
-    pub(super) started_at: i64,
     /// The session it was started from; empty for none.
     pub(super) session_id: &'a str,
     /// The token of the session cookie the browser came back with, if it has one.
     pub(super) came_with: Option<&'a str>,
+}
+
+impl std::fmt::Debug for TrialEnd<'_> {
+    /// Leaves out the token.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TrialEnd")
+            .field("pending_at", &self.pending_at)
+            .field("trier_id", &self.trier_id)
+            .finish_non_exhaustive()
+    }
 }
 
 /// The provider as a trial signs in through it: with the pending settings' issuer,
@@ -884,7 +901,7 @@ pub(super) fn refused(refusal: OidcRefusal, stored: &StoredProvider) -> LoginFai
         }
         OidcRefusal::JoinClosed => Reason::OidcJoinClosed.into(),
         OidcRefusal::NotTheTrier => {
-            tracing::info!(org_id = %stored.org_id, "a trial of pending settings ended in another account than its administrator's");
+            tracing::info!(org_id = %stored.org_id, "a trial of pending settings vouched for somebody who is not its administrator, or who administers the organization no more");
             Reason::OidcTrialAccount.into()
         }
         OidcRefusal::NotFresh => {
