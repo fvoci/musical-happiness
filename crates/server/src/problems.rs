@@ -196,14 +196,6 @@ fn describe_reason(reason: Reason) -> &'static str {
         Reason::EmailTaken => {
             "Status 409. Another user has the email address. `errors` names `/email`."
         }
-        Reason::EmailUnverified => {
-            "Status 403 from a login whose password is right, on a server that asks a \
-             registration to confirm its email address (`email_verification`): the \
-             registration has not been confirmed, and there is no account until the link \
-             mailed to the address confirms it, within seven days. \
-             `requestEmailVerification` with the same name or address mails a new link. A \
-             wrong password is answered as for no account."
-        }
         Reason::LastAdmin => {
             "Status 409. The change would leave the board, the workspace or the server \
              without an administrator. Make somebody else one first."
@@ -239,6 +231,7 @@ fn describe_reason(reason: Reason) -> &'static str {
         | Reason::OidcIdentityTaken
         | Reason::OidcEmailMismatch
         | Reason::OidcTrialAccount
+        | Reason::EmailUnverified
         | Reason::PasswordNotSet
         | Reason::LastSignIn
         | Reason::SsoRequired
@@ -485,6 +478,13 @@ fn describe_rooms(reason: Reason) -> &'static str {
 /// The descriptions of the reasons of signing in through a provider.
 fn describe_sign_in(reason: Reason) -> Option<&'static str> {
     Some(match reason {
+        Reason::EmailUnverified => {
+            "Status 403 from a login whose password is right, on a server that asks a \
+             registration to confirm its email address (`email_verification`): the \
+             registration has not been confirmed, and there is no account until the link \
+             mailed to the address confirms it, within seven days. A wrong password is \
+             answered as for no account."
+        }
         Reason::SecretKeyRequired => {
             "Status 409. The server seals the client secret of a provider with its key, \
              `FVOCI_SECRET_KEY`, and has none: a provider cannot be stored until the server is \

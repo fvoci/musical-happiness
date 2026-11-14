@@ -26,9 +26,9 @@ impl App {
     }
 
     /// Stores the registration of somebody who signs up, to be confirmed by the link
-    /// mailed to its address, and mails that link in the background: nothing is made
-    /// of it until then. `language` is the language of the screen it came from. The
-    /// caller has tidied and checked the request, as for [`App::sign_up`].
+    /// mailed to its address, and mails that link in the background, in the language of
+    /// the screen it came from: nothing is made of it until then. The caller has tidied
+    /// and checked the request, as for [`App::sign_up`].
     ///
     /// # Errors
     ///
@@ -37,7 +37,6 @@ impl App {
     pub async fn sign_up_to_confirm(
         &self,
         request: &RegisterRequest,
-        language: &str,
         address: Option<IpAddr>,
     ) -> Result<(), AppError> {
         let _attempt = self.admit_registration(address)?;
@@ -49,7 +48,7 @@ impl App {
             email: user.email,
             display_name: user.display_name,
             password_hash: user.password_hash,
-            language: Language::written_in(language)
+            language: Language::written_in(&request.language)
                 .map(Language::tag)
                 .unwrap_or_default()
                 .to_owned(),
@@ -83,17 +82,34 @@ impl App {
             }
         };
         let language = Language::first_of([Language::written_in(&signup.language), requested]);
+        // The digest of the link the message carries, once it is written: a retry is
+        // sent only while that link still confirms the registration.
+        let digest = std::sync::Mutex::new(String::new());
         let delivered = queued
             .deliver(
                 &self.inner.mail,
                 || async {
-                    let link = self.renew_signup_link(&signup.id).await?;
+                    let token = new_secret();
+                    let link = self.renew_signup_link(&signup.id, &token).await?;
+                    *digest
+                        .lock()
+                        .expect("the link's digest is never held across a panic") =
+                        token_digest(&token);
                     Ok::<_, AppError>(Letter {
                         to: signup.email.clone(),
-                        content: Content::verification(&link, language),
+                        content: Content::verification(&link, &signup.username, language),
                     })
                 },
-                || async { Ok(true) },
+                || async {
+                    let digest = digest
+                        .lock()
+                        .expect("the link's digest is never held across a panic")
+                        .clone();
+                    Ok(self
+                        .store()
+                        .signup_link_stands(&signup.id, &digest, now_millis())
+                        .await?)
+                },
             )
             .await;
         match delivered {
@@ -106,12 +122,11 @@ impl App {
         }
     }
 
-    /// A new link for the registration, made as its message has its turn.
-    async fn renew_signup_link(&self, signup_id: &str) -> Result<String, AppError> {
-        let token = new_secret();
+    /// A new link for the registration, of `token`, made as its message has its turn.
+    async fn renew_signup_link(&self, signup_id: &str, token: &str) -> Result<String, AppError> {
         let renewed = self
             .store()
-            .renew_signup_link(signup_id, &token_digest(&token), now_millis())
+            .renew_signup_link(signup_id, &token_digest(token), now_millis())
             .await?;
         if !renewed {
             return Err(AppError::not_found("registration"));
@@ -195,6 +210,18 @@ impl App {
                 return Err(AppError::invitation_required());
             }
             confirmed = self.store().confirm_signup(proof, Founding::New, now).await;
+        } else if confirmed.as_ref().is_ok_and(Option::is_some)
+            && !self.config().takes_several_organizations()
+        {
+            // The first user is in: no other registration of its own can start anything
+            // on this server, and their names and addresses are free for invitations.
+            let removed = self.store().remove_founding_signups().await?;
+            if removed > 0 {
+                tracing::info!(
+                    removed,
+                    "registrations that could start nothing were removed"
+                );
+            }
         }
         let confirmed = confirmed.map_err(account_error)?;
         if let Some(confirmed) = &confirmed {

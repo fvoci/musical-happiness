@@ -86,14 +86,8 @@ impl App {
         // One answer for an unknown user, for a wrong password and for an account that
         // has no password (one made through a provider), after the same work.
         let Some(user) = user.filter(|user| !user.password_hash.is_empty()) else {
-            // A registration whose address is not confirmed yet is told so to who knows
-            // its password, and to nobody else.
             if let Some(signup) = signup {
-                if self.verify(&signup.password_hash, password).await? == Verdict::Mismatch {
-                    attempt.failed(Instant::now());
-                    return Err(incorrect_login());
-                }
-                return Err(email_unverified());
+                return Err(self.refuse_unconfirmed(&signup, password, attempt).await);
             }
             let password = password.to_owned();
             self.password_work(move || verify_against_no_account(&password))
@@ -155,6 +149,25 @@ impl App {
             self.store_current_hash(&user, password).await;
         }
         Ok(token)
+    }
+
+    /// The refusal of a login that names a registration whose address is not confirmed
+    /// yet: told so to who knows its password, and to nobody else, after the work of
+    /// any login.
+    async fn refuse_unconfirmed(
+        &self,
+        signup: &fvoci_store::Signup,
+        password: &str,
+        attempt: crate::auth::limiter::Attempt,
+    ) -> AppError {
+        match self.verify(&signup.password_hash, password).await {
+            Ok(Verdict::Mismatch) => {
+                attempt.failed(Instant::now());
+                incorrect_login()
+            }
+            Ok(_) => email_unverified(),
+            Err(error) => error,
+        }
     }
 
     /// Stores a session under its token if the user's password hash is still

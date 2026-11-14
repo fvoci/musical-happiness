@@ -4287,7 +4287,7 @@
     },
     "/api/v1/login": {
       "post": {
-        "description": "Starts a session for the user with the given name, or, if no user has that name,\nwith the given email address. The session comes in the `Set-Cookie` header and\nnowhere else.\n\nWrong credentials are 401 with the reason `invalid_credentials`, whatever was wrong\nabout them, a missing password too. Attempts are counted at the name and at the\nemail address the request gives, each for itself, and by where they come from; too\nmany are 429. What is counted does not depend on whether there is such an account.",
+        "description": "Starts a session for the user with the given name, or, if no user has that name,\nwith the given email address. The session comes in the `Set-Cookie` header and\nnowhere else.\n\nWrong credentials are 401 with the reason `invalid_credentials`, whatever was wrong\nabout them, a missing password too. Attempts are counted at the name and at the\nemail address the request gives, each for itself, and by where they come from; too\nmany are 429. What is counted does not depend on whether there is such an account.\n\nOn a server that asks for the email address of a registration to be confirmed\n(`emailVerification` of `getLoginOptions`), the right password of a registration\nthat is not confirmed yet is 403 with the reason `email_unverified`, and opens no\nsession; a wrong one is the 401 of no account.",
         "operationId": "login",
         "requestBody": {
           "content": {

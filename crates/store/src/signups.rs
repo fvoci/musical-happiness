@@ -5,7 +5,7 @@
 use fvoci_model::User;
 
 use crate::accounts::{self, Founding};
-use crate::db::{Dialect, Id, Row, Scope};
+use crate::db::{Dialect, Id, Row, Scope, Sql};
 use crate::error::{StoreError, Taken};
 use crate::{Store, users};
 
@@ -56,7 +56,7 @@ impl std::fmt::Debug for Signup {
 impl Signup {
     /// The account it becomes, not stored yet.
     #[must_use]
-    pub fn account(&self) -> User {
+    pub fn to_account(&self) -> User {
         User {
             id: self.id.clone(),
             username: self.username.clone(),
@@ -121,7 +121,9 @@ impl Store {
         self.transaction(async |scope| {
             remove_ended(scope, now).await?;
             claim_account_names(scope).await?;
-            if let Some(taken) = account_has_names(scope, &signup.username, &signup.email).await? {
+            if let Some(taken) =
+                holder_of_names(scope, Holders::Accounts, &signup.username, &signup.email).await?
+            {
                 return Err(StoreError::Conflict(taken));
             }
             insert(scope, signup).await
@@ -218,7 +220,7 @@ impl Store {
                 if !take(scope, &signup.id, proof, now).await? {
                     return Ok(None);
                 }
-                let mut user = signup.account();
+                let mut user = signup.to_account();
                 let workspace_id = accounts::found(scope, &mut user, name, founding, place).await?;
                 Ok(Some(Confirmed {
                     user,
@@ -241,6 +243,43 @@ impl Store {
                 return Ok(false);
             };
             take(scope, &signup.id, proof, now).await
+        })
+        .await
+    }
+
+    /// Whether the link of the registration `signup_id` is still the one of `digest`,
+    /// and confirms it at `now`: a newer mail, or a confirmation, ends it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn signup_link_stands(
+        &self,
+        signup_id: &str,
+        digest: &str,
+        now: i64,
+    ) -> Result<bool, StoreError> {
+        self.with_conn(async |scope| {
+            let mut sql = scope.sql("SELECT 1 FROM signups WHERE id = ");
+            sql.bind(Id(signup_id)).push(" AND ");
+            push_proof(&mut sql, Proof::Link(digest), now);
+            sql.push_bind(" AND expires_at > ", now);
+            Ok(scope.fetch_optional(sql).await?.is_some())
+        })
+        .await
+    }
+
+    /// Removes every registration that would start an organization: on a server of one
+    /// organization once it has its first user, none of them can, and their names and
+    /// addresses are free again. Returns how many went.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the statement fails.
+    pub async fn remove_founding_signups(&self) -> Result<u64, StoreError> {
+        self.with_conn(async |scope| {
+            let sql = scope.sql("DELETE FROM signups WHERE organization_name IS NOT NULL");
+            scope.execute(sql).await
         })
         .await
     }
@@ -278,42 +317,49 @@ pub(crate) async fn claim_account_names(scope: &mut Scope<'_>) -> Result<(), Sto
     Ok(())
 }
 
-/// Which of the name and the address a registration that has not ended holds, in any
-/// letter case: for an account that is to be made.
+/// Which of the name and the address a registration that has not ended by `now`
+/// holds, in any letter case: for an account that is to be made.
 pub(crate) async fn signup_has_names(
     scope: &mut Scope<'_>,
     username: &str,
     email: &str,
+    now: i64,
 ) -> Result<Option<Taken>, StoreError> {
-    let mut sql = scope.sql("SELECT lower(username) = lower(");
-    sql.bind(username)
-        .push(") FROM signups WHERE (lower(username) = lower(")
-        .bind(username)
-        .push(") OR lower(email) = lower(")
-        .bind(email)
-        .push_bind(")) AND expires_at > ", crate::db::now_millis())
-        .push(" ORDER BY 1 DESC");
-    Ok(match scope.fetch_optional(sql).await? {
-        Some(row) if row.bool(0)? => Some(Taken::Username),
-        Some(_) => Some(Taken::Email),
-        None => None,
-    })
+    holder_of_names(scope, Holders::Signups { live_at: now }, username, email).await
 }
 
-/// Which of the name and the address an account, deleted or not, holds, in any
-/// letter case: for a registration that is to be made.
-async fn account_has_names(
+/// Who holds account names besides the table a new row goes into.
+#[derive(Debug, Clone, Copy)]
+enum Holders {
+    /// The accounts, deleted or not.
+    Accounts,
+    /// The registrations that have not ended at `live_at`.
+    Signups { live_at: i64 },
+}
+
+/// Which of the name and the address `holders` hold, in any letter case; the name
+/// first where one holds each.
+async fn holder_of_names(
     scope: &mut Scope<'_>,
+    holders: Holders,
     username: &str,
     email: &str,
 ) -> Result<Option<Taken>, StoreError> {
+    let table = match holders {
+        Holders::Accounts => "users",
+        Holders::Signups { .. } => "signups",
+    };
     let mut sql = scope.sql("SELECT lower(username) = lower(");
     sql.bind(username)
-        .push(") FROM users WHERE lower(username) = lower(")
+        .push(&format!(") FROM {table} WHERE (lower(username) = lower("))
         .bind(username)
         .push(") OR lower(email) = lower(")
         .bind(email)
-        .push(") ORDER BY 1 DESC");
+        .push("))");
+    if let Holders::Signups { live_at } = holders {
+        sql.push_bind(" AND expires_at > ", live_at);
+    }
+    sql.push(" ORDER BY 1 DESC");
     Ok(match scope.fetch_optional(sql).await? {
         Some(row) if row.bool(0)? => Some(Taken::Username),
         Some(_) => Some(Taken::Email),
@@ -373,7 +419,7 @@ async fn take(
     Ok(scope.execute(sql).await? == 1)
 }
 
-fn push_proof(sql: &mut crate::db::Sql, proof: Proof<'_>, now: i64) {
+fn push_proof(sql: &mut Sql, proof: Proof<'_>, now: i64) {
     match proof {
         Proof::Link(digest) => {
             sql.push_bind("token_hash = ", digest)

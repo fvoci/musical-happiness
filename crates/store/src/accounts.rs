@@ -205,11 +205,11 @@ pub(crate) async fn insert_account(
     user: &mut User,
     role: InstanceRole,
 ) -> Result<(), StoreError> {
+    let now = now_millis();
     signups::claim_account_names(scope).await?;
-    if let Some(taken) = signups::signup_has_names(scope, &user.username, &user.email).await? {
+    if let Some(taken) = signups::signup_has_names(scope, &user.username, &user.email, now).await? {
         return Err(StoreError::Conflict(taken));
     }
-    let now = now_millis();
     user.create_at = now;
     user.update_at = now;
     user.delete_at = 0;

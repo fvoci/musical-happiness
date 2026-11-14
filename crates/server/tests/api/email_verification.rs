@@ -283,7 +283,7 @@ async fn confirm(th: &TestServer, message: &Received) -> crate::common::ApiRespo
 }
 
 #[tokio::test]
-async fn a_second_registration_of_a_server_of_one_organization_is_refused_when_confirmed() {
+async fn a_server_of_one_organization_drops_the_other_registrations_once_it_has_its_first_user() {
     let smtp = FakeSmtp::start_on(0).await;
     let th = verifying(&smtp).await;
     for username in ["gina", "hugo"] {
@@ -302,10 +302,8 @@ async fn a_second_registration_of_a_server_of_one_organization_is_refused_when_c
     confirm(&th, of("hugo@example.test"))
         .await
         .check_status(StatusCode::OK);
-    let refused = confirm(&th, of("gina@example.test")).await;
-    refused.check_status(StatusCode::FORBIDDEN);
-    assert_eq!(refused.error_reason(), "invitation_required");
-    // The registration went with it: its name is free, and its link confirms nothing.
+    // Gina's registration can start nothing now: it went with Hugo's confirmation, and
+    // her name and address are free for an invitation.
     assert!(
         th.app
             .store()

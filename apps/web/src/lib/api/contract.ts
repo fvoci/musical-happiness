@@ -251,6 +251,11 @@ export interface paths {
          *     about them, a missing password too. Attempts are counted at the name and at the
          *     email address the request gives, each for itself, and by where they come from; too
          *     many are 429. What is counted does not depend on whether there is such an account.
+         *
+         *     On a server that asks for the email address of a registration to be confirmed
+         *     (`emailVerification` of `getLoginOptions`), the right password of a registration
+         *     that is not confirmed yet is 403 with the reason `email_unverified`, and opens no
+         *     session; a wrong one is the 401 of no account.
          */
         post: operations["login"];
         delete?: never;
