@@ -20,6 +20,11 @@
     pending: OidcPendingProvider;
     /** Whether the pending settings are of another issuer than the provider's. */
     moves: boolean;
+    /**
+     * Whether the reader's session came through this provider (as it is now or as
+     * it was): signing in again then leads back into the same account.
+     */
+    throughProvider: boolean;
     busy: boolean;
     onTry: () => void;
     onDiscard: () => void;
@@ -28,7 +33,8 @@
     /** Omitted in the app: the reader's zone. A fixed zone is useful for examples. */
     timeZone?: string;
   }
-  let { pending, moves, busy, onTry, onDiscard, onSignInAgain, timeZone }: Props = $props();
+  let { pending, moves, throughProvider, busy, onTry, onDiscard, onSignInAgain, timeZone }: Props =
+    $props();
   const uid = $props.id();
   /**
    * Until when a sign-in through them from this session connects a new identity, as
@@ -65,7 +71,7 @@
     </p>
   {/if}
   <div class="flex flex-wrap gap-2">
-    {#if signInFirst}
+    {#if signInFirst && throughProvider}
       <Button
         size="sm"
         disabled={busy}
@@ -75,7 +81,7 @@
     {/if}
     <Button
       size="sm"
-      variant={signInFirst ? 'outline' : 'default'}
+      variant={signInFirst && throughProvider ? 'outline' : 'default'}
       disabled={busy}
       data-testid="sso-pending-try"
       onclick={onTry}>{m.org_sso_pending_try()}</Button

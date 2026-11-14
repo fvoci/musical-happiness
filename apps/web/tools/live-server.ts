@@ -179,6 +179,11 @@ async function startProvider(onPort: number, certificate: string): Promise<Child
 /** The certificates of both providers in one file: what the server trusts. */
 const certificates = path.join(data, 'fake-oidc.pem');
 const providers: ChildProcess[] = [];
+// Before either is started: one that does not start ends this process, and the
+// other with it.
+process.on('exit', () => {
+  for (const provider of providers) provider.kill('SIGKILL');
+});
 if (!organizations) {
   const own = [path.join(data, 'fake-oidc-1.pem'), path.join(data, 'fake-oidc-2.pem')] as const;
   providers.push(await startProvider(oidcPort, own[0]));
@@ -263,6 +268,5 @@ process.on('SIGTERM', end);
 process.on('SIGINT', end);
 process.on('exit', () => {
   server.kill('SIGKILL');
-  for (const provider of providers) provider.kill('SIGKILL');
   smtp.kill('SIGKILL');
 });

@@ -362,7 +362,6 @@ impl Store {
 }
 
 /// Who the pending settings vouched for at the end of a trial.
-#[derive(Debug)]
 pub enum Tried<'a> {
     /// Somebody whose identity is tied to an account in use already: the trier's,
     /// or the trial is refused.
@@ -377,6 +376,22 @@ pub enum Tried<'a> {
     /// Somebody whose identity is tied to no account: bound to the trier's by a
     /// trial started from a session made just now, or the trial is refused.
     Unbound(Binding<'a>),
+}
+
+impl std::fmt::Debug for Tried<'_> {
+    /// Leaves out the password hash, and what [`Binding`] leaves out.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Known {
+                user_id, identity, ..
+            } => f
+                .debug_struct("Known")
+                .field("user_id", user_id)
+                .field("issuer", &identity.issuer)
+                .finish_non_exhaustive(),
+            Self::Unbound(binding) => f.debug_tuple("Unbound").field(binding).finish(),
+        }
+    }
 }
 
 impl Tried<'_> {

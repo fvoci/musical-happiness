@@ -252,6 +252,21 @@ describe('the SSO settings', () => {
     expect(screen.getByTestId('sso-pending-try')).toBeInTheDocument();
   });
 
+  it('offers no sign-in again to a session that did not come through the provider', async () => {
+    // The requirement released, settings of another issuer still aside, a password session.
+    const moving = {
+      issuer: 'https://next.example.test',
+      clientId: 'client',
+      hasClientSecret: true,
+      createAt: 2,
+      bindsIdentityUntil: null,
+    };
+    mount({ ...provider, pending: moving });
+    await screen.findByTestId('sso-pending-binding');
+    expect(screen.queryByTestId('sso-pending-sign-in-again')).not.toBeInTheDocument();
+    expect(screen.getByTestId('sso-pending-try')).toBeInTheDocument();
+  });
+
   it('says until when trying settings of another issuer connects the new identity', async () => {
     const enforced = { ...provider, canRequireSso: true, ssoRequired: true };
     const until = Date.now() + 4 * 60 * 1000;

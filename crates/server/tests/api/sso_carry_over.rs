@@ -311,10 +311,16 @@ async fn nothing_is_carried_over_without_the_browsers_own_held_sign_in() {
     forged.set_cookie("fvoci_oidc_held", "a secret of the browser's own making");
     let forged_held = forged.carry_over(&org_id).await;
     let no_organization = holder.post("/auth/oidc/held/carry-over").await;
+    // An organization that is not there is told as nothing held is, to the holder too.
+    let elsewhere = fvoci_model::new_id();
+    let unknown_organization = holder
+        .to_provider(&format!("/auth/oidc/held/carry-over?org={elsewhere}"))
+        .await;
 
     let refused = Err("oidc_carry_over_refused".to_owned());
     assert_eq!(nothing_held, refused);
     assert_eq!(forged_held, refused);
+    assert_eq!(unknown_organization, refused);
     assert_eq!(no_organization.status(), StatusCode::BAD_REQUEST);
     assert_eq!(
         (

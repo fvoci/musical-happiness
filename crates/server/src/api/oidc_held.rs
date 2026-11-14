@@ -63,7 +63,8 @@ fn held_of(
 ///
 /// 409 with the reason `oidc_carry_over_refused` if no sign-in of the organization is
 /// held for this browser (none, ended after ten minutes, taken already, or held for
-/// another browser), or the organization keeps no former provider any more; the same
+/// another browser), the organization keeps no former provider any more, or `org`
+/// names no organization that is signed in to; the same
 /// reason comes back on the login page (`oidc_error`) when the return carried nothing
 /// over. 409 with `oidc_unavailable` if the former provider cannot be reached; 429
 /// when this address made too many sign-ins of late.
@@ -122,7 +123,8 @@ async fn handle_start_carry_over(
 /// as a first sign-in through the provider does: an account is made for who the
 /// provider vouched for, a member of the organization, if the organization lets
 /// newcomers in and no account has their email address; the session comes in the
-/// `Set-Cookie` header. The held sign-in is taken by this, whatever comes of it, and
+/// `Set-Cookie` header. An identity that was tied to an account meanwhile (carried
+/// over from another browser) signs in to that account, as any sign-in would. The held sign-in is taken by this, whatever comes of it, and
 /// its cookie cleared.
 ///
 /// 409 with the reason `oidc_carry_over_refused` if no sign-in of the organization is
@@ -140,7 +142,7 @@ async fn handle_start_carry_over(
     responses(
         (
             status = 204,
-            description = "Signed in to a new account.",
+            description = "Signed in: to a new account, or to the account the held identity was tied to meanwhile.",
             headers(("Set-Cookie" = String, description = "The session cookie, and the cookie of the held sign-in cleared.")),
         ),
         (

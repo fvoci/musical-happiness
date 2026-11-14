@@ -230,8 +230,11 @@ pub(super) fn started_response(app: &App, started: StartedLogin) -> Response {
 /// own, and the browser goes to the login page with `oidc_held=1`, which asks whether
 /// the person had an account: `startOidcCarryOver` if they had, `finishHeldOidcLogin`
 /// if not. A sign-in through the former provider, which `startOidcCarryOver` starts,
-/// comes back here too: it sets a session only by carrying the held sign-in over,
-/// and otherwise goes to the login page with `oidc_carry_over_refused`.
+/// comes back here too: it sets a session only by carrying the held sign-in over.
+/// Where nothing is carried over it goes to the login page with
+/// `oidc_carry_over_refused`, and where the sign-in itself failed (refused by the
+/// former provider, its token not taken, not this browser's) with that reason, as
+/// any sign-in does.
 #[utoipa::path(
     get,
     path = "/auth/oidc/callback/{orgId}",

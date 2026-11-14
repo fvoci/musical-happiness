@@ -251,9 +251,11 @@ impl App {
             .await
             .map_err(|error| AppError::from(error).context("reading the organization"))?
         {
-            return Err(unavailable());
+            return Err(start.nothing_to_start());
         }
-        let org = self.enter_org_for_sign_in(org_id).ok_or_else(unavailable)?;
+        let org = self
+            .enter_org_for_sign_in(org_id)
+            .ok_or_else(|| start.nothing_to_start())?;
         let (stored, purpose) = org
             .provider_to_start(start)
             .await
@@ -303,7 +305,15 @@ impl App {
                 purpose,
             })
             .await
-            .map_err(|error| AppError::from(error).context("storing a sign-in"))?;
+            .map_err(|error| {
+                // What it was to go through went a moment ago: the pending settings,
+                // the held sign-in, or the provider itself.
+                if error.is_not_found() {
+                    start.nothing_to_start()
+                } else {
+                    AppError::from(error).context("storing a sign-in")
+                }
+            })?;
         Ok(StartedLogin {
             authorization_url: url.into(),
             browser_secret,

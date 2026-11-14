@@ -359,6 +359,7 @@
         <OrgSsoPending
           pending={provider.pending}
           moves={provider.pending.issuer !== provider.issuer}
+          throughProvider={enforced || provider.canRequireSso}
           {busy}
           onTry={() => void tryPending()}
           onDiscard={() => void throwAway()}

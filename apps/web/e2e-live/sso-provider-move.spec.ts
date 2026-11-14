@@ -13,10 +13,12 @@
  * account is made, the sign-in page asks whether they had one, and by their
  * previous sign-in they come in to the account they had, with its board.
  *
- * It runs with the other tests that close the organization to passwords, after
- * them by its name (`playwright.live.config.ts`): the operator's release at its
- * end is one more record of the organization. It takes the provider and the
- * rule away again, whatever came of it.
+ * It runs with the other tests that close the organization to passwords
+ * (`playwright.live.config.ts`), and by its name after `sso-operator.spec.ts`,
+ * which finds the operator's release among the records by its words and expects
+ * one: the release at the end of this test is one more. It takes the provider
+ * and the rule away again, whatever came of it; the member's account, and the
+ * sessions it made older, stay on the server, where no other test reads them.
  */
 import { expect, test, type Browser, type BrowserContext } from '@playwright/test';
 
