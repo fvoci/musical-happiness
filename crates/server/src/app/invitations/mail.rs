@@ -4,7 +4,9 @@ use std::collections::BTreeSet;
 
 use fvoci_model::{Invitation, InvitationMail, WorkspaceRole};
 
-use super::super::mail::{Content, Delivered, InvitationRefusal, Language, Letter, Queued};
+use super::super::mail::{
+    Content, Delivered, InvitationRefusal, Language, Letter, Organizations, Queued,
+};
 use super::{App, Inviting};
 use crate::auth::{now_millis, secret::token_digest};
 use crate::error::{AppError, Reason};
@@ -66,6 +68,7 @@ impl App {
                 "invitation mail outside an organization",
             ));
         };
+        let organizations = self.organizations().await?;
         let queued = self
             .inner
             .mail
@@ -73,6 +76,7 @@ impl App {
                 workspace_id,
                 &org,
                 self.limits().invitation_mail_per_hour,
+                organizations,
                 count,
             )
             .map_err(|refused| match refused {
@@ -110,6 +114,22 @@ impl App {
             }
         });
         Ok(())
+    }
+
+    /// Whether the server holds one organization or several, as the invitation queue
+    /// shares itself: one when it takes in no others (`org_creation`, and SQLite), or
+    /// when one only is in use.
+    async fn organizations(&self) -> Result<Organizations, AppError> {
+        if !self.config().takes_several_organizations() {
+            return Ok(Organizations::One);
+        }
+        // What a login page shows without a name: the only organization in use, if
+        // there is one only.
+        Ok(if self.store().login_organization(None).await?.is_some() {
+            Organizations::One
+        } else {
+            Organizations::Several
+        })
     }
 
     async fn invitation_for_mail(

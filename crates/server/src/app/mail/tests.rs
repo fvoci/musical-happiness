@@ -109,7 +109,7 @@ fn reset(mailer: &Mailer, account: &str) -> Queued {
 
 fn invitation(mailer: &Mailer) -> Queued {
     mailer
-        .queue_invitations("workspace", "org", 300, 1)
+        .queue_invitations("workspace", "org", 300, Organizations::Several, 1)
         .expect("a place")
         .pop()
         .expect("one")
@@ -319,30 +319,35 @@ async fn recovery_keeps_the_pace_while_invitations_wait_and_another_backs_off() 
 }
 
 #[test]
-fn an_organization_holds_half_of_the_invitation_queue_within_its_own_hour() {
+fn an_organization_holds_its_share_of_the_invitation_queue_within_its_own_hour() {
     let fake = Fake::new(&[Outcome::Sent]);
     let mailer = mailer_with(
         &fake,
         Metrics::none(),
         SmtpSettings {
             mail_invitation_queue: 6,
+            invitation_mail_recipients: 3,
             ..SmtpSettings::default()
         },
     );
     let held = mailer
-        .queue_invitations("w1", "a", 300, 3)
+        .queue_invitations("w1", "a", 300, Organizations::Several, 3)
         .expect("half of the queue");
     assert_eq!(held.len(), 3);
     assert_eq!(
-        mailer.queue_invitations("w2", "a", 300, 1).err(),
+        mailer
+            .queue_invitations("w2", "a", 300, Organizations::Several, 1)
+            .err(),
         Some(InvitationRefusal::OrgShareFull),
         "another workspace of the same organization counts in its share"
     );
     let other = mailer
-        .queue_invitations("w3", "b", 300, 3)
+        .queue_invitations("w3", "b", 300, Organizations::Several, 3)
         .expect("another organization has its own half");
     assert_eq!(
-        mailer.queue_invitations("w4", "c", 1, 1).err(),
+        mailer
+            .queue_invitations("w4", "c", 1, Organizations::Several, 1)
+            .err(),
         Some(InvitationRefusal::QueueFull)
     );
     assert_eq!(
@@ -352,25 +357,31 @@ fn an_organization_holds_half_of_the_invitation_queue_within_its_own_hour() {
     );
     drop(other);
     mailer
-        .queue_invitations("w4", "c", 1, 1)
+        .queue_invitations("w4", "c", 1, Organizations::Several, 1)
         .expect("the refusal took nothing of c's hour");
     drop(held);
     assert!(matches!(
-        mailer.queue_invitations("w5", "d", 2, 3).err(),
+        mailer
+            .queue_invitations("w5", "d", 2, Organizations::Several, 3)
+            .err(),
         Some(InvitationRefusal::OrgHourlyLimit(_))
     ));
     mailer
-        .queue_invitations("w5", "d", 3, 3)
+        .queue_invitations("w5", "d", 3, Organizations::Several, 3)
         .expect("the organization's own limit");
     assert!(
         matches!(
-            mailer.queue_invitations("w6", "d", 3, 1).err(),
+            mailer
+                .queue_invitations("w6", "d", 3, Organizations::Several, 1)
+                .err(),
             Some(InvitationRefusal::OrgHourlyLimit(_))
         ),
         "the hour counts every workspace of the organization"
     );
     assert!(
-        mailer.queue_invitations("w6", "e", 300, 1).is_ok(),
+        mailer
+            .queue_invitations("w6", "e", 300, Organizations::Several, 1)
+            .is_ok(),
         "nothing of the refusals was kept"
     );
 }
@@ -390,7 +401,7 @@ async fn invitations_never_take_the_last_sending_and_one_organization_takes_two(
     let mut sending = Vec::new();
     for (org, count) in [("a", 3), ("b", 1), ("c", 1)] {
         for (n, queued) in mailer
-            .queue_invitations(org, org, 300, count)
+            .queue_invitations(org, org, 300, Organizations::Several, count)
             .expect("places")
             .into_iter()
             .enumerate()
@@ -430,7 +441,7 @@ async fn an_invitation_waiting_for_a_sending_takes_no_turn_it_could_use_in_a_pau
     let mut waiting = Vec::new();
     for org in ["a", "b", "c"] {
         let mut queued = mailer
-            .queue_invitations(org, org, 300, 2)
+            .queue_invitations(org, org, 300, Organizations::Several, 2)
             .expect("places")
             .into_iter();
         let first = queued.next().expect("one");
@@ -605,4 +616,50 @@ async fn a_refusal_without_a_reply_of_the_way_leaves_it_closed() {
         .await
         .expect("refused");
     assert_eq!(path_down(&metrics), 1, "nothing was read of the way");
+}
+
+#[test]
+fn three_busy_organizations_leave_a_fourth_room_and_one_alone_takes_all() {
+    let fake = Fake::new(&[Outcome::Sent]);
+    let mailer = mailer_of(&fake, Metrics::none());
+    // A workspace a request, so that only the shares and the queue say no.
+    let request = std::sync::atomic::AtomicU32::new(0);
+    let queue = |org: &str, organizations, messages| {
+        let n = request.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        mailer.queue_invitations(&format!("w{n}"), org, 1000, organizations, messages)
+    };
+    let fill = |org: &str| {
+        let mut held = Vec::new();
+        loop {
+            match queue(org, Organizations::Several, 20) {
+                Ok(places) => held.extend(places),
+                Err(refusal) => {
+                    assert_eq!(refusal, InvitationRefusal::OrgShareFull, "{org}");
+                    return held;
+                }
+            }
+        }
+    };
+    // The default queue of 200 and requests of 20: half of what the others leave.
+    let first = fill("a");
+    let second = fill("b");
+    let third = fill("c");
+    assert_eq!((first.len(), second.len(), third.len()), (100, 40, 20));
+    let fourth = queue("d", Organizations::Several, 20).expect("a fourth organization finds room");
+    let fifth = queue("e", Organizations::Several, 20).expect("and a fifth, the last room");
+    assert_eq!(
+        queue("f", Organizations::Several, 1).err(),
+        Some(InvitationRefusal::QueueFull)
+    );
+    drop((first, second, third, fourth, fifth));
+
+    let alone: Vec<Queued> = (0..10)
+        .flat_map(|_| queue("a", Organizations::One, 20).expect("the whole queue"))
+        .collect();
+    assert_eq!(alone.len(), 200);
+    assert_eq!(
+        queue("a", Organizations::One, 1).err(),
+        Some(InvitationRefusal::QueueFull),
+        "the queue, not a share of it"
+    );
 }

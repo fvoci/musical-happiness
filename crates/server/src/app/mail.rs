@@ -24,6 +24,7 @@ use crate::metrics::{MailFailure, MailKind, Metrics, ResetMailDrop};
 
 pub(super) use content::{Content, Language};
 use outbound::{Outbound, Outcome, Outgoing};
+pub(super) use share::Organizations;
 
 /// At most four messages are being sent at once; HTTP requests never wait for them.
 const CONNECTIONS: usize = 4;
@@ -50,7 +51,7 @@ pub(super) enum InvitationRefusal {
     WorkspaceHourlyLimit(Duration),
     /// The organization queued its hourly limit; the oldest of those leave after this.
     OrgHourlyLimit(Duration),
-    /// The organization holds half of the invitation queue.
+    /// The organization holds its share of the invitation queue.
     OrgShareFull,
     /// The invitation queue holds as many messages as it may.
     QueueFull,
@@ -146,7 +147,10 @@ impl Mailer {
             workspace_quota: Arc::default(),
             workspace_per_hour: settings.invitation_mail_per_hour,
             org_quota: Arc::default(),
-            org_shares: Arc::new(share::OrgShares::new(settings.mail_invitation_queue / 2)),
+            org_shares: Arc::new(share::OrgShares::new(
+                settings.mail_invitation_queue,
+                settings.invitation_mail_recipients,
+            )),
             reset_quota: Arc::default(),
             reset_per_hour: settings.mail_reset_per_account_hour,
             pace: Arc::new(pace::Pace::new(settings.mail_per_second)),
@@ -179,14 +183,16 @@ impl Mailer {
     /// Takes the places of all `messages` of one invitation request of the workspace
     /// `workspace_id` in the organization `org_id`, or none of them. In this order, the
     /// workspace's hourly limit, the organization's (`org_per_hour`), the
-    /// organization's half of the queue and the queue must each take them all: a
-    /// workspace or an organization past its hour is told when to come back even while
-    /// the queue is full, and one organization never holds the whole queue.
+    /// organization's share of the queue among the server's `organizations` and the
+    /// queue must each take them all: a workspace or an organization past its hour is
+    /// told when to come back even while the queue is full, and an organization of
+    /// several never holds so much that one more finds no room.
     pub(super) fn queue_invitations(
         &self,
         workspace_id: &str,
         org_id: &str,
         org_per_hour: u32,
+        organizations: Organizations,
         messages: u32,
     ) -> Result<Vec<Queued>, InvitationRefusal> {
         let now = Instant::now();
@@ -197,7 +203,7 @@ impl Mailer {
                     .take(org_id, messages, org_per_hour, now, || {
                         let orgs = self
                             .org_shares
-                            .take(org_id, messages)
+                            .take(org_id, messages, organizations)
                             .ok_or(InvitationRefusal::OrgShareFull)?;
                         let places = Arc::clone(&self.invitation_queue)
                             .try_acquire_many_owned(messages)

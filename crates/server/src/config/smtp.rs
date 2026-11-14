@@ -68,7 +68,8 @@ pub struct SmtpSettings {
     /// The most invitation messages one workspace queues in an hour (429 beyond).
     pub invitation_mail_per_hour: u32,
     /// The most invitation messages one organization queues in an hour (429 beyond),
-    /// until organizations have limits of their own (`App::limits`).
+    /// until organizations have limits of their own (`App::limits`); at least
+    /// `invitation_mail_per_hour`.
     pub invitation_mail_per_org_hour: u32,
 }
 
@@ -177,6 +178,15 @@ impl SmtpSettings {
                 bail!("{key} ({limit}) must be at least invitation_mail_recipients ({recipients})");
             }
         }
+        // A workspace is in an organization: its hour above the organization's would
+        // be a limit nobody reaches, and the organization's the one that holds.
+        if self.invitation_mail_per_org_hour < self.invitation_mail_per_hour {
+            bail!(
+                "invitation_mail_per_org_hour ({}) must be at least invitation_mail_per_hour ({})",
+                self.invitation_mail_per_org_hour,
+                self.invitation_mail_per_hour
+            );
+        }
         if self.smtp_user.is_empty() != self.smtp_password.is_empty() {
             bail!("smtp_user and smtp_password must be supplied together");
         }
@@ -231,6 +241,7 @@ mod tests {
             ("mail_invitation_queue", 39),
             ("invitation_mail_per_hour", 19),
             ("invitation_mail_per_org_hour", 19),
+            ("invitation_mail_per_org_hour", 99),
         ] {
             for host in ["", "smtp.example.test"] {
                 let mut json = serde_json::json!({"smtp_host": host});

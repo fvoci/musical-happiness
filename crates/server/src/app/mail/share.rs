@@ -1,21 +1,37 @@
-//! What one organization may hold of the invitation mail: at most half of its queue,
-//! and two of the three sendings invitations may use, so that another organization's
-//! invitations are taken and go out whatever one organization queued.
+//! What one organization may hold of the invitation mail. Alone on its server, all of
+//! the queue and of the sendings invitations may use. Among several, a fair share: at
+//! most half of what the others leave of the queue (so that with `k` organizations
+//! waiting each settles at a `k + 1`-th of it, and one more always finds room), never
+//! less than one request; and two of the three sendings, so that another
+//! organization's invitations are taken and go out whatever one organization queued.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use tokio::sync::Semaphore;
 
-/// How many messages one organization sends at once, of the invitations' sendings:
-/// one is always left for the others.
+/// How many messages one organization of several sends at once, of the invitations'
+/// sendings: one is always left for the others.
 pub(super) const SENDING_PER_ORG: usize = super::INVITATION_CONNECTIONS - 1;
+
+/// How many organizations the server holds, which decides what one may hold.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Organizations {
+    /// One (SQLite, or a server with one organization in use): it has no share but the
+    /// whole queue, which says when it is full, and every sending of invitations.
+    One,
+    /// Several: each holds its fair share.
+    Several,
+}
 
 /// The invitation messages each organization holds in the queue, kept in memory.
 #[derive(Debug)]
 pub(super) struct OrgShares {
-    /// The most messages one organization holds: half of `mail_invitation_queue`.
-    most: u32,
+    /// `mail_invitation_queue`.
+    queue: u32,
+    /// The least an organization of several may hold: one request's recipients
+    /// (`invitation_mail_recipients`).
+    least: u32,
     held: Mutex<HashMap<Arc<str>, Held>>,
 }
 
@@ -36,10 +52,12 @@ pub(super) struct OrgPlace {
 }
 
 impl OrgShares {
-    /// Shares of which one organization holds at most `most` messages.
-    pub(super) fn new(most: u32) -> Self {
+    /// Shares of a queue of `queue` messages, of which an organization of several holds
+    /// at least `least`.
+    pub(super) fn new(queue: u32, least: u32) -> Self {
         Self {
-            most,
+            queue,
+            least,
             held: Mutex::new(HashMap::new()),
         }
     }
@@ -50,17 +68,36 @@ impl OrgShares {
             .expect("the organizations' mail shares are never held across a panic")
     }
 
-    /// Takes the parts of `messages` for `org`, or `None` if they would pass its share.
-    pub(super) fn take(self: &Arc<Self>, org: &str, messages: u32) -> Option<Vec<OrgPlace>> {
+    /// Takes the parts of `messages` for `org`, or `None` if they would pass what it
+    /// may hold among `organizations`. Whether the queue itself has room is the
+    /// queue's to say.
+    pub(super) fn take(
+        self: &Arc<Self>,
+        org: &str,
+        messages: u32,
+        organizations: Organizations,
+    ) -> Option<Vec<OrgPlace>> {
         let mut held = self.held();
+        let others: u32 = held
+            .iter()
+            .filter(|(key, _)| key.as_ref() != org)
+            .map(|(_, other)| other.messages)
+            .sum();
+        let (most, sendings) = match organizations {
+            Organizations::One => (u32::MAX, super::INVITATION_CONNECTIONS),
+            Organizations::Several => (
+                self.least.max(self.queue.saturating_sub(others) / 2),
+                SENDING_PER_ORG,
+            ),
+        };
         let org: Arc<str> = held
             .get_key_value(org)
             .map_or_else(|| Arc::from(org), |(key, _)| Arc::clone(key));
         let entry = held.entry(Arc::clone(&org)).or_insert_with(|| Held {
             messages: 0,
-            sending: Arc::new(Semaphore::new(SENDING_PER_ORG)),
+            sending: Arc::new(Semaphore::new(sendings)),
         });
-        if entry.messages.saturating_add(messages) > self.most {
+        if entry.messages.saturating_add(messages) > most {
             if entry.messages == 0 {
                 held.remove(&org);
             }
@@ -106,21 +143,50 @@ mod tests {
     use super::*;
 
     #[test]
-    fn an_organization_holds_its_share_and_another_its_own() {
-        let shares = Arc::new(OrgShares::new(3));
-        let first = shares.take("a", 2).expect("within the share");
-        assert!(shares.take("a", 2).is_none(), "past the share of a");
-        let other = shares.take("b", 3).expect("b has a share of its own");
+    fn an_organization_of_several_holds_half_of_what_the_others_leave() {
+        let shares = Arc::new(OrgShares::new(12, 2));
+        let first = shares
+            .take("a", 6, Organizations::Several)
+            .expect("half of the queue");
+        assert!(
+            shares.take("a", 1, Organizations::Several).is_none(),
+            "past a's"
+        );
+        let other = shares
+            .take("b", 3, Organizations::Several)
+            .expect("half of what a leaves");
+        assert!(shares.take("b", 1, Organizations::Several).is_none());
+        let third = shares
+            .take("c", 2, Organizations::Several)
+            .expect("never less than one request");
+        assert!(!Arc::ptr_eq(&first[0].sending, &other[0].sending));
         drop(first);
-        let again = shares.take("a", 3).expect("given back as they leave");
+        let again = shares
+            .take("a", 3, Organizations::Several)
+            .expect("given back as they leave");
         assert!(Arc::ptr_eq(&again[0].sending, &again[2].sending));
-        assert!(!Arc::ptr_eq(&again[0].sending, &other[0].sending));
-        drop((again, other));
+        drop((again, other, third));
         assert!(
             shares.held().is_empty(),
             "nothing is kept of who holds nothing"
         );
-        assert!(shares.take("c", 4).is_none());
+        assert!(shares.take("c", 7, Organizations::Several).is_none());
         assert!(shares.held().is_empty(), "nor of a refusal");
+    }
+
+    #[test]
+    fn an_organization_alone_holds_the_whole_queue_and_every_sending() {
+        let shares = Arc::new(OrgShares::new(12, 2));
+        let all = shares
+            .take("a", 12, Organizations::One)
+            .expect("the whole queue");
+        assert_eq!(
+            all[0].sending.available_permits(),
+            super::super::INVITATION_CONNECTIONS
+        );
+        assert!(
+            shares.take("a", 1, Organizations::One).is_some(),
+            "the queue, not a share, says when it is full"
+        );
     }
 }
