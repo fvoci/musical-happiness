@@ -49,9 +49,17 @@ export class Carets {
     this.#soon();
   };
 
-  /** The reader's own state was set (by the editor, or renewed by the library). */
-  readonly #changed = (_changes: unknown, origin: unknown): void => {
+  /**
+   * The reader's own state was set (by the editor, or renewed by the
+   * library): told. Another's is gone: which telling of it was the last is
+   * forgotten with it (the library keeps that for good; a room gives every
+   * seat that comes in a number of its own).
+   */
+  readonly #changed = ({ removed }: { removed: number[] }, origin: unknown): void => {
     if (origin === 'local') this.#soon();
+    for (const client of removed) {
+      if (client !== this.awareness.clientID) this.awareness.meta.delete(client);
+    }
   };
 
   /** Tells the room once the wait since the last telling is over; what was set meanwhile goes as one. */

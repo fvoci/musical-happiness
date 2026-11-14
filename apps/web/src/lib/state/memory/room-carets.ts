@@ -135,14 +135,21 @@ export class MemoryCarets<Seat, Room extends { seats: Set<Seat> }> {
     }
   }
 
-  /** Another tab's room told a caret of one of its seats. */
+  /**
+   * Another tab's room told a caret of one of its seats. A number that is no
+   * room's (not past 2^32: it could be a reader's own in their document) is
+   * not passed on.
+   */
   fromTab(room: Room, told: ToldCaret): void {
     const { tabs } = this.#of(room);
-    const known = tabs.get(told.number);
-    if (known && known.clock >= told.clock) return;
     const { number, clock, state } = told;
+    const known = tabs.get(number);
+    if (!Number.isSafeInteger(number) || number <= 2 ** 32 || (known && known.clock >= clock)) {
+      return;
+    }
+    // One that is gone is kept only as far as its clock, against an older word of it.
     tabs.set(number, { number, clock, state, heard: Date.now() });
-    this.#spread(room, undefined, told);
+    this.#spread(room, undefined, { number, clock, state });
   }
 
   /** The room's document was made anew: every caret was a place in the one before. */

@@ -177,6 +177,29 @@ describe("the others' carets in the editor", () => {
     at.held.destroy();
   });
 
+  it('draws no caret whose place is in something deleted, or not there yet, and goes on', async () => {
+    const at = shared();
+    const container = mount(at);
+    tell(at, { number: 41, clock: 1, userId: 'ada' }, 5);
+    await vi.waitFor(() => {
+      expect(caretsIn(container)).toHaveLength(1);
+    });
+    // The line the caret is in is deleted by somebody: the caret stays told, with no place.
+    at.doc.getXmlFragment(BODY_FIELD).delete(0, 1);
+    await vi.waitFor(() => {
+      expect(editorIn(container).state.doc.firstChild?.textContent).toBe('Second line');
+    });
+    expect(caretsIn(container).every((caret) => caret.isConnected)).toBe(true);
+    // A caret at an item this reader has not been sent yet is not drawn, and breaks nothing.
+    const notYet = { type: null, tname: null, item: { client: 987_654, clock: 3 }, assoc: 0 };
+    at.held.take(caretTold(42, 1, caretState('kim', { anchor: notYet, head: notYet })));
+    tell(at, { number: 41, clock: 2, userId: 'ada' }, 0);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(caretsIn(container).some((caret) => caret.dataset.user === 'kim')).toBe(false);
+    expect(editorIn(container).state.doc.textContent).toBe('Second line');
+    at.held.destroy();
+  });
+
   it('shows a name that became known after its caret was drawn', async () => {
     const at = shared();
     const names: Record<string, string> = {};

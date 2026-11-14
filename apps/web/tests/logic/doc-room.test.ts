@@ -504,10 +504,55 @@ describe('receiving the document again', () => {
       type: 'frame',
       frame: { doc: 2, epoch: 9, sync: STEP_1, payload: new Uint8Array([0]) },
     });
+    // What follows a state vector is a difference, and one for another document than the one
+    // held is no document: it is not taken for the whole, which is asked for, naming nothing.
     away.take({ type: 'frame', frame: { doc: 2, epoch: 9, sync: STEP_2, payload: WHOLE } });
-    expect(away.of('fresh')).toHaveLength(1);
+    expect(away.of('fresh')).toEqual([]);
     expect(away.of('answer')).toEqual([]);
+    expect(away.of('join')).toEqual([{ type: 'join', held: undefined }]);
+    away.take({
+      type: 'message',
+      message: { action: 'DOC_JOINED', doc: 3, epoch: 9, mode: 'write' },
+    });
+    away.take({ type: 'frame', frame: { doc: 3, epoch: 9, sync: STEP_2, payload: WHOLE } });
+    expect(away.of('fresh')).toHaveLength(1);
     expect(away.of('discarded')).toHaveLength(1);
+
+    // The same for a document given up after it was named (a change too large to send, found
+    // while an older join's answer was still on its way): the difference is not the document.
+    const gave = new Harness();
+    gave.joined(1, 7);
+    gave.take({ type: 'down' });
+    gave.write();
+    gave.take({ type: 'up' });
+    gave.take({
+      type: 'message',
+      message: { action: 'DOC_JOINED', doc: 2, epoch: 7, mode: 'write' },
+    });
+    gave.take({
+      type: 'frame',
+      frame: { doc: 2, epoch: 7, sync: STEP_1, payload: new Uint8Array([0]) },
+    });
+    gave.take({ type: 'frame', frame: { doc: 2, epoch: 7, sync: STEP_2, payload: WHOLE } });
+    // What the server lacks is larger than it takes: the document is given up, joined anew.
+    gave.take({ type: 'missing', update: update(2000) });
+    expect(gave.take({ type: 'timer', timer: 'flush' })).toContainEqual({
+      type: 'join',
+      held: undefined,
+    });
+    // The answer of a join that named the document comes first: not taken for the whole.
+    gave.take({
+      type: 'message',
+      message: { action: 'DOC_JOINED', doc: 3, epoch: 7, mode: 'write' },
+    });
+    gave.take({
+      type: 'frame',
+      frame: { doc: 3, epoch: 7, sync: STEP_1, payload: new Uint8Array([0]) },
+    });
+    gave.take({ type: 'frame', frame: { doc: 3, epoch: 7, sync: STEP_2, payload: WHOLE } });
+    expect(gave.of('fresh')).toEqual([]);
+    expect(gave.of('apply')).toEqual([]);
+    expect(gave.room.status.phase).not.toBe('joined');
   });
 
   it('a dropped connection with the document made anew meanwhile: the change written is said lost', () => {

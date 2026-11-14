@@ -148,3 +148,17 @@ export function packUpdates(
   close();
   return payloads;
 }
+
+/**
+ * The updates before the first that alone is over `limit`, as payloads
+ * (`packUpdates`), and whether there was such a one.
+ */
+export function packFitting(
+  updates: readonly Uint8Array[],
+  limit: number,
+  merge: (updates: Uint8Array[]) => Uint8Array,
+): { payloads: Uint8Array[]; tooLarge: boolean } {
+  const over = updates.findIndex((update) => update.length > limit);
+  const fits = over === -1 ? updates : updates.slice(0, over);
+  return { payloads: packUpdates(fits, limit, merge) ?? [], tooLarge: over !== -1 };
+}

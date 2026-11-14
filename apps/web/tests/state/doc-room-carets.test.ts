@@ -11,11 +11,19 @@ import * as Y from 'yjs';
 
 import type { BodyDoc, BodyDocHears } from '$lib/state/backend.ts';
 import { HELD_IDLE } from '$lib/state/doc-client.ts';
+import { tabKey } from '$lib/state/memory/room-docs.ts';
 import { FIELD } from '$lib/state/memory/rooms.ts';
 
 import { setup } from './support.ts';
 
 const hears = (): BodyDocHears => ({ state: () => undefined, discarded: () => undefined });
+
+/** What makes the rooms of two tabs one, for a card of a world as it was seeded (`tabKey`). */
+function tabOf(stored: ReturnType<typeof setup>['world'], cardId: string): string {
+  const card = stored.blocks.get(cardId);
+  if (card?.type !== 'card') throw new Error('no such card');
+  return tabKey(card, cardId, 1);
+}
 
 function world(): ReturnType<typeof setup> & { boardId: string; cardId: string } {
   const made = setup();
@@ -228,6 +236,52 @@ describe('the carets of the rooms in memory', () => {
     mine.close();
     theirs.close();
   }, 15_000);
+
+  it('passes on from another tab only a caret under a number of the rooms', async () => {
+    const { world: stored, backend, boardId, cardId } = world();
+    const channel = `caret-test-${crypto.randomUUID()}`;
+    stored.shareRooms = channel;
+    const mine = backend.openDoc('w', boardId, cardId, hears());
+    const a = await caretsOf(mine);
+    // What another tab's rooms would say of this room: the same card, made the same way.
+    const other = world();
+    other.world.shareRooms = channel;
+    const theirs = other.backend.openDoc('w', boardId, cardId, hears());
+    const b = await caretsOf(theirs);
+    show(b);
+    await vi.waitFor(() => {
+      expect(others(a.awareness)).toHaveLength(1);
+    });
+    const [number] = [...a.awareness.getStates().keys()].filter(
+      (client) => client !== a.awareness.clientID,
+    );
+    expect(number).toBeGreaterThan(2 ** 32);
+    // A page of the same origin saying a caret under this reader's own number: not passed on.
+    const said = new BroadcastChannel(channel);
+    const own = a.awareness.clientID;
+    const before = JSON.stringify(a.awareness.getLocalState());
+    said.postMessage({
+      kind: 'caret',
+      cardId,
+      tab: tabOf(stored, cardId),
+      caret: { number: own, clock: 99, state: '{"user":{"id":"x"},"cursor":null}' },
+    });
+    // One under a number of a room is: the word of the channel is heard.
+    const state = '{"user":{"id":"x"},"cursor":null}';
+    said.postMessage({
+      kind: 'caret',
+      cardId,
+      tab: tabOf(stored, cardId),
+      caret: { number: 2 ** 40 + 5, clock: 1, state },
+    });
+    await vi.waitFor(() => {
+      expect(a.awareness.getStates().has(2 ** 40 + 5)).toBe(true);
+    });
+    expect(JSON.stringify(a.awareness.getLocalState())).toBe(before);
+    said.close();
+    mine.close();
+    theirs.close();
+  });
 
   it('tells a tab that opens the card later the caret of a tab that has it open', async () => {
     const first = world();

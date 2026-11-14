@@ -20,7 +20,7 @@ pub(super) struct Queued {
 }
 
 /// What a message is.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub(super) enum What {
     /// A JSON message.
     Text(String),
@@ -34,6 +34,19 @@ pub(super) enum What {
         number: u64,
         update: Bytes,
     },
+}
+
+impl std::fmt::Debug for What {
+    /// What it is and how large, never what it says: a body, or where somebody's
+    /// caret is, is written nowhere, be it by a log line of what waits.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let (kind, bytes) = match self {
+            Self::Text(text) => ("Text", text.len()),
+            Self::Sync { message, .. } => ("Sync", message.len()),
+            Self::Caret { update, .. } => ("Caret", update.len()),
+        };
+        f.debug_struct(kind).field("bytes", &bytes).finish()
+    }
 }
 
 impl Queued {
@@ -247,26 +260,29 @@ impl Queue {
 
     /// Queues what is told of the caret `number` of the room `doc`, an awareness
     /// update of the document of `epoch`, in place of what waits of the same caret:
-    /// of each caret only the last telling waits, however often it moved. Not queued
-    /// for a connection that ended, or for which half of what may wait waits already:
-    /// a caret is said again, nobody is put out of a room for one, and carets alone
-    /// never fill what the room needs to send of its document. What waited of the
-    /// caret is dropped all the same: it is no longer there.
+    /// of each caret only the last telling waits, however often it moved: a later one
+    /// takes the place of the one that waits, a withdrawal too. A telling of a caret
+    /// none waits of is not queued for a connection that ended, or for which half of
+    /// what may wait waits already: a caret is said again, nobody is put out of a
+    /// room for one, and carets alone never fill what the room needs to send of its
+    /// document.
     pub(super) fn push_caret(&self, doc: u32, epoch: i64, number: u64, update: &Bytes) {
         {
             let mut waiting = self.waiting();
             if waiting.closed {
                 return;
             }
-            let told = waiting
-                .messages
-                .iter()
-                .position(|queued| queued.tells_caret(doc, number));
-            if let Some(before) = told.and_then(|at| waiting.messages.remove(at)) {
-                waiting.bytes = waiting.bytes.saturating_sub(before.bytes());
-            }
             let told = Queued::caret(doc, epoch, number, update);
-            if !waiting.push_caret(self.capacity, told) {
+            let waits = waiting
+                .messages
+                .iter_mut()
+                .find(|queued| queued.tells_caret(doc, number));
+            if let Some(before) = waits {
+                // In its place, whatever waits: one telling for another adds none.
+                let bytes = (before.bytes(), told.bytes());
+                *before = told;
+                waiting.bytes = waiting.bytes.saturating_sub(bytes.0) + bytes.1;
+            } else if !waiting.push_caret(self.capacity, told) {
                 return;
             }
         }
@@ -539,7 +555,8 @@ mod tests {
         tell(&queue, 1, 1, 7, 1);
         tell(&queue, 1, 1, 8, 1);
         tell(&queue, 2, 1, 7, 1);
-        // The caret 7 of the room 1 moved twice more; carets take no fifth place of
+        // The caret 7 of the room 1 moved twice more, also with half the room taken:
+        // the last telling waits where the first did. Carets take no fifth place of
         // the eight, with what else waits.
         tell(&queue, 1, 1, 7, 2);
         tell(&queue, 1, 1, 7, 3);
@@ -549,11 +566,11 @@ mod tests {
         assert_eq!(
             sent[1..],
             [
+                caret_frame(1, 1, 3),
                 caret_frame(1, 1, 1),
-                caret_frame(2, 1, 1),
-                caret_frame(1, 1, 3)
+                caret_frame(2, 1, 1)
             ],
-            "the caret 8, the other room's 7, and the last of the caret 7; not the caret 9"
+            "the last of the caret 7, the caret 8 and the other room's 7; not the caret 9"
         );
         // What the room sends of its document has room after as many carets as may wait.
         for number in 0..8 {

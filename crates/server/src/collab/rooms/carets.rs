@@ -12,7 +12,6 @@
 //! A member an immediate check holds is told nothing of the carets, and once the
 //! check keeps them, where every caret is now and which went meanwhile.
 
-use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use bytes::Bytes;
@@ -32,10 +31,16 @@ const TOLD_FOR: Duration = Duration::from_secs(30);
 /// rest they let go by themselves ([`TOLD_FOR`]).
 const MOST_MISSED: usize = 64;
 
-/// The numbers of the carets come after this: past what the client of a Y document
-/// has for a number (32 bits), so that none is the number a receiver's own editor
-/// holds its own state under.
-pub(super) const NUMBERS_AFTER: u64 = 1 << 32;
+/// A number for a caret: drawn at random, so that it says nothing of how many carets
+/// the server has told (in whatever room or organization), among 2^52 past what the
+/// client of a Y document has for a number (32 bits): none is the number a receiver's
+/// own editor holds its own state under, two of one room are not the same but by a
+/// chance nobody meets, and a browser counts with it.
+fn number() -> u64 {
+    let mut bytes = [0; 8];
+    getrandom::fill(&mut bytes).expect("the operating system supplies random bytes");
+    (u64::from_le_bytes(bytes) >> 12) | (1 << 32)
+}
 
 /// The caret of a member.
 #[derive(Debug)]
@@ -47,19 +52,28 @@ pub(super) struct Caret {
 }
 
 /// One telling of a caret: the number the others know the caret under, the server's
-/// and of no other caret of any room, and which telling of it this is. A later one
-/// takes an earlier one's place.
+/// ([`number`]), and which telling of it this is. A later one takes an earlier one's
+/// place.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct Telling {
     number: u64,
     clock: u64,
 }
 
-#[derive(Debug)]
 struct Shown {
     /// The awareness state the others are told ([`caret::state_of`]).
     state: String,
     heard: Instant,
+}
+
+impl std::fmt::Debug for Shown {
+    /// Without where the caret is: nothing of a caret is written anywhere, be it by
+    /// a log line of what holds it.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Shown")
+            .field("heard", &self.heard)
+            .finish_non_exhaustive()
+    }
 }
 
 /// The carets that went while a check held a member: the telling that said so of each.
@@ -209,7 +223,7 @@ impl Collab {
         epoch: i64,
         update: Bytes,
     ) {
-        let Some(said) = caret::said(&update) else {
+        let Some(said) = caret::said(update) else {
             tracing::debug!(doc, "websocket: a caret frame that names no caret");
             return;
         };
@@ -225,12 +239,7 @@ impl Collab {
             return;
         }
         match said {
-            Said::Shown(cursor) => {
-                let numbered = &self.inner.rooms.carets_numbered;
-                turn.show_caret(index, &cursor, || {
-                    NUMBERS_AFTER + numbered.fetch_add(1, Ordering::Relaxed) + 1
-                });
-            }
+            Said::Shown(cursor) => turn.show_caret(index, &cursor, number),
             Said::Withdrawn => turn.withdraw_caret(index),
         }
     }
@@ -271,7 +280,7 @@ mod tests {
         let state = r#"{"cursor":{"anchor":{"tname":"default"},"head":{"tname":"default"}}}"#;
         let mut update = vec![1, 1, 1, u8::try_from(state.len()).expect("a short state")];
         update.extend_from_slice(state.as_bytes());
-        match caret::said(&Bytes::from(update)) {
+        match caret::said(Bytes::from(update)) {
             Some(Said::Shown(cursor)) => cursor,
             other => panic!("a caret: {other:?}"),
         }
@@ -332,5 +341,29 @@ mod tests {
         turn.send_carets_missed(&asked);
         assert_eq!(taken(&turn.members[1]), MOST_MISSED);
         assert!(turn.members[1].carets_missed.is_none());
+    }
+
+    /// A caret's number is past what a Y document's client has, a number a browser
+    /// counts with, and no two drawn are the same; what holds a caret says nothing of
+    /// where it is when it is written out.
+    #[test]
+    fn a_number_is_drawn_and_a_caret_is_not_written_out() {
+        let numbers: std::collections::HashSet<u64> = (0..1000).map(|_| number()).collect();
+        assert_eq!(numbers.len(), 1000);
+        assert!(
+            numbers
+                .iter()
+                .all(|number| (1 << 32..1 << 53).contains(number))
+        );
+        let mut turn = Turn {
+            members: vec![member(1, None), member(2, None)],
+            ..Turn::default()
+        };
+        turn.show_caret(0, &said(), || 7);
+        let written = format!("{turn:?}");
+        assert!(
+            !written.contains("default") && !written.contains("cursor"),
+            "{written}"
+        );
     }
 }

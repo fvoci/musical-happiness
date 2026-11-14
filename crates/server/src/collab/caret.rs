@@ -142,8 +142,8 @@ pub(super) enum Said {
 /// Reads what a client said of its caret from the awareness update it sent. `None` for
 /// what is no update of exactly one state to its last byte, an object or `null` as an
 /// editor's library writes it, and for a caret that is not two places of the body.
-pub(super) fn said(update: &Bytes) -> Option<Said> {
-    let mut rest = update.clone();
+pub(super) fn said(update: Bytes) -> Option<Said> {
+    let mut rest = update;
     if take_varuint(&mut rest)? != 1 {
         return None;
     }
@@ -245,7 +245,7 @@ mod tests {
         let vectors = vectors();
         assert!(vectors.cases.len() >= 8, "the cases are there");
         for case in vectors.cases {
-            let said = said(&bytes(&case.said)).unwrap_or_else(|| panic!("{}: read", case.name));
+            let said = said(bytes(&case.said)).unwrap_or_else(|| panic!("{}: read", case.name));
             let state = match &said {
                 Said::Shown(cursor) => Some(state_of(&case.user_id, cursor)),
                 Said::Withdrawn => None,
@@ -265,7 +265,7 @@ mod tests {
         let vectors = vectors();
         assert!(vectors.refused.len() >= 13, "the refused are there");
         for refused in vectors.refused {
-            assert_eq!(said(&bytes(&refused.said)), None, "{}", refused.name);
+            assert_eq!(said(bytes(&refused.said)), None, "{}", refused.name);
         }
     }
 }

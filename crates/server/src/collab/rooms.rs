@@ -95,8 +95,6 @@ pub(super) struct Rooms {
     queue_messages: usize,
     /// The number of the next connection.
     next_connection: AtomicU64,
-    /// How many carets were numbered: no two of the server have one number.
-    carets_numbered: AtomicU64,
     /// When access facts changed: admissions and periodic answers read before a
     /// change of their organization cannot survive its immediate check.
     walls: walls::Walls,
@@ -120,7 +118,6 @@ impl Rooms {
             frames_per_second: settings.collab_frames_per_second,
             queue_messages: as_count(settings.collab_queue_messages),
             next_connection: AtomicU64::new(0),
-            carets_numbered: AtomicU64::new(0),
             walls: walls::Walls::new(Duration::from_secs(settings.collab_recheck_seconds)),
             #[cfg(feature = "test-util")]
             pauses: pauses::Pauses::default(),

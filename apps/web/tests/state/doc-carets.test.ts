@@ -142,6 +142,19 @@ describe("the others' carets", () => {
     held.destroy();
   });
 
+  it('leave nothing behind once they are gone: a room gives every seat that comes in another number', () => {
+    const { held } = carets();
+    for (let number = 100; number < 150; number += 1) {
+      held.take(caretTold(number, 1, '{"user":{"id":"u"},"cursor":null}'));
+      held.take(caretTold(number, 2, null));
+    }
+    expect([...held.awareness.meta.keys()]).toEqual([held.awareness.clientID]);
+    // Gone and shown again under its number, it is taken at whatever clock.
+    held.take(caretTold(120, 3, '{"user":{"id":"u"},"cursor":null}'));
+    expect(held.awareness.getStates().has(120)).toBe(true);
+    held.destroy();
+  });
+
   it('are let go by themselves thirty seconds after the last word of them', () => {
     const { held } = carets();
     held.take(caretTold(41, 1, '{"user":{"id":"u"},"cursor":null}'));

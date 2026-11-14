@@ -28,7 +28,7 @@
  * took, that is said (`discarded`).
  */
 
-import { packUpdates, SYNC_STEP_1, SYNC_STEP_2, SYNC_UPDATE } from './doc-frame.ts';
+import { packFitting, SYNC_STEP_1, SYNC_STEP_2, SYNC_UPDATE } from './doc-frame.ts';
 import {
   ANSWER_WAIT,
   FINAL,
@@ -310,6 +310,7 @@ export class DocRoom {
         break;
       case 'DOC_RESET':
         this.#cancel('reset');
+        this.#theirs = undefined;
         this.#expect = message.epoch;
         if (message.epoch !== this.#epoch) {
           this.#unqueue();
@@ -376,9 +377,8 @@ export class DocRoom {
       // Of the document before: the new one comes in the first frames of its epoch.
       if (frame.epoch !== this.#expect) return;
       // The server's state vector first: what follows is what the document held lacks.
-      if (frame.sync === SYNC_STEP_1 && this.#keep && frame.epoch === this.#epoch) {
-        this.#theirs = frame.payload;
-      } else if (frame.sync === SYNC_STEP_2) this.#whole(frame.payload, frame.epoch);
+      if (frame.sync === SYNC_STEP_1) this.#theirs = frame.payload;
+      else if (frame.sync === SYNC_STEP_2) this.#whole(frame.payload, frame.epoch);
       return;
     }
     if (frame.epoch !== this.#epoch) return;
@@ -393,6 +393,11 @@ export class DocRoom {
     this.#waiting = false;
     const theirs = this.#theirs;
     this.#theirs = undefined;
+    if (theirs && !(this.#epoch === epoch && this.#keep)) {
+      // What a document no longer kept lacks is no document: the whole is asked for.
+      this.#rejoin(this.#why);
+      return;
+    }
     if (this.#epoch === epoch && this.#keep) {
       this.#effects.push({ type: 'apply', update });
       // The same document: what the server lacks of the reader's changes goes to it again,
@@ -470,17 +475,12 @@ export class DocRoom {
     const epoch = this.#epoch;
     if (this.#phase !== 'joined' || this.#mode !== 'write' || this.#waiting) return;
     if (doc === undefined || epoch === undefined) return;
-    let tooLarge = false;
-    if (this.#buffer.length > 0) {
-      const limit = this.#limits.updateBytes;
-      const over = this.#buffer.findIndex((update) => update.length > limit);
-      // One change larger than the server takes cannot stay in the document;
-      // what was written before it goes first.
-      tooLarge = over !== -1;
-      const fits = tooLarge ? this.#buffer.slice(0, over) : this.#buffer;
-      this.#outbox.push(...(packUpdates(fits, limit, this.#merge) ?? []));
-      this.#buffer = [];
-    }
+    // One change larger than the server takes cannot stay in the document; what was
+    // written before it goes first.
+    const packed = packFitting(this.#buffer, this.#limits.updateBytes, this.#merge);
+    const tooLarge = packed.tooLarge;
+    this.#outbox.push(...packed.payloads);
+    this.#buffer = [];
     for (let payload = this.#outbox.shift(); payload; payload = this.#outbox.shift()) {
       this.#effects.push({ type: 'send', frame: { doc, epoch, sync: SYNC_UPDATE, payload } });
       this.#unacked += 1;

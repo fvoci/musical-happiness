@@ -239,8 +239,8 @@ export class MemoryRooms {
       return;
     }
     const room = this.#room(boardId, cardId);
-    // In the room anew, the seat has no caret until it says so again.
-    this.#carets.gone(room, seat);
+    // In the room anew, the seat has no caret until it says so again, under another number.
+    this.#carets.left(room, seat);
     this.#numbers += 1;
     const doc = this.#numbers;
     seat.doc = doc;
