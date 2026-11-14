@@ -75,7 +75,9 @@ test('pictures of writing on the calendar, wide and at 390 pixels', async ({ pag
   await scaleTo(page, 'month');
 
   if (info.project.name !== 'mobile') return;
-  await page.setViewportSize({ width: 390, height: 844 });
+  // A phone that is 390 wide already keeps its height: WebKit's phone takes no press below the
+  // height it began with once it is made taller.
+  if (page.viewportSize()?.width !== 390) await page.setViewportSize({ width: 390, height: 844 });
   await expect(calendar(page)).toHaveAttribute('data-layout', 'mini');
   const overflow = await page.evaluate(
     () => document.documentElement.scrollWidth - document.documentElement.clientWidth,

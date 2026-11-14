@@ -39,9 +39,14 @@ test('a press opens the source under the drawing, typing draws it again, Escape 
   await closedAndDrawn(body);
   await drawingOf(body).click();
   await expect(fieldOf(body)).toBeFocused();
-  const drawing = await drawingOf(body).boundingBox();
-  const field = await fieldOf(body).boundingBox();
-  expect(drawing && field && field.y >= drawing.y + drawing.height - 1).toBe(true);
+  // Both are there once the place is open: the drawing is put anew as it opens.
+  await expect
+    .poll(async () => {
+      const drawing = await drawingOf(body).boundingBox();
+      const field = await fieldOf(body).boundingBox();
+      return Boolean(drawing && field && field.y >= drawing.y + drawing.height - 1);
+    })
+    .toBe(true);
 
   await page.keyboard.press('End');
   await page.keyboard.type(' + \\sqrt{y}');
