@@ -315,7 +315,7 @@
   "card_versions_list": "All versions",
   "card_version_current": "Current",
   "card_version_by": "Written by {who}",
-  "card_version_read": "Read the version of {when}",
+  "card_version_read": "The version of {when}",
   "card_version_no_body": "The card had no body then.",
   "card_version_gone": "This version is not kept any more.",
   "card_version_read_failed": "This version could not be read.",

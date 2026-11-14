@@ -7,9 +7,14 @@
   card has now offers nothing to go back to.
 
   Wide, the list stays beside the body; narrow, the body takes the list's
-  place and a back arrow returns to it.
+  place, and a back arrow (and the back button) returns to it. The focus
+  follows: to the arrow when the list gives way, and back to the version
+  that was read.
 -->
 <script lang="ts">
+  import { tick } from 'svelte';
+  import { MediaQuery } from 'svelte/reactivity';
+
   import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
   import RotateCcwIcon from '@lucide/svelte/icons/rotate-ccw';
   import XIcon from '@lucide/svelte/icons/x';
@@ -57,6 +62,9 @@
   const whoWrote = (version: BodyVersion): string => names.format(version.editors.map(resolveUser));
   const whenKept = (version: BodyVersion): string => displayDateTime(version.keptAt, context);
 
+  /** Narrow: the body of a version takes the place of the list (Tailwind's `sm`). */
+  const narrow = new MediaQuery('(max-width: 39.99rem)');
+
   // The back button closes it, as the other dialogs: the card under it stays.
   closeOnBack(
     () => open,
@@ -64,6 +72,34 @@
       open = false;
     },
   );
+  // Narrow, with a version open, it goes back to the list first.
+  closeOnBack(
+    () => open && narrow.current && chosen !== undefined,
+    () => reading?.leave(),
+  );
+
+  /** The dialog a row or the back arrow is in: where the focus is sent on within. */
+  const dialogOf = (event: MouseEvent): Element | null =>
+    (event.currentTarget as HTMLElement).closest('[data-testid="body-versions"]');
+
+  async function read(event: MouseEvent, version: BodyVersion): Promise<void> {
+    const row = event.currentTarget as HTMLElement;
+    const dialog = dialogOf(event);
+    void reading?.choose(version);
+    await tick();
+    // The list gave way to the body, and the row that had the focus with it.
+    if (row.offsetParent === null) {
+      dialog?.querySelector<HTMLElement>('[data-testid="body-versions-back"]')?.focus();
+    }
+  }
+
+  async function backToList(event: MouseEvent): Promise<void> {
+    const dialog = dialogOf(event);
+    const left = chosen?.version;
+    reading?.leave();
+    await tick();
+    dialog?.querySelector<HTMLElement>(`[data-version="${String(left)}"]`)?.focus();
+  }
 
   async function restore(): Promise<void> {
     if (await reading?.restore()) open = false;
@@ -82,7 +118,7 @@
           label={m.card_versions_list()}
           class="sm:hidden"
           data-testid="body-versions-back"
-          onclick={() => reading?.leave()}
+          onclick={backToList}
         >
           <ArrowLeftIcon aria-hidden="true" />
         </IconButton>
@@ -132,9 +168,9 @@
                     type="button"
                     class="grid w-full gap-1 rounded-md px-2.5 py-2 text-start outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring aria-[current=true]:bg-muted roomy:min-h-touch"
                     aria-current={chosen?.version === version.version}
-                    aria-label={m.card_version_read({ when })}
+                    disabled={reading.restoring}
                     data-version={version.version}
-                    onclick={() => reading.choose(version)}
+                    onclick={(event) => read(event, version)}
                   >
                     <span class="flex items-center gap-2">
                       <time class="font-medium" datetime={new Date(version.keptAt).toISOString()}>
@@ -177,7 +213,7 @@
 
         <section
           class={['min-h-0 min-w-0 flex-1 flex-col', chosen ? 'flex' : 'hidden sm:flex']}
-          aria-live="polite"
+          aria-label={chosen ? m.card_version_read({ when: whenKept(chosen) }) : undefined}
           data-testid="body-version"
         >
           {#if !chosen}

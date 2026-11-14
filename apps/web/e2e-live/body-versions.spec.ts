@@ -71,6 +71,15 @@ const versions = (page: Page) => page.getByTestId('body-versions');
 const rows = (page: Page) => versions(page).locator('[data-version]');
 const shown = (page: Page) => page.getByTestId('body-version');
 
+/** Types at the end of the body, once the editor has the focus and the caret is there. */
+async function typeAtEnd(page: Page, text: string, newLine = false): Promise<void> {
+  await editor(page).click();
+  await expect(editor(page)).toBeFocused();
+  await page.keyboard.press('Control+End');
+  if (newLine) await page.keyboard.press('Enter');
+  await page.keyboard.type(text);
+}
+
 async function openVersions(page: Page): Promise<void> {
   await page.getByTestId('card-menu').click();
   await page.locator('[data-action="versions"]').click();
@@ -112,13 +121,12 @@ test('a version restored is the body of everyone in the room, and what was typed
     await expect(editor(page).locator('p')).toHaveText(['The first plan']);
   }
 
-  await editor(second).click();
-  await second.keyboard.press('Control+End');
-  await second.keyboard.press('Enter');
-  await second.keyboard.type('Bora adds a line');
-  for (const page of [first, second]) {
-    await expect(editor(page).locator('p')).toHaveText(['The first plan', 'Bora adds a line']);
-  }
+  await typeAtEnd(second, 'Bora adds a line', true);
+  await expect(editor(first).locator('p')).toHaveText(['The first plan', 'Bora adds a line']);
+  // The owner writes too: each has something of their own to undo.
+  await typeAtEnd(first, ', Ada another');
+  const typed = ['The first plan', 'Bora adds a line, Ada another'];
+  for (const page of [first, second]) await expect(editor(page).locator('p')).toHaveText(typed);
 
   // The owner goes back to the body from before.
   await openVersions(first);
@@ -129,6 +137,7 @@ test('a version restored is the body of everyone in the room, and what was typed
   await rows(first).first().click();
   await expect(shown(first)).toContainText('The first plan');
   await expect(shown(first)).not.toContainText('Bora adds a line');
+  await expect(shown(first)).not.toContainText('Ada another');
   await restoreShown(first);
   for (const page of [first, second]) {
     await expect(page.getByTestId('card-body')).toHaveAttribute('data-editor', 'ready');
@@ -139,7 +148,8 @@ test('a version restored is the body of everyone in the room, and what was typed
   const restored = (await (await api.get(cardAt(board, cardId))).json()) as Schemas['Card'];
   expect(restored.body).toEqual(paragraph('The first plan'));
 
-  // The restore is no step of the editor's undo, for the one who restored or the other.
+  // The restore is no step of the editor's undo, for the one who restored or the other:
+  // undoing brings back nothing either of them typed.
   for (const page of [first, second]) {
     await editor(page).click();
     await page.keyboard.press('Control+z');
@@ -159,24 +169,22 @@ test('a version restored is the body of everyone in the room, and what was typed
   await expect(rows(second).first().getByTestId('body-version-editors')).toContainText(
     owner.username,
   );
-  await expect(rows(second).nth(1).getByTestId('body-version-editors')).toContainText(
-    colleague.username,
-  );
+  for (const who of [owner, colleague]) {
+    await expect(rows(second).nth(1).getByTestId('body-version-editors')).toContainText(
+      who.username,
+    );
+  }
 
   // The colleague goes back to what they typed.
   await rows(second).nth(1).click();
-  await expect(shown(second)).toContainText('Bora adds a line');
+  await expect(shown(second)).toContainText('Bora adds a line, Ada another');
   await restoreShown(second);
-  for (const page of [first, second]) {
-    await expect(editor(page).locator('p')).toHaveText(['The first plan', 'Bora adds a line']);
-  }
+  for (const page of [first, second]) await expect(editor(page).locator('p')).toHaveText(typed);
   // Both go on writing in it.
-  await editor(first).click();
-  await first.keyboard.press('Control+End');
-  await first.keyboard.type(', and Ada agrees');
+  await typeAtEnd(first, ', and both agree');
   await expect(editor(second).locator('p')).toHaveText([
     'The first plan',
-    'Bora adds a line, and Ada agrees',
+    'Bora adds a line, Ada another, and both agree',
   ]);
   for (const page of [first, second]) await expect(page.locator('[data-problem]')).toHaveCount(0);
   await first.context().close();

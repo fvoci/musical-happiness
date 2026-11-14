@@ -315,7 +315,7 @@
   "card_versions_list": "판 목록",
   "card_version_current": "현재 본문",
   "card_version_by": "쓴 사람: {who}",
-  "card_version_read": "{when}의 판 읽기",
+  "card_version_read": "{when}의 판",
   "card_version_no_body": "이때는 본문이 없었습니다.",
   "card_version_gone": "이 판은 더 남아 있지 않습니다.",
   "card_version_read_failed": "이 판을 읽지 못했습니다.",

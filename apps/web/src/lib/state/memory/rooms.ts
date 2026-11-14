@@ -134,6 +134,12 @@ export class MemoryRooms {
       const room = this.#rooms.get(cardId);
       if (room) this.#write(room);
     };
+    world.bodyUnwritten = (cardId) => {
+      const room = this.#rooms.get(cardId);
+      const body = room && bodyOf(room.doc);
+      const card = room && this.#card(room.boardId, cardId);
+      return !!card && body !== undefined && !sameBody(body, card.body ?? null);
+    };
     world.bodyWritten = (cardId) => {
       this.#remake(cardId);
     };

@@ -93,10 +93,13 @@ describe('the versions of a body, in memory', () => {
     expect(await versions.list(BOARD, cardId)).toEqual([]);
     await type(mine, 'typed');
     // By nobody, as of the card's last change: nobody is known to have written it. It is the
-    // card's body no more: what was typed is.
+    // card's body no more, though the card is not written yet: what was typed is. Reading
+    // the versions writes nothing.
     expect(await versions.list(BOARD, cardId)).toEqual([
       { version: 1, keptAt: before, editors: [], isCurrent: false },
     ]);
+    expect((await versions.read(BOARD, cardId, 1)).isCurrent).toBe(false);
+    expect(stored.blocks.get(cardId)?.updateAt).toBe(before);
 
     // The one who wrote leaves; another who may write stays, and wrote nothing.
     mine.close();
@@ -231,18 +234,27 @@ describe('the versions of a body, in memory', () => {
     const { world: stored, BOARD, backend, other, cardId } = world();
     const readAt = stored.blocks.get(cardId)?.updateAt ?? 0;
     await backend.writeCardBody(BOARD, cardId, { body: text('second'), readAt });
+    // What somebody typed is in the room, not in the card yet: a refused restore writes neither.
+    const mine = backend.openDoc('w', BOARD, cardId, hears());
+    await type(mine, 'typed');
+    const at = stored.blocks.get(cardId)?.updateAt;
     for (const role of ['viewer', 'commenter'] as const) {
       await backend.setMemberRole(BOARD, other.userId, role);
       expect(await other.bodyVersions.list(BOARD, cardId)).toHaveLength(2);
       expect((await rejection(other.bodyVersions.restore(BOARD, cardId, 1))).status).toBe(403);
     }
+    expect(stored.blocks.get(cardId)?.updateAt).toBe(at);
+    mine.close();
+    await vi.waitFor(() => {
+      expect(lines(stored.blocks.get(cardId)?.body)).toEqual(['second', 'typed']);
+    });
     expect((await rejection(backend.bodyVersions.restore(BOARD, cardId, 9))).status).toBe(404);
     expect((await rejection(backend.bodyVersions.list(BOARD, 'nothing'))).status).toBe(404);
     await backend.removeMember(BOARD, other.userId);
     expect((await rejection(other.bodyVersions.list(BOARD, cardId))).status).toBe(404);
     expect((await rejection(other.bodyVersions.read(BOARD, cardId, 1))).status).toBe(404);
     expect((await rejection(other.bodyVersions.restore(BOARD, cardId, 1))).status).toBe(404);
-    expect(lines(stored.blocks.get(cardId)?.body)).toEqual(['second']);
+    expect(lines(stored.blocks.get(cardId)?.body)).toEqual(['second', 'typed']);
   });
 
   it('does not restore a version that shows an image whose file is gone', async () => {
@@ -318,23 +330,28 @@ describe('the reading of the versions of an open card', () => {
     const readAt = made.world.blocks.get(card.id)?.updateAt ?? 0;
     await made.other.writeCardBody(card.boardId, card.id, { body: text('second'), readAt });
     const open = await made.board.showCard(card.id);
+    const learned = vi.spyOn(made.workspace, 'learnUsers');
+    const settled = vi.spyOn(open, 'settleBody');
     const versions = new VersionsReading(made.board, open);
     await vi.waitFor(() => {
       expect(versions.status).toBe('ready');
     });
-    return { ...made, cardId: card.id, versions };
+    return { ...made, cardId: card.id, versions, learned, settled };
   }
 
   it('reads the list with the names of who wrote, a version chosen, and restores it', async () => {
-    const { world: stored, workspace, other, cardId, versions } = await reading();
+    const { world: stored, workspace, other, cardId, versions, learned, settled } = await reading();
     expect(versions.versions.map((one) => one.version)).toEqual([2, 1]);
-    expect(workspace.userName(other.userId)).toBeDefined();
+    // The names of who wrote are asked for, and what the reader typed is sent before the list is read.
+    expect(learned).toHaveBeenCalledWith([other.userId]);
+    expect(settled).toHaveBeenCalledTimes(1);
     const [, first] = versions.versions;
     if (!first) throw new Error('no first version');
     await versions.choose(first);
     expect(versions.contentStatus).toBe('ready');
     expect(lines(versions.content?.body)).toEqual(['first body']);
     expect(await versions.restore()).toBe(true);
+    expect(settled).toHaveBeenCalledTimes(2);
     expect(lines(stored.blocks.get(cardId)?.body)).toEqual(['first body']);
     workspace.close();
   });

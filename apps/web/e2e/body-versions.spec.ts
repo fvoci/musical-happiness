@@ -129,9 +129,17 @@ test('the versions of a body are listed and read, and one is restored: not an un
   await expect(shown(page)).toContainText(before[0] ?? '');
   await expect(shown(page)).not.toContainText('Typed now');
   if (narrow(page)) {
+    // The list gave way: the focus is on the way back, and comes back to the version read.
     await expect(rows(page).first()).toBeHidden();
+    await expect(page.getByTestId('body-versions-back')).toBeFocused();
     await page.getByTestId('body-versions-back').click();
+    await expect(rows(page).first()).toBeFocused();
+    // The back button goes back to the list too, and leaves the dialog open.
+    await rows(page).first().click();
+    await expect(shown(page)).toBeVisible();
+    await page.goBack();
     await expect(rows(page).first()).toBeVisible();
+    await expect(versions(page)).toBeVisible();
     await rows(page).first().click();
   } else {
     await expect(rows(page).first()).toHaveAttribute('aria-current', 'true');
@@ -183,6 +191,8 @@ test('who only reads the board reads the versions and is not offered to restore;
   page,
 }) => {
   const place = await openTaskCard(page);
+  const before = (await editor(page).locator('> *').first().textContent()) ?? '';
+  expect(before).not.toBe('');
   await writtenWholeElsewhere(page, place, 'Written whole by somebody else');
   await expect(editor(page)).toHaveText('Written whole by somebody else');
 
@@ -217,7 +227,7 @@ test('who only reads the board reads the versions and is not offered to restore;
     await dev.someoneElse().setMemberRole(boardId, (await dev.backend.me()).id, 'viewer');
   }, place);
   await expect(page.getByTestId('body-version-restore')).toHaveCount(0);
-  await expect(shown(page)).not.toContainText('Written whole by somebody else');
+  await expect(shown(page)).toContainText(before);
   await closeVersions(page);
   await openVersions(page);
   await expect(rows(page)).toHaveCount(2);

@@ -12,16 +12,19 @@ impl App {
     /// The newest whose body is the one the card has says so: the card is read after
     /// the versions, so that a version kept meanwhile is not taken for an older one.
     /// None says so while the card's editors have typed what is not written to it yet:
-    /// its body is then no version's, though the card still holds an older one.
+    /// its body is then no version's, though the card still holds an older one. That
+    /// is asked before the card is read, so that a body written to the card in between
+    /// is the one compared.
     ///
     /// # Errors
     ///
     /// Returns a not-found error if the card is not there, and the store's error.
     pub async fn body_versions(&self, card_id: &str) -> Result<Vec<BodyVersion>, AppError> {
         let kept = self.store().body_versions(card_id).await?;
+        let unwritten = self.store().has_unwritten_body(card_id).await?;
         let card = self.block(card_id).await?;
         let digest = body_digest(card.body.as_ref());
-        let current = if self.store().has_unwritten_body(card_id).await? {
+        let current = if unwritten {
             None
         } else {
             kept.iter()

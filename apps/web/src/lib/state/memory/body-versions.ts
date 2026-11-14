@@ -19,9 +19,12 @@
 import type { DocNode } from '../../editor/schema.ts';
 import type { BodyVersion, BodyVersionContent, BodyVersions } from '../body-versions.ts';
 
+import { BackendError } from '../problems.ts';
+
 import { memberRole } from './board-access.ts';
+import { checkedBody } from './bodies.ts';
 import { fail } from './refuse.ts';
-import { copy, imageFileIds, wireOf } from './shapes.ts';
+import { copy, wireOf } from './shapes.ts';
 import type { StoredCard, World } from './world.ts';
 
 /** How many versions of a body are kept (the server's `collab_body_versions`). */
@@ -122,6 +125,20 @@ export function writtenWhole(
   if (changes) keep(world, card, userId);
 }
 
+/**
+ * The body of a version as it is written to its card again: held to what a
+ * body a client sends is held to, and refused as a conflict (409) when it
+ * may not be stored any more or shows an image whose file is gone.
+ */
+function storable(world: World, boardId: string, body: DocNode | null): DocNode | null {
+  try {
+    return checkedBody(world, boardId, body);
+  } catch (error) {
+    if (!(error instanceof BackendError)) throw error;
+    fail(409, `the version cannot be restored: ${error.message}`);
+  }
+}
+
 /** The versions of a world's cards, read and restored as one of its users. */
 export class MemoryBodyVersions implements BodyVersions {
   readonly #world: World;
@@ -156,12 +173,10 @@ export class MemoryBodyVersions implements BodyVersions {
     }
     const kept = keptOf(world, cardId).versions.find((one) => one.version === version);
     if (!kept) fail(404, 'no such version');
-    // What the room's editors typed is in the card (`#card`), and is kept with the body before.
+    // What the room's editors typed is in the card first, and is kept with the body before.
+    world.bodyFlushed?.(cardId);
     if (same(card.body ?? null, kept.body)) return;
-    const body = copy(kept.body);
-    if (body && imageFileIds(body).some((fileId) => world.files.get(fileId)?.boardId !== boardId)) {
-      fail(409, 'the version shows an image whose file the board does not have any more');
-    }
+    const body = storable(world, boardId, kept.body);
     writtenWhole(world, card, body, this.#userId, () => {
       card.body = body;
       card.updateAt = world.now();
@@ -171,24 +186,23 @@ export class MemoryBodyVersions implements BodyVersions {
     world.tellBoard(boardId, { kind: 'blocks', boardId, blocks: [wireOf(card)] });
   }
 
-  /**
-   * A card of the board, for a member of it: the versions are theirs to
-   * read. What its room took is written into it first, so that a version is
-   * the card's body only while nothing was typed since (the server says so
-   * of none while it has not written what was typed).
-   */
+  /** A card of the board, for a member of it: the versions are theirs to read. */
   #card(boardId: string, cardId: string): StoredCard {
     memberRole(this.#world, this.#userId, boardId);
     const block = this.#world.blocks.get(cardId);
     if (block?.type !== 'card' || block.boardId !== boardId) fail(404, 'no such card');
-    this.#world.bodyFlushed?.(cardId);
     return block as StoredCard;
   }
 
-  /** The versions of a card, the newest first, the newest with the card's body marked. */
+  /**
+   * The versions of a card, the newest first, the newest with the card's
+   * body marked: none while the card's room holds what the card does not yet.
+   */
   #described(card: StoredCard): BodyVersionContent[] {
     const kept = [...keptOf(this.#world, card.id).versions].reverse();
-    const current = kept.find((one) => same(one.body, card.body ?? null))?.version;
+    const current = this.#world.bodyUnwritten?.(card.id)
+      ? undefined
+      : kept.find((one) => same(one.body, card.body ?? null))?.version;
     return kept.map((one) => ({
       ...copy(one),
       isCurrent: one.version === current,

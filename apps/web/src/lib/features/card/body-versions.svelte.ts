@@ -3,9 +3,12 @@
  * list, read when this is made (the dialog makes one each time it opens),
  * the version chosen with its body, and going back to it.
  *
- * Restoring sends what the reader typed to the card's room first, so that
- * the server keeps it with the body before as a version: nothing typed is
- * lost to a restore.
+ * Reading the list and restoring send what the reader typed to the card's
+ * room first: the list then says of no version that it is the card's body
+ * while the reader's own typing is not in it, and the server keeps what was
+ * typed with the body before as a version. What could not be sent in time
+ * (no connection) is dropped with the document the restore replaces, and
+ * said lost as for any body written whole.
  */
 import {
   isBackendError,
@@ -52,6 +55,7 @@ export class VersionsReading {
   async read(): Promise<void> {
     this.status = 'loading';
     try {
+      await this.#card.settleBody();
       const list = await this.#versions.list(this.#board.boardId, this.#card.cardId);
       await this.#board.workspace.learnUsers(list.flatMap((one) => one.editors));
       this.versions = list;
@@ -61,8 +65,12 @@ export class VersionsReading {
     }
   }
 
-  /** Reads a version of the list; one chosen meanwhile takes its place. */
+  /**
+   * Reads a version of the list; one chosen meanwhile takes its place. Not
+   * while a version is being restored: its answer is about the one chosen.
+   */
   async choose(version: BodyVersion): Promise<void> {
+    if (this.restoring) return;
     this.chosen = version;
     this.content = undefined;
     this.contentStatus = 'loading';
@@ -84,6 +92,7 @@ export class VersionsReading {
 
   /** Back to the list. */
   leave(): void {
+    if (this.restoring) return;
     this.chosen = undefined;
     this.content = undefined;
     this.refusal = undefined;
