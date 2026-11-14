@@ -8,7 +8,7 @@ use std::collections::BTreeSet;
 use std::fmt::Write as _;
 
 use fvoci_model::{
-    Board, BoardError, BoardMember, BoardPatch, BoardRole, BoardSearchField, BoardType, JsonMap,
+    Board, BoardError, BoardKinds, BoardMember, BoardPatch, BoardRole, BoardType, JsonMap,
     MinimumRole,
 };
 use md5::{Digest as _, Md5};
@@ -17,7 +17,7 @@ use serde_json::Value;
 use crate::Store;
 use crate::db::{Dialect, Id, OptId, Param, Row, Scope, Sql, now_millis};
 use crate::error::StoreError;
-use crate::{members, subscriptions};
+use crate::{board_kinds, members, subscriptions};
 
 /// The order of a list of boards read through the alias `b`: by when they were made,
 /// and by identifier where that is the same.
@@ -27,7 +27,7 @@ pub(crate) const OLDEST_BOARD_FIRST: &str = " ORDER BY b.create_at, b.id";
 const BOARD_COLUMNS: &str = "id, workspace_id, created_by, modified_by, type, minimum_role, title, \
                              description, icon, show_description, is_template, is_builtin, \
                              template_version, properties, card_properties, create_at, \
-                             update_at";
+                             update_at, kind";
 
 /// Whether a board query also returns the open boards the user is not a member of.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -100,7 +100,9 @@ impl Store {
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::Database`] if a statement fails.
+    /// Returns [`StoreError::InvalidBoard`], and nothing written, for a board that may
+    /// not be stored ([`Board::check_storable`]) and for one that exists as of another
+    /// kind; [`StoreError::Database`] if a statement fails.
     pub async fn insert_board(&self, board: &mut Board, user_id: &str) -> Result<(), StoreError> {
         self.transaction(async |scope| insert_board(scope, board, user_id).await)
             .await
@@ -173,8 +175,8 @@ impl Store {
             .await
     }
 
-    /// Returns the boards of a workspace that a user is a member of and, with
-    /// [`PublicBoards::Include`], the open boards of the workspace, oldest first. Templates
+    /// Returns the boards of `kinds` of a workspace that a user is a member of and, with
+    /// [`PublicBoards::Include`], the open ones of the workspace, oldest first. Templates
     /// are left out.
     ///
     /// # Errors
@@ -185,9 +187,13 @@ impl Store {
         user_id: &str,
         workspace_id: &str,
         public_boards: PublicBoards,
+        kinds: BoardKinds,
     ) -> Result<Vec<Board>, StoreError> {
         self.with_conn(async |scope| {
-            get_boards_for_user_and_workspace(scope, user_id, workspace_id, public_boards).await
+            let mut sql = select_boards_of_user(scope, user_id, public_boards, kinds);
+            sql.push_bind(" AND b.workspace_id = ", Id(workspace_id))
+                .push(OLDEST_BOARD_FIRST);
+            fetch_boards(scope, sql).await
         })
         .await
     }
@@ -355,30 +361,6 @@ impl Store {
         .await
     }
 
-    /// Returns the boards, of any workspace, that match a search term and that a user is a
-    /// member of or, with [`PublicBoards::Include`], that are open, oldest first.
-    /// Templates are left out.
-    ///
-    /// An empty `term` matches every board. Searching by title matches boards whose
-    /// title contains every space-separated word of the term, ignoring case; searching
-    /// by property name matches boards that have a property of that name.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::Database`] if the query fails.
-    pub async fn search_boards_for_user(
-        &self,
-        term: &str,
-        search_field: BoardSearchField,
-        user_id: &str,
-        public_boards: PublicBoards,
-    ) -> Result<Vec<Board>, StoreError> {
-        self.with_conn(async |scope| {
-            search_boards_for_user(scope, term, search_field, user_id, public_boards).await
-        })
-        .await
-    }
-
     /// Returns the templates of a workspace that are open or that the user is a member of,
     /// oldest first. The built-in templates are not among them.
     ///
@@ -427,7 +409,7 @@ pub(crate) fn board_select_list(alias: &str) -> String {
          {alias}minimum_role, {alias}title, {alias}description, {alias}icon, \
          {alias}show_description, {alias}is_template, {alias}is_builtin, \
          {alias}template_version, {alias}properties, {alias}card_properties, \
-         {alias}create_at, {alias}update_at"
+         {alias}create_at, {alias}update_at, {alias}kind"
     )
 }
 
@@ -455,6 +437,7 @@ fn board_from_row(row: &Row) -> Result<Board, StoreError> {
         created_by: row.id(2)?,
         modified_by: row.id(3)?,
         board_type: board_type_from_text(&row.text(4)?)?,
+        kind: board_kinds::kind_from_text(&row.text(17)?)?,
         minimum_role: minimum_role_from_text(&row.text(5)?)?,
         title: row.text(6)?,
         description: row.text(7)?,
@@ -524,17 +507,24 @@ pub(crate) async fn get_board(scope: &mut Scope<'_>, board_id: &str) -> Result<B
         .ok_or_else(|| StoreError::not_found("boards"))
 }
 
-/// Starts the query for the boards a user can reach: `SELECT DISTINCT` over boards joined
-/// with their memberships, without templates, narrowed to the user's boards and, if
-/// asked for, the open ones where the user works. A membership counts while the user is a
-/// member of the board's workspace, and if it has a role. More `AND` conditions on `b` may follow.
-fn select_boards_of_user(scope: &Scope<'_>, user_id: &str, public_boards: PublicBoards) -> Sql {
+/// Starts the query for the boards of `kinds` a user can reach: `SELECT DISTINCT` over
+/// boards joined with their memberships, without templates, narrowed to the user's boards
+/// and, if asked for, the open ones where the user works. A membership counts while the
+/// user is a member of the board's workspace, and if it has a role. More `AND` conditions
+/// on `b` may follow.
+pub(crate) fn select_boards_of_user(
+    scope: &Scope<'_>,
+    user_id: &str,
+    public_boards: PublicBoards,
+    kinds: BoardKinds,
+) -> Sql {
     let mut sql = scope.sql(&format!(
         "SELECT DISTINCT {} FROM boards AS b LEFT JOIN board_members AS bm ON b.id = bm.board_id \
          WHERE b.is_template = ",
         board_select_list("b.")
     ));
     sql.bind(false);
+    board_kinds::push_kinds(&mut sql, "b.kind", kinds);
     match public_boards {
         PublicBoards::Include => members::push_open_boards_at_work(&mut sql, user_id),
         PublicBoards::Exclude => sql.push(" AND ("),
@@ -546,18 +536,6 @@ fn select_boards_of_user(scope: &Scope<'_>, user_id: &str, public_boards: Public
     crate::board_team_access::push_has_team_role(&mut sql, scope, user_id);
     sql.push(")");
     sql
-}
-
-pub(crate) async fn get_boards_for_user_and_workspace(
-    scope: &mut Scope<'_>,
-    user_id: &str,
-    workspace_id: &str,
-    public_boards: PublicBoards,
-) -> Result<Vec<Board>, StoreError> {
-    let mut sql = select_boards_of_user(scope, user_id, public_boards);
-    sql.push_bind(" AND b.workspace_id = ", Id(workspace_id))
-        .push(OLDEST_BOARD_FIRST);
-    fetch_boards(scope, sql).await
 }
 
 pub(crate) async fn get_boards_in_workspace_by_ids(
@@ -616,6 +594,14 @@ pub(crate) async fn insert_board(
     board.delete_at = 0;
 
     if let Some(existing) = existing {
+        // A board is of the kind it was made as: nothing stores it as of another.
+        if existing.kind != board.kind {
+            return Err(BoardError::KindChanges {
+                stored: existing.kind.as_str(),
+                asked: board.kind.as_str(),
+            }
+            .into());
+        }
         // A board stays in its workspace, and who made it and when does not change: `board`
         // comes back with what is stored, whatever the caller put there.
         board.workspace_id = existing.workspace_id;
@@ -684,6 +670,7 @@ pub(crate) async fn insert_board_row(
         .push_bind(", ", Param::jsonb(&board.card_properties)?)
         .push_bind(", ", board.create_at)
         .push_bind(", ", board.update_at)
+        .push_bind(", ", board.kind.as_str())
         .push(")");
     scope.execute(sql).await?;
     Ok(())
@@ -896,66 +883,6 @@ pub(crate) async fn delete_member(
         subscriptions::end_subscriptions_to_board(scope, board_id, user_id).await?;
     }
     Ok(())
-}
-
-/// Whether the title contains every space-separated word of `term`, ignoring case.
-///
-/// Compared here rather than in SQL, so that both databases fold every letter the same
-/// way (SQLite's `lower()` folds ASCII letters only) and `%` and `_` are characters
-/// like any other. Preserved quirk: the words are split at single spaces, so two spaces
-/// in a row yield an empty word, which every title contains
-/// (`server/services/store/sqlstore/board.go:691-695`).
-fn title_has_words(title: &str, term: &str) -> bool {
-    let title = title.to_lowercase();
-    term.trim()
-        .split(' ')
-        .all(|word| title.contains(&word.to_lowercase()))
-}
-
-/// Keeps the boards whose title has the words of `term`; an empty term keeps all.
-pub(crate) fn with_title_words(mut boards: Vec<Board>, term: &str) -> Vec<Board> {
-    if !term.is_empty() {
-        boards.retain(|board| title_has_words(&board.title, term));
-    }
-    boards
-}
-
-pub(crate) async fn search_boards_for_user(
-    scope: &mut Scope<'_>,
-    term: &str,
-    search_field: BoardSearchField,
-    user_id: &str,
-    public_boards: PublicBoards,
-) -> Result<Vec<Board>, StoreError> {
-    // No board's property has U+0000 in its name: it is refused when a board is stored,
-    // and PostgreSQL refuses it as a parameter.
-    if search_field == BoardSearchField::PropertyName && term.contains('\0') {
-        return Ok(Vec::new());
-    }
-    let mut sql = select_boards_of_user(scope, user_id, public_boards);
-    if !term.is_empty() && search_field == BoardSearchField::PropertyName {
-        // A board property of that name, whatever its value, `null` too; a name is no
-        // path, so `a.b` is a name with a dot.
-        match scope.dialect() {
-            Dialect::Postgres => {
-                sql.push_bind(" AND b.properties -> ", term)
-                    .push(" IS NOT NULL");
-            }
-            Dialect::Sqlite => {
-                sql.push_bind(
-                    " AND EXISTS (SELECT 1 FROM json_each(b.properties) AS p WHERE p.key = ",
-                    term,
-                )
-                .push(")");
-            }
-        }
-    }
-    sql.push(OLDEST_BOARD_FIRST);
-    let boards = fetch_boards(scope, sql).await?;
-    Ok(match search_field {
-        BoardSearchField::Title => with_title_words(boards, term),
-        BoardSearchField::PropertyName => boards,
-    })
 }
 
 pub(crate) async fn get_builtin_templates(scope: &mut Scope<'_>) -> Result<Vec<Board>, StoreError> {

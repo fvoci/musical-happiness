@@ -1,0 +1,611 @@
+//! Which operations reach a board, which a wiki, and which both.
+//!
+//! A wiki is a board of the kind `wiki`. An operation that is about what a board holds
+//! (cards, views, their archive) answers for a wiki as for a board that is not there,
+//! an operation on a wiki's pages answers so for a board, and what is the same for
+//! both (the container, who is on it, its sharing, its files, its place in the sidebar
+//! and the trash) reaches either. [`REACHED`] says which is which, in one place, and
+//! the test asks every operation of the contract that names a board or something of
+//! one: an operation that is added without a row fails it.
+
+use std::collections::BTreeSet;
+
+use reqwest::multipart::{Form, Part};
+use reqwest::{Method, StatusCode};
+use serde_json::{Value, json};
+
+use crate::common::{
+    ApiResponse, Client, ROOT_WORKSPACE_ID, ROOT_WS, Setup, TestServer, UNKNOWN_ID,
+};
+
+/// The kinds of board an operation reaches by what it names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Reaches {
+    /// Boards; a wiki named there is not there.
+    Boards,
+    /// Wikis; a board named there is not there.
+    Wikis,
+    /// Boards and wikis alike.
+    Both,
+}
+
+/// Every operation whose path names a board, a wiki, or something that is of one (a
+/// block, a file, an upload), and the kinds it reaches: the extractor of its handler
+/// (`Ws` for boards, `WsWiki` for wikis, `WsModule` for both; the token of a shared
+/// board opens boards). What names one in its body or its query is asked in
+/// [`what_names_a_wiki_in_a_body_or_a_query_is_refused_as_what_names_nothing`].
+const REACHED: &[(&str, Reaches)] = &[
+    // The container itself, in the trash too.
+    ("getBoard", Reaches::Both),
+    ("patchBoard", Reaches::Both),
+    ("deleteBoard", Reaches::Both),
+    ("undeleteBoard", Reaches::Both),
+    // Who is on it.
+    ("getMembers", Reaches::Both),
+    ("addMember", Reaches::Both),
+    ("updateMember", Reaches::Both),
+    ("removeMember", Reaches::Both),
+    ("joinBoard", Reaches::Both),
+    ("leaveBoard", Reaches::Both),
+    ("getBoardTeams", Reaches::Both),
+    ("setBoardTeam", Reaches::Both),
+    ("removeBoardTeam", Reaches::Both),
+    // Its sharing: kept for a wiki as for a board, though the link opens boards only.
+    ("getSharing", Reaches::Both),
+    ("setSharing", Reaches::Both),
+    // Its files.
+    ("uploadFile", Reaches::Both),
+    ("getFile", Reaches::Both),
+    ("getFileInfo", Reaches::Both),
+    ("createUpload", Reaches::Both),
+    ("getUpload", Reaches::Both),
+    ("putUploadPart", Reaches::Both),
+    ("completeUpload", Reaches::Both),
+    ("deleteUpload", Reaches::Both),
+    // Its place in the sidebar.
+    ("setBoardCategory", Reaches::Both),
+    ("hideBoard", Reaches::Both),
+    ("unhideBoard", Reaches::Both),
+    // What a board holds.
+    ("exportBoardArchive", Reaches::Boards),
+    ("duplicateBoard", Reaches::Boards),
+    ("reorderCardProperties", Reaches::Boards),
+    ("createBlocks", Reaches::Boards),
+    ("getBlocks", Reaches::Boards),
+    ("patchBlocks", Reaches::Boards),
+    ("patchBlock", Reaches::Boards),
+    ("deleteBlock", Reaches::Boards),
+    ("undeleteBlock", Reaches::Boards),
+    ("duplicateBlock", Reaches::Boards),
+    ("getCommentVersions", Reaches::Boards),
+    ("createCard", Reaches::Boards),
+    ("getCards", Reaches::Boards),
+    ("getCard", Reaches::Boards),
+    ("patchCard", Reaches::Boards),
+    ("getDeletedCards", Reaches::Boards),
+    ("deleteSubscription", Reaches::Boards),
+    // What the holder of a read token reads.
+    ("getSharedBoard", Reaches::Boards),
+    ("getSharedBlocks", Reaches::Boards),
+    ("getSharedCards", Reaches::Boards),
+    ("getSharedFile", Reaches::Boards),
+    ("getSharedFileInfo", Reaches::Boards),
+];
+
+/// The parameters of a path that name a board or a wiki, or something that is of one.
+const NAMING: [&str; 7] = [
+    "{boardId}",
+    "{wikiId}",
+    "{cardId}",
+    "{blockId}",
+    "{pageId}",
+    "{uploadId}",
+    "{fileId}",
+];
+
+/// A board or a wiki of the first user with one of everything a path names; or nothing
+/// at all, under identifiers of nothing.
+#[derive(Debug, Clone)]
+struct Things {
+    container: String,
+    /// A card of the board; a page of the wiki.
+    block: String,
+    /// A comment on the card.
+    comment: String,
+    file: String,
+    upload: String,
+    /// The read token of the container, which is shared.
+    token: String,
+}
+
+impl Things {
+    fn nothing() -> Self {
+        Self {
+            container: UNKNOWN_ID.to_owned(),
+            block: UNKNOWN_ID.to_owned(),
+            comment: UNKNOWN_ID.to_owned(),
+            file: "missing-file".to_owned(),
+            upload: "missing-upload".to_owned(),
+            token: "no-token".to_owned(),
+        }
+    }
+}
+
+/// The server, and who and what the requests name besides a board or a wiki.
+struct World {
+    ts: TestServer,
+    me: String,
+    other: String,
+    team: String,
+    category: String,
+}
+
+impl World {
+    async fn start() -> Self {
+        let ts = Setup::local_mode().start().await.init_basic().await;
+        let (me, other) = (ts.client.me().await.id, ts.client2.me().await.id);
+        let team = ts
+            .client
+            .post(&format!("{ROOT_WS}/teams"), &json!({"name": "Readers"}))
+            .await
+            .value();
+        let categories = ts
+            .client
+            .get(&format!("{ROOT_WS}/categories"))
+            .await
+            .value();
+        Self {
+            me,
+            other,
+            team: text(&team, "id"),
+            category: text(&categories[0], "id"),
+            ts,
+        }
+    }
+
+    /// Makes a board, or a wiki, with the second user and the team on it, a file, an
+    /// open upload and a link; a board with a card the first user is subscribed to and
+    /// a comment on it besides.
+    async fn make(&self, kind: Reaches) -> Things {
+        let client = &self.ts.client;
+        let made_at = match kind {
+            Reaches::Wikis => format!("{ROOT_WS}/wikis"),
+            Reaches::Boards | Reaches::Both => format!("{ROOT_WS}/boards"),
+        };
+        let made = client.post(&made_at, &json!({"type": "P"})).await;
+        made.check_done();
+        let container = text(&made.value(), "id");
+        let at = format!("{ROOT_WS}/boards/{container}");
+        let member = json!({"boardId": container, "userId": self.other, "schemeEditor": true});
+        client
+            .post(&format!("{at}/members"), &member)
+            .await
+            .check_done();
+        let on_team = format!("{at}/teams/{}", self.team);
+        let assigned = client.put(&on_team, &json!({"role": "viewer"})).await;
+        assert!(assigned.status.is_success(), "{}", assigned.text());
+        let file = Part::bytes(b"kept".to_vec()).file_name("kept.txt");
+        let uploaded = Client::send(
+            client
+                .request(Method::POST, &format!("{at}/files"))
+                .multipart(Form::new().part("file", file)),
+        )
+        .await;
+        uploaded.check_done();
+        let opened = client
+            .post(
+                &format!("{at}/uploads"),
+                &json!({"name": "parts.bin", "size": 4}),
+            )
+            .await;
+        opened.check_done();
+        client
+            .post(&format!("{at}/sharing"), &json!({"enabled": true}))
+            .await
+            .check_done();
+        let sharing = client.get(&format!("{at}/sharing")).await.value();
+        let (block, comment) = match kind {
+            Reaches::Wikis => (UNKNOWN_ID.to_owned(), UNKNOWN_ID.to_owned()),
+            Reaches::Boards | Reaches::Both => self.card_with_a_comment(&container).await,
+        };
+        Things {
+            container,
+            block,
+            comment,
+            file: text(&uploaded.value(), "fileId"),
+            upload: text(&opened.value(), "uploadId"),
+            token: text(&sharing, "token"),
+        }
+    }
+
+    async fn card_with_a_comment(&self, board: &str) -> (String, String) {
+        let client = &self.ts.client;
+        let at = format!("{ROOT_WS}/boards/{board}");
+        let card = client
+            .post(&format!("{at}/cards"), &json!({"title": "a card"}))
+            .await;
+        card.check_done();
+        let card = text(&card.value(), "id");
+        let text_of = json!({"type": "doc", "content": [{"type": "paragraph", "content": [
+            {"type": "text", "text": "said"}
+        ]}]});
+        let comments = client
+            .post(
+                &format!("{at}/blocks"),
+                &json!([{
+                    "boardId": board, "parentId": card, "type": "comment", "body": text_of,
+                    "createAt": 1, "updateAt": 1,
+                }]),
+            )
+            .await;
+        comments.check_done();
+        let subscribed = client
+            .post(
+                &format!("{ROOT_WS}/subscriptions"),
+                &json!({
+                    "blockId": card, "blockType": "card", "subscriberId": self.me,
+                    "subscriberType": "user",
+                }),
+            )
+            .await;
+        subscribed.check_done();
+        (card, text(&comments.value()[0], "id"))
+    }
+
+    /// Brings `things` to where the operation does something: what it brings back is
+    /// in the trash first.
+    async fn prepare(&self, operation: &str, things: &Things) {
+        let at = format!("{ROOT_WS}/boards/{}", things.container);
+        let deleted = match operation {
+            "undeleteBoard" => self.ts.client.delete(&at).await,
+            "undeleteBlock" => {
+                let block = format!("{at}/blocks/{}", things.block);
+                self.ts.client.delete(&block).await
+            }
+            _ => return,
+        };
+        // Whether it went is what the operation itself shows: a wiki's card cannot go.
+        drop(deleted);
+    }
+
+    /// Sends the operation about `things`.
+    async fn ask(
+        &self,
+        method: &Method,
+        template: &str,
+        operation: &str,
+        things: &Things,
+    ) -> ApiResponse {
+        let block = if operation == "getCommentVersions" {
+            &things.comment
+        } else {
+            &things.block
+        };
+        let path = template
+            .trim_start_matches("/api/v1")
+            .replace("{workspaceId}", ROOT_WORKSPACE_ID)
+            .replace("{boardId}", &things.container)
+            .replace("{wikiId}", &things.container)
+            .replace("{cardId}", block)
+            .replace("{blockId}", block)
+            .replace("{pageId}", block)
+            .replace("{fileId}", &things.file)
+            .replace("{uploadId}", &things.upload)
+            .replace("{userId}", &self.other)
+            .replace("{teamId}", &self.team)
+            .replace("{categoryId}", &self.category)
+            .replace("{subscriberId}", &self.me)
+            .replace("{partNumber}", "1");
+        assert!(
+            !path.contains('{'),
+            "{operation}: a parameter of {path} is not filled in"
+        );
+        if template.starts_with("/api/v1/shared/") {
+            let path = format!("{path}?readToken={}", things.token);
+            return self.ts.anonymous().get(&path).await;
+        }
+        let request = self.ts.client.request(method.clone(), &path);
+        Client::send(match operation {
+            "uploadFile" => {
+                let file = Part::bytes(b"more".to_vec()).file_name("more.txt");
+                request.multipart(Form::new().part("file", file))
+            }
+            "putUploadPart" => request.body(b"part".to_vec()),
+            _ => request.json(&self.body(operation, things)),
+        })
+        .await
+    }
+
+    /// The body an operation is sent with: one it takes.
+    fn body(&self, operation: &str, things: &Things) -> Value {
+        match operation {
+            "patchBoard" | "patchBlock" | "patchCard" => json!({"title": "changed"}),
+            "addMember" | "updateMember" => {
+                json!({"boardId": things.container, "userId": self.other, "schemeViewer": true})
+            }
+            "setBoardTeam" => json!({"role": "editor"}),
+            "setSharing" => json!({"enabled": false}),
+            "createUpload" => json!({"name": "more.bin", "size": 4}),
+            "patchBlocks" => {
+                json!({"blockIds": [things.block], "blockPatches": [{"title": "changed"}]})
+            }
+            "createBlocks" | "reorderCardProperties" => json!([]),
+            "createCard" => json!({"title": "another card"}),
+            _ => json!({}),
+        }
+    }
+}
+
+/// What the fixtures need of an answer: that the request did what it was sent to do.
+trait Done {
+    fn check_done(&self);
+}
+
+impl Done for ApiResponse {
+    #[track_caller]
+    fn check_done(&self) {
+        assert!(self.status.is_success(), "{}: {}", self.status, self.text());
+    }
+}
+
+fn text(value: &Value, member: &str) -> String {
+    value[member]
+        .as_str()
+        .unwrap_or_else(|| panic!("{member} in {value}"))
+        .to_owned()
+}
+
+/// An answer without the two members that name the request.
+fn answer(response: &ApiResponse) -> (StatusCode, Value) {
+    let mut body: Value = serde_json::from_slice(&response.body).unwrap_or(Value::Null);
+    if let Some(object) = body.as_object_mut() {
+        object.remove("instance");
+        object.remove("requestId");
+    }
+    (response.status, body)
+}
+
+/// The operations of the contract whose path names a board, a wiki or something of
+/// one: method, path, operation.
+fn operations_that_name_one() -> Vec<(Method, String, String)> {
+    let contract: Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../contracts/openapi.json"
+    )))
+    .expect("the contract is JSON");
+    let mut found = Vec::new();
+    for (path, methods) in contract["paths"].as_object().expect("paths") {
+        if !NAMING.iter().any(|parameter| path.contains(parameter)) {
+            continue;
+        }
+        for (method, operation) in methods.as_object().expect("operations") {
+            if let Some(operation) = operation["operationId"].as_str() {
+                let method = method.to_uppercase().parse().expect("an HTTP method");
+                found.push((method, path.clone(), operation.to_owned()));
+            }
+        }
+    }
+    found
+}
+
+#[test]
+fn the_table_has_a_row_for_every_operation_that_names_a_board_and_for_no_other() {
+    let named: BTreeSet<String> = operations_that_name_one()
+        .into_iter()
+        .map(|(_, _, operation)| operation)
+        .collect();
+    let rows: BTreeSet<String> = REACHED.iter().map(|(name, _)| (*name).to_owned()).collect();
+    assert_eq!(rows.len(), REACHED.len(), "an operation has one row");
+    assert_eq!(
+        rows, named,
+        "an operation whose path names a board, a wiki or something of one has a row \
+         that says which kinds it reaches"
+    );
+}
+
+/// Every operation that names a board or something of one is asked about a wiki, about
+/// a board and about nothing, each time about ones made for it. One that reaches boards
+/// answers for the wiki, and for what is the wiki's, exactly as for nothing; one that
+/// reaches wikis answers so for the board; one that reaches both does to the wiki what
+/// it does to the board.
+#[tokio::test]
+async fn every_operation_reaches_the_kinds_of_its_row_and_answers_for_the_other_as_for_nothing() {
+    let world = World::start().await;
+    let mut wrong = Vec::new();
+    for (method, template, operation) in operations_that_name_one() {
+        let Some((_, reaches)) = REACHED.iter().find(|(name, _)| *name == operation) else {
+            continue;
+        };
+        let (board, wiki) = (
+            world.make(Reaches::Boards).await,
+            world.make(Reaches::Wikis).await,
+        );
+        world.prepare(&operation, &board).await;
+        world.prepare(&operation, &wiki).await;
+        let ask = async |things: &Things| world.ask(&method, &template, &operation, things).await;
+        let nothing = ask(&Things::nothing()).await;
+        let (of_wiki, of_board) = (ask(&wiki).await, ask(&board).await);
+        let right = match reaches {
+            Reaches::Boards => {
+                answer(&of_wiki) == answer(&nothing)
+                    && !of_wiki.status.is_success()
+                    && answer(&of_board) != answer(&nothing)
+            }
+            Reaches::Wikis => {
+                answer(&of_board) == answer(&nothing)
+                    && !of_board.status.is_success()
+                    && answer(&of_wiki) != answer(&nothing)
+            }
+            Reaches::Both => {
+                of_wiki.status == of_board.status && answer(&of_wiki) != answer(&nothing)
+            }
+        };
+        // A user has only so many uploads open at once.
+        for things in [&board, &wiki] {
+            let upload = format!("{ROOT_WS}/uploads/{}", things.upload);
+            drop(world.ts.client.delete(&upload).await);
+        }
+        if !right {
+            wrong.push(format!(
+                "{operation} ({method} {template}) reaches {reaches:?}: wiki={:?}, board={:?}, \
+                 nothing={:?}",
+                answer(&of_wiki),
+                answer(&of_board),
+                answer(&nothing)
+            ));
+        }
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+    world.ts.teardown().await;
+}
+
+/// The identifiers of what a list answers with, in its order.
+fn ids(listed: &ApiResponse) -> Vec<String> {
+    let listed = listed.value();
+    let listed = listed.as_array().expect("a list");
+    listed.iter().map(|entry| text(entry, "id")).collect()
+}
+
+/// The lists of boards, the search and the trash are of one kind each.
+#[tokio::test]
+async fn every_list_is_of_one_kind() {
+    let world = World::start().await;
+    let client = &world.ts.client;
+    let (board, wiki) = (
+        world.make(Reaches::Boards).await,
+        world.make(Reaches::Wikis).await,
+    );
+    let (the_board, the_wiki) = (
+        std::slice::from_ref(&board.container),
+        std::slice::from_ref(&wiki.container),
+    );
+
+    let boards = client.get(&format!("{ROOT_WS}/boards")).await;
+    assert_eq!(ids(&boards), the_board);
+    let wikis = client.get(&format!("{ROOT_WS}/wikis")).await;
+    assert_eq!(ids(&wikis), the_wiki);
+    assert_eq!(wikis.value()[0]["kind"], "wiki");
+    assert_eq!(boards.value()[0]["kind"], "board");
+    let titled = json!({"title": "findable"});
+    for things in [&board, &wiki] {
+        let at = format!("{ROOT_WS}/boards/{}", things.container);
+        client.patch(&at, &titled).await.check_done();
+    }
+    let found = client
+        .get(&format!("{ROOT_WS}/boards/search?q=findable"))
+        .await;
+    assert_eq!(ids(&found), the_board, "the search is for boards");
+
+    // The trash is listed by kind, the boards unless the wikis are asked for.
+    for things in [&board, &wiki] {
+        let at = format!("{ROOT_WS}/boards/{}", things.container);
+        client.delete(&at).await.check_done();
+    }
+    let trash =
+        async |query: &str| ids(&client.get(&format!("{ROOT_WS}/trash/boards{query}")).await);
+    assert_eq!(trash("").await, the_board);
+    assert_eq!(trash("?kind=board").await, the_board);
+    assert_eq!(trash("?kind=wiki").await, the_wiki);
+    let neither = client
+        .get(&format!("{ROOT_WS}/trash/boards?kind=page"))
+        .await;
+    neither.check_bad_request();
+    assert_eq!(neither.refused_at(), "parameter kind");
+    world.ts.teardown().await;
+}
+
+/// What names a board in a body or a query takes no wiki: the answer is the one for an
+/// identifier of nothing, and nothing is made or changed.
+#[tokio::test]
+async fn what_names_a_wiki_in_a_body_or_a_query_is_refused_as_what_names_nothing() {
+    let world = World::start().await;
+    let client = &world.ts.client;
+    let (board, wiki) = (
+        world.make(Reaches::Boards).await,
+        world.make(Reaches::Wikis).await,
+    );
+
+    // A board is not made a wiki of, one at a time or with blocks.
+    let as_wiki = json!({"id": "made", "type": "P", "kind": "wiki", "title": "no board"});
+    let card =
+        json!({"id": "card", "boardId": "made", "type": "card", "createAt": 1, "updateAt": 1});
+    let one = client
+        .post(
+            &format!("{ROOT_WS}/boards"),
+            &json!({"type": "P", "kind": "wiki"}),
+        )
+        .await;
+    let many = client
+        .post(
+            &format!("{ROOT_WS}/boards-and-blocks"),
+            &json!({"boards": [as_wiki], "blocks": [card]}),
+        )
+        .await;
+    for refused in [one, many] {
+        refused.check_bad_request();
+        assert_eq!(refused.refused_at(), "/kind", "{}", refused.text());
+    }
+    assert_eq!(ids(&client.get(&format!("{ROOT_WS}/wikis")).await).len(), 1);
+
+    // What changes or deletes boards together, the source of copied blocks, and the
+    // board a guest is invited to.
+    let same = async |method: Method, path: &str, body: &dyn Fn(&str) -> Value| {
+        let send = async |id: &str| {
+            Client::send(client.request(method.clone(), path).json(&body(id))).await
+        };
+        let (of_wiki, nothing) = (send(&wiki.container).await, send(UNKNOWN_ID).await);
+        assert_eq!(answer(&of_wiki), answer(&nothing), "{method} {path}");
+        assert!(
+            !of_wiki.status.is_success(),
+            "{method} {path}: {}",
+            of_wiki.text()
+        );
+    };
+    let together = format!("{ROOT_WS}/boards-and-blocks");
+    same(Method::PATCH, &together, &|id| {
+        json!({
+            "boardIds": [id],
+            "boardPatches": [{"title": "changed"}],
+            "blockIds": [board.block],
+            "blockPatches": [{"title": "changed"}],
+        })
+    })
+    .await;
+    same(
+        Method::DELETE,
+        &together,
+        &|id| json!({"boards": [id], "blocks": [board.block]}),
+    )
+    .await;
+    let copied =
+        json!([{"boardId": board.container, "type": "card", "createAt": 1, "updateAt": 1}]);
+    for source in [&wiki.container, UNKNOWN_ID] {
+        let path = format!(
+            "{ROOT_WS}/boards/{}/blocks?sourceBoardId={source}",
+            board.container
+        );
+        let copied = client.post(&path, &copied).await;
+        assert!(!copied.status.is_success(), "{source}: {}", copied.text());
+    }
+    client
+        .put(
+            &format!("{ROOT_WS}/guest-invitations"),
+            &json!({"enabled": true}),
+        )
+        .await
+        .check_done();
+    same(
+        Method::POST,
+        &format!("{ROOT_WS}/invitations"),
+        &|id| json!({"role": "guest", "boardId": id}),
+    )
+    .await;
+
+    // The wiki is as it was, and so is the board's card.
+    let read = client
+        .get(&format!("{ROOT_WS}/boards/{}", wiki.container))
+        .await;
+    read.check_done();
+    assert_ne!(read.value()["title"], "changed");
+    world.ts.teardown().await;
+}

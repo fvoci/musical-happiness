@@ -12,9 +12,9 @@
 //! The tests after [`duplicate_board`] have no counterpart in the original.
 
 use fvoci_model::{
-    BLOCK_TITLE_MAX_CHARS, Block, BlockError, BlockPatch, BlockType, Board, BoardMember,
-    BoardPatch, BoardType, BoardsAndBlocks, BoardsAndBlocksError, DeleteBoardsAndBlocks,
-    PatchBoardsAndBlocks, is_id, new_id,
+    BLOCK_TITLE_MAX_CHARS, Block, BlockError, BlockPatch, BlockType, Board, BoardKinds,
+    BoardMember, BoardPatch, BoardType, BoardsAndBlocks, BoardsAndBlocksError,
+    DeleteBoardsAndBlocks, PatchBoardsAndBlocks, is_id, new_id,
 };
 use fvoci_store::{BlockFilter, DuplicateAs, NewImages, PublicBoards, Store, StoreError};
 
@@ -144,7 +144,12 @@ async fn create_boards_and_blocks() {
     let workspace_id = common::workspace_of(&test, &[&user_id]).await;
 
     let stored = test
-        .get_boards_for_user_and_workspace(&user_id, &workspace_id, PublicBoards::Include)
+        .get_boards_for_user_and_workspace(
+            &user_id,
+            &workspace_id,
+            PublicBoards::Include,
+            BoardKinds::Boards,
+        )
         .await
         .expect("the query succeeds");
     assert!(stored.is_empty(), "got {stored:?}");

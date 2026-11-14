@@ -15,7 +15,8 @@
 use std::collections::BTreeSet;
 
 use fvoci_model::{
-    BoardMember, BoardType, OrgRole, User, UserWorkspace, Workspace, WorkspaceRole, new_id,
+    BoardKind, BoardKinds, BoardMember, BoardType, OrgRole, User, UserWorkspace, Workspace,
+    WorkspaceRole, new_id,
 };
 use subtle::ConstantTimeEq as _;
 
@@ -639,11 +640,11 @@ impl Store {
             .await
     }
 
-    /// The user's board memberships in live workspaces of every organization, direct
-    /// and through a team (`inherited_role`), ordered by board identifier. Only the
-    /// named user's memberships are returned, and only of the organizations a session
-    /// made through `login_provider` (`None` for a password) opens: one that takes only
-    /// sessions of another provider is left out.
+    /// The user's memberships of boards of `kinds` in live workspaces of every
+    /// organization, direct and through a team (`inherited_role`), ordered by board
+    /// identifier. Only the named user's memberships are returned, and only of the
+    /// organizations a session made through `login_provider` (`None` for a password)
+    /// opens: one that takes only sessions of another provider is left out.
     ///
     /// # Errors
     ///
@@ -652,10 +653,11 @@ impl Store {
         &self,
         user_id: &str,
         login_provider: Option<&str>,
+        kinds: BoardKinds,
     ) -> Result<Vec<BoardMember>, StoreError> {
         self.system()
             .with_conn(async |scope| {
-                memberships_everywhere::of_user(scope, user_id, login_provider).await
+                memberships_everywhere::of_user(scope, user_id, login_provider, kinds).await
             })
             .await
     }
@@ -700,7 +702,8 @@ impl Store {
     }
 
     /// The organization of a board that is shared, for whoever holds its read token;
-    /// `None` if the board is not shared, is not there, or the token is not its own.
+    /// `None` if the board is not shared, is not there, is a wiki, or the token is not
+    /// its own: a read token opens the cards of a board, and a wiki has none.
     /// Nothing of the system organization is shared, nothing of a workspace or an
     /// organization that was deleted, and nothing of an organization that turned its
     /// public links off.
@@ -726,6 +729,7 @@ impl Store {
                 sql.bind(Id(board_id))
                     .push_bind(" AND s.enabled = ", true)
                     .push_bind(" AND o.public_links = ", true)
+                    .push_bind(" AND b.kind = ", BoardKind::Board.as_str())
                     .push(IN_USE)
                     .push(&scope.same_organization(&[("s", "b"), ("b", "t")]));
                 let Some(row) = scope.fetch_optional(sql).await? else {

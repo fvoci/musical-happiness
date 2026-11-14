@@ -38,8 +38,9 @@ impl App {
 
     /// Returns one page of the boards of a workspace that are in the trash and that the user
     /// was an admin of when they were deleted, or, for an administrator of the workspace
-    /// (`role`), every one: whom `undeleteBoard` lets bring them back. The last deleted
-    /// first; `page` and `per_page` are read as for cards.
+    /// (`role`), every one: whom `undeleteBoard` lets bring them back. Of the kinds the
+    /// handle reaches ([`App::reaching`]). The last deleted first; `page` and `per_page`
+    /// are read as for cards.
     ///
     /// # Errors
     ///
@@ -63,6 +64,7 @@ impl App {
                 workspace_id,
                 (role != WorkspaceRole::Admin).then_some(user_id),
                 paging,
+                self.kinds(),
             )
             .await?;
         Ok(deleted

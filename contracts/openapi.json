@@ -444,6 +444,10 @@
             "description": "Whether the board is a template.",
             "type": "boolean"
           },
+          "kind": {
+            "$ref": "#/components/schemas/BoardKind",
+            "description": "What the board is for: `board` for cards, `wiki` for pages. It is what the board\nwas made as and never changes; a board decoded without it is a `board`. A wiki\nis no template and has no card properties, and the operations that are about\ncards answer for a wiki as for a board that is not there."
+          },
           "minimumRole": {
             "$ref": "#/components/schemas/MinimumRole",
             "description": "The role a user gets who joins the board, or is added by somebody who does not\nmanage its roles. Never empty and never admin."
@@ -494,6 +498,7 @@
           "id",
           "isBuiltin",
           "isTemplate",
+          "kind",
           "minimumRole",
           "modifiedBy",
           "properties",
@@ -505,6 +510,14 @@
           "workspaceId"
         ],
         "type": "object"
+      },
+      "BoardKind": {
+        "description": "What a container of a workspace is for: a board holds cards and their views, a wiki\nholds pages. A container is of one kind from when it is made and never of another.",
+        "enum": [
+          "board",
+          "wiki"
+        ],
+        "type": "string"
       },
       "BoardMember": {
         "description": "A user's membership of a board.",
@@ -2086,6 +2099,36 @@
         "required": [
           "name",
           "size"
+        ],
+        "type": "object"
+      },
+      "NewWiki": {
+        "additionalProperties": false,
+        "description": "A wiki to make.",
+        "properties": {
+          "description": {
+            "description": "The wiki's description. Left out, empty.",
+            "type": "string"
+          },
+          "icon": {
+            "description": "The wiki's icon, usually one emoji. Left out, none.",
+            "type": "string"
+          },
+          "minimumRole": {
+            "$ref": "#/components/schemas/MinimumRole",
+            "description": "The role a user gets who joins the wiki. Left out, `editor`."
+          },
+          "title": {
+            "description": "The wiki's title. Left out, empty.",
+            "type": "string"
+          },
+          "type": {
+            "$ref": "#/components/schemas/BoardType",
+            "description": "Whether the wiki is open (`O`), for whoever works in the workspace to find and\njoin, or private (`P`), for whom it is shared with."
+          }
+        },
+        "required": [
+          "type"
         ],
         "type": "object"
       },
@@ -6059,7 +6102,7 @@
     },
     "/api/v1/users/me/memberships": {
       "get": {
-        "description": "The user's memberships, with the roles of each, of the boards of the workspaces the\nuser is a member of, in every organization the session opens: one that takes only\nsessions made through its provider leaves its boards out of another session's list.\nA board the user has a role on only through a team of its workspace is listed too\n(`synthetic`, with the team's role in `inheritedRole`); a guest is in no team. By the\nidentifier of the board.",
+        "description": "The user's memberships, with the roles of each, of the boards of the workspaces the\nuser is a member of, in every organization the session opens: one that takes only\nsessions made through its provider leaves its boards out of another session's list.\nA board the user has a role on only through a team of its workspace is listed too\n(`synthetic`, with the team's role in `inheritedRole`); a guest is in no team. A\nwiki the user is on is listed as a board is, under its identifier as `boardId`. By\nthe identifier of the board.",
         "operationId": "getMyMemberships",
         "responses": {
           "200": {
@@ -6637,7 +6680,7 @@
         ]
       },
       "post": {
-        "description": "The user becomes the board's admin, and the board is filed under the user's default\ncategory, unless it is a template.",
+        "description": "The user becomes the board's admin, and the board is filed under the user's default\ncategory, unless it is a template. A board is made here and no wiki: a `kind` other\nthan `board` is 400 at `/kind` (`createWiki` makes a wiki).",
         "operationId": "createBoard",
         "parameters": [
           {
@@ -6785,7 +6828,7 @@
         ]
       },
       "post": {
-        "description": "Makes boards and their blocks together, all or none, under identifiers the server\nmakes; the identifiers of the request only say which block belongs to which board\nand to which other block. The request needs at least one board and one block; every\nboard needs an `id`, and all boards are of one workspace. The user becomes the admin of\neach board, and each board that is no template is filed under the user's default\ncategory.",
+        "description": "Makes boards and their blocks together, all or none, under identifiers the server\nmakes; the identifiers of the request only say which block belongs to which board\nand to which other block. The request needs at least one board and one block; every\nboard needs an `id`, and all boards are of one workspace. The user becomes the admin of\neach board, and each board that is no template is filed under the user's default\ncategory. They are boards: one whose `kind` is not `board` is 400 at `/kind`.",
         "operationId": "createBoardsAndBlocks",
         "parameters": [
           {
@@ -6995,7 +7038,7 @@
         ]
       },
       "patch": {
-        "description": "For who may manage the board's properties. Changing `type` or `minimumRole` is for\nthe board's admins.",
+        "description": "For who may manage the board's properties. Changing `type` or `minimumRole` is for\nthe board's admins. A wiki is changed here too, by its identifier; it takes no card\nproperties (400 at `/cardProperties`), and nothing changes the `kind` of a board.",
         "operationId": "patchBoard",
         "parameters": [
           {
@@ -10628,7 +10671,7 @@
     },
     "/api/v1/w/{workspaceId}/trash/boards": {
       "get": {
-        "description": "One page of the workspace's boards that are in the trash and that the user was an admin\nof when they were deleted, or every one of them for an administrator of the\nworkspace, which is who `undeleteBoard` lets bring them back: each\nwith its identifier, its title, when it was deleted and by whom. The last deleted\nfirst; the pages cut that order. A `page` or `perPage` that is no whole number is\n400. For users of the workspace.",
+        "description": "One page of the workspace's boards that are in the trash and that the user was an admin\nof when they were deleted, or every one of them for an administrator of the\nworkspace, which is who `undeleteBoard` lets bring them back: each\nwith its identifier, its title, when it was deleted and by whom. The last deleted\nfirst; the pages cut that order. A `page` or `perPage` that is no whole number is\n400. For users of the workspace.\n\nThe list is of one kind: the boards, or with `kind=wiki` the wikis, which go to the\ntrash and come back as boards do (`deleteBoard`, `undeleteBoard`).",
         "operationId": "getDeletedBoards",
         "parameters": [
           {
@@ -10658,6 +10701,15 @@
             "schema": {
               "format": "int64",
               "type": "integer"
+            }
+          },
+          {
+            "description": "Which kind the list is of: `board` (also when left out) or `wiki`. Anything else is 400.",
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "type": "string"
             }
           }
         ],
@@ -11075,6 +11127,103 @@
           "workspaces"
         ]
       }
+    },
+    "/api/v1/w/{workspaceId}/wikis": {
+      "get": {
+        "description": "The wikis of the workspace that the user is a member of, and the workspace's open\nwikis; a guest of the workspace gets only the former, an administrator every wiki\nof the workspace (the pages of a private wiki they are no member of stay 404 to\nthem). Each is a board of the `kind` `wiki`. Oldest first. 404 unless the user is a\nmember of the workspace.",
+        "operationId": "getWikis",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Board"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The wikis."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "The wikis of a workspace",
+        "tags": [
+          "wikis"
+        ]
+      },
+      "post": {
+        "description": "The user becomes the wiki's admin, and the wiki is filed under the user's default\ncategory, as a board is. Whoever works in the workspace makes wikis in it; a guest\nis refused (403). A member the request does not know is 400.",
+        "operationId": "createWiki",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewWiki"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Board"
+                }
+              }
+            },
+            "description": "The wiki that was made."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Make a wiki",
+        "tags": [
+          "wikis"
+        ]
+      }
     }
   },
   "security": [
@@ -11111,6 +11260,10 @@
     {
       "description": "Boards and templates.",
       "name": "boards"
+    },
+    {
+      "description": "Wikis and their pages. A wiki is a board of the kind `wiki`: who is on it, its sharing, its files, its place in the sidebar and in the trash are asked as a board's are, under `/boards/{boardId}` with the wiki's identifier.",
+      "name": "wikis"
     },
     {
       "description": "Who is on a board, and with which role.",

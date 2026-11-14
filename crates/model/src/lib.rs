@@ -56,8 +56,8 @@ pub use block::{
 };
 pub use block_ids::{UnmatchedRelation, generate_block_ids, renew_block_ids};
 pub use board::{
-    Board, BoardError, BoardMember, BoardPatch, BoardRole, BoardSearchField, BoardType,
-    MinimumRole, ParseBoardSearchFieldError,
+    Board, BoardError, BoardKind, BoardKinds, BoardMember, BoardPatch, BoardRole, BoardSearchField,
+    BoardType, MinimumRole, ParseBoardSearchFieldError,
 };
 pub use board_teams::{BoardTeam, BoardTeamRole};
 pub use boards_and_blocks::{

@@ -82,23 +82,19 @@ impl App {
             .await?)
     }
 
-    /// Returns the block with the given identifier: for a handle of one workspace
-    /// ([`App::in_workspace`]), only a block of a board of that workspace or of a built-in
-    /// template.
+    /// Returns the block with the given identifier: only a block of a board of the kinds
+    /// the handle reaches ([`App::reaching`]) and, for a handle of one workspace
+    /// ([`App::in_workspace`]), of that workspace or of a built-in template.
     ///
     /// # Errors
     ///
     /// Returns a not-found error if there is no such block.
     pub async fn block(&self, block_id: &str) -> Result<Block, AppError> {
-        // A handle of one workspace finds the blocks of its boards only, in the one read.
-        let found = match self.workspace.as_deref() {
-            Some(workspace_id) => {
-                self.store()
-                    .get_block_in_workspace(block_id, workspace_id)
-                    .await
-            }
-            None => self.store().get_block(block_id).await,
-        };
+        // The handle finds the blocks of the boards it reaches only, in the one read.
+        let found = self
+            .store()
+            .get_block_within(block_id, self.workspace.as_deref(), self.kinds)
+            .await;
         match found {
             Ok(block) => Ok(block),
             Err(error) if error.is_not_found() => Err(AppError::not_found("block")),

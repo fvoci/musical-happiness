@@ -12,7 +12,7 @@ use super::contract::bodies::NewBoard;
 use super::contract::params::MemberWorkspaceId;
 use super::contract::params::{AsTemplate, BoardId, ToWorkspace};
 use super::contract::tag;
-use super::workspace::Ws;
+use super::workspace::{Ws, WsModule};
 
 use super::{ApiResult, created, decode_json, json_response, no_content, query_param};
 use super::{
@@ -112,7 +112,8 @@ fn decode_board_patch(body: &[u8]) -> Result<BoardPatch, AppError> {
 /// Make a board
 ///
 /// The user becomes the board's admin, and the board is filed under the user's default
-/// category, unless it is a template.
+/// category, unless it is a template. A board is made here and no wiki: a `kind` other
+/// than `board` is 400 at `/kind` (`createWiki` makes a wiki).
 #[utoipa::path(
     post,
     path = "/w/{workspaceId}/boards",
@@ -153,7 +154,10 @@ async fn handle_create_board(ws: Ws, body: Bytes) -> ApiResult {
     params(MemberWorkspaceId, BoardId),
     responses((status = 200, description = "The board.", body = Board)),
 )]
-async fn handle_get_board(ws: Ws, Path((_, board_id)): Path<(String, String)>) -> ApiResult {
+async fn handle_get_board(
+    WsModule(ws): WsModule,
+    Path((_, board_id)): Path<(String, String)>,
+) -> ApiResult {
     // An open board is for whoever works in its workspace, a private one for its
     // members, and its name for the workspace's administrators.
     let access = ws
@@ -173,7 +177,8 @@ async fn handle_get_board(ws: Ws, Path((_, board_id)): Path<(String, String)>) -
 /// Change a board
 ///
 /// For who may manage the board's properties. Changing `type` or `minimumRole` is for
-/// the board's admins.
+/// the board's admins. A wiki is changed here too, by its identifier; it takes no card
+/// properties (400 at `/cardProperties`), and nothing changes the `kind` of a board.
 #[utoipa::path(
     patch,
     path = "/w/{workspaceId}/boards/{boardId}",
@@ -184,7 +189,7 @@ async fn handle_get_board(ws: Ws, Path((_, board_id)): Path<(String, String)>) -
     responses((status = 200, description = "The board as it is now.", body = Board)),
 )]
 async fn handle_patch_board(
-    ws: Ws,
+    WsModule(ws): WsModule,
     Path((_, board_id)): Path<(String, String)>,
     body: Bytes,
 ) -> ApiResult {
@@ -280,7 +285,10 @@ async fn handle_reorder_card_properties(
     params(MemberWorkspaceId, BoardId),
     responses((status = 204, description = "The board is deleted.")),
 )]
-async fn handle_delete_board(ws: Ws, Path((_, board_id)): Path<(String, String)>) -> ApiResult {
+async fn handle_delete_board(
+    WsModule(ws): WsModule,
+    Path((_, board_id)): Path<(String, String)>,
+) -> ApiResult {
     require_board_permission(
         &ws.app,
         &ws.session.user_id,
@@ -372,7 +380,10 @@ async fn handle_duplicate_board(
     params(MemberWorkspaceId, BoardId),
     responses((status = 200, description = "The board as it is again.", body = Board)),
 )]
-async fn handle_undelete_board(ws: Ws, Path((_, board_id)): Path<(String, String)>) -> ApiResult {
+async fn handle_undelete_board(
+    WsModule(ws): WsModule,
+    Path((_, board_id)): Path<(String, String)>,
+) -> ApiResult {
     // The trash keeps the memberships a board had, which is how it is known who may
     // bring it back, as what they are in its workspace now. To anybody else, and for a
     // board that is not in the trash, there is no such board.

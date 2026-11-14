@@ -2,18 +2,19 @@
 //! a user may bring back.
 
 use axum::extract::{Path, RawQuery};
-use fvoci_model::DeletedItem;
+use fvoci_model::{BoardKind, DeletedItem};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use super::cards::page_params;
 use super::contract::params::MemberWorkspaceId;
-use super::contract::params::{BoardId, Page, PerPage, WorkspaceId};
+use super::contract::params::{BoardId, Page, PerPage, TrashKind, WorkspaceId};
 use super::contract::tag;
 use super::workspace::TextWs;
 use super::workspace::Ws;
-use super::{ApiResult, json_response, require_board_permission};
+use super::{ApiResult, json_response, query_param, require_board_permission};
 use crate::app::App;
+use crate::error::AppError;
 use crate::permissions::BoardPermission;
 
 pub(super) fn routes() -> OpenApiRouter<App> {
@@ -66,19 +67,32 @@ async fn handle_get_deleted_cards(
 /// with its identifier, its title, when it was deleted and by whom. The last deleted
 /// first; the pages cut that order. A `page` or `perPage` that is no whole number is
 /// 400. For users of the workspace.
+///
+/// The list is of one kind: the boards, or with `kind=wiki` the wikis, which go to the
+/// trash and come back as boards do (`deleteBoard`, `undeleteBoard`).
 #[utoipa::path(
     get,
     path = "/w/{workspaceId}/trash/boards",
     operation_id = "getDeletedBoards",
     tag = tag::BOARDS,
-    params(WorkspaceId, Page, PerPage),
+    params(WorkspaceId, Page, PerPage, TrashKind),
     responses((status = 200, description = "The deleted boards of the page.", body = Vec<DeletedItem>)),
 )]
 async fn handle_get_deleted_boards(TextWs(ws): TextWs, RawQuery(query): RawQuery) -> ApiResult {
     let ws = ws.require_no_guest()?;
     let (page, per_page) = page_params(query.as_deref())?;
+    let kind = match query_param(query.as_deref(), "kind").as_str() {
+        "" => BoardKind::Board,
+        text => BoardKind::ALL
+            .into_iter()
+            .find(|kind| kind.as_str() == text)
+            .ok_or_else(|| {
+                AppError::bad_request("the kind is `board` or `wiki`").with_parameter("kind")
+            })?,
+    };
     Ok(json_response(
         &ws.app
+            .reaching(kind.into())
             .deleted_boards(
                 &ws.workspace_id,
                 &ws.session.user_id,

@@ -1,10 +1,10 @@
 //! Pins the JSON form of the wire types, and the leniency of decoding.
 
 use fvoci_model::{
-    Block, BlockPatch, BlockPatchBatch, BlockType, Board, BoardMember, BoardPatch, BoardType,
-    Category, CategoryBoardMetadata, CategoryBoards, CategoryType, ClientConfig, InvalidInput,
-    LoginRequest, MinimumRole, PatchBoardsAndBlocks, Problem, Sharing, Subscriber, SubscriberType,
-    Subscription, User, UserPreferencesPatch, Workspace,
+    Block, BlockPatch, BlockPatchBatch, BlockType, Board, BoardKind, BoardMember, BoardPatch,
+    BoardType, Category, CategoryBoardMetadata, CategoryBoards, CategoryType, ClientConfig,
+    InvalidInput, LoginRequest, MinimumRole, PatchBoardsAndBlocks, Problem, Sharing, Subscriber,
+    SubscriberType, Subscription, User, UserPreferencesPatch, Workspace,
 };
 use serde_json::{Value, json};
 
@@ -159,6 +159,7 @@ fn board_json_members() {
         created_by: "u1".to_owned(),
         modified_by: "u1".to_owned(),
         board_type: BoardType::Private,
+        kind: BoardKind::Board,
         minimum_role: MinimumRole::Commenter,
         title: "Roadmap".to_owned(),
         description: "d".to_owned(),
@@ -176,7 +177,7 @@ fn board_json_members() {
     };
     let want = json!({
         "id": "b1", "workspaceId": "0", "createdBy": "u1", "modifiedBy": "u1",
-        "type": "P", "minimumRole": "commenter", "title": "Roadmap", "description": "d",
+        "type": "P", "kind": "board", "minimumRole": "commenter", "title": "Roadmap", "description": "d",
         "icon": "🚀", "showDescription": true, "isTemplate": false, "isBuiltin": false, "templateVersion": 6,
         "properties": { "k": "v" }, "cardProperties": [{ "id": "p1", "name": "Status" }],
         "createAt": 1, "updateAt": 2, "deleteAt": 0

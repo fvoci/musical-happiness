@@ -9,7 +9,9 @@
 mod accounts;
 mod audit;
 mod blocks;
+mod board_kinds;
 mod board_membership;
+mod board_search;
 mod board_team_access;
 mod board_team_membership;
 mod board_team_trash;

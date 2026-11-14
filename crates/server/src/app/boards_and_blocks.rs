@@ -55,6 +55,9 @@ impl App {
         user_id: &str,
         membership: CreatorMembership,
     ) -> Result<BoardsAndBlocks, AppError> {
+        for board in &created.boards {
+            self.require_makes(board)?;
+        }
         let members = {
             let _structure = self.collab().changing_structure(self).await;
             match membership {

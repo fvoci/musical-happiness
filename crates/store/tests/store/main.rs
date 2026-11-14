@@ -9,6 +9,8 @@
 
 mod block_reads_and_patches;
 mod blocks;
+mod board_kinds;
+mod board_search;
 mod boards;
 mod boards_and_blocks;
 mod categories;

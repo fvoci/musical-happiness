@@ -50,7 +50,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 /// and to which other block. The request needs at least one board and one block; every
 /// board needs an `id`, and all boards are of one workspace. The user becomes the admin of
 /// each board, and each board that is no template is filed under the user's default
-/// category.
+/// category. They are boards: one whose `kind` is not `board` is 400 at `/kind`.
 #[utoipa::path(
     post,
     path = "/w/{workspaceId}/boards-and-blocks",

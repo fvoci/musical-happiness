@@ -538,6 +538,7 @@ const ORDERS: &[(&str, &str)] = &[
         "ordered by name in any letter case, by code point",
     ),
     ("getTemplates", "Each of the two oldest first"),
+    ("getWikis", "Oldest first"),
     ("getWorkspaceAudit", "the newest first"),
     ("getWorkspaceBoards", "Oldest first"),
     ("getWorkspaceMembers", "The oldest membership first"),

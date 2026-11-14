@@ -13,7 +13,7 @@ use super::contract::params::{BoardId, CategoryId, MemberWorkspaceId, WorkspaceI
 use super::contract::tag;
 
 use super::decode_object_members;
-use super::workspace::{TextWs, Ws};
+use super::workspace::{TextWsModule, Ws};
 use super::{ApiResult, decode_json, json_response, no_content, require_board_visible};
 use crate::app::App;
 use crate::auth::now_millis;
@@ -111,7 +111,7 @@ fn decode_order(body: &[u8]) -> Result<Vec<String>, AppError> {
     request_body = NewCategory,
     responses((status = 201, description = "The category that was made.", body = Category)),
 )]
-async fn handle_create_category(TextWs(ws): TextWs, body: Bytes) -> ApiResult {
+async fn handle_create_category(TextWsModule(ws): TextWsModule, body: Bytes) -> ApiResult {
     let ws = ws.require_no_guest()?;
     // The workspace of the path comes first (the extractor): what is asked of a
     // workspace that is not there is not looked at.
@@ -157,7 +157,7 @@ async fn handle_create_category(TextWs(ws): TextWs, body: Bytes) -> ApiResult {
     responses((status = 200, description = "The category as it is now.", body = Category)),
 )]
 async fn handle_update_category(
-    TextWs(ws): TextWs,
+    TextWsModule(ws): TextWsModule,
     Path((_, category_id)): Path<(String, String)>,
     body: Bytes,
 ) -> ApiResult {
@@ -206,7 +206,7 @@ async fn handle_update_category(
     responses((status = 204, description = "The category is deleted.")),
 )]
 async fn handle_delete_category(
-    TextWs(ws): TextWs,
+    TextWsModule(ws): TextWsModule,
     Path((_, category_id)): Path<(String, String)>,
 ) -> ApiResult {
     let ws = ws.require_no_guest()?;
@@ -238,7 +238,7 @@ async fn handle_delete_category(
         body = Vec<CategoryBoards>,
     )),
 )]
-async fn handle_get_user_category_boards(TextWs(ws): TextWs) -> ApiResult {
+async fn handle_get_user_category_boards(TextWsModule(ws): TextWsModule) -> ApiResult {
     // A guest too: their sidebar has the boards they are on, filed as they have filed
     // them. The rest of the sidebar's routes are for who works there.
     let (user_id, workspace_id) = (&ws.session.user_id, &ws.workspace_id);
@@ -266,7 +266,7 @@ async fn handle_get_user_category_boards(TextWs(ws): TextWs) -> ApiResult {
     responses((status = 204, description = "The board is under the category.")),
 )]
 async fn handle_update_category_board(
-    TextWs(ws): TextWs,
+    TextWsModule(ws): TextWsModule,
     Path((_, category_id, board_id)): Path<BoardPlace>,
 ) -> ApiResult {
     let ws = ws.require_no_guest()?;
@@ -302,7 +302,7 @@ async fn handle_update_category_board(
         body = Vec<String>,
     )),
 )]
-async fn handle_reorder_categories(TextWs(ws): TextWs, body: Bytes) -> ApiResult {
+async fn handle_reorder_categories(TextWsModule(ws): TextWsModule, body: Bytes) -> ApiResult {
     let ws = ws.require_no_guest()?;
     let new_order = decode_order(&body)?;
     let order = ws
@@ -331,7 +331,7 @@ async fn handle_reorder_categories(TextWs(ws): TextWs, body: Bytes) -> ApiResult
     )),
 )]
 async fn handle_reorder_category_boards(
-    TextWs(ws): TextWs,
+    TextWsModule(ws): TextWsModule,
     Path((_, category_id)): Path<(String, String)>,
     body: Bytes,
 ) -> ApiResult {
@@ -365,7 +365,10 @@ async fn handle_reorder_category_boards(
     params(WorkspaceId, CategoryId, BoardId),
     responses((status = 204, description = "The board is hidden.")),
 )]
-async fn handle_hide_board(TextWs(ws): TextWs, Path(place): Path<BoardPlace>) -> ApiResult {
+async fn handle_hide_board(
+    TextWsModule(ws): TextWsModule,
+    Path(place): Path<BoardPlace>,
+) -> ApiResult {
     let ws = ws.require_no_guest()?;
     set_board_visibility(&ws, &place, BoardVisibility::Hidden).await
 }
@@ -383,7 +386,10 @@ async fn handle_hide_board(TextWs(ws): TextWs, Path(place): Path<BoardPlace>) ->
     params(WorkspaceId, CategoryId, BoardId),
     responses((status = 204, description = "The board is shown.")),
 )]
-async fn handle_unhide_board(TextWs(ws): TextWs, Path(place): Path<BoardPlace>) -> ApiResult {
+async fn handle_unhide_board(
+    TextWsModule(ws): TextWsModule,
+    Path(place): Path<BoardPlace>,
+) -> ApiResult {
     let ws = ws.require_no_guest()?;
     set_board_visibility(&ws, &place, BoardVisibility::Visible).await
 }

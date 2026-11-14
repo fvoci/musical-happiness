@@ -857,6 +857,21 @@ impl From<StoreError> for AppError {
                 error.subject = Some(Subject::Board);
                 error
             }
+            // What a board of its kind is not: the member that says otherwise.
+            StoreError::InvalidBoard(
+                BoardError::KindChanges { .. }
+                | BoardError::WikiIsTemplate
+                | BoardError::WikiHasCardProperties,
+            ) => {
+                let member = match &error {
+                    StoreError::InvalidBoard(BoardError::WikiIsTemplate) => "isTemplate",
+                    StoreError::InvalidBoard(BoardError::WikiHasCardProperties) => "cardProperties",
+                    _ => "kind",
+                };
+                let mut error = Self::bad_request(error).with_field(member);
+                error.subject = Some(Subject::Board);
+                error
+            }
             // A parent that is no block of the board, whether it is none at all or
             // another board's: the answer does not tell the two apart.
             StoreError::InvalidBlock {

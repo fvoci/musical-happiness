@@ -17,6 +17,7 @@ pub(super) async fn exercise(case: &mut Case) {
         .value();
     let board = case.remember(&made, "id");
     boards(case, &board).await;
+    wikis(case).await;
     let card = cards(case, &board).await;
     categories(case, &board).await;
     let audited = people(case, &board).await;
@@ -79,6 +80,22 @@ async fn boards(case: &mut Case, board: &str) {
     case.run("setSharing", at, json!({"enabled": true})).await;
     let sharing = case.run("getSharing", at, json!({})).await.value();
     assert_eq!(sharing["enabled"], true, "sharing was enabled");
+}
+
+/// A wiki of the founder's, listed among the wikis and read as a board is.
+async fn wikis(case: &mut Case) {
+    let made = case
+        .run(
+            "createWiki",
+            &[],
+            json!({"title": format!("secret {} wiki", case.label), "type": "P"}),
+        )
+        .await
+        .value();
+    let wiki = case.remember(&made, "id");
+    assert_eq!(made["kind"], "wiki", "a wiki is made as one");
+    case.present("getWikis", &[], &wiki).await;
+    case.present("getBoard", &[("boardId", &wiki)], &wiki).await;
 }
 
 async fn cards(case: &mut Case, board: &str) -> String {

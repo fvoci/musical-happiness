@@ -10,7 +10,7 @@ use super::contract::bodies::{MemberRoles, NewMember};
 use super::contract::params::MemberWorkspaceId;
 use super::contract::params::{BoardId, UserId};
 use super::contract::tag;
-use super::workspace::Ws;
+use super::workspace::WsModule;
 
 use super::{ApiResult, json_response, no_content};
 use super::{decode_object, refusal, require_board_permission, require_granted};
@@ -80,7 +80,7 @@ fn require_holdable(workspace_role: WorkspaceRole, member: &BoardMember) -> Resu
     responses((status = 200, description = "The members.", body = Vec<BoardMember>)),
 )]
 async fn handle_get_members_for_board(
-    ws: Ws,
+    WsModule(ws): WsModule,
     Path((_, board_id)): Path<(String, String)>,
 ) -> ApiResult {
     require_board_permission(
@@ -124,7 +124,7 @@ async fn handle_get_members_for_board(
     responses((status = 200, description = "The membership as it is now.", body = BoardMember)),
 )]
 async fn handle_add_member(
-    ws: Ws,
+    WsModule(ws): WsModule,
     Path((_, board_id)): Path<(String, String)>,
     body: Bytes,
 ) -> ApiResult {
@@ -220,7 +220,10 @@ async fn handle_add_member(
     params(MemberWorkspaceId, BoardId),
     responses((status = 200, description = "The membership as it is now.", body = BoardMember)),
 )]
-async fn handle_join_board(ws: Ws, Path((_, board_id)): Path<(String, String)>) -> ApiResult {
+async fn handle_join_board(
+    WsModule(ws): WsModule,
+    Path((_, board_id)): Path<(String, String)>,
+) -> ApiResult {
     let user_id = &ws.session.user_id;
     let access = ws
         .app
@@ -269,7 +272,10 @@ async fn handle_join_board(ws: Ws, Path((_, board_id)): Path<(String, String)>) 
     params(MemberWorkspaceId, BoardId),
     responses((status = 204, description = "The user is no member any more.")),
 )]
-async fn handle_leave_board(ws: Ws, Path((_, board_id)): Path<(String, String)>) -> ApiResult {
+async fn handle_leave_board(
+    WsModule(ws): WsModule,
+    Path((_, board_id)): Path<(String, String)>,
+) -> ApiResult {
     let user_id = &ws.session.user_id;
     require_board_permission(
         &ws.app,
@@ -304,7 +310,7 @@ async fn handle_leave_board(ws: Ws, Path((_, board_id)): Path<(String, String)>)
     responses((status = 200, description = "The membership as it is now.", body = BoardMember)),
 )]
 async fn handle_update_member(
-    ws: Ws,
+    WsModule(ws): WsModule,
     Path((_, board_id, member_user_id)): Path<(String, String, String)>,
     body: Bytes,
 ) -> ApiResult {
@@ -363,7 +369,7 @@ async fn handle_update_member(
     responses((status = 204, description = "The user is no member any more.")),
 )]
 async fn handle_delete_member(
-    ws: Ws,
+    WsModule(ws): WsModule,
     Path((_, board_id, member_user_id)): Path<(String, String, String)>,
 ) -> ApiResult {
     require_board_permission(

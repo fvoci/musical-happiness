@@ -168,6 +168,8 @@ pub(super) const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
     ("GET", "/users", "getWorkspaceUsers"),
     ("POST", "/users", "getWorkspaceUsersById"),
     ("GET", "/users/{userId}", "getWorkspaceUser"),
+    ("GET", "/wikis", "getWikis"),
+    ("POST", "/wikis", "createWiki"),
 ];
 
 /// What a guest of the workspace is told by an operation of `REACHED_BY_ITEM` about
@@ -183,6 +185,7 @@ const REFUSED_IN_REACH: [StatusCode; 3] = [
 /// is what the path names (a board, a card, an upload, a user), or the operation.
 const REACHED_BY_ITEM: &[&str] = &[
     "createBoard",
+    "createWiki",
     "createBoardsAndBlocks",
     "deleteBoardsAndBlocks",
     "patchBoardsAndBlocks",
@@ -354,9 +357,10 @@ async fn compare_workspace_routes(client: &Client, user_id: &str, asker: Asker) 
         };
         let hidden = send(HIDDEN_WORKSPACE_ID).await;
         let absent = send(UNKNOWN_ID).await;
-        let equal = if *operation == "getWorkspaceBoards" && asker == Asker::Guest {
-            // A guest of the workspace is a member of it: the boards are those the
-            // guest is on, none here (the route of `api/workspaces.rs`).
+        let lists_boards = matches!(*operation, "getWorkspaceBoards" | "getWikis");
+        let equal = if lists_boards && asker == Asker::Guest {
+            // A guest of the workspace is a member of it: the boards, and the wikis, are
+            // those the guest is on, none here (the route of `api/workspaces.rs`).
             hidden.status == StatusCode::OK
                 && answer(&hidden).1 == json!([])
                 && absent.status == StatusCode::NOT_FOUND

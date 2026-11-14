@@ -9,8 +9,8 @@
 //! they need not be identifiers.
 
 use fvoci_model::{
-    Block, BlockPatch, BlockType, Board, BoardMember, BoardPatch, BoardType, BoardsAndBlocks,
-    DeleteBoardsAndBlocks, PatchBoardsAndBlocks, new_id,
+    Block, BlockPatch, BlockType, Board, BoardKinds, BoardMember, BoardPatch, BoardType,
+    BoardsAndBlocks, DeleteBoardsAndBlocks, PatchBoardsAndBlocks, new_id,
 };
 use fvoci_store::BlockFilter;
 use reqwest::{Method, StatusCode};
@@ -317,7 +317,12 @@ async fn create_boards_and_blocks_creating_boards_and_blocks() {
         let found = th
             .app
             .store()
-            .search_boards_for_user_in_workspace(TEST_WORKSPACE_ID, term, &user1.id)
+            .search_boards_for_user_in_workspace(
+                TEST_WORKSPACE_ID,
+                term,
+                &user1.id,
+                BoardKinds::Boards,
+            )
             .await
             .expect("the boards are searched");
         assert_eq!(found.len(), 1, "one board matches {term:?}: {found:?}");
