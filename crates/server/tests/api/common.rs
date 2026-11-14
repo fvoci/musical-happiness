@@ -761,6 +761,20 @@ impl Client {
         }
     }
 
+    /// This client, answered with a redirect instead of following it: a test server's
+    /// `serverroot` is the default, which leads to whatever listens on port 8000 of the
+    /// machine, if anything does.
+    pub(crate) fn not_following_redirects(&self) -> Self {
+        Self {
+            http: reqwest::Client::builder()
+                .redirect(reqwest::redirect::Policy::none())
+                .timeout(Duration::from_secs(30))
+                .build()
+                .expect("an HTTP client can be built"),
+            ..self.clone()
+        }
+    }
+
     /// This client's session as a browser has it: the token goes out in the session
     /// cookie instead of the `Authorization` header.
     pub(crate) fn as_browser(&self) -> Self {
