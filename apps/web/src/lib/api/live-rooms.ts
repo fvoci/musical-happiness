@@ -12,7 +12,7 @@
  * (`already_open`, tried again by the room as any refusal for now) while the
  * first is open.
  */
-import { decodeDocFrame } from '../logic/doc-frame.ts';
+import { decodeCaretFrame, decodeDocFrame } from '../logic/doc-frame.ts';
 import type { RoomHears, RoomLine } from '../logic/doc-room-types.ts';
 
 interface Seat {
@@ -192,10 +192,14 @@ export class LiveRooms {
     return true;
   }
 
-  /** A binary frame. One that is no sync message, or of no room of this connection, is dropped. */
+  /** A binary frame. One that is no sync message and no carets, or of no room of this connection, is dropped. */
   bytes(data: Uint8Array): void {
     const frame = decodeDocFrame(data);
-    if (!frame) return;
-    this.#byDoc.get(frame.doc)?.hears.frame(frame);
+    if (frame) {
+      this.#byDoc.get(frame.doc)?.hears.frame(frame);
+      return;
+    }
+    const carets = decodeCaretFrame(data);
+    if (carets) this.#byDoc.get(carets.doc)?.hears.carets(carets);
   }
 }

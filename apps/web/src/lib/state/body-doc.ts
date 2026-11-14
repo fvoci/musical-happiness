@@ -3,6 +3,7 @@
  * backends and the screens share. The document is Yjs's; only its type is
  * named here, so that nothing of Yjs comes with the backends.
  */
+import type { Awareness } from 'y-protocols/awareness';
 import type { Doc as YDoc } from 'yjs';
 
 /**
@@ -24,6 +25,18 @@ export interface BodyDocState {
   status: BodyDocStatus;
   /** The server's document, once one has arrived; another one after it was made anew. */
   doc: YDoc | undefined;
+  /**
+   * The carets of that document: where the reader's own is is written into
+   * it, and the others' are read from it. Another one with another document.
+   */
+  carets: Awareness | undefined;
+  /**
+   * Says that the reader composes a syllable with an input method in that
+   * document, or no longer does. What the room sends meanwhile is taken
+   * into the document after it, a few seconds later at most: a change in
+   * the line being composed would end the composition.
+   */
+  composing: (composing: boolean) => void;
   /** `write` or `read`: as the server let the reader in. */
   mode: 'write' | 'read';
   /** Why it is `out`. */

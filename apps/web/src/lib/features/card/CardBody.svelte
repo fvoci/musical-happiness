@@ -3,7 +3,8 @@
 
   The body is opened in its room (`CardStore.openBody`) and left when this
   goes away. The editor is bound to the room's document: what the reader
-  types goes to the others as it is typed, and theirs comes in. The document
+  types goes to the others as it is typed, and theirs comes in; where each of
+  them is shows as a caret with their name. The document
   is the server's; until it has arrived (and the editor, which is not part
   of what the app loads first: editor-chunk.svelte.ts) the body is shown as
   the card was read, with the read-only view, so that a card can be read at
@@ -20,6 +21,7 @@
   import type { Editor as TiptapEditor } from '@tiptap/core';
   import { untrack } from 'svelte';
 
+  import { avatarColor } from '$lib/components/avatar/avatar.ts';
   import BodyView from '$lib/editor/BodyView.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type { BoardStore, CardStore } from '$lib/state/index.ts';
@@ -39,6 +41,13 @@
   const workspace = $derived(board.workspace);
   const room = $derived(card.room);
   const doc = $derived(room?.doc);
+  /** The carets of the room's document, each in the colour its person's picture has. */
+  const carets = $derived(
+    room?.carets && {
+      awareness: room.carets,
+      colorOf: (userId: string) => `var(--option-${avatarColor(userId)})`,
+    },
+  );
   const Editor = $derived(room ? editorChunk.component : undefined);
   /** The reader may write: the board lets them, and the room does now. */
   const writable = $derived(board.canEdit && (room?.writable ?? false));
@@ -139,6 +148,8 @@
         <Editor
           doc={card.body}
           collab={doc}
+          {carets}
+          onComposing={room?.composing}
           editable={writable}
           canWrite={board.canEdit && room?.mode === 'write'}
           onFitsAgain={() => {

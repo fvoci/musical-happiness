@@ -483,3 +483,62 @@ describe('answers that come late, and joins that cross', () => {
     expect(room.take({ type: 'up' }).some((effect) => effect.type === 'join')).toBe(false);
   });
 });
+
+describe('the carets of a room', () => {
+  const CARET = new Uint8Array([1, 7, 1, 4, 110, 117, 108, 108]);
+
+  it("takes in the others' of the document held, in the room it is in", () => {
+    const room = new Harness();
+    room.joined(4, 7);
+    room.take({ type: 'carets', carets: { doc: 4, epoch: 7, update: CARET } });
+    expect(room.of('carets')).toEqual([{ type: 'carets', update: CARET }]);
+    // Of another room, and of another making of the document.
+    room.take({ type: 'carets', carets: { doc: 5, epoch: 7, update: CARET } });
+    expect(room.of('carets')).toEqual([]);
+    room.take({ type: 'carets', carets: { doc: 4, epoch: 6, update: CARET } });
+    expect(room.of('carets')).toEqual([]);
+    // While another document is on its way.
+    room.take({ type: 'message', message: { action: 'DOC_RESET', doc: 4, epoch: 8 } });
+    room.take({ type: 'carets', carets: { doc: 4, epoch: 7, update: CARET } });
+    room.take({ type: 'carets', carets: { doc: 4, epoch: 8, update: CARET } });
+    expect(room.of('carets')).toEqual([]);
+  });
+
+  it("tells the reader's own while they write in the room, and never while they only read", () => {
+    const room = new Harness();
+    // Not in a room yet.
+    room.take({ type: 'caret', update: CARET });
+    expect(room.of('tell')).toEqual([]);
+    room.joined(4, 7);
+    room.take({ type: 'caret', update: CARET });
+    expect(room.of('tell')).toEqual([
+      { type: 'tell', carets: { doc: 4, epoch: 7, update: CARET } },
+    ]);
+    room.take({ type: 'message', message: { action: 'DOC_MODE', doc: 4, mode: 'read' } });
+    room.take({ type: 'caret', update: CARET });
+    expect(room.of('tell')).toEqual([]);
+    const reader = new Harness();
+    reader.joined(1, 7, 'read');
+    reader.take({ type: 'caret', update: CARET });
+    expect(reader.of('tell')).toEqual([]);
+    // What a reader is told of the others they take in.
+    reader.take({ type: 'carets', carets: { doc: 1, epoch: 7, update: CARET } });
+    expect(reader.of('carets')).toHaveLength(1);
+  });
+
+  it("lets go of the others' when the room is left: put out, joined again, the connection gone", () => {
+    const room = new Harness();
+    room.joined(4, 7);
+    room.take({ type: 'message', message: { action: 'DOC_LEFT', doc: 4, reason: 'not_found' } });
+    expect(room.of('unseen')).toHaveLength(1);
+    const dropped = new Harness();
+    dropped.joined(4, 7);
+    dropped.take({ type: 'down' });
+    expect(dropped.of('unseen')).toHaveLength(1);
+    // Not in a room: nothing to let go of.
+    dropped.take({ type: 'down' });
+    expect(dropped.of('unseen')).toEqual([]);
+    dropped.take({ type: 'caret', update: CARET });
+    expect(dropped.of('tell')).toEqual([]);
+  });
+});

@@ -35,7 +35,9 @@ import * as Y from 'yjs';
 import { BODY_FIELD } from '../../editor/body-editor.ts';
 import { storedSize } from '../../editor/schema.ts';
 import {
+  decodeCaretFrame,
   decodeDocFrame,
+  encodeCaretFrame,
   encodeDocFrame,
   SYNC_STEP_1,
   SYNC_STEP_2,
@@ -52,7 +54,8 @@ import { ROOM_LIMITS } from '../../logic/doc-room.ts';
 
 import { roleOn } from './comments.ts';
 import { imageFileIds, LIMITS, wireOf } from './shapes.ts';
-import { bodyOf, documentOf, sameBody } from './room-docs.ts';
+import { MemoryCarets, type ToldCaret } from './room-carets.ts';
+import { bodyOf, documentOf, sameBody, tabKey } from './room-docs.ts';
 import type { StoredCard, World } from './world.ts';
 
 /** The shared type the editor binds to (`@tiptap/extension-collaboration`). */
@@ -79,9 +82,11 @@ interface Seat {
   up: boolean;
   /** The seat's client still listens: nothing is said to it once it has closed. */
   hearing: boolean;
-  /** When the last thing each way arrives: nothing overtakes what was sent before it. */
+  /** When the last thing each way arrives, and what is on its way: nothing overtakes what was sent before it. */
   inAt: number;
   outAt: number;
+  coming: (() => void)[];
+  going: (() => void)[];
 }
 
 interface Room {
@@ -101,28 +106,25 @@ interface Room {
 /** What the worlds of two tabs say of a room; of a room another than this tab's (`tab`) it is not heard. */
 type TabMessage =
   | { kind: 'update'; cardId: string; tab: string; update: Uint8Array }
-  | { kind: 'ask'; cardId: string; tab: string; vector: Uint8Array };
-
-/** A short sum of a text (FNV-1a), to tell apart bodies a document was made from. */
-function sum(text: string): string {
-  let hash = 0x811c9dc5;
-  for (let index = 0; index < text.length; index += 1) {
-    hash = Math.imul(hash ^ text.charCodeAt(index), 0x01000193) >>> 0;
-  }
-  return hash.toString(36);
-}
-
-/** What makes two tabs' rooms one: the card, its making, the epoch and the body the document came from. */
-function tabKey(card: StoredCard | undefined, cardId: string, epoch: number): string {
-  const made = sum(JSON.stringify(card?.body ?? null));
-  return `${card?.boardId ?? ''} ${cardId} ${String(card?.createAt ?? 0)} ${String(epoch)} ${made}`;
-}
+  | { kind: 'ask'; cardId: string; tab: string; vector: Uint8Array }
+  | { kind: 'caret'; cardId: string; tab: string; caret: ToldCaret };
 
 export class MemoryRooms {
   readonly #world: World;
   readonly #rooms = new Map<string, Room>();
   #numbers = 0;
   #channel: BroadcastChannel | undefined;
+  /** Where the readers who write are (room-carets.ts). */
+  readonly #carets = new MemoryCarets<Seat, Room>({
+    userOf: (seat) => seat.user.userId,
+    tell: (room, to, update) => {
+      if (to.doc === undefined) return;
+      this.#say(to, { frame: encodeCaretFrame({ doc: to.doc, epoch: room.epoch, update }) });
+    },
+    post: (room, caret) => {
+      this.#post({ kind: 'caret', cardId: room.cardId, tab: room.tab, caret });
+    },
+  });
 
   constructor(world: World, channel?: string) {
     this.#world = world;
@@ -153,6 +155,8 @@ export class MemoryRooms {
         hearing: true,
         inAt: 0,
         outAt: 0,
+        coming: [],
+        going: [],
       };
       const port: RoomPort = {
         connected: true,
@@ -190,24 +194,35 @@ export class MemoryRooms {
     for (const room of this.#rooms.values()) this.#write(room);
   }
 
-  /** Takes what a seat said after the user's latency, in the order said; not once it has left. */
+  /**
+   * Takes what a seat said after the user's latency, in the order said; not
+   * once it has left. Each arrival takes the oldest thing on its way: two
+   * that arrive at the same moment are not taken in the order of their timers.
+   */
   #hear(seat: Seat, take: () => void): void {
     seat.inAt = Math.max(Date.now() + seat.user.latency, seat.inAt);
+    seat.coming.push(take);
     setTimeout(() => {
-      if (seat.up) take();
+      const next = seat.coming.shift();
+      if (seat.up) next?.();
     }, seat.inAt - Date.now());
   }
 
   /** Says something to a seat after the user's latency, in the order said. */
   #say(seat: Seat, what: { message: RoomMessage } | { frame: Uint8Array }): void {
     seat.outAt = Math.max(Date.now() + seat.user.latency, seat.outAt);
-    setTimeout(() => {
-      if (!seat.hearing) return;
+    seat.going.push(() => {
       if ('message' in what) seat.hears.message(what.message);
       else {
         const frame = decodeDocFrame(what.frame);
+        const carets = frame ? undefined : decodeCaretFrame(what.frame);
         if (frame) seat.hears.frame(frame);
+        else if (carets) seat.hears.carets(carets);
       }
+    });
+    setTimeout(() => {
+      const next = seat.going.shift();
+      if (seat.hearing) next?.();
     }, seat.outAt - Date.now());
   }
 
@@ -266,6 +281,8 @@ export class MemoryRooms {
       return;
     }
     const room = this.#room(boardId, cardId);
+    // In the room anew, the seat has no caret until it says so again.
+    this.#carets.gone(room, seat);
     this.#numbers += 1;
     const doc = this.#numbers;
     seat.doc = doc;
@@ -273,6 +290,7 @@ export class MemoryRooms {
     room.seats.add(seat);
     this.#say(seat, { message: { action: 'DOC_JOINED', doc, epoch: room.epoch, mode } });
     this.#sendWhole(seat, room, Y.encodeStateAsUpdate(room.doc));
+    this.#carets.joined(room, seat);
   }
 
   #sendWhole(seat: Seat, room: Room, update: Uint8Array): void {
@@ -287,6 +305,7 @@ export class MemoryRooms {
     const room = this.#rooms.get(cardId);
     seat.doc = undefined;
     if (!room?.seats.delete(seat)) return;
+    this.#carets.gone(room, seat);
     if (room.seats.size === 0) this.#write(room);
   }
 
@@ -294,7 +313,13 @@ export class MemoryRooms {
     const room = this.#rooms.get(cardId);
     const frame = decodeDocFrame(bytes);
     const doc = seat.doc;
-    if (!room || !frame || doc === undefined || frame.doc !== doc || !room.seats.has(seat)) return;
+    if (!room || doc === undefined || !room.seats.has(seat)) return;
+    const carets = frame ? undefined : decodeCaretFrame(bytes);
+    // A caret of who writes, of the document the room holds: any other is dropped.
+    if (carets?.doc === doc && carets.epoch === room.epoch && seat.mode === 'write') {
+      this.#carets.said(room, seat, carets.update);
+    }
+    if (frame?.doc !== doc) return;
     if (frame.sync === SYNC_STEP_1) {
       if (frame.epoch !== room.epoch) return;
       try {
@@ -410,6 +435,7 @@ export class MemoryRooms {
     room.longest = undefined;
     room.doc.destroy();
     room.doc = documentOf(card?.body ?? null);
+    this.#carets.forget(room);
     room.epoch += 1;
     room.tab = tabKey(card, cardId, room.epoch);
     const whole = Y.encodeStateAsUpdate(room.doc);
@@ -430,9 +456,11 @@ export class MemoryRooms {
       if (mode === undefined) {
         room.seats.delete(seat);
         seat.doc = undefined;
+        this.#carets.gone(room, seat);
         this.#say(seat, { message: { action: 'DOC_LEFT', doc, reason: 'not_found' } });
       } else if (mode !== seat.mode) {
         seat.mode = mode;
+        if (mode === 'read') this.#carets.gone(room, seat);
         this.#say(seat, { message: { action: 'DOC_MODE', doc, mode } });
       }
     }
@@ -443,6 +471,10 @@ export class MemoryRooms {
   #fromTab(message: TabMessage): void {
     const room = this.#rooms.get(message.cardId);
     if (room?.tab !== message.tab) return;
+    if (message.kind === 'caret') {
+      this.#carets.fromTab(room, message.caret);
+      return;
+    }
     if (message.kind === 'ask') {
       const update = Y.encodeStateAsUpdate(room.doc, message.vector);
       this.#post({ kind: 'update', cardId: room.cardId, tab: room.tab, update });

@@ -8,7 +8,8 @@
 
   Bound to a shared document (`collab`, a card's body in its room), the
   editor shows what the document holds and writes into it: `doc`,
-  `revision`, `onLoad` and `onChange` are not read. What the editor cannot
+  `revision`, `onLoad` and `onChange` are not read. With `carets` it shows
+  where the others who edit it are (carets.ts). What the editor cannot
   draw is kept, the editor says so and stops editing until it fits again.
 
   Without one (the stories, and the editor's own tests), the document is
@@ -31,6 +32,8 @@
 
   import { BODY_FIELD, type BodyEditorProps } from './body-editor.ts';
   import { fromShared, setMayWrite, type DroppedWhy } from './shared-place.ts';
+  import { caretsOf } from './carets.ts';
+  import './carets.css';
   import './editor.css';
   import './editing-place.css';
   import { loadEmoji, searchEmoji } from './emoji.ts';
@@ -57,6 +60,8 @@
     toolbar,
     onLoad,
     collab,
+    carets,
+    onComposing,
     onEditor,
     canWrite = false,
     onImageDropped,
@@ -157,6 +162,7 @@
         : { content: first ?? emptyDoc() }),
       extensions: [
         ...(shared ? [Collaboration.configure({ document: shared, field: BODY_FIELD })] : []),
+        ...(shared && carets ? [caretsOf({ ...carets, nameOf })] : []),
         ...bodyExtensions({
           history: !shared,
           placeholder,
@@ -266,6 +272,15 @@
     editor?.setOptions({ editorProps: { attributes } });
   });
 
+  /**
+   * The composition is over. Said once the editor has read what it left in
+   * the page, which it does right after this (in a microtask of its own,
+   * queued before this one), and before whatever is typed next.
+   */
+  function composed(): void {
+    queueMicrotask(() => onComposing?.(false));
+  }
+
   // Names that become known later: a mention shows the name it had when it
   // was drawn, so the ones in the page are brought up to date.
   function renameMentions(
@@ -287,7 +302,13 @@
   });
 </script>
 
-<div class="doc-editor" data-unreadable={unreadable || undefined}>
+<!-- A syllable being composed with an input method: said to whoever holds what comes from outside. -->
+<div
+  class="doc-editor"
+  data-unreadable={unreadable || undefined}
+  oncompositionstart={() => onComposing?.(true)}
+  oncompositionend={composed}
+>
   {#if toolbar && editor}
     {@render toolbar({ editor, changes })}
   {/if}

@@ -97,6 +97,31 @@ describe('the rooms of the backend in memory', () => {
     });
   });
 
+  it('takes what a reader sent in the order sent, also what arrives at one moment', async () => {
+    const { backend, boardId, cardId } = world();
+    const told = listener();
+    const mine = backend.openDoc('w', boardId, cardId, told);
+    const a = await joined(mine);
+    // Slow, then fast: what is sent next arrives at the moment the slow one does, and each
+    // change rests on the one before it. (Here the timers of one moment fire in the order
+    // they were made; a browser's need not, which the card's browser tests would show.)
+    backend.latency = 300;
+    append(a, 'slow');
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    backend.latency = 0;
+    for (let sent = 0; sent < 12; sent += 1) {
+      append(a, `fast ${String(sent)}`);
+      await new Promise((resolve) => setTimeout(resolve, 35));
+    }
+    await vi.waitFor(() => {
+      expect(mine.state.pending).toBe(false);
+    });
+    expect(told.lost).toEqual([]);
+    expect(mine.state.status).toBe('joined');
+    expect(texts(mine.state.doc).filter((line) => line.includes('fast'))).toHaveLength(12);
+    mine.close();
+  });
+
   it('lets a viewer in to read: they see the changes and cannot write', async () => {
     const { world: stored, backend, other, boardId, cardId } = world();
     await backend.setMemberRole(boardId, other.userId, 'viewer');

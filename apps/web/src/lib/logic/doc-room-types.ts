@@ -16,6 +16,14 @@ export interface RoomFrame {
   payload: Uint8Array;
 }
 
+/** The carets of a room: the contract says what its bytes are (`contracts/websocket.md`, section 6). */
+export interface RoomCarets {
+  doc: number;
+  epoch: number;
+  /** An awareness update of y-protocols. */
+  update: Uint8Array;
+}
+
 /** What the server says of a room; a join's two answers come without a room number that is known. */
 export type RoomMessage =
   | { action: 'DOC_JOINED'; doc: number; epoch: number; mode: DocMode }
@@ -34,6 +42,7 @@ export interface RoomHears {
   down(): void;
   message(message: RoomMessage): void;
   frame(frame: RoomFrame): void;
+  carets(carets: RoomCarets): void;
 }
 
 /** What a room says. */
@@ -63,6 +72,10 @@ export type RoomEvent =
   | { type: 'down' }
   | { type: 'message'; message: RoomMessage }
   | { type: 'frame'; frame: RoomFrame }
+  /** The room says where carets are, or that they are gone. */
+  | { type: 'carets'; carets: RoomCarets }
+  /** The reader's caret is to be told: an awareness update of their own state. */
+  | { type: 'caret'; update: Uint8Array }
   /** The reader changed the document held. */
   | { type: 'local'; update: Uint8Array }
   /** The answer to `offer`: what the document held has that the server's lacks, if anything. */
@@ -77,6 +90,12 @@ export type RoomEffect =
   /** Send `JOIN_DOC`. */
   | { type: 'join' }
   | { type: 'send'; frame: RoomFrame }
+  /** Send the reader's caret. */
+  | { type: 'tell'; carets: RoomCarets }
+  /** Take in where the others' carets are. */
+  | { type: 'carets'; update: Uint8Array }
+  /** The room was left: where the others' carets are is not known any more. */
+  | { type: 'unseen' }
   /** Merge into the document held. */
   | { type: 'apply'; update: Uint8Array }
   /** Drop the document held, if any, and hold a new one made of this. */

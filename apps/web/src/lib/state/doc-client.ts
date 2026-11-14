@@ -11,7 +11,7 @@
  */
 import * as Y from 'yjs';
 
-import { encodeDocFrame } from '../logic/doc-frame.ts';
+import { encodeCaretFrame, encodeDocFrame } from '../logic/doc-frame.ts';
 import {
   DocRoom,
   type RoomEffect,
@@ -22,6 +22,14 @@ import {
 } from '../logic/doc-room.ts';
 
 import type { BodyDoc, BodyDocHears, BodyDocState } from './backend.ts';
+import { Carets } from './doc-carets.ts';
+
+/**
+ * How long what the room sent is held back at most while the reader
+ * composes a syllable, in milliseconds: a composition that goes on longer
+ * (a whole word, on some keyboards) does not keep the others' writing away.
+ */
+const HELD_MOST = 3000;
 
 /** How long leaving a card waits for the server to take what was written, in milliseconds. */
 const SETTLE_WAIT = 3000;
@@ -34,6 +42,15 @@ class RoomClient implements BodyDoc {
   /** Whoever waits for the server to have everything (`settle`). */
   #settling: (() => void)[] = [];
   #doc: Y.Doc | undefined;
+  /** The carets of the document held. */
+  #carets: Carets | undefined;
+  /** The reader's caret could be told to the room when it was last looked at. */
+  #tells = false;
+  /** The room took the caret it was just told. */
+  #told = false;
+  /** What the room sent while the reader composes a syllable, in its order; undefined while they do not. */
+  #held: (() => void)[] | undefined;
+  #heldTimer: ReturnType<typeof setTimeout> | undefined;
   #closed = false;
 
   constructor(line: RoomLine, hears: BodyDocHears) {
@@ -51,13 +68,17 @@ class RoomClient implements BodyDoc {
       frame: (frame) => {
         this.#take({ type: 'frame', frame });
       },
+      carets: (carets) => {
+        this.#take({ type: 'carets', carets });
+      },
     });
     if (this.#port.connected) this.#take({ type: 'up' });
   }
 
   get state(): BodyDocState {
     const { phase, mode, reason, writable, pending, retrying } = this.#room.status;
-    return { status: phase, doc: this.#doc, mode, reason, writable, pending, retrying };
+    const [doc, carets, composing] = [this.#doc, this.#carets?.awareness, this.#composing];
+    return { status: phase, doc, carets, composing, mode, reason, writable, pending, retrying };
   }
 
   retry(): void {
@@ -83,6 +104,38 @@ class RoomClient implements BodyDoc {
     });
   }
 
+  /** The reader composes a syllable, or no longer does (`BodyDocState.composing`). */
+  readonly #composing = (composing: boolean): void => {
+    if (this.#closed) return;
+    if (composing) this.#held ??= [];
+    else {
+      this.#release();
+      this.#held = undefined;
+    }
+  };
+
+  /** Takes in something the room sent: now, or after the syllable being composed. */
+  #later(take: () => void): void {
+    if (!this.#held) {
+      take();
+      return;
+    }
+    this.#held.push(take);
+    this.#heldTimer ??= setTimeout(() => {
+      this.#release();
+    }, HELD_MOST);
+  }
+
+  /** Takes in what was held back, in the order it came. */
+  #release(): void {
+    clearTimeout(this.#heldTimer);
+    this.#heldTimer = undefined;
+    const held = this.#held;
+    if (!held || held.length === 0) return;
+    this.#held = [];
+    for (const take of held) take();
+  }
+
   #waitsForAnswers(): boolean {
     const { phase, pending } = this.#room.status;
     return !this.#closed && pending && phase === 'joined';
@@ -96,6 +149,8 @@ class RoomClient implements BodyDoc {
     this.#port.close();
     for (const timer of this.#timers.values()) clearTimeout(timer);
     this.#timers.clear();
+    clearTimeout(this.#heldTimer);
+    this.#held = undefined;
     this.#hold(undefined);
     for (const done of [...this.#settling]) done();
   }
@@ -114,10 +169,26 @@ class RoomClient implements BodyDoc {
       if (effect.type === 'changed') changed = true;
       else this.#run(effect);
     }
+    this.#tellAgain();
     if (changed || held !== this.#doc) {
       this.#hears.state(this.state);
       if (!this.#waitsForAnswers()) for (const done of [...this.#settling]) done();
     }
+  }
+
+  /** In the room to write, where it was not before: the room is told where the reader's caret is. */
+  #tellAgain(): void {
+    const { phase, mode } = this.#room.status;
+    const tells = phase === 'joined' && mode === 'write';
+    if (tells && !this.#tells) this.#carets?.again();
+    this.#tells = tells;
+  }
+
+  /** Tells the room the reader's caret; whether it could be told now. */
+  #tellCaret(update: Uint8Array): boolean {
+    this.#told = false;
+    this.#take({ type: 'caret', update });
+    return this.#told;
   }
 
   #run(effect: Exclude<RoomEffect, { type: 'changed' }>): void {
@@ -128,9 +199,29 @@ class RoomClient implements BodyDoc {
       case 'send':
         this.#port.send(encodeDocFrame(effect.frame));
         break;
-      case 'apply':
-        if (this.#doc) this.#apply(this.#doc, effect.update);
+      case 'apply': {
+        // Into the document it was sent for: one let go meanwhile takes nothing.
+        const doc = this.#doc;
+        this.#later(() => {
+          if (doc && doc === this.#doc) this.#apply(doc, effect.update);
+        });
         break;
+      }
+      case 'tell':
+        this.#port.send(encodeCaretFrame(effect.carets));
+        this.#told = true;
+        break;
+      case 'carets':
+      case 'unseen': {
+        // After the changes that came before it: a caret is a place in them.
+        const carets = this.#carets;
+        this.#later(() => {
+          if (!carets || carets !== this.#carets) return;
+          if (effect.type === 'carets') carets.take(effect.update);
+          else carets.away();
+        });
+        break;
+      }
       case 'fresh': {
         const doc = new Y.Doc();
         this.#apply(doc, effect.update);
@@ -185,7 +276,11 @@ class RoomClient implements BodyDoc {
     const before = this.#doc;
     if (before === doc) return;
     before?.off('update', this.#changed);
+    this.#carets?.destroy();
     this.#doc = doc;
+    this.#carets = doc ? new Carets(doc, (update) => this.#tellCaret(update)) : undefined;
+    // A new document's carets are told once the editor says where the reader is.
+    this.#tells = false;
     doc?.on('update', this.#changed);
     before?.destroy();
   }

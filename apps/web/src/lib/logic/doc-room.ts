@@ -143,6 +143,17 @@ export class DocRoom {
       case 'frame':
         this.#frame(event.frame);
         break;
+      case 'carets': {
+        const { doc, epoch, update } = event.carets;
+        // Of the document held, in the room this is in; not while another document is on its way.
+        if (doc === this.#doc && epoch === this.#epoch && this.#expect === undefined) {
+          this.#effects.push({ type: 'carets', update });
+        }
+        break;
+      }
+      case 'caret':
+        this.#tell(event.update);
+        break;
       case 'local':
         this.#local(event.update);
         break;
@@ -192,8 +203,18 @@ export class DocRoom {
     this.#cancel('answer');
   }
 
+  /** The reader's caret goes to the room when they write in it: who reads shows none. */
+  #tell(update: Uint8Array): void {
+    const doc = this.#doc;
+    const epoch = this.#epoch;
+    if (this.#phase !== 'joined' || this.#mode !== 'write') return;
+    if (doc === undefined || epoch === undefined) return;
+    this.#effects.push({ type: 'tell', carets: { doc, epoch, update } });
+  }
+
   /** Forgets the room's number and what waited to go to it: none of it will be answered. */
   #leaveRoom(): void {
+    if (this.#doc !== undefined) this.#effects.push({ type: 'unseen' });
     this.#doc = undefined;
     this.#stale = 0;
     this.#expect = undefined;

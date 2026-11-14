@@ -1,0 +1,157 @@
+/**
+ * The carets of the others who edit a body together: each a line where
+ * they are, their selection tinted, and their name for a few seconds after
+ * they moved.
+ *
+ * The carets are y-protocols' awareness of the shared document (the room's
+ * client holds it, `state/doc-carets.ts`); the plugin that writes the
+ * reader's selection into it and draws the others' is the binding's own
+ * (`yCursorPlugin`). Whose a caret is comes with it as a user identifier
+ * the room wrote: the name and the colour are looked up here, never read
+ * from the caret.
+ *
+ * A caret is no part of the document and is not said to a screen reader
+ * (who else is there is said elsewhere); the name is drawn from an
+ * attribute, so that the text of the body is the body's alone. It does not
+ * blink. The name sits above the line where there is room, below it on the
+ * first line, and turns to the other side at the right edge.
+ */
+import { Extension } from '@tiptap/core';
+import { Plugin, PluginKey } from '@tiptap/pm/state';
+import type { EditorView } from '@tiptap/pm/view';
+import { yCursorPlugin } from '@tiptap/y-tiptap';
+import type { Awareness } from 'y-protocols/awareness';
+
+export interface CaretsOptions {
+  awareness: Awareness;
+  /** The name shown for a user. */
+  nameOf: (userId: string) => string;
+  /** The colour of a user, as CSS: the one their picture has. */
+  colorOf: (userId: string) => string;
+}
+
+/** How long a caret's name shows after it moved, in milliseconds. */
+export const NAME_SHOWN = 3000;
+
+interface Changes {
+  added: number[];
+  updated: number[];
+  removed: number[];
+}
+
+/** The user identifier the room wrote into a caret's state. */
+const userOf = (user: unknown): string => {
+  const id = (user as { id?: unknown } | null | undefined)?.id;
+  return typeof id === 'string' ? id : '';
+};
+
+/** Puts a name where it is not cut off: under the first line, and leftwards at the right edge. */
+function place(view: EditorView, caret: HTMLElement): void {
+  const name = caret.querySelector<HTMLElement>('.doc-caret-name');
+  if (!name) return;
+  const box = view.dom.getBoundingClientRect();
+  const at = caret.getBoundingClientRect();
+  const size = name.getBoundingClientRect();
+  caret.toggleAttribute('data-below', at.top - size.height < box.top);
+  caret.toggleAttribute('data-leftwards', at.left + size.width > box.right);
+}
+
+/** The extension that shows the others' carets and tells the reader's own. */
+export function caretsOf(options: CaretsOptions): Extension {
+  const { awareness } = options;
+  /** The line drawn for each caret now, by the number its state has. */
+  const drawn = new Map<number, HTMLElement>();
+  /** The carets whose name shows, each with what hides it again. */
+  const named = new Map<number, ReturnType<typeof setTimeout>>();
+  let view: EditorView | undefined;
+  let frame: number | undefined;
+
+  const placeSoon = (): void => {
+    if (frame !== undefined || !view) return;
+    frame = requestAnimationFrame(() => {
+      frame = undefined;
+      for (const [client, caret] of drawn) {
+        if (!caret.isConnected) drawn.delete(client);
+        else if (view && !view.isDestroyed) place(view, caret);
+      }
+    });
+  };
+
+  const hide = (client: number): void => {
+    clearTimeout(named.get(client));
+    named.delete(client);
+    drawn.get(client)?.removeAttribute('data-named');
+  };
+
+  const moved = (client: number): void => {
+    clearTimeout(named.get(client));
+    named.set(
+      client,
+      setTimeout(() => {
+        hide(client);
+      }, NAME_SHOWN),
+    );
+    drawn.get(client)?.setAttribute('data-named', '');
+  };
+
+  const changed = ({ added, updated, removed }: Changes): void => {
+    for (const client of [...added, ...updated]) {
+      if (client !== awareness.clientID) moved(client);
+    }
+    for (const client of removed) {
+      hide(client);
+      drawn.delete(client);
+    }
+    placeSoon();
+  };
+
+  return Extension.create({
+    name: 'carets',
+
+    addProseMirrorPlugins() {
+      return [
+        yCursorPlugin(awareness, {
+          cursorBuilder: (user, client) => {
+            const userId = userOf(user);
+            const caret = document.createElement('span');
+            caret.className = 'doc-caret';
+            caret.setAttribute('aria-hidden', 'true');
+            caret.dataset.user = userId;
+            caret.style.setProperty('--caret', options.colorOf(userId));
+            const name = document.createElement('span');
+            name.className = 'doc-caret-name';
+            name.dataset.name = options.nameOf(userId);
+            caret.append(name);
+            if (named.has(client)) caret.setAttribute('data-named', '');
+            drawn.set(client, caret);
+            placeSoon();
+            return caret;
+          },
+          selectionBuilder: (user) => ({
+            class: 'doc-caret-selection',
+            style: `--caret: ${options.colorOf(userOf(user))}`,
+          }),
+        }),
+        new Plugin({
+          key: new PluginKey('caretNames'),
+          view: (editorView) => {
+            view = editorView;
+            awareness.on('change', changed);
+            return {
+              update: placeSoon,
+              destroy: () => {
+                awareness.off('change', changed);
+                for (const timer of named.values()) clearTimeout(timer);
+                named.clear();
+                drawn.clear();
+                if (frame !== undefined) cancelAnimationFrame(frame);
+                frame = undefined;
+                view = undefined;
+              },
+            };
+          },
+        }),
+      ];
+    },
+  });
+}

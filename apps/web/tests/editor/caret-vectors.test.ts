@@ -4,7 +4,7 @@
  * (`crates/server/src/collab/caret.rs`): that the file is what the tool
  * writes with the editor's libraries, that those libraries read what the
  * server tells as the caret it is, and that the rooms of the backend in
- * memory (`logic/caret-frame.ts`) read and write as the server does.
+ * memory (`state/memory/caret-frame.ts`) read and write as the server does.
  */
 import { readFileSync } from 'node:fs';
 
@@ -19,7 +19,7 @@ import {
   caretSaid,
   caretState,
   caretTold,
-} from '$lib/logic/caret-frame.ts';
+} from '$lib/state/memory/caret-frame.ts';
 
 import {
   buildCaretVectors,
