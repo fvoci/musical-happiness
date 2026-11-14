@@ -271,6 +271,9 @@ pub(crate) struct Scope<'c> {
     visibility: Option<&'c crate::visibility::Writing<'c>>,
     /// How many versions are kept of a comment and of a card's body.
     versions_kept: VersionsKept,
+    /// Whether the store notes changes for the search server
+    /// ([`crate::Store::keep_search_outbox`]); `None` for a scope that notes none.
+    search_outbox: Option<&'c AtomicBool>,
 }
 
 /// How many versions the store keeps, as it is set when a scope begins. Two counts in
@@ -323,7 +326,22 @@ impl<'c> Scope<'c> {
             writes: None,
             visibility: None,
             versions_kept,
+            search_outbox: None,
         }
+    }
+
+    /// The same scope, which notes changes for the search server while `kept` says so.
+    pub(crate) fn noting_for_search(self, kept: &'c AtomicBool) -> Self {
+        Self {
+            search_outbox: Some(kept),
+            ..self
+        }
+    }
+
+    /// Whether the changes of this scope are noted for the search server.
+    pub(crate) fn keeps_search_outbox(&self) -> bool {
+        self.search_outbox
+            .is_some_and(|kept| kept.load(Ordering::Relaxed))
     }
 
     /// The same scope, which also sets `writes` when a statement that may write starts.

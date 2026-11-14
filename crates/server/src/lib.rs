@@ -15,6 +15,7 @@ pub mod metrics;
 pub mod permissions;
 pub mod problems;
 pub mod scheduler;
+pub mod search;
 pub mod storage;
 pub mod web;
 pub mod webhook;
@@ -137,6 +138,7 @@ impl Server {
         let server_lock = app.hold_server_lock(server_lock);
         // Before any request: what is left over from a run that stopped is nobody's.
         clean_up_uploads(&app).await;
+        search::settle_at_start(&app).await?;
         // The bodies of documents that a run that ended did not write to their cards,
         // in the background: each takes the worker's time, which a start does not wait
         // for.
@@ -324,6 +326,7 @@ impl Server {
         let clean_up = start_session_clean_up(&self.app);
         let purge = start_trash_purge(&self.app);
         let uploads = start_upload_clean_up(&self.app);
+        let search = search::start_upkeep(&self.app);
 
         let service = self
             .router()
@@ -392,6 +395,7 @@ impl Server {
         clean_up.cancel().await;
         purge.cancel().await;
         uploads.cancel().await;
+        search::stop_upkeep(search).await;
         served.context("serving HTTP")
     }
 

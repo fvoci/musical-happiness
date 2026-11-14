@@ -114,6 +114,7 @@ pub(crate) const LAYERS: &[Layer] = &[
             "fvoci_server::error",
             "fvoci_server::permissions",
             "fvoci_server::scheduler",
+            "fvoci_server::search",
             "fvoci_server::storage",
             "fvoci_server::webhook",
             "lettre",

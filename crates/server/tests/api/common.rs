@@ -106,6 +106,7 @@ pub(crate) struct Setup {
     admin_socket: Option<PathBuf>,
     smtp: Option<fvoci_server::config::smtp::SmtpSettings>,
     mail: Option<fvoci_server::config::mail::MailSettings>,
+    search: Option<fvoci_server::config::search::SearchSettings>,
     tls_files: Option<TlsFiles>,
     database_role: DatabaseRole,
     database: Database,
@@ -206,6 +207,12 @@ impl Setup {
         self
     }
 
+    /// Points the server at a search server.
+    pub(crate) fn search(mut self, settings: fvoci_server::config::search::SearchSettings) -> Self {
+        self.search = Some(settings);
+        self
+    }
+
     /// Opens the administration socket at `path` (`enablelocalmode`).
     pub(crate) fn admin_socket(mut self, path: &Path) -> Self {
         self.admin_socket = Some(path.to_owned());
@@ -276,6 +283,9 @@ impl Setup {
         }
         if let Some(mail) = self.mail {
             config.mail = mail;
+        }
+        if let Some(search) = self.search {
+            config.search = search;
         }
         for change in &self.configure {
             change(&mut config);

@@ -19,10 +19,11 @@ use fvoci_model::{Block, BlockType, Body};
 use serde_json::Value;
 
 use crate::Store;
+use crate::block_derived::{self, Before};
 use crate::body_digest::body_digest;
 use crate::db::{Id, Param, Row, Scope, VersionsKept, now_millis, to_json_text};
 use crate::error::StoreError;
-use crate::file_refs::{self, NewImages};
+use crate::file_refs::NewImages;
 use crate::{blocks, boards};
 
 /// How many versions of a card's body the store keeps unless told otherwise.
@@ -218,7 +219,7 @@ pub(crate) async fn keep_held(
     if kept.forgot_some {
         // The files the card shows are put down again with those of the versions
         // that are left.
-        file_refs::refresh(scope, &card, NewImages::Unchecked).await?;
+        block_derived::refresh(scope, &card, Before::Unchanged, NewImages::Unchecked).await?;
     }
     Ok(kept.version)
 }

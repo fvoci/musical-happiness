@@ -25,6 +25,7 @@ mod objects;
 mod ready;
 mod requests;
 mod scrape_read;
+mod search;
 mod storage;
 mod websocket;
 
@@ -38,6 +39,7 @@ pub(crate) use objects::LooseObjects;
 pub(crate) use objects::REMOVAL_ERRORS;
 pub(crate) use ready::ReadyCheck;
 pub(crate) use requests::{ABANDONED, OTHER_METHOD, OTHER_PROBLEM, RequestMetrics, UNMATCHED};
+pub(crate) use search::{SearchAsked, SearchSent};
 pub(crate) use storage::{OpenUploads, Pool};
 pub(crate) use websocket::Disconnect;
 
@@ -69,6 +71,7 @@ struct Kept {
     mail: mail::MailMetrics,
     ready: ready::ReadyMetrics,
     objects: objects::ObjectMetrics,
+    search: search::SearchMetrics,
 }
 
 impl Metrics {
@@ -112,6 +115,7 @@ impl Metrics {
         let mail = mail::MailMetrics::register(&registry)?;
         let ready = ready::ReadyMetrics::register(&registry)?;
         let objects = objects::ObjectMetrics::register(&registry)?;
+        let search = search::SearchMetrics::register(&registry)?;
         Ok(Self {
             kept: Some(Arc::new(Kept {
                 registry,
@@ -125,6 +129,7 @@ impl Metrics {
                 mail,
                 ready,
                 objects,
+                search,
             })),
         })
     }
