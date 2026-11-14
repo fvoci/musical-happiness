@@ -27,6 +27,7 @@ mod deleted_item;
 mod file_info;
 mod id;
 mod invitation;
+mod linked;
 mod name;
 mod oidc;
 mod org_admin;
@@ -93,6 +94,7 @@ pub use invitation::{
     AcceptInvitation, AcceptedInvitation, GUEST_INVITATION_USES, INVITATION_LIFETIME_MILLIS,
     Invitation, InvitationMail, InvitationPreview, InvitationToken, NewInvitation,
 };
+pub use linked::{LinkedBlock, LinkedKind};
 pub use name::{Named, required_name};
 pub use oidc::{
     LinkedIdentity, LoginOptions, LoginOrganization, OIDC_CLIENT_FIELD_MAX_BYTES,

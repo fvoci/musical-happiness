@@ -799,18 +799,15 @@ async fn the_instance_is_administered_through_its_own_organization_only() {
     test.teardown().await;
 }
 
-/// A card of the board with a body edited together: its document, a logged update, and
-/// a version kept of the body.
+/// A card of the board with a body edited together, which names the card itself: its
+/// document, a logged update, a version kept of the body, and what the body names.
 async fn card_with_body(store: &Store, board_id: &str, user_id: &str) -> String {
+    let id = new_id();
     let mut card = Block {
-        id: new_id(),
+        body: crate::body_links::body_naming("kept", &[&id]),
+        id,
         board_id: board_id.to_owned(),
         block_type: BlockType::Card,
-        body: fvoci_model::Body::parse(serde_json::json!({
-            "type": "doc",
-            "content": [{"type": "paragraph", "content": [{"type": "text", "text": "kept"}]}],
-        }))
-        .expect("the body may be stored"),
         ..Block::default()
     };
     common::insert_blocks(store, std::slice::from_mut(&mut card), user_id).await;
@@ -835,8 +832,9 @@ async fn card_with_body(store: &Store, board_id: &str, user_id: &str) -> String 
     card.id
 }
 
-/// A workspace removed for good takes the documents of its cards' bodies, their logs
-/// and the versions kept of the bodies with it, as a board removed for good does;
+/// A workspace removed for good takes the documents of its cards' bodies, their logs,
+/// the versions kept of the bodies and what the bodies name with it, as a board removed
+/// for good does;
 /// another workspace's stay.
 #[tokio::test]
 async fn a_workspace_purged_for_good_takes_the_documents_of_its_bodies() {
@@ -872,6 +870,7 @@ async fn a_workspace_purged_for_good_takes_the_documents_of_its_bodies() {
         "body_updates",
         "body_versions",
         "body_version_editors",
+        "body_links",
     ] {
         assert_eq!(
             test.count_rows(table).await.expect("counted"),

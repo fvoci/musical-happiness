@@ -1643,6 +1643,44 @@
         ],
         "type": "object"
       },
+      "LinkedBlock": {
+        "description": "A card or a page as a reference shows it: what it is called, and where it is.",
+        "properties": {
+          "boardId": {
+            "description": "The identifier of the board the card is on, or of the wiki the page is of.",
+            "type": "string"
+          },
+          "boardKind": {
+            "$ref": "#/components/schemas/BoardKind",
+            "description": "Whether that is a board or a wiki."
+          },
+          "icon": {
+            "description": "Its icon, at most one grapheme; empty for none.",
+            "type": "string"
+          },
+          "id": {
+            "description": "The identifier of the card or the page.",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/LinkedKind",
+            "description": "Whether it is a card or a page."
+          },
+          "title": {
+            "description": "Its title; empty for one without.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "boardId",
+          "boardKind",
+          "icon",
+          "id",
+          "kind",
+          "title"
+        ],
+        "type": "object"
+      },
       "LinkedIdentity": {
         "description": "An identity tied to an account: who its owner is at a provider, by which they sign\nin to it through the provider of an organization.",
         "properties": {
@@ -1676,6 +1714,14 @@
           "subject"
         ],
         "type": "object"
+      },
+      "LinkedKind": {
+        "description": "What a reference may name: a card of a board or a page of a wiki.",
+        "enum": [
+          "card",
+          "page"
+        ],
+        "type": "string"
       },
       "LoginOptions": {
         "description": "What the login page shows: the organization it is for, if it is for one.",
@@ -3385,6 +3431,14 @@
           "size"
         ],
         "type": "object"
+      },
+      "ReferenceIds": {
+        "description": "The identifiers the references name, each the `id` of a node `reference`: at most 100.",
+        "items": {
+          "type": "string"
+        },
+        "maxItems": 100,
+        "type": "array"
       },
       "RegisterRequest": {
         "description": "A request to register a new user.",
@@ -10906,6 +10960,62 @@
         ]
       }
     },
+    "/api/v1/w/{workspaceId}/references/resolve": {
+      "post": {
+        "description": "A body names a card or a page by its identifier alone (the node `reference`), and no\nbody, however it is read, says what that is called: this does, for the user who\nasks and as things are now. Of the identifiers of the body, the cards and pages of\nthis workspace on a board or a wiki the user reads (as `getCard` and `getPage` ask),\neach once, in the order they were first named.\n\nWhatever else an identifier names is left out, and the answer does not tell why:\nnothing at all, something in the trash, something of another workspace or\norganization, a card or a page the user does not read, or a block that is neither.\nThe body names at most 100 identifiers (more is 400, as an entry that has not the\nform of an identifier is); an empty list answers an empty list.",
+        "operationId": "resolveReferences",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReferenceIds"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/LinkedBlock"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "What the user is shown of them."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "What references name",
+        "tags": [
+          "references"
+        ]
+      }
+    },
     "/api/v1/w/{workspaceId}/subscriptions": {
       "post": {
         "description": "Subscribes the user of the session to a block of a board they are a member of. A\n`subscriberId` that is not the user of the session is 403, and a `subscriberType`\nother than `user` is 400. The `blockType` is stored as it is sent, and not compared\nwith the block. Subscribing again is no error: the subscription stays as it was\nmade, with its `blockType` and `createAt`, and only its `notifiedAt` is set anew.",
@@ -12371,6 +12481,10 @@
     {
       "description": "The blocks of type `card`, as cards.",
       "name": "cards"
+    },
+    {
+      "description": "What the bodies of a workspace name: a body holds the identifier of a card or a page (the node `reference`), and what that is called is told here, to each user what they read.",
+      "name": "references"
     },
     {
       "description": "A user's categories and the boards filed under them.",

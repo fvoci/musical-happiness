@@ -133,6 +133,7 @@ impl Named {
     fn body(&self, operation: &str) -> Value {
         match operation {
             "getWorkspaceUsersById" => json!([self.member_id]),
+            "resolveReferences" => json!([self.card, self.page]),
             "createBlocks" | "reorderCardProperties" => json!([]),
             "importArchive" => json!({ "uploadId": self.upload }),
             "previewInvitation" => json!({ "token": self.invitation }),
@@ -425,6 +426,7 @@ async fn every_contract_operation_answers_a_plain_member_alike_in_both_organizat
         "getSharedCards",
         "getTemplates",
         "getWorkspaceUsers",
+        "resolveReferences",
         "getMyMemberships",
     ] {
         assert_eq!(

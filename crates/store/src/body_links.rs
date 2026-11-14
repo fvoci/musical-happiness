@@ -12,9 +12,10 @@
 
 use std::collections::BTreeSet;
 
-use fvoci_model::Block;
+use fvoci_model::{Block, BlockType};
 
-use crate::db::{Id, Scope};
+use crate::Store;
+use crate::db::{Id, Row, Scope};
 use crate::error::StoreError;
 
 /// How many rows one statement writes or deletes: a body may name as many blocks as it
@@ -96,4 +97,51 @@ pub(crate) async fn forget_gone_blocks(scope: &mut Scope<'_>) -> Result<(), Stor
     let sql = scope.sql(&statement);
     scope.execute(sql).await?;
     Ok(())
+}
+
+/// The columns of a block as a reference shows it ([`shown_block`]): without its body.
+const SHOWN_COLUMNS: &str = "id, board_id, parent_id, type, title, fields, update_at";
+
+/// The block of a row read with [`SHOWN_COLUMNS`]: what it is, where it is and what it
+/// is called, and no body.
+fn shown_block(row: &Row) -> Result<Block, StoreError> {
+    Ok(Block {
+        id: row.id(0)?,
+        board_id: row.id(1)?,
+        parent_id: row.id(2)?,
+        block_type: BlockType::from(row.text(3)?),
+        title: row.text(4)?,
+        fields: row.json_map(5, "fields")?,
+        update_at: row.int(6)?,
+        ..Block::default()
+    })
+}
+
+impl Store {
+    /// The blocks the identifiers name that are on a board now, of whatever type, each
+    /// without its body and in no order: what a reference is resolved from. An
+    /// identifier that names none (never one, in the trash, of another organization)
+    /// has no block here, and nothing says which.
+    ///
+    /// Nothing here asks who reads: the caller does, of each block's board.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn named_blocks(&self, ids: &[&str]) -> Result<Vec<Block>, StoreError> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        self.with_conn(async |scope| {
+            let mut sql = scope.sql(&format!("SELECT {SHOWN_COLUMNS} FROM blocks WHERE id IN ("));
+            sql.bind_list(ids.iter().map(|id| Id(id))).push(")");
+            scope
+                .fetch_all(sql)
+                .await?
+                .iter()
+                .map(shown_block)
+                .collect()
+        })
+        .await
+    }
 }

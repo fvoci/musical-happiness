@@ -558,6 +558,7 @@ const ORDERS: &[(&str, &str)] = &[
     ("reorderCardProperties", "in their new order"),
     ("reorderCategories", "in their new order"),
     ("reorderCategoryBoards", "in their new order"),
+    ("resolveReferences", "in the order they were first named"),
     ("searchWorkspaceBoards", "Oldest first"),
 ];
 

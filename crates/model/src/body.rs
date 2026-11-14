@@ -5,6 +5,8 @@
 //! size, how deep it nests and how many nodes it has. A document that is no more than an
 //! empty paragraph is no body at all, and is stored as none.
 
+use std::collections::HashSet;
+
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use thiserror::Error;
@@ -144,7 +146,7 @@ impl Body {
     #[must_use]
     pub fn file_ids(&self) -> Vec<&str> {
         let mut ids: Vec<&str> = Vec::new();
-        let mut seen = std::collections::HashSet::new();
+        let mut seen = HashSet::new();
         visit(&self.document, &mut |node| {
             if let Some(id) = image_file(node)
                 && seen.insert(id)
@@ -161,7 +163,7 @@ impl Body {
     #[must_use]
     pub fn reference_ids(&self) -> Vec<&str> {
         let mut ids: Vec<&str> = Vec::new();
-        let mut seen = std::collections::HashSet::new();
+        let mut seen = HashSet::new();
         visit(&self.document, &mut |node| {
             if let Some(id) = reference_target(node)
                 && seen.insert(id)

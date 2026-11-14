@@ -158,6 +158,7 @@ pub(super) const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
     ("PUT", "/members/{user}", "setWorkspaceRole"),
     ("DELETE", "/members/{user}", "removeWorkspaceMember"),
     ("POST", "/onboard", "onboard"),
+    ("POST", "/references/resolve", "resolveReferences"),
     ("PUT", "/guest-invitations", "setGuestInvitations"),
     ("GET", "/invitations", "getInvitations"),
     ("POST", "/invitations", "createInvitation"),
@@ -360,12 +361,20 @@ async fn compare_malformed_bodies(
 fn route_body(operation: &str, user_id: &str, workspace: &str) -> Value {
     match operation {
         "createCategory" => json!({"name": "mine", "userId": user_id, "workspaceId": workspace}),
-        "reorderCategories" | "reorderCategoryBoards" | "getWorkspaceUsersById" => json!([]),
+        "reorderCategories"
+        | "reorderCategoryBoards"
+        | "getWorkspaceUsersById"
+        | "resolveReferences" => json!([]),
         "importArchive" => json!({"uploadId": "missing-upload"}),
         "createImportUpload" => json!({"name": "archive.zip", "size": 0}),
         _ => json!({}),
     }
 }
+
+/// The operations of `WORKSPACE_ROUTES` that answer a guest of a workspace that has
+/// nothing for them with an empty list: the boards and the wikis the guest is on, and
+/// what the references of no body name.
+const EMPTY_FOR_A_GUEST: &[&str] = &["getWorkspaceBoards", "getWikis", "resolveReferences"];
 
 async fn compare_workspace_routes(client: &Client, user_id: &str, asker: Asker) -> Vec<String> {
     let mut violations = Vec::new();
@@ -385,10 +394,10 @@ async fn compare_workspace_routes(client: &Client, user_id: &str, asker: Asker) 
         };
         let hidden = send(HIDDEN_WORKSPACE_ID).await;
         let absent = send(UNKNOWN_ID).await;
-        let lists_boards = matches!(*operation, "getWorkspaceBoards" | "getWikis");
+        let lists_boards = EMPTY_FOR_A_GUEST.contains(operation);
         let equal = if lists_boards && asker == Asker::Guest {
             // A guest of the workspace is a member of it: the boards, and the wikis, are
-            // those the guest is on, none here (the route of `api/workspaces.rs`).
+            // those the guest is on, none here; and what no reference names is nothing.
             hidden.status == StatusCode::OK
                 && answer(&hidden).1 == json!([])
                 && absent.status == StatusCode::NOT_FOUND

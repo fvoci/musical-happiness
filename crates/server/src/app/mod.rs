@@ -36,6 +36,7 @@ mod password_reset;
 mod presence;
 mod readiness;
 mod reconcile;
+mod references;
 mod search;
 mod server_lock;
 mod slots;

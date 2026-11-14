@@ -263,10 +263,8 @@ async fn cards_pages_and_comments_name_each_other_across_a_board_and_a_wiki() {
         "the body that named the page is a version"
     );
     assert_eq!(rows(store, "source_id", &card).await, NO_ROWS);
-    let mut left = rows(store, "target_id", &page).await;
-    left.sort_unstable();
     assert_eq!(
-        left,
+        rows(store, "target_id", &page).await,
         naming(&comment, &[&page], &board),
         "the comment alone"
     );
@@ -353,6 +351,34 @@ async fn the_rows_outlive_the_trash_and_go_with_what_is_gone_for_good() {
     assert_eq!(
         rows(store, "source_id", &source).await,
         naming(&source, &[&kept_target], &board)
+    );
+
+    // What is gone for good is told from what never was by nothing: a row that names
+    // no block goes with a purge, whichever it is, and is put down again when the body
+    // that names it is written. No reader is shown such a row.
+    let nowhere = new_id();
+    write_body(
+        store,
+        &source,
+        body_naming("names", &[&kept_target, &nowhere]),
+        &user,
+    )
+    .await;
+    assert_eq!(rows(store, "target_id", &nowhere).await.len(), 1);
+    store.purge_trash(i64::MAX).await.expect("purged");
+    assert_eq!(rows(store, "target_id", &nowhere).await, NO_ROWS);
+    let renamed = BlockPatch {
+        title: Some("named".to_owned()),
+        ..BlockPatch::default()
+    };
+    store
+        .patch_block(&source, &renamed, &user)
+        .await
+        .expect("renamed");
+    assert_eq!(
+        rows(store, "source_id", &source).await,
+        naming(&source, &[&kept_target, &nowhere], &board),
+        "what the body names, again"
     );
     test.teardown().await;
 }

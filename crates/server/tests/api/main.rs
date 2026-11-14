@@ -77,6 +77,7 @@ mod properties;
 mod public_link_readers;
 mod readiness;
 mod reconcile;
+mod references;
 mod refusals;
 mod relation_copies;
 mod relations;

@@ -120,6 +120,27 @@ async fn pages(case: &mut Case, wiki: &str) {
     case.present("getPageTree", at, &page).await;
     let of_page = &[("wikiId", wiki), ("pageId", page.as_str())];
     case.present("getPage", of_page, &page).await;
+    // What a body names is told of this organization's page, and of nothing that the
+    // other organization made.
+    let mut named = vec![page.clone()];
+    named.extend(
+        case.forbidden
+            .iter()
+            .filter(|theirs| fvoci_model::is_id(theirs))
+            .take(50)
+            .cloned(),
+    );
+    let told = case
+        .run("resolveReferences", &[], json!(named))
+        .await
+        .value();
+    let told: Vec<&str> = told
+        .as_array()
+        .expect("a list")
+        .iter()
+        .filter_map(|linked| linked["id"].as_str())
+        .collect();
+    assert_eq!(told, [page.as_str()], "what the references name");
     case.run("patchPage", of_page, json!({"title": "changed page"}))
         .await;
     let of_below = &[("wikiId", wiki), ("pageId", below.as_str())];
