@@ -18,13 +18,25 @@
   import Table from '$lib/features/views/table/Table.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { propertiesThatMeetFilterGroup } from '$lib/logic/filter.ts';
-  import { boardPresence, newCardMaker, whileHere, type Workspace } from '$lib/state/index.ts';
+  import {
+    boardPresence,
+    newCardMaker,
+    referenceTitles,
+    whileHere,
+    type Workspace,
+  } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
   import ManagedBoard from './ManagedBoard.svelte';
+  import { referencePlaces } from './reference-places.ts';
   import type { Router } from './router.svelte.ts';
 
   let { workspace, router }: { workspace: Workspace; router: Router } = $props();
+
+  // Where the references in the bodies of this workspace lead: the address bar is here.
+  $effect.pre(() => {
+    referenceTitles(workspace).places = referencePlaces(router);
+  });
 
   // Open the board the address names.
   $effect(() => {

@@ -135,6 +135,13 @@ function sharedRoute(segments: string[], search: string): Route {
 }
 
 /**
+ * In the place of a view in an address, where the view is not known (a card
+ * of a board that is not open): the page shows the board's first view, as
+ * for any view that is not there, and keeps the card.
+ */
+export const ANY_VIEW = '-';
+
+/**
  * The route as far as it goes: each part only under the one before it
  * (a card only on a view, a view only on a board, a board only in a workspace),
  * and an organization's screen alone.

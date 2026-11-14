@@ -26,6 +26,7 @@
   import { Button } from '$lib/ui/button/index.js';
 
   import { FORMULA_DROPPED, IMAGE_DROPPED, LATE_NOTE, lostNote, roomNote } from './body-notes.ts';
+  import { bodyReferences } from './body-references.ts';
   import { keepCaret } from './caret-keeper.ts';
   import { editorChunk } from './editor-chunk.svelte.ts';
 
@@ -35,6 +36,8 @@
   }
 
   let { board, card }: Props = $props();
+
+  const references = $derived(bodyReferences(board));
 
   const workspace = $derived(board.workspace);
   const room = $derived(card.room);
@@ -152,6 +155,7 @@
           }}
           users={people}
           {resolveUser}
+          {references}
           label={m.card_body()}
           placeholder={writable ? m.card_body_placeholder() : ''}
           class="min-h-24 text-base outline-none"
@@ -164,7 +168,7 @@
     {/key}
   {:else}
     <div {@attach caret.watch}>
-      <BodyView doc={card.body} {resolveUser} class="text-base">
+      <BodyView doc={card.body} {resolveUser} {references} class="text-base">
         {#snippet empty()}
           <p class="text-base text-muted-foreground">
             {board.canEdit ? m.card_body_placeholder() : m.card_body_empty()}

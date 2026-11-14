@@ -2,7 +2,7 @@
   import BodyView from '$lib/editor/BodyView.svelte';
   import { setFileUrlResolver } from '$lib/editor/files.ts';
 
-  import { PEOPLE, sampleFileUrl } from './body-samples.ts';
+  import { PEOPLE, SAMPLE_REFERENCES, sampleFileUrl } from './body-samples.ts';
 
   let { doc }: { doc: unknown } = $props();
 
@@ -14,6 +14,7 @@
   <BodyView
     {doc}
     resolveUser={(userId: string) => PEOPLE[userId]}
+    references={SAMPLE_REFERENCES}
     taskLabel={(label: string, checked: boolean) => `${checked ? '끝낸 일' : '할 일'}: ${label}`}
     class="p-4"
   >

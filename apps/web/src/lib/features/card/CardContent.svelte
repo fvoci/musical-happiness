@@ -23,6 +23,7 @@
   import BodyVersions from './BodyVersions.svelte';
   import { VersionsReading } from './body-versions.svelte.ts';
   import CardAttachments from './CardAttachments.svelte';
+  import CardBacklinks from './CardBacklinks.svelte';
   import CardBody from './CardBody.svelte';
   import CardComments from './CardComments.svelte';
   import CardHeader from './CardHeader.svelte';
@@ -145,6 +146,7 @@
       <CardProperties {board} {view} card={summary} {onOpenCard} />
       {#if ready}
         <CardBody {board} {card} />
+        <CardBacklinks {board} {card} />
         <CardAttachments {board} {card} />
         <CardComments {board} {card} />
       {:else if card.status === 'failed'}

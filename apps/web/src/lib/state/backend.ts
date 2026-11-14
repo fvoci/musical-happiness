@@ -34,8 +34,8 @@ import type {
 
 import type { PresenceOfBoards } from './presence.ts';
 import type { DocRooms } from './body-doc.ts';
-import type { VersionsOfBodies } from './body-versions.ts';
 import type { WorkspaceRole } from './people-types.ts';
+import type { OfBodies } from './references.ts';
 import type { TrashReads } from './trash-reads.ts';
 
 export type {
@@ -310,7 +310,7 @@ export function isViewBlock(block: ChangedBlock): block is BoardView {
 
 // ---------------------------------------------------------------- backend
 
-export interface Backend extends DocRooms, TrashReads, PresenceOfBoards, VersionsOfBodies {
+export interface Backend extends DocRooms, TrashReads, PresenceOfBoards, OfBodies {
   // The reader and the people around them.
   me(): Promise<User>;
   /** Changes the reader's display name, as the server reads it (`patchMe`); `null` is none. */

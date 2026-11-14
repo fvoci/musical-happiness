@@ -9,13 +9,20 @@
   `renderBody` only makes room for formulas and diagrams; once the body is in
   the page, `drawEmbeds` (embeds.ts) draws them. The libraries for that are
   fetched only when a body has a formula or a diagram.
+
+  A reference is an element that holds an identifier; what it names is drawn
+  into it from `references` (reference-chip.ts), and again whenever what the
+  caller knows of it changes. Without `references` each shows as what the
+  reader may not see.
 -->
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import type { ClassValue } from 'svelte/elements';
+  import { on } from 'svelte/events';
 
   import './editor.css';
   import { drawEmbeds } from './embeds.ts';
+  import { drawReferences, openClickedReference, type ReferenceDrawing } from './reference-chip.ts';
   import { renderBody } from './render.ts';
 
   interface Props {
@@ -25,6 +32,8 @@
     resolveUser?: (userId: string) => string | undefined;
     /** The accessible name of the checkbox of a task, from the text of the task. */
     taskLabel?: (text: string, checked: boolean) => string;
+    /** What the references of the body are drawn from, and how one is opened. */
+    references?: ReferenceDrawing;
     /** Shown in place of a body that cannot be shown; gets what is wrong with it. */
     invalid?: Snippet<[problems: string[]]>;
     /** Shown in place of an empty body. */
@@ -32,13 +41,37 @@
     class?: ClassValue;
   }
 
-  let { doc, resolveUser, taskLabel, invalid, empty, class: className }: Props = $props();
+  let {
+    doc,
+    resolveUser,
+    taskLabel,
+    references,
+    invalid,
+    empty,
+    class: className,
+  }: Props = $props();
 
   const body = $derived.by(() => {
     const rendered = renderBody(doc, { resolveUser, taskLabel });
     // A fragment gives its nodes away once; the list can be placed again.
     return rendered.ok ? { ...rendered, nodes: [...rendered.fragment.childNodes] } : rendered;
   });
+
+  /**
+   * Draws the references under `element` and opens the one that is clicked.
+   * Run where what `drawing` reads is followed, it runs again when a title
+   * arrives or changes; `_placed` is the nodes, which it runs again for.
+   */
+  function referencesIn(
+    element: HTMLElement,
+    drawing: ReferenceDrawing | undefined,
+    ..._placed: unknown[]
+  ): () => void {
+    drawReferences(element, drawing);
+    return on(element, 'click', (event) => {
+      openClickedReference(event, drawing);
+    });
+  }
 </script>
 
 {#if !body.ok}
@@ -54,5 +87,6 @@
       // Gives back what stops the drawing when the body changes or goes away.
       return drawEmbeds(element);
     }}
+    {@attach (element: HTMLElement) => referencesIn(element, references, nodes)}
   ></div>
 {/if}

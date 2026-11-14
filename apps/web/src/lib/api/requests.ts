@@ -24,11 +24,13 @@ import type { Registered } from '../state/account-types.ts';
 import { BackendError } from '../state/backend.ts';
 import type { BodyVersions } from '../state/body-versions.ts';
 import type { People } from '../state/people-types.ts';
+import type { References } from '../state/references.ts';
 
 import { ServerBodyVersions } from './body-versions.ts';
 import { boardOf, workspacesOf, userOf, type Schemas } from './convert.ts';
 import type { ApiPath, Http, RequestOptions } from './http.ts';
 import { ServerPeople } from './people.ts';
+import { ServerReferences } from './references.ts';
 
 /** A path under a workspace, as the contract writes it after `/api/v1/w/{workspaceId}`. */
 export type WorkspacePath = ApiPath extends infer P
@@ -64,6 +66,8 @@ export class ServerRequests implements TrashReads {
   readonly people: People;
   /** The versions kept of the bodies of cards. */
   readonly bodyVersions: BodyVersions;
+  /** What bodies name, as the reader may see it. */
+  readonly references: References;
   /** The workspace the reader is in (`enter`): the paths of its boards are under it. */
   #workspaceId: string | undefined;
   /**
@@ -78,6 +82,9 @@ export class ServerRequests implements TrashReads {
     this.people = new ServerPeople(http);
     this.bodyVersions = new ServerBodyVersions((path, params, options) =>
       this.inWorkspace(path, params, options),
+    );
+    this.references = new ServerReferences((path, params, options, workspaceId) =>
+      this.inWorkspace(path, params, options, workspaceId),
     );
   }
 
