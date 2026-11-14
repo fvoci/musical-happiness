@@ -50,7 +50,6 @@ export class Paging {
     const widths = new WeakMap<Element, number>();
     $effect(() => {
       const within = this.scroller;
-      count();
       if (!within) return;
       // WebKit gives the columns their new widths from container queries a frame after the
       // board has its own, and snaps the board anew on the way: where one column fits, the
@@ -73,8 +72,20 @@ export class Paging {
         else if (returned) this.#follow(within);
       });
       observer.observe(within, { box: 'border-box' });
-      for (const panel of untrack(() => this.#panels())) observer.observe(panel);
+      // The panels of the row as they come and go: another view may bring as many others.
+      const watch = (): void => {
+        for (const panel of this.#panels()) observer.observe(panel);
+      };
+      const row = new MutationObserver((records) => {
+        for (const { removedNodes } of records) {
+          for (const node of removedNodes) if (node instanceof Element) observer.unobserve(node);
+        }
+        watch();
+      });
+      row.observe(within, { childList: true });
+      watch();
       return () => {
+        row.disconnect();
         observer.disconnect();
       };
     });

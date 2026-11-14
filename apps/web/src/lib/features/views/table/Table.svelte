@@ -177,7 +177,7 @@
     data-drag-scroll={columnDrag ? 'x' : 'y'}
     data-dragging={(rowDrag ?? columnDrag)?.mode}
     class={[
-      'group/table h-full scroll-py-9 overflow-auto overscroll-contain webkit:[overflow-anchor:none] [--table-title:10rem] @columns/pane:[--table-title:14rem] @header/pane:[--table-title:22rem] roomy:scroll-py-11',
+      'group/table h-full scroll-py-9 overflow-auto overscroll-contain [--table-title:10rem] @columns/pane:[--table-title:14rem] @header/pane:[--table-title:22rem] webkit:[overflow-anchor:none] roomy:scroll-py-11',
       (rowDrag ?? columnDrag)?.mode === 'pointer' && 'cursor-grabbing',
     ]}
     style:--table-columns={table.template}

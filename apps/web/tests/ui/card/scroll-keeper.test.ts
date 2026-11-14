@@ -87,6 +87,8 @@ function scroller(): HTMLElement & { resize(size: typeof PHONE, content: number)
   Object.defineProperties(element, {
     clientWidth: { get: () => size.width },
     clientHeight: { get: () => size.height },
+    offsetWidth: { get: () => size.width },
+    offsetHeight: { get: () => size.height },
     scrollHeight: { get: () => scrollHeight },
     scrollTop: {
       get: () => scrollTop,
@@ -108,12 +110,15 @@ function scroller(): HTMLElement & { resize(size: typeof PHONE, content: number)
 
 describe('the keeper on a box', () => {
   /** Keeps the box and hands out what calls its observer. */
-  function kept(element: HTMLElement): { observed(): void; detach(): void } {
-    let callback: (() => void) | undefined;
+  function kept(element: HTMLElement): {
+    observed(told?: typeof PHONE): void;
+    detach(): void;
+  } {
+    let callback: ((entries: ResizeObserverEntry[]) => void) | undefined;
     vi.stubGlobal(
       'ResizeObserver',
       class {
-        constructor(given: () => void) {
+        constructor(given: (entries: ResizeObserverEntry[]) => void) {
           callback = given;
         }
         observe(): void {
@@ -126,7 +131,17 @@ describe('the keeper on a box', () => {
     );
     const detach = keepScroll(element);
     return {
-      observed: () => callback?.(),
+      // `told`: the size the observer is told of, when the box has another by the time it runs.
+      observed: (told) =>
+        callback?.(
+          told
+            ? [
+                {
+                  borderBoxSize: [{ inlineSize: told.width, blockSize: told.height }],
+                } as unknown as ResizeObserverEntry,
+              ]
+            : [],
+        ),
       detach: () => {
         detach();
         vi.unstubAllGlobals();
@@ -161,6 +176,21 @@ describe('the keeper on a box', () => {
     element.resize({ width: 360, height: 560 }, 1500);
     keeper.observed();
     expect(element.scrollTop).toBe(100);
+    keeper.detach();
+  });
+
+  it('does not take a cut for the reader when the page changed its stage before the observer ran', () => {
+    const element = scroller();
+    const keeper = kept(element);
+    element.scrollTop = 400;
+    element.dispatchEvent(new Event('scroll'));
+    // Laid out wide once, which cut the place; the page's observer answered with another
+    // stage, and this one is told of the wide box when it is gone again.
+    element.resize(WIDE, 610);
+    element.resize({ width: 600, height: 560 }, 1260);
+    expect(element.scrollTop).toBe(50);
+    keeper.observed(WIDE);
+    expect(element.scrollTop).toBe(400);
     keeper.detach();
   });
 });

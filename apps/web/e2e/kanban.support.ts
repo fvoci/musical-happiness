@@ -145,6 +145,30 @@ export async function pointOn(locator: Locator, down = 0.5): Promise<Point> {
   return { x: box.x + box.width / 2, y: box.y + box.height * down };
 }
 
+/**
+ * Runs `change`, and comes back once an observer made now has been told of another width of
+ * `target`: the page's own observers, made before it, have been told by then.
+ */
+export async function seenResized(target: Locator, change: () => Promise<void>): Promise<void> {
+  await target.evaluate((element: HTMLElement) => {
+    const was = element.offsetWidth;
+    Reflect.set(
+      element,
+      'seenResized',
+      new Promise<void>((resolve) => {
+        const observer = new ResizeObserver(() => {
+          if (element.offsetWidth === was) return;
+          observer.disconnect();
+          resolve();
+        });
+        observer.observe(element);
+      }),
+    );
+  });
+  await change();
+  await target.evaluate((element) => Reflect.get(element, 'seenResized') as Promise<void>);
+}
+
 export async function nextFrame(page: Page): Promise<void> {
   await page.evaluate(
     () =>

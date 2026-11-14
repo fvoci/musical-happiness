@@ -775,6 +775,7 @@ async function replacedWhileTyping(page: Page, place: Place, editor: Locator): P
 
 test('the window changes size under an open card: the text, the caret, the focus and the scroll position stay', async ({
   page,
+  browserName,
 }) => {
   const SIZES = [
     { width: 360, height: 780, frame: 'full' },
@@ -821,6 +822,11 @@ test('the window changes size under an open card: the text, the caret, the focus
     scroller(page).evaluate((element) => element.scrollHeight - element.clientHeight);
   await scrollTo(scroller(page), 0, 120);
   expect(await scrollTop()).toBe(120);
+  // WebKit's scroll anchoring moves the place when the frame changes (styles/app.css, `webkit:`);
+  // the other engines keep theirs.
+  expect(await scroller(page).evaluate((element) => getComputedStyle(element).overflowAnchor)).toBe(
+    browserName === 'webkit' ? 'none' : 'auto',
+  );
 
   // Round the sizes with the caret in the body. A letter typed after each change lands at the caret.
   let typed = '';

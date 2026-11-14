@@ -1267,6 +1267,38 @@ test.describe('when the window changes size', () => {
     await expect.poll(() => scrollPlace(page)).toEqual({ x: 0, y: 40 });
   });
 
+  test('a window turned on its side and back keeps the sideways place', async ({ page }) => {
+    // The sizes of docs/mobile-proposal.md, "잃는 경우", with the page's own observers in their
+    // own order: the stage changes with the turn, and the table's pane with it.
+    const opened = await openView(page, 'Project Tasks', 'Task Overview');
+    await addCards(page, opened, 5);
+    await page.setViewportSize({ width: 626, height: 890 });
+    await expect(page.locator('[data-stage]').first()).toHaveAttribute('data-stage', 'medium');
+    await scrollTo(table(page), 100, 0);
+    await expect.poll(() => scrollPlace(page)).toMatchObject({ x: 100 });
+
+    await page.setViewportSize({ width: 890, height: 626 });
+    await expect(page.locator('[data-stage]').first()).toHaveAttribute('data-stage', 'expanded');
+    const room = await table(page).evaluate((element) => element.scrollWidth - element.clientWidth);
+    expect(room).toBeGreaterThanOrEqual(100);
+    await expect.poll(() => scrollPlace(page)).toMatchObject({ x: 100 });
+    await page.setViewportSize({ width: 626, height: 890 });
+    await expect(page.locator('[data-stage]').first()).toHaveAttribute('data-stage', 'medium');
+    await expect.poll(() => scrollPlace(page)).toMatchObject({ x: 100 });
+  });
+
+  test('only WebKit is told to leave the table where it is when something above grows', async ({
+    page,
+    browserName,
+  }) => {
+    await openView(page, 'Project Tasks', 'Task Overview');
+    // Its scroll anchoring moves the table a pixel and back after a resize (styles/app.css,
+    // `webkit:`); the other engines keep theirs, and with it what is read in place.
+    expect(await table(page).evaluate((element) => getComputedStyle(element).overflowAnchor)).toBe(
+      browserName === 'webkit' ? 'none' : 'auto',
+    );
+  });
+
   test('a layout that is one beat late does not cost the sideways place', async ({ page }) => {
     // What docs/mobile-proposal.md found: the window widens, the pane is laid
     // out once at the width the old stage gives it (wide enough to cut the

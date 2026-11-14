@@ -35,6 +35,7 @@ import {
   openView,
   overlay,
   pointOn,
+  seenResized,
   titlesIn,
   touch,
   undo,
@@ -781,29 +782,15 @@ test.describe('a pane that fits one column', () => {
     await expect.poll(() => inView(page, 'Blocked')).toBe(true);
     await expect(tabs.getByRole('tab', { selected: true })).toContainText('Blocked');
 
-    // The column is taken out of the row while it is carried: the board does not go to its start.
+    // The column is taken out of the row while it is carried, and put back where it was: the
+    // board has not gone to its start meanwhile, nor does the tab name a neighbour.
     await grab(page, heading(page, 'Blocked'));
-    await nextFrame(page);
-    await nextFrame(page);
-    expect(await inView(page, 'Not Started')).toBe(false);
+    await expect(page.locator('[data-column-gap]')).toHaveCount(1);
     await page.keyboard.press('Escape');
     await page.mouse.up();
     await expectNoDrag(page);
     await expect.poll(() => inView(page, 'Blocked')).toBe(true);
     await expect(tabs.getByRole('tab', { selected: true })).toContainText('Blocked');
-  });
-
-  test('where several columns fit, a pane that changes width leaves the board where it was scrolled to', async ({
-    page,
-  }, info) => {
-    await openView(page, info, ...TASKS);
-    await fitPane(page, 700);
-    await expect(page.getByTestId('column-tabs')).toBeHidden();
-    // The first column half out of view at the left: still the one looked at.
-    await scrollTo(kanban(page), 150, 0);
-    await fitPane(page, 740);
-    await nextFrame(page);
-    expect(await kanban(page).evaluate((element) => element.scrollLeft)).toBe(150);
   });
 
   test('wider, the tabs go and the columns stand side by side; narrow again, the column looked at is back', async ({
@@ -876,6 +863,24 @@ test.describe('a pane that fits one column', () => {
     expect(await list.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
     expect(await stillThere()).toBe(true);
     await expect(looked).toBeFocused();
+  });
+});
+
+test.describe('a pane that fits several columns', () => {
+  test('a pane that changes width leaves the board where it was scrolled to', async ({
+    page,
+  }, info) => {
+    await openView(page, info, ...TASKS);
+    await fitPane(page, 700);
+    await expect(page.getByTestId('column-tabs')).toBeHidden();
+    // The first column half out of view at the left: still the one looked at.
+    await scrollTo(kanban(page), 150, 0);
+    const size = page.viewportSize();
+    if (!size) throw new Error('the page has no viewport');
+    await seenResized(kanban(page), () =>
+      page.setViewportSize({ width: size.width + 40, height: size.height }),
+    );
+    expect(await kanban(page).evaluate((element) => element.scrollLeft)).toBe(150);
   });
 });
 

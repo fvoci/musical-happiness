@@ -17,9 +17,15 @@
  * A scroll event comes a frame after the scroll, when the box may have yet
  * another size (a window widened and narrowed again at once): there, a cut
  * position would no longer look like one. So the observer of the box, which
- * runs in the layout that cut, is the one to judge it, and a scroll event
+ * runs in the layout that cut, judges the position first, and a scroll event
  * that only tells of where the observer left the box is passed over.
+ *
+ * The observer itself may come late: the page's own observer runs before it
+ * and may have changed the stage, so that the box it is told of is gone
+ * again. A position it finds then is judged by nothing but its direction.
  */
+
+import { stillLaidOut } from '$lib/layout/observed.ts';
 
 /** One direction of scrolling. */
 export interface Kept {
@@ -101,24 +107,22 @@ export class ScrollKeeper {
 
   /**
    * Takes in where the element stands, if it moved since it was last looked at: the reader's
-   * scroll, unless the layout cut it.
+   * scroll, unless the layout cut it. `laidOut` is false when the box is no longer the one
+   * the layout cut it in: then only a position further on is surely the reader's.
    */
-  #read(element: HTMLElement): void {
+  #read(element: HTMLElement, laidOut = true): void {
     const at = { left: element.scrollLeft, top: element.scrollTop };
     if (at.left === this.#at.left && at.top === this.#at.top) return;
     this.#at = at;
-    this.#x = afterScroll(
-      this.#x,
-      at.left,
-      element.scrollWidth - element.clientWidth,
-      element.clientWidth,
-    );
-    this.#y = afterScroll(
-      this.#y,
-      at.top,
-      element.scrollHeight - element.clientHeight,
-      element.clientHeight,
-    );
+    const width = element.clientWidth;
+    const height = element.clientHeight;
+    if (laidOut) {
+      this.#x = afterScroll(this.#x, at.left, element.scrollWidth - width, width);
+      this.#y = afterScroll(this.#y, at.top, element.scrollHeight - height, height);
+      return;
+    }
+    if (at.left > this.#x.intended) this.#x = { intended: at.left, box: width };
+    if (at.top > this.#y.intended) this.#y = { intended: at.top, box: height };
   }
 
   readonly #onScroll = (): void => {
@@ -129,11 +133,11 @@ export class ScrollKeeper {
   };
 
   /** The box changed size: back to the reader's place, as far as the new box lets it. */
-  readonly #restore = (): void => {
+  readonly #restore = (entries?: readonly ResizeObserverEntry[]): void => {
     const element = this.#element;
     if (!element) return;
     // First what this layout or the reader did to the place, of which no event has told yet.
-    this.#read(element);
+    this.#read(element, stillLaidOut(element, entries?.at(-1)));
     const left = Math.min(this.#x.intended, element.scrollWidth - element.clientWidth);
     const top = Math.min(this.#y.intended, element.scrollHeight - element.clientHeight);
     if (left > element.scrollLeft) element.scrollLeft = left;
