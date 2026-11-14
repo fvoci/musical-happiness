@@ -18,6 +18,10 @@
  * board's listeners read its members, and a member or category message has
  * the reader's own listeners read the sidebar again (`resync`, gathered).
  *
+ * Access taken back ends the subscription, not the connection
+ * (`UNSUBSCRIBED_WORKSPACE`): it is asked again, which takes the new role or
+ * is refused, and the listeners read again.
+ *
  * The rooms of the bodies edited together use the same connection
  * (`live-rooms.ts`): an open room keeps it open as a listener does, and
  * hears when it comes and goes. Their binary frames come on it too.
@@ -25,6 +29,7 @@
 import { isBackendError, type Change, type ChangeListener } from '../state/backend.ts';
 
 import { attachmentOf, boardOf, cardOfBlock, commentOf, viewOf, type Schemas } from './convert.ts';
+import { LivePresence } from './live-presence.ts';
 import { LiveRooms } from './live-rooms.ts';
 
 type Members = Extract<Change, { kind: 'members' }>['members'];
@@ -44,6 +49,12 @@ interface Listening {
 
 /** The waits before opening again, in milliseconds, by how many tries failed; the last repeats. */
 const WAITS = [500, 1000, 2000, 5000, 10_000, 30_000];
+/**
+ * The close the server sends when it could not read what a connection may be told
+ * (`contracts/websocket.md` 3): every page it closed so comes back, so each waits
+ * a random part of its wait more, that they do not come back all at once.
+ */
+const TRY_AGAIN = 1013;
 /** How long a connection holds before the waits start again from the first. */
 const STEADY = 10_000;
 /** How long member and category messages are gathered before the sidebar is read again. */
@@ -77,6 +88,7 @@ export class LiveChanges {
   #readCount = 0;
   /** The rooms of the bodies open on this connection. */
   readonly rooms: LiveRooms;
+  readonly presence: LivePresence;
 
   /** `url` is the address of `/ws`, with `ws:` or `wss:`. */
   constructor(url: string, reads: LiveReads) {
@@ -86,6 +98,15 @@ export class LiveChanges {
       {
         text: (command) => this.#send(JSON.stringify(command)),
         bytes: (frame) => this.#send(frame),
+      },
+      () => {
+        if (!this.#wanted()) this.#stop();
+        else if (!this.#socket && this.#timer === undefined) this.#open();
+      },
+    );
+    this.presence = new LivePresence(
+      (command) => {
+        this.#send(JSON.stringify(command));
       },
       () => {
         if (!this.#wanted()) this.#stop();
@@ -111,6 +132,7 @@ export class LiveChanges {
     this.#subscribed = false;
     socket?.close();
     this.rooms.down();
+    this.presence.down();
     if (!this.#wanted()) return;
     this.#wasOpen = true;
     this.#openNow();
@@ -154,7 +176,7 @@ export class LiveChanges {
 
   /** Somebody listens, or a room is open: the connection is kept. */
   #wanted(): boolean {
-    return this.#listening.size > 0 || this.rooms.size > 0;
+    return this.#listening.size > 0 || this.rooms.size > 0 || this.presence.wanted;
   }
 
   /** Sends on the connection if it is open and subscribed; false when it is not. */
@@ -178,6 +200,7 @@ export class LiveChanges {
     this.#failures = 0;
     socket?.close();
     this.rooms.down();
+    this.presence.down();
   }
 
   #open(): void {
@@ -203,26 +226,30 @@ export class LiveChanges {
       if (this.#wasOpen) this.#tellAll({ kind: 'resync' });
       this.#wasOpen = true;
       this.rooms.up();
+      this.presence.up();
     });
     socket.addEventListener('message', (event: MessageEvent<unknown>) => {
       if (this.#socket !== socket) return;
       if (event.data instanceof ArrayBuffer) this.rooms.bytes(new Uint8Array(event.data));
       else if (typeof event.data === 'string') void this.#receive(event.data);
     });
-    socket.addEventListener('close', () => {
+    socket.addEventListener('close', (event: CloseEvent) => {
       if (this.#socket !== socket) return;
       clearTimeout(this.#steady);
       this.#socket = undefined;
       this.#subscribed = false;
       this.#failures += 1;
       this.rooms.down();
-      this.#again();
+      this.presence.down();
+      this.#again(event.code === TRY_AGAIN);
     });
   }
 
-  #again(): void {
+  /** Opens again after the wait of the failures so far; `spread` adds a random part of it. */
+  #again(spread = false): void {
     if (!this.#wanted() || this.#timer !== undefined) return;
-    const wait = WAITS[Math.min(this.#failures - 1, WAITS.length - 1)] ?? 30_000;
+    const base = WAITS[Math.min(this.#failures - 1, WAITS.length - 1)] ?? 30_000;
+    const wait = spread ? base + Math.floor(Math.random() * base) : base;
     this.#timer = setTimeout(() => {
       this.#timer = undefined;
       this.#open();
@@ -255,9 +282,15 @@ export class LiveChanges {
     }
     if (typeof parsed !== 'object' || parsed === null) return;
     if (this.rooms.text(parsed as Record<string, unknown>)) return;
+    if (this.presence.text(parsed as Record<string, unknown>)) return;
     const message = parsed as Message;
     // Still on its way from a workspace that was left.
     if (message.workspaceId !== undefined && message.workspaceId !== this.#workspaceId) return;
+    if (message.action === 'UNSUBSCRIBED_WORKSPACE') {
+      this.#send(JSON.stringify({ action: 'SUBSCRIBE_WORKSPACE', workspaceId: this.#workspaceId }));
+      this.#tellAll({ kind: 'resync' });
+      return;
+    }
     if ('board' in message) {
       const { board } = message;
       // A deleted board carries only its identifier and times.

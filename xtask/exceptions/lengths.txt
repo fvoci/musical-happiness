@@ -18,7 +18,6 @@ file 1009 crates/server/src/app/uploads.rs
 file 2727 crates/server/tests/api/blocks.rs
 file 3262 crates/server/tests/api/boards.rs
 file 2827 crates/server/tests/api/sidebar.rs
-file 1001 crates/store/src/boards.rs
 file 4159 crates/store/tests/store/blocks.rs
 file 4393 crates/store/tests/store/boards.rs
 function 114 crates/server/src/api/blocks.rs handle_post_blocks

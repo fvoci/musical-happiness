@@ -6,7 +6,7 @@
 //! Every check of a route that names a board asks [`App::board_access`], and decides by
 //! the [`Grant`] it gives; nothing else reads a membership to decide what a user may do.
 
-use fvoci_model::{Board, BoardMember, Upload, UploadPart, UploadPurpose};
+use fvoci_model::{Board, BoardMember, BoardRole, Upload, UploadPart, UploadPurpose};
 use fvoci_store::DeletedBoard;
 
 use super::App;
@@ -22,6 +22,8 @@ pub struct BoardAccess {
     pub actor: Actor,
     /// The user's membership of the board as stored; `None` for who is no member.
     pub member: Option<BoardMember>,
+    /// The inherited role observed with the direct membership.
+    pub team_role: Option<BoardRole>,
     /// What the user may do on the board.
     pub grant: Grant,
 }
@@ -42,7 +44,7 @@ impl App {
     /// this is where a request's workspace and the workspace of what it names are
     /// compared. A user without an identifier may do nothing.
     ///
-    /// The same three reads are made whether the board is there or not, so that a
+    /// The same fact reads are made whether the board is there or not, so that a
     /// board that is not there for the user takes as long to refuse as one that does
     /// not exist.
     ///
@@ -55,9 +57,10 @@ impl App {
         user_id: &str,
         board_id: &str,
     ) -> Result<Option<BoardAccess>, AppError> {
-        let (board, member) = tokio::join!(
+        let (board, member, team_role) = tokio::join!(
             self.store().get_board(board_id),
             self.store().get_member_for_board(board_id, user_id),
+            self.store().board_team_role(board_id, user_id),
         );
         let board = match board {
             Ok(board) => Some(board).filter(|board| self.reaches_board(board)),
@@ -73,6 +76,8 @@ impl App {
                 return Err(AppError::from(error).context("reading the membership of a board"));
             }
         };
+        let team_role = team_role
+            .map_err(|error| AppError::from(error).context("reading the team roles on a board"))?;
         let workspace_id = board.as_ref().map_or("", |board| &board.workspace_id);
         let actor = self.actor(user_id, workspace_id).await?;
         let Some(board) = board else {
@@ -84,6 +89,7 @@ impl App {
             permissions::grant(
                 actor,
                 BoardFacts {
+                    team_role,
                     scope: BoardScope::of(&board),
                     role: member.as_ref().and_then(permissions::role_of),
                 },
@@ -93,6 +99,7 @@ impl App {
             board,
             actor,
             member,
+            team_role,
             grant,
         }))
     }
@@ -146,6 +153,21 @@ impl App {
             .map_or(Grant::NONE, |access| access.grant))
     }
 
+    /// Whether the user holds a role on the board as its member, directly: what a
+    /// guest needs to read a template (a template is a board, and a guest reads the
+    /// boards they were invited to).
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if the membership cannot be read.
+    pub async fn invited_to_board(&self, user_id: &str, board_id: &str) -> Result<bool, AppError> {
+        match self.store().get_member_for_board(board_id, user_id).await {
+            Ok(member) => Ok(permissions::role_of(&member).is_some()),
+            Err(error) if error.is_not_found() => Ok(false),
+            Err(error) => Err(error.into()),
+        }
+    }
+
     /// A board in the trash and what the user may do with it; `None` if no board of
     /// that identifier is there, or for a handle of one workspace if it is of another.
     /// The role is the one the trash kept of the user, and counts as what the user is in
@@ -180,6 +202,7 @@ impl App {
             permissions::grant(
                 actor,
                 BoardFacts {
+                    team_role: None,
                     scope: BoardScope::of(&deleted.board).in_the_trash(),
                     role,
                 },

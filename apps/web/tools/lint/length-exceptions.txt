@@ -17,10 +17,10 @@
 file 526 src/app/App.svelte
 file 954 src/lib/api/backend.ts
 file 525 src/lib/features/shell/SidebarList.svelte
-file 902 src/lib/logic/wire.ts
+file 890 src/lib/logic/wire.ts
 file 510 src/lib/state/backend.ts
-file 818 src/lib/state/board.svelte.ts
-file 1137 src/lib/state/memory/backend.ts
-file 833 src/lib/state/workspace.svelte.ts
+file 765 src/lib/state/board.svelte.ts
+file 1135 src/lib/state/memory/backend.ts
+file 820 src/lib/state/workspace.svelte.ts
 function 223 src/lib/state/memory/seed.ts seedWorld
 function 139 src/lib/state/memory/seed.ts seedWorld/forEach()

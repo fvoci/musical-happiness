@@ -174,3 +174,60 @@ async fn get_blocks_with_the_board_as_parent_returns_the_blocks_directly_on_the_
 
     test.teardown().await;
 }
+
+#[tokio::test]
+async fn card_visibility_changes_for_type_and_trash_but_not_content() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let Fixture {
+        user_id, board_id, ..
+    } = fixture(store).await;
+    let mut card = Block {
+        block_type: BlockType::Card,
+        ..block(&new_id(), &board_id)
+    };
+    store
+        .insert_block(&mut card, &user_id)
+        .await
+        .expect("card inserted");
+    let before = store.visibility_version().await;
+    card.title = "New title".to_owned();
+    store
+        .insert_block(&mut card, &user_id)
+        .await
+        .expect("content changed");
+    assert_eq!(
+        before,
+        store.visibility_version().await,
+        "ordinary content preserves grants"
+    );
+    card.block_type = BlockType::View;
+    store
+        .insert_block(&mut card, &user_id)
+        .await
+        .expect("type changed");
+    let changed_type = store.visibility_version().await;
+    assert_ne!(
+        before, changed_type,
+        "a former card invalidates document grants"
+    );
+    store
+        .delete_block(&card.id, &user_id)
+        .await
+        .expect("block trashed");
+    let deleted = store.visibility_version().await;
+    assert_ne!(
+        changed_type, deleted,
+        "trash invalidates document existence"
+    );
+    store
+        .undelete_block(&card.id, &user_id)
+        .await
+        .expect("block restored");
+    assert_ne!(
+        deleted,
+        store.visibility_version().await,
+        "restoration invalidates cached absence"
+    );
+    test.teardown().await;
+}

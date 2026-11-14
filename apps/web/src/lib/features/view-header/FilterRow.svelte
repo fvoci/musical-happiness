@@ -46,6 +46,8 @@
     templates: readonly PropertyTemplate[];
     /** The people a condition on a person property can name: the members of the board. */
     people: readonly PropertyUser[];
+    /** Who a value may name though not offered: an author who left, say. */
+    named?: readonly PropertyUser[];
     locale: string;
     regional: Regional;
     onProperty: (propertyId: string) => void;
@@ -58,6 +60,7 @@
     clause,
     templates,
     people,
+    named,
     locale,
     regional,
     onProperty,
@@ -179,6 +182,7 @@
             ids={clause.values}
             multiple
             users={people}
+            {named}
             editable
             placeholder={m['FilterValue.empty']()}
             presentation={pickers.current}

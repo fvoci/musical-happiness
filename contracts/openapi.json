@@ -86,7 +86,16 @@
           "workspace_deleted",
           "workspace_restored",
           "public_links_disabled",
-          "public_links_enabled"
+          "public_links_enabled",
+          "oidc_provider_configured",
+          "oidc_provider_removed",
+          "sso_required",
+          "sso_released",
+          "oidc_provider_pending_saved",
+          "oidc_provider_pending_applied",
+          "oidc_provider_pending_discarded",
+          "password_reset_link_made",
+          "password_set_by_operator"
         ],
         "type": "string"
       },
@@ -121,7 +130,7 @@
             "description": "What was done."
           },
           "actor": {
-            "$ref": "#/components/schemas/AuditPerson",
+            "$ref": "#/components/schemas/AuditRecordActor",
             "description": "Who did it."
           },
           "createAt": {
@@ -166,6 +175,49 @@
           "targetName"
         ],
         "type": "object"
+      },
+      "AuditRecordActor": {
+        "description": "Who did what a record of the audit log says: a person by their account, named as it\nis now (an account that is gone by its identifier alone), or the server's operator,\nwho acts through the local administration socket without one. `kind` says which.",
+        "oneOf": [
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AuditPerson",
+                "description": "A person, whose identifier stays in the record when the account goes."
+              },
+              {
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "person"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "type": "object"
+              }
+            ],
+            "description": "A person, whose identifier stays in the record when the account goes."
+          },
+          {
+            "description": "The server's operator.",
+            "properties": {
+              "kind": {
+                "enum": [
+                  "server_operator"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          }
+        ]
       },
       "Block": {
         "description": "The basic data unit of a board.",
@@ -461,6 +513,17 @@
             "description": "The identifier of the board.",
             "type": "string"
           },
+          "inheritedRole": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/MinimumRole",
+                "description": "The highest role inherited from teams; direct flags remain unchanged."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "schemeAdmin": {
             "description": "The user administers the board.",
             "type": "boolean"
@@ -475,6 +538,10 @@
           },
           "schemeViewer": {
             "description": "The user may view the board.",
+            "type": "boolean"
+          },
+          "synthetic": {
+            "description": "The membership has no directly stored role record.",
             "type": "boolean"
           },
           "userId": {
@@ -573,6 +640,37 @@
             "type": "object"
           }
         },
+        "type": "object"
+      },
+      "BoardTeam": {
+        "description": "A workspace team and the role its members inherit on a board.",
+        "properties": {
+          "role": {
+            "$ref": "#/components/schemas/MinimumRole",
+            "description": "No team may administer a board."
+          },
+          "team": {
+            "$ref": "#/components/schemas/Team",
+            "description": "The group, including its current nonguest members."
+          }
+        },
+        "required": [
+          "role",
+          "team"
+        ],
+        "type": "object"
+      },
+      "BoardTeamRole": {
+        "description": "The role given to a team on a board.",
+        "properties": {
+          "role": {
+            "$ref": "#/components/schemas/MinimumRole",
+            "description": "The team's role, at most editor."
+          }
+        },
+        "required": [
+          "role"
+        ],
         "type": "object"
       },
       "BoardType": {
@@ -1158,6 +1256,23 @@
         ],
         "type": "object"
       },
+      "FinishPasswordReset": {
+        "properties": {
+          "password": {
+            "description": "The new password: at least eight characters, at most 1024 bytes.",
+            "type": "string"
+          },
+          "token": {
+            "description": "The secret from the reset link's fragment.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "password",
+          "token"
+        ],
+        "type": "object"
+      },
       "GuestInvitationsChange": {
         "description": "A request to turn the invitations of guests to a workspace's boards on or off.",
         "properties": {
@@ -1281,6 +1396,20 @@
               "null"
             ]
           },
+          "parentId": {
+            "description": "For a guest link made for one recipient of a mailed guest link: the link it was\nmade like. Revoking that one revokes this one while nobody used it.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "recipient": {
+            "description": "For such a link: the address it was mailed to.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "role": {
             "$ref": "#/components/schemas/WorkspaceRole",
             "description": "What whoever accepts becomes in the workspace: `member`, or `guest`."
@@ -1310,6 +1439,31 @@
           "role",
           "uses",
           "workspaceId"
+        ],
+        "type": "object"
+      },
+      "InvitationMail": {
+        "description": "A request to email an existing invitation to one or more recipients.",
+        "properties": {
+          "language": {
+            "description": "The sender's screen language, used for a recipient when neither the recipient's\nnor the sender's setting names a language the mail is written in.",
+            "type": "string"
+          },
+          "recipients": {
+            "description": "Email addresses, each delivered separately; duplicates are sent once.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "token": {
+            "description": "The secret of the existing invitation, sent only in the request body.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
+          "recipients"
         ],
         "type": "object"
       },
@@ -1367,6 +1521,10 @@
             "description": "The issuer, as the provider names itself.",
             "type": "string"
           },
+          "madeThisSession": {
+            "description": "Whether the session that asks was made for this identity, or through a provider\nof its issuer before sessions knew their subject: removing the identity ends\nthat session too.",
+            "type": "boolean"
+          },
           "subject": {
             "description": "Who the account's owner is at the issuer.",
             "type": "string"
@@ -1376,6 +1534,7 @@
           "createAt",
           "email",
           "issuer",
+          "madeThisSession",
           "subject"
         ],
         "type": "object"
@@ -1383,6 +1542,10 @@
       "LoginOptions": {
         "description": "What the login page shows: the organization it is for, if it is for one.",
         "properties": {
+          "mailEnabled": {
+            "description": "Whether this server can deliver password recovery and invitation mail.",
+            "type": "boolean"
+          },
           "organization": {
             "oneOf": [
               {
@@ -1400,6 +1563,7 @@
           }
         },
         "required": [
+          "mailEnabled",
           "organization",
           "registrationOpen"
         ],
@@ -1925,11 +2089,44 @@
         ],
         "type": "object"
       },
+      "OidcPendingProvider": {
+        "description": "The pending settings of an organization's provider, without the client secret:\n`hasClientSecret` says whether there is one.",
+        "properties": {
+          "clientId": {
+            "description": "The client identifier.",
+            "type": "string"
+          },
+          "createAt": {
+            "description": "When they were saved, in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "hasClientSecret": {
+            "description": "Whether a client secret is saved with them.",
+            "type": "boolean"
+          },
+          "issuer": {
+            "description": "The issuer.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "clientId",
+          "createAt",
+          "hasClientSecret",
+          "issuer"
+        ],
+        "type": "object"
+      },
       "OidcProvider": {
         "description": "The provider of an organization, as its administrators read it. The client secret\nis not in it: only whether there is one.",
         "properties": {
           "autoJoin": {
             "description": "Whether somebody the provider vouches for who has no place in the organization\n(no member of it, nor a guest of one of its workspaces) becomes a member of it,\nand of its default workspace, by signing in. A guest signs in as a guest.",
+            "type": "boolean"
+          },
+          "canRequireSso": {
+            "description": "Whether this session was made through this provider, switched on, as it is\nstored now: a change of the issuer, the client, the secret or the switch since\nasks for signing in through it again before `ssoRequired` is switched on.",
             "type": "boolean"
           },
           "clientId": {
@@ -1953,6 +2150,17 @@
             "description": "The issuer: an `https` address, exactly as the provider names itself.",
             "type": "string"
           },
+          "pending": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/OidcPendingProvider",
+                "description": "The settings saved aside while the organization takes no password, which\nnobody signs in through until a sign-in through them ends well; `null` for\nnone."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "redirectUri": {
             "description": "The address the provider sends people back to, to be registered with it exactly:\nthe organization's own, which does not change with the provider.",
             "type": "string"
@@ -1969,11 +2177,13 @@
         },
         "required": [
           "autoJoin",
+          "canRequireSso",
           "clientId",
           "createAt",
           "enabled",
           "hasClientSecret",
           "issuer",
+          "pending",
           "redirectUri",
           "ssoRequired",
           "updateAt"
@@ -2432,6 +2642,11 @@
             "type": "/problems/guest-role-limit"
           },
           {
+            "reason": "team_self_joining",
+            "title": "Cannot add yourself to a team during administrative joining",
+            "type": "/problems/team-self-joining"
+          },
+          {
             "reason": "sharing_disabled",
             "title": "Public sharing turned off",
             "type": "/problems/sharing-disabled"
@@ -2602,6 +2817,11 @@
             "type": "/problems/oidc-email-mismatch"
           },
           {
+            "reason": "oidc_trial_account",
+            "title": "Trial in another account",
+            "type": "/problems/oidc-trial-account"
+          },
+          {
             "reason": "password_not_set",
             "title": "Account without a password",
             "type": "/problems/password-not-set"
@@ -2662,6 +2882,11 @@
             "type": "/problems/workspace-name-taken"
           },
           {
+            "reason": "team_name_taken",
+            "title": "Team name taken",
+            "type": "/problems/team-name-taken"
+          },
+          {
             "reason": "default_workspace",
             "title": "Default workspace",
             "type": "/problems/default-workspace"
@@ -2675,6 +2900,21 @@
             "reason": "public_links_off",
             "title": "Public links turned off",
             "type": "/problems/public-links-off"
+          },
+          {
+            "reason": "too_many_recipients",
+            "title": "Too many recipients",
+            "type": "/problems/too-many-recipients"
+          },
+          {
+            "reason": "invitation_mail_limit",
+            "title": "Hourly invitation mail limit reached",
+            "type": "/problems/invitation-mail-limit"
+          },
+          {
+            "reason": "mail_queue_full",
+            "title": "Mail queue full",
+            "type": "/problems/mail-queue-full"
           }
         ]
       },
@@ -2753,6 +2993,22 @@
           "email",
           "password",
           "organizationName"
+        ],
+        "type": "object"
+      },
+      "RequestPasswordReset": {
+        "properties": {
+          "email": {
+            "description": "The account's email address.",
+            "type": "string"
+          },
+          "language": {
+            "description": "The requester's language tag (`ko`, `en-GB`), used when the account's own setting\nnames no language the mail is written in (English, Korean); English if neither does.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email"
         ],
         "type": "object"
       },
@@ -2990,6 +3246,73 @@
           "notifiedAt",
           "subscriberId",
           "subscriberType"
+        ],
+        "type": "object"
+      },
+      "Team": {
+        "description": "A named group of people within a workspace.",
+        "properties": {
+          "id": {
+            "description": "The group's identifier.",
+            "type": "string"
+          },
+          "members": {
+            "description": "Its people, ordered by user identifier.",
+            "items": {
+              "$ref": "#/components/schemas/TeamMember"
+            },
+            "type": "array"
+          },
+          "name": {
+            "description": "Its name, unique within the workspace in any letter case.",
+            "type": "string"
+          },
+          "workspaceId": {
+            "description": "The workspace it belongs to.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "members",
+          "name",
+          "workspaceId"
+        ],
+        "type": "object"
+      },
+      "TeamMember": {
+        "description": "A person in a team. Neither email addresses nor credentials are exposed.",
+        "properties": {
+          "displayName": {
+            "description": "Their displayed name, empty when none is set.",
+            "type": "string"
+          },
+          "userId": {
+            "description": "The person's identifier.",
+            "type": "string"
+          },
+          "username": {
+            "description": "Their login name.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "displayName",
+          "userId",
+          "username"
+        ],
+        "type": "object"
+      },
+      "TeamName": {
+        "description": "The name when creating or renaming a team.",
+        "properties": {
+          "name": {
+            "description": "The name, by the rule of an organization's: surrounding whitespace is removed, and\nwhat is left is 1 to 64 characters (UTF-16 code units), none of them a control\ncharacter or one that shows nothing, breaks a line or turns the text around.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
         ],
         "type": "object"
       },
@@ -3368,6 +3691,10 @@
             "description": "The name the user is shown by; empty if they have none.",
             "type": "string"
           },
+          "joinedAsOrgAdmin": {
+            "description": "Whether this membership is a temporary joining as organization administrator.",
+            "type": "boolean"
+          },
           "role": {
             "$ref": "#/components/schemas/WorkspaceRole",
             "description": "What the user is in the workspace."
@@ -3384,6 +3711,7 @@
         "required": [
           "createAt",
           "displayName",
+          "joinedAsOrgAdmin",
           "role",
           "userId",
           "username"
@@ -3454,7 +3782,7 @@
   "paths": {
     "/api/v1/auth/oidc/callback/{orgId}": {
       "get": {
-        "description": "Where a provider sends the browser back to: each organization has an address of its\nown, its provider's `redirectUri`, and a sign-in started for one organization does\nnot finish at another's address, nor with an `iss` (RFC 9207) other than the\nprovider's, before any code is exchanged. The sign-in is taken by its `state`, once, and only from the\nbrowser that started it; another browser takes nothing. The code is\nexchanged for an ID token, whose signature, issuer, audience, time and nonce are\nchecked. The person is known by the issuer and the subject: an account of theirs\nsigns in, and somebody who has none gets one, if the organization lets newcomers in\nand no account has their email address. The session comes in the `Set-Cookie`\nheader, and the browser goes to the web app (303). A sign-in that was started to\nlink sets no session: the browser goes to the web app with `oidc_linked=1` in the\nquery.\n\nOtherwise the browser goes to the login page of the organization (`/login?org=…`),\nwith the reason of what went wrong in `oidc_error`, by the name of its problem\n(`oidc_state_invalid` as `oidc-state-invalid`): `oidc_state_invalid`, `oidc_denied`,\n`oidc_token_refused`, `oidc_token_invalid`, `oidc_email_missing`,\n`oidc_email_unverified`, `oidc_email_taken`, `oidc_join_closed`,\n`oidc_identity_taken`, `oidc_email_mismatch` or `oidc_unavailable`.",
+        "description": "Where a provider sends the browser back to: each organization has an address of its\nown, its provider's `redirectUri`, and a sign-in started for one organization does\nnot finish at another's address, nor with an `iss` (RFC 9207) other than the\nprovider's, before any code is exchanged. The sign-in is taken by its `state`, once, and only from the\nbrowser that started it; another browser takes nothing. The code is\nexchanged for an ID token, whose signature, issuer, audience, time and nonce are\nchecked. The person is known by the issuer and the subject: an account of theirs\nsigns in, and somebody who has none gets one, if the organization lets newcomers in\nand no account has their email address. The session comes in the `Set-Cookie`\nheader, and the browser goes to the web app (303). A sign-in that was started to\nlink sets no session: the browser goes to the web app with `oidc_linked=1` in the\nquery. A trial of the provider's pending settings (`startOidcTrial`) that ends well\nmakes them the provider's and sets the session, made through them, and the browser\ngoes to the organization's page (`/org/{orgId}`) with `oidc_pending=applied`; one\nthat fails changes nothing, and goes there with `oidc_pending_error` naming the\nreason as `oidc_error` does.\n\nOtherwise the browser goes to the login page of the organization (`/login?org=…`),\nwith the reason of what went wrong in `oidc_error`, by the name of its problem\n(`oidc_state_invalid` as `oidc-state-invalid`): `oidc_state_invalid`, `oidc_denied`,\n`oidc_token_refused`, `oidc_token_invalid`, `oidc_email_missing`,\n`oidc_email_unverified`, `oidc_email_taken`, `oidc_join_closed`,\n`oidc_identity_taken`, `oidc_email_mismatch` or `oidc_unavailable`.",
         "operationId": "finishOidcLogin",
         "parameters": [
           {
@@ -3505,7 +3833,7 @@
         ],
         "responses": {
           "303": {
-            "description": "To the web app, signed in or (with `oidc_linked=1`) linked, or to the login page.",
+            "description": "To the web app, signed in or (with `oidc_linked=1`) linked, to the login page, or to the organization's page after a trial.",
             "headers": {
               "Location": {
                 "description": "Where the browser goes.",
@@ -4286,7 +4614,7 @@
     },
     "/api/v1/org/{orgId}/oidc": {
       "delete": {
-        "description": "Removes the organization's provider and the sign-ins under way through it. The\nsessions made through it go on. An organization without one answers the same.\nWhile the organization takes no password (`ssoRequired`) the provider stays: 409\nwith the reason `sso_enforced`.",
+        "description": "Removes the organization's provider and the sign-ins under way through it, and\nends the sessions made through a provider of the organization under its issuer. An\norganization without one answers the same.\nWhile the organization takes no password (`ssoRequired`) the provider stays: 409\nwith the reason `sso_enforced`.",
         "operationId": "deleteOidcProvider",
         "parameters": [
           {
@@ -4320,7 +4648,7 @@
         ]
       },
       "get": {
-        "description": "The `OpenID Connect` provider people of the organization sign in through, without\nits client secret: `hasClientSecret` says whether there is one. 404 if the\norganization has none.",
+        "description": "The `OpenID Connect` provider people of the organization sign in through, without\nits client secret: `hasClientSecret` says whether there is one. 404 if the\norganization has none. `canRequireSso` says whether the requesting session was\nmade through this enabled provider as it is stored now; it is false after its\nissuer, client, secret or `enabled` changes, until somebody signs in through it again.",
         "operationId": "getOidcProvider",
         "parameters": [
           {
@@ -4361,7 +4689,7 @@
         ]
       },
       "put": {
-        "description": "Sets the organization's `OpenID Connect` provider, in place of the one it has. The\ndiscovery document of an issuer that is not the organization's already is read\nfirst: it must name the issuer exactly and have\n`https` endpoints, or the request is 400 with the reason `oidc_issuer_unverified`\nand `errors` naming `/issuer`. The server reaches only `https` addresses, follows no\nredirect, and reaches only public addresses unless its configuration lets it\n(`oidc_allow_private_addresses`).\n\n`clientSecret` left out keeps the stored secret while the issuer and the client stay\nthe same; with another issuer or client it is required when a secret is stored (400,\n`required` at `/clientSecret`), as the secret is the old client's. The empty string\nstores none. The secret is stored sealed with the server's key and never answered:\nwithout the key the request is 409 with the reason `secret_key_required`. `autoJoin`\nand `enabled` left out stay as they are, also for another issuer or client, and are\non when the organization has no provider.\n\n`ssoRequired` true makes the organization take no password: from the next request\non, what is the organization's (the routes under `/w/{workspaceId}` and\n`/org/{orgId}`, and `getMyMemberships` and `setUserAdmin` where the organization is\nthe one the server stands in) answers 401 with the reason `sso_required` to every\nsession that was not made through this provider, and the websocket follows none of\nits workspaces for one. The\nsessions stay, and open what is of other organizations. It is switched on by a\nsession that was itself made through this provider, switched on, or the request is\n409 with the reason `sso_unproven`: who asks has then shown that it lets them in.\nWhile it is on, the provider is not switched off (`enabled` false), not set to\nanother issuer or client, and not removed: 409 with the reason `sso_enforced`,\nunless the same request switches `ssoRequired` off. Left out it stays as it is,\nand is off when the organization has no provider. A provider changed by another request\nsince this one read it is 409, to be read and sent again. The answer's `redirectUri`\nis the address to register with the provider, exactly: the organization's own,\n`…/api/v1/auth/oidc/callback/{orgId}`, the same before the provider is set and after\nit is changed.",
+        "description": "Sets the organization's `OpenID Connect` provider, in place of the one it has. The\ndiscovery document of an issuer that is not the organization's already is read\nfirst: it must name the issuer exactly and have\n`https` endpoints, or the request is 400 with the reason `oidc_issuer_unverified`\nand `errors` naming `/issuer`. The server reaches only `https` addresses, follows no\nredirect, and reaches only public addresses unless its configuration lets it\n(`oidc_allow_private_addresses`).\n\n`clientSecret` left out keeps the stored secret while the issuer and the client stay\nthe same; with another issuer or client it is required when a secret is stored (400,\n`required` at `/clientSecret`), as the secret is the old client's. The empty string\nstores none. The secret is stored sealed with the server's key and never answered:\nwithout the key the request is 409 with the reason `secret_key_required`. `autoJoin`\nand `enabled` left out stay as they are, also for another issuer or client, and are\non when the organization has no provider.\n\nWhile the organization takes no password and the request keeps it so, another\nissuer, client or secret is not taken at once: it is saved aside as the provider's\n`pending` settings (in place of pending ones there are), and people go on signing\nin through the provider as it is. A sign-in through the pending settings\n(`startOidcTrial`) that ends well makes them the provider's; `deleteOidcPending`\nthrows them away. The secret of the pending settings is never answered either. What\nelse the request changes (`autoJoin`) is taken at once; `enabled` false is refused\n(`sso_enforced`). While the organization takes a password a change is taken at\nonce, and a change of what signing in takes throws pending settings away.\n\n`ssoRequired` true makes the organization take no password: from the next request\non, what is the organization's (the routes under `/w/{workspaceId}` and\n`/org/{orgId}`, and `setUserAdmin` where the organization is the instance's own, the\noldest) answers 401 with the reason `sso_required` to every session that was not\nmade through this provider, `getMyMemberships` leaves its boards out for one, and\nthe websocket follows none of its workspaces for one. The sessions stay, and open\nwhat is of other organizations. It is switched on by a\nsession that was itself made through this provider, switched on, as it is stored\n(`canRequireSso`), by a request that does not change its issuer, client, secret or\n`enabled`, or the request is 409 with the reason `sso_unproven`: who asks has then\nshown that it lets them in. A `clientSecret` sent as it is stored is no change.\nWhile it is on, the provider is not switched off (`enabled` false) and not removed:\n409 with the reason `sso_enforced`, unless the same request switches `ssoRequired`\noff. Left out it stays as it is,\nand is off when the organization has no provider. A provider changed by another request\nsince this one read it is 409, to be read and sent again. The answer's `redirectUri`\nis the address to register with the provider, exactly: the organization's own,\n`…/api/v1/auth/oidc/callback/{orgId}`, the same before the provider is set and after\nit is changed.",
         "operationId": "putOidcProvider",
         "parameters": [
           {
@@ -4407,6 +4735,123 @@
           }
         },
         "summary": "Set the provider of an organization",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/org/{orgId}/oidc/pending": {
+      "delete": {
+        "description": "Throws away the settings saved aside while the organization takes no password\n(`pending` of the provider): the provider stays as it is. An organization without\nany answers the same. Recorded in the organization's audit log.",
+        "operationId": "deleteOidcPending",
+        "parameters": [
+          {
+            "description": "The identifier of the organization. 404 unless the user of the session administers it.",
+            "in": "path",
+            "name": "orgId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The provider has no pending settings."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Throw the pending settings of an organization's provider away",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/org/{orgId}/oidc/pending/sign-in": {
+      "post": {
+        "description": "Starts a sign-in through the pending settings (`pending` of the provider), as\n`startOidcLogin` starts one through the provider: it answers where the page sends\nthe browser, with the cookie of the sign-in. When the browser comes back\n(`finishOidcLogin`) and the sign-in ends well, in the account of the administrator\nwho started it, the pending settings become the provider's, at a new revision that the\nnew session proves (`canRequireSso`); another issuer ends the sessions of the one\nbefore. A sign-in that fails changes nothing; one that ends in another account (the\nprovider vouches for an identity that is not tied to this administrator's account,\nor they administer the organization no more) is refused with\n`oidc_trial_account`, and makes no account and ties no identity. So another issuer\nis put in use by a trial only for an administrator whose identity there is tied to\ntheir account already. Without one, the requirement is switched off before the\nissuer is changed, which leaves an administrator only the password of their account\nto sign in and link with (one made through the provider has none: the operator's\nsocket sets one). 409 with the reason `oidc_unavailable` if there are no pending\nsettings, the provider is off, or their issuer cannot be\nreached; 429 when this address made too many sign-ins of late.",
+        "operationId": "startOidcTrial",
+        "parameters": [
+          {
+            "description": "The identifier of the organization. 404 unless the user of the session administers it.",
+            "in": "path",
+            "name": "orgId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OidcStart"
+                }
+              }
+            },
+            "description": "Started: where the browser goes.",
+            "headers": {
+              "Set-Cookie": {
+                "description": "The cookie of the sign-in.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "No pending settings, or they cannot be reached."
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Too many sign-ins from this address. `retryAfter`, and the `Retry-After` header, say how long to wait.",
+            "headers": {
+              "Retry-After": {
+                "description": "How many seconds to wait before trying again.",
+                "schema": {
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Try the pending settings of an organization's provider",
         "tags": [
           "auth"
         ]
@@ -4767,6 +5212,82 @@
         "summary": "Bring a workspace back",
         "tags": [
           "organization"
+        ]
+      }
+    },
+    "/api/v1/password-reset/complete": {
+      "post": {
+        "description": "Consumes a reset token before its one-hour expiry and sets the new password.\nAll of the account's sessions and WebSocket connections end, and so do its other\nreset links, as they do when the password is changed or set by an operator. The sign-in\nlock of the account, at its user name and its email, ends, and so does the wait of the\naddress that finished the reset. A missing, expired or already used token answers the\nsame 400, naming `token` in `errors`.",
+        "operationId": "completePasswordReset",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FinishPasswordReset"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "The password was reset; sign in again."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "security": [
+          {}
+        ],
+        "summary": "Finish resetting a password",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/password-reset/request": {
+      "post": {
+        "description": "Answers 204 with an empty body for an existing account, an absent account and\nan account without a password. Lookup and delivery run in the background;\nthe request never waits for either. Accounts without passwords receive no mail.\nRequests are limited by address only, with the login setting of attempts per minute\nand a separate counter (429); never by email. An account is sent at most\n`mail_reset_per_account_hour` messages an hour: more requests are answered the same\nand send nothing. A server that sends no mail answers 404.",
+        "operationId": "requestPasswordReset",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RequestPasswordReset"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "If eligible, the account will receive a reset link."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "security": [
+          {}
+        ],
+        "summary": "Request a password reset",
+        "tags": [
+          "auth"
         ]
       }
     },
@@ -5450,7 +5971,7 @@
     },
     "/api/v1/users/me/identities": {
       "delete": {
-        "description": "Removes the identity of `issuer` and `subject` from the account of the session: the\nproviders of that issuer no longer sign in to it. Asks for the account's password,\nas `changePassword` does: a wrong one is 400 with the reason `invalid_credentials`,\nnaming `/password`, and too many are 429. An identity that is not the account's is\n404. An account without a password keeps its last identity, which is all that lets\nits owner in: 409 with the reason `last_sign_in`; and has no password to confirm\nremoving another with: 409 with the reason `password_not_set`. The sessions made\nthrough a provider go on.",
+        "description": "Removes the identity of `issuer` and `subject` from the account of the session: the\nproviders of that issuer no longer sign in to it. Asks for the account's password,\nas `changePassword` does: a wrong one is 400 with the reason `invalid_credentials`,\nnaming `/password`, and too many are 429. An identity that is not the account's is\n404. An account without a password keeps its last identity, which is all that lets\nits owner in: 409 with the reason `last_sign_in`; and has no password to confirm\nremoving another with: 409 with the reason `password_not_set`. The account's\nsessions made through a provider of that issuer end, and their connections close:\nthis session too when it was one (`madeThisSession` of the identity).",
         "operationId": "unlinkIdentity",
         "requestBody": {
           "content": {
@@ -5503,7 +6024,7 @@
         ]
       },
       "get": {
-        "description": "Who the user of the session is at the providers they linked to the account, or\nfirst signed in through: an organization's provider with that issuer signs in to\nthis account. Linked by `startOidcLogin` with `linkPassword`. Oldest first.",
+        "description": "Who the user of the session is at the providers they linked to the account, or\nfirst signed in through: an organization's provider with that issuer signs in to\nthis account. Linked by `startOidcLogin` with `linkPassword`. Oldest first, each\nsaying whether this session was made through a provider of its issuer.",
         "operationId": "getMyIdentities",
         "responses": {
           "200": {
@@ -5538,7 +6059,7 @@
     },
     "/api/v1/users/me/memberships": {
       "get": {
-        "description": "The user's memberships, with the roles of each, of the boards of the workspaces the\nuser is a member of. By the identifier of the board.",
+        "description": "The user's memberships, with the roles of each, of the boards of the workspaces the\nuser is a member of, in every organization the session opens: one that takes only\nsessions made through its provider leaves its boards out of another session's list.\nA board the user has a role on only through a team of its workspace is listed too\n(`synthetic`, with the team's role in `inheritedRole`); a guest is in no team. By the\nidentifier of the board.",
         "operationId": "getMyMemberships",
         "responses": {
           "200": {
@@ -5800,7 +6321,7 @@
         "operationId": "getWorkspace",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
@@ -5904,7 +6425,7 @@
         "operationId": "importArchive",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
@@ -5957,7 +6478,7 @@
         "operationId": "createImportUpload",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
@@ -6321,7 +6842,7 @@
         "operationId": "searchWorkspaceBoards",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
@@ -6381,7 +6902,7 @@
     },
     "/api/v1/w/{workspaceId}/boards/{boardId}": {
       "delete": {
-        "description": "The board goes to the trash with its blocks and its members, and `undeleteBoard`\nbrings it back until the trash is emptied of it. Its sharing ends, with its read\ntoken, and so do its places in the users' sidebars and the subscriptions to its\nblocks; those do not come back with the board. For the board's admins.",
+        "description": "The board goes to the trash with its blocks and its members, and `undeleteBoard`\nbrings it back until the trash is emptied of it. Team IDs and their roles are kept,\nbut grant no access while the board is in the trash. Its sharing ends, with its read\ntoken, and so do its places in the users' sidebars and the subscriptions to its\nblocks; those do not come back with the board. For the board's admins.",
         "operationId": "deleteBoard",
         "parameters": [
           {
@@ -6606,7 +7127,7 @@
     },
     "/api/v1/w/{workspaceId}/boards/{boardId}/blocks": {
       "get": {
-        "description": "For the board's members, and for an open template everyone in its workspace.\n\n`all` asks for every block and `blockId` for one, which is 404 if the board has no\nsuch block. Otherwise `parentId` and `type` narrow the list, and without either the\nlist is every block of the board. A parameter with an empty value counts as left\nout. Oldest first; the blocks that one request made come in the order that request\nhad them in.",
+        "description": "For the board's members, and for an open template everyone who works in its workspace.\nA guest of the path's workspace reads a template's blocks only as a member of that\ntemplate (403 otherwise).\n\n`all` asks for every block and `blockId` for one, which is 404 if the board has no\nsuch block. Otherwise `parentId` and `type` narrow the list, and without either the\nlist is every block of the board. A parameter with an empty value counts as left\nout. Oldest first; the blocks that one request made come in the order that request\nhad them in.",
         "operationId": "getBlocks",
         "parameters": [
           {
@@ -8132,6 +8653,177 @@
         ]
       }
     },
+    "/api/v1/w/{workspaceId}/boards/{boardId}/teams": {
+      "get": {
+        "description": "For nonguest members allowed to list board members. Includes the team's current\npeople and its role. Ordered by team name in any letter case, by code point, then by\nidentifier.\nDirect memberships remain separate.",
+        "operationId": "getBoardTeams",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/BoardTeam"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Assigned teams."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "List the teams assigned to a board",
+        "tags": [
+          "members"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/boards/{boardId}/teams/{teamId}": {
+      "delete": {
+        "description": "For board administrators and workspace administrators. Direct roles and the\nroles inherited from other teams remain. Idempotent for an existing team.",
+        "operationId": "removeBoardTeam",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of a team within this workspace.",
+            "in": "path",
+            "name": "teamId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The team has no role on this board."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Remove a team's board role",
+        "tags": [
+          "members"
+        ]
+      },
+      "put": {
+        "description": "For board administrators and workspace administrators. The role is viewer,\ncommenter, or editor; admin is rejected. The board and team must belong to this\nworkspace and are checked before decoding the body. Managed access is audited.",
+        "operationId": "setBoardTeam",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of a team within this workspace.",
+            "in": "path",
+            "name": "teamId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BoardTeamRole"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "The team has this role."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Give or change a team's board role",
+        "tags": [
+          "members"
+        ]
+      }
+    },
     "/api/v1/w/{workspaceId}/boards/{boardId}/trash/cards": {
       "get": {
         "description": "One page of the board's cards that are in the trash, each with its identifier, its\ntitle, when it was deleted and by whom; `undeleteBlock` brings one back until the\ntrash is emptied of it. A card that went with the block it was on (another card, a\nview) comes back with that block, and is not listed. For the board's editors. The\nlast deleted first; the pages cut that order. A `page` or `perPage` that is no whole\nnumber is 400.",
@@ -8209,7 +8901,7 @@
     },
     "/api/v1/w/{workspaceId}/boards/{boardId}/undelete": {
       "post": {
-        "description": "Restores a board from the trash with its blocks and its members. Each user who had\nfiled it, and can see it again, finds it where it was in the sidebar (the same\ncategory and place, hidden or not) or in the default category if that one was\ndeleted since, and is told with `UPDATE_BOARD_CATEGORY` and the category's\n`REORDER_CATEGORY_BOARDS`. Its sharing and the subscriptions to its blocks ended with\nthe deletion and stay ended. For who was an admin of the board when it was deleted,\nand for the workspace's administrators (who, if they were no member, get it without\nits description and properties); to anybody else there is no such board.",
+        "description": "Restores a board from the trash with its blocks and its members. Each user who had\nfiled it, and can see it again, finds it where it was in the sidebar (the same\ncategory and place, hidden or not) or in the default category if that one was\ndeleted since, and is told with `UPDATE_BOARD_CATEGORY` and the category's\n`REORDER_CATEGORY_BOARDS`. Its sharing and the subscriptions to its blocks ended with\nthe deletion and stay ended. Surviving teams regain their saved roles for their\ncurrent members; deleted teams are skipped. For who was an admin of the board when\nit was deleted, and for the workspace's administrators (who, if they were no member,\nget it without its description and properties); to anybody else there is no such board.",
         "operationId": "undeleteBoard",
         "parameters": [
           {
@@ -8448,7 +9140,7 @@
         "operationId": "getCategories",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
@@ -8492,7 +9184,7 @@
         "operationId": "createCategory",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
@@ -8545,7 +9237,7 @@
         "operationId": "deleteCategory",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
@@ -8588,7 +9280,7 @@
         "operationId": "updateCategory",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
@@ -8650,7 +9342,7 @@
         "operationId": "reorderCategoryBoards",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
@@ -8718,7 +9410,7 @@
         "operationId": "setBoardCategory",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
@@ -8772,7 +9464,7 @@
         "operationId": "hideBoard",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
@@ -8826,7 +9518,7 @@
         "operationId": "unhideBoard",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
@@ -8880,7 +9572,7 @@
         "operationId": "reorderCategories",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
@@ -8988,7 +9680,7 @@
     },
     "/api/v1/w/{workspaceId}/invitations": {
       "get": {
-        "description": "The links into the workspace that are not ended, not used as often as they may be\nand not revoked. One of them may let nobody in all the same, while who made it may\nnot invite as they did: it is listed, so that it can be revoked. Its\nadministrators get all of them, anybody else\nwho works there the links they made themselves. No link comes with its token, which\nwas told when it was made. The newest first.\n\nA guest of the workspace is told that it is not there (404).",
+        "description": "The links into the workspace that are not ended, not used as often as they may be\nand not revoked, and a used one while a guest link made like it for one recipient of\nits mail (`parentId`) is still out, unused. One of them may let nobody in all the same, while who made it may\nnot invite as they did: it is listed, so that it can be revoked. Its\nadministrators get all of them, anybody else\nwho works there the links they made themselves. No link comes with its token, which\nwas told when it was made. The newest first.\n\nA guest of the workspace is told that it is not there (404).",
         "operationId": "getInvitations",
         "parameters": [
           {
@@ -9083,9 +9775,55 @@
         ]
       }
     },
+    "/api/v1/w/{workspaceId}/invitations/mail": {
+      "post": {
+        "description": "Queues a separate message for each unique email address with an existing link.\nThe token must name an invitation of this workspace that is neither revoked nor\nended (a member link must let somebody in still), and the sender must still be\nallowed to make that kind of invitation. The same checks are repeated before each\ndelivery. A member link is sent as it is, its expiry and uses unchanged.\nA guest link lets one person in once, so it is not sent: each recipient gets a\none-use guest link of their own, to the same board in the same role and ending\nwith it, made by the sender as their message leaves, naming the named link as its\n`parentId` and the address as its `recipient` (and revoked if that message is\nrefused for good or given up). The named link is left as it is; messages go out\nwhether or not it was used, and revoking it revokes its children nobody used.\nInvalid recipients reject the whole request before sending.\nEach message is in the recipient's language when the mail is written in it, else the\nsender's setting, else `language`, else English. A server that sends no mail answers 404.\nA request names at most `invitation_mail_recipients` addresses, repeats counted\n(400, `too_many_recipients`). Its messages are queued all or none: 429\n(`invitation_mail_limit`, with `Retry-After`) when the workspace would pass\n`invitation_mail_per_hour` messages within an hour or its organization its own\nhourly limit (`invitation_mail_per_org_hour`), and 503 (`mail_queue_full`) when the\nserver's invitation queue cannot hold them all, or, on a server of several\norganizations, the organization's share of it (half of what the others leave, at\nleast one request). A refused request sends nothing.",
+        "operationId": "emailInvitation",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InvitationMail"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Delivery queued; the existing invitation is unchanged."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Email an invitation",
+        "tags": [
+          "workspaces"
+        ]
+      }
+    },
     "/api/v1/w/{workspaceId}/invitations/{invitationId}": {
       "delete": {
-        "description": "The link lets nobody in from now on. The workspace's administrators revoke any link\ninto it, anybody else who works there the links they made themselves. A link that\nis not there, that no longer lets anybody in, or that is not the user's to revoke\nis 404, the same for each.\n\nA guest of the workspace is told that it is not there (404).",
+        "description": "The link lets nobody in from now on, nor do the guest links made like it for the\nrecipients of its mail that nobody used yet. The workspace's administrators revoke\nany link into it, anybody else who works there the links they made themselves. A\nlink that is not there, that is revoked or ended already, or that is not the user's\nto revoke is 404, the same for each; a used link that has not ended is revoked.\n\nA guest of the workspace is told that it is not there (404).",
         "operationId": "revokeInvitation",
         "parameters": [
           {
@@ -9285,7 +10023,7 @@
         "operationId": "onboard",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
@@ -9484,13 +10222,371 @@
         ]
       }
     },
+    "/api/v1/w/{workspaceId}/teams": {
+      "get": {
+        "description": "Includes the login and display names of their nonguest members, ordered by user\nidentifier. Teams are ordered by name in any letter case, by code point and not by\nany language's alphabet (`Émile` after `zeta`), then by identifier, alike on every\ndatabase. Guests are answered 404.",
+        "operationId": "getTeams",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Team"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Teams."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "List the workspace's teams",
+        "tags": [
+          "workspaces"
+        ]
+      },
+      "post": {
+        "description": "For workspace administrators. The name is read as an organization's at sign-up:\nsurrounding\nwhitespace is removed, and a name that is then empty, longer than 64 characters or\nholds a control character or one that shows nothing or turns the text around is 400\nat `/name` with the reason `required`, `too_long` or `invalid_characters`. The name of\nanother team of this workspace, in any letter case, is 409 with the reason\n`team_name_taken`.",
+        "operationId": "createTeam",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TeamName"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Team"
+                }
+              }
+            },
+            "description": "The new team."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Create an empty team",
+        "tags": [
+          "workspaces"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/teams/{teamId}": {
+      "delete": {
+        "description": "For workspace administrators. This does not delete the people's accounts or\nchange their membership of the workspace or their direct roles on boards.",
+        "operationId": "deleteTeam",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of a team within this workspace.",
+            "in": "path",
+            "name": "teamId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The team is deleted."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Delete a team and its board roles",
+        "tags": [
+          "workspaces"
+        ]
+      },
+      "get": {
+        "description": "A team outside the workspace or a guest is answered 404.",
+        "operationId": "getTeam",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of a team within this workspace.",
+            "in": "path",
+            "name": "teamId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Team"
+                }
+              }
+            },
+            "description": "The team."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Read a team in this workspace",
+        "tags": [
+          "workspaces"
+        ]
+      },
+      "put": {
+        "description": "For workspace administrators. The same name rules as creation apply. The team is\nchecked before the request body, so a team in another workspace is always 404.",
+        "operationId": "renameTeam",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of a team within this workspace.",
+            "in": "path",
+            "name": "teamId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TeamName"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Team"
+                }
+              }
+            },
+            "description": "The renamed team."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Rename a team",
+        "tags": [
+          "workspaces"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/teams/{teamId}/members/{userId}": {
+      "delete": {
+        "description": "For workspace administrators. Idempotent within a team that exists.",
+        "operationId": "removeTeamMember",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of a team within this workspace.",
+            "in": "path",
+            "name": "teamId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the user.",
+            "in": "path",
+            "name": "userId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The person is out of the team."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Remove a person from a team",
+        "tags": [
+          "workspaces"
+        ]
+      },
+      "put": {
+        "description": "For workspace administrators. Idempotent. A guest or somebody outside the\nworkspace is 404. Removing a workspace member or making them a guest removes\nthem from every team of that workspace. A person joined as organization administrator\ncannot add themselves: 403, reason `team_self_joining`. Other administrators may add them.",
+        "operationId": "addTeamMember",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of a team within this workspace.",
+            "in": "path",
+            "name": "teamId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the user.",
+            "in": "path",
+            "name": "userId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The person is in the team."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Add a nonguest workspace member to a team",
+        "tags": [
+          "workspaces"
+        ]
+      }
+    },
     "/api/v1/w/{workspaceId}/templates": {
       "get": {
         "description": "The workspace's template boards the user may see, then the built-in templates, which\nevery workspace is offered. Each of the two oldest first.",
         "operationId": "getTemplates",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
@@ -9536,7 +10632,7 @@
         "operationId": "getDeletedBoards",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
@@ -9825,7 +10921,7 @@
         "operationId": "getWorkspaceUsers",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
@@ -9878,7 +10974,7 @@
         "operationId": "getWorkspaceUsersById",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
@@ -9934,7 +11030,7 @@
         "operationId": "getWorkspaceUser",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
             "in": "path",
             "name": "workspaceId",
             "required": true,

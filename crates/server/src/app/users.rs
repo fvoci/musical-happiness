@@ -1,13 +1,32 @@
 //! Users and their preferences.
 
-use fvoci_model::{User, UserPreferencesPatch, UserSettings, UserSettingsPatch, WorkspaceRole};
+use fvoci_model::{
+    BoardMember, Session, User, UserPreferencesPatch, UserSettings, UserSettingsPatch,
+    WorkspaceRole,
+};
 use fvoci_store::{AdminChange, InstanceRole, Looking, Preference, Sight};
 
 use super::App;
+use crate::collab::AccessScope;
 use crate::error::{AppError, Reason};
 use crate::permissions;
 
 impl App {
+    /// The session's user's board memberships in their live workspaces, across the
+    /// organizations the session opens: those of one that takes only another
+    /// provider's sessions are left out, as the others still open
+    /// (`sso::require_session_opens`).
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if the memberships cannot be read.
+    pub async fn board_memberships(&self, session: &Session) -> Result<Vec<BoardMember>, AppError> {
+        Ok(self
+            .store()
+            .board_memberships_of_user(&session.user_id, session.login_provider_id())
+            .await?)
+    }
+
     /// Sets the name the user is shown by; empty for none. Returns the user as stored.
     ///
     /// # Errors
@@ -50,9 +69,7 @@ impl App {
         match self.store().set_user_admin(user_id, role, actor_id).await? {
             AdminChange::Done(user) => {
                 if role != InstanceRole::Administrator {
-                    // The workspaces they joined as the organization's administrator
-                    // are theirs no more (`Store::set_user_admin`).
-                    self.ws().follow_only_own_workspaces(user_id).await;
+                    self.left_instance_org_workspaces(user_id).await;
                 }
                 Ok(*user)
             }
@@ -65,6 +82,41 @@ impl App {
                 "the instance must keep an administrator",
             )
             .with_reason(Reason::LastAdmin)),
+        }
+    }
+
+    /// Resolves an operator log's target without exposing a name or request body.
+    /// A missing account or unavailable lookup leaves the identifier absent; the command
+    /// still performs its own checks and returns their outcome.
+    pub(crate) async fn operator_user_id(&self, username: &str) -> Option<String> {
+        match self.store().get_user_by_username(username).await {
+            Ok(user) => Some(user.id),
+            Err(error) if error.is_not_found() => None,
+            Err(error) => {
+                tracing::warn!(%error, "the target of an operator's command could not be read");
+                None
+            }
+        }
+    }
+
+    /// Stops what `user_id` follows of the workspaces of the instance's own organization
+    /// they joined as its administrator, which are theirs no more
+    /// (`Store::set_user_admin`), and has the rooms there ask about them again. The
+    /// change is stored: a directory that cannot be read now leaves the rooms to their
+    /// periodic asking, and the subscriptions to the checks at dispatch.
+    async fn left_instance_org_workspaces(&self, user_id: &str) {
+        match self.instance_org().await {
+            Ok(Some(org)) => {
+                org.ws().follow_only_own_workspaces(user_id).await;
+                org.collab()
+                    .recheck_access(&org, AccessScope::organization().of_user(user_id))
+                    .await;
+            }
+            Ok(None) => self.ws().follow_only_own_workspaces(user_id).await,
+            Err(error) => {
+                tracing::warn!(%error, user_id, "the instance's organization could not be read after its administrator was let go");
+                self.ws().follow_only_own_workspaces(user_id).await;
+            }
         }
     }
 
@@ -117,19 +169,6 @@ impl App {
             looking: Looking::ByName,
         };
         Ok(self.store().get_users_in_sight(sight, user_ids).await?)
-    }
-
-    /// Returns whether a user is a guest. A standalone server has no guests, but the user
-    /// must exist.
-    ///
-    /// TEMPORARY, with `only_organization_scope`: a guest is a role in a workspace now
-    /// (`WorkspaceRole::Guest`), which the routes under a workspace ask.
-    ///
-    /// # Errors
-    ///
-    /// Returns the store's error if the user cannot be read.
-    pub async fn user_is_guest(&self, user_id: &str) -> Result<bool, AppError> {
-        Ok(self.store().get_user_by_id(user_id).await?.is_guest)
     }
 
     /// The users the user `seer_id`, in `role` in the workspace, sees among its people

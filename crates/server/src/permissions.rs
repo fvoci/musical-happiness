@@ -17,6 +17,8 @@ mod session_table;
 #[cfg(test)]
 mod table;
 #[cfg(test)]
+mod team_table;
+#[cfg(test)]
 mod workspace_table;
 
 /// What a user is where a board lives: in the board's organization and in its
@@ -183,6 +185,8 @@ pub struct BoardFacts {
     pub scope: BoardScope,
     /// The user's role on the board, as stored; `None` for who is no member.
     pub role: Option<BoardRole>,
+    /// The highest team role; ignored for guests and capped at editor.
+    pub team_role: Option<BoardRole>,
 }
 
 /// Something a user can be allowed to do on a board.
@@ -419,8 +423,8 @@ pub enum Person {
     Member {
         /// The two hold roles on a board of the workspace.
         shares_a_board: bool,
-        /// The person created or last changed a card, block or comment of a board the
-        /// seer reads.
+        /// The person authored the board, a block, or a kept comment version that
+        /// the seer reads.
         wrote_where_seer_reads: bool,
     },
     /// No member of the workspace: who left it, with what they wrote and any role
@@ -531,7 +535,12 @@ pub fn grant(actor: Actor, facts: BoardFacts) -> Grant {
     let Some(workspace_role) = actor.workspace else {
         return Grant::NONE;
     };
-    let as_member = facts.role.map_or(Grant::NONE, |role| {
+    let team_role = actor
+        .works_there()
+        .then_some(facts.team_role)
+        .flatten()
+        .map(|role| role.min(BoardRole::Editor));
+    let as_member = facts.role.max(team_role).map_or(Grant::NONE, |role| {
         role_grant(role.min(highest_board_role(workspace_role)))
     });
     let as_worker = match (actor.works_there(), facts.scope) {

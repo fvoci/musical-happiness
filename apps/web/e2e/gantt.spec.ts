@@ -375,8 +375,8 @@ test('the chart in light and dark, and at 390 pixels', async ({ page }, info) =>
     expect(box.x).toBeGreaterThanOrEqual(0);
     expect(box.x + box.width).toBeLessThanOrEqual(390);
   }
-  // With both counts and their words the row is wider than a phone: it scrolls to "No date".
-  await page.getByTestId('gantt-undated').scrollIntoViewIfNeeded();
+  // The other tools can scroll; "No date" stays in sight beside them.
+  await expect(page.getByTestId('gantt-undated')).toBeInViewport({ ratio: 1 });
   const last = await page.getByTestId('gantt-undated').boundingBox();
   expect((last?.x ?? 0) + (last?.width ?? 999)).toBeLessThanOrEqual(390);
   await shoot(`390-${info.project.name}`);

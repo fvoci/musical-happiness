@@ -8,7 +8,7 @@
 //! It listens on `127.0.0.1:<port>` over TLS with a certificate it makes, which it
 //! writes, in PEM, to the certificate file: the server is to trust it
 //! (`SSL_CERT_FILE`), and the browser to take it. Its issuer is
-//! `https://127.0.0.1:<port>`, its client `fvoci-test-client` with the secret in
+//! `https://127.0.0.1:<port>`, its client `fvoci-test-client` with either secret in
 //! `tests/api/fake_oidc.rs`. Everybody who asks is signed in as one person,
 //! `oidc-person` (`oidc-person@example.test`), until a test names another
 //! (`POST /person` with `subject`, `email` and, if it has them, `preferredUsername` and

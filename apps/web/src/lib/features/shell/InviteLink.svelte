@@ -3,6 +3,8 @@
   time it is shown, as the server keeps no token it could show again.
 -->
 <script lang="ts">
+  import InviteEmail from './InviteEmail.svelte';
+  import type { InvitationMail } from '$lib/state/index.ts';
   import CopyIcon from '@lucide/svelte/icons/copy';
 
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
@@ -17,9 +19,16 @@
     /** What is said under the field: for whom the link is, and for how long. */
     note: string;
     testId: string;
+    delivery?: {
+      mail: InvitationMail;
+      workspaceId: string;
+      token: string;
+      language: string;
+      hint: string;
+    };
   }
 
-  let { link, label, note, testId }: Props = $props();
+  let { link, label, note, testId, delivery }: Props = $props();
 
   let copied = $state(false);
 
@@ -58,3 +67,5 @@
     {copied ? m['ShareBoard.copiedLink']() : note}
   </p>
 </div>
+
+{#if delivery}<InviteEmail {...delivery} />{/if}

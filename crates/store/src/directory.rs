@@ -15,18 +15,20 @@
 use std::collections::BTreeSet;
 
 use fvoci_model::{
-    BoardType, LoginOrganization, OrgRole, User, UserWorkspace, Workspace, WorkspaceRole, new_id,
+    BoardMember, BoardType, OrgRole, User, UserWorkspace, Workspace, WorkspaceRole, new_id,
 };
 use subtle::ConstantTimeEq as _;
 
+use crate::Store;
+use crate::board_team_access;
 use crate::db::{Dialect, Id, Row, Scope, Sql};
 use crate::error::StoreError;
 use crate::file_info;
 use crate::loose_objects::LooseState;
-use crate::oidc::{FLOW_COLUMNS, LoginFlow, flow_from_row};
 use crate::uploads::{OpenUploads, UploadUsage};
-use crate::{Store, Tenant};
-use crate::{invitations, users, workspaces};
+use crate::{invitations, memberships_everywhere, users, workspaces};
+
+mod sign_in;
 
 /// The organization that holds what the server ships with and is nobody's: the
 /// built-in templates. The schema makes it, under this identifier.
@@ -37,7 +39,7 @@ pub const SYSTEM_WORKSPACE_ID: &str = "00000000-0000-7000-8000-00000000a001";
 
 /// The condition every lookup here ends with: the workspace `t` and its organization
 /// `o` are in use, and are not the system's, which is nobody's to work in.
-const IN_USE: &str = " AND t.delete_at = 0 AND o.delete_at = 0 AND o.is_system = false \
+pub(crate) const IN_USE: &str = " AND t.delete_at = 0 AND o.delete_at = 0 AND o.is_system = false \
                       AND t.is_system = false";
 
 /// What a user is in a workspace, and whose the workspace is.
@@ -135,14 +137,15 @@ fn push_seen(sql: &mut Sql, scope: &Scope<'_>, sight: Sight<'_>) {
             .push_bind(" AND seer.user_id = ", Id(seer_id))
             .push_bind(") AND (id = ", Id(seer_id))
             // On a board of the workspace with the seer, and in the workspace still.
-            .push(
+            .push(&format!(
                 " OR id IN (SELECT other.user_id FROM board_members AS mine \
                  JOIN boards AS b ON b.id = mine.board_id \
-                 JOIN board_members AS other ON other.board_id = mine.board_id \
+                 JOIN {directory_members} AS other ON other.board_id = mine.board_id \
                  JOIN workspace_members AS them \
                  ON them.workspace_id = b.workspace_id AND them.user_id = other.user_id \
                  WHERE mine.user_id = ",
-            )
+                directory_members = board_team_access::directory_members(scope)
+            ))
             .bind(Id(seer_id))
             .push_bind(" AND b.workspace_id = ", Id(workspace_id))
             .push(ROLES_HELD)
@@ -170,18 +173,19 @@ fn push_seen(sql: &mut Sql, scope: &Scope<'_>, sight: Sight<'_>) {
                 .push_bind(" AND me.role <> ", WorkspaceRole::Guest.as_str())
                 .push(IN_USE)
                 .push(&scope.same_organization(&[("me", "t"), ("them", "t")]))
-                .push(
+                .push(&format!(
                     ") OR id IN (SELECT other.user_id FROM board_members AS mine \
                      JOIN boards AS b ON b.id = mine.board_id \
                      JOIN workspace_members AS me \
                      ON me.workspace_id = b.workspace_id AND me.user_id = mine.user_id \
                      JOIN workspaces AS t ON t.id = b.workspace_id \
                      JOIN organizations AS o ON o.id = t.org_id \
-                     JOIN board_members AS other ON other.board_id = mine.board_id \
+                     JOIN {directory_members} AS other ON other.board_id = mine.board_id \
                      JOIN workspace_members AS them \
                      ON them.workspace_id = b.workspace_id AND them.user_id = other.user_id \
                      WHERE mine.user_id = ",
-                )
+                    directory_members = board_team_access::directory_members(scope)
+                ))
                 .bind(Id(seer_id))
                 .push(IN_USE)
                 .push(ROLES_HELD)
@@ -199,22 +203,44 @@ fn push_seen(sql: &mut Sql, scope: &Scope<'_>, sight: Sight<'_>) {
     }
 }
 
-/// Pushes `OR` the condition that the user `id` created or last changed a block of a
-/// board the seer reads, as the server's `permissions::grant` has it: one they hold a
+/// Pushes `OR` the condition that the user `id` authored a board, a block, or a kept
+/// comment version the seer reads, as `permissions::grant` has it: one they hold a
 /// role on, or an open template of a workspace they work in; of the workspace `within`
 /// names, as far as its [`Reach`] goes, or of any workspace in use the seer is a member
 /// of.
 fn push_writer(sql: &mut Sql, scope: &Scope<'_>, seer_id: &str, within: Option<(&str, Reach)>) {
     sql.push(
-        " OR EXISTS (SELECT 1 FROM blocks AS bl JOIN boards AS b ON b.id = bl.board_id \
+        " OR EXISTS (SELECT 1 FROM boards AS b \
          JOIN workspace_members AS me ON me.workspace_id = b.workspace_id \
          JOIN workspaces AS t ON t.id = b.workspace_id \
          JOIN organizations AS o ON o.id = t.org_id \
-         WHERE (bl.created_by = users.id OR bl.modified_by = users.id) AND me.user_id = ",
+         WHERE me.user_id = ",
     )
     .bind(Id(seer_id))
     .push(IN_USE)
-    .push(&scope.same_organization(&[("bl", "b"), ("b", "t"), ("me", "t")]));
+    .push(&scope.same_organization(&[("b", "t"), ("me", "t")]))
+    .push(
+        " AND (b.created_by = users.id OR EXISTS (SELECT 1 FROM blocks bl WHERE bl.board_id = b.id",
+    )
+    .push(&scope.same_organization(&[("bl", "b")]))
+    .push(
+        " AND (bl.created_by = users.id OR bl.modified_by = users.id \
+         OR (bl.type = 'comment' AND EXISTS (SELECT 1 FROM comment_versions cv \
+         WHERE cv.block_id = bl.id AND cv.written_by = users.id",
+    )
+    .push(&scope.same_organization(&[("cv", "bl")]))
+    .push(
+        ")))) OR EXISTS (SELECT 1 FROM deleted_blocks d \
+         JOIN comment_versions cv ON cv.block_id = d.id \
+         WHERE d.board_id = b.id AND cv.written_by = users.id",
+    )
+    .push(&scope.same_organization(&[("d", "b"), ("cv", "d")]))
+    .push(" AND ")
+    .push(match scope.dialect() {
+        Dialect::Sqlite => "json_extract(d.block, '$.type') = 'comment'",
+        Dialect::Postgres => "d.block->>'type' = 'comment'",
+    })
+    .push("))");
     let open_where_seer_works = match within {
         Some((workspace_id, reach)) => {
             sql.push_bind(" AND b.workspace_id = ", Id(workspace_id));
@@ -229,6 +255,8 @@ fn push_writer(sql: &mut Sql, scope: &Scope<'_>, seer_id: &str, within: Option<(
     )
     .push(&scope.same_organization(&[("mine", "b")]))
     .push(")");
+    sql.push(" OR ");
+    board_team_access::push_has_team_role(sql, scope, seer_id);
     if open_where_seer_works {
         // Read without a role: an open template, for who works in its workspace. An
         // open board that is none is joined to be read.
@@ -304,36 +332,16 @@ impl Store {
             .await
     }
 
-    /// The organization that the routes which name no workspace work in: the oldest
-    /// one, made now with `workspace` as its first if there is none.
-    ///
-    /// TEMPORARY. It stands in for the workspace a request will name, and goes with
-    /// the last route that names none.
+    /// The instance's own organization: the oldest non-system organization in use.
+    /// This identifies the organization whose administrators follow instance roles;
+    /// it does not select an organization for requests or create one.
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::Database`] if a statement fails.
-    pub async fn only_organization(&self, workspace: &Workspace) -> Result<String, StoreError> {
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn instance_organization(&self) -> Result<Option<String>, StoreError> {
         self.system()
-            .transaction(async |scope| {
-                // One at a time: of two servers that start on an empty database, the
-                // second waits here and then finds the organization of the first. On
-                // SQLite a transaction that writes holds the whole database.
-                let mut sql = scope.sql("SELECT id FROM instance WHERE id = 1");
-                if scope.dialect() == Dialect::Postgres {
-                    sql.push(" FOR UPDATE");
-                }
-                scope.fetch_optional(sql).await?;
-
-                let mut sql = scope.sql("SELECT id FROM organizations WHERE is_system = ");
-                sql.bind(false)
-                    .push_bind(" AND delete_at = ", 0_i64)
-                    .push(" ORDER BY create_at, id LIMIT 1");
-                match scope.fetch_optional(sql).await? {
-                    Some(row) => row.id(0),
-                    None => create_organization(scope, "", workspace).await,
-                }
-            })
+            .with_conn(async |scope| oldest_organization(scope).await)
             .await
     }
 
@@ -631,6 +639,66 @@ impl Store {
             .await
     }
 
+    /// The user's board memberships in live workspaces of every organization, direct
+    /// and through a team (`inherited_role`), ordered by board identifier. Only the
+    /// named user's memberships are returned, and only of the organizations a session
+    /// made through `login_provider` (`None` for a password) opens: one that takes only
+    /// sessions of another provider is left out.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn board_memberships_of_user(
+        &self,
+        user_id: &str,
+        login_provider: Option<&str>,
+    ) -> Result<Vec<BoardMember>, StoreError> {
+        self.system()
+            .with_conn(async |scope| {
+                memberships_everywhere::of_user(scope, user_id, login_provider).await
+            })
+            .await
+    }
+
+    /// The board of a live block in the named workspace, for the holder of its read
+    /// token. The lookup reaches across organizations but returns nothing without a
+    /// valid public link to that board.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if either lookup fails.
+    pub async fn board_of_shared_block(
+        &self,
+        workspace_id: &str,
+        block_id: &str,
+        read_token: &str,
+    ) -> Result<Option<String>, StoreError> {
+        let board_id = self
+            .system()
+            .with_conn(async |scope| {
+                let mut sql = scope.sql(
+                    "SELECT bl.board_id FROM blocks AS bl JOIN boards AS b ON b.id = bl.board_id \
+                 WHERE bl.id = ",
+                );
+                sql.bind(Id(block_id))
+                    .push_bind(" AND b.workspace_id = ", Id(workspace_id))
+                    .push(&scope.same_organization(&[("bl", "b")]));
+                scope
+                    .fetch_optional(sql)
+                    .await?
+                    .map(|row| row.id(0))
+                    .transpose()
+            })
+            .await?;
+        let Some(board_id) = board_id else {
+            return Ok(None);
+        };
+        Ok(self
+            .org_of_shared_board(&board_id, read_token)
+            .await?
+            .map(|_| board_id))
+    }
+
     /// The organization of a board that is shared, for whoever holds its read token;
     /// `None` if the board is not shared, is not there, or the token is not its own.
     /// Nothing of the system organization is shared, nothing of a workspace or an
@@ -735,74 +803,6 @@ impl Store {
             .await
     }
 
-    /// Takes the sign-in under way whose `state` has the digest `state_hash`, if the
-    /// browser that comes back with it has the digest `browser_hash` of the one that
-    /// started it: it is removed, ended or not, so that it comes back once; whether it
-    /// ended (`expires_at`) is the caller's to see. `None` if there is none of that
-    /// browser; one of another browser stays. The sign-in names its organization: the
-    /// request that comes back from the provider does not.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::Database`] if the statement fails.
-    pub async fn take_oidc_login_flow(
-        &self,
-        state_hash: &str,
-        browser_hash: &str,
-    ) -> Result<Option<LoginFlow>, StoreError> {
-        self.system()
-            .with_conn(async |scope| {
-                let mut sql = scope.sql("DELETE FROM oidc_login_flows WHERE state_hash = ");
-                sql.bind(state_hash)
-                    .push_bind(" AND browser_hash = ", browser_hash)
-                    .push(&format!(" RETURNING {FLOW_COLUMNS}"));
-                let Some(row) = scope.fetch_optional(sql).await? else {
-                    return Ok(None);
-                };
-                flow_from_row(&row).map(Some)
-            })
-            .await
-    }
-
-    /// The organization of the sign-in under way whose `state` has the digest
-    /// `state_hash`, if there is one: for the login page a refused return goes back to.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::Database`] if the query fails.
-    pub async fn oidc_login_flow_org(
-        &self,
-        state_hash: &str,
-    ) -> Result<Option<String>, StoreError> {
-        self.system()
-            .with_conn(async |scope| {
-                let mut sql = scope.sql("SELECT org_id FROM oidc_login_flows WHERE state_hash = ");
-                sql.bind(state_hash);
-                scope
-                    .fetch_optional(sql)
-                    .await?
-                    .map(|row| row.id(0))
-                    .transpose()
-            })
-            .await
-    }
-
-    /// Removes the sign-ins under way, of every organization, that ended before `now`,
-    /// and says how many there were.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::Database`] if the statement fails.
-    pub async fn delete_ended_oidc_login_flows(&self, now: i64) -> Result<u64, StoreError> {
-        self.system()
-            .with_conn(async |scope| {
-                let mut sql = scope.sql("DELETE FROM oidc_login_flows WHERE expires_at <= ");
-                sql.bind(now);
-                scope.execute(sql).await
-            })
-            .await
-    }
-
     /// What the user is in the organization; `None` for somebody who is no member, and
     /// for an organization that is not in use or is the system's, whether it exists or
     /// not.
@@ -832,65 +832,6 @@ impl Store {
             })
             .await
     }
-
-    /// Whether the handle's organization is the instance's own: the oldest one in use,
-    /// which the routes that name no workspace work in ([`Store::only_organization`]) and
-    /// whose administrators are the instance's (`members::follow_instance_role`). Asked
-    /// with the system's reach, as the organization's wall hides the others.
-    pub(crate) async fn is_the_instances_organization(&self) -> Result<bool, StoreError> {
-        let Tenant::Org(org) = self.tenant() else {
-            return Ok(false);
-        };
-        self.system()
-            .with_conn(async |scope| {
-                let mut sql = scope.sql("SELECT id FROM organizations WHERE is_system = ");
-                sql.bind(false)
-                    .push_bind(" AND delete_at = ", 0_i64)
-                    .push(" ORDER BY create_at, id LIMIT 1");
-                let oldest = scope.fetch_optional(sql).await?.map(|row| row.id(0));
-                Ok(oldest.transpose()?.is_some_and(|id| id == org.to_string()))
-            })
-            .await
-    }
-
-    /// What a login page may show of an organization: the one with the identifier, or
-    /// with none the only organization in use if there is one only. `None` if there is
-    /// no such organization, it is not in use, or it is the system's. Its name, and
-    /// whether signing in through its provider is on.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::Database`] if the query fails.
-    pub async fn login_organization(
-        &self,
-        org_id: Option<&str>,
-    ) -> Result<Option<LoginOrganization>, StoreError> {
-        self.system()
-            .with_conn(async |scope| {
-                let mut sql = scope.sql(
-                    "SELECT o.id, o.name, EXISTS (SELECT 1 FROM oidc_providers AS p \
-                     WHERE p.org_id = o.id AND p.enabled = ",
-                );
-                sql.bind(true).push(
-                    ") FROM organizations AS o WHERE o.delete_at = 0 AND o.is_system = false",
-                );
-                if let Some(org_id) = org_id {
-                    sql.push_bind(" AND o.id = ", Id(org_id));
-                }
-                // Two rows tell that the organization is not the only one.
-                sql.push(" ORDER BY o.create_at, o.id LIMIT 2");
-                let rows = scope.fetch_all(sql).await?;
-                let [row] = rows.as_slice() else {
-                    return Ok(None);
-                };
-                Ok(Some(LoginOrganization {
-                    id: row.id(0)?,
-                    name: row.text(1)?,
-                    oidc: row.bool(2)?,
-                }))
-            })
-            .await
-    }
 }
 
 async fn create_organization(
@@ -914,4 +855,43 @@ fn role<R: std::str::FromStr<Err = fvoci_model::UnknownRole>>(
             column: "role",
             reason: error.to_string(),
         })
+}
+
+/// The instance's own organization as `scope` reaches the organizations: the oldest
+/// non-system one in use ([`Store::instance_organization`]).
+async fn oldest_organization(scope: &mut Scope<'_>) -> Result<Option<String>, StoreError> {
+    let mut sql = scope.sql("SELECT id FROM organizations WHERE is_system = ");
+    sql.bind(false)
+        .push_bind(" AND delete_at = ", 0_i64)
+        .push(" ORDER BY create_at, id LIMIT 1");
+    scope
+        .fetch_optional(sql)
+        .await?
+        .map(|row| row.id(0))
+        .transpose()
+}
+
+/// Whether the organization of `scope` is the instance's own: the oldest one in use,
+/// whose administrators are the instance's (`members::follow_instance_role`). Asked in
+/// the caller's transaction, so that the answer holds for what it does; on PostgreSQL
+/// the wall is opened for this one statement, as the organization's wall hides the
+/// others, and closed again before anything else runs in it.
+pub(crate) async fn is_the_instances_organization(
+    scope: &mut Scope<'_>,
+) -> Result<bool, StoreError> {
+    let Some(org) = scope.org_id() else {
+        return Ok(false);
+    };
+    let reach = |on: &str| format!("SELECT set_config('fvoci.system', '{on}', true)");
+    let postgres = scope.dialect() == Dialect::Postgres;
+    if postgres {
+        let sql = scope.sql(&reach("on"));
+        scope.fetch_optional(sql).await?;
+    }
+    let oldest = oldest_organization(scope).await?;
+    if postgres {
+        let sql = scope.sql(&reach("off"));
+        scope.fetch_optional(sql).await?;
+    }
+    Ok(oldest.is_some_and(|id| id == org))
 }

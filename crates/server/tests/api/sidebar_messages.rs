@@ -53,7 +53,7 @@ async fn subscribed_socket_of(
     // Commands are not acknowledged: wait until a broadcast comes through.
     let probe = category(workspace_id, user_id, "subscription probe");
     for _ in 0..50 {
-        th.app.ws().broadcast_category_change(&probe);
+        th.app.ws().broadcast_category_change(&probe).await;
         if next_message(&mut stream, Duration::from_millis(100))
             .await
             .is_some()

@@ -10,6 +10,7 @@
   button over the top corner, and `menuRoom` keeps the title clear of it.
 -->
 <script lang="ts">
+  import type { Snippet } from 'svelte';
   import SquareCheckIcon from '@lucide/svelte/icons/square-check';
   import TextAlignStartIcon from '@lucide/svelte/icons/text-align-start';
 
@@ -22,6 +23,8 @@
 
   interface Props {
     card: Card;
+    /** People currently reading this card, supplied by its board. */
+    readers?: Snippet;
     /** The definitions of the board's card properties. */
     templates: readonly PropertyTemplate[];
     /** The properties the view shows on its cards, in its order. */
@@ -57,6 +60,7 @@
 
   let {
     card,
+    readers,
     templates,
     visiblePropertyIds,
     hasBody = false,
@@ -186,6 +190,8 @@
       {/if}
     </div>
   {/if}
+
+  {@render readers?.()}
 
   {#if count > 1}
     <span

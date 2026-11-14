@@ -429,6 +429,7 @@ fn who_only_manages_a_board_is_told_its_content_is_not_there() {
     let managed = grant(
         WORKSPACE_ADMIN,
         BoardFacts {
+            team_role: None,
             scope: InvitedOnly,
             role: None,
         },
@@ -448,6 +449,7 @@ fn who_only_manages_a_board_is_told_its_content_is_not_there() {
     let open = grant(
         WORKSPACE_ADMIN,
         BoardFacts {
+            team_role: None,
             scope: Open,
             role: None,
         },
@@ -459,6 +461,7 @@ fn who_only_manages_a_board_is_told_its_content_is_not_there() {
     let member = grant(
         MEMBER,
         BoardFacts {
+            team_role: None,
             scope: InvitedOnly,
             role: Some(BoardRole::Viewer),
         },
@@ -467,6 +470,7 @@ fn who_only_manages_a_board_is_told_its_content_is_not_there() {
     let stranger = grant(
         STRANGER,
         BoardFacts {
+            team_role: None,
             scope: InvitedOnly,
             role: None,
         },
@@ -502,6 +506,7 @@ fn every_row_of_the_table_holds() {
         let got = granted(grant(
             row.actor,
             BoardFacts {
+                team_role: None,
                 scope: row.scope,
                 role: row.role,
             },
@@ -526,6 +531,7 @@ fn who_sees_is_who_is_refused_and_who_reads_is_who_sees() {
         let grant = grant(
             row.actor,
             BoardFacts {
+                team_role: None,
                 scope: row.scope,
                 role: row.role,
             },
@@ -936,6 +942,7 @@ const WRITE: Option<DocMode> = Some(DocMode::Write);
 fn who_enters_the_room_of_a_body_and_how() {
     for row in ROOM_ROWS {
         let facts = BoardFacts {
+            team_role: None,
             scope: row.scope,
             role: row.role,
         };

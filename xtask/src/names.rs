@@ -65,7 +65,7 @@ pub(crate) fn run(root: &Path) -> Result<()> {
     let stale: Vec<String> = exceptions
         .iter()
         .zip(&used)
-        .filter(|(_, used)| !**used)
+        .filter(|(exception, used)| !**used && !exception.pattern.starts_with(WEB_APP))
         .map(|(exception, _)| {
             format!(
                 "{EXCEPTIONS}:{}: nothing needs it: remove it",

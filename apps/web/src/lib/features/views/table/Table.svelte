@@ -252,6 +252,7 @@
             {@const carried = rowDrag?.mode === 'keyboard' && rowDrag.itemId === card.id}
             {@const dropBefore = table.rowMarker?.before === card.id}
             <Row
+              {board}
               {card}
               columns={table.columns}
               {host}

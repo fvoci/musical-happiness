@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use fvoci_model::{BoardMember, BoardRole, Invitation, User, WorkspaceRole, new_id};
 use fvoci_store::{
-    Accepted, Acceptor, Inviter, InviterOfBoard, NewLink, Standing, Store, StoreError,
+    Accepted, Acceptor, Inviter, InviterOfBoard, MailedTo, NewLink, Standing, Store, StoreError,
 };
 use tokio::sync::Barrier;
 use tokio::task::JoinSet;
@@ -41,6 +41,7 @@ async fn link(
         now: NOW,
         expires_at: LATER,
         max_uses,
+        mailed: None,
     })
     .await
     .expect("the link is stored")
@@ -80,6 +81,10 @@ async fn accept(
             user_id: maker,
             workspace_role,
             member: member.as_ref(),
+            team_role: match board_id {
+                Some(id) => store.board_team_role(id, maker).await?,
+                None => None,
+            },
         },
         of_board: InviterOfBoard::Member,
     };
@@ -162,6 +167,7 @@ async fn a_link_is_live_until_it_ends_is_used_up_or_is_revoked() {
                 now: NOW,
                 expires_at: LATER,
                 max_uses: Some(1),
+                mailed: None,
             })
             .await
             .expect_err("no such board");
@@ -554,6 +560,7 @@ async fn no_link_for_a_guest_is_made_while_guests_are_not_invited() {
             now: NOW,
             expires_at: LATER,
             max_uses: Some(1),
+            mailed: None,
         })
         .await;
     assert!(
@@ -568,5 +575,139 @@ async fn no_link_for_a_guest_is_made_while_guests_are_not_invited() {
     link(&test, &admin, "after", guest_of, Some(1)).await;
     assert_eq!(uses_of(&test, "after").await, Some(0));
 
+    test.teardown().await;
+}
+
+/// The links made for the recipients of a mailed guest link name it and their
+/// address; revoking it revokes those nobody used, and it is what they are made like
+/// even once it was used itself.
+#[tokio::test]
+async fn a_mailed_links_children_name_it_and_go_with_it_while_unused() {
+    let test = common::setup().await;
+    let admin = common::user(&test, "admin").await;
+    let sender = common::user(&test, "sender").await;
+    let boards = common::create_test_boards(&test, &test.workspace_id, &admin, 1).await;
+    let guest_of = Some((boards[0].id.as_str(), BoardRole::Viewer));
+    let parent = link(&test, &admin, "parent", guest_of, Some(1)).await;
+    let child = async |token_hash: &str, recipient: &str| {
+        test.create_invitation(&NewLink {
+            workspace_id: &test.workspace_id,
+            guest_of,
+            token_hash,
+            created_by: &sender,
+            now: NOW,
+            expires_at: LATER,
+            max_uses: Some(1),
+            mailed: Some(MailedTo {
+                parent_id: &parent.id,
+                recipient,
+            }),
+        })
+        .await
+        .expect("the child is stored")
+    };
+    let used = child("used", "used@example.test").await;
+    let unused = child("unused", "unused@example.test").await;
+    assert_eq!(unused.parent_id.as_deref(), Some(parent.id.as_str()));
+    assert_eq!(unused.recipient.as_deref(), Some("unused@example.test"));
+    assert_eq!(parent.parent_id, None);
+    assert_eq!(parent.recipient, None);
+    let listed = test
+        .live_invitations(&test.workspace_id, None, NOW)
+        .await
+        .expect("listed");
+    let recipients: Vec<Option<&str>> = listed
+        .iter()
+        .map(|link| link.recipient.as_deref())
+        .collect();
+    assert_eq!(
+        recipients.len(),
+        3,
+        "the parent and its children: {recipients:?}"
+    );
+    assert!(recipients.contains(&Some("unused@example.test")));
+    assert!(
+        accept(
+            &test,
+            "used",
+            Acceptor::NewAccount(&mut newcomer("taker")),
+            NOW
+        )
+        .await
+        .expect("accepted")
+        .is_some()
+    );
+    assert_eq!(
+        test.unended_invitation("used", NOW)
+            .await
+            .expect("asked")
+            .map(|link| link.uses),
+        Some(1)
+    );
+
+    assert!(
+        test.revoke_invitation(&test.workspace_id, &parent.id, Some(&admin), NOW)
+            .await
+            .expect("revoked"),
+        "the parent, by its maker"
+    );
+    assert_eq!(
+        test.live_invitation("unused", NOW).await.expect("asked"),
+        None,
+        "an unused child goes with its parent, whoever made it"
+    );
+    assert_eq!(
+        test.unended_invitation("parent", NOW).await.expect("asked"),
+        None,
+        "a revoked link is nothing to make links like"
+    );
+    assert_eq!(
+        test.unended_invitation("used", NOW)
+            .await
+            .expect("asked")
+            .map(|link| link.id),
+        Some(used.id),
+        "who used theirs keeps it: it is not revoked"
+    );
+    test.teardown().await;
+}
+
+/// A used link is still what its recipients' links are made like, until it ends.
+#[tokio::test]
+async fn a_used_link_is_unended_until_it_ends() {
+    let test = common::setup().await;
+    let admin = common::user(&test, "admin").await;
+    let boards = common::create_test_boards(&test, &test.workspace_id, &admin, 1).await;
+    let guest_of = Some((boards[0].id.as_str(), BoardRole::Viewer));
+    let used_up = link(&test, &admin, "used-up", guest_of, Some(1)).await;
+    assert!(
+        accept(
+            &test,
+            "used-up",
+            Acceptor::NewAccount(&mut newcomer("first")),
+            NOW
+        )
+        .await
+        .expect("accepted")
+        .is_some()
+    );
+    assert_eq!(
+        test.live_invitation("used-up", NOW).await.expect("asked"),
+        None
+    );
+    assert_eq!(
+        test.unended_invitation("used-up", NOW)
+            .await
+            .expect("asked")
+            .map(|link| link.id),
+        Some(used_up.id)
+    );
+    assert_eq!(
+        test.unended_invitation("used-up", LATER)
+            .await
+            .expect("asked"),
+        None,
+        "not once it ended"
+    );
     test.teardown().await;
 }

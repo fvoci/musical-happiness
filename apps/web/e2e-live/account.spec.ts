@@ -196,9 +196,9 @@ test('the sign-in page offers no account once the server has its organization, a
   await page.goto('/');
   await expect(page.getByTestId('sign-in-form')).toBeVisible();
   await expect(page.getByTestId('invitation-needed')).toHaveText(
-    'No account yet? Ask an administrator of your team for an invite link.',
+    'No account yet? Ask an administrator of your organization for an invite link.',
   );
-  await expect(page.getByRole('button', { name: /start a team/i })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /start an organization/i })).toHaveCount(0);
 });
 
 test('a session that ends on an open board, and somebody else signs in on that page, shows only theirs', async ({

@@ -5,6 +5,7 @@
 
 use fvoci_model::{BoardType, OrgRole, WorkspaceRole};
 
+use crate::audit::AuditActor;
 use crate::db::{Dialect, Id, Scope, Sql, now_millis};
 use crate::error::StoreError;
 use crate::users::InstanceRole;
@@ -149,25 +150,25 @@ const fn org_role_of_instance(role: InstanceRole) -> OrgRole {
 /// Gives a member of the organization the role in it that goes with being, or no
 /// longer being, an administrator of the instance, as the organization's route does
 /// (`org_admin::change_org_role`): recorded, and who stops being one is taken out of
-/// what they joined as its administrator, on behalf of `actor_id`. No role in a
+/// what they joined as its administrator, by `actor`. No role in a
 /// workspace changes. Somebody who is no member stays none.
 ///
-/// TEMPORARY: while the instance's administrators are the organization's.
+/// Instance administrators stay coupled to the oldest organization by product policy.
 pub(crate) async fn follow_instance_role(
     scope: &mut Scope<'_>,
     user_id: &str,
     instance_role: InstanceRole,
-    actor_id: &str,
+    actor: &AuditActor,
 ) -> Result<(), StoreError> {
     let org_role = org_role_of_instance(instance_role);
     let org = org_admin::lock_organization(scope).await?;
     match org_admin::org_role_of(scope, user_id).await? {
         Some(before) if before != org_role => {
-            org_admin::change_org_role(scope, &org.id, user_id, org_role, actor_id).await?;
+            org_admin::change_org_role(scope, &org.id, user_id, org_role, actor).await?;
         }
         // Already of that role; one who is no administrator has joined nothing to keep.
         _ if org_role != OrgRole::Admin => {
-            org_admin::revoke_joinings(scope, user_id, actor_id).await?;
+            org_admin::revoke_joinings(scope, user_id, actor).await?;
         }
         _ => {}
     }

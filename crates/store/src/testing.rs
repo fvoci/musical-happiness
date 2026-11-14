@@ -283,11 +283,11 @@ async fn role_is_past_the_wall(connection: &mut PgConnection) -> bool {
 
 /// The tables that are no organization's; every other table of the schema is behind
 /// the wall between organizations.
-pub const GLOBAL_TABLES: [&str; 7] = crate::schema::GLOBAL_TABLES;
+pub const GLOBAL_TABLES: [&str; 8] = crate::schema::GLOBAL_TABLES;
 
 /// The tables that hold rows of organizations, and the organizations themselves, each
 /// behind the wall on PostgreSQL.
-pub const ORG_TABLES: [&str; 25] = crate::schema::ORG_TABLES;
+pub const ORG_TABLES: [&str; 29] = crate::schema::ORG_TABLES;
 
 /// Brings a test database to the schema as a server left it that knew nothing of
 /// organizations: every migration before theirs, and none of the changes of the data
@@ -373,6 +373,36 @@ pub async fn migrate_to_before_org_management(database: &TestDatabase) {
     store.close().await;
 }
 
+/// Migrates a test database to the last schema before operator audit attribution.
+///
+/// # Panics
+///
+/// Panics if the database cannot be reached or migrated.
+pub async fn migrate_to_before_audit_actors(database: &TestDatabase) {
+    let store = Store::open(database.db_type(), database.dbconfig())
+        .await
+        .unwrap_or_else(|error| panic!("connecting to the test database: {error}"));
+    crate::schema::migrate(&store, Some(26))
+        .await
+        .unwrap_or_else(|error| panic!("migrating the test database: {error}"));
+    store.close().await;
+}
+
+/// Migrates a test database to the last schema before sessions kept their origin.
+///
+/// # Panics
+///
+/// Panics if the database cannot be reached or migrated.
+pub async fn migrate_to_before_session_origin(database: &TestDatabase) {
+    let store = Store::open(database.db_type(), database.dbconfig())
+        .await
+        .unwrap_or_else(|error| panic!("connecting to the test database: {error}"));
+    crate::schema::migrate(&store, Some(27))
+        .await
+        .unwrap_or_else(|error| panic!("migrating the test database: {error}"));
+    store.close().await;
+}
+
 impl Store {
     /// What the idle connections of a PostgreSQL store carry of an organization, read
     /// past the store's own transactions: for each connection the settings `fvoci.org`
@@ -406,6 +436,23 @@ impl Store {
             settings.push(left);
         }
         settings
+    }
+
+    /// Whether the handle's organization is the instance's own, asked in a transaction
+    /// as a change of a role asks it, and how many organizations that transaction
+    /// reaches afterwards: for the test that the wall is closed again after it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if a statement fails.
+    pub async fn instances_organization_and_reach(&self) -> Result<(bool, i64), StoreError> {
+        self.transaction(async |scope| {
+            let answer = crate::directory::is_the_instances_organization(scope).await?;
+            let sql = scope.sql("SELECT count(*) FROM organizations");
+            let reached = scope.fetch_optional(sql).await?;
+            Ok((answer, reached.map_or(Ok(0), |row| row.int(0))?))
+        })
+        .await
     }
 
     /// How many rows of a table this handle reaches, with no condition: for the tests

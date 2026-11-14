@@ -236,7 +236,7 @@ async fn a_password_account_links_the_provider_and_is_signed_in_to_by_it() {
         .get_session(&token_digest(&token), 0, 0)
         .await
         .expect("stored");
-    assert!(session.login_provider_id.is_some(), "made through it");
+    assert!(session.login.is_some(), "made through it");
     // Linked again, it is the account's already: as it was.
     assert_eq!(linker.link(&org_id, &ts.client.token).await, Ended::Linked);
     assert_eq!(identities(&ts.client).await, tied);

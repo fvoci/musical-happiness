@@ -273,7 +273,7 @@
   /** The organization the address names; the screen's state is made anew only when it changes. */
   const orgId = $derived(router.route.orgId);
   const orgAdmin = $derived(
-    organizations && orgId ? new OrgAdmin(organizations, orgId) : undefined,
+    organizations && orgId ? new OrgAdmin(organizations, orgId, workspace) : undefined,
   );
   $effect(() => {
     // Once the reader is signed in: before that the organization is not there for them.
@@ -353,8 +353,7 @@
         else router.restart({});
         return;
       }
-      // Signed in on an address that is no page of the app (`/login`, where a
-      // sign-in through a provider comes back refused, or any other): the first.
+      // Signed in on no page of the app (`/login` after a refused provider sign-in): the first.
       if (router.route.unknown) router.go({}, { replace: true });
       await workspace?.load(router.route.workspaceId);
       // Signed in, yet the next request is not: the browser did not keep the
@@ -386,6 +385,7 @@
       await account?.register(registration);
       registered = { username: registration.username, email: registration.email };
     }}
+    forgotHref={`${router.href({}).replace(/\/$/, '')}/forgot-password`}
     optionsOf={(orgId: string | undefined) =>
       account?.loginOptions(orgId) ?? Promise.resolve({ registrationOpen: true })}
     onOidcStart={(orgId: string) => toProvider(orgId)}
@@ -404,13 +404,13 @@
     {@const closedOrgId = orgAdmin.orgId}
     <OrgPage
       admin={orgAdmin}
+      onSsoSignIn={() => toProvider(closedOrgId)}
       locale={workspace.locale}
       meId={workspace.me?.id}
       homeHref={router.href({})}
       workspaceHref={(workspaceId: string) => router.href({ workspaceId })}
     >
       {#snippet closed()}
-        <!-- The settings are the shell's: connecting single sign-on is done from the app's own page. -->
         <SsoRequired
           name=""
           others={openWorkspaces}

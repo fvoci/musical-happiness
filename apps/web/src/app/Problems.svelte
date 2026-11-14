@@ -12,6 +12,8 @@
 
   let { workspace }: { workspace: Workspace } = $props();
 
+  const workspaceName = $derived(workspace.info?.title || m.shell_workspace_unnamed());
+
   /** How long a line stays when nobody dismisses it, in milliseconds. */
   const STAY = 8000;
 
@@ -20,7 +22,7 @@
     // No answer at all.
     if (error?.status === 0) return m.app_problem_network();
     if (problem.action === 'import' && error?.status === 403) {
-      return m.app_problem_import_forbidden();
+      return m.app_problem_import_forbidden({ workspace: workspaceName });
     }
     if (error?.status === 403) return m.app_problem_forbidden();
     if (problem.action === 'upload' && error?.status === 429) {

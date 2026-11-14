@@ -295,7 +295,7 @@ pub(crate) async fn require_board_visible(
 ///
 /// For the copy of a board, whose query names the workspace it goes to besides the one of
 /// the path: it asks the same fact the routes under a workspace ask (`api/workspace.rs`,
-/// `WorksIn`).
+/// `Ws::require_no_guest`).
 pub(crate) async fn require_workspace_access(
     app: &App,
     user_id: &str,
@@ -305,10 +305,4 @@ pub(crate) async fn require_workspace_access(
         return Err(AppError::not_found("workspace"));
     }
     app.workspace(workspace_id).await
-}
-
-/// Returns whether a user is a guest. There are no guests on a standalone server, but
-/// the user must exist: a missing user is a 404.
-pub(crate) async fn user_is_guest(app: &App, user_id: &str) -> Result<bool, AppError> {
-    app.user_is_guest(user_id).await
 }

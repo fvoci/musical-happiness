@@ -8,6 +8,8 @@
 //! stored only if the maker is still what was found then, where it is written
 //! (`fvoci_store::Inviter`).
 
+mod mail;
+
 use std::net::IpAddr;
 
 use fvoci_model::{
@@ -15,12 +17,15 @@ use fvoci_model::{
     INVITATION_LIFETIME_MILLIS, Invitation, InvitationPreview, NewAccount, Workspace,
     WorkspaceRole,
 };
-use fvoci_store::{Acceptance, Acceptor, Inviter, InviterOfBoard, NewLink, Standing, StoreError};
+use fvoci_store::{
+    Acceptance, Acceptor, Inviter, InviterOfBoard, MailedTo, NewLink, Standing, StoreError,
+};
 
 use super::auth::account_error;
 use super::{App, Asker, BoardAccess};
 use crate::auth::now_millis;
 use crate::auth::secret::{new_secret, token_digest};
+use crate::collab::AccessScope;
 use crate::error::AppError;
 use crate::permissions::{self, Actor, BoardScope, WorkspacePermission};
 
@@ -35,7 +40,23 @@ struct Maker {
     workspace_role: Option<WorkspaceRole>,
     /// Their membership of the board of a guest's link.
     member: Option<BoardMember>,
+    team_role: Option<fvoci_model::BoardRole>,
     of_board: InviterOfBoard,
+}
+
+impl Maker {
+    /// What the acceptance holds the maker `user_id` to.
+    fn inviter<'a>(&'a self, user_id: &'a str) -> Inviter<'a> {
+        Inviter {
+            standing: Standing {
+                user_id,
+                workspace_role: self.workspace_role,
+                member: self.member.as_ref(),
+                team_role: self.team_role,
+            },
+            of_board: self.of_board,
+        }
+    }
 }
 
 /// Who accepts a link.
@@ -78,8 +99,22 @@ impl App {
         created_by: &str,
         inviting: Inviting<'_>,
     ) -> Result<Invitation, AppError> {
+        let ends = now_millis().saturating_add(INVITATION_LIFETIME_MILLIS);
+        self.store_link(workspace_id, created_by, inviting, ends, None)
+            .await
+    }
+
+    /// Stores a new link that ends at `expires_at`, `mailed` for one recipient of a link
+    /// if it is, and returns it with its token.
+    async fn store_link(
+        &self,
+        workspace_id: &str,
+        created_by: &str,
+        inviting: Inviting<'_>,
+        expires_at: i64,
+        mailed: Option<MailedTo<'_>>,
+    ) -> Result<Invitation, AppError> {
         let token = new_secret();
-        let now = now_millis();
         let (guest_of, max_uses) = match inviting {
             Inviting::Members => (None, None),
             Inviting::Guest { board_id, role } => {
@@ -91,9 +126,10 @@ impl App {
             guest_of,
             token_hash: &token_digest(&token),
             created_by,
-            now,
-            expires_at: now.saturating_add(INVITATION_LIFETIME_MILLIS),
+            now: now_millis(),
+            expires_at,
             max_uses,
+            mailed,
         };
         let mut invitation = match self.store().create_invitation(&link).await {
             Ok(invitation) => invitation,
@@ -119,8 +155,9 @@ impl App {
         Ok(invitation)
     }
 
-    /// The live links into the workspace that the user sees: all of them for who
-    /// invites its members, their own for anybody else. The newest first, and none
+    /// The links into the workspace that the user sees (the live ones, and a used one
+    /// while an unused child of it is out): all of them for who invites its members,
+    /// their own for anybody else. The newest first, and none
     /// with its token.
     ///
     /// # Errors
@@ -139,9 +176,9 @@ impl App {
             .await?)
     }
 
-    /// Revokes a live link into the workspace: any of them for who invites its
-    /// members, one of their own for anybody else. The link lets nobody in from then
-    /// on.
+    /// Revokes a link into the workspace that is neither revoked nor ended, used or
+    /// not, with its children nobody used: any of them for who invites its members, one
+    /// of their own for anybody else. The link lets nobody in from then on.
     ///
     /// # Errors
     ///
@@ -278,6 +315,7 @@ impl App {
                 Ok(invites.then_some(Maker {
                     workspace_role: actor.workspace,
                     member: None,
+                    team_role: None,
                     of_board: InviterOfBoard::Member,
                 }))
             }
@@ -295,6 +333,7 @@ impl App {
                         InviterOfBoard::Member
                     },
                     member: access.member,
+                    team_role: access.team_role,
                 })),
             (WorkspaceRole::Guest, None) | (WorkspaceRole::Admin, _) => Ok(None),
         }
@@ -389,14 +428,7 @@ impl App {
                     empty => Acceptor::NewAccount(empty.insert(app.new_account(account).await?)),
                 },
             };
-            let inviter = Inviter {
-                standing: Standing {
-                    user_id: &invitation.created_by,
-                    workspace_role: maker.workspace_role,
-                    member: maker.member.as_ref(),
-                },
-                of_board: maker.of_board,
-            };
+            let inviter = maker.inviter(&invitation.created_by);
             let acceptance = app
                 .store()
                 .accept_invitation(&token_digest(token), acceptor, now_millis(), inviter)
@@ -407,6 +439,13 @@ impl App {
                 })?;
             match acceptance {
                 Acceptance::Accepted(accepted) => {
+                    app.collab()
+                        .recheck_access(
+                            &app,
+                            AccessScope::workspace(&accepted.workspace_id)
+                                .of_user(&accepted.user_id),
+                        )
+                        .await;
                     settled = Some((app, accepted));
                     break;
                 }

@@ -14,7 +14,6 @@
  * room's is the newer.
  */
 import type { DocNode } from '../editor/schema.ts';
-
 import {
   isBackendError,
   isConflict,
@@ -26,22 +25,11 @@ import {
   type Comment,
 } from './backend.ts';
 import type { BoardStore } from './board.svelte.ts';
+import { REJOIN_SPACING, afterPutOut, type CommentEdit, type Upload } from './card-parts.ts';
 import { byCreation } from './order.ts';
+import { authorIds } from './user-names.ts';
 import type { LoadStatus } from './workspace.svelte.ts';
 import { reread, take } from './write.ts';
-
-/** How a change of a comment ended: stored, refused for a newer version, or failed (and told). */
-export type CommentEdit = 'saved' | 'conflict' | 'failed';
-
-export interface Upload {
-  id: number;
-  name: string;
-  sentBytes: number;
-  totalBytes: number;
-  failed: boolean;
-  /** Gives the upload up. */
-  cancel: () => void;
-}
 
 /** How long the line at the top of the card says "saving" after the server had it all. */
 export const SAVING_SHOWN = 600;
@@ -92,10 +80,15 @@ export class CardStore {
   #savingShown: ReturnType<typeof setTimeout> | undefined;
   #uploadCount = 0;
   #closed = false;
+  /** When the room was last joined again by itself (`#stillThere`). */
+  #rejoinedAt = -Infinity;
+  /** Has the board read again: a card gone for the reader may take its board along. */
+  readonly #readBoardAgain: () => void;
 
-  constructor(board: BoardStore, cardId: string) {
+  constructor(board: BoardStore, cardId: string, readBoardAgain: () => void) {
     this.board = board;
     this.cardId = cardId;
+    this.#readBoardAgain = readBoardAgain;
   }
 
   get #backend(): BoardStore['workspace']['backend'] {
@@ -114,7 +107,9 @@ export class CardStore {
         this.#backend.comments(this.#boardId, this.cardId),
         this.#backend.attachments(this.#boardId, this.cardId),
       ]);
+      if (this.#closed) return;
       this.#takeDetail(detail);
+      void this.board.workspace.learnUsers(authorIds(comments));
       this.#comments = comments;
       this.#attachments = attachments;
       this.status = 'ready';
@@ -154,6 +149,9 @@ export class CardStore {
     const opened = backend.openDoc(workspaceId, this.#boardId, this.cardId, {
       state: (state) => {
         if (this.#bodyDoc !== opened) return;
+        const shut = state.status === 'out' && state.reason === 'not_found';
+        const heldDoc = this.room?.doc !== undefined;
+        if (shut && this.room?.reason !== 'not_found') void this.#stillThere(opened, heldDoc);
         this.room = state;
         this.#showSaving(state.pending);
         // Without the room's document the body is the card's again: read what was missed.
@@ -165,6 +163,28 @@ export class CardStore {
     });
     this.#bodyDoc = opened;
     this.room = opened.state;
+  }
+
+  /**
+   * The room let the reader go as it does for a card that is not there. The
+   * card says why (`afterPutOut`). Gone for the reader, it is missing, and the
+   * board is read again: one that is gone for them takes the card's window
+   * along. Still there (restored before the room told), a room that gave the
+   * reader its document is joined again, not sooner than `REJOIN_SPACING`
+   * after the last time; one that refused them is not asked again.
+   */
+  async #stillThere(opened: BodyDoc, heldDoc: boolean): Promise<void> {
+    const read = await afterPutOut(() => this.#backend.card(this.#boardId, this.cardId));
+    // Of a room that is still this card's: not one left meanwhile, or of the card restored.
+    if (this.#bodyDoc !== opened) return;
+    if (read.found === 'there' && heldDoc && Date.now() - this.#rejoinedAt >= REJOIN_SPACING) {
+      this.#rejoinedAt = Date.now();
+      opened.retry();
+    }
+    if (read.found === 'ended') this.board.workspace.report('load', read.error);
+    if (read.found !== 'gone') return;
+    this.missing = true;
+    this.#readBoardAgain();
   }
 
   #showSaving(pending: boolean): void {
@@ -266,6 +286,7 @@ export class CardStore {
   /** A comment or an attachment arrived from the backend. */
   receive(block: Comment | Attachment): void {
     if (block.parentId !== this.cardId) return;
+    void this.board.workspace.learnUsers(authorIds([block]));
     if (block.type === 'comment') this.#comments = take(this.#comments, block);
     else this.#attachments = take(this.#attachments, block);
   }
@@ -290,6 +311,7 @@ export class CardStore {
       // Closed meanwhile, or a later reading has begun (asked again: the
       // check above was before the wait, which TypeScript does not see).
       if (this.#isClosed() || reading !== this.#refreshing) return;
+      void this.board.workspace.learnUsers(authorIds(comments));
       this.#comments = reread(this.#comments, comments, commentsBefore);
       this.#attachments = reread(this.#attachments, attachments, attachmentsBefore);
     } catch (error) {

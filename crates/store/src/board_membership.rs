@@ -1,6 +1,6 @@
 //! Making a user a member of a board, and recording it where that is to be accounted for.
 
-use fvoci_model::{BoardMember, WorkspaceRole};
+use fvoci_model::{BoardMember, BoardRole, WorkspaceRole};
 
 use crate::Store;
 use crate::audit::{self, AuditEntry};
@@ -22,6 +22,8 @@ pub struct Standing<'a> {
     pub workspace_role: Option<WorkspaceRole>,
     /// Their membership of the board; `None` if they were no member of it.
     pub member: Option<&'a BoardMember>,
+    /// Their highest inherited board role when authorization was checked.
+    pub team_role: Option<BoardRole>,
 }
 
 impl Store {
@@ -80,9 +82,13 @@ impl Store {
             let mut sql = select_members(scope);
             sql.push(
                 " JOIN boards AS b ON b.id = bm.board_id JOIN workspace_members AS wm \
-                 ON wm.workspace_id = b.workspace_id AND wm.user_id = bm.user_id",
+                 ON wm.workspace_id = b.workspace_id AND wm.user_id = bm.user_id \
+                 JOIN workspaces AS w ON w.id = b.workspace_id \
+                 JOIN organizations AS o ON o.id = w.org_id",
             )
             .push_bind(" WHERE bm.board_id = ", Id(board_id))
+            .push(" AND w.delete_at = 0 AND o.delete_at = 0")
+            .push(&scope.same_organization(&[("bm", "b"), ("wm", "b"), ("w", "b")]))
             .push(" ORDER BY bm.user_id");
             fetch_members(scope, sql).await
         })
@@ -223,7 +229,13 @@ async fn change_member(
 /// organization's administrator whose joining was taken back) gives none, and the board
 /// is not there for them.
 async fn manager_still(scope: &mut Scope<'_>, entry: &AuditEntry) -> Result<(), StoreError> {
-    if org_admin::still_workspace_admin(scope, &entry.workspace_id, &entry.actor_id).await? {
+    if org_admin::still_workspace_admin(
+        scope,
+        &entry.workspace_id,
+        entry.actor.person_id().unwrap_or_default(),
+    )
+    .await?
+    {
         Ok(())
     } else {
         Err(StoreError::not_found("board"))
@@ -264,7 +276,10 @@ async fn standing_holds(
             member.scheme_viewer,
         ]
     };
-    if now_role == asked.workspace_role && now_member.as_ref().map(flags) == asked.member.map(flags)
+    let team_role = crate::board_team_access::role_for(scope, board_id, asked.user_id).await?;
+    if now_role == asked.workspace_role
+        && now_member.as_ref().map(flags) == asked.member.map(flags)
+        && team_role == asked.team_role
     {
         Ok(())
     } else {

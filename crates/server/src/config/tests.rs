@@ -334,6 +334,8 @@ fn check_rejects_what_the_server_cannot_honor() {
         "max_concurrent_exports",
         "max_concurrent_imports",
         "export_stall_seconds",
+        "public_link_connections_per_board",
+        "public_link_connections_per_address",
     ] {
         assert!(
             error(&format!(r#"{{"{key}": 0}}"#)).contains(key),
@@ -566,6 +568,8 @@ fn the_configuration_document_lists_every_key() {
     let env: BTreeMap<String, String> = ENV_KEYS
         .iter()
         .chain(&super::collab::ENV_KEYS)
+        .chain(&super::smtp::ENV_KEYS)
+        .chain(&super::mail::ENV_KEYS)
         .map(|(key, _)| ((*key).to_owned(), env_name(key)))
         .collect();
     assert_eq!(

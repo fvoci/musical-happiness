@@ -13,7 +13,7 @@ use super::contract::tag;
 use super::workspace::Ws;
 
 use super::{ApiResult, json_response, no_content};
-use super::{decode_object, refusal, require_board_permission, require_granted, user_is_guest};
+use super::{decode_object, refusal, require_board_permission, require_granted};
 use crate::app::App;
 use crate::error::{AppError, Reason};
 use crate::permissions::{self, BoardPermission, Grant};
@@ -92,9 +92,15 @@ async fn handle_get_members_for_board(
     )
     .await?;
 
-    Ok(json_response(
-        &ws.app.present_members_for_board(&board_id).await?,
-    ))
+    let mut members = ws.app.effective_board_members(&board_id).await?;
+    if ws.actor().workspace == Some(WorkspaceRole::Guest) {
+        for member in &mut members {
+            *member = member.clone().with_role(member.role());
+            member.inherited_role = None;
+            member.synthetic = false;
+        }
+    }
+    Ok(json_response(&members))
 }
 
 /// Make a user a member of a board
@@ -143,7 +149,7 @@ async fn handle_add_member(
         return Err(AppError::bad_request("empty userId").with_field("userId"));
     }
     // The original stores a membership of nobody; the user must exist.
-    match user_is_guest(&ws.app, &request.user_id).await {
+    match ws.app.user(&request.user_id).await {
         Ok(_) => {}
         Err(error) if error.is_not_found() => {
             return Err(AppError::bad_request("no such user").with_field("userId"));
@@ -246,9 +252,6 @@ async fn handle_join_board(ws: Ws, Path((_, board_id)): Path<(String, String)>) 
     // join, which joining would raise to the board's minimum role.
     if !grant.allows(BoardPermission::JoinBoard) {
         return Err(AppError::not_found("board"));
-    }
-    if user_is_guest(&ws.app, user_id).await? {
-        return Err(AppError::forbidden("guests not allowed to join boards"));
     }
 
     Ok(json_response(&ws.app.join_board(&board_id, user_id).await?))

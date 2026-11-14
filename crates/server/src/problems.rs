@@ -201,6 +201,9 @@ fn describe_reason(reason: Reason) -> &'static str {
              without an administrator. Make somebody else one first."
         }
         Reason::AdminRequired => "Status 403. Only an administrator of the server may do this.",
+        Reason::TeamSelfJoining => {
+            "Status 403. While joined as organization administrator, you cannot add yourself to a team. Another workspace administrator may add you. Direct board roles end with the administrative joining."
+        }
         Reason::GuestRoleLimit => "Status 403. A guest of a workspace has no role above editor.",
         Reason::SharingDisabled => {
             "Status 403. Sharing a board with whoever has its link is turned off in the \
@@ -227,6 +230,7 @@ fn describe_reason(reason: Reason) -> &'static str {
         | Reason::OidcJoinClosed
         | Reason::OidcIdentityTaken
         | Reason::OidcEmailMismatch
+        | Reason::OidcTrialAccount
         | Reason::PasswordNotSet
         | Reason::LastSignIn
         | Reason::SsoRequired
@@ -239,9 +243,25 @@ fn describe_reason(reason: Reason) -> &'static str {
         | Reason::RelationNotACard
         | Reason::RelationCardNotFound => describe_relation(reason).unwrap_or_default(),
         Reason::WorkspaceNameTaken
+        | Reason::TeamNameTaken
         | Reason::DefaultWorkspace
         | Reason::LastOrgAdmin
         | Reason::PublicLinksOff => describe_organization(reason).unwrap_or_default(),
+        Reason::TooManyRecipients => {
+            "Status 400. An invitation mail request names more recipients than \
+             `invitation_mail_recipients` allows (20 unless configured), which `limit` \
+             tells. `errors` names `/recipients`. Nothing was sent: send fewer at a time."
+        }
+        Reason::InvitationMailLimit => {
+            "Status 429. The workspace queued as many invitation messages within the last \
+             hour as `invitation_mail_per_hour` allows (100 unless configured), counting the \
+             recipients of this request. Nothing of it was sent. `Retry-After` and \
+             `retryAfter` say when enough of the earlier messages are an hour old."
+        }
+        Reason::MailQueueFull => {
+            "Status 503. The server holds as many invitation messages waiting to be sent as \
+             `mail_invitation_queue` allows. Nothing of this request was sent. Try again later."
+        }
         // The rest are the reasons of a body edited together, which the two functions
         // below name one by one: a reason that is none of theirs fails the tests.
         _ => describe_editing_together(reason),
@@ -303,13 +323,18 @@ fn describe_invitation(reason: Reason) -> Option<&'static str> {
     })
 }
 
-/// The descriptions of the reasons an organization's administrators are refused for.
+/// The descriptions of the reasons the administrators of an organization or of a
+/// workspace are refused for.
 fn describe_organization(reason: Reason) -> Option<&'static str> {
     Some(match reason {
         Reason::WorkspaceNameTaken => {
             "Status 409. Another workspace of the organization that is in use has the name; \
              one in the trash leaves its name to be taken. `errors` names `/name`, or \
              `/organizationName` where the first registration names the organization so."
+        }
+        Reason::TeamNameTaken => {
+            "Status 409. Another team of the workspace has the name, in the same or another \
+             letter case: `Design` and `DESIGN` are one name. `errors` names `/name`."
         }
         Reason::DefaultWorkspace => {
             "Status 409. The organization's default workspace, which whoever joins the \
@@ -523,6 +548,15 @@ fn describe_linking_and_enforcing(reason: Reason) -> Option<&'static str> {
              link (`startOidcLogin` with `linkPassword`): who the provider vouches for is \
              another account's already. Nothing is linked, and the two accounts are not \
              joined."
+        }
+        Reason::OidcTrialAccount => {
+            "On the organization's page, after a trial of its provider's pending settings \
+             (`startOidcTrial`): the identity the provider vouched for is not one tied \
+             to the account of the administrator who started it (another account's, or \
+             tied to none, as at another issuer), or that administrator administers the \
+             organization no more. Nothing is changed, no account is made and no \
+             identity is tied: settings no administrator signs in through are not put in \
+             use."
         }
         Reason::OidcEmailMismatch => {
             "On the login page, after a sign-in through a provider that was started to \

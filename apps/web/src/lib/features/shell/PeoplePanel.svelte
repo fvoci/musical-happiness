@@ -26,6 +26,7 @@
   import { Switch } from '$lib/ui/switch/index.js';
 
   import InviteLink from './InviteLink.svelte';
+  import TeamsPanel from './TeamsPanel.svelte';
 
   interface Props {
     workspace: Workspace;
@@ -37,13 +38,14 @@
   let { workspace, people, inviteLink }: Props = $props();
 
   const uid = $props.id();
+  const workspaceName = $derived(workspace.info?.title || m.shell_workspace_unnamed());
   const workspaceId = $derived(workspace.info?.id);
 
   let members = $state.raw<WorkspaceMember[]>([]);
   let links = $state.raw<Invitation[]>([]);
   let guestsInvited = $state(true);
   /** The link that was just made: its address is shown this once. */
-  let made = $state.raw<{ id: string; address: string } | undefined>(undefined);
+  let made = $state.raw<{ id: string; address: string; token: string } | undefined>(undefined);
   /** `undefined` while the lists are read; then whether they were, or why not. */
   let failure = $state<string | undefined | false>(undefined);
   let working = $state(false);
@@ -85,8 +87,10 @@
     workspace.boards.find((board) => board.id === boardId)?.title || m.invite_board_untitled();
 
   function problemOf(error: unknown, otherwise: string): string {
-    if (isBackendError(error) && error.reason === 'last_admin') return m.people_last_admin();
-    if (isBackendError(error) && error.status === 403) return m.people_not_allowed();
+    if (isBackendError(error) && error.reason === 'last_admin')
+      return m.people_last_admin({ workspace: workspaceName });
+    if (isBackendError(error) && error.status === 403)
+      return m.people_not_allowed({ workspace: workspaceName });
     return otherwise;
   }
 
@@ -100,7 +104,7 @@
       ]);
       failure = false;
     } catch (error) {
-      failure = problemOf(error, m.people_load_failed());
+      failure = problemOf(error, m.people_load_failed({ workspace: workspaceName }));
     }
     version += 1;
   }
@@ -126,7 +130,8 @@
     act(async (id) => {
       made = undefined;
       const link = await people.inviteMembers(id);
-      if (link.token !== undefined) made = { id: link.id, address: inviteLink(link.token) };
+      if (link.token !== undefined)
+        made = { id: link.id, address: inviteLink(link.token), token: link.token };
     });
 
   const revoke = (link: Invitation): Promise<void> =>
@@ -192,6 +197,10 @@
       </p>
     {/if}
 
+    {#if people.teams}
+      <TeamsPanel {workspace} {people} teams={people.teams} membersChanged={version} />
+    {/if}
+
     <section class="grid gap-2" aria-labelledby="{uid}-invite">
       <h3 id="{uid}-invite" class="font-medium">{m.people_invite_title()}</h3>
       {#if made}
@@ -201,10 +210,21 @@
             label={m.people_invite_link()}
             note={m.people_invite_note()}
             testId="people-link"
+            delivery={people.mail && workspaceId
+              ? {
+                  mail: people.mail,
+                  workspaceId,
+                  token: made.token,
+                  language: workspace.locale,
+                  hint: m.mail_addresses_hint(),
+                }
+              : undefined}
           />
         {/key}
       {:else}
-        <p class="text-sm text-muted-foreground">{m.people_invite_hint()}</p>
+        <p class="text-sm text-muted-foreground">
+          {m.people_invite_hint({ workspace: workspaceName })}
+        </p>
       {/if}
       <Button
         variant="outline"
@@ -251,10 +271,16 @@
           {#each guestLinks as link (link.id)}
             {@render linkRow(
               link,
-              m.people_guest_link_row({
-                board: boardTitle(link.boardId),
-                ends: displayDate(link.expiresAt, context),
-              }),
+              link.recipient
+                ? m.people_guest_link_row_to({
+                    recipient: link.recipient,
+                    board: boardTitle(link.boardId),
+                    ends: displayDate(link.expiresAt, context),
+                  })
+                : m.people_guest_link_row({
+                    board: boardTitle(link.boardId),
+                    ends: displayDate(link.expiresAt, context),
+                  }),
             )}
           {/each}
         </ul>
@@ -262,7 +288,9 @@
     </section>
 
     <section class="grid gap-2" aria-labelledby="{uid}-members">
-      <h3 id="{uid}-members" class="font-medium">{m.people_members_title()}</h3>
+      <h3 id="{uid}-members" class="font-medium">
+        {m.people_members_title({ workspace: workspaceName })}
+      </h3>
       <ul class="grid gap-1" data-testid="people-members">
         {#each members as member (member.userId)}
           {@const name = userDisplayName(member)}
@@ -312,7 +340,10 @@
   bind:open={askOpen}
   title={asked?.kind === 'guest'
     ? m.people_guest_title({ name: userDisplayName(asked.member) })
-    : m.people_remove_title({ name: asked ? userDisplayName(asked.member) : '' })}
+    : m.people_remove_title({
+        name: asked ? userDisplayName(asked.member) : '',
+        workspace: workspaceName,
+      })}
   description={asked?.kind === 'guest'
     ? m.people_guest_description()
     : m.people_remove_description()}

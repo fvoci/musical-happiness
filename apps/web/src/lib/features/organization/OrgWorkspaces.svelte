@@ -40,7 +40,6 @@
 
 <section class="flex flex-col gap-3" aria-labelledby="org-workspaces" data-testid="org-workspaces">
   <h2 id="org-workspaces" class="text-base font-semibold">{m.org_workspaces()}</h2>
-  <p class="text-xs text-muted-foreground">{m.org_join_hint()}</p>
   <form class="flex gap-2" onsubmit={(event) => void create(event)}>
     <Input
       bind:value={newName}
@@ -88,13 +87,19 @@
               onclick={() => void admin.leaveWorkspace(workspace.id)}>{m.org_leave()}</Button
             >
           {:else if workspace.role !== 'admin'}
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={admin.busy}
-              aria-label={m.org_join_named({ name: nameOf(workspace) })}
-              onclick={() => void admin.joinWorkspace(workspace.id)}>{m.org_join()}</Button
-            >
+            <div class="flex max-w-64 flex-col items-start gap-1">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={admin.busy}
+                aria-label={m.org_join_named({ name: nameOf(workspace) })}
+                aria-describedby={`org-join-${workspace.id}`}
+                onclick={() => void admin.joinWorkspace(workspace.id)}>{m.org_join()}</Button
+              >
+              <p id={`org-join-${workspace.id}`} class="text-xs text-muted-foreground">
+                {m.org_join_hint()}
+              </p>
+            </div>
           {/if}
           <Button
             size="sm"

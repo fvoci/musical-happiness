@@ -301,7 +301,7 @@ impl Socket {
             ..Category::default()
         };
         for _ in 0..50 {
-            th.app.ws().broadcast_category_change(&probe);
+            th.app.ws().broadcast_category_change(&probe).await;
             if socket.next_json(Duration::from_millis(100)).await.is_some() {
                 // Later probes may still be queued; let them drain.
                 while socket.next_json(QUIET).await.is_some() {}

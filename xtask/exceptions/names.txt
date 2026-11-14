@@ -67,7 +67,6 @@ crates/server/tests/api/search.rs | `SearchBoardsForTeam`
 crates/server/tests/api/sidebar.rs | "trying to update some other team's category"
 crates/server/tests/api/users.rs | `TestTeamUploadFile`
 crates/server/tests/api/users.rs | `TestGetRootTeam` in `server/app/teams_test.go`
-crates/store/src/users.rs | "the users of a team"
 crates/store/tests/store/boards.rs | "should return only the boards of the team that the user is a member of"
 crates/store/tests/store/boards.rs | for team 1"
 crates/store/tests/store/boards.rs | for team 2"
@@ -100,3 +99,186 @@ crates/server/tests/regression/golden/templates.json | across teams
 PORTING.md
 crates/*/PORTING.md
 docs/s6-design.md
+
+# Workspace groups of people, introduced in 0026: these are teams, never workspaces.
+crates/model/src/team.rs
+crates/model/src/lib.rs | mod board_teams
+crates/model/src/lib.rs | pub use board_teams::{boardteam, boardteamrole}
+crates/model/src/lib.rs | mod team;
+crates/model/src/lib.rs | pub use team::{team, teammember, teamname, team_name, team_name_key}
+crates/store/schema/*/0026_teams.sql
+crates/store/src/teams.rs
+crates/store/src/schema.rs | workspace teams
+crates/store/src/schema.rs | 0026_teams
+crates/store/src/schema.rs | "board_teams"
+crates/store/src/schema.rs | "team_members"
+crates/store/src/schema.rs | "teams",
+crates/store/src/error.rs | to a team
+crates/store/src/error.rs | teamselfjoining
+crates/store/src/error.rs | the name of a team: another team
+crates/store/src/error.rs | teamname
+crates/store/src/error.rs | the name of the team
+crates/store/src/lib.rs | mod board_team
+crates/store/src/lib.rs | mod teams
+crates/store/src/workspace_membership.rs | board_team_membership::remove_workspace_teams
+crates/store/src/org_admin.rs | board_team_membership::remove_workspace_teams
+crates/server/src/app/teams.rs
+crates/server/src/app/mod.rs | teams
+crates/server/src/api/teams.rs
+crates/server/src/api/mod.rs | teams
+crates/server/src/api/contract/params.rs | Team
+crates/server/src/api/contract.rs | Team
+crates/server/src/api/contract/tests.rs | Team
+crates/server/tests/api/teams.rs
+crates/server/tests/api/main.rs | teams
+crates/server/tests/organization_boundary_round2/routes.rs | team
+crates/server/tests/organization_boundary_round2/member_operations.rs | team
+crates/server/tests/organization_boundary_round2/workspace_operations/actions.rs | team
+contracts/openapi.json | team
+apps/web/src/lib/api/teams.ts
+apps/web/src/lib/state/team-types.ts
+apps/web/src/lib/api/people.ts | team
+apps/web/src/lib/state/people-types.ts | team
+apps/web/src/lib/features/shell/TeamRow.svelte
+apps/web/src/lib/features/shell/TeamsPanel.svelte
+apps/web/src/lib/features/shell/PeopleDialog.svelte | team
+apps/web/src/lib/features/shell/PeoplePanel.svelte | team
+apps/web/src/lib/features/shell/Sidebar.svelte | teams
+apps/web/src/lib/api/contract.ts | team
+apps/web/messages/en.json | teams_
+apps/web/messages/ko.json | teams_
+apps/web/e2e-live/teams.spec.ts
+crates/store/tests/store/users.rs | Taken::TeamName
+crates/store/tests/store/tenancy.rs | a_team_on_board
+crates/store/tests/store/tenancy.rs | create_team
+crates/store/tests/store/tenancy.rs | a team is stored
+crates/store/tests/store/tenancy.rs | add_team_member
+crates/store/tests/store/tenancy.rs | a team member is stored
+crates/store/tests/store/tenancy.rs | insert into board_teams (board_id, team_id, workspace_id, role)
+crates/store/tests/store/tenancy.rs | the team has a board role
+
+# Workspace people groups, not the retired workspace name (O7b board roles).
+crates/store/src/board_teams.rs
+crates/store/src/board_team_access.rs
+crates/server/src/api/board_teams.rs
+crates/server/src/permissions/team_table.rs
+crates/server/tests/api/board_teams.rs
+apps/web/src/lib/features/shell/BoardTeams.svelte
+crates/model/src/board.rs | inherited from teams
+crates/store/src/boards.rs | board_team_access::
+crates/store/src/boards.rs | push_has_team_role
+crates/store/src/directory.rs | board_team_access
+crates/store/src/directory.rs | push_has_team_role
+crates/store/src/workspaces.rs | board_team_access::push_has_team_role
+crates/server/src/permissions.rs | team_role
+crates/server/src/permissions.rs | mod team_table
+crates/server/src/permissions.rs | highest team role
+crates/server/src/permissions/table.rs | team_role
+crates/server/src/permissions/workspace_table.rs | team_role
+crates/server/src/app/access.rs | team_role
+crates/server/tests/api/rooms_access.rs | losing_the_team_role
+crates/server/tests/api/rooms_access.rs | use fvoci_model::{team, workspacerole}
+crates/server/tests/api/rooms_access.rs | let team: team
+crates/server/tests/api/rooms_access.rs | /teams
+crates/server/tests/api/rooms_access.rs | team.id
+crates/server/tests/api/rooms_access.rs | through a team
+crates/server/tests/api/rooms_access.rs | the team member left
+apps/web/src/lib/features/shell/ShareDialog.svelte | team
+
+# Team membership is reusable across workspace modules; board effects live on the board side.
+crates/model/src/board_teams.rs
+crates/store/src/board_team_membership.rs
+crates/server/tests/api/team_standing.rs
+apps/web/tests/ui/shell/team-row.test.ts
+apps/web/tests/ui/shell/teams-panel.test.ts
+apps/web/tests/ui/shell/board-teams.test.ts
+crates/store/src/board_membership.rs | team_role
+crates/store/src/board_membership.rs | board_team_access::
+crates/store/src/invitations.rs | team_role
+crates/store/src/invitations.rs | board_team_access::
+crates/store/src/invitations.rs | team changes hold
+crates/store/src/observe.rs | TeamSelfJoining
+crates/server/src/error.rs | teamselfjoining
+crates/server/src/error.rs | team_self_joining
+crates/server/src/error.rs | to a team
+crates/server/src/problems.rs | teamselfjoining
+crates/server/src/problems.rs | yourself to a team
+crates/server/src/app/boards.rs | team_role
+crates/server/src/app/boards.rs | a team's people keep
+crates/server/src/app/invitations.rs | team_role
+crates/store/tests/store/invitations.rs | team
+crates/store/tests/store/org_admin.rs | team_role
+crates/server/tests/api/main.rs | team_standing
+
+# Saved assignments of workspace people groups, never the retired workspace name.
+crates/store/src/board_team_trash.rs
+crates/server/tests/api/team_lifecycle.rs
+crates/server/tests/api/main.rs | team_lifecycle
+crates/server/src/api/boards.rs | team ids and their roles
+crates/server/src/api/boards.rs | surviving teams regain
+crates/server/src/api/boards.rs | deleted teams are skipped
+crates/store/src/trash.rs | board_team_trash::
+crates/store/src/trash.rs | board_team_access::
+
+# The review's tests of the workspace teams (people grouped in a workspace, not workspaces).
+crates/server/tests/api/team_review.rs
+crates/server/tests/api/main.rs | team_review
+crates/store/tests/store/order.rs | the teams of a workspace
+crates/store/tests/store/order.rs | teams_come_by_name
+crates/store/tests/store/order.rs | let teams = store
+crates/store/tests/store/order.rs | .teams(&workspace_id)
+crates/store/tests/store/order.rs | the teams are read
+crates/store/tests/store/order.rs | teams.iter()
+crates/store/tests/store/order.rs | team admin
+crates/store/tests/store/order.rs | |team| team.name
+crates/store/tests/store/order.rs | create_team
+crates/store/tests/store/order.rs | the team is made
+
+# A team is named by the one rule of the names people give things together, as an
+# organization is; another team's name is the problem team_name_taken. These are teams of
+# people, never workspaces.
+crates/model/tests/team_names.rs
+crates/model/src/name.rs | an organization, a team
+crates/model/src/name.rs | a team of people
+crates/model/src/name.rs |     team,
+crates/model/src/name.rs | self::team
+crates/model/src/name.rs | ("team name", "a team name")
+crates/server/src/error.rs | another team of the workspace
+crates/server/src/error.rs | teamnametaken
+crates/server/src/error.rs | team_name_taken
+crates/server/src/error.rs | team name taken
+crates/server/src/problems.rs | teamnametaken
+crates/server/src/problems.rs | another team of the workspace
+
+# Changes of the teams of a workspace (people grouped in it, never the workspace) recheck
+# the card rooms of their boards at once, as the contract says.
+contracts/websocket.md | teammember
+contracts/websocket.md | deleteteam
+contracts/websocket.md | boardteam
+crates/server/src/app/access.rs | the team roles on a board
+crates/server/src/app/boards.rs | its surviving teams
+crates/server/src/collab/rooms/access.rs | team): the others
+crates/server/tests/api/rooms_access.rs | leaving the team
+crates/server/tests/api/rooms_teams.rs
+
+# A write of a team's people or roles moves the visibility revision, as a write of the
+# board members does: the websocket audience caches the board's members, teams' too.
+crates/store/src/visibility.rs | "teams",
+crates/store/src/visibility.rs | "team_members",
+crates/store/src/visibility.rs | "board_teams",
+crates/store/src/visibility.rs | a team's people
+crates/store/src/visibility.rs | a_write_of_a_teams_people
+crates/store/src/visibility.rs | INSERT INTO team_members (team_id,
+crates/store/src/visibility.rs | INSERT INTO board_teams (board_id, team_id, workspace_id, org_id, role) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (board_id, team_id, org_id)
+crates/store/src/visibility.rs | DELETE FROM teams WHERE
+
+# A user's board memberships in every organization count the roles of their teams too.
+crates/store/src/memberships_everywhere.rs
+crates/store/src/directory.rs | through a team
+crates/server/src/api/users.rs | through a team of its workspace
+crates/server/src/api/users.rs | (`synthetic`, with the team's role in
+crates/server/src/api/users.rs | a guest is in no team
+
+# The signing string of OCI's published example request, which the signature test
+# verifies byte for byte: its instances are named so in Oracle's documentation.
+crates/server/src/app/mail/provider/http_signature.rs | displayName=TeamXInstances

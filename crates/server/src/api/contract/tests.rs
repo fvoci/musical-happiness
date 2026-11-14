@@ -97,7 +97,8 @@ fn the_contract_says_when_each_reason_comes() {
 }
 
 /// The operations that need no session at all.
-const NO_SESSION: [&str; 10] = [
+const NO_SESSION: [&str; 12] = [
+    "completePasswordReset",
     "finishOidcLogin",
     "getClientConfig",
     "getLoginOptions",
@@ -107,6 +108,7 @@ const NO_SESSION: [&str; 10] = [
     "previewInvitation",
     "ready",
     "register",
+    "requestPasswordReset",
     "startOidcLogin",
 ];
 /// The operations that read a shared board with its read token, and look at no session.
@@ -499,6 +501,10 @@ const ORDERS: &[(&str, &str)] = &[
         "getBlocks",
         "Oldest first; the blocks that one request made come in the order that request had them in",
     ),
+    (
+        "getBoardTeams",
+        "Ordered by team name in any letter case, by code point, then by identifier",
+    ),
     ("getCards", "Oldest first; the pages cut that order"),
     ("getCategories", "by `sortOrder`, lowest first"),
     ("getCommentVersions", "The first one first"),
@@ -526,6 +532,10 @@ const ORDERS: &[(&str, &str)] = &[
     (
         "getSubscriptions",
         "Oldest first, and by the identifier of the block",
+    ),
+    (
+        "getTeams",
+        "ordered by name in any letter case, by code point",
     ),
     ("getTemplates", "Each of the two oldest first"),
     ("getWorkspaceAudit", "the newest first"),

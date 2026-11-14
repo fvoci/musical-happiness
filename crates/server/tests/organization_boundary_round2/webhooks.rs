@@ -93,30 +93,52 @@ async fn a_global_webhook_receives_each_scoped_background_change_with_its_own_bo
 }
 
 #[tokio::test]
-#[ignore = "O5c: a second organization's read token gets no card update over the WebSocket"]
 async fn a_second_orgs_read_token_can_subscribe_to_its_card_updates() {
-    if db_type_of_the_tests() != DbType::Postgres {
-        return;
-    }
-    let scene = Scene::new(None).await;
-    let token = scene
-        .b_app
-        .set_sharing(&scene.b.id, fvoci_store::SharingChange::On, &scene.user)
+    let (ts, app, user, board, card) = if db_type_of_the_tests() == DbType::Postgres {
+        let scene = Scene::new(None).await;
+        (scene.ts, scene.b_app, scene.user, scene.b, scene.card_b)
+    } else {
+        let ts = super::common::Setup::local_mode()
+            .start()
+            .await
+            .init_basic()
+            .await;
+        let user = ts.client.me().await.id;
+        let board = ts
+            .create_board(
+                super::common::ROOT_WORKSPACE_ID,
+                fvoci_model::BoardType::Private,
+            )
+            .await;
+        let mut card = Block {
+            id: new_id(),
+            board_id: board.id.clone(),
+            block_type: BlockType::Card,
+            ..Block::default()
+        };
+        ts.app
+            .store()
+            .insert_block(&mut card, &user)
+            .await
+            .expect("card stored");
+        let app = ts.app.clone();
+        (ts, app, user, board, card)
+    };
+    let token = app
+        .set_sharing(&board.id, fvoci_store::SharingChange::On, &user)
         .await
         .expect("B is shared")
         .token;
-    scene
-        .ts
-        .anonymous()
-        .get(&format!("/shared/{}?readToken={token}", scene.b.id))
+    ts.anonymous()
+        .get(&format!("/shared/{}?readToken={token}", board.id))
         .await
         .check_ok();
-    let mut socket = scene.ts.anonymous().as_browser().connect_websocket().await;
+    let mut socket = ts.anonymous().as_browser().connect_websocket().await;
     socket
         .send(Message::Text(
             serde_json::json!({
-                "action": "SUBSCRIBE_BLOCKS", "workspaceId": scene.b.workspace_id,
-                "blockIds": [scene.card_b.id], "readToken": token
+                "action": "SUBSCRIBE_BLOCKS", "workspaceId": board.workspace_id,
+                "blockIds": [card.id], "readToken": token
             })
             .to_string()
             .into(),
@@ -137,16 +159,14 @@ async fn a_second_orgs_read_token_can_subscribe_to_its_card_updates() {
     })
     .await
     .expect("the subscription command was processed");
-    scene
-        .b_app
-        .ws()
-        .broadcast_block_change(&scene.b.workspace_id, &scene.card_b)
+    app.ws()
+        .broadcast_block_change(&board.workspace_id, &card)
         .await;
     let update = tokio::time::timeout(Duration::from_millis(500), async {
         while let Some(message) = socket.next().await {
             if let Ok(Message::Text(text)) = message {
                 let value: Value = serde_json::from_str(&text).expect("a JSON update");
-                if value["block"]["id"] == scene.card_b.id {
+                if value["block"]["id"] == card.id {
                     return Some(value);
                 }
             }
@@ -157,7 +177,7 @@ async fn a_second_orgs_read_token_can_subscribe_to_its_card_updates() {
     .ok()
     .flatten();
     let _ = socket.close(None).await;
-    scene.ts.teardown().await;
+    ts.teardown().await;
     assert!(
         update.is_some(),
         "B's valid public link loads over HTTP but its websocket subscription receives no update"

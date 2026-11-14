@@ -4,7 +4,7 @@
 
 use std::collections::BTreeMap;
 
-use fvoci_model::{Upload, UploadPurpose, Workspace, new_id};
+use fvoci_model::{Upload, UploadPurpose, new_id};
 use fvoci_store::{DbType, Store};
 use serde_json::Value;
 use sqlx::Connection as _;
@@ -228,6 +228,7 @@ async fn a_database_with_teams_keeps_every_row_under_the_names_of_the_workspaces
     // Up to this migration, and not past it: what later ones add is theirs to test.
     fvoci_store::testing::migrate_to_the_workspaces(&database).await;
     let new = dump(&database).await;
+    assert_eq!(names_of_a_team(&database).await, Vec::<String>::new());
     let store = Store::connect(database.db_type(), database.dbconfig())
         .await
         .expect("the store migrates the database");
@@ -292,7 +293,6 @@ async fn a_database_with_teams_keeps_every_row_under_the_names_of_the_workspaces
             assert_eq!(new_rows, rows, "{table}: the same rows");
         }
     }
-    assert_eq!(names_of_a_team(&database).await, Vec::<String>::new());
 
     database.remove().await;
 }
@@ -320,9 +320,10 @@ async fn the_keys_and_the_check_of_an_upload_find_the_workspaces(
         }
         DbType::Postgres => {
             let org_id = store
-                .only_organization(&Workspace::default())
+                .instance_organization()
                 .await
-                .expect("the organization");
+                .expect("the organization")
+                .expect("an existing organization");
             let ours = store.for_org(&org_id).expect("an identifier");
             let upload = |target: &str| Upload {
                 id: new_id(),

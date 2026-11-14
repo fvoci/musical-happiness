@@ -516,10 +516,12 @@ pub struct BoardMember {
     /// The user may view the board.
     #[serde(deserialize_with = "null_as_default")]
     pub scheme_viewer: bool,
-    /// The membership was derived from a group rather than granted directly. Nothing
-    /// derives one; not part of the JSON form.
-    #[serde(skip)]
+    /// The membership has no directly stored role record.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub synthetic: bool,
+    /// The highest role inherited from teams; direct flags remain unchanged.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inherited_role: Option<MinimumRole>,
 }
 
 impl BoardMember {
@@ -534,6 +536,7 @@ impl BoardMember {
         ]
         .into_iter()
         .find_map(|(held, role)| held.then_some(role))
+        .max(self.inherited_role.map(BoardRole::from))
     }
 
     /// The membership with exactly the flag of `role`, and none for `None`.

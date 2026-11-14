@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use base64::Engine as _;
 use fvoci_model::{OidcProvider, OidcStart, UserWorkspace};
-use fvoci_server::app::{Callback, FinishedLogin, LoginFailure};
+use fvoci_server::app::{Callback, FinishedLogin, LoginFailure, Returned};
 use fvoci_server::auth::sealed::SecretKey;
 use fvoci_server::auth::secret::token_digest;
 use fvoci_server::config::Configuration;
@@ -124,7 +124,9 @@ enum Who {
 /// out of the organization again if it is to be no member.
 async fn known_account(ts: &TestServer, fake: &FakeProvider, org_id: &str, who: Who) {
     let callback = callback_for(ts, fake, org_id).await;
-    let (_, signed_in) = ts.app.finish_oidc_login(&callback, "the first time").await;
+    let Returned {
+        result: signed_in, ..
+    } = ts.app.finish_oidc_login(&callback, "the first time").await;
     signed_in.expect("the account is made");
     if who == Who::FormerMember {
         for table in ["workspace_members", "organization_members"] {
@@ -222,7 +224,9 @@ async fn changed_provider_refuses_pending_callback(change: Change, who: Who) {
         .count_rows("organization_members")
         .await
         .expect("members counted");
-    let (_, outcome) = {
+    let Returned {
+        result: outcome, ..
+    } = {
         let finishing = ts.app.finish_oidc_login(&callback, "a returning browser");
         tokio::pin!(finishing);
         tokio::time::timeout(Duration::from_secs(10), async {
@@ -244,7 +248,7 @@ async fn changed_provider_refuses_pending_callback(change: Change, who: Who) {
             .expect("the callback finishes")
     };
     let live_session = match &outcome {
-        Ok(FinishedLogin::SignedIn { token }) => ts
+        Ok(FinishedLogin::SignedIn { token } | FinishedLogin::Applied { token }) => ts
             .app
             .store()
             .get_session(&token_digest(token), 0, 0)
@@ -285,25 +289,53 @@ async fn changed_provider_refuses_pending_callback(change: Change, who: Who) {
 
 #[tokio::test]
 async fn disabling_a_provider_during_token_exchange_prevents_a_new_session() {
-    changed_provider_refuses_pending_callback(Change::Disable, Who::Newcomer).await;
-    changed_provider_refuses_pending_callback(Change::Disable, Who::Member).await;
+    Box::pin(changed_provider_refuses_pending_callback(
+        Change::Disable,
+        Who::Newcomer,
+    ))
+    .await;
+    Box::pin(changed_provider_refuses_pending_callback(
+        Change::Disable,
+        Who::Member,
+    ))
+    .await;
 }
 
 #[tokio::test]
 async fn deleting_a_provider_during_token_exchange_prevents_a_new_session() {
-    changed_provider_refuses_pending_callback(Change::Delete, Who::Newcomer).await;
+    Box::pin(changed_provider_refuses_pending_callback(
+        Change::Delete,
+        Who::Newcomer,
+    ))
+    .await;
 }
 
 #[tokio::test]
 async fn replacing_a_provider_during_token_exchange_prevents_a_new_session() {
-    changed_provider_refuses_pending_callback(Change::Replace, Who::Newcomer).await;
-    changed_provider_refuses_pending_callback(Change::Replace, Who::Member).await;
+    Box::pin(changed_provider_refuses_pending_callback(
+        Change::Replace,
+        Who::Newcomer,
+    ))
+    .await;
+    Box::pin(changed_provider_refuses_pending_callback(
+        Change::Replace,
+        Who::Member,
+    ))
+    .await;
 }
 
 #[tokio::test]
 async fn closing_auto_join_during_token_exchange_prevents_a_new_member() {
-    changed_provider_refuses_pending_callback(Change::CloseJoining, Who::Newcomer).await;
-    changed_provider_refuses_pending_callback(Change::CloseJoining, Who::FormerMember).await;
+    Box::pin(changed_provider_refuses_pending_callback(
+        Change::CloseJoining,
+        Who::Newcomer,
+    ))
+    .await;
+    Box::pin(changed_provider_refuses_pending_callback(
+        Change::CloseJoining,
+        Who::FormerMember,
+    ))
+    .await;
 }
 
 #[tokio::test]
@@ -318,7 +350,9 @@ async fn an_expired_flow_is_consumed_without_exchanging_its_code() {
         .execute_unchecked("UPDATE oidc_login_flows SET expires_at = 0")
         .await
         .expect("the flow expires");
-    let (_, outcome) = ts
+    let Returned {
+        result: outcome, ..
+    } = ts
         .app
         .finish_oidc_login(&callback, "a returning browser")
         .await;
@@ -350,7 +384,7 @@ async fn concurrent_callbacks_consume_a_flow_once() {
     let fake = FakeProvider::start().await;
     let (ts, org_id) = server_for(&fake).await;
     let callback = callback_for(&ts, &fake, &org_id).await;
-    let ((_, first), (_, second)) = tokio::join!(
+    let (Returned { result: first, .. }, Returned { result: second, .. }) = tokio::join!(
         ts.app.finish_oidc_login(&callback, "first return"),
         ts.app.finish_oidc_login(&callback, "second return"),
     );
@@ -500,7 +534,9 @@ async fn an_answer_of_one_provider_is_not_taken_for_another() {
         let mut callback = callback_for(&ts, &fake, &org_id).await;
         change(&mut callback);
         let exchanged_before = fake.token_requests();
-        let (_, outcome) = ts
+        let Returned {
+            result: outcome, ..
+        } = ts
             .app
             .finish_oidc_login(&callback, "a returning browser")
             .await;
@@ -509,7 +545,7 @@ async fn an_answer_of_one_provider_is_not_taken_for_another() {
     // The issuer the provider is, said: it goes through.
     let mut callback = callback_for(&ts, &fake, &org_id).await;
     callback.issuer = Some(fake.issuer.clone());
-    let (_, said) = ts
+    let Returned { result: said, .. } = ts
         .app
         .finish_oidc_login(&callback, "a returning browser")
         .await;
@@ -533,8 +569,14 @@ async fn another_browser_does_not_end_a_sign_in() {
     let callback = callback_for(&ts, &fake, &org_id).await;
     let mut other = callback.clone();
     other.browser_secret = fvoci_model::new_id();
-    let (other_org, refused) = ts.app.finish_oidc_login(&other, "another browser").await;
-    let (_, finished) = ts.app.finish_oidc_login(&callback, "the browser").await;
+    let Returned {
+        org_id: other_org,
+        result: refused,
+        ..
+    } = ts.app.finish_oidc_login(&other, "another browser").await;
+    let Returned {
+        result: finished, ..
+    } = ts.app.finish_oidc_login(&callback, "the browser").await;
     ts.teardown().await;
     fake.stop();
     assert_eq!(
@@ -561,7 +603,9 @@ async fn a_provider_that_promises_iss_must_send_it() {
     fake.answer_issuer(AnswerIssuer::Promises);
     let callback = callback_for(&ts, &fake, &org_id).await;
     let exchanged_before = fake.token_requests();
-    let (_, missing) = ts
+    let Returned {
+        result: missing, ..
+    } = ts
         .app
         .finish_oidc_login(&callback, "a returning browser")
         .await;
@@ -569,7 +613,7 @@ async fn a_provider_that_promises_iss_must_send_it() {
     fake.answer_issuer(AnswerIssuer::Says);
     let mut callback = callback_for(&ts, &fake, &org_id).await;
     callback.issuer = Some(fake.issuer.clone());
-    let (_, said) = ts
+    let Returned { result: said, .. } = ts
         .app
         .finish_oidc_login(&callback, "a returning browser")
         .await;

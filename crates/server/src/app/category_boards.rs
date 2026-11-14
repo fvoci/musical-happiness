@@ -139,7 +139,12 @@ impl App {
                     .context("createBoardsCategory error fetching user's board memberships")
             })?
             .into_iter()
-            .map(|member| (member.board_id, member.synthetic))
+            .map(|member| {
+                (
+                    member.board_id,
+                    member.synthetic && member.inherited_role.is_none(),
+                )
+            })
             .collect();
         let mut board_ids = Vec::new();
         for board in boards {
@@ -242,7 +247,8 @@ impl App {
             })
             .collect();
         self.ws()
-            .broadcast_category_board_change(workspace_id, user_id, &payload);
+            .broadcast_category_board_change(workspace_id, user_id, &payload)
+            .await;
         Ok(())
     }
 
@@ -274,7 +280,8 @@ impl App {
             .reorder_category_boards(category_id, new_order)
             .await?;
         self.ws()
-            .broadcast_category_boards_reorder(workspace_id, user_id, category_id, &new_order);
+            .broadcast_category_boards_reorder(workspace_id, user_id, category_id, &new_order)
+            .await;
         Ok(new_order)
     }
 
@@ -360,7 +367,8 @@ impl App {
             hidden: visibility == BoardVisibility::Hidden,
         };
         self.ws()
-            .broadcast_category_board_change(workspace_id, user_id, &[change]);
+            .broadcast_category_board_change(workspace_id, user_id, &[change])
+            .await;
         Ok(())
     }
 

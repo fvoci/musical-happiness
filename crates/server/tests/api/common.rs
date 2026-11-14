@@ -104,6 +104,8 @@ pub(crate) struct Setup {
     base_path: String,
     configure: Vec<fn(&mut Configuration)>,
     admin_socket: Option<PathBuf>,
+    smtp: Option<fvoci_server::config::smtp::SmtpSettings>,
+    mail: Option<fvoci_server::config::mail::MailSettings>,
     tls_files: Option<TlsFiles>,
     database_role: DatabaseRole,
     database: Database,
@@ -184,6 +186,26 @@ impl Setup {
         self
     }
 
+    /// Delivers through the test's SMTP sink.
+    pub(crate) fn smtp(mut self, settings: fvoci_server::config::smtp::SmtpSettings) -> Self {
+        self.smtp = Some(settings);
+        self
+    }
+
+    /// Sends mail by the way of `settings` (a fake provider's), with the limits of
+    /// `smtp`.
+    pub(crate) fn mail(
+        mut self,
+        (smtp, mail): (
+            fvoci_server::config::smtp::SmtpSettings,
+            fvoci_server::config::mail::MailSettings,
+        ),
+    ) -> Self {
+        self.smtp = Some(smtp);
+        self.mail = Some(mail);
+        self
+    }
+
     /// Opens the administration socket at `path` (`enablelocalmode`).
     pub(crate) fn admin_socket(mut self, path: &Path) -> Self {
         self.admin_socket = Some(path.to_owned());
@@ -209,17 +231,7 @@ impl Setup {
             .join("api-tests")
             .join(new_id());
         let web_path = directory.join("web");
-        std::fs::create_dir_all(web_path.join("static")).expect("the web directory is created");
-        std::fs::write(
-            web_path.join("index.html"),
-            "<html><head><base href=\"{{.BaseURL}}/\"></head><body>test web app</body></html>",
-        )
-        .expect("the index page is written");
-        std::fs::write(
-            web_path.join("static").join("main.js"),
-            "console.log('test');",
-        )
-        .expect("a static file is written");
+        write_test_web_app(&web_path);
 
         let database = match self.database_role {
             DatabaseRole::HeldByTheWall => TestDatabase::create(&directory).await,
@@ -259,13 +271,21 @@ impl Setup {
         config
             .oidc_extra_root_certificates
             .clone_from(&self.oidc_roots);
+        if let Some(smtp) = self.smtp {
+            config.smtp = smtp;
+        }
+        if let Some(mail) = self.mail {
+            config.mail = mail;
+        }
         for change in &self.configure {
             change(&mut config);
         }
 
-        if self.database == Database::Seeded {
-            seed_workspaces(&config).await;
-        }
+        let seeded = if self.database == Database::Seeded {
+            Some(seed_workspaces(&config).await)
+        } else {
+            None
+        };
         let mut server = match Server::new(config.clone(), &self.base_path).await {
             Ok(server) => server,
             Err(error) => {
@@ -277,7 +297,12 @@ impl Setup {
         if let Some(tls_files) = self.tls_files {
             server = server.with_tls_files(tls_files);
         }
-        let app = server.app().clone();
+        let app = match seeded {
+            Some(org_id) => server
+                .app()
+                .scoped(fvoci_store::Tenant::org(&org_id).expect("the fixture organization")),
+            None => server.app().clone(),
+        };
         let metrics_address = server.metrics_address();
         let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
             .await
@@ -304,17 +329,28 @@ impl Setup {
             base_path: self.base_path.clone(),
         };
         if self.one_user {
-            server.client = server
-                .register_and_login(USER1_USERNAME, "user1@sample.com", PASSWORD)
-                .await;
-            server.client2 = server.client.clone();
+            server.initialize_one_user().await;
         }
         Ok(server)
     }
 }
 
+fn write_test_web_app(web_path: &std::path::Path) {
+    std::fs::create_dir_all(web_path.join("static")).expect("the web directory is created");
+    std::fs::write(
+        web_path.join("index.html"),
+        "<html><head><base href=\"{{.BaseURL}}/\"></head><body>test web app</body></html>",
+    )
+    .expect("the index page is written");
+    std::fs::write(
+        web_path.join("static").join("main.js"),
+        "console.log('test');",
+    )
+    .expect("a static file is written");
+}
+
 /// Stores the organization of a test server and its two workspaces, the root workspace first.
-async fn seed_workspaces(config: &Configuration) {
+async fn seed_workspaces(config: &Configuration) -> String {
     let db_type = config
         .db_type
         .parse()
@@ -337,9 +373,27 @@ async fn seed_workspaces(config: &Configuration) {
             .expect("a further workspace of the test server is stored");
     }
     store.close().await;
+    org_id
 }
 
 impl TestServer {
+    /// Initializes the one-user fixture and scopes test-only direct store operations.
+    async fn initialize_one_user(&mut self) {
+        self.client = self
+            .register_and_login(USER1_USERNAME, "user1@sample.com", PASSWORD)
+            .await;
+        self.client2 = self.client.clone();
+        let workspaces = self
+            .app
+            .store()
+            .workspaces_of_user(&self.client.me().await.id, None)
+            .await
+            .expect("the founder's workspace");
+        self.app = self.app.scoped(
+            fvoci_store::Tenant::org(&workspaces[0].org_id).expect("the fixture organization"),
+        );
+    }
+
     /// `InitBasic`: registers and signs in `user1`, who starts the organization, on the first
     /// client and `user2`, whom a link for members lets in, on the second.
     pub(crate) async fn init_basic(mut self) -> Self {
@@ -451,14 +505,22 @@ impl TestServer {
         client
     }
 
+    /// The root workspace: the oldest workspace of the organization, made with it.
+    pub(crate) async fn root_workspace(&self) -> fvoci_model::Workspace {
+        self.app
+            .store()
+            .get_workspaces()
+            .await
+            .expect("the workspaces are read")
+            .into_iter()
+            .next()
+            .expect("the organization has a workspace")
+    }
+
     /// The token of a new link that makes members of the root workspace, made past the
     /// route on behalf of an administrator of that workspace: the oldest one it has.
     pub(crate) async fn member_link(&self) -> String {
-        let workspace = self
-            .app
-            .root_workspace()
-            .await
-            .expect("the root workspace exists");
+        let workspace = self.root_workspace().await;
         let admins = self
             .app
             .store()
@@ -485,6 +547,9 @@ impl TestServer {
     /// organization's default workspace; the users of a test work in both. A server
     /// started on an empty database has no second workspace to be let into.
     pub(crate) async fn let_into_the_second_workspace(&self, user_id: &str) {
+        if self.app.store().tenant() == fvoci_store::Tenant::Unset {
+            return;
+        }
         match self
             .app
             .store()
@@ -577,7 +642,7 @@ impl TestServer {
         let server = Server::new((*self.config).clone(), &self.base_path)
             .await
             .expect("the server starts again");
-        let app = server.app().clone();
+        let app = server.app().scoped(self.app.store().tenant());
         let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
             .await
             .expect("a local port is free");
@@ -693,6 +758,20 @@ impl Client {
             base_url: base_url.to_owned(),
             token: token.to_owned(),
             carrier: Carrier::Bearer,
+        }
+    }
+
+    /// This client, answered with a redirect instead of following it: a test server's
+    /// `serverroot` is the default, which leads to whatever listens on port 8000 of the
+    /// machine, if anything does.
+    pub(crate) fn not_following_redirects(&self) -> Self {
+        Self {
+            http: reqwest::Client::builder()
+                .redirect(reqwest::redirect::Policy::none())
+                .timeout(Duration::from_secs(30))
+                .build()
+                .expect("an HTTP client can be built"),
+            ..self.clone()
         }
     }
 

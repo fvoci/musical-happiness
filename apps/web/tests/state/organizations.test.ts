@@ -179,6 +179,34 @@ describe('the organization screen', () => {
     expect(open.status).toBe('sso');
   });
 
+  it('passes on a session that ended with a change, and not one the organization closed', async () => {
+    const ended = { status: 401, body: { status: 401, reason: 'unauthorized' } };
+    serve({
+      'GET /api/v1/org/o': ended,
+      'GET /api/v1/org/o/workspaces': ended,
+      'GET /api/v1/org/o/members': ended,
+      'GET /api/v1/org/o/audit': ended,
+    });
+    const signedOut = vi.fn();
+    const admin = new OrgAdmin(organizations(), 'o', { report: signedOut });
+    await admin.load();
+    expect(admin.status).toBe('failed');
+    expect(signedOut).toHaveBeenCalledExactlyOnceWith('load', expect.any(BackendError));
+
+    const closed = { status: 401, body: { status: 401, reason: 'sso_required', orgId: 'o' } };
+    serve({
+      'GET /api/v1/org/o': closed,
+      'GET /api/v1/org/o/workspaces': closed,
+      'GET /api/v1/org/o/members': closed,
+      'GET /api/v1/org/o/audit': closed,
+    });
+    const notice = vi.fn();
+    const walled = new OrgAdmin(organizations(), 'o', { report: notice });
+    await walled.load();
+    expect(walled.status).toBe('sso');
+    expect(notice).not.toHaveBeenCalled();
+  });
+
   it('is missing for whoever does not administer the organization', async () => {
     serve({});
     const admin = new OrgAdmin(organizations(), 'o');

@@ -71,7 +71,9 @@ import {
   roleOn,
   type Role,
 } from './comments.ts';
+import { MemoryPresence } from './presence.ts';
 import { memberRole, memberFileUrl } from './board-access.ts';
+import { usersAmong, usersNamed } from './users.ts';
 import { changeDisplayName } from './account.ts';
 import { archiveOf } from './archive.ts';
 import { checkedBody, checkedWhole, flushBoards, flushCard, openMemoryRoom } from './bodies.ts';
@@ -110,6 +112,7 @@ type MethodName = keyof Backend | 'writeCardBody';
 export class MemoryBackend implements Backend {
   readonly world: World;
   readonly userId: string;
+  readonly presence: MemoryPresence;
   /** Milliseconds every call waits before it answers. */
   latency = 0;
   readonly #failures = new Map<MethodName, BackendError>();
@@ -117,6 +120,7 @@ export class MemoryBackend implements Backend {
   constructor(world: World, userId: string) {
     this.world = world;
     this.userId = userId;
+    this.presence = new MemoryPresence(world, userId);
   }
 
   /** The same world, seen and changed by another user. */
@@ -241,16 +245,13 @@ export class MemoryBackend implements Backend {
 
   async users(workspaceId: string): Promise<User[]> {
     await this.#enterWorkspace('users', workspaceId);
-    return scramble([...this.world.users.values()]).map((user) => {
-      const { isAdmin: _isAdmin, ...rest } = copy(user);
-      return rest;
-    });
+    return usersAmong(this.world);
   }
 
-  /** As the server: whom the workspace does not have is left out, and each is there once. */
+  /** Names visible members and authors, without offering departed authors among people. */
   async usersById(workspaceId: string, userIds: string[]): Promise<User[]> {
-    const users = await this.users(workspaceId);
-    return users.filter((user) => userIds.includes(user.id));
+    await this.#enterWorkspace('usersById', workspaceId);
+    return usersNamed(this.world, this.userId, userIds);
   }
 
   // ----------------------------------------------------------- settings
@@ -1120,8 +1121,6 @@ export class MemoryBackend implements Backend {
     return memberFileUrl(this.world, this.userId, boardId, fileId);
   }
 
-  // ------------------------------------------------------------ changes
-
   watchBoard(boardId: string, listener: ChangeListener): () => void {
     return this.world.watch({ boardId, userId: this.userId, listener });
   }
@@ -1130,7 +1129,6 @@ export class MemoryBackend implements Backend {
     return this.world.watch({ boardId: undefined, userId: this.userId, listener });
   }
 
-  /** The body in the world's room of the card (`bodies.ts`). */
   openDoc(_workspaceId: string, boardId: string, cardId: string, hears: BodyDocHears): BodyDoc {
     return openMemoryRoom(this.world, this, boardId, cardId, hears);
   }

@@ -48,13 +48,20 @@ pub struct Invitation {
     pub max_uses: Option<i64>,
     /// How often the link was used.
     pub uses: i64,
+    /// For a guest link made for one recipient of a mailed guest link: the link it was
+    /// made like. Revoking that one revokes this one while nobody used it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_id: Option<String>,
+    /// For such a link: the address it was mailed to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recipient: Option<String>,
     /// The token of the link: in the answer that makes the link, and in no other.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token: Option<String>,
 }
 
 impl fmt::Debug for Invitation {
-    /// Leaves out the token.
+    /// Leaves out the token and the recipient's address.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Invitation")
             .field("id", &self.id)
@@ -66,6 +73,7 @@ impl fmt::Debug for Invitation {
             .field("expires_at", &self.expires_at)
             .field("max_uses", &self.max_uses)
             .field("uses", &self.uses)
+            .field("parent_id", &self.parent_id)
             .finish_non_exhaustive()
     }
 }
@@ -146,4 +154,23 @@ pub struct AcceptedInvitation {
     /// For a guest: the board they were invited to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub board_id: Option<String>,
+}
+
+/// A request to email an existing invitation to one or more recipients.
+#[derive(Clone, Deserialize, utoipa::ToSchema)]
+pub struct InvitationMail {
+    /// The secret of the existing invitation, sent only in the request body.
+    pub token: String,
+    /// Email addresses, each delivered separately; duplicates are sent once.
+    pub recipients: Vec<String>,
+    /// The sender's screen language, used for a recipient when neither the recipient's
+    /// nor the sender's setting names a language the mail is written in.
+    #[serde(default)]
+    pub language: String,
+}
+
+impl fmt::Debug for InvitationMail {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("InvitationMail").finish_non_exhaustive()
+    }
 }

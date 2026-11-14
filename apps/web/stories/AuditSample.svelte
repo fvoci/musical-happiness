@@ -16,7 +16,12 @@
     Array.from({ length: count }, (_, index) => ({
       id: `example-event-${index}`,
       action: AUDIT_ACTIONS[index % AUDIT_ACTIONS.length] ?? 'workspace_created',
-      actor: hidden ? { ...person, username: '', displayName: '' } : person,
+      actor:
+        index === AUDIT_ACTIONS.length - 1
+          ? { kind: 'server_operator' }
+          : hidden
+            ? { kind: 'person', ...person, username: '', displayName: '' }
+            : { kind: 'person', ...person },
       subject: hidden ? null : { ...person, id: 'example-guest', username: 'example-guest' },
       targetId: 'example-workspace',
       targetName: hidden ? null : 'Example workspace with a long name · 이름이 긴 예시 작업 공간',

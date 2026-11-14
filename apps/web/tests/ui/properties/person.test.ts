@@ -49,6 +49,16 @@ describe('a person property, closed', () => {
     mount('person', 'user-gone');
     expect(button()).toHaveAccessibleName('My person Unknown user');
   });
+
+  it('names someone known though not offered, and does not offer them', async () => {
+    mount('person', 'user-gone', {
+      named: [{ id: 'user-gone', username: 'leaver', displayName: '' }],
+    });
+    expect(button()).toHaveAccessibleName('My person leaver');
+    await open();
+    expect(names()).not.toContain('leaver');
+    expect(names()).toHaveLength(USERS.length);
+  });
 });
 
 describe('a person property, opened', () => {

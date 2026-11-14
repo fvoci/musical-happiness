@@ -57,7 +57,7 @@
 - `BlockPatch.readAt`은 지금 쓰인다: `patchBlock`, `patchBlocks`, `patchBoardsAndBlocks`의 패치에 있으면 `patchCard`처럼 검사하고 어긋나면 409다.
 - 있는 블록을 고칠 때마다 `updateAt`이 앞의 값보다 커진다(같은 밀리초여도). `readAt`이 그 사이의 변경을 놓치지 않는다.
 - 휴지통에서 되살린 카드와 복제한 카드는 본문과 할 일 수를 그대로 갖는다.
-- **읽기 토큰의 독자와 사용자 ID(사용자 결정 2026-11-11 11:05, 14:25 KST).** 읽기 토큰으로 읽고 보드의 구성원(보기 역할부터)이 아닌 독자(세션이 없거나, 로그인했어도. 열린 보드의 워크스페이스 사용자도 토큰으로 읽으면 그렇다)에게 나가는 보드와 블록은 `createdBy`·`modifiedBy`가 비어 있고(결정 7), 카드와 댓글의 본문에서 모든 멘션의 `userId`가 빈 문자열이고, 보드의 사람 속성(`type`이 `person`, `multiPerson`, `createdBy`, `updatedBy`)이 가리키는 사람이 카드의 `fields.properties`와 뷰의 `fields.filter` 절에서 사람마다 빈 문자열이다(목록의 길이는 그대로). 카드의 값 가운데 보드가 정의하지 않은 속성의 것(지운 사람 속성이 남긴 것)은 빠지고, 사람 속성으로 묶은 뷰의 `visibleOptionIds`, `hiddenOptionIds`, `collapsedOptionIds`, `kanbanCalculations`에는 값 없는 묶음(`""`)만 남는다. HTTP(`getBoard`, `getBlocks`, `getCards`의 카드도 같다)와 WebSocket(`UPDATE_BLOCK`) 모두. 그 독자가 받는 응답 가운데 사용자 ID를 싣는 자리는 이것뿐이다(`getFile`, `getFileInfo`는 싣지 않는다). 사람 속성을 `text` 같은 다른 종류로 바꾸면 남은 값은 그 종류의 값으로 그대로 나간다. 이것은 나가는 모양일 뿐 저장되는 모양이 아니다. 허용 목록은 `userId`가 사용자 ID가 아닌 멘션을 받지 않으므로, 그 본문을 그대로 되돌려 쓰면 400이다(익명 독자는 쓰지 못하니 생기지 않는다). 화면은 빈 `userId`의 멘션을 "알 수 없는 사용자"로 그리면 된다.
+- **읽기 토큰의 독자와 사용자 ID(사용자 결정 2026-11-11 11:05, 14:25 KST).** 읽기 토큰으로 읽고 보드의 구성원(보기 역할부터)이 아닌 독자(세션이 없거나, 로그인했어도. 열린 보드의 워크스페이스 사용자도 토큰으로 읽으면 그렇다)에게 나가는 보드와 블록은 `createdBy`·`modifiedBy`가 비어 있고(결정 7), 카드와 댓글의 본문에서 모든 멘션의 `userId`가 빈 문자열이고, 보드의 사람 속성(`type`이 `person`, `multiPerson`, `createdBy`, `updatedBy`)이 가리키는 사람이 카드의 `fields.properties`와 뷰의 `fields.filter` 절에서 사람마다 빈 문자열이다(목록의 길이는 그대로). 카드의 값 가운데 보드가 정의하지 않은 속성의 것(지운 사람 속성이 남긴 것)은 빠지고, 사람 속성으로 묶은 뷰의 `visibleOptionIds`, `hiddenOptionIds`, `collapsedOptionIds`, `kanbanCalculations`에는 값 없는 묶음(`""`)만 남는다. HTTP(`getBoard`, `getBlocks`, `getCards`의 카드도 같다)와 WebSocket(`UPDATE_BLOCK`) 모두. 그 독자가 받는 응답 가운데 사용자 ID를 싣는 자리는 이것뿐이다(`getFile`, `getFileInfo`는 싣지 않는다). 사람 속성을 `text` 같은 다른 종류로 바꾸면 남은 값은 그 종류의 값으로 그대로 나간다. 이것은 나가는 모양일 뿐 저장되는 모양이 아니다. 허용 목록은 `userId`가 사용자 ID가 아닌 멘션을 받지 않으므로, 그 본문을 그대로 되돌려 쓰면 400이다(익명 독자는 쓰지 못하니 생기지 않는다). 화면은 빈 `userId`의 멘션을 "알 수 없는 사용자"로 그리면 된다. 보드의 있음은 읽기 토큰의 연결을 수로만 세고 그 연결에는 명단을 보내지 않는다(`contracts/websocket.md` 7절).
 
 **들어간 것(tracer-bullet 6, 2026-11-11 08:42 KST).** 표의 나머지 넷(블록의 `type`, `contentOrder`, `moveContentBlock`, `fields` 한도)이 들어갔다. 이로써 이 표는 모두 계약 파일에 있다.
 
@@ -200,7 +200,7 @@
 ## 6. 계약 밖에 있는 것
 
 - **WebSocket(`/ws`)의 메시지.** OpenAPI는 WebSocket을 적지 못한다. 메시지는 계약 파일 밖의 `contracts/websocket.md`(사람이 읽는 것)와 `contracts/websocket.json`(멤버와 타입, 서버의 테스트가 실제 메시지를 견준다)에 적었다(2026-11-11 04:14 KST). 카드 본문을 함께 고치는 방의 명령·메시지·Binary 프레임은 그 6절이다(2026-11-13 01:05 KST).
-  - 핸드셰이크의 인증, 명령 여섯, 메시지 열여섯, 어느 조작이 어느 메시지를 내는지, 서버가 연결을 닫는 때가 그 문서에 있다. 웹앱의 질문 G1–G6의 답도 그 문서의 5절에 있다.
+  - 핸드셰이크의 인증, 명령 여섯, 메시지 열여덟, 어느 조작이 어느 메시지를 내는지, 서버가 구독을 끝내고 연결을 닫는 때가 그 문서에 있다. 웹앱의 질문 G1–G6의 답도 그 문서의 5절에 있다.
   - 메시지가 싣는 보드, 블록, 카테고리, 멤버는 계약의 `Board`, `Block`, `Category`, `BoardMember`와 같은 모양이다.
   - `UPDATE_BLOCK`이 싣는 블록은 1절의 본문(`body`)을 함께 싣는다.
 - **오류의 상태 코드.** 조작마다 4xx를 하나씩 적지 않았다.

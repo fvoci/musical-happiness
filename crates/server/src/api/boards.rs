@@ -17,7 +17,6 @@ use super::workspace::Ws;
 use super::{ApiResult, created, decode_json, json_response, no_content, query_param};
 use super::{
     duplicate_as, json_object, require_board_permission, require_granted, require_workspace_access,
-    user_is_guest,
 };
 use crate::app::{App, as_managed};
 use crate::error::AppError;
@@ -126,8 +125,7 @@ fn decode_board_patch(body: &[u8]) -> Result<BoardPatch, AppError> {
 async fn handle_create_board(ws: Ws, body: Bytes) -> ApiResult {
     let user_id = &ws.session.user_id;
     // Whoever works in the workspace makes boards in it, open ones and private ones.
-    ws.require_board_maker("access denied to create board")
-        .await?;
+    ws.require_board_maker("access denied to create board")?;
     let mut requested = json_object(decode_json(&body)?)?;
     let invalid = take_invalid_board_members(&mut requested);
     let mut board: Board =
@@ -270,7 +268,8 @@ async fn handle_reorder_card_properties(
 /// Delete a board
 ///
 /// The board goes to the trash with its blocks and its members, and `undeleteBoard`
-/// brings it back until the trash is emptied of it. Its sharing ends, with its read
+/// brings it back until the trash is emptied of it. Team IDs and their roles are kept,
+/// but grant no access while the board is in the trash. Its sharing ends, with its read
 /// token, and so do its places in the users' sidebars and the subscriptions to its
 /// blocks; those do not come back with the board. For the board's admins.
 #[utoipa::path(
@@ -346,9 +345,6 @@ async fn handle_duplicate_board(
         to_workspace.clone_from(&ws.workspace_id);
     }
     require_workspace_access(&ws.app, user_id, &to_workspace).await?;
-    if user_is_guest(&ws.app, user_id).await? {
-        return Err(AppError::forbidden("access denied to create board"));
-    }
 
     let (boards_and_blocks, _members) = ws
         .app
@@ -364,9 +360,10 @@ async fn handle_duplicate_board(
 /// category and place, hidden or not) or in the default category if that one was
 /// deleted since, and is told with `UPDATE_BOARD_CATEGORY` and the category's
 /// `REORDER_CATEGORY_BOARDS`. Its sharing and the subscriptions to its blocks ended with
-/// the deletion and stay ended. For who was an admin of the board when it was deleted,
-/// and for the workspace's administrators (who, if they were no member, get it without
-/// its description and properties); to anybody else there is no such board.
+/// the deletion and stay ended. Surviving teams regain their saved roles for their
+/// current members; deleted teams are skipped. For who was an admin of the board when
+/// it was deleted, and for the workspace's administrators (who, if they were no member,
+/// get it without its description and properties); to anybody else there is no such board.
 #[utoipa::path(
     post,
     path = "/w/{workspaceId}/boards/{boardId}/undelete",

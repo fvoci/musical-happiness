@@ -17,12 +17,14 @@
   import AuditList from '$lib/components/audit/AuditList.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type { OrgAdmin, OrgRefusal } from '$lib/state/org-admin.svelte.ts';
+  import type { OidcSettings } from '$lib/state/oidc.ts';
   import type { OrgMember } from '$lib/state/organization.ts';
   import { Button } from '$lib/ui/button/index.js';
   import { Switch } from '$lib/ui/switch/index.js';
   import ConfirmDialog from '$lib/components/confirm/ConfirmDialog.svelte';
 
   import OrgWorkspaces from './OrgWorkspaces.svelte';
+  import OrgSso from './OrgSso.svelte';
 
   interface Props {
     admin: OrgAdmin;
@@ -31,11 +33,12 @@
     meId: string | undefined;
     homeHref: string;
     workspaceHref: (workspaceId: string) => string;
+    onSsoSignIn: () => Promise<void>;
     /** What is shown of an organization this session does not open. */
     closed?: Snippet;
   }
 
-  let { admin, locale, meId, homeHref, workspaceHref, closed }: Props = $props();
+  let { admin, locale, meId, homeHref, workspaceHref, closed, onSsoSignIn }: Props = $props();
 
   const REFUSALS: Record<OrgRefusal, () => string> = {
     name_taken: m.org_refused_name_taken,
@@ -46,6 +49,11 @@
   };
 
   let stepDownOpen = $state(false);
+
+  /** Sends the browser to sign in through the pending settings; it comes back to this page. */
+  async function tryPending(): Promise<void> {
+    location.assign(await admin.startOidcTrial());
+  }
 
   const named = (member: OrgMember): string =>
     member.displayName ? `${member.displayName} (@${member.username})` : `@${member.username}`;
@@ -98,6 +106,17 @@
     {/if}
 
     <OrgWorkspaces {admin} {workspaceHref} />
+
+    {#key admin.orgId}
+      <OrgSso
+        read={() => admin.oidcProvider()}
+        save={(settings: OidcSettings) => admin.saveOidcProvider(settings)}
+        remove={() => admin.deleteOidcProvider()}
+        onSignIn={onSsoSignIn}
+        discard={() => admin.discardOidcPending()}
+        onTry={tryPending}
+      />
+    {/key}
 
     <section class="flex flex-col gap-3" aria-labelledby="org-members">
       <h2 id="org-members" class="text-base font-semibold">{m.org_members()}</h2>

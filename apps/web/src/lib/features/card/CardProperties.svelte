@@ -50,6 +50,8 @@
   const presentation = $derived(overlayPresentation(page.stage));
   /** The people a person property can be set to: the members of the board. */
   const users = $derived<readonly PropertyUser[]>(board.people);
+  /** Who a value may name: everyone the workspace knows, authors who left among them. */
+  const named = $derived<readonly PropertyUser[]>(workspace.users);
 
   let addOpen = $state(false);
   /** The property that was just added: its menu opens, so that it can be named. */
@@ -99,6 +101,7 @@
             readOnly={!editable}
             showEmptyPlaceholder
             {users}
+            {named}
             locale={workspace.locale}
             regional={workspace.regional}
             {presentation}

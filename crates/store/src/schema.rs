@@ -37,7 +37,7 @@ struct Step {
 }
 
 /// Every migration, oldest first. Applied ones are never edited: add a new one.
-const STEPS: [Step; 23] = [
+const STEPS: [Step; 29] = [
     Step {
         version: 1,
         description: "baseline",
@@ -177,6 +177,42 @@ const STEPS: [Step; 23] = [
         sqlite: include_str!("../schema/sqlite/0024_sso.sql"),
         postgres: include_str!("../schema/postgres/0024_sso.sql"),
     },
+    Step {
+        version: 25,
+        description: "password resets",
+        sqlite: include_str!("../schema/sqlite/0025_password_resets.sql"),
+        postgres: include_str!("../schema/postgres/0025_password_resets.sql"),
+    },
+    Step {
+        version: 26,
+        description: "workspace teams",
+        sqlite: include_str!("../schema/sqlite/0026_teams.sql"),
+        postgres: include_str!("../schema/postgres/0026_teams.sql"),
+    },
+    Step {
+        version: 27,
+        description: "audit actors",
+        sqlite: include_str!("../schema/sqlite/0027_audit_actors.sql"),
+        postgres: include_str!("../schema/postgres/0027_audit_actors.sql"),
+    },
+    Step {
+        version: 28,
+        description: "session origin",
+        sqlite: include_str!("../schema/sqlite/0028_session_origin.sql"),
+        postgres: include_str!("../schema/postgres/0028_session_origin.sql"),
+    },
+    Step {
+        version: 29,
+        description: "sign in revision",
+        sqlite: include_str!("../schema/sqlite/0029_sign_in_revision.sql"),
+        postgres: include_str!("../schema/postgres/0029_sign_in_revision.sql"),
+    },
+    Step {
+        version: 30,
+        description: "invitation recipients",
+        sqlite: include_str!("../schema/sqlite/0030_invitation_recipients.sql"),
+        postgres: include_str!("../schema/postgres/0030_invitation_recipients.sql"),
+    },
 ];
 
 /// The migration that makes the organizations and, on PostgreSQL, puts up the wall
@@ -196,11 +232,12 @@ pub(crate) const ORG_MANAGEMENT_VERSION: i64 = 23;
 /// The tables that are no organization's: the accounts and what is true of the
 /// installation. Every other table of the schema is one of [`ORG_TABLES`].
 #[cfg(any(test, feature = "test-util"))]
-pub(crate) const GLOBAL_TABLES: [&str; 7] = [
+pub(crate) const GLOBAL_TABLES: [&str; 8] = [
     "_sqlx_migrations",
     "data_steps",
     "instance",
     "preferences",
+    "password_resets",
     "sessions",
     "user_identities",
     "users",
@@ -211,10 +248,11 @@ pub(crate) const GLOBAL_TABLES: [&str; 7] = [
 /// policy `org_wall`. A test of the store reads the catalog to see that every table of
 /// the schema is in this list or in [`GLOBAL_TABLES`], and that it is so.
 #[cfg(any(test, feature = "test-util"))]
-pub(crate) const ORG_TABLES: [&str; 25] = [
+pub(crate) const ORG_TABLES: [&str; 29] = [
     "audit_log",
     "blocks",
     "board_members",
+    "board_teams",
     "boards",
     "body_docs",
     "body_updates",
@@ -228,11 +266,14 @@ pub(crate) const ORG_TABLES: [&str; 25] = [
     "invitations",
     "loose_objects",
     "oidc_login_flows",
+    "oidc_pending_providers",
     "oidc_providers",
     "organization_members",
     "organizations",
     "sharing",
     "subscriptions",
+    "team_members",
+    "teams",
     "upload_parts",
     "uploads",
     "workspace_members",

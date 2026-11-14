@@ -13,6 +13,7 @@ mod auth;
 mod block;
 mod block_ids;
 mod board;
+mod board_teams;
 mod boards_and_blocks;
 mod body;
 mod card;
@@ -25,6 +26,7 @@ mod deleted_item;
 mod file_info;
 mod id;
 mod invitation;
+mod name;
 mod oidc;
 mod org_admin;
 mod organization;
@@ -35,6 +37,7 @@ mod serde_util;
 mod settings;
 mod sharing;
 mod subscription;
+mod team;
 mod upload;
 mod user;
 mod workspace;
@@ -56,6 +59,7 @@ pub use board::{
     Board, BoardError, BoardMember, BoardPatch, BoardRole, BoardSearchField, BoardType,
     MinimumRole, ParseBoardSearchFieldError,
 };
+pub use board_teams::{BoardTeam, BoardTeamRole};
 pub use boards_and_blocks::{
     BoardsAndBlocks, BoardsAndBlocksError, DeleteBoardsAndBlocks, PatchBoardsAndBlocks,
     generate_boards_and_blocks_ids, renew_boards_and_blocks_ids,
@@ -84,16 +88,18 @@ pub use file_info::{FileInfo, is_storage_path};
 pub use id::{is_id, new_id};
 pub use invitation::{
     AcceptInvitation, AcceptedInvitation, GUEST_INVITATION_USES, INVITATION_LIFETIME_MILLIS,
-    Invitation, InvitationPreview, InvitationToken, NewInvitation,
+    Invitation, InvitationMail, InvitationPreview, InvitationToken, NewInvitation,
 };
+pub use name::{Named, required_name};
 pub use oidc::{
     LinkedIdentity, LoginOptions, LoginOrganization, OIDC_CLIENT_FIELD_MAX_BYTES,
-    OIDC_ISSUER_MAX_BYTES, OidcProvider, OidcProviderSettings, OidcStart, OidcStartRequest,
-    UnlinkRequest,
+    OIDC_ISSUER_MAX_BYTES, OidcPendingProvider, OidcProvider, OidcProviderSettings, OidcStart,
+    OidcStartRequest, UnlinkRequest,
 };
 pub use org_admin::{
-    AuditAction, AuditPerson, AuditRecord, MAX_NAME_CHARS, OrgMember, OrgRoleChange, OrgWorkspace,
-    Organization, OrganizationPatch, UnknownAuditAction, WorkspaceName,
+    AuditAction, AuditPerson, AuditRecord, AuditRecordActor, MAX_NAME_CHARS, OrgMember,
+    OrgRoleChange, OrgWorkspace, Organization, OrganizationPatch, UnknownAuditAction,
+    WorkspaceName,
 };
 pub use organization::{
     OrgRole, UnknownRole, UserWorkspace, WorkspaceMember, WorkspaceRole, WorkspaceRoleChange,
@@ -112,8 +118,9 @@ pub use settings::{
 };
 pub use sharing::Sharing;
 pub use subscription::{Subscriber, SubscriberType, Subscription, SubscriptionError};
+pub use team::{Team, TeamMember, TeamName, team_name, team_name_key};
 pub use upload::{MAX_UPLOAD_PARTS, Upload, UploadPart, UploadPurpose};
-pub use user::{Session, User, UserPreferencesPatch};
+pub use user::{LoginOrigin, Session, User, UserPreferencesPatch};
 pub use workspace::{GuestInvitationsChange, Workspace};
 
 /// A JSON object with free-form keys, as used for block fields and board properties.

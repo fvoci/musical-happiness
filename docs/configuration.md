@@ -38,6 +38,8 @@
 | `webpath` | `FVOCI_WEBPATH` | 문자열 | `"./pack"` | 웹앱의 빌드 산출물이 든 디렉터리(`index.html`과 `static/`) |
 | `allowed_origins` | `FVOCI_ALLOWED_ORIGINS` | 문자열 목록 | `[]` | `serverRoot`의 출처 말고도 바꾸는 요청과 WebSocket을 받아들일 출처. 개발할 때 웹앱을 다른 포트에서 띄우는 경우에 쓴다. 출처로 읽을 수 없는 값이 있으면 시작하지 않는다 |
 | `websocket_ping_seconds` | `FVOCI_WEBSOCKET_PING_SECONDS` | 정수(0 이상) | `30` | WebSocket마다 Ping을 보내는 간격(초). 0이면 보내지 않는다. 한가한 연결을 프록시가 끊지 않게 한다. Ping마다 연결의 세션도 다시 보고 끝났으면 닫는다(0이면 1분마다) |
+| `public_link_connections_per_board` | `FVOCI_PUBLIC_LINK_CONNECTIONS_PER_BOARD` | 정수(1 이상) | `200` | 공개 링크로 한 보드를 함께 읽는 연결의 수. 링크의 읽기 토큰으로 블록을 따라가거나(`SUBSCRIBE_BLOCKS`) 그 토큰으로 방문을 알리는(`SET_PRESENCE`) 연결을 하나로 센다(로그인한 사람의 연결도 링크로 읽으면 센다). 다 찼으면 새 연결의 구독은 받지 않고 `UNSUBSCRIBED_BLOCKS`(`reason` `public link connections full`)로 알리며, 방문은 받지 않아 보드의 "익명 n명"에 세지 않는다. 이미 읽는 연결과 보드의 구성원이 보통으로 여는 연결에는 닿지 않는다. 0은 시작 오류다 |
+| `public_link_connections_per_address` | `FVOCI_PUBLIC_LINK_CONNECTIONS_PER_ADDRESS` | 정수(1 이상) | `10` | 위의 연결 가운데 한 주소에서 오는 것의 수. IPv6 주소는 /64로 센다. 주소는 요청 로그와 로그인 제한이 쓰는 것이다(`trusted_proxies` 뒤면 `X-Forwarded-For`). 넘으면 위와 같다. 0은 시작 오류다 |
 | `compress_responses` | `FVOCI_COMPRESS_RESPONSES` | 참·거짓 | `true` | 참이면 API의 JSON 응답을 클라이언트의 `Accept-Encoding`에 따라 zstd, brotli, gzip으로 압축한다(32바이트 미만과 오류 응답은 그대로). 압축하는 프록시나 CDN 뒤라면 거짓으로 둔다. 내보내는 아카이브와 파일은 이것과 관계없이 압축하지 않는다(길이를 그대로 보낸다). 웹앱의 정적 파일은 빌드가 만든 `.zst`, `.br`, `.gz`를 고르므로 이것과 관계없다 |
 
 ## 키: 데이터베이스
@@ -129,7 +131,7 @@ Cloudflare R2는 같은 규칙이 기본으로 7일이다. 다른 S3 호환 저�
 
 | 키 | 환경 변수 | 타입 | 기본값 | 뜻과 범위 |
 |---|---|---|---|---|
-| `trusted_proxies` | `FVOCI_TRUSTED_PROXIES` | 문자열 목록 | `[]` | 서버 앞의 역방향 프록시의 주소나 주소 범위(`10.0.0.0/8` 꼴). 이 주소에서 온 요청만 `X-Forwarded-For`가 말하는 주소에서 온 것으로 본다. 비우면 클라이언트가 서버에 바로 닿는다고 본다. 읽을 수 없는 값이 있으면 시작하지 않는다. `serverRoot`가 https이고 `useSSL`이 거짓인데 이 목록이 비면 시작할 때 경고한다(모든 클라이언트가 프록시 하나로 보여 로그인 제한이 모두에게 한꺼번에 걸린다) |
+| `trusted_proxies` | `FVOCI_TRUSTED_PROXIES` | 문자열 목록 | `[]` | 서버 앞의 역방향 프록시의 주소나 주소 범위(`10.0.0.0/8` 꼴). 이 주소에서 온 요청만 `X-Forwarded-For`가 말하는 주소에서 온 것으로 본다. 비우면 클라이언트가 서버에 바로 닿는다고 본다. 읽을 수 없는 값이 있으면 시작하지 않는다. `serverRoot`가 https이고 `useSSL`이 거짓인데 이 목록이 비면 시작할 때 경고한다(모든 클라이언트가 프록시 하나로 보여 로그인 제한이 모두에게 한꺼번에 걸리고, 공개 링크로 한 보드를 읽는 연결도 `public_link_connections_per_address`개까지만 받는다) |
 
 ## 키: 한도와 휴지통, 임시 파일
 
@@ -153,7 +155,7 @@ Cloudflare R2는 같은 규칙이 기본으로 7일이다. 다른 S3 호환 저�
 | 키 | 환경 변수 | 타입 | 기본값 | 뜻과 범위 |
 |---|---|---|---|---|
 | `collab_workers` | `FVOCI_COLLAB_WORKERS` | 정수(1–64) | `1` | 띄우는 작업자의 수. 문서는 열 때 가장 적게 받은 작업자에게 간다 |
-| `collab_documents_per_worker` | `FVOCI_COLLAB_DOCUMENTS_PER_WORKER` | 정수(1 이상) | `500` | 작업자 하나가 한꺼번에 쥐는 문서의 수. 작업자는 문서들의 상태를 합쳐 `collab_worker_memory_bytes`의 8분의 1까지만 쥔다. 넘게 하는 열기와 업데이트는 거절한다 |
+| `collab_documents_per_worker` | `FVOCI_COLLAB_DOCUMENTS_PER_WORKER` | 정수(1 이상) | `500` | 작업자 하나가 한꺼번에 쥐는 문서의 수. 그 밖에 열린 문서가 없는 카드의 기록을 카드에 쓰려고 잠깐 여는 문서는 서버 전체로 넷까지 따로 쥔다(모자라면 기다린다). 작업자는 문서들의 상태를 합쳐 `collab_worker_memory_bytes`의 8분의 1까지만 쥔다. 넘게 하는 열기와 업데이트는 거절한다 |
 | `collab_state_bytes` | `FVOCI_COLLAB_STATE_BYTES` | 정수(2097152–1073741824, 바이트) | `8388608` | 문서 하나의 저장된 상태의 가장 큰 크기(8 MiB). 문서는 지운 것도 쥐고 있어 고칠수록 자란다. 넘게 하는 업데이트는 거절하고, 4분의 3에 이르면 서버가 카드의 본문에서 문서를 새로 만든다(편집자는 새로 받는다). 낮춰도 이미 저장된 문서는 받아들인 그대로 열리고, 넘는 문서는 본문을 카드에 쓴 뒤 새로 만든다 |
 | `collab_update_bytes` | `FVOCI_COLLAB_UPDATE_BYTES` | 정수(1–`collab_state_bytes`, 바이트) | `65536` | 클라이언트가 보내는 업데이트 하나의 가장 큰 크기(64 KiB). 업데이트 하나에 드는 작업자의 시간은 주로 문서의 크기를 따른다(릴리스 빌드에서 1 MB 문서에 20 KiB 업데이트가 약 30 ms). 받아들일 때의 한도다: 이미 기록된 업데이트는 낮춘 뒤에도 다시 적용된다 |
 | `collab_worker_timeout_ms` | `FVOCI_COLLAB_WORKER_TIMEOUT_MS` | 정수(1 이상, 밀리초) | `10000` | 작업자의 답을 기다리는 시간. 넘으면 그 요청은 거절되고 작업자는 죽였다가 다시 띄운다 |
@@ -177,6 +179,9 @@ Cloudflare R2는 같은 규칙이 기본으로 7일이다. 다른 S3 호환 저�
 
 ## 키: 관리자 소켓과 웹훅
 
+관리 소켓에서 `POST /api/v1/admin/users/{username}/password-reset`을 보내면 `url`에 재설정 링크를 받는다. 운영자가 사용자에게 전달한다. 링크는 256비트 비밀값을 URL 조각(`#` 뒤)에 담고 서버에는 그 해시만 남는다. 비밀번호가 있는 활성 계정만 발급받는다. `POST /api/v1/password-reset/complete`에 `token`과 새 `password`를 보내면 1시간 안에 한 번 쓸 수 있고, 비밀번호 변경과 모든 세션 삭제가 함께 저장된다. 열린 WebSocket도 닫힌다. 관리 경로는 HTTP 리스너에서 열리지 않는다.
+
+
 | 키 | 환경 변수 | 타입 | 기본값 | 뜻과 범위 |
 |---|---|---|---|---|
 | `enableLocalMode` | `FVOCI_ENABLELOCALMODE` | 참·거짓 | `false` | 참이면 관리 API를 유닉스 소켓으로 연다(비밀번호 재설정, 관리자 지정 등) |
@@ -190,6 +195,41 @@ Cloudflare R2는 같은 규칙이 기본으로 7일이다. 다른 S3 호환 저�
 | `prometheusaddress` | `FVOCI_PROMETHEUSADDRESS` | 문자열(`호스트:포트`) | `""` | Prometheus 지표를 내는 주소. 비어 있으면 지표를 모으지 않고 아무것도 듣지 않는다. 주소가 있으면 API와 **다른 리스너**를 그 주소에 열고 `GET /metrics`만 Prometheus의 글 형식으로 답한다(그 밖의 길은 404이고, 거절은 API와 같은 `application/problem+json`이며 그것이 가리키는 `/problems`의 글도 여기서 내준다). API의 리스너에는 지표의 길이 없다. 호스트는 이름, IPv4, 괄호 안의 IPv6(`[::1]:9092`)이고, 비우면(`:9092`) 모든 인터페이스이고, `localOnly`가 참이면 API처럼 루프백(`localhost`가 풀리는 주소 하나)이다. 포트 0은 빈 포트 아무것이고 고른 주소를 로그에 남긴다. 꼴이 틀리면, 그 주소에서 들을 수 없으면(이미 쓰임, 이 기기의 주소가 아님) 시작하지 않는다. 인증은 `prometheustoken`을 따르고, `usessl`과 관계없이 평문 HTTP다. 모니터링만 닿는 안쪽 주소(루프백, 사설망)에 묶는다. 요청 로그에 남기지 않는다. 긁을 때 DB를 세는 조회가 둘 있다: 열린 업로드는 5초에 한 번까지, 살아 있는 세션은 1분에 한 번까지(세션 표 전체를 훑는다). 긁기가 아무리 잦아도 DB에 묻는 것은 그만큼이다. 둘은 나란히 돌고 긁기는 각각 2초까지 기다리며, 같은 조회는 DB가 답할 때까지 동시에 하나다. 준비 상태(`GET /api/v1/ready`의 확인, 5초 동안 기억한다)도 긁을 때 보고 `fvoci_ready`로 낸다 |
 | `prometheustoken` | `FVOCI_PROMETHEUSTOKEN` | 문자열 | `""` | 지표 리스너의 `GET /metrics`가 요구하는 bearer 토큰. 비어 있으면 인증이 없다. 값이 있으면 `Authorization: Bearer <토큰>`이 맞아야 하고, 없거나 틀리면 401(`WWW-Authenticate: Bearer realm="metrics"`, 틀린 것에는 `error="invalid_token"`)이며 그때는 아무것도 읽지 않는다. `Authorization` 머리글이 둘 이상이면 어느 것도 받지 않고 순서와 값에 상관없이 401(`error="invalid_request"`)이다. 환경 변수가 빈 값이면 파일의 값을 둔다. 글자열이 아닌 값(따옴표 없는 수)은 그 값을 되풀이하지 않는 오류로 시작하지 않는다. 설정돼 있으면 32자 이상이어야 하고, 짧으면(환경 변수로 준 것도) 키 이름과 '32자 이상'만 말하고 값도 그 길이도 말하지 않는 오류로 시작하지 않는다. 비교는 SHA-256 다이제스트를 일정 시간에 견준다. 글자는 RFC 6750의 것(영문자, 숫자, `-._~+/`, 끝의 `=`)만 받고, 아니면 시작하지 않는다. 로그, 오류 문구, `Debug` 출력에 나오지 않는다. 토큰이 있어도 평문 HTTP이므로 지표 리스너는 안쪽 주소에 둔다 |
 
+## 키: 메일 보내기
+
+메일은 선택 사항이다. 보내는 길은 `mail_transport`가 정한다: SMTP 릴레이(직접 설치), 또는 공급자의 HTTP API(Cloudflare Email Service, Amazon SES, OCI Email Delivery). 비우면 `smtp_host`가 있을 때 SMTP, 없으면 메일을 보내지 않는다. 고른 길이 읽지 않는 키(다른 공급자의 키, SMTP가 아닌 길의 `smtp_host`·`smtp_user`)가 있으면 그 키를 말하며 시작하지 않고, 고른 길에 필요한 키가 빠져도 그 키를 말하며 시작하지 않는다. 비밀 값(Cloudflare의 API 토큰, SES의 비밀 키, OCI 개인 키 파일의 내용)은 로그·오류·`Debug`에 나오지 않는다. SES에는 `SendEmail`(API v2)로 MIME 그대로(`Content.Raw`) 한 사람씩 보낸다. OCI에는 `SubmitEmail`(`/20220926/actions/submitEmail`)로 제목·평문·HTML을 한 사람씩 보내고, 요청은 API 키로 서명한다(HTTP Signatures, `rsa-sha256`). OCI의 메시지는 2 MB(머리글·base64 포함)까지다. OCI는 승인되지 않은 보내는 사람만이 아니라 없는 구획·정책도 `404 NotAuthorizedOrNotFound`로 답한다: 메일마다의 영구 실패로 센다. SES 샌드박스 계정은 확인된 주소에만, 하루 200통·초당 1통까지 보낸다(`mail_per_second` 기본 1이 맞는다). 공급자 쪽의 도메인·보내는 사람 승인은 운영자의 일이다: 거절되면 그 메일의 영구 실패이고 로그에는 응답 코드만 남는다. 메일이 켜지면 로그인 화면에서 비밀번호 재설정 메일을 요청하고, 사람 관리·손님 초대 화면에서 기존 초대 링크를 여러 주소로 보낸다. 초대 메일은 주소마다 따로 보낸다. 구성원 링크는 그대로 보내고 만료·사용 횟수를 바꾸지 않는다. 손님 링크는 한 사람이 한 번 쓰므로, 받는 사람마다 같은 보드·역할·만료의 한 번 쓰는 손님 링크(자식 링크)를 보낼 차례에 따로 만들어 보낸다. 자식 링크는 요청에 쓴 링크(부모)와 받는 주소를 적고, 만든 사람은 보낸 사람이다. 영구 실패했거나 포기한 메일의 링크는 거둔다(보낸 사람이 다시 보낼 수 있다). 시간 초과도 다시 시도하므로, 공급자가 늦게 받은 메일이 포기되면 받는 사람의 링크는 거둬져 있을 수 있다. 부모 링크는 그대로 남고 틀일 뿐이라, 쓰인 뒤에도 거두거나 만료되기 전에는 메일이 나간다. 부모 링크를 거두면 아직 쓰이지 않은 자식 링크도 함께 거둔다. 사람 관리 화면과 보드 공유 창의 손님 링크 목록은 자식 링크의 받는 주소를 보인다. 보내기 전마다 초대 권한과 링크를 다시 확인한다. 비밀번호 재설정 요청의 답은 계정 유무와 관계없이 같고, 계정 조회와 보내기는 배경 작업이다. 비밀번호 없는 계정에는 재설정 메일을 보내지 않는다. 요청은 출처 주소마다 로그인과 같은 설정(`login_address_attempts_per_minute`)으로 따로 세고, 이메일로는 세지 않는다: 남이 내 주소로 요청해도 나는 막히지 않는다. 한 계정에 가는 메일은 `mail_reset_per_account_hour`까지이고, 넘은 요청도 답은 같으며 아무것도 잠그지 않는다. 재설정을 마치면 그 계정(사용자 이름과 이메일)의 로그인 잠금과 재설정을 마친 주소의 기다림이 끝난다(다른 주소의 기다림은 남는다). 메일은 영어·한국어 평문과 HTML로 보낸다: 받는 사람의 언어 설정에 맞는 글이 있으면 그것, 없으면(`auto`, `ja` 같은 것) 보낸 사람의 설정과 요청한 화면의 언어, 그것도 없으면 영어다. `/ready`는 SMTP에 연결하지 않는다. 메일의 링크는 `serverroot`에서 나오므로 받는 사람이 닿는 공개 주소여야 한다(루프백 주소면 시작할 때 경고를 남긴다).
+
+| 키 | 환경 변수 | 타입 | 기본값 | 뜻과 범위 |
+|---|---|---|---|---|
+| `mail_transport` | `FVOCI_MAIL_TRANSPORT` | 문자열 | `""` | `smtp`, `cloudflare`, `ses`, `oci`. 비우면 `smtp_host`가 있을 때 `smtp`, 없으면 메일을 보내지 않는다. 다른 값은 시작하지 않는다 |
+| `mail_api_endpoint` | `FVOCI_MAIL_API_ENDPOINT` | 문자열 | `""` | 공급자의 요청이 공급자의 공식 주소 대신 가는 곳(`https://호스트[:포트]`, 경로·질의·자격 없이). 테스트의 가짜 공급자를 위한 것이고 `http`는 루프백 IP로 쓴 주소(`127.0.0.1`, `[::1]`)만 받는다(이름은 받지 않는다). 공급자로의 요청은 프록시 환경 변수를 쓰지 않는다. 비우면 공급자의 주소(Cloudflare `https://api.cloudflare.com`, SES `https://email.{ses_region}.amazonaws.com`, OCI `https://cell0.submit.email.{oci_region}.oci.oraclecloud.com`: 다른 렐름은 이 키로 준다). SMTP에는 쓰지 않는다 |
+| `cloudflare_account_id` | `FVOCI_CLOUDFLARE_ACCOUNT_ID` | 문자열 | `""` | `cloudflare`일 때 필수. Email Service로 보내는 Cloudflare 계정 ID(영문자·숫자) |
+| `cloudflare_api_token` | `FVOCI_CLOUDFLARE_API_TOKEN` | 문자열 | `""` | `cloudflare`일 때 필수. 메일 보내기 권한이 있는 API 토큰(`Authorization: Bearer`). 로그에 남기지 않고, 글자열이 아닌 값은 그 값을 되풀이하지 않는 오류로 시작하지 않는다 |
+| `ses_region` | `FVOCI_SES_REGION` | 문자열 | `""` | `ses`일 때 필수. SES가 보내는 AWS 지역(`us-east-1` 같은 것, 영소문자·숫자·`-`). 끝점의 호스트와 서명(SigV4, 서비스 `ses`)에 쓴다 |
+| `ses_access_key_id` | `FVOCI_SES_ACCESS_KEY_ID` | 문자열 | `""` | `ses`일 때 필수. `ses:SendEmail`을 할 수 있는 IAM 사용자의 장기 접근 키(영문자·숫자). 세션 토큰이 필요한 임시 키(`ASIA`로 시작)는 시작하지 않는다 |
+| `ses_secret_access_key` | `FVOCI_SES_SECRET_ACCESS_KEY` | 문자열 | `""` | `ses`일 때 필수. 그 비밀 키. 로그에 남기지 않고, 글자열이 아닌 값은 그 값을 되풀이하지 않는 오류로 시작하지 않는다 |
+| `oci_region` | `FVOCI_OCI_REGION` | 문자열 | `""` | `oci`일 때 필수. Email Delivery가 보내는 OCI 지역(`us-ashburn-1` 같은 것, 영소문자·숫자·`-`). 승인된 보내는 사람이 있는 지역이어야 한다 |
+| `oci_tenancy` | `FVOCI_OCI_TENANCY` | 문자열 | `""` | `oci`일 때 필수. 테넌시의 OCID(서명의 `keyId` 첫 조각) |
+| `oci_user` | `FVOCI_OCI_USER` | 문자열 | `""` | `oci`일 때 필수. API 키를 가진 사용자의 OCID |
+| `oci_fingerprint` | `FVOCI_OCI_FINGERPRINT` | 문자열 | `""` | `oci`일 때 필수. 그 API 키의 지문: 콘솔이 보이는 꼴대로 소문자 16진수 두 자리 16쌍을 `:`로 이은 것(`12:34:…`). 다른 꼴은 시작하지 않는다 |
+| `oci_private_key_file` | `FVOCI_OCI_PRIVATE_KEY_FILE` | 문자열 | `""` | `oci`일 때 필수. API 키의 개인 키 파일(PEM, PKCS#8 또는 PKCS#1, 암호 없이, RSA 2048–8192비트). 시작할 때 읽고, 읽지 못하거나 쓸 수 없으면 이 키를 말하며(내용은 말하지 않고) 시작하지 않는다 |
+| `oci_compartment` | `FVOCI_OCI_COMPARTMENT` | 문자열 | `""` | `oci`일 때 필수. 승인된 보내는 사람(`smtp_from`)이 있는 구획의 OCID |
+| `smtp_host` | `FVOCI_SMTP_HOST` | 문자열 | `""` | SMTP 호스트 이름이나 IP. `mail_transport`가 비었을 때 이것이 있으면 SMTP로 보낸다. 스킴·포트·공백 없이 쓴다 |
+| `smtp_port` | `FVOCI_SMTP_PORT` | 정수(1–65535) | `587` | SMTP 포트 |
+| `smtp_tls` | `FVOCI_SMTP_TLS` | 문자열 | `"starttls"` | `starttls`(필수 업그레이드), `tls`(처음부터 TLS), `none`(암호화 없음). TLS는 시스템의 인증서 신뢰를 쓴다 |
+| `smtp_user` | `FVOCI_SMTP_USER` | 문자열 | `""` | SMTP 인증 사용자. 비밀번호와 함께 주거나 둘 다 비운다 |
+| `smtp_password` | `FVOCI_SMTP_PASSWORD` | 문자열 | `""` | SMTP 인증 비밀번호. 로그에 남기지 않는다 |
+| `smtp_from` | `FVOCI_SMTP_FROM` | 문자열 | `""` | 모든 메일(어느 길이든)의 보내는 주소 하나. 메일이 켜지면 필수이고 시작할 때 검사한다. 표시 이름과 줄바꿈은 받지 않는다 |
+| `mail_per_second` | `FVOCI_MAIL_PER_SECOND` | 정수(1 이상) | `1` | 모든 메일(재설정과 초대, 다시 하는 것까지)이 함께 지키는 초당 보내기 시도 수. 기다리는 재설정 메일이 초대보다 먼저 차례를 얻는다. 기본 1은 새 공급자 계정(샌드박스)의 한도에도 맞는다: 공급자가 허락하는 만큼 올린다 |
+| `mail_reset_queue` | `FVOCI_MAIL_RESET_QUEUE` | 정수(1 이상) | `200` | 기다리거나 보내는 중인 비밀번호 재설정 메일의 천장. 차면 새 재설정 메일은 버리고(답은 그대로 204) 경고 로그와 `fvoci_password_reset_mail_dropped_total{reason="queue_full"}`에 센다 |
+| `mail_reset_per_account_hour` | `FVOCI_MAIL_RESET_PER_ACCOUNT_HOUR` | 정수(1 이상) | `3` | 한 계정에 지난 한 시간에 줄 세운 재설정 메일의 천장(메모리에서 센다). 넘으면 메일을 보내지 않고(답은 그대로 204) 정보 로그와 `fvoci_password_reset_mail_dropped_total{reason="account_limit"}`에 센다. 계정도 출처도 잠그지 않는다 |
+| `mail_invitation_queue` | `FVOCI_MAIL_INVITATION_QUEUE` | 정수(`invitation_mail_recipients`의 두 배 이상) | `200` | 기다리거나 보내는 중인 초대 메일의 천장. 서버에 조직이 하나뿐이면(SQLite, 또는 PostgreSQL에 쓰이는 조직이 하나) 그 조직이 다 쓴다. 조직이 여럿이면 한 조직(같은 조직의 워크스페이스를 모두 합해)은 다른 조직들이 남긴 자리의 절반까지 쥔다(한 요청의 받는 사람 수보다 적지는 않다): 줄에 메일이 있는 조직이 `k`이면 저마다 `k + 1`분의 1쯤에 머문다. 줄이 한 요청의 받는 사람 수(`invitation_mail_recipients`)의 여덟 배 이상이면 바쁜 조직이 셋이어도 넷째가 들어갈 자리가 남는다(기본값 200과 20에서는 넷째와 다섯째까지). 한 요청의 메일이 조직의 몫이나 줄에 다 들어가지 않으면 그 요청은 아무것도 보내지 않고 503(`mail_queue_full`) |
+| `invitation_mail_recipients` | `FVOCI_INVITATION_MAIL_RECIPIENTS` | 정수(1 이상) | `20` | 초대 메일 요청 하나의 받는 사람 수(중복 포함)의 천장. 넘으면 400(`too_many_recipients`) |
+| `invitation_mail_per_hour` | `FVOCI_INVITATION_MAIL_PER_HOUR` | 정수(`invitation_mail_recipients` 이상) | `100` | 워크스페이스마다 지난 한 시간에 줄 세운 초대 메일의 천장(메모리에서 센다). 이 요청의 메일까지 넘으면 아무것도 보내지 않고 429(`invitation_mail_limit`, `Retry-After`) |
+| `invitation_mail_per_org_hour` | `FVOCI_INVITATION_MAIL_PER_ORG_HOUR` | 정수(`invitation_mail_recipients`와 `invitation_mail_per_hour` 이상, 작으면 시작하지 않는다) | `300` | 한 조직(그 워크스페이스 모두)이 지난 한 시간에 줄 세운 초대 메일의 천장(메모리에서 센다). 이 요청의 메일까지 넘으면 아무것도 보내지 않고 429(`invitation_mail_limit`, `Retry-After`). 지금은 모든 조직이 이 값이고, 서버는 조직의 한도(`App::limits`)로 읽는다 |
+
+보내기는 동시에 넷까지이며 초대 메일은 그 가운데 셋까지 쓴다(하나는 늘 재설정의 몫). 조직이 여럿인 서버에서 한 조직의 초대 메일은 둘까지만 쓴다(하나는 늘 다른 조직의 몫). 재설정과 초대는 줄을 따로 서고, 시도마다 `mail_per_second`의 차례를 받는다. 한 번의 시도는 10초까지다(HTTP 연결은 그 가운데 5초까지, 리다이렉트는 따르지 않는다). 보내는 길의 답이 "잠시 뒤 다시"(SMTP 4xx, `454` 포함, 답이 없는 시간 초과, 연결이 도중에 끊김, HTTP `408`·`429`·`5xx`와 HTTP의 연결·시간 초과, SES의 `ThrottlingException`·`TooManyRequestsException`·`LimitExceededException`(초당·하루 한도), OCI의 `400 LimitExceeded`(분당·하루 한도))이면 1초·4초 뒤(길이 기다릴 시간을 말하면 그만큼이고, 15분보다 길면 그 메일은 포기한다) 두 번 더 시도하고, "영구 실패"(SMTP 5xx, HTTP의 그 밖의 4xx, Cloudflare가 2xx로 받고 `permanent_bounces`에 둔 받는 사람)이면 다시 하지 않는다. 인사에서 서버를 거절하는 릴레이(`554`)는 받는 사람의 거절과 가를 수 없어 메일마다의 영구 실패로 센다. "길이 막힘"(SMTP `530`·`534`·`535`·`538`처럼 서버의 자격을 받지 않는 답, 연결·TLS를 맺지 못함, `smtp_tls`가 바라는 STARTTLS나 자격에 맞는 인증 방식이 없는 릴레이, HTTP `401`·`403`과 따르지 않는 `3xx`, SES의 `SendingPausedException`·`AccountSuspendedException`)은 메일의 잘못이 아니므로 그 메일의 시도로 세지 않는다: 1분에 한 번만 시도하고 그 시도는 기다리는 재설정 메일이 먼저 쓴다. 초대 메일은 멈추고, 기다리는 재설정 메일이 없을 때만 그 1분의 시도에 쓰인다. 막힌 길을 15분 넘게 기다린 재설정 메일은 포기하고, 초대 메일은 길이 열릴 때까지 자리를 쥐고 기다린다. 길이 막히면 오류 로그 한 줄과 `fvoci_mail_path_down`(막힘 1, 아님 0)이 남고, 메일을 받거나 길의 답으로 한 메일만 거절하면 길이 열린 것으로 보고 정보 로그를 남긴다. 다시 하기를 기다리는 동안에는 아무것도 쥐지 않는다. 차례를 기다리는 동안 재설정 메일은 아무것도 쥐지 않고, 초대 메일은 조직의 몫과 초대의 몫 하나를 쥔다. 시간 초과도 다시 시도하므로, 길이 이미 받은 메일이 드물게 두 번 갈 수 있다. "잠시 뒤 다시"가 세 번 잇따르면(공급자의 하루 한도로 본다) 초대 메일은 1분(길이 말한 시간, 15분까지) 기다리고 재설정 메일만 시도한다. 보낸 메일이 하나 나오면 초대도 다시 나간다. 포기한 메일은 경고 로그(종류, 시도, 응답 코드만)와 `fvoci_mail_failed_total{kind,class}`(`kind`: `password_reset`·`invitation`, `class`: `permanent`·`temporary`)에 센다. 공급자의 응답 글, 메일의 주소·토큰은 로그에 남기지 않는다. 재설정 토큰은 보낼 차례를 얻은 뒤 만든다. 작업은 메모리에 있으므로 프로세스가 갑자기 멈추면 보내지 못할 수 있다. 메일이 꺼져 있으면 운영자가 위 관리 소켓으로 링크를 발급한다.
+
 ## 키: 조직의 로그인 공급자
 
 조직마다 OIDC 공급자를 하나 둘 수 있다(`PUT /api/v1/org/{orgId}/oidc`, 그 조직의 관리자). 서버가 공급자에게 보내는 요청(discovery, 토큰, 키)은 `https`의 주소에만 가고, 리다이렉트를 따라가지 않고, 프록시를 쓰지 않으며, 응답은 1 MiB와 10초(연결 5초)까지다. 이름을 풀어 나온 주소가 모두 공인 주소일 때만 붙고, 풀어 본 그 주소로 붙는다. 공급자의 client secret은 `FVOCI_SECRET_KEY`(아래 "그 밖의 환경 변수")로 봉인해 저장한다.
@@ -198,6 +238,10 @@ Cloudflare R2는 같은 규칙이 기본으로 7일이다. 다른 S3 호환 저�
 |---|---|---|---|---|
 | `oidc_allow_private_addresses` | `FVOCI_OIDC_ALLOW_PRIVATE_ADDRESSES` | 참·거짓 | `false` | 참이면 공인 주소가 아닌 곳(루프백, 사설망, 링크 로컬 등)의 공급자에도 붙는다. 같은 망 안의 공급자를 쓰는 직접 설치를 위한 것이다. 거짓이면 그런 주소로 풀리는 공급자는 저장도 로그인도 거절된다. `https`가 아닌 주소는 이것과 관계없이 거절된다 |
 | `oidc_extra_ca_file` | `FVOCI_OIDC_EXTRA_CA_FILE` | 문자열 | `""` | OIDC 클라이언트가 시스템 루트에 더해 신뢰할 인증서의 PEM 파일 경로. 빈 값은 추가 없음. 읽을 수 없거나 유효한 인증서가 없으면 시작을 거절한다 |
+
+조직 관리자는 조직 화면의 통합 로그인(SSO) 절에서 공급자와 자동 가입을 설정하고 콜백 주소를 복사한다. 강제는 지금 저장된 그대로의 공급자로 로그인한 세션에서만 켠다. issuer, client ID, client secret, 로그인 허용 가운데 하나라도 바꾸면 그 전에 만든 세션은 증명이 되지 못하므로 다시 로그인해야 하고, 바꾸는 저장과 강제를 한 번에 하지 못한다(저장된 secret을 그대로 다시 보내는 것은 바꾸는 것이 아니다). 강제 중에는 공급자를 끄거나 지우지 못한다. 강제 중에 issuer, client ID, client secret을 바꿔 저장하면 바로 바뀌지 않고 대기 설정이 되며, 그동안 모두 지금 설정으로 로그인한다. 관리자가 화면의 ‘새 설정으로 로그인해 보기’로 대기 설정의 로그인을 자기 계정으로 끝까지 마치면 그때 대기 설정이 지금 설정이 되고 그 세션이 새 설정의 증명이 된다. 다른 계정으로 끝나거나 그사이 관리자가 아니게 되면 아무것도 바뀌지 않고, 계정을 만들거나 신원을 연결하지도 않는다. 그래서 새 issuer는 그곳의 신원이 이미 관리자 계정에 연결된 경우에만 로그인해 보기로 적용된다. 그렇지 않으면 강제를 먼저 끄고 바꾸는데, 그 뒤에는 계정의 비밀번호로만 로그인하고 신원을 연결할 수 있다. 공급자로 만든 계정은 비밀번호가 없으므로 관리 소켓으로 먼저 정해 둔다. 실패하면 아무것도 바뀌지 않는다. 대기 설정은 버릴 수 있고 secret은 돌려주지 않는다. 강제하지 않는 동안에는 바로 바뀌며, 로그인에 쓰이는 값이 바뀌면 대기 설정은 버려진다. 강제를 끈 뒤에 남은 대기 설정은 로그인해 보기로 적용하거나 버릴 수 있다. 대기 저장, 적용, 버림은 조직의 감사 기록에 남는다. 공급자 장애로 로그인할 수 없으면 로컬 관리 소켓의 POST /api/v1/admin/orgs/{orgId}/sso/release로 강제를 해제한다. 공급자 설정과 삭제, 강제 전환은 조직의 감사 기록에 남으며 관리 소켓의 해제는 계정 없이 ‘서버 운영자’로 남는다. 서버 관리자 변경이 인스턴스 자체 조직의 역할을 바꾸면 그 조직에만 같은 행위자로 남는다. 관리 소켓으로 비밀번호를 정하면(그리고 비밀번호 재설정 링크를 만들면) 그 사람이 구성원인 조직마다 한 줄씩 ‘서버 운영자’가 이 구성원에게 한 일로 남고, 비밀번호나 링크는 남기지 않는다. 전체 파일 정리처럼 전역인 관리 소켓 명령은 조직의 기록에 넣지 않으며, 관리 소켓 명령은 모두 비밀 값 없이 명령·대상 사용자 ID(해당할 때)·결과·운영자 표시를 서버의 구조화된 로그에 남긴다.
+
+공급자로 만든 세션은 그 공급자의 조직과 issuer, 그리고 공급자가 준 subject를 적어 둔다. 공급자를 지우거나 다른 issuer로 바꾸면 그 조직에서 그 issuer로 만든 세션이 모두 끝나고, 계정에서 신원을 끊으면 그 신원(issuer와 subject)으로 만든 그 사람의 세션이 끝난다(끊는 요청을 보낸 세션도 그렇게 만든 것이면 함께). 같은 issuer의 다른 신원으로 만든 세션은 남는다. client ID만 바꾸면 사람의 신원이 바뀌지 않으므로 세션을 끝내지 않는다. 끝난 세션의 WebSocket 연결은 곧바로 닫히고 카드 본문의 방에서도 나간다. 마이그레이션 0028은 공급자가 남은 옛 세션에 issuer를 채우고, 공급자가 없어진 옛 OIDC 세션은 끝낸다. 0029 전에 만든 세션은 subject를 모르므로 그 issuer의 어느 신원을 끊어도 끝난다.
 
 ## 키: 예약된 키
 

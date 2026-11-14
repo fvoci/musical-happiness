@@ -4,7 +4,8 @@
  * which the server answers for. A refusal is kept to be told (`refusal`); the
  * lists stay as they were.
  */
-import { isBackendError, ssoOrgOf } from './backend.ts';
+import { isBackendError, isSignedOut, ssoOrgOf } from './backend.ts';
+import type { OidcProvider, OidcSettings } from './oidc.ts';
 import type {
   AuditRecord,
   Organization,
@@ -19,6 +20,11 @@ import type {
  * way; it opens by signing in through its single sign-on, not by asking again.
  */
 export type OrgStatus = 'loading' | 'ready' | 'missing' | 'sso' | 'failed';
+
+/** What the page around the screen is told: the workspace's `report`. */
+interface Shell {
+  report(action: 'load', error: unknown): void;
+}
 
 /** Why a change was refused, as the screen tells it. */
 export type OrgRefusal =
@@ -52,9 +58,17 @@ export class OrgAdmin {
   /** A change is under way. */
   busy = $state(false);
 
-  constructor(api: Organizations, orgId: string) {
+  readonly #shell: Shell | undefined;
+
+  /**
+   * `shell` is told of a read refused because the session is over: one that
+   * ended with what was changed here (the provider it was made through,
+   * removed or given another issuer), for the page to go to signing in.
+   */
+  constructor(api: Organizations, orgId: string, shell?: Shell) {
     this.#api = api;
     this.orgId = orgId;
+    this.#shell = shell;
   }
 
   readonly inUse = $derived(this.workspaces.filter((workspace) => workspace.deletedAt === 0));
@@ -76,6 +90,7 @@ export class OrgAdmin {
     } catch (error) {
       if (ssoOrgOf(error) !== undefined) this.status = 'sso';
       else this.status = isBackendError(error) && error.status === 404 ? 'missing' : 'failed';
+      if (this.status === 'failed' && isSignedOut(error)) this.#shell?.report('load', error);
     }
   }
 
@@ -98,6 +113,39 @@ export class OrgAdmin {
 
   createWorkspace(name: string): Promise<boolean> {
     return this.#change(() => this.#api.createWorkspace(this.orgId, name));
+  }
+
+  oidcProvider(): Promise<OidcProvider | undefined> {
+    return this.#api.oidcProvider(this.orgId);
+  }
+
+  async saveOidcProvider(settings: OidcSettings): Promise<OidcProvider> {
+    try {
+      return await this.#api.saveOidcProvider(this.orgId, settings);
+    } finally {
+      await this.load();
+    }
+  }
+
+  async deleteOidcProvider(): Promise<void> {
+    try {
+      await this.#api.deleteOidcProvider(this.orgId);
+    } finally {
+      await this.load();
+    }
+  }
+
+  async discardOidcPending(): Promise<void> {
+    try {
+      await this.#api.discardOidcPending(this.orgId);
+    } finally {
+      await this.load();
+    }
+  }
+
+  /** The address of the provider for a sign-in through the pending settings. */
+  startOidcTrial(): Promise<string> {
+    return this.#api.startOidcTrial(this.orgId);
   }
 
   renameWorkspace(workspaceId: string, name: string): Promise<boolean> {

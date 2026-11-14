@@ -16,6 +16,7 @@ import type {
 
 import type { Schemas } from './convert.ts';
 import type { Http } from './http.ts';
+import type { OidcProvider, OidcSettings } from '../state/oidc.ts';
 
 /** The most one page of the server holds. */
 const PAGE = { page: 0, perPage: 200 };
@@ -48,6 +49,43 @@ export class ServerOrganizations implements Organizations {
 
   organization(orgId: string): Promise<Organization> {
     return this.#http.request<Schemas['Organization']>('/api/v1/org/{orgId}', { orgId });
+  }
+
+  async oidcProvider(orgId: string): Promise<OidcProvider | undefined> {
+    try {
+      return await this.#http.request<Schemas['OidcProvider']>('/api/v1/org/{orgId}/oidc', {
+        orgId,
+      });
+    } catch (error) {
+      if (isBackendError(error) && error.status === 404) return undefined;
+      throw error;
+    }
+  }
+
+  saveOidcProvider(orgId: string, settings: OidcSettings): Promise<OidcProvider> {
+    const json: Schemas['OidcProviderSettings'] = settings;
+    return this.#http.request<Schemas['OidcProvider']>(
+      '/api/v1/org/{orgId}/oidc',
+      { orgId },
+      { method: 'PUT', json },
+    );
+  }
+
+  async deleteOidcProvider(orgId: string): Promise<void> {
+    await this.#http.request('/api/v1/org/{orgId}/oidc', { orgId }, { method: 'DELETE' });
+  }
+
+  async discardOidcPending(orgId: string): Promise<void> {
+    await this.#http.request('/api/v1/org/{orgId}/oidc/pending', { orgId }, { method: 'DELETE' });
+  }
+
+  async startOidcTrial(orgId: string): Promise<string> {
+    const started = await this.#http.request<Schemas['OidcStart']>(
+      '/api/v1/org/{orgId}/oidc/pending/sign-in',
+      { orgId },
+      { method: 'POST' },
+    );
+    return started.authorizationUrl;
   }
 
   changeOrganization(orgId: string, patch: OrganizationPatch): Promise<Organization> {

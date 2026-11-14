@@ -336,13 +336,9 @@ test('a body written whole by another client of the API takes the place of the o
   expect(errors).toEqual([]);
 });
 
-// A gap of the server, found by the review of collab-r3: a card duplicated
-// right after its body was typed (every change acknowledged by the room)
-// copies `blocks.body` as stored, before the room has written what was typed
-// into it. Expected to fail until the server writes the room's body first.
 test('a card duplicated right after typing copies what was typed', async ({ page, baseURL }) => {
-  test.fail(true, 'the server copies the stored body before the room has written it');
   const base = baseURL ?? '';
+  const errors = watchErrors(page);
   const owner = person('copier');
   await register(base, owner);
   const api = await signedIn(base, owner);
@@ -363,15 +359,13 @@ test('a card duplicated right after typing copies what was typed', async ({ page
   expect(copied.ok()).toBe(true);
   const [copy] = (await copied.json()) as Schemas['Card'][];
   await api.dispose();
-  // Under test.fail any failure counts as the expected one: the page's errors are asserted
-  // once R4 lifts it.
   expect(JSON.stringify(copy?.body ?? null)).toContain('Typed just now');
+  expect(errors).toEqual([]);
 });
 
-// The same gap for a board copied (and a template made of it, an archive: the same read).
 test('a board copied right after typing copies what was typed', async ({ page, baseURL }) => {
-  test.fail(true, 'the server copies the stored bodies before the room has written them');
   const base = baseURL ?? '';
+  const errors = watchErrors(page);
   const owner = person('boardcopier');
   await register(base, owner);
   const api = await signedIn(base, owner);
@@ -392,6 +386,6 @@ test('a board copied right after typing copies what was typed', async ({ page, b
   ).json()) as Schemas['Block'][];
   const card = blocks.find((block) => block.type === 'card' && block.title === 'Original');
   await api.dispose();
-  // As above: the page's errors are asserted once R4 lifts test.fail.
   expect(JSON.stringify(card?.body ?? null)).toContain('Typed just now');
+  expect(errors).toEqual([]);
 });

@@ -340,6 +340,35 @@ impl Store {
         .await
     }
 
+    /// Those of `block_ids` that have a document whose log holds updates the block's
+    /// body does not: [`Self::has_unwritten_body`] for many blocks at once.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if a query fails.
+    pub async fn with_unwritten_bodies(
+        &self,
+        block_ids: &[String],
+    ) -> Result<Vec<String>, StoreError> {
+        /// Identifiers bound in one query: far below the bound parameters either
+        /// database takes.
+        const CHUNK: usize = 500;
+        self.with_conn(async |scope| {
+            let mut found = Vec::new();
+            for chunk in block_ids.chunks(CHUNK) {
+                let mut sql = scope.sql(
+                    "SELECT block_id FROM body_docs WHERE projected_seq < log_end AND block_id IN (",
+                );
+                sql.bind_list(chunk.iter().map(|id| Id(id))).push(")");
+                for row in scope.fetch_all(sql).await? {
+                    found.push(row.id(0)?);
+                }
+            }
+            Ok(found)
+        })
+        .await
+    }
+
     /// The documents whose block does not hold their body yet, with the organization
     /// of each: what a server that ended before it wrote them has to write. Blocks in
     /// the trash are left out; theirs is written when they are opened again.

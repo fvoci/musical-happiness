@@ -544,7 +544,7 @@ fn size_to_i64(size: u64) -> i64 {
 /// The year, month and day (UTC) of a time in milliseconds since the Unix epoch.
 ///
 /// Howard Hinnant's `civil_from_days` algorithm.
-fn civil_from_millis(millis: i64) -> (i64, u32, u32) {
+pub(in crate::app) fn civil_from_millis(millis: i64) -> (i64, u32, u32) {
     let days = millis.div_euclid(86_400_000);
     let z = days + 719_468;
     let era = z.div_euclid(146_097);

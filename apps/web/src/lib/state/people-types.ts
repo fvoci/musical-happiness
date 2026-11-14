@@ -4,6 +4,8 @@
  * are the server's.
  */
 
+import type { Teams } from './team-types.ts';
+
 /** What somebody is in a workspace. A guest is on the boards they were invited to, and nothing else of it. */
 export type WorkspaceRole = 'admin' | 'member' | 'guest';
 
@@ -18,6 +20,8 @@ export interface WorkspaceMember {
   /** The name they are shown by; empty for none. */
   displayName: string;
   role: WorkspaceRole;
+  /** Temporary administration ends when the organization-admin joining ends. */
+  joinedAsOrgAdmin?: boolean;
 }
 
 /** A link that lets somebody into a workspace. */
@@ -33,8 +37,19 @@ export interface Invitation {
   expiresAt: number;
   /** How often it was used. */
   uses: number;
+  /** For a guest link made for one recipient of a mailed one: the link it was made like. */
+  parentId?: string;
+  /** For such a link: the address it was mailed to. */
+  recipient?: string;
   /** The token of the link: known when the link is made, and never again. */
   token?: string;
+}
+
+/** Optional delivery of existing links through the server. */
+export interface InvitationMail {
+  available(): Promise<boolean>;
+  /** Queues separate messages with one existing link; expiry and uses stay unchanged. */
+  send(workspaceId: string, token: string, recipients: string[], language: string): Promise<void>;
 }
 
 /**
@@ -44,6 +59,10 @@ export interface Invitation {
  * admins make and see.
  */
 export interface People {
+  /** Present where the backend supports workspace groups. */
+  readonly teams?: Teams;
+  /** Present when the backend supports outgoing invitation mail. */
+  mail?: InvitationMail;
   members(workspaceId: string): Promise<WorkspaceMember[]>;
   /** A change that is not made so (a guest to a member) is 400; the last administrator stays one (409, `last_admin`). */
   setRole(workspaceId: string, userId: string, role: WorkspaceRole): Promise<WorkspaceMember>;

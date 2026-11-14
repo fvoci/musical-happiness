@@ -12,6 +12,10 @@ use sqlx::Connection as _;
 
 use crate::common;
 
+/// The provider of the sign-ins of these tests, and who it vouches for.
+const ISSUER: &str = "https://idp.example.com";
+const SUBJECT: &str = "existing-identity";
+
 /// One sign-in through the provider ending in the account: what `App::let_in` stores.
 fn join_task(
     store: Store,
@@ -29,11 +33,54 @@ fn join_task(
         let account = OidcAccount::Known {
             user_id: &user_id,
             password_hash: &password_hash,
+            identity: Identity {
+                issuer: ISSUER,
+                subject: SUBJECT,
+            },
         };
         store
-            .finish_oidc_sign_in(&provider_id, account, &mut session, &new_id())
+            .finish_oidc_sign_in(&provider_id, 1, account, &mut session, &new_id())
             .await
     })
+}
+
+/// An account the provider's identity names, its password hash, and the provider of
+/// the organization: the identifier of each.
+async fn known_account_and_provider(test: &Store) -> (String, String, String) {
+    let account = common::user(&test.scoped(Tenant::Unset), "existing-identity").await;
+    let password_hash = test
+        .get_user_by_id(&account)
+        .await
+        .expect("the account")
+        .password_hash;
+    test.add_identity(
+        &account,
+        Identity {
+            issuer: ISSUER,
+            subject: SUBJECT,
+        },
+        "",
+    )
+    .await
+    .expect("the account's identity");
+    let provider = test
+        .put_oidc_provider(&StoredProvider {
+            id: String::new(),
+            org_id: String::new(),
+            issuer: ISSUER.to_owned(),
+            client_id: "fvoci".to_owned(),
+            sealed_client_secret: String::new(),
+            auto_join: true,
+            enabled: true,
+            create_at: 0,
+            update_at: 0,
+            sso_required: false,
+            revision: 0,
+        })
+        .await
+        .expect("a provider")
+        .id;
+    (account, password_hash, provider)
 }
 
 /// The end of a sign-in (`Store::finish_oidc_sign_in`) when an identity names an
@@ -43,28 +90,7 @@ fn join_task(
 #[tokio::test]
 async fn concurrent_oidc_joins_of_one_account_both_succeed() {
     let test = common::setup().await;
-    let account = common::user(&test.scoped(Tenant::Unset), "existing-identity").await;
-    let password_hash = test
-        .get_user_by_id(&account)
-        .await
-        .expect("the account")
-        .password_hash;
-    let provider = test
-        .put_oidc_provider(&StoredProvider {
-            id: String::new(),
-            org_id: String::new(),
-            issuer: "https://idp.example.com".to_owned(),
-            client_id: "fvoci".to_owned(),
-            sealed_client_secret: String::new(),
-            auto_join: true,
-            enabled: true,
-            create_at: 0,
-            update_at: 0,
-            sso_required: false,
-        })
-        .await
-        .expect("a provider")
-        .id;
+    let (account, password_hash, provider) = known_account_and_provider(&test).await;
     let join = || {
         join_task(
             test.store.clone(),
@@ -157,9 +183,10 @@ async fn a_change_of_the_provider_made_from_an_old_reading_is_not_stored() {
         create_at: 0,
         update_at: 0,
         sso_required: false,
+        revision: 0,
     };
     let none_read = test
-        .put_oidc_provider_as_read(&provider("first", ""), None)
+        .put_oidc_provider_as_read(&provider("first", ""), None, &new_id())
         .await
         .expect("stored")
         .expect("none was there, as read");
@@ -177,16 +204,16 @@ async fn a_change_of_the_provider_made_from_an_old_reading_is_not_stored() {
         none_read.update_at
     );
     let stale = test
-        .put_oidc_provider_as_read(&provider("first", ""), Some(&none_read))
+        .put_oidc_provider_as_read(&provider("first", ""), Some(&none_read), &new_id())
         .await
         .expect("asked");
     let stored = test.oidc_provider().await.expect("read").expect("stored");
     let fresh = test
-        .put_oidc_provider_as_read(&provider("third", ""), Some(&later))
+        .put_oidc_provider_as_read(&provider("third", ""), Some(&later), &new_id())
         .await
         .expect("asked");
     let none_stale = test
-        .put_oidc_provider_as_read(&provider("fourth", ""), None)
+        .put_oidc_provider_as_read(&provider("fourth", ""), None, &new_id())
         .await
         .expect("asked");
     test.teardown().await;
@@ -222,14 +249,17 @@ async fn a_removed_provider_is_not_brought_back_by_a_change_read_before() {
         create_at: 0,
         update_at: 0,
         sso_required: false,
+        revision: 0,
     };
     let read = test.put_oidc_provider(&provider).await.expect("stored");
     assert_eq!(
-        test.delete_oidc_provider().await.expect("removed"),
-        Removal::Removed
+        test.delete_oidc_provider(&new_id()).await.expect("removed"),
+        Removal::Removed {
+            provider: read.clone()
+        }
     );
     let change = test
-        .put_oidc_provider_as_read(&provider, Some(&read))
+        .put_oidc_provider_as_read(&provider, Some(&read), &new_id())
         .await
         .expect("asked");
     let after = test.oidc_provider().await.expect("read");
@@ -241,7 +271,7 @@ async fn a_removed_provider_is_not_brought_back_by_a_change_read_before() {
         ..read.clone()
     };
     let change_again = test
-        .put_oidc_provider_as_read(&provider, Some(&of_the_removed))
+        .put_oidc_provider_as_read(&provider, Some(&of_the_removed), &new_id())
         .await
         .expect("asked");
     test.teardown().await;
@@ -263,6 +293,7 @@ fn provider_that(sso_required: Enforcement) -> StoredProvider {
         create_at: 0,
         update_at: 0,
         sso_required: sso_required == Enforcement::On,
+        revision: 0,
     }
 }
 
@@ -280,26 +311,33 @@ enum Enforcement {
 async fn an_enforced_provider_is_not_removed_until_it_is_released() {
     let test = common::setup().await;
     assert_eq!(
-        test.delete_oidc_provider().await.expect("asked"),
+        test.delete_oidc_provider(&new_id()).await.expect("asked"),
         Removal::NoneThere
     );
-    assert_eq!(test.release_sso().await.expect("asked"), None);
+    assert_eq!(test.release_sso_by_operator().await.expect("asked"), None);
     let enforced = test
         .put_oidc_provider(&provider_that(Enforcement::On))
         .await
         .expect("stored");
     assert!(enforced.sso_required);
 
-    let refused = test.delete_oidc_provider().await.expect("asked");
+    let refused = test.delete_oidc_provider(&new_id()).await.expect("asked");
     let still = test.oidc_provider().await.expect("read");
-    let released = test.release_sso().await.expect("released");
-    let again = test.release_sso().await.expect("asked");
-    let removed = test.delete_oidc_provider().await.expect("asked");
+    let released = test.release_sso_by_operator().await.expect("released");
+    let again = test.release_sso_by_operator().await.expect("asked");
+    let removed = test.delete_oidc_provider(&new_id()).await.expect("asked");
     test.teardown().await;
 
     assert_eq!(refused, Removal::Enforced);
     assert_eq!(still.as_ref(), Some(&enforced), "as it was");
     let released = released.expect("it was enforced");
+    assert_eq!(
+        removed,
+        Removal::Removed {
+            provider: released.clone()
+        },
+        "the provider as released"
+    );
     assert!(!released.sso_required);
     assert!(
         released.update_at > enforced.update_at,
@@ -315,7 +353,6 @@ async fn an_enforced_provider_is_not_removed_until_it_is_released() {
         "nothing else of it changed"
     );
     assert_eq!(again, None, "nothing left to release");
-    assert_eq!(removed, Removal::Removed);
 }
 
 /// What a session must be made through to open an organization is answered to who has
@@ -421,13 +458,17 @@ async fn enforcing_and_removing_at_once_leave_no_organization_without_its_provid
             let read = read.clone();
             tokio::spawn(async move {
                 store
-                    .put_oidc_provider_as_read(&provider_that(Enforcement::On), Some(&read))
+                    .put_oidc_provider_as_read(
+                        &provider_that(Enforcement::On),
+                        Some(&read),
+                        &new_id(),
+                    )
                     .await
             })
         };
         let removing = {
             let store = test.store.clone();
-            tokio::spawn(async move { store.delete_oidc_provider().await })
+            tokio::spawn(async move { store.delete_oidc_provider(&new_id()).await })
         };
         let enforced = enforcing.await.expect("joined").expect("asked");
         let removal = removing.await.expect("joined").expect("asked");
@@ -440,15 +481,15 @@ async fn enforcing_and_removing_at_once_leave_no_organization_without_its_provid
                     "round {round}: the provider is there, and holds"
                 );
             }
-            Removal::Removed => {
+            Removal::Removed { .. } => {
                 assert_eq!(enforced, None, "round {round}: nothing to switch it on for");
                 assert_eq!(left, None, "round {round}: removed");
             }
             Removal::NoneThere => panic!("round {round}: there was a provider"),
         }
         // For the next round.
-        test.release_sso().await.expect("asked");
-        test.delete_oidc_provider().await.expect("asked");
+        test.release_sso_by_operator().await.expect("asked");
+        test.delete_oidc_provider(&new_id()).await.expect("asked");
     }
     test.teardown().await;
 }

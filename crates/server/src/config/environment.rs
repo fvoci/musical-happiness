@@ -18,7 +18,7 @@ pub(super) enum EnvKind {
 /// example `FVOCI_SESSION_IDLE_DAYS` and `FVOCI_FILESS3CONFIG_BUCKET`. The S3 credentials
 /// have none: the S3 client reads them from the `AWS_*` variables when `accesskeyid` is
 /// empty.
-pub(super) const ENV_KEYS: [(&str, EnvKind); 58] = [
+pub(super) const ENV_KEYS: [(&str, EnvKind); 60] = [
     ("serverroot", EnvKind::Text),
     ("port", EnvKind::Number),
     ("dbtype", EnvKind::Text),
@@ -56,6 +56,8 @@ pub(super) const ENV_KEYS: [(&str, EnvKind); 58] = [
     ("oidc_extra_ca_file", EnvKind::Text),
     ("org_creation", EnvKind::Text),
     ("websocket_ping_seconds", EnvKind::Number),
+    ("public_link_connections_per_board", EnvKind::Number),
+    ("public_link_connections_per_address", EnvKind::Number),
     ("compress_responses", EnvKind::Flag),
     ("max_request_bytes", EnvKind::Number),
     ("trash_retention_days", EnvKind::Number),

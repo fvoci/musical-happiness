@@ -18,7 +18,6 @@ import {
   type BlockPatch,
   type Board,
   type BoardMember,
-  type BoardPatch,
   type BoardView,
   type Card,
   type MemberRole,
@@ -38,15 +37,16 @@ import {
   type ViewDraft,
 } from './backend.ts';
 import { copyOfCard } from './card-copy.ts';
+import { BlockWrites, BoardWrites, patchCardOrStored, patchViewOrStored } from './board-writes.ts';
 import { dropCardsOn } from './card-drop.ts';
 import { CardStore } from './card.svelte.ts';
-import { Inverses } from './inverses.ts';
 import { lastCommentsOf } from './last-comments.ts';
 import { propertyMovesOf } from './property-moves.ts';
+import { authorIds, memberId } from './user-names.ts';
+import { readBoard } from './board-load.ts';
 import { addMemberTo, boardOfWorkspace, roleFlags, roleOf, type CardDrop } from './board-parts.ts';
 import { orderMembers, orderViews } from './order.ts';
 import {
-  applyBoardPatch,
   applyCardPatch,
   applyViewPatch,
   boardPatches,
@@ -58,7 +58,7 @@ import {
 } from './patches.ts';
 import type { LoadStatus, Workspace } from './workspace.svelte.ts';
 import { restoreCard } from './trash.svelte.ts';
-import { PendingWrites, put, reread, take } from './write.ts';
+import { put, reread, take } from './write.ts';
 
 export type { CardDrop } from './board-parts.ts';
 
@@ -143,12 +143,25 @@ export class BoardStore {
 
   /** Keeps the cards' `lastCommentAt` current between readings. */
   readonly #lastComments = lastCommentsOf(this);
-  readonly #cardWrites = new PendingWrites<CardSummary>();
-  readonly #viewWrites = new PendingWrites<BoardView>();
-  readonly #boardWrites = new PendingWrites<Board>();
-  readonly #cardInverses = new Inverses<CardPatch>('updatedProperties', 'deletedProperties');
-  readonly #viewInverses = new Inverses<BlockPatch>('updatedFields', 'deletedFields');
-  readonly #boardInverses = new Inverses<BoardPatch>('updatedProperties', 'deletedProperties');
+  readonly #boardWrites = new BoardWrites(this);
+  readonly #cardWrites = new BlockWrites('updatedProperties', 'deletedProperties', {
+    shown: (cardId: string) => this.card(cardId),
+    apply: applyCardPatch<CardSummary>,
+    show: (card: CardSummary) => (this.cards = put(this.cards, card)),
+    answered: (card: CardSummary) => {
+      this.cards = take(this.cards, card);
+      this.openCard?.cardChanged(card);
+    },
+    send: (cardId: string, patch: CardPatch, own: (key: string) => boolean) =>
+      patchCardOrStored(this, cardId, patch, own),
+  });
+  readonly #viewWrites = new BlockWrites<BoardView, BlockPatch>('updatedFields', 'deletedFields', {
+    shown: (viewId) => this.view(viewId),
+    apply: applyViewPatch,
+    show: (view) => (this.views = put(this.views, view)),
+    answered: (view) => (this.views = take(this.views, view)),
+    send: (viewId, patch, own) => patchViewOrStored(this, viewId, patch, own),
+  });
   /** Readings again (`#refresh`) begun: the latest is the one that counts. */
   #refreshing = 0;
   /** Lists of members told by changes: a reading begun before the latest does not replace it. */
@@ -174,18 +187,12 @@ export class BoardStore {
       this.#stopWatching = this.#backend.watchBoard(this.boardId, (change) => {
         this.#apply(change);
       });
-      const [board, views, cards, members] = await Promise.all([
-        boardOfWorkspace(this.#backend, this.boardId, this.workspace.info?.id),
-        this.#backend.views(this.boardId),
-        this.#backend.cards(this.boardId),
-        this.#backend.members(this.boardId),
-      ]);
+      const [board, views, cards, members] = await readBoard(this.workspace, this.boardId);
       this.board = board;
       this.views = views;
       this.cards = cards;
       this.members = members;
       this.status = 'ready';
-      void this.workspace.learnUsers(members.map((member) => member.userId));
     } catch (error) {
       this.status = 'failed';
       if (isBackendError(error) && error.status === 404) this.missing = true;
@@ -322,7 +329,7 @@ export class BoardStore {
       case 'members':
         this.#membersTold += 1;
         this.members = change.members;
-        void this.workspace.learnUsers(change.members.map((member) => member.userId));
+        void this.workspace.learnUsers(change.members.map(memberId), { members: true });
         break;
       case 'blocks':
         for (const block of change.blocks) {
@@ -350,7 +357,7 @@ export class BoardStore {
 
   /**
    * Reads the board again over what is shown, after changes may have been
-   * missed (`resync`). Unlike `load`, the board stays on screen meanwhile;
+   * missed (`resync`, a card's room gone). Unlike `load`, the board stays;
    * what is read is merged with it (`reread`): a write under way, or a
    * change that arrived while reading, is not taken back. Of two readings
    * that overlap, the later one counts.
@@ -364,12 +371,7 @@ export class BoardStore {
     const viewsBefore = this.views.map((view) => view.id);
     const membersTold = this.#membersTold;
     try {
-      const [board, views, cards, members] = await Promise.all([
-        boardOfWorkspace(this.#backend, this.boardId, this.workspace.info?.id),
-        this.#backend.views(this.boardId),
-        this.#backend.cards(this.boardId),
-        this.#backend.members(this.boardId),
-      ]);
+      const [board, views, cards, members] = await readBoard(this.workspace, this.boardId);
       // A newer reading has begun meanwhile: it is the one that counts.
       if (reading !== this.#refreshing) return;
       if (this.#boardWrites.receive(board)) this.#takeBoard(board);
@@ -379,7 +381,7 @@ export class BoardStore {
       this.cards = reread(shown, read, cardsBefore, (card) => this.#cardWrites.receive(card));
       if (membersTold === this.#membersTold) {
         this.members = members;
-        void this.workspace.learnUsers(members.map((member) => member.userId));
+        void this.workspace.learnUsers(members.map(memberId), { members: true });
       }
       const open = this.openCard;
       if (open) {
@@ -407,6 +409,7 @@ export class BoardStore {
   #receiveCard(incoming: CardSummary): void {
     const card = this.#lastComments.merge(incoming, this.card(incoming.id));
     if (!this.#cardWrites.receive(card)) return;
+    void this.workspace.learnUsers(authorIds([card]));
     this.cards = take(this.cards, card);
     this.openCard?.cardChanged(card);
   }
@@ -425,9 +428,10 @@ export class BoardStore {
     undo: (value: T) => Promise<void>,
     description: string,
     groupId?: string,
+    ready?: () => Promise<void> | undefined,
   ): Promise<T | undefined> {
     try {
-      return await this.workspace.undo.perform(redo, undo, description, groupId);
+      return await this.workspace.undo.perform(redo, undo, description, groupId, false, ready);
     } catch (error) {
       this.workspace.report('save', error);
       return undefined;
@@ -440,29 +444,6 @@ export class BoardStore {
   }
 
   // -------------------------------------------------------------- cards
-
-  /** Shows `patch` on the card and sends it; on refusal shows `reverse` instead. */
-  async #sendCardPatch(cardId: string, patch: CardPatch, reverse: CardPatch): Promise<void> {
-    const current = this.card(cardId);
-    if (!current) return;
-    this.cards = put(this.cards, applyCardPatch(current, patch));
-    this.#cardWrites.begin(cardId);
-    try {
-      const answer = await this.#cardInverses.write(cardId, patch, reverse, () =>
-        this.#backend.patchCard(this.boardId, cardId, patch),
-      );
-      const latest = this.#cardWrites.end(cardId, answer);
-      if (latest) {
-        this.cards = take(this.cards, latest);
-        this.openCard?.cardChanged(latest);
-      }
-    } catch (error) {
-      const latest = this.#cardWrites.end(cardId);
-      const shown = latest ?? this.card(cardId);
-      if (shown) this.cards = put(this.cards, latest ?? applyCardPatch(shown, reverse));
-      throw error;
-    }
-  }
 
   /**
    * Changes a card: `change` gets the card as it is and returns it as it
@@ -478,12 +459,12 @@ export class BoardStore {
     if (!current) return;
     const [forward, backward] = cardPatches(change(current), current);
     if (isEmptyCardPatch(forward)) return;
-    this.#cardInverses.keep(cardId, backward);
     await this.#perform(
-      () => this.#sendCardPatch(cardId, forward, backward),
-      () => this.#sendCardPatch(cardId, backward, forward),
+      () => this.#cardWrites.write(cardId, forward, backward),
+      () => this.#cardWrites.write(cardId, backward, forward),
       description,
       groupId,
+      this.#cardWrites.keep(cardId, backward),
     );
   }
 
@@ -527,6 +508,7 @@ export class BoardStore {
     return this.#perform(
       async () => {
         const card = await this.#backend.createCard(this.boardId, draft);
+        void this.workspace.learnUsers(authorIds([card]));
         this.cards = take(this.cards, card);
         return card;
       },
@@ -587,25 +569,6 @@ export class BoardStore {
 
   // -------------------------------------------------------------- views
 
-  async #sendViewPatch(viewId: string, patch: BlockPatch, reverse: BlockPatch): Promise<void> {
-    const current = this.view(viewId);
-    if (!current) return;
-    this.views = put(this.views, applyViewPatch(current, patch));
-    this.#viewWrites.begin(viewId);
-    try {
-      const answer = await this.#viewInverses.write(viewId, patch, reverse, () =>
-        this.#backend.patchView(this.boardId, viewId, patch),
-      );
-      const latest = this.#viewWrites.end(viewId, answer);
-      if (latest) this.views = take(this.views, latest);
-    } catch (error) {
-      const latest = this.#viewWrites.end(viewId);
-      const shown = latest ?? this.view(viewId);
-      if (shown) this.views = put(this.views, latest ?? applyViewPatch(shown, reverse));
-      throw error;
-    }
-  }
-
   /** Changes a view: `change` gets the view as it is and returns it as it should be. */
   async changeView(
     viewId: string,
@@ -617,12 +580,12 @@ export class BoardStore {
     if (!current) return;
     const [forward, backward] = viewPatches(change(current), current);
     if (isEmptyBlockPatch(forward)) return;
-    this.#viewInverses.keep(viewId, backward);
     await this.#perform(
-      () => this.#sendViewPatch(viewId, forward, backward),
-      () => this.#sendViewPatch(viewId, backward, forward),
+      () => this.#viewWrites.write(viewId, forward, backward),
+      () => this.#viewWrites.write(viewId, backward, forward),
       description,
       groupId,
+      this.#viewWrites.keep(viewId, backward),
     );
   }
 
@@ -682,22 +645,6 @@ export class BoardStore {
 
   // -------------------------------------------------------------- board
 
-  async #sendBoardPatch(patch: BoardPatch, reverse: BoardPatch): Promise<void> {
-    if (!this.board) return;
-    this.board = applyBoardPatch(this.board, patch);
-    this.#boardWrites.begin(this.boardId);
-    let answer: Board | undefined;
-    try {
-      answer = await this.#boardInverses.write(this.boardId, patch, reverse, () =>
-        this.#backend.patchBoard(this.boardId, patch),
-      );
-    } finally {
-      const latest = this.#boardWrites.end(this.boardId, answer);
-      if (latest) this.#takeBoard(latest);
-      else if (!answer) this.board = applyBoardPatch(this.board, reverse);
-    }
-  }
-
   /** As `take` (write.ts) does for cards and views. */
   #takeBoard(board: Board): void {
     if (!this.board || board.updateAt >= this.board.updateAt) this.board = board;
@@ -715,12 +662,12 @@ export class BoardStore {
     if (!this.board) return;
     const [forward, backward] = boardPatches(change(this.board), this.board);
     if (isEmptyBoardPatch(forward)) return;
-    this.#boardInverses.keep(this.boardId, backward);
     await this.#perform(
-      () => this.#sendBoardPatch(forward, backward),
-      () => this.#sendBoardPatch(backward, forward),
+      () => this.#boardWrites.write(forward, backward),
+      () => this.#boardWrites.write(backward, forward),
       description,
       groupId,
+      this.#boardWrites.keep(backward),
     );
   }
 
@@ -805,7 +752,7 @@ export class BoardStore {
   async showCard(cardId: string): Promise<CardStore> {
     if (this.openCard?.cardId === cardId) return this.openCard;
     this.openCard?.close();
-    const store = new CardStore(this, cardId);
+    const store = new CardStore(this, cardId, () => void this.#refresh());
     this.openCard = store;
     await store.load();
     return store;

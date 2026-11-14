@@ -43,14 +43,17 @@ export {
   type ViewDraft,
 } from './backend.ts';
 export { BoardStore, type CardDrop } from './board.svelte.ts';
+export { boardPresence } from './board-presence.svelte.ts';
 export { CardPreviews } from './card-previews.svelte.ts';
-export { CardStore, type CommentEdit, type Upload } from './card.svelte.ts';
+export { type CommentEdit, type Upload } from './card-parts.ts';
+export { CardStore } from './card.svelte.ts';
 export { changeDisplayName } from './account.ts';
 export { whileHere } from './here.ts';
 export { administers, isGuest, peopleOf, providePeople, type PeopleAccess } from './people.ts';
 export type {
   GuestBoardRole,
   Invitation,
+  InvitationMail,
   People,
   WorkspaceMember,
   WorkspaceRole,

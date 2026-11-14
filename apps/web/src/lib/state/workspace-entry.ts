@@ -98,7 +98,8 @@ export async function enterWorkspace(backend: Backend, workspace: WorkspaceInfo)
   try {
     const read = await readWorkspace(backend, workspace.id);
     return read
-      ? { status: 'ready', info: workspace, closed: undefined, ...read }
+      ? // Each entry its own: what was asked on an earlier visit is not taken for this one's.
+        { status: 'ready', info: { ...workspace }, closed: undefined, ...read }
       : { ...none, status: 'missing' };
   } catch (error) {
     const orgId = ssoOrgOf(error);

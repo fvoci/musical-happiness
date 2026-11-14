@@ -1121,22 +1121,14 @@ async fn workspaces() {
     th.teardown().await;
 }
 
-/// `TestGetRootTeam` in `server/app/teams_test.go`: the root workspace is created once and
-/// then returned as it is.
+/// `TestGetRootTeam` in `server/app/teams_test.go`: the root workspace, the oldest of the
+/// organization, is made once and then read as it is.
 #[tokio::test]
 async fn app_get_root_workspace() {
     let th = Setup::native().start().await;
 
-    let first = th
-        .app
-        .root_workspace()
-        .await
-        .expect("the root workspace exists after startup");
-    let second = th
-        .app
-        .root_workspace()
-        .await
-        .expect("and is returned again");
+    let first = th.root_workspace().await;
+    let second = th.root_workspace().await;
 
     assert_eq!(
         first.id, ROOT_WORKSPACE_ID,

@@ -51,6 +51,16 @@
         "action": "string",
         "doc": "integer"
       }
+    },
+    "SET_PRESENCE": {
+      "session": false,
+      "members": {
+        "action": "string",
+        "workspaceId": "string",
+        "boardId": "string",
+        "cardId": "string",
+        "readToken": "string"
+      }
     }
   },
   "messages": {
@@ -128,6 +138,23 @@
       },
       "sent": false
     },
+    "UNSUBSCRIBED_WORKSPACE": {
+      "members": {
+        "action": "string",
+        "workspaceId": "string",
+        "reason": "string"
+      }
+    },
+    "UNSUBSCRIBED_BLOCKS": {
+      "members": {
+        "action": "string",
+        "workspaceId": "string",
+        "blockIds": [
+          "string"
+        ],
+        "reason": "string"
+      }
+    },
     "DOC_JOINED": {
       "members": {
         "action": "string",
@@ -181,6 +208,23 @@
         "action": "string",
         "doc": "integer",
         "reason": "string"
+      }
+    },
+    "UPDATE_PRESENCE": {
+      "members": {
+        "action": "string",
+        "workspaceId": "string",
+        "boardId": "string",
+        "people": [
+          {
+            "userId": "string",
+            "cardIds": [
+              "string"
+            ]
+          }
+        ],
+        "anonymousCount": "integer",
+        "hiddenCount": "integer"
       }
     }
   },

@@ -126,7 +126,11 @@ async fn handle_patch_me(
 /// The boards the user is a member of
 ///
 /// The user's memberships, with the roles of each, of the boards of the workspaces the
-/// user is a member of. By the identifier of the board.
+/// user is a member of, in every organization the session opens: one that takes only
+/// sessions made through its provider leaves its boards out of another session's list.
+/// A board the user has a role on only through a team of its workspace is listed too
+/// (`synthetic`, with the team's role in `inheritedRole`); a guest is in no team. By the
+/// identifier of the board.
 #[utoipa::path(
     get,
     path = "/users/me/memberships",
@@ -138,9 +142,7 @@ async fn handle_get_my_memberships(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
 ) -> ApiResult {
-    // The boards are of the organization the server stands in, and name no workspace.
-    app.require_session_opens_here(&session).await?;
-    let members = app.store().get_members_for_user(&session.user_id).await?;
+    let members = app.board_memberships(&session).await?;
     Ok(json_response(&members))
 }
 
@@ -148,7 +150,8 @@ async fn handle_get_my_memberships(
 ///
 /// Who the user of the session is at the providers they linked to the account, or
 /// first signed in through: an organization's provider with that issuer signs in to
-/// this account. Linked by `startOidcLogin` with `linkPassword`. Oldest first.
+/// this account. Linked by `startOidcLogin` with `linkPassword`. Oldest first, each
+/// saying whether this session was made through a provider of its issuer.
 #[utoipa::path(
     get,
     path = "/users/me/identities",
@@ -160,7 +163,7 @@ async fn handle_get_my_identities(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
 ) -> ApiResult {
-    Ok(json_response(&app.identities(&session.user_id).await?))
+    Ok(json_response(&app.identities(&session).await?))
 }
 
 /// Remove an identity from the account
@@ -171,8 +174,9 @@ async fn handle_get_my_identities(
 /// naming `/password`, and too many are 429. An identity that is not the account's is
 /// 404. An account without a password keeps its last identity, which is all that lets
 /// its owner in: 409 with the reason `last_sign_in`; and has no password to confirm
-/// removing another with: 409 with the reason `password_not_set`. The sessions made
-/// through a provider go on.
+/// removing another with: 409 with the reason `password_not_set`. The account's
+/// sessions made through a provider of that issuer end, and their connections close:
+/// this session too when it was one (`madeThisSession` of the identity).
 #[utoipa::path(
     delete,
     path = "/users/me/identities",
@@ -234,8 +238,8 @@ async fn handle_set_user_admin(
     Path(user_id): Path<String>,
     body: Bytes,
 ) -> ApiResult {
-    // What is changed is the organization's the server stands in, which no path names.
-    app.require_session_opens_here(&session).await?;
+    // Who administers the instance administers its own organization too.
+    app.require_session_opens_instance(&session).await?;
     require_admin(&app, &session.user_id).await?;
     let flag: AdminFlag = decode_object(&body)?;
     let role = match flag.is_admin {

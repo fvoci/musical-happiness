@@ -42,6 +42,8 @@ export interface LoginOptions {
    * organization. Where they may not, the link of an invitation is the way in.
    */
   registrationOpen: boolean;
+  /** Whether the server can deliver recovery and invitation mail. */
+  mailEnabled?: boolean;
 }
 
 /** What the login page may know of an organization before anybody signs in. */
@@ -62,6 +64,8 @@ export interface LinkedIdentity {
   /** The email address the provider gave when it was connected; empty for none. */
   email: string;
   createAt: number;
+  /** This session was made through a provider of this issuer: disconnecting it signs this session out. */
+  madeThisSession: boolean;
 }
 
 /** An organization of the reader's that signs in through a provider, as the settings name it. */

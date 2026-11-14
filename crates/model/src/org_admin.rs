@@ -129,11 +129,34 @@ pub enum AuditAction {
     PublicLinksDisabled,
     /// Public links were turned on for the organization (the target).
     PublicLinksEnabled,
+    /// The organization's provider settings were stored.
+    OidcProviderConfigured,
+    /// The organization's provider was removed.
+    OidcProviderRemoved,
+    /// The organization began requiring its provider's sign-in.
+    SsoRequired,
+    /// The organization began accepting password sessions again.
+    SsoReleased,
+    /// Settings of the provider's sign-in were saved aside while the organization
+    /// takes no password, to be tried before they are taken.
+    OidcProviderPendingSaved,
+    /// The pending settings became the provider's, by a sign-in through them that
+    /// ended well: the actor is who signed in.
+    OidcProviderPendingApplied,
+    /// The pending settings were thrown away.
+    OidcProviderPendingDiscarded,
+    /// The server operator made a link to set the password of a member (the subject)
+    /// anew. The target is the organization; one is written in each organization
+    /// the person is in.
+    PasswordResetLinkMade,
+    /// The server operator set the password of a member (the subject). The target is
+    /// the organization; one is written in each organization the person is in.
+    PasswordSetByOperator,
 }
 
 impl AuditAction {
     /// Every action, in the order of the declaration.
-    pub const ALL: [Self; 13] = [
+    pub const ALL: [Self; 22] = [
         Self::SelfAddedToBoard,
         Self::AddedToBoard,
         Self::OrgAdminJoined,
@@ -147,6 +170,15 @@ impl AuditAction {
         Self::WorkspaceRestored,
         Self::PublicLinksDisabled,
         Self::PublicLinksEnabled,
+        Self::OidcProviderConfigured,
+        Self::OidcProviderRemoved,
+        Self::SsoRequired,
+        Self::SsoReleased,
+        Self::OidcProviderPendingSaved,
+        Self::OidcProviderPendingApplied,
+        Self::OidcProviderPendingDiscarded,
+        Self::PasswordResetLinkMade,
+        Self::PasswordSetByOperator,
     ];
 
     /// The wire and database form.
@@ -166,6 +198,15 @@ impl AuditAction {
             Self::WorkspaceRestored => "workspace_restored",
             Self::PublicLinksDisabled => "public_links_disabled",
             Self::PublicLinksEnabled => "public_links_enabled",
+            Self::OidcProviderConfigured => "oidc_provider_configured",
+            Self::OidcProviderRemoved => "oidc_provider_removed",
+            Self::SsoRequired => "sso_required",
+            Self::SsoReleased => "sso_released",
+            Self::OidcProviderPendingSaved => "oidc_provider_pending_saved",
+            Self::OidcProviderPendingApplied => "oidc_provider_pending_applied",
+            Self::OidcProviderPendingDiscarded => "oidc_provider_pending_discarded",
+            Self::PasswordResetLinkMade => "password_reset_link_made",
+            Self::PasswordSetByOperator => "password_set_by_operator",
         }
     }
 }
@@ -198,6 +239,18 @@ pub struct AuditPerson {
     pub display_name: String,
 }
 
+/// Who did what a record of the audit log says: a person by their account, named as it
+/// is now (an account that is gone by its identifier alone), or the server's operator,
+/// who acts through the local administration socket without one. `kind` says which.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum AuditRecordActor {
+    /// A person, whose identifier stays in the record when the account goes.
+    Person(AuditPerson),
+    /// The server's operator.
+    ServerOperator,
+}
+
 /// One record of the audit log: who did what, to what and whom, and when.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -207,7 +260,7 @@ pub struct AuditRecord {
     /// What was done.
     pub action: AuditAction,
     /// Who did it.
-    pub actor: AuditPerson,
+    pub actor: AuditRecordActor,
     /// Whom it was done to, for an action that names somebody; `null` otherwise.
     pub subject: Option<AuditPerson>,
     /// What it was done to: a board, a workspace or the organization.

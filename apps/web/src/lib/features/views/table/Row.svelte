@@ -14,6 +14,8 @@
 -->
 <script lang="ts">
   import { tick } from 'svelte';
+  import CardPresence from '../CardPresence.svelte';
+  import type { BoardStore } from '$lib/state/index.ts';
 
   import ActionMenu from '$lib/components/menu/ActionMenu.svelte';
   import { PropertyValue } from '$lib/components/properties/index.ts';
@@ -39,6 +41,7 @@
 
   interface Props {
     card: Card;
+    board: BoardStore;
     columns: readonly TableColumn[];
     host: RowHost;
     /** The column of this row that is being edited, if one is. */
@@ -53,8 +56,17 @@
     dropBefore: boolean;
   }
 
-  let { card, columns, host, editingColumn, draggable, dragging, carried, dropBefore }: Props =
-    $props();
+  let {
+    card,
+    board,
+    columns,
+    host,
+    editingColumn,
+    draggable,
+    dragging,
+    carried,
+    dropBefore,
+  }: Props = $props();
 
   /**
    * The menu is made when it is first asked for: a table of hundreds of rows
@@ -170,6 +182,7 @@
         {title}>{title}</span
       >
     {/if}
+    <CardPresence {board} cardId={card.id} class="px-1" />
     <span
       class="flex shrink-0 items-center gap-0.5 bg-inherit can-hover:absolute can-hover:inset-y-0 can-hover:end-1 can-hover:opacity-0 can-hover:group-focus-within/row:opacity-100 can-hover:group-hover/row:opacity-100 can-hover:has-[[aria-expanded=true]]:opacity-100"
     >
@@ -256,6 +269,7 @@
           locale={reader.locale}
           regional={reader.regional}
           users={reader.people}
+          named={reader.users}
           presentation={reader.presentation}
           cards={host.cards}
           preventLoops={host.ordering(column.id)}

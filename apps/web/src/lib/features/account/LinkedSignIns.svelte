@@ -106,6 +106,8 @@
         return;
       }
       await onUnlink(identity, password);
+      // This session ended with it: what reads next is refused, and the page
+      // goes to signing in (`signedIn` in App.svelte).
       open = undefined;
       password = '';
       removed = true;
@@ -124,6 +126,10 @@
 
 {#snippet passwordForm(action: string, identity: LinkedIdentity | undefined)}
   <form class="grid gap-3" onsubmit={(event) => void submit(event, identity)}>
+    {#if identity?.madeThisSession}
+      <!-- Said before it happens: the request that disconnects it ends this session. -->
+      <p class="text-sm" data-testid="linked-ends-session">{m.account_linked_ends_session()}</p>
+    {/if}
     <div class="grid gap-1.5">
       <Label for="{uid}-password">{m.account_password_current()}</Label>
       <Input

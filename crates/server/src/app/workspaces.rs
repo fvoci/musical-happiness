@@ -1,5 +1,4 @@
-//! Workspaces: which a user is a member of, the way into one, and the workspaces of the
-//! organization the routes that name no workspace in their path work in. And the way
+//! Workspaces: which a user is a member of and the way into one. And the way
 //! into an organization: for its administrators, and for a sign-in through its
 //! provider.
 
@@ -24,9 +23,6 @@ pub struct Entered {
     /// What the user is in the workspace's organization; `None` for somebody who is in
     /// the workspace without belonging to the organization.
     pub org_role: Option<OrgRole>,
-    /// Whether the workspace is in the organization this application stood in, the
-    /// one of the routes that name no workspace.
-    pub home: bool,
 }
 
 impl App {
@@ -65,12 +61,26 @@ impl App {
     pub(crate) fn enter_org_for_sign_in(&self, org_id: &str) -> Option<Self> {
         Tenant::org(org_id).ok().map(|tenant| self.scoped(tenant))
     }
+
+    /// The same server reaching the rows of the instance's own organization (the
+    /// oldest), whose administrators follow who runs the server; `None` before the
+    /// first sign-up.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if the directory cannot be read.
+    pub(crate) async fn instance_org(&self) -> Result<Option<Self>, AppError> {
+        Ok(self
+            .store()
+            .instance_organization()
+            .await?
+            .and_then(|org_id| self.enter_org_for_sign_in(&org_id)))
+    }
 }
 
 impl App {
     /// Lets a member into a workspace; `None` unless the session's user is a member of
-    /// it, whether it exists or not. [`Entered::home`] is told against the organization
-    /// this application stands in: the server's, for the one the routes are given.
+    /// it, whether it exists or not.
     ///
     /// # Errors
     ///
@@ -106,12 +116,10 @@ impl App {
         };
         sso::require_session_opens(asker, &access.org_id, access.required_provider.as_deref())?;
         let app = self.in_organization(&access.org_id)?;
-        let home = app.store().tenant() == self.store().tenant();
         Ok(Some(Entered {
             app,
             role: access.workspace_role,
             org_role: access.org_role,
-            home,
         }))
     }
 
@@ -155,7 +163,7 @@ impl App {
     /// Whether the user works in the workspace: a member of the workspace who is no guest.
     /// This is what the routes that name a workspace in their body or query, and not under
     /// `/w/{workspaceId}`, ask before anything else; for anybody else the workspace is not
-    /// there. The routes under a workspace ask it of their path (`WorksIn`).
+    /// there. The routes under a workspace ask it of their path (`Ws::require_no_guest`).
     ///
     /// A guest of a workspace is on the boards they were invited to and reaches those
     /// by their board; what a member of the workspace may do (see its boards, make one,
@@ -187,7 +195,7 @@ impl App {
     ) -> Result<Vec<UserWorkspace>, AppError> {
         Ok(self
             .store()
-            .workspaces_of_user(&session.user_id, session.login_provider_id.as_deref())
+            .workspaces_of_user(&session.user_id, session.login_provider_id())
             .await?)
     }
 
@@ -248,22 +256,6 @@ impl App {
         };
         self.boards_for_user_and_workspace(user_id, workspace_id, public_boards)
             .await
-    }
-
-    /// Returns the root workspace: the oldest workspace of the organization, made with
-    /// the organization.
-    ///
-    /// # Errors
-    ///
-    /// Returns the store's error if the workspaces cannot be read, and a server error if the
-    /// organization has none.
-    pub async fn root_workspace(&self) -> Result<Workspace, AppError> {
-        self.store()
-            .get_workspaces()
-            .await?
-            .into_iter()
-            .next()
-            .ok_or_else(|| AppError::internal("the organization has no workspace"))
     }
 
     /// Returns the workspace with the given identifier.

@@ -71,6 +71,7 @@ interface Watcher {
 
 export class World {
   workspace: WorkspaceInfo = { id: '', title: '' };
+  readonly workspaceMembers = new Set<string>();
   readonly users = new Map<string, User>();
   readonly boards = new Map<string, Board>();
   readonly members = new Map<string, BoardMember[]>();

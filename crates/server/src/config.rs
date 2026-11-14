@@ -23,12 +23,14 @@ pub const DEFAULT_MAX_REQUEST_BYTES: u64 = 4 * 1024 * 1024;
 pub mod collab;
 mod environment;
 mod keys;
+pub mod mail;
 mod oidc_trust;
-
-use environment::{ENV_KEYS, EnvKind, env_value};
 mod scrapes;
 mod secret_key;
+pub mod smtp;
+mod upload_limits;
 
+use environment::{ENV_KEYS, EnvKind, env_value};
 pub use scrapes::{MetricsAddress, MetricsToken};
 pub use secret_key::{ENV_ONLY, SECRET_KEY_ENV};
 
@@ -202,6 +204,13 @@ pub struct Configuration {
     /// How often the server pings each websocket, in seconds; zero to never ping. Keeps
     /// proxies and CDNs from closing idle connections.
     pub websocket_ping_seconds: u64,
+    /// How many connections may read one shared board by its public link at once:
+    /// following its blocks by the link's read token, or visiting it with that token.
+    /// One more is not taken, and is not counted among the board's anonymous readers.
+    pub public_link_connections_per_board: u32,
+    /// How many of a board's connections by its public link may come from one address
+    /// (an IPv6 address counted by its /64), within `public_link_connections_per_board`.
+    pub public_link_connections_per_address: u32,
     /// Whether the JSON answers of the API are compressed (gzip, brotli or zstd, as the
     /// client's `Accept-Encoding` asks). On unless set: a proxy in front that compresses
     /// itself can have it off.
@@ -275,6 +284,13 @@ pub struct Configuration {
     /// The keys `collab_*` (editing a body together).
     #[serde(flatten)]
     pub collab: collab::CollabSettings,
+    /// SMTP transport settings and the limits of all mail; an empty host disables
+    /// outgoing mail unless `mail_transport` names a provider.
+    #[serde(flatten)]
+    pub smtp: smtp::SmtpSettings,
+    /// The way mail leaves (`mail_transport`) and the keys of the providers' APIs.
+    #[serde(flatten)]
+    pub mail: mail::MailSettings,
     /// Whether to skip importing the built-in templates at startup. Not a configuration
     /// file key; the test harness sets it so a server that does not need templates
     /// starts quickly, as the original's `SkipTemplateInit` does.
@@ -318,6 +334,8 @@ impl Default for Configuration {
             oidc_extra_root_certificates: Vec::new(),
             org_creation: ORG_CREATION_FIRST_USER_ONLY.to_owned(),
             websocket_ping_seconds: 30,
+            public_link_connections_per_board: 200,
+            public_link_connections_per_address: 10,
             compress_responses: true,
             max_request_bytes: DEFAULT_MAX_REQUEST_BYTES,
             trash_retention_days: 30,
@@ -340,6 +358,8 @@ impl Default for Configuration {
             password_hash_queue: 16,
             password_hash_queue_seconds: 5,
             collab: collab::CollabSettings::default(),
+            smtp: smtp::SmtpSettings::default(),
+            mail: mail::MailSettings::default(),
             skip_template_init: false,
         }
     }
@@ -349,6 +369,8 @@ impl std::fmt::Debug for Configuration {
     /// Leaves out the database connection string, which may hold a password.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Configuration")
+            .field("smtp", &self.smtp)
+            .field("mail", &self.mail)
             .field("server_root", &self.server_root)
             .field("port", &self.port)
             .field("db_type", &self.db_type)
@@ -385,6 +407,14 @@ impl std::fmt::Debug for Configuration {
             .field("org_creation", &self.org_creation)
             .field("server_lock_wait_seconds", &self.server_lock_wait_seconds)
             .field("websocket_ping_seconds", &self.websocket_ping_seconds)
+            .field(
+                "public_link_connections_per_board",
+                &self.public_link_connections_per_board,
+            )
+            .field(
+                "public_link_connections_per_address",
+                &self.public_link_connections_per_address,
+            )
             .field("compress_responses", &self.compress_responses)
             .field("max_request_bytes", &self.max_request_bytes)
             .field("trash_retention_days", &self.trash_retention_days)
@@ -550,6 +580,12 @@ pub const ORG_CREATION_FIRST_USER_ONLY: &str = "first_user_only";
 pub const ORG_CREATION_OPEN: &str = "open";
 
 impl Configuration {
+    /// Whether the server sends mail: `mail_transport` names a way, or `smtp_host` is
+    /// set.
+    pub fn mail_enabled(&self) -> bool {
+        self.mail.enabled(&self.smtp)
+    }
+
     /// Whether the server takes in several organizations (`org_creation` is `open`).
     pub fn takes_several_organizations(&self) -> bool {
         self.org_creation == ORG_CREATION_OPEN
@@ -600,7 +636,12 @@ impl Configuration {
             Some(_) => bail!("filess3config must be a JSON object"),
         }
 
-        for (key, kind) in ENV_KEYS.into_iter().chain(collab::ENV_KEYS) {
+        for (key, kind) in ENV_KEYS
+            .into_iter()
+            .chain(collab::ENV_KEYS)
+            .chain(smtp::ENV_KEYS)
+            .chain(mail::ENV_KEYS)
+        {
             let name = env_name(key);
             if let Some(text) = env(&name)
                 && !scrapes::is_unset_token(key, &text)
@@ -628,6 +669,8 @@ impl Configuration {
         }
 
         scrapes::check_token_is_text(&keys)?;
+        smtp::check_password_is_text(&keys)?;
+        mail::check_secrets_are_text(&keys)?;
         let secret_key = secret_key::read(&keys, &env, is_unset)?;
         let mut config: Self = serde_json::from_value(Value::Object(keys))
             .context("a key has a value of the wrong type")?;
@@ -669,70 +712,6 @@ impl Configuration {
     /// How long a start waits for the lock of the server (`server_lock_wait_seconds`).
     pub fn server_lock_wait(&self) -> std::time::Duration {
         std::time::Duration::from_secs(self.server_lock_wait_seconds)
-    }
-
-    /// Checks the limits on uploads: none turns a limit off, and they fit together.
-    fn check_upload_limits(&self) -> anyhow::Result<()> {
-        // An S3 multipart upload takes no smaller part but the last, and none larger.
-        if !(MIN_UPLOAD_PART_BYTES..=MAX_UPLOAD_PART_BYTES).contains(&self.upload_part_bytes) {
-            bail!(
-                "upload_part_bytes must be {MIN_UPLOAD_PART_BYTES} (5 MiB) to \
-                 {MAX_UPLOAD_PART_BYTES} (5 GiB)"
-            );
-        }
-        // Zero once meant "no limit"; a server without one is not something to end up
-        // with by leaving a number at what it was (`docs/s6-design.md` 4.2).
-        let largest = self
-            .upload_part_bytes
-            .saturating_mul(u64::try_from(fvoci_model::MAX_UPLOAD_PARTS).unwrap_or(0));
-        if u64::try_from(self.max_file_size).map_or(true, |size| size == 0 || size > largest) {
-            bail!(
-                "maxfilesize must be 1 to {largest} bytes (upload_part_bytes times 10,000 \
-                 parts), not {}",
-                self.max_file_size
-            );
-        }
-        // Less would refuse the largest file with 429 every time, as if it might fit later.
-        // Positive, as checked above.
-        let max_file_size = u64::try_from(self.max_file_size).unwrap_or(0);
-        if self.max_pending_upload_bytes < max_file_size {
-            bail!(
-                "max_pending_upload_bytes must be at least maxfilesize ({max_file_size}), \
-                 not {}",
-                self.max_pending_upload_bytes
-            );
-        }
-        // An archive comes as an upload in parts too.
-        if self.max_import_bytes == 0 || self.max_import_bytes > largest {
-            bail!(
-                "max_import_bytes must be 1 to {largest} bytes (upload_part_bytes times \
-                 10,000 parts), not {}",
-                self.max_import_bytes
-            );
-        }
-        if self.max_pending_upload_bytes < self.max_import_bytes {
-            bail!(
-                "max_pending_upload_bytes must be at least max_import_bytes ({}), not {}",
-                self.max_import_bytes,
-                self.max_pending_upload_bytes
-            );
-        }
-        // Zero would keep not even the text a comment was posted with.
-        if self.max_comment_versions == 0 {
-            bail!("max_comment_versions must be at least 1");
-        }
-        // Zero would refuse every export or import.
-        if self.max_concurrent_exports == 0 {
-            bail!("max_concurrent_exports must be at least 1");
-        }
-        if self.max_concurrent_imports == 0 {
-            bail!("max_concurrent_imports must be at least 1");
-        }
-        // Zero would give up every download before its first piece.
-        if self.export_stall_seconds == 0 {
-            bail!("export_stall_seconds must be at least 1");
-        }
-        self.collab.check()
     }
 
     /// Checks that the configuration only asks for what this server supports.
@@ -793,6 +772,8 @@ impl Configuration {
             bail!("trash_retention_days must be at least 1");
         }
         self.check_upload_limits()?;
+        self.smtp.check()?;
+        self.mail.way(&self.smtp)?;
         self.metrics_address()?;
         self.check_metrics_token()?;
         match self.files_driver.as_str() {
@@ -810,8 +791,9 @@ impl Configuration {
         let mut warnings = Vec::new();
         // Reached over HTTPS without ending TLS itself: something in front of the server
         // does, and every request arrives from its address. Unless the server is told
-        // which address that is, all clients are one client to the login limits: one
-        // that guesses holds everybody up.
+        // which address that is, all clients are one client to the login limits (one
+        // that guesses holds everybody up) and to the readers of a public link (one
+        // address's share of a board is all a board takes).
         if self.server_root.starts_with("https://")
             && !self.use_ssl
             && self.trusted_proxies.is_empty()
@@ -819,7 +801,8 @@ impl Configuration {
             warnings.push(
                 "serverRoot is https but the server does not end TLS itself (usessl is off) and \
                  trusted_proxies is empty: behind a reverse proxy every client is seen at the \
-                 proxy's address, and the login limits then count all clients as one; set \
+                 proxy's address, and the login limits and the readers of a public link \
+                 (public_link_connections_per_address) then count all clients as one; set \
                  trusted_proxies to the proxy's addresses"
                     .to_owned(),
             );
