@@ -95,7 +95,12 @@
           "oidc_provider_pending_applied",
           "oidc_provider_pending_discarded",
           "password_reset_link_made",
-          "password_set_by_operator"
+          "password_set_by_operator",
+          "oidc_former_provider_kept",
+          "oidc_former_provider_ended",
+          "oidc_former_provider_lapsed",
+          "oidc_identity_bound",
+          "oidc_identity_carried_over"
         ],
         "type": "string"
       },
@@ -138,6 +143,13 @@
             "format": "int64",
             "type": "integer"
           },
+          "detail": {
+            "description": "The issuer a record of a provider's move names (`oidc_former_provider_…`,\n`oidc_identity_…`); `null` for the others.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "id": {
             "description": "The record's identifier.",
             "type": "string"
@@ -169,6 +181,7 @@
           "action",
           "actor",
           "createAt",
+          "detail",
           "id",
           "subject",
           "targetId",
@@ -177,7 +190,7 @@
         "type": "object"
       },
       "AuditRecordActor": {
-        "description": "Who did what a record of the audit log says: a person by their account, named as it\nis now (an account that is gone by its identifier alone), or the server's operator,\nwho acts through the local administration socket without one. `kind` says which.",
+        "description": "Who did what a record of the audit log says: a person by their account, named as it\nis now (an account that is gone by its identifier alone), the server's operator,\nwho acts through the local administration socket without one, or the server\nitself, for what its timers do. `kind` says which.",
         "oneOf": [
           {
             "allOf": [
@@ -208,6 +221,21 @@
               "kind": {
                 "enum": [
                   "server_operator"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "The server itself: what ends when its time runs out.",
+            "properties": {
+              "kind": {
+                "enum": [
+                  "server"
                 ],
                 "type": "string"
               }
@@ -2089,6 +2117,31 @@
         ],
         "type": "object"
       },
+      "OidcFormerProvider": {
+        "description": "The provider an organization moved away from, kept for a while: nobody signs in\nthrough it, but somebody the new provider vouches for who has no account yet may\nshow who they were at it, and so tie the new identity to the account they had.",
+        "properties": {
+          "createAt": {
+            "description": "When the organization moved away from it, in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "expiresAt": {
+            "description": "When it is kept no longer, in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "issuer": {
+            "description": "Its issuer.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "createAt",
+          "expiresAt",
+          "issuer"
+        ],
+        "type": "object"
+      },
       "OidcPendingProvider": {
         "description": "The pending settings of an organization's provider, without the client secret:\n`hasClientSecret` says whether there is one.",
         "properties": {
@@ -2142,6 +2195,17 @@
             "description": "Whether signing in through the provider is on.",
             "type": "boolean"
           },
+          "former": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/OidcFormerProvider",
+                "description": "The provider the organization signed in through before its issuer changed,\nwhile it is kept for its people to carry their accounts over; `null` for none."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "hasClientSecret": {
             "description": "Whether a client secret is stored.",
             "type": "boolean"
@@ -2181,6 +2245,7 @@
           "clientId",
           "createAt",
           "enabled",
+          "former",
           "hasClientSecret",
           "issuer",
           "pending",
@@ -4735,6 +4800,42 @@
           }
         },
         "summary": "Set the provider of an organization",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/org/{orgId}/oidc/former": {
+      "delete": {
+        "description": "When the provider's issuer changes, the provider before is kept as the `former`\none for `oidc_former_provider_days` (30 by default): nobody signs in through it,\nbut somebody the new provider vouches for who has no account yet may sign in\nthrough it once to carry their account over. This ends that before its time: from\nthen on nobody carries an account over from it. An organization that keeps none\nanswers the same. Recorded in the organization's audit log\n(`oidc_former_provider_ended`), as its keeping (`oidc_former_provider_kept`) and\nits running out (`oidc_former_provider_lapsed`, the server's doing) are.",
+        "operationId": "deleteOidcFormerProvider",
+        "parameters": [
+          {
+            "description": "The identifier of the organization. 404 unless the user of the session administers it.",
+            "in": "path",
+            "name": "orgId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The organization keeps no former provider."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "End the keeping of an organization's former provider",
         "tags": [
           "auth"
         ]

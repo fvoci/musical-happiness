@@ -26,7 +26,12 @@
 
   function said(record: AuditRecord): string {
     const actor =
-      record.actor.kind === 'server_operator' ? m.audit_server_operator() : named(record.actor);
+      record.actor.kind === 'person'
+        ? named(record.actor)
+        : record.actor.kind === 'server'
+          ? m.audit_server()
+          : m.audit_server_operator();
+    const issuer = record.detail ?? '';
     const subject = named(record.subject);
     const board = record.targetName ?? m.audit_a_board();
     const workspace = record.targetName ?? '';
@@ -75,6 +80,16 @@
         return m.audit_password_reset_link_made({ actor, subject });
       case 'password_set_by_operator':
         return m.audit_password_set_by_operator({ actor, subject });
+      case 'oidc_former_provider_kept':
+        return m.audit_oidc_former_kept({ actor, issuer });
+      case 'oidc_former_provider_ended':
+        return m.audit_oidc_former_ended({ actor, issuer });
+      case 'oidc_former_provider_lapsed':
+        return m.audit_oidc_former_lapsed({ issuer });
+      case 'oidc_identity_bound':
+        return m.audit_oidc_identity_bound({ actor, issuer });
+      case 'oidc_identity_carried_over':
+        return m.audit_oidc_identity_carried_over({ actor, issuer });
     }
   }
 

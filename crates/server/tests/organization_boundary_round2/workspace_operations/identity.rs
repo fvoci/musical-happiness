@@ -132,8 +132,8 @@ async fn sign_in(case: &mut Case, server: &TestServer, fake: &FakeProvider) {
 
 /// The provider's pending settings, by an administrator whose session was made through
 /// it: the newcomer, made one, requires single sign-on, saves another secret, which
-/// waits aside, starts a trial of it and throws it away, and takes the requirement off
-/// again; then the founder makes them a member again, so that what follows is as
+/// waits aside, starts a trial of it and throws it away, ends the keeping of a former
+/// provider, and takes the requirement off again; then the founder makes them a member again, so that what follows is as
 /// before.
 async fn pending(case: &mut Case, newcomer: &Client, fake: &FakeProvider) {
     let id = newcomer.me().await.id;
@@ -175,6 +175,14 @@ async fn pending(case: &mut Case, newcomer: &Client, fake: &FakeProvider) {
     case.send(
         "deleteOidcPending",
         newcomer.request(Method::DELETE, &discard),
+    )
+    .await;
+    // The organization moved from no other provider: there is no former one to end,
+    // and ending none answers the same.
+    let former = format!("{path}/former");
+    case.send(
+        "deleteOidcFormerProvider",
+        newcomer.request(Method::DELETE, &former),
     )
     .await;
     let released = Client::send(

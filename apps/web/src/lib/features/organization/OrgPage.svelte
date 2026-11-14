@@ -114,6 +114,7 @@
         remove={() => admin.deleteOidcProvider()}
         onSignIn={onSsoSignIn}
         discard={() => admin.discardOidcPending()}
+        endFormer={() => admin.endOidcFormer()}
         onTry={tryPending}
       />
     {/key}

@@ -9,6 +9,7 @@ use fvoci_store::Tenant;
 use tokio::fs;
 
 use super::App;
+use crate::auth::now_millis;
 use crate::error::AppError;
 use crate::storage::WRITING_DIR;
 
@@ -24,6 +25,30 @@ impl App {
     #[must_use]
     pub fn housekeeping(&self) -> Self {
         self.scoped(Tenant::System)
+    }
+
+    /// Removes the former providers whose time ran out (`oidc_former_provider_days`),
+    /// of every organization, each recorded in its organization's audit log as the
+    /// server's own doing. Until this runs such a one is read as none already. It
+    /// takes the housekeeping's reach itself; what fails is logged, and left for the
+    /// next run.
+    pub async fn end_lapsed_former_providers(&self) {
+        let app = self.housekeeping();
+        if let Err(error) = app.require_server_lock() {
+            tracing::warn!(%error, "the former providers that lapsed are not removed");
+            return;
+        }
+        match app
+            .store()
+            .end_lapsed_oidc_former_providers(now_millis())
+            .await
+        {
+            Ok(0) => {}
+            Ok(ended) => tracing::info!(ended, "removed former providers whose time ran out"),
+            Err(error) => {
+                tracing::error!(%error, "unable to remove the former providers that lapsed");
+            }
+        }
     }
 
     /// Removes for good the workspaces of every organization that have been in the

@@ -15,6 +15,7 @@ use crate::oidc::{
     self, Newcomers, OidcAccount, OidcRefusal, StoredProvider, hold_provider_of_organization,
     read_provider,
 };
+use crate::oidc_former::Keeping;
 use crate::org_admin;
 use crate::sessions;
 
@@ -86,6 +87,20 @@ impl std::fmt::Debug for PendingSettings {
     }
 }
 
+/// A trial of the pending settings, as the sign-in that ends it names it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Trial<'a> {
+    /// The provider whose pending settings are tried.
+    pub provider_id: &'a str,
+    /// When the pending settings it tries were saved: their state.
+    pub pending_at: i64,
+    /// The administrator who started it, whose account alone it may end in.
+    pub trier_id: &'a str,
+    /// How long the provider before is kept as the former one if the trial moves
+    /// the organization to another issuer, in milliseconds; zero keeps none.
+    pub keep_former_millis: i64,
+}
+
 /// What a trial of the pending settings that ended well did.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Applied {
@@ -146,7 +161,7 @@ impl Store {
                     auto_join: kept.auto_join,
                     ..before.clone()
                 };
-                provider = oidc::write_provider(scope, Some(&before), &kept)
+                provider = oidc::write_provider(scope, Some(&before), &kept, Keeping::NOTHING)
                     .await?
                     .provider;
                 oidc::record_provider_change(scope, actor_id, Some(&before), &provider).await?;
@@ -214,18 +229,18 @@ impl Store {
         .await
     }
 
-    /// Ends a trial of the pending settings saved at `pending_at` of the provider
-    /// `provider_id` of the handle's organization, started by the administrator
-    /// `trier_id`, in one transaction that holds the provider: they must still be the
-    /// provider's pending settings, it must still be on, and `account` must be the
-    /// trier's own, who must still administer the organization (no account is made by
-    /// a trial: one that ended in a newcomer or another person would put settings in
-    /// use that no administrator can sign in through). Lets `account` in as a sign-in
-    /// does (`Store::finish_oidc_sign_in`), makes
-    /// the pending settings the provider's, as a save of them would (another issuer
-    /// ends the sessions of the one before), records that as the account's doing, and
-    /// stores `session` under `token_digest`, made through the provider as it is then:
-    /// it proves it. Nothing is stored if any of it is refused.
+    /// Ends `trial`, a trial of the pending settings of the provider of the handle's
+    /// organization, in one transaction that holds the provider: they must still be
+    /// the provider's pending settings, it must still be on, and `account` must be
+    /// the trier's own, who must still administer the organization (no account is
+    /// made by a trial: one that ended in a newcomer or another person would put
+    /// settings in use that no administrator can sign in through). Lets `account` in
+    /// as a sign-in does (`Store::finish_oidc_sign_in`), makes the pending settings
+    /// the provider's, as a save of them would (another issuer ends the sessions of
+    /// the one before, and keeps the provider before as the former one), records
+    /// that as the account's doing, and stores `session` under `token_digest`, made
+    /// through the provider as it is then: it proves it. Nothing is stored if any of
+    /// it is refused.
     ///
     /// # Errors
     ///
@@ -235,13 +250,17 @@ impl Store {
     /// [`StoreError::Database`] if a statement fails.
     pub async fn finish_oidc_trial(
         &self,
-        provider_id: &str,
-        pending_at: i64,
-        trier_id: &str,
+        trial: Trial<'_>,
         account: OidcAccount<'_>,
         session: &mut Session,
         token_digest: &str,
     ) -> Result<Result<Applied, OidcRefusal>, StoreError> {
+        let Trial {
+            provider_id,
+            pending_at,
+            trier_id,
+            keep_former_millis,
+        } = trial;
         self.transaction(async |scope| {
             hold_provider_of_organization(scope).await?;
             let (Some(before), Some(pending)) =
@@ -273,7 +292,11 @@ impl Store {
             sql.bind(scope.org()?);
             scope.execute(sql).await?;
             let applied = pending.applied_to(&before);
-            let provider = oidc::write_provider(scope, Some(&before), &applied)
+            let keeping = Keeping {
+                millis: keep_former_millis,
+                actor_id: Some(trier_id),
+            };
+            let provider = oidc::write_provider(scope, Some(&before), &applied, keeping)
                 .await?
                 .provider;
             let entry = AuditEntry::new(

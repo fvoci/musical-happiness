@@ -13,7 +13,7 @@ use std::time::Instant;
 use fvoci_model::{LoginOptions, Session, User, display_name, is_email_valid, new_id};
 use fvoci_store::{
     Applied, FlowPurpose, Identity, LoginFlow, OidcAccount, OidcRefusal, PendingProvider,
-    StoreError, StoredProvider, Taken,
+    StoreError, StoredProvider, Taken, Trial,
 };
 
 use super::App;
@@ -718,7 +718,17 @@ impl App {
                 trier_id,
             } => self
                 .store()
-                .finish_oidc_trial(&stored.id, pending_at, trier_id, account, session, digest)
+                .finish_oidc_trial(
+                    Trial {
+                        provider_id: &stored.id,
+                        pending_at,
+                        trier_id,
+                        keep_former_millis: self.limits().former_provider_millis,
+                    },
+                    account,
+                    session,
+                    digest,
+                )
                 .await?
                 .map(|applied| (applied.joined, Some(applied))),
         })

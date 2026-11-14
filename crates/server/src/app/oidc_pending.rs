@@ -12,7 +12,9 @@ use fvoci_store::{Applied, PendingSettings, StoredProvider};
 
 use super::App;
 use super::oidc::{Start, StartedLogin};
+use super::oidc_settings::Beside;
 use super::sso;
+use crate::auth::now_millis;
 use crate::error::AppError;
 
 impl App {
@@ -46,7 +48,12 @@ impl App {
                 AppError::conflict("the provider was changed meanwhile; read it and try again")
             })?;
         tracing::info!(org_id = %stored.org_id, issuer = %pending.issuer, "settings of a provider were saved aside, to be tried");
-        Ok(self.provider_view(&stored, Some(&pending), session))
+        let former = self.store().oidc_former_provider(now_millis()).await?;
+        let beside = Beside {
+            pending: Some(&pending),
+            former: former.as_ref(),
+        };
+        Ok(self.provider_view(&stored, beside, session))
     }
 
     /// Throws the pending settings of the handle's organization's provider away, as

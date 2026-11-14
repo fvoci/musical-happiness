@@ -66,6 +66,8 @@ export interface Organizations {
   deleteOidcProvider(orgId: string): Promise<void>;
   /** Throws the provider's pending settings away. */
   discardOidcPending(orgId: string): Promise<void>;
+  /** Ends, before its time, the keeping of the provider the organization moved away from. */
+  endOidcFormer(orgId: string): Promise<void>;
   /** Starts a sign-in through the pending settings: the address to send the browser to. */
   startOidcTrial(orgId: string): Promise<string>;
   /** The organization the reader administers; undefined when they administer none. */

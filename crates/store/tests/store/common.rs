@@ -336,3 +336,68 @@ pub(crate) async fn try_execute_raw(dbconfig: &str, sql: &str) -> Result<u64, sq
         }
     }
 }
+
+/// The organization's provider of sign-ins (one, whoever sets it), the one it moved
+/// away from, its pending settings, and a sign-in through it that has not come back.
+pub(crate) async fn sign_in_under_way(store: &Store, name: &str) {
+    let settings = |issuer: &str| fvoci_store::StoredProvider {
+        id: String::new(),
+        org_id: String::new(),
+        issuer: issuer.to_owned(),
+        client_id: "fvoci".to_owned(),
+        sealed_client_secret: String::new(),
+        auto_join: true,
+        enabled: true,
+        create_at: 0,
+        update_at: 0,
+        sso_required: true,
+        revision: 0,
+    };
+    // Moved once: a second move would end the sign-ins under way through the first.
+    let provider = if let Some(provider) = store.oidc_provider().await.expect("read") {
+        provider
+    } else {
+        let former = store
+            .put_oidc_provider(&settings("https://former.example.com"))
+            .await
+            .expect("a provider is stored");
+        store
+            .put_oidc_provider_as_read(
+                &settings("https://idp.example.com"),
+                Some(&former),
+                &fvoci_model::new_id(),
+                i64::from(u32::MAX),
+            )
+            .await
+            .expect("asked")
+            .expect("another provider is stored, and the one before kept")
+    };
+    store
+        .put_oidc_pending_provider(
+            &fvoci_store::PendingSettings {
+                issuer: "https://idp.example.com".to_owned(),
+                client_id: format!("fvoci of {name}"),
+                sealed_client_secret: String::new(),
+            },
+            &provider,
+            &provider,
+            &fvoci_model::new_id(),
+        )
+        .await
+        .expect("asked")
+        .expect("pending settings are stored");
+    store
+        .create_oidc_login_flow(&fvoci_store::LoginFlow {
+            state_hash: format!("state of {name}"),
+            browser_hash: format!("browser of {name}"),
+            nonce: String::new(),
+            pkce_verifier: String::new(),
+            org_id: provider.org_id.clone(),
+            provider_id: provider.id,
+            create_at: 0,
+            expires_at: i64::MAX,
+            purpose: fvoci_store::FlowPurpose::SignIn,
+        })
+        .await
+        .expect("a sign-in is stored");
+}

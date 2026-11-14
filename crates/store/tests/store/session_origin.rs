@@ -86,7 +86,7 @@ async fn a_session_keeps_its_origin() {
     let test = common::setup().await;
     let user = person(&test, "someone").await;
     let stored = test
-        .put_oidc_provider_as_read(&provider("https://one.example"), None, &user)
+        .put_oidc_provider_as_read(&provider("https://one.example"), None, &user, 0)
         .await
         .expect("stored")
         .expect("new");
@@ -109,7 +109,7 @@ async fn the_providers_sessions_end_with_its_removal_or_its_issuer() {
     let first = person(&test, "first").await;
     let second = person(&test, "second").await;
     let one = test
-        .put_oidc_provider_as_read(&provider("https://one.example"), None, &first)
+        .put_oidc_provider_as_read(&provider("https://one.example"), None, &first, 0)
         .await
         .expect("stored")
         .expect("new");
@@ -123,13 +123,13 @@ async fn the_providers_sessions_end_with_its_removal_or_its_issuer() {
     let mut same_issuer = provider("https://one.example");
     same_issuer.auto_join = false;
     let kept = test
-        .put_oidc_provider_as_read(&same_issuer, Some(&one), &first)
+        .put_oidc_provider_as_read(&same_issuer, Some(&one), &first, 0)
         .await
         .expect("stored")
         .expect("as read");
     let after_the_same_issuer = (alive(&test, &firsts).await, alive(&test, &seconds).await);
     let two = test
-        .put_oidc_provider_as_read(&provider("https://two.example"), Some(&kept), &first)
+        .put_oidc_provider_as_read(&provider("https://two.example"), Some(&kept), &first, 0)
         .await
         .expect("stored")
         .expect("as read");
@@ -165,7 +165,7 @@ async fn unlinking_ends_the_users_sessions_of_that_issuer() {
     let user = person(&test, "linked").await;
     let other = person(&test, "other").await;
     let stored = test
-        .put_oidc_provider_as_read(&provider("https://one.example"), None, &user)
+        .put_oidc_provider_as_read(&provider("https://one.example"), None, &user, 0)
         .await
         .expect("stored")
         .expect("new");
@@ -219,7 +219,7 @@ async fn unlinking_ends_the_sessions_of_that_identity_only() {
     let test = common::setup().await;
     let user = person(&test, "linked twice").await;
     let stored = test
-        .put_oidc_provider_as_read(&provider("https://one.example"), None, &user)
+        .put_oidc_provider_as_read(&provider("https://one.example"), None, &user, 0)
         .await
         .expect("stored")
         .expect("new");
@@ -340,7 +340,7 @@ async fn a_sign_in_that_ends_after_the_unlinking_is_refused() {
     let test = common::setup().await;
     let user = person(&test, "linked").await;
     let stored = test
-        .put_oidc_provider_as_read(&provider("https://one.example"), None, &user)
+        .put_oidc_provider_as_read(&provider("https://one.example"), None, &user, 0)
         .await
         .expect("stored")
         .expect("new");
@@ -390,7 +390,7 @@ async fn a_change_of_what_signing_in_takes_raises_the_revision() {
     let test = common::setup().await;
     let user = person(&test, "admin").await;
     let first = test
-        .put_oidc_provider_as_read(&provider("https://one.example"), None, &user)
+        .put_oidc_provider_as_read(&provider("https://one.example"), None, &user, 0)
         .await
         .expect("stored")
         .expect("new");
@@ -409,7 +409,7 @@ async fn a_change_of_what_signing_in_takes_raises_the_revision() {
     ] {
         change(&mut next);
         read = test
-            .put_oidc_provider_as_read(&next, Some(&read), &user)
+            .put_oidc_provider_as_read(&next, Some(&read), &user, 0)
             .await
             .expect("stored")
             .expect("as read");
@@ -417,7 +417,7 @@ async fn a_change_of_what_signing_in_takes_raises_the_revision() {
     }
     next.sso_required = true;
     let enforced = test
-        .put_oidc_provider_as_read(&next, Some(&read), &user)
+        .put_oidc_provider_as_read(&next, Some(&read), &user, 0)
         .await
         .expect("stored")
         .expect("as read");

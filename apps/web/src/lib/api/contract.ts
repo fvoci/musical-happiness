@@ -456,6 +456,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/org/{orgId}/oidc/former": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * End the keeping of an organization's former provider
+         * @description When the provider's issuer changes, the provider before is kept as the `former`
+         *     one for `oidc_former_provider_days` (30 by default): nobody signs in through it,
+         *     but somebody the new provider vouches for who has no account yet may sign in
+         *     through it once to carry their account over. This ends that before its time: from
+         *     then on nobody carries an account over from it. An organization that keeps none
+         *     answers the same. Recorded in the organization's audit log
+         *     (`oidc_former_provider_ended`), as its keeping (`oidc_former_provider_kept`) and
+         *     its running out (`oidc_former_provider_lapsed`, the server's doing) are.
+         */
+        delete: operations["deleteOidcFormerProvider"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/org/{orgId}/oidc/pending": {
         parameters: {
             query?: never;
@@ -2823,7 +2850,7 @@ export interface components {
          * @description What a record of the audit log says was done.
          * @enum {string}
          */
-        AuditAction: "self_added_to_board" | "added_to_board" | "org_admin_joined" | "org_admin_left" | "org_admin_revoked" | "org_admin_granted" | "org_admin_removed" | "workspace_created" | "workspace_renamed" | "workspace_deleted" | "workspace_restored" | "public_links_disabled" | "public_links_enabled" | "oidc_provider_configured" | "oidc_provider_removed" | "sso_required" | "sso_released" | "oidc_provider_pending_saved" | "oidc_provider_pending_applied" | "oidc_provider_pending_discarded" | "password_reset_link_made" | "password_set_by_operator";
+        AuditAction: "self_added_to_board" | "added_to_board" | "org_admin_joined" | "org_admin_left" | "org_admin_revoked" | "org_admin_granted" | "org_admin_removed" | "workspace_created" | "workspace_renamed" | "workspace_deleted" | "workspace_restored" | "public_links_disabled" | "public_links_enabled" | "oidc_provider_configured" | "oidc_provider_removed" | "sso_required" | "sso_released" | "oidc_provider_pending_saved" | "oidc_provider_pending_applied" | "oidc_provider_pending_discarded" | "password_reset_link_made" | "password_set_by_operator" | "oidc_former_provider_kept" | "oidc_former_provider_ended" | "oidc_former_provider_lapsed" | "oidc_identity_bound" | "oidc_identity_carried_over";
         /** @description A user as a record of the audit log names them. */
         AuditPerson: {
             /** @description The name the user shows; empty for none. */
@@ -2844,6 +2871,11 @@ export interface components {
              * @description When, in milliseconds since the epoch.
              */
             createAt: number;
+            /**
+             * @description The issuer a record of a provider's move names (`oidc_former_provider_…`,
+             *     `oidc_identity_…`); `null` for the others.
+             */
+            detail: string | null;
             /** @description The record's identifier. */
             id: string;
             subject: components["schemas"]["AuditPerson"] | null;
@@ -2857,8 +2889,9 @@ export interface components {
         };
         /**
          * @description Who did what a record of the audit log says: a person by their account, named as it
-         *     is now (an account that is gone by its identifier alone), or the server's operator,
-         *     who acts through the local administration socket without one. `kind` says which.
+         *     is now (an account that is gone by its identifier alone), the server's operator,
+         *     who acts through the local administration socket without one, or the server
+         *     itself, for what its timers do. `kind` says which.
          */
         AuditRecordActor: (components["schemas"]["AuditPerson"] & {
             /** @enum {string} */
@@ -2866,6 +2899,9 @@ export interface components {
         }) | {
             /** @enum {string} */
             kind: "server_operator";
+        } | {
+            /** @enum {string} */
+            kind: "server";
         };
         /** @description The basic data unit of a board. */
         Block: {
@@ -3822,6 +3858,25 @@ export interface components {
             size: number;
         };
         /**
+         * @description The provider an organization moved away from, kept for a while: nobody signs in
+         *     through it, but somebody the new provider vouches for who has no account yet may
+         *     show who they were at it, and so tie the new identity to the account they had.
+         */
+        OidcFormerProvider: {
+            /**
+             * Format: int64
+             * @description When the organization moved away from it, in milliseconds since the Unix epoch.
+             */
+            createAt: number;
+            /**
+             * Format: int64
+             * @description When it is kept no longer, in milliseconds since the Unix epoch.
+             */
+            expiresAt: number;
+            /** @description Its issuer. */
+            issuer: string;
+        };
+        /**
          * @description The pending settings of an organization's provider, without the client secret:
          *     `hasClientSecret` says whether there is one.
          */
@@ -3864,6 +3919,7 @@ export interface components {
             createAt: number;
             /** @description Whether signing in through the provider is on. */
             enabled: boolean;
+            former: components["schemas"]["OidcFormerProvider"] | null;
             /** @description Whether a client secret is stored. */
             hasClientSecret: boolean;
             /** @description The issuer: an `https` address, exactly as the provider names itself. */
@@ -5163,6 +5219,36 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description The organization has no provider. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    deleteOidcFormerProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the organization. 404 unless the user of the session administers it. */
+                orgId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The organization keeps no former provider. */
             204: {
                 headers: {
                     [name: string]: unknown;

@@ -53,6 +53,23 @@ pub struct OidcProvider {
     /// nobody signs in through until a sign-in through them ends well; `null` for
     /// none.
     pub pending: Option<OidcPendingProvider>,
+    /// The provider the organization signed in through before its issuer changed,
+    /// while it is kept for its people to carry their accounts over; `null` for none.
+    pub former: Option<OidcFormerProvider>,
+}
+
+/// The provider an organization moved away from, kept for a while: nobody signs in
+/// through it, but somebody the new provider vouches for who has no account yet may
+/// show who they were at it, and so tie the new identity to the account they had.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct OidcFormerProvider {
+    /// Its issuer.
+    pub issuer: String,
+    /// When the organization moved away from it, in milliseconds since the Unix epoch.
+    pub create_at: i64,
+    /// When it is kept no longer, in milliseconds since the Unix epoch.
+    pub expires_at: i64,
 }
 
 /// The pending settings of an organization's provider, without the client secret:

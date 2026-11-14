@@ -1134,5 +1134,18 @@
   "mail_too_many_recipients": "Too many addresses for one sending. Nothing was sent; send to fewer at a time.",
   "mail_too_many_recipients_limit": "Send to at most {limit} addresses at a time. Nothing was sent.",
   "mail_hourly_limit": "As many invitation emails as may be sent this hour have been sent. Nothing was sent; try again in {minutes} min.",
-  "mail_queue_full": "Too much mail is waiting to be sent. Nothing was sent; try again later."
+  "mail_queue_full": "Too much mail is waiting to be sent. Nothing was sent; try again later.",
+  "audit_server": "The server",
+  "audit_oidc_former_kept": "{actor} moved the sign-in provider; the previous one ({issuer}) is kept for linking",
+  "audit_oidc_former_ended": "{actor} ended the linking period of the previous provider ({issuer}) early",
+  "audit_oidc_former_lapsed": "The linking period of the previous provider ({issuer}) ran out",
+  "audit_oidc_identity_bound": "{actor} connected their identity at the new provider ({issuer}) to their account and put its settings in use",
+  "audit_oidc_identity_carried_over": "{actor} confirmed their previous sign-in and connected their identity at the new provider ({issuer}) to their account",
+  "org_sso_former_title": "Previous provider (linking only)",
+  "org_sso_former_info": "After a move the previous provider is kept until this day. Nobody signs in through it. A member the new provider does not know yet goes through their previous sign-in once, only to continue with the account they had.",
+  "org_sso_former_until": "Ends on",
+  "org_sso_former_end": "End early",
+  "org_sso_former_end_title": "End the previous provider's linking period now?",
+  "org_sso_former_end_info": "Members who have not continued with their account yet can no longer connect it through their previous sign-in. This cannot be undone.",
+  "org_sso_former_ended": "The previous provider's linking period was ended."
 }

@@ -1,5 +1,5 @@
 /** SSO settings preserve secrets and explain the server's lockout guards. */
-import { cleanup, fireEvent, render, screen } from '@testing-library/svelte';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import OrgSso from '$lib/features/organization/OrgSso.svelte';
 import { BackendError } from '$lib/state/backend.ts';
@@ -18,6 +18,7 @@ const provider: OidcProvider = {
   createAt: 1,
   updateAt: 1,
   pending: null,
+  former: null,
 };
 
 function mount(value: OidcProvider | undefined = provider) {
@@ -29,8 +30,10 @@ function mount(value: OidcProvider | undefined = provider) {
   const onSignIn = vi.fn(() => Promise.resolve());
   const discard = vi.fn(() => Promise.resolve());
   const onTry = vi.fn(() => Promise.resolve());
-  render(OrgSso, { read: async () => value, save, remove, onSignIn, discard, onTry });
-  return { save, remove, onSignIn, discard, onTry };
+  const endFormer = vi.fn(() => Promise.resolve());
+  const read = vi.fn(() => Promise.resolve(value));
+  render(OrgSso, { read, save, remove, onSignIn, discard, onTry, endFormer });
+  return { read, save, remove, onSignIn, discard, onTry, endFormer };
 }
 
 describe('the SSO settings', () => {
@@ -173,6 +176,34 @@ describe('the SSO settings', () => {
       expect(discard).toHaveBeenCalledOnce();
     });
     await screen.findByText('The pending settings were discarded.');
+  });
+
+  it('shows the previous provider until its day, and ends it early after asking', async () => {
+    const former = {
+      issuer: 'https://before.example.test',
+      createAt: Date.UTC(2026, 10, 1),
+      expiresAt: Date.UTC(2026, 11, 1, 12),
+    };
+    const { read, endFormer } = mount({ ...provider, former });
+    expect(await screen.findByTestId('sso-former-issuer')).toHaveTextContent(former.issuer);
+    // The day in the reader's zone: the second of December east of UTC+12.
+    const day = new Intl.DateTimeFormat('en', { dateStyle: 'long' }).format(former.expiresAt);
+    expect(day).toMatch(/^December [12], 2026$/);
+    expect(screen.getByTestId('sso-former-until')).toHaveTextContent(day);
+    await fireEvent.click(screen.getByTestId('sso-former-end'));
+    expect(endFormer).not.toHaveBeenCalled();
+    read.mockResolvedValueOnce(provider);
+    const dialog = await screen.findByTestId('confirm-dialog');
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'End early' }));
+    await screen.findByText("The previous provider's linking period was ended.");
+    expect(endFormer).toHaveBeenCalledOnce();
+    expect(screen.queryByTestId('sso-former')).not.toBeInTheDocument();
+  });
+
+  it('shows no previous provider where none is kept', async () => {
+    mount();
+    await screen.findByTestId('sso-client');
+    expect(screen.queryByTestId('sso-former')).not.toBeInTheDocument();
   });
 
   it('tells what came of a sign-in through the pending settings, once', async () => {

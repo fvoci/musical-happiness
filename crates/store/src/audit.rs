@@ -9,54 +9,60 @@ use std::str::FromStr;
 
 use fvoci_model::{AuditAction, AuditPerson, AuditRecord, AuditRecordActor, new_id};
 
-use crate::db::{Bound, Id, OptId, Row, Scope, now_millis};
+use crate::db::{Bound, Id, OptId, Param, Row, Scope, now_millis};
 use crate::error::StoreError;
 use crate::{Paging, Store};
 
-/// Who did what a record says: a person by their account, or the server's operator
-/// (through the local administration socket), who has none. Chosen by the entry point
-/// of the change, never taken from what a request says.
+/// Who did what a record says: a person by their account, the server's operator
+/// (through the local administration socket), who has none, or the server itself, for
+/// what its timers do. Chosen by the entry point of the change, never taken from what
+/// a request says.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AuditActor {
     /// The user with this identifier, kept when the account goes.
     Person(String),
     /// Who runs the server.
     ServerOperator,
+    /// The server itself: what ends when its time runs out.
+    Server,
 }
 
 impl AuditActor {
-    /// The identifier of the person, or `None` for the server's operator.
+    /// The identifier of the person, or `None` for the server and its operator.
     #[must_use]
     pub fn person_id(&self) -> Option<&str> {
         match self {
             Self::Person(id) => Some(id),
-            Self::ServerOperator => None,
+            Self::ServerOperator | Self::Server => None,
         }
     }
 
-    /// Which of the two it is, as the log stores it.
+    /// Which of them it is, as the log stores it.
     const fn kind(&self) -> ActorKind {
         match self {
             Self::Person(_) => ActorKind::Person,
             Self::ServerOperator => ActorKind::ServerOperator,
+            Self::Server => ActorKind::Server,
         }
     }
 }
 
-/// Which of the two an actor is, as the column `actor_kind` of the log spells it.
+/// Which of them an actor is, as the column `actor_kind` of the log spells it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ActorKind {
     Person,
     ServerOperator,
+    Server,
 }
 
 impl ActorKind {
-    const ALL: [Self; 2] = [Self::Person, Self::ServerOperator];
+    const ALL: [Self; 3] = [Self::Person, Self::ServerOperator, Self::Server];
 
     const fn as_str(self) -> &'static str {
         match self {
             Self::Person => "person",
             Self::ServerOperator => "server_operator",
+            Self::Server => "server",
         }
     }
 }
@@ -92,6 +98,8 @@ pub struct AuditEntry {
     pub subject_id: String,
     /// When, in milliseconds since the epoch; set when the record is written.
     pub create_at: i64,
+    /// The issuer a record of a provider's move names; empty for the others.
+    pub detail: String,
 }
 
 impl AuditEntry {
@@ -120,6 +128,7 @@ impl AuditEntry {
             target_id: target_id.to_owned(),
             subject_id: String::new(),
             create_at: 0,
+            detail: String::new(),
         }
     }
 
@@ -127,6 +136,13 @@ impl AuditEntry {
     #[must_use]
     pub fn with_subject(mut self, subject_id: &str) -> Self {
         subject_id.clone_into(&mut self.subject_id);
+        self
+    }
+
+    /// The record with the issuer it names.
+    #[must_use]
+    pub fn with_detail(mut self, detail: &str) -> Self {
+        detail.clone_into(&mut self.detail);
         self
     }
 }
@@ -151,8 +167,8 @@ impl Store {
     pub async fn get_audit_log(&self, workspace_id: &str) -> Result<Vec<AuditEntry>, StoreError> {
         self.with_conn(async |scope| {
             let mut sql = scope.sql(
-                "SELECT workspace_id, actor_id, action, target_id, subject_id, create_at, actor_kind \
-                 FROM audit_log WHERE workspace_id = ",
+                "SELECT workspace_id, actor_id, action, target_id, subject_id, create_at, \
+                 actor_kind, detail FROM audit_log WHERE workspace_id = ",
             );
             sql.bind(Id(workspace_id)).push(" ORDER BY create_at, id");
             scope
@@ -167,6 +183,7 @@ impl Store {
                         target_id: row.id(3)?,
                         subject_id: row.id(4)?,
                         create_at: row.int(5)?,
+                        detail: row.text(7)?,
                     })
                 })
                 .collect()
@@ -193,7 +210,7 @@ impl Store {
             let mut sql = scope.sql(
                 "SELECT a.id, a.action, a.actor_id, actor.username, actor.display_name, \
                  a.subject_id, subject.username, subject.display_name, a.target_id, w.name, \
-                 a.create_at, a.actor_kind FROM audit_log AS a \
+                 a.create_at, a.actor_kind, a.detail FROM audit_log AS a \
                  LEFT JOIN users AS actor ON actor.id = a.actor_id \
                  LEFT JOIN users AS subject ON subject.id = a.subject_id \
                  LEFT JOIN workspaces AS w ON w.id = a.target_id AND w.org_id = a.org_id \
@@ -236,6 +253,7 @@ fn actor(row: &Row, kind: usize, id: usize) -> Result<AuditActor, StoreError> {
     Ok(match row.text(kind)?.parse()? {
         ActorKind::Person => AuditActor::Person(row.id(id)?),
         ActorKind::ServerOperator => AuditActor::ServerOperator,
+        ActorKind::Server => AuditActor::Server,
     })
 }
 
@@ -253,6 +271,7 @@ fn record(row: &Row) -> Result<AuditRecord, StoreError> {
                 display_name: row.text(4)?,
             }),
             AuditActor::ServerOperator => AuditRecordActor::ServerOperator,
+            AuditActor::Server => AuditRecordActor::Server,
         },
         subject: if subject_id.is_empty() {
             None
@@ -267,6 +286,7 @@ fn record(row: &Row) -> Result<AuditRecord, StoreError> {
         // A board's identifier is no workspace's: the join finds none for it.
         target_name: (!target_name.is_empty()).then_some(target_name),
         create_at: row.int(10)?,
+        detail: row.opt_text(12)?,
     })
 }
 
@@ -298,7 +318,7 @@ async fn insert_entry(
 ) -> Result<(), StoreError> {
     let mut sql = scope.sql(
         "INSERT INTO audit_log (id, org_id, workspace_id, actor_id, action, target_id, \
-         subject_id, create_at, actor_kind) VALUES (",
+         subject_id, create_at, actor_kind, detail) VALUES (",
     );
     sql.bind(Id(&new_id()))
         .push_bind(", ", org)
@@ -309,6 +329,10 @@ async fn insert_entry(
         .push_bind(", ", OptId(&entry.subject_id))
         .push_bind(", ", now_millis())
         .push_bind(", ", entry.actor.kind().as_str())
+        .push_bind(
+            ", ",
+            Param::OptText((!entry.detail.is_empty()).then(|| entry.detail.clone())),
+        )
         .push(")");
     scope.execute(sql).await?;
     Ok(())

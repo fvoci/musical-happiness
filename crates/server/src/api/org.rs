@@ -35,6 +35,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
             handle_delete_oidc_provider
         ))
         .routes(routes!(handle_delete_oidc_pending))
+        .routes(routes!(handle_delete_oidc_former))
         .routes(routes!(handle_start_oidc_trial))
 }
 
@@ -214,6 +215,31 @@ async fn handle_delete_oidc_provider(org: OrgAdmin) -> ApiResult {
 )]
 async fn handle_delete_oidc_pending(org: OrgAdmin) -> ApiResult {
     org.app.discard_oidc_pending(&org.session.user_id).await?;
+    Ok(no_content())
+}
+
+/// End the keeping of an organization's former provider
+///
+/// When the provider's issuer changes, the provider before is kept as the `former`
+/// one for `oidc_former_provider_days` (30 by default): nobody signs in through it,
+/// but somebody the new provider vouches for who has no account yet may sign in
+/// through it once to carry their account over. This ends that before its time: from
+/// then on nobody carries an account over from it. An organization that keeps none
+/// answers the same. Recorded in the organization's audit log
+/// (`oidc_former_provider_ended`), as its keeping (`oidc_former_provider_kept`) and
+/// its running out (`oidc_former_provider_lapsed`, the server's doing) are.
+#[utoipa::path(
+    delete,
+    path = "/org/{orgId}/oidc/former",
+    operation_id = "deleteOidcFormerProvider",
+    tag = tag::AUTH,
+    params(OrgId),
+    responses((status = 204, description = "The organization keeps no former provider.")),
+)]
+async fn handle_delete_oidc_former(org: OrgAdmin) -> ApiResult {
+    org.app
+        .end_oidc_former_provider(&org.session.user_id)
+        .await?;
     Ok(no_content())
 }
 

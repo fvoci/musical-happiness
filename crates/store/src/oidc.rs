@@ -14,6 +14,7 @@ use crate::accounts::{self, Which};
 use crate::audit::{self, AuditActor, AuditEntry};
 use crate::db::{Dialect, Id, OptId, Param, Row, Scope, now_millis};
 use crate::error::StoreError;
+use crate::oidc_former::{self, Keeping};
 use crate::sessions;
 use crate::users::InstanceRole;
 
@@ -181,7 +182,7 @@ impl Store {
         &self,
         provider: &StoredProvider,
     ) -> Result<StoredProvider, StoreError> {
-        self.put_provider(provider, AsRead::Whatever, None)
+        self.put_provider(provider, AsRead::Whatever, Keeping::NOTHING)
             .await?
             .ok_or(StoreError::NoRows)
     }
@@ -194,8 +195,9 @@ impl Store {
     /// identifier and the time it was first set; one with another issuer or client is
     /// another provider, under a new identifier, and the sign-ins under way through the
     /// one before end with it; with another issuer, so do the sessions made through a
-    /// provider of the organization under the issuer before. `provider.id`, `org_id`
-    /// and the times are the store's;
+    /// provider of the organization under the issuer before, and the provider before is
+    /// kept as the former one for `keep_former_millis` (none for zero), in place of
+    /// the one kept until then. `provider.id`, `org_id` and the times are the store's;
     /// the time of a change of a provider is always later than that of the one before,
     /// and a provider removed and set again is another, so that a reading names one
     /// state of the provider.
@@ -209,9 +211,14 @@ impl Store {
         provider: &StoredProvider,
         read: Option<&StoredProvider>,
         actor_id: &str,
+        keep_former_millis: i64,
     ) -> Result<Option<StoredProvider>, StoreError> {
         let read = read.map(|read| (read.id.clone(), read.update_at));
-        self.put_provider(provider, AsRead::Was(read), Some(actor_id))
+        let keeping = Keeping {
+            millis: keep_former_millis,
+            actor_id: Some(actor_id),
+        };
+        self.put_provider(provider, AsRead::Was(read), keeping)
             .await
     }
 
@@ -219,7 +226,7 @@ impl Store {
         &self,
         provider: &StoredProvider,
         as_read: AsRead,
-        actor_id: Option<&str>,
+        keeping: Keeping<'_>,
     ) -> Result<Option<StoredProvider>, StoreError> {
         self.transaction(async |scope| {
             hold_provider_of_organization(scope).await?;
@@ -232,8 +239,8 @@ impl Store {
             {
                 return Ok(None);
             }
-            let written = write_provider(scope, before.as_ref(), provider).await?;
-            if let Some(actor_id) = actor_id {
+            let written = write_provider(scope, before.as_ref(), provider, keeping).await?;
+            if let Some(actor_id) = keeping.actor_id {
                 record_provider_change(scope, actor_id, before.as_ref(), &written.provider).await?;
                 if written.dropped_pending {
                     let entry = AuditEntry::new(
@@ -251,8 +258,8 @@ impl Store {
     }
 
     /// Removes the provider of the handle's organization, the sign-ins under way
-    /// through it, and the sessions made through a provider of the organization under
-    /// its issuer, unless it is the one the organization takes nothing else than
+    /// through it, the former provider kept beside it, and the sessions made through a
+    /// provider of the organization under its issuer, unless it is the one the organization takes nothing else than
     /// (`sso_required`): that one stays, and is released first. Asked and removed in
     /// one transaction that holds the provider, so that no removal passes an
     /// enforcement that is switched on beside it.
@@ -273,6 +280,7 @@ impl Store {
             sql.bind(Id(&provider.org_id));
             scope.execute(sql).await?;
             sessions::end_sessions_of_origin(scope, &provider.org_id, &provider.issuer).await?;
+            oidc_former::give_way(scope, Some(actor_id)).await?;
             let entry = AuditEntry::new(
                 "",
                 actor_id,
@@ -543,12 +551,15 @@ pub(crate) struct Written {
 /// first set; one with another issuer or client is another provider, under a new
 /// identifier, and the sign-ins under way through the one before end with it; with
 /// another issuer, so do the sessions made through a provider of the organization
-/// under the issuer before. A change of what signing in takes raises the revision and
-/// throws away the pending settings, which were saved against what signing in took.
+/// under the issuer before, and the provider before is kept as the former one as
+/// `keeping` says (`oidc_former.rs`). A change of what signing in takes raises the
+/// revision and throws away the pending settings, which were saved against what
+/// signing in took.
 pub(crate) async fn write_provider(
     scope: &mut Scope<'_>,
     before: Option<&StoredProvider>,
     provider: &StoredProvider,
+    keeping: Keeping<'_>,
 ) -> Result<Written, StoreError> {
     // Later than the change before, also within one millisecond or when the clock went
     // back: no two states of one provider have one time.
@@ -602,6 +613,7 @@ pub(crate) async fn write_provider(
         && before.issuer != stored.issuer
     {
         sessions::end_sessions_of_origin(scope, &before.org_id, &before.issuer).await?;
+        oidc_former::keep_after_move(scope, before, keeping).await?;
     }
     Ok(Written {
         provider: stored,
