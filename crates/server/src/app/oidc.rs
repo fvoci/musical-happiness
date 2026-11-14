@@ -367,6 +367,9 @@ impl App {
         let result = self.finish_flow(&flow, callback, user_agent).await;
         if let Err(failure) = &result {
             tracing::info!(org_id = %flow.org_id, failure = %failure.name(), "a sign-in through a provider failed");
+            if let FlowPurpose::CarryOver { held_hash } = &flow.purpose {
+                self.drop_held(&flow.org_id, held_hash).await;
+            }
         }
         Returned {
             back_to: match flow.purpose {

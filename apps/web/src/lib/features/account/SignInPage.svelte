@@ -89,10 +89,16 @@
   /** The organization a sign-in is held for, until the reader goes back to the form. */
   let heldFor = $state(address.has('oidc_held') ? askedOrg : undefined);
 
+  /** The name of the organization a sign-in is held for, once the server has said it. */
+  const heldName = $derived(
+    options?.then((read) => read?.organization?.name ?? '') ?? Promise.resolve(''),
+  );
+
   /** Back to the form: the address names the organization, and no held sign-in. */
   function leaveChoice(): void {
     if (heldFor === undefined) return;
-    history.replaceState(history.state, '', `${location.pathname}?org=${heldFor}`);
+    const named = new URLSearchParams({ org: heldFor });
+    history.replaceState(history.state, '', `${location.pathname}?${named}`);
     heldFor = undefined;
   }
 
@@ -206,14 +212,12 @@
 
 {#if heldFor !== undefined && onCarryOver && onStartAnew}
   {@const orgId = heldFor}
-  {#await options then read}
-    <SignInChoice
-      name={read?.organization?.name ?? ''}
-      onCarryOver={() => onCarryOver(orgId)}
-      onStartAnew={() => onStartAnew(orgId)}
-      onCancel={leaveChoice}
-    />
-  {/await}
+  <SignInChoice
+    name={heldName}
+    onCarryOver={() => onCarryOver(orgId)}
+    onStartAnew={() => onStartAnew(orgId)}
+    onCancel={leaveChoice}
+  />
 {:else}
   <main class="grid min-h-dvh place-items-center p-4">
     <form

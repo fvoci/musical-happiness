@@ -95,14 +95,20 @@ impl Visitor {
         response
     }
 
-    /// Starts a sign-in with `POST path`, lets the provider it leads to answer, and
-    /// comes back to the server: where the server sends the browser then, under its
-    /// own address; or the reason the start was refused with.
-    pub(crate) async fn through_provider(&self, path: &str) -> Result<String, String> {
+    /// Drops a cookie, as a browser that lost it.
+    pub(crate) fn forget(&self, name: &str) {
+        self.cookies.lock().expect("no panic").remove(name);
+    }
+
+    /// Starts a sign-in with `POST path` and lets the provider it leads to answer: the
+    /// path of the server the provider sends the browser back to; or the reason the
+    /// start was refused with.
+    pub(crate) async fn to_provider(&self, path: &str) -> Result<String, String> {
         let started = self.post(path).await;
         if !started.status().is_success() {
+            let refused_with = started.status();
             assert_eq!(
-                started.status(),
+                refused_with,
                 StatusCode::CONFLICT,
                 "a start is refused with 409"
             );
@@ -117,7 +123,15 @@ impl Visitor {
             .await
             .expect("the provider answers");
         let back = location_of(&authorized);
-        let path = back.strip_prefix(&self.root).expect("under the server");
+        Ok(back
+            .strip_prefix(&self.root)
+            .expect("under the server")
+            .to_owned())
+    }
+
+    /// Comes back from a provider to `path` of the server, with the browser's cookies:
+    /// where the server sends the browser then, under its own address.
+    pub(crate) async fn come_back(&self, path: &str) -> String {
         let answer = self
             .http
             .get(format!("{}{path}", self.base_url))
@@ -128,10 +142,17 @@ impl Visitor {
         assert_eq!(answer.status(), StatusCode::SEE_OTHER, "a return sends on");
         self.keep(&answer);
         let location = location_of(&answer);
-        Ok(location
+        location
             .strip_prefix(&self.root)
             .expect("under the server")
-            .to_owned())
+            .to_owned()
+    }
+
+    /// Starts a sign-in with `POST path`, goes to the provider and comes back: where
+    /// the server sends the browser then; or the reason the start was refused with.
+    pub(crate) async fn through_provider(&self, path: &str) -> Result<String, String> {
+        let back = self.to_provider(path).await?;
+        Ok(self.come_back(&back).await)
     }
 
     /// Signs in through the organization's provider, as the login page does.
@@ -467,35 +488,19 @@ async fn a_return_after_the_keeping_ended_carries_nothing_over() {
     let browser = Visitor::new(&ts, &[&old, &new]);
     assert_eq!(browser.sign_in(&org_id).await, held_page(&org_id));
     old.sign_in_as(Person::new(ADA, "ada@old.example.com"));
-    let started = browser
-        .post(&format!("/auth/oidc/held/carry-over?org={org_id}"))
-        .await;
-    assert_eq!(started.status(), StatusCode::OK);
-    let started: OidcStart = started.json().await.expect("where the browser goes");
-    let authorized = browser
-        .http
-        .get(&started.authorization_url)
-        .send()
-        .await
-        .expect("the provider answers");
-    let back = location_of(&authorized);
+    let carry_over = format!("/auth/oidc/held/carry-over?org={org_id}");
+    let back = browser.to_provider(&carry_over).await.expect("started");
     let lapse = "UPDATE oidc_former_providers SET expires_at = 1";
     let store = ts.app.store().system();
     store.execute_unchecked(lapse).await.expect("lapsed");
 
-    let path = back.strip_prefix(&browser.root).expect("under the server");
-    let answer = browser
-        .http
-        .get(format!("{}{path}", browser.base_url))
-        .header("Cookie", browser.cookie_header())
-        .send()
-        .await
-        .expect("the server answers");
-    browser.keep(&answer);
+    let returned = browser.come_back(&back).await;
 
+    assert_eq!(returned, refused_page(&org_id));
     assert_eq!(
-        location_of(&answer).strip_prefix(&browser.root),
-        Some(refused_page(&org_id).as_str())
+        count(&ts, "oidc_held_sign_ins").await,
+        0,
+        "taken by the try"
     );
     assert_eq!(browser.cookie("fvoci_session"), None);
     let of_ada = store.identities_of_user(&ada).await.expect("read");
@@ -550,6 +555,119 @@ async fn a_held_sign_in_ends_in_a_new_account_as_a_first_sign_in_does() {
     assert_eq!(problem["reason"], "oidc_join_closed");
     assert_eq!(shut_out.cookie("fvoci_session"), None);
     assert_eq!(count(&ts, "users").await, users + 1, "no other account");
+    ts.teardown().await;
+    old.stop();
+    new.stop();
+}
+
+/// The return from the former provider carries over only for the browser that still
+/// has the cookie of the very sign-in it was started for: without it, or with the
+/// cookie of another held sign-in, nothing is tied, nobody is signed in, and the held
+/// sign-in is taken by the try.
+#[tokio::test]
+async fn a_return_without_the_held_sign_ins_own_cookie_carries_nothing_over() {
+    let (old, new) = (FakeProvider::start().await, FakeProvider::start().await);
+    let Moved { ts, org_id, ada } = moved(&old, &new).await;
+    let carry_over = format!("/auth/oidc/held/carry-over?org={org_id}");
+    let store = ts.app.store().system();
+
+    let mut returned = Vec::new();
+    for lost in [true, false] {
+        let browser = Visitor::new(&ts, &[&old, &new]);
+        new.sign_in_as(Person::new(ADA_NEW, "ada@new.example.com"));
+        assert_eq!(browser.sign_in(&org_id).await, held_page(&org_id));
+        old.sign_in_as(Person::new(ADA, "ada@old.example.com"));
+        let back = browser.to_provider(&carry_over).await.expect("started");
+        if lost {
+            browser.forget("fvoci_oidc_held");
+        } else {
+            // Another sign-in of the browser is held meanwhile, under another cookie.
+            let other = Visitor::new(&ts, &[&old, &new]);
+            new.sign_in_as(Person::new("another", "another@new.example.com"));
+            assert_eq!(other.sign_in(&org_id).await, held_page(&org_id));
+            let theirs = other.cookie("fvoci_oidc_held").expect("held");
+            browser.set_cookie("fvoci_oidc_held", &theirs);
+        }
+        returned.push((
+            browser.come_back(&back).await,
+            browser.cookie("fvoci_session"),
+        ));
+    }
+
+    for outcome in returned {
+        assert_eq!(outcome, (refused_page(&org_id), None));
+    }
+    let of_ada = store.identities_of_user(&ada).await.expect("read");
+    assert_eq!(of_ada.len(), 1, "only the old one: {of_ada:?}");
+    assert_eq!(
+        count(&ts, "oidc_held_sign_ins").await,
+        1,
+        "each held sign-in that was tried is taken; the other browser's is left"
+    );
+    ts.teardown().await;
+    old.stop();
+    new.stop();
+}
+
+/// Starting anew keeps every rule of a first sign-in: an address the provider says it
+/// has not checked, none at all, or one that is another account's makes no account
+/// and no session, and the held sign-in is taken with its cookie.
+#[tokio::test]
+async fn starting_anew_keeps_the_rules_of_a_first_sign_in() {
+    let (old, new) = (FakeProvider::start().await, FakeProvider::start().await);
+    let Moved { ts, org_id, .. } = moved(&old, &new).await;
+    let anew = format!("/auth/oidc/held/sign-in?org={org_id}");
+    // The address `user2` registered with.
+    let taken = "user2@sample.com";
+    let users = count(&ts, "users").await;
+    let unverified = Person {
+        email_verified: Some(false),
+        ..Person::new("unverified", "unverified@new.example.com")
+    };
+    let without = Person {
+        email: None,
+        ..Person::new("without an address", "unused@new.example.com")
+    };
+    let of_another = Person::new("with another account's address", taken);
+
+    let mut refusals = Vec::new();
+    for person in [unverified, without, of_another] {
+        let browser = Visitor::new(&ts, &[&old, &new]);
+        new.sign_in_as(person);
+        assert_eq!(browser.sign_in(&org_id).await, held_page(&org_id));
+        let refused = browser.post(&anew).await;
+        let status = refused.status();
+        let problem: Value = refused.json().await.expect("a problem");
+        let reason = problem["reason"].as_str().unwrap_or_default().to_owned();
+        let left = (
+            browser.cookie("fvoci_session"),
+            browser.cookie("fvoci_oidc_held"),
+        );
+        refusals.push((status, reason, left));
+    }
+
+    let reasons: Vec<&str> = refusals
+        .iter()
+        .map(|(_, reason, _)| reason.as_str())
+        .collect();
+    assert_eq!(
+        reasons,
+        [
+            "oidc_email_unverified",
+            "oidc_email_missing",
+            "oidc_email_taken"
+        ]
+    );
+    for (status, reason, left) in &refusals {
+        assert_eq!(*status, StatusCode::CONFLICT, "{reason}");
+        assert_eq!(
+            *left,
+            (None, None),
+            "{reason}: no session, and nothing held"
+        );
+    }
+    assert_eq!(count(&ts, "users").await, users, "no account made");
+    assert_eq!(count(&ts, "oidc_held_sign_ins").await, 0, "each is taken");
     ts.teardown().await;
     old.stop();
     new.stop();

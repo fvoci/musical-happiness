@@ -6,8 +6,9 @@
 //! (`oidc.rs`).
 
 use axum::extract::{Extension, RawQuery, State};
-use axum::http::HeaderMap;
 use axum::http::header::SET_COOKIE;
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::IntoResponse as _;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
@@ -121,7 +122,8 @@ async fn handle_start_carry_over(
 /// as a first sign-in through the provider does: an account is made for who the
 /// provider vouched for, a member of the organization, if the organization lets
 /// newcomers in and no account has their email address; the session comes in the
-/// `Set-Cookie` header. The held sign-in is taken by this, whatever comes of it.
+/// `Set-Cookie` header. The held sign-in is taken by this, whatever comes of it, and
+/// its cookie cleared.
 ///
 /// 409 with the reason `oidc_carry_over_refused` if no sign-in of the organization is
 /// held for this browser, or the provider changed since; 409 with the reason a first
@@ -152,6 +154,7 @@ async fn handle_start_carry_over(
             description = "Nothing is held, or no account is made for the person.",
             body = Problem,
             content_type = "application/problem+json",
+            headers(("Set-Cookie" = String, description = "The cookie of the held sign-in cleared.")),
         ),
         (
             status = 429,
@@ -169,15 +172,24 @@ async fn handle_finish_held(
     RawQuery(query): RawQuery,
 ) -> ApiResult {
     let (org_id, secret) = held_of(&headers, &app, query.as_deref())?;
-    let token = app
+    let ended = app
         .finish_held_oidc_login(&org_id, &secret, address_of(client), &user_agent(&headers))
-        .await?;
-    let mut response = no_content();
-    let cookies = response.headers_mut();
-    cookies.append(SET_COOKIE, app.authenticator().session_cookie().set(&token));
-    cookies.append(
-        SET_COOKIE,
-        browser_cookie(&app, held_cookie_name(&app), "", 0),
-    );
+        .await;
+    let mut response = match ended {
+        Ok(token) => {
+            let mut response = no_content();
+            let session = app.authenticator().session_cookie().set(&token);
+            response.headers_mut().append(SET_COOKIE, session);
+            response
+        }
+        // Nothing was held, or what was held is taken and made no account: either
+        // way the browser's cookie holds nothing any more.
+        Err(error) if error.status() == StatusCode::CONFLICT.as_u16() => error.into_response(),
+        // Not asked yet (too many requests, a failure of the server's): what is held
+        // stays, and so does its cookie.
+        Err(error) => return Err(error),
+    };
+    let cleared = browser_cookie(&app, held_cookie_name(&app), "", 0);
+    response.headers_mut().append(SET_COOKIE, cleared);
     Ok(response)
 }

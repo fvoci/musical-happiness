@@ -52,10 +52,12 @@ export function signInWays(
       account?.loginOptions(orgId) ?? Promise.resolve({ registrationOpen: true }),
     onOidcStart: toProvider,
     onCarryOver: async (orgId) => {
-      if (account) location.assign(await account.startOidcCarryOver(orgId));
+      if (!account) throw new Error('no backend to sign in to');
+      location.assign(await account.startOidcCarryOver(orgId));
     },
     onStartAnew: async (orgId) => {
-      await account?.finishHeldSignIn(orgId);
+      if (!account) throw new Error('no backend to sign in to');
+      await account.finishHeldSignIn(orgId);
       // The session came with the answer: the app loads again, signed in.
       location.assign(home);
     },

@@ -144,8 +144,8 @@ async fn a_sign_in_is_held_while_a_former_provider_is_kept_and_taken_once() {
         ..held(&new, "of another revision")
     };
 
-    let of_another_revision = test.hold_oidc_sign_in(&stale).await;
-    test.hold_oidc_sign_in(&asked).await.expect("held");
+    let of_another_revision = test.hold_oidc_sign_in(&stale).await.expect("asked");
+    assert!(test.hold_oidc_sign_in(&asked).await.expect("asked"), "held");
     let read = test
         .oidc_held_sign_in(&asked.held_hash, asked.create_at + SOON)
         .await
@@ -163,7 +163,10 @@ async fn a_sign_in_is_held_while_a_former_provider_is_kept_and_taken_once() {
         .await
         .expect("asked");
     // Past its end it is taken all the same, and is none.
-    test.hold_oidc_sign_in(&asked).await.expect("held again");
+    assert!(
+        test.hold_oidc_sign_in(&asked).await.expect("asked"),
+        "again"
+    );
     let ended = test
         .take_oidc_held_sign_in(&asked.held_hash, asked.expires_at)
         .await
@@ -176,14 +179,14 @@ async fn a_sign_in_is_held_while_a_former_provider_is_kept_and_taken_once() {
     test.end_oidc_former_provider(&new_id(), former_since(&test).await, now_millis())
         .await
         .expect("ended");
-    let without_a_former = test.hold_oidc_sign_in(&asked).await;
+    let without_a_former = test.hold_oidc_sign_in(&asked).await.expect("asked");
 
-    assert!(of_another_revision.is_err_and(|error| error.is_not_found()));
+    assert!(!of_another_revision, "not the provider as it vouched");
     assert_eq!(read.as_ref(), Some(&asked), "as it was held");
     assert_eq!(read_past_its_end, None);
     assert_eq!((taken, again), (Some(asked), None), "taken once");
     assert_eq!((ended, rows), (None, 0), "ended, and removed by the take");
-    assert!(without_a_former.is_err_and(|error| error.is_not_found()));
+    assert!(!without_a_former, "nothing is held once the keeping ended");
     test.teardown().await;
 }
 
@@ -204,7 +207,7 @@ async fn a_held_sign_in_is_carried_over_to_the_members_account() {
     let test = common::setup().await;
     let (new, member) = moved(&test).await;
     let asked = held(&new, "ada");
-    test.hold_oidc_sign_in(&asked).await.expect("held");
+    assert!(test.hold_oidc_sign_in(&asked).await.expect("asked"), "held");
 
     let carried = carry(&test, &new.id, &asked, at_the_old("member"), THEN).await;
     let again = carry(&test, &new.id, &asked, at_the_old("member"), THEN).await;
@@ -223,6 +226,11 @@ async fn a_held_sign_in_is_carried_over_to_the_members_account() {
     assert_eq!(
         (of_the_new[0].subject.as_str(), of_the_new[0].email.as_str()),
         ("ada", "ada@new.example.test")
+    );
+    assert_eq!(
+        of_the_new[0].create_at,
+        asked.create_at + THEN,
+        "tied at the time of the return"
     );
     let session = test
         .get_session(&asked.held_hash, 0, 0)
@@ -274,6 +282,10 @@ enum Meanwhile {
     AnotherSecret,
     /// The sign-in names another provider than the organization's.
     AnotherProvider,
+    /// The provider was switched off.
+    SwitchedOff,
+    /// The provider was removed, and what was held went with it.
+    Removed,
     /// The former provider vouches under another issuer than the one kept.
     AnotherFormerIssuer,
     /// The keeping of the former provider ended.
@@ -297,6 +309,8 @@ async fn what_does_not_hold_any_more_carries_nothing_over() {
         (Meanwhile::HeldEnded, Refusal::HeldGone),
         (Meanwhile::AnotherSecret, Refusal::HeldGone),
         (Meanwhile::AnotherProvider, Refusal::ProviderGone),
+        (Meanwhile::SwitchedOff, Refusal::ProviderGone),
+        (Meanwhile::Removed, Refusal::ProviderGone),
         (Meanwhile::AnotherFormerIssuer, Refusal::FormerGone),
         (Meanwhile::KeepingEnded, Refusal::FormerGone),
         (Meanwhile::NobodyKnown, Refusal::NoAccount),
@@ -307,7 +321,7 @@ async fn what_does_not_hold_any_more_carries_nothing_over() {
         let test = common::setup().await;
         let (new, member) = moved(&test).await;
         let asked = held(&new, "ada");
-        test.hold_oidc_sign_in(&asked).await.expect("held");
+        assert!(test.hold_oidc_sign_in(&asked).await.expect("asked"), "held");
         let mut provider_id = new.id.clone();
         let mut former = at_the_old("member");
         let mut after = THEN;
@@ -326,6 +340,21 @@ async fn what_does_not_hold_any_more_carries_nothing_over() {
             }
             Meanwhile::AnotherProvider => {
                 provider_id = new_id();
+                left(&test).await
+            }
+            Meanwhile::SwitchedOff => {
+                let off = StoredProvider {
+                    enabled: false,
+                    ..provider(NEW, "one")
+                };
+                test.put_oidc_provider_as_read(&off, Some(&new), &member, Duration::ZERO)
+                    .await
+                    .expect("asked")
+                    .expect("stored");
+                left(&test).await
+            }
+            Meanwhile::Removed => {
+                test.delete_oidc_provider(&member).await.expect("removed");
                 left(&test).await
             }
             Meanwhile::AnotherFormerIssuer => {
@@ -385,7 +414,7 @@ async fn an_identity_that_is_the_accounts_already_is_left_as_it_is() {
     let test = common::setup().await;
     let (new, member) = moved(&test).await;
     let asked = held(&new, "ada");
-    test.hold_oidc_sign_in(&asked).await.expect("held");
+    assert!(test.hold_oidc_sign_in(&asked).await.expect("asked"), "held");
     let theirs = Identity {
         issuer: NEW,
         subject: "ada",
@@ -401,6 +430,20 @@ async fn an_identity_that_is_the_accounts_already_is_left_as_it_is() {
     let of_the_new: Vec<_> = tied.iter().filter(|tied| tied.issuer == NEW).collect();
     assert_eq!(of_the_new.len(), 1, "{tied:?}");
     assert_eq!(of_the_new[0].email, "as it was tied");
+    let paging = Paging {
+        page: 0,
+        per_page: 100,
+    };
+    let records = test
+        .audit_records(AuditPlace::Organization, paging)
+        .await
+        .expect("records");
+    assert!(
+        !records
+            .iter()
+            .any(|record| record.action == AuditAction::OidcIdentityCarriedOver),
+        "nothing was carried over, and nothing is recorded as carried over"
+    );
     test.teardown().await;
 }
 
@@ -412,7 +455,7 @@ async fn a_held_sign_in_is_its_organizations_and_goes_when_it_ended() {
     let test = common::setup().await;
     let (new, _) = moved(&test).await;
     let asked = held(&new, "ada");
-    test.hold_oidc_sign_in(&asked).await.expect("held");
+    assert!(test.hold_oidc_sign_in(&asked).await.expect("asked"), "held");
     let flow = |held_hash: &str| LoginFlow {
         state_hash: format!("the state for {held_hash}"),
         browser_hash: "a browser".to_owned(),

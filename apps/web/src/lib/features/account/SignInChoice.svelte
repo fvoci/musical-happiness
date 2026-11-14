@@ -16,8 +16,8 @@
   import { problemOf } from './problems.ts';
 
   interface Props {
-    /** The organization's name; empty if it has none. */
-    name: string;
+    /** The organization's name, once the server has said it; empty if it has none. */
+    name: Promise<string>;
     /** Sends the browser to the provider used before; a refusal rejects. */
     onCarryOver: () => Promise<void>;
     /** Ends the held sign-in in a new account and goes on signed in; a refusal rejects. */
@@ -67,8 +67,15 @@
       <p class="text-2xl font-semibold tracking-tight" translate="no">{m.app_name()}</p>
       <h1 id="{uid}-title" class="mt-2 text-lg font-medium">{m.account_held_title()}</h1>
     </div>
+    <!-- Shown at once; the organization is named when the server has said its name. -->
     <p class="text-sm text-muted-foreground">
-      {name ? m.account_held_info({ name }) : m.account_held_info_unnamed()}
+      {#await name}
+        {m.account_held_info_unnamed()}
+      {:then said}
+        {said ? m.account_held_info({ name: said }) : m.account_held_info_unnamed()}
+      {:catch}
+        {m.account_held_info_unnamed()}
+      {/await}
     </p>
 
     <div class="grid gap-1.5">

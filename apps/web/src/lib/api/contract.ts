@@ -110,7 +110,8 @@ export interface paths {
          *     as a first sign-in through the provider does: an account is made for who the
          *     provider vouched for, a member of the organization, if the organization lets
          *     newcomers in and no account has their email address; the session comes in the
-         *     `Set-Cookie` header. The held sign-in is taken by this, whatever comes of it.
+         *     `Set-Cookie` header. The held sign-in is taken by this, whatever comes of it, and
+         *     its cookie cleared.
          *
          *     409 with the reason `oidc_carry_over_refused` if no sign-in of the organization is
          *     held for this browser, or the provider changed since; 409 with the reason a first
@@ -4708,12 +4709,12 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description To the web app, signed in or (with `oidc_linked=1`) linked, to the login page, or to the organization's page after a trial. */
+            /** @description To the web app, signed in or (with `oidc_linked=1`) linked; to the login page, with `oidc_error` for a sign-in that failed or `oidc_held=1` for one that is held; or to the organization's page after a trial. */
             303: {
                 headers: {
                     /** @description Where the browser goes. */
                     Location?: string;
-                    /** @description The session cookie, unless the sign-in linked or failed, and the cookie of the sign-in cleared. */
+                    /** @description The session cookie, unless the sign-in linked, is held or failed; the cookie of the held sign-in, set where one is held and cleared where one was carried over or left behind; and the cookie of the sign-in cleared. */
                     "Set-Cookie"?: string;
                     [name: string]: unknown;
                 };
@@ -4826,6 +4827,8 @@ export interface operations {
             /** @description Nothing is held, or no account is made for the person. */
             409: {
                 headers: {
+                    /** @description The cookie of the held sign-in cleared. */
+                    "Set-Cookie"?: string;
                     [name: string]: unknown;
                 };
                 content: {

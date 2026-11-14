@@ -126,7 +126,9 @@ describe('a sign-in held while the organization moves to another provider', () =
   it('asks whether the reader had an account, before any form', async () => {
     const { onCarryOver, onStartAnew } = mountHeld('/login?org=org-1&oidc_held=1');
     const choice = await screen.findByTestId('sign-in-choice');
-    expect(choice).toHaveTextContent('Acme changed how its people sign in');
+    await vi.waitFor(() => {
+      expect(choice).toHaveTextContent('Acme changed how its people sign in');
+    });
     expect(screen.queryByTestId('sign-in-form')).not.toBeInTheDocument();
     await fireEvent.click(screen.getByTestId('held-carry-over'));
     expect(onCarryOver).toHaveBeenCalledExactlyOnceWith('org-1');
@@ -162,6 +164,13 @@ describe('a sign-in held while the organization moves to another provider', () =
     expect(await screen.findByTestId('sign-in-form')).toBeInTheDocument();
     expect(screen.queryByTestId('sign-in-choice')).not.toBeInTheDocument();
     expect(location.search).toBe('?org=org-1');
+  });
+
+  it('names the organization in the address it goes back to as one value', async () => {
+    mountHeld('/login?org=a%26oidc_held%3D1&oidc_held=1');
+    await fireEvent.click(await screen.findByRole('button', { name: 'Back to sign-in' }));
+    expect(new URLSearchParams(location.search).get('org')).toBe('a&oidc_held=1');
+    expect(new URLSearchParams(location.search).has('oidc_held')).toBe(false);
   });
 
   it('shows the form where the address names no organization, or holds nothing', async () => {

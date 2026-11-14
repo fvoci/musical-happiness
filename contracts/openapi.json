@@ -3918,7 +3918,7 @@
         ],
         "responses": {
           "303": {
-            "description": "To the web app, signed in or (with `oidc_linked=1`) linked, to the login page, or to the organization's page after a trial.",
+            "description": "To the web app, signed in or (with `oidc_linked=1`) linked; to the login page, with `oidc_error` for a sign-in that failed or `oidc_held=1` for one that is held; or to the organization's page after a trial.",
             "headers": {
               "Location": {
                 "description": "Where the browser goes.",
@@ -3927,7 +3927,7 @@
                 }
               },
               "Set-Cookie": {
-                "description": "The session cookie, unless the sign-in linked or failed, and the cookie of the sign-in cleared.",
+                "description": "The session cookie, unless the sign-in linked, is held or failed; the cookie of the held sign-in, set where one is held and cleared where one was carried over or left behind; and the cookie of the sign-in cleared.",
                 "schema": {
                   "type": "string"
                 }
@@ -4050,7 +4050,7 @@
     },
     "/api/v1/auth/oidc/held/sign-in": {
       "post": {
-        "description": "For the login page, after a sign-in through the provider of the organization `org`\nwas held for this browser: for somebody who had no account. The held sign-in ends\nas a first sign-in through the provider does: an account is made for who the\nprovider vouched for, a member of the organization, if the organization lets\nnewcomers in and no account has their email address; the session comes in the\n`Set-Cookie` header. The held sign-in is taken by this, whatever comes of it.\n\n409 with the reason `oidc_carry_over_refused` if no sign-in of the organization is\nheld for this browser, or the provider changed since; 409 with the reason a first\nsign-in is refused with otherwise (`oidc_join_closed`, `oidc_email_missing`,\n`oidc_email_unverified`, `oidc_email_taken`, `oidc_unavailable`); 429 when this\naddress made too many sign-ins of late.",
+        "description": "For the login page, after a sign-in through the provider of the organization `org`\nwas held for this browser: for somebody who had no account. The held sign-in ends\nas a first sign-in through the provider does: an account is made for who the\nprovider vouched for, a member of the organization, if the organization lets\nnewcomers in and no account has their email address; the session comes in the\n`Set-Cookie` header. The held sign-in is taken by this, whatever comes of it, and\nits cookie cleared.\n\n409 with the reason `oidc_carry_over_refused` if no sign-in of the organization is\nheld for this browser, or the provider changed since; 409 with the reason a first\nsign-in is refused with otherwise (`oidc_join_closed`, `oidc_email_missing`,\n`oidc_email_unverified`, `oidc_email_taken`, `oidc_unavailable`); 429 when this\naddress made too many sign-ins of late.",
         "operationId": "finishHeldOidcLogin",
         "parameters": [
           {
@@ -4093,7 +4093,15 @@
                 }
               }
             },
-            "description": "Nothing is held, or no account is made for the person."
+            "description": "Nothing is held, or no account is made for the person.",
+            "headers": {
+              "Set-Cookie": {
+                "description": "The cookie of the held sign-in cleared.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "429": {
             "content": {

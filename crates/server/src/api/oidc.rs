@@ -240,10 +240,10 @@ pub(super) fn started_response(app: &App, started: StartedLogin) -> Response {
     security(()),
     responses((
         status = 303,
-        description = "To the web app, signed in or (with `oidc_linked=1`) linked, to the login page, or to the organization's page after a trial.",
+        description = "To the web app, signed in or (with `oidc_linked=1`) linked; to the login page, with `oidc_error` for a sign-in that failed or `oidc_held=1` for one that is held; or to the organization's page after a trial.",
         headers(
             ("Location" = String, description = "Where the browser goes."),
-            ("Set-Cookie" = String, description = "The session cookie, unless the sign-in linked or failed, and the cookie of the sign-in cleared."),
+            ("Set-Cookie" = String, description = "The session cookie, unless the sign-in linked, is held or failed; the cookie of the held sign-in, set where one is held and cleared where one was carried over or left behind; and the cookie of the sign-in cleared."),
         ),
     )),
 )]

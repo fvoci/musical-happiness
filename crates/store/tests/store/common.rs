@@ -387,7 +387,7 @@ pub(crate) async fn sign_in_under_way(store: &Store, name: &str) {
         .await
         .expect("asked")
         .expect("pending settings are stored");
-    store
+    let is_held = store
         .hold_oidc_sign_in(&fvoci_store::HeldSignIn {
             held_hash: format!("held for {name}"),
             org_id: provider.org_id.clone(),
@@ -403,7 +403,8 @@ pub(crate) async fn sign_in_under_way(store: &Store, name: &str) {
             expires_at: i64::MAX,
         })
         .await
-        .expect("a sign-in is held");
+        .expect("asked");
+    assert!(is_held, "a sign-in is held while a former provider is kept");
     store
         .create_oidc_login_flow(&fvoci_store::LoginFlow {
             state_hash: format!("state of {name}"),

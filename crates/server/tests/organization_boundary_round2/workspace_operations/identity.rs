@@ -145,9 +145,15 @@ async fn held(case: &mut Case) {
             "{}",
             refused.text()
         );
+        let sets_a_session = refused
+            .headers
+            .get_all(header::SET_COOKIE)
+            .iter()
+            .filter_map(|cookie| cookie.to_str().ok())
+            .any(|cookie| cookie.contains("session=") && !cookie.contains("Max-Age=0"));
         assert!(
-            refused.headers.get(header::SET_COOKIE).is_none(),
-            "{operation} sets no cookie when it is refused"
+            !sets_a_session,
+            "{operation} sets no session when it is refused"
         );
         case.record(operation, &refused);
     }

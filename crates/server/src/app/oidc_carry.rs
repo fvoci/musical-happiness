@@ -75,16 +75,34 @@ impl App {
             create_at: now,
             expires_at: now.saturating_add(HELD_SIGN_IN_LIFETIME_MILLIS),
         };
-        match self.store().hold_oidc_sign_in(&held).await {
-            Ok(()) => {
-                tracing::info!(org_id = %stored.org_id, "a sign-in of somebody without an account is held while the organization moves to its provider");
-                Ok(Some(secret))
-            }
-            Err(error) if error.is_not_found() => {
-                tracing::info!(org_id = %stored.org_id, "the provider changed while a sign-in through it was to be held");
-                Err(Reason::OidcUnavailable.into())
-            }
-            Err(error) => Err(logged(&error, "holding a sign-in")),
+        let is_held = self
+            .store()
+            .hold_oidc_sign_in(&held)
+            .await
+            .map_err(|error| logged(&error, "holding a sign-in"))?;
+        if !is_held {
+            // The keeping ended, or the provider changed, a moment ago: the sign-in
+            // goes on as ever, and where it ends the provider is read again.
+            return Ok(None);
+        }
+        tracing::info!(org_id = %stored.org_id, "a sign-in of somebody without an account is held while the organization moves to its provider");
+        Ok(Some(secret))
+    }
+
+    /// Takes the sign-in held under `held_hash` in the organization `org_id`, for a
+    /// sign-in to carry it over that came back and did not end well, wherever it
+    /// stopped: a held sign-in is tried once. What fails is logged, and the held
+    /// sign-in ends by its time.
+    pub(super) async fn drop_held(&self, org_id: &str, held_hash: &str) {
+        let Some(org) = self.enter_org_for_sign_in(org_id) else {
+            return;
+        };
+        if let Err(error) = org
+            .store()
+            .take_oidc_held_sign_in(held_hash, now_millis())
+            .await
+        {
+            tracing::warn!(%error, org_id, "unable to take a held sign-in whose carrying over failed");
         }
     }
 

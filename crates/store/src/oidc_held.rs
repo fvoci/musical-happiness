@@ -15,7 +15,7 @@ use fvoci_model::{AuditAction, LoginOrigin, Session};
 
 use crate::Store;
 use crate::audit::{self, AuditEntry};
-use crate::db::{Dialect, Id, Row, Scope, now_millis};
+use crate::db::{Dialect, Id, Row, Scope};
 use crate::error::StoreError;
 use crate::oidc::{self, Identity, hold_provider_of_organization, read_provider};
 use crate::oidc_former::read_former;
@@ -112,14 +112,15 @@ pub enum CarryOverRefusal {
 impl Store {
     /// Holds a sign-in through the provider of the handle's organization, if that is
     /// still the provider it came through, on, at the revision it vouched at, and a
-    /// former provider is kept at `held.create_at`. `held.org_id` is the handle's.
+    /// former provider is kept at `held.create_at`; and says whether it is held.
+    /// `held.org_id` is the handle's. One that is not held goes on as a sign-in
+    /// does, which reads the provider again where it ends.
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::NoOrganization`] if the handle names none,
-    /// [`StoreError::NotFound`] if the provider changed or no former one is kept, and
+    /// Returns [`StoreError::NoOrganization`] if the handle names none, and
     /// [`StoreError::Database`] if the statement fails.
-    pub async fn hold_oidc_sign_in(&self, held: &HeldSignIn) -> Result<(), StoreError> {
+    pub async fn hold_oidc_sign_in(&self, held: &HeldSignIn) -> Result<bool, StoreError> {
         self.with_conn(async |scope| {
             let mut sql = scope.sql(&format!(
                 "INSERT INTO oidc_held_sign_ins ({HELD_COLUMNS}) SELECT "
@@ -147,10 +148,7 @@ impl Store {
                 )
                 .push_bind(" AND former.expires_at > ", held.create_at)
                 .push(")");
-            if scope.execute(sql).await? == 0 {
-                return Err(StoreError::not_found("oidc provider"));
-            }
-            Ok(())
+            Ok(scope.execute(sql).await? > 0)
         })
         .await
     }
@@ -215,8 +213,8 @@ impl Store {
     /// held identity is tied to that account, with the address its provider gave,
     /// that is recorded as the account's doing, and `session` is stored for the
     /// account under `token_digest`, made through the provider. An identity that
-    /// is the account's already is left as it is. Nothing else is stored if any of
-    /// it is refused: no identity, no session.
+    /// is the account's already is left as it is, and nothing is recorded of it.
+    /// Nothing else is stored if any of it is refused: no identity, no session.
     ///
     /// # Errors
     ///
@@ -258,18 +256,26 @@ impl Store {
                 issuer: &held.issuer,
                 subject: &held.subject,
             };
-            if !tie_unless_taken(scope, identity, &user_id, &held.email).await? {
-                return Ok(Err(CarryOverRefusal::IdentityTaken));
+            let tying = Tying {
+                user_id: &user_id,
+                email: &held.email,
+                now: carry.now,
+            };
+            match tie_unless_taken(scope, identity, tying).await? {
+                Tied::Anothers => return Ok(Err(CarryOverRefusal::IdentityTaken)),
+                Tied::Already => {}
+                Tied::Newly => {
+                    let entry = AuditEntry::new(
+                        "",
+                        &user_id,
+                        AuditAction::OidcIdentityCarriedOver,
+                        &provider.org_id,
+                    )
+                    .with_subject(&user_id)
+                    .with_detail(&held.issuer);
+                    audit::record_entry(scope, &entry).await?;
+                }
             }
-            let entry = AuditEntry::new(
-                "",
-                &user_id,
-                AuditAction::OidcIdentityCarriedOver,
-                &provider.org_id,
-            )
-            .with_subject(&user_id)
-            .with_detail(&held.issuer);
-            audit::record_entry(scope, &entry).await?;
             session.user_id.clone_from(&user_id);
             session.login = Some(LoginOrigin {
                 provider_id: provider.id,
@@ -334,29 +340,50 @@ async fn hold_account_of(
     Ok(scope.fetch_optional(sql).await?.map(|_| user_id))
 }
 
-/// Ties `identity` to the account unless it is somebody's already, in one statement:
-/// of two at once the second waits for the first and ties nothing. Says whether it is
-/// the account's then.
-async fn tie_unless_taken(
+/// The account an identity is to be tied to, the address its provider gave (empty
+/// for none), and the time it is tied at.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Tying<'a> {
+    pub(crate) user_id: &'a str,
+    pub(crate) email: &'a str,
+    pub(crate) now: i64,
+}
+
+/// What came of tying an identity to an account.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Tied {
+    /// It is the account's now, by this.
+    Newly,
+    /// It was the account's already, and is left as it was.
+    Already,
+    /// It is another account's, in use or deleted: nothing is tied.
+    Anothers,
+}
+
+/// Ties `identity` to an account unless it is somebody's already, in one statement:
+/// of two at once the second waits for the first and ties nothing.
+pub(crate) async fn tie_unless_taken(
     scope: &mut Scope<'_>,
     identity: Identity<'_>,
-    user_id: &str,
-    email: &str,
-) -> Result<bool, StoreError> {
+    tying: Tying<'_>,
+) -> Result<Tied, StoreError> {
     let mut sql = scope
         .sql("INSERT INTO user_identities (issuer, subject, user_id, email, create_at) VALUES (");
     sql.bind(identity.issuer)
         .push_bind(", ", identity.subject)
-        .push_bind(", ", Id(user_id))
-        .push_bind(", ", email)
-        .push_bind(", ", now_millis())
+        .push_bind(", ", Id(tying.user_id))
+        .push_bind(", ", tying.email)
+        .push_bind(", ", tying.now)
         .push(") ON CONFLICT (issuer, subject) DO NOTHING");
-    scope.execute(sql).await?;
+    if scope.execute(sql).await? > 0 {
+        return Ok(Tied::Newly);
+    }
     let mut sql = scope.sql("SELECT user_id FROM user_identities WHERE issuer = ");
     sql.bind(identity.issuer)
         .push_bind(" AND subject = ", identity.subject);
     match scope.fetch_optional(sql).await? {
-        Some(row) => Ok(row.id(0)? == user_id),
+        Some(row) if row.id(0)? == tying.user_id => Ok(Tied::Already),
+        Some(_) => Ok(Tied::Anothers),
         None => Err(StoreError::NoRows),
     }
 }
