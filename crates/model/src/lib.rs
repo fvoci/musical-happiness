@@ -13,6 +13,7 @@ mod auth;
 mod block;
 mod block_ids;
 mod board;
+mod board_teams;
 mod boards_and_blocks;
 mod body;
 mod card;
@@ -25,6 +26,7 @@ mod deleted_item;
 mod file_info;
 mod id;
 mod invitation;
+mod name;
 mod oidc;
 mod org_admin;
 mod organization;
@@ -35,6 +37,7 @@ mod serde_util;
 mod settings;
 mod sharing;
 mod subscription;
+mod team;
 mod upload;
 mod user;
 mod workspace;
@@ -56,6 +59,7 @@ pub use board::{
     Board, BoardError, BoardMember, BoardPatch, BoardRole, BoardSearchField, BoardType,
     MinimumRole, ParseBoardSearchFieldError,
 };
+pub use board_teams::{BoardTeam, BoardTeamRole};
 pub use boards_and_blocks::{
     BoardsAndBlocks, BoardsAndBlocksError, DeleteBoardsAndBlocks, PatchBoardsAndBlocks,
     generate_boards_and_blocks_ids, renew_boards_and_blocks_ids,
@@ -86,6 +90,7 @@ pub use invitation::{
     AcceptInvitation, AcceptedInvitation, GUEST_INVITATION_USES, INVITATION_LIFETIME_MILLIS,
     Invitation, InvitationMail, InvitationPreview, InvitationToken, NewInvitation,
 };
+pub use name::{Named, required_name};
 pub use oidc::{
     LinkedIdentity, LoginOptions, LoginOrganization, OIDC_CLIENT_FIELD_MAX_BYTES,
     OIDC_ISSUER_MAX_BYTES, OidcProvider, OidcProviderSettings, OidcStart, OidcStartRequest,
@@ -112,6 +117,7 @@ pub use settings::{
 };
 pub use sharing::Sharing;
 pub use subscription::{Subscriber, SubscriberType, Subscription, SubscriptionError};
+pub use team::{Team, TeamMember, TeamName, team_name, team_name_key};
 pub use upload::{MAX_UPLOAD_PARTS, Upload, UploadPart, UploadPurpose};
 pub use user::{Session, User, UserPreferencesPatch};
 pub use workspace::{GuestInvitationsChange, Workspace};

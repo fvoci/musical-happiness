@@ -14,6 +14,7 @@ import type {
 import type { Schemas } from './convert.ts';
 import type { Http } from './http.ts';
 import { ServerInvitationMail } from './invitation-mail.ts';
+import { ServerTeams } from './teams.ts';
 
 /** A link as the pages have it: the members that are left out when they are empty, left out. */
 function invitationOf(link: Schemas['Invitation']): Invitation {
@@ -31,10 +32,12 @@ function invitationOf(link: Schemas['Invitation']): Invitation {
 
 export class ServerPeople implements People {
   readonly #http: Http;
+  readonly teams: ServerTeams;
   readonly mail: ServerInvitationMail;
 
   constructor(http: Http) {
     this.#http = http;
+    this.teams = new ServerTeams(http);
     this.mail = new ServerInvitationMail(http);
   }
 

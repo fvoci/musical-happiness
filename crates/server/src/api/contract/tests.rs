@@ -501,6 +501,10 @@ const ORDERS: &[(&str, &str)] = &[
         "getBlocks",
         "Oldest first; the blocks that one request made come in the order that request had them in",
     ),
+    (
+        "getBoardTeams",
+        "Ordered by team name in any letter case, by code point, then by identifier",
+    ),
     ("getCards", "Oldest first; the pages cut that order"),
     ("getCategories", "by `sortOrder`, lowest first"),
     ("getCommentVersions", "The first one first"),
@@ -528,6 +532,10 @@ const ORDERS: &[(&str, &str)] = &[
     (
         "getSubscriptions",
         "Oldest first, and by the identifier of the block",
+    ),
+    (
+        "getTeams",
+        "ordered by name in any letter case, by code point",
     ),
     ("getTemplates", "Each of the two oldest first"),
     ("getWorkspaceAudit", "the newest first"),

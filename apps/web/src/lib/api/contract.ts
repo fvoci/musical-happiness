@@ -914,7 +914,9 @@ export interface paths {
          * @description The user's memberships, with the roles of each, of the boards of the workspaces the
          *     user is a member of, in every organization the session opens: one that takes only
          *     sessions made through its provider leaves its boards out of another session's list.
-         *     By the identifier of the board.
+         *     A board the user has a role on only through a team of its workspace is listed too
+         *     (`synthetic`, with the team's role in `inheritedRole`); a guest is in no team. By the
+         *     identifier of the board.
          */
         get: operations["getMyMemberships"];
         put?: never;
@@ -1288,7 +1290,8 @@ export interface paths {
         /**
          * Delete a board
          * @description The board goes to the trash with its blocks and its members, and `undeleteBoard`
-         *     brings it back until the trash is emptied of it. Its sharing ends, with its read
+         *     brings it back until the trash is emptied of it. Team IDs and their roles are kept,
+         *     but grant no access while the board is in the trash. Its sharing ends, with its read
          *     token, and so do its places in the users' sidebars and the subscriptions to its
          *     blocks; those do not come back with the board. For the board's admins.
          */
@@ -1795,6 +1798,56 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/w/{workspaceId}/boards/{boardId}/teams": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the teams assigned to a board
+         * @description For nonguest members allowed to list board members. Includes the team's current
+         *     people and its role. Ordered by team name in any letter case, by code point, then by
+         *     identifier.
+         *     Direct memberships remain separate.
+         */
+        get: operations["getBoardTeams"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/boards/{boardId}/teams/{teamId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Give or change a team's board role
+         * @description For board administrators and workspace administrators. The role is viewer,
+         *     commenter, or editor; admin is rejected. The board and team must belong to this
+         *     workspace and are checked before decoding the body. Managed access is audited.
+         */
+        put: operations["setBoardTeam"];
+        post?: never;
+        /**
+         * Remove a team's board role
+         * @description For board administrators and workspace administrators. Direct roles and the
+         *     roles inherited from other teams remain. Idempotent for an existing team.
+         */
+        delete: operations["removeBoardTeam"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/w/{workspaceId}/boards/{boardId}/trash/cards": {
         parameters: {
             query?: never;
@@ -1836,9 +1889,10 @@ export interface paths {
          *     category and place, hidden or not) or in the default category if that one was
          *     deleted since, and is told with `UPDATE_BOARD_CATEGORY` and the category's
          *     `REORDER_CATEGORY_BOARDS`. Its sharing and the subscriptions to its blocks ended with
-         *     the deletion and stay ended. For who was an admin of the board when it was deleted,
-         *     and for the workspace's administrators (who, if they were no member, get it without
-         *     its description and properties); to anybody else there is no such board.
+         *     the deletion and stay ended. Surviving teams regain their saved roles for their
+         *     current members; deleted teams are skipped. For who was an admin of the board when
+         *     it was deleted, and for the workspace's administrators (who, if they were no member,
+         *     get it without its description and properties); to anybody else there is no such board.
          */
         post: operations["undeleteBoard"];
         delete?: never;
@@ -2381,6 +2435,96 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/w/{workspaceId}/teams": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the workspace's teams
+         * @description Includes the login and display names of their nonguest members, ordered by user
+         *     identifier. Teams are ordered by name in any letter case, by code point and not by
+         *     any language's alphabet (`Émile` after `zeta`), then by identifier, alike on every
+         *     database. Guests are answered 404.
+         */
+        get: operations["getTeams"];
+        put?: never;
+        /**
+         * Create an empty team
+         * @description For workspace administrators. The name is read as an organization's at sign-up:
+         *     surrounding
+         *     whitespace is removed, and a name that is then empty, longer than 64 characters or
+         *     holds a control character or one that shows nothing or turns the text around is 400
+         *     at `/name` with the reason `required`, `too_long` or `invalid_characters`. The name of
+         *     another team of this workspace, in any letter case, is 409 with the reason
+         *     `team_name_taken`.
+         */
+        post: operations["createTeam"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/teams/{teamId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a team in this workspace
+         * @description A team outside the workspace or a guest is answered 404.
+         */
+        get: operations["getTeam"];
+        /**
+         * Rename a team
+         * @description For workspace administrators. The same name rules as creation apply. The team is
+         *     checked before the request body, so a team in another workspace is always 404.
+         */
+        put: operations["renameTeam"];
+        post?: never;
+        /**
+         * Delete a team and its board roles
+         * @description For workspace administrators. This does not delete the people's accounts or
+         *     change their membership of the workspace or their direct roles on boards.
+         */
+        delete: operations["deleteTeam"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/teams/{teamId}/members/{userId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Add a nonguest workspace member to a team
+         * @description For workspace administrators. Idempotent. A guest or somebody outside the
+         *     workspace is 404. Removing a workspace member or making them a guest removes
+         *     them from every team of that workspace. A person joined as organization administrator
+         *     cannot add themselves: 403, reason `team_self_joining`. Other administrators may add them.
+         */
+        put: operations["addTeamMember"];
+        post?: never;
+        /**
+         * Remove a person from a team
+         * @description For workspace administrators. Idempotent within a team that exists.
+         */
+        delete: operations["removeTeamMember"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/w/{workspaceId}/templates": {
         parameters: {
             query?: never;
@@ -2795,6 +2939,7 @@ export interface components {
         BoardMember: {
             /** @description The identifier of the board. */
             boardId: string;
+            inheritedRole?: components["schemas"]["MinimumRole"] | null;
             /** @description The user administers the board. */
             schemeAdmin: boolean;
             /** @description The user may comment on the board's cards. */
@@ -2803,6 +2948,8 @@ export interface components {
             schemeEditor: boolean;
             /** @description The user may view the board. */
             schemeViewer: boolean;
+            /** @description The membership has no directly stored role record. */
+            synthetic?: boolean;
             /** @description The identifier of the user. */
             userId: string;
         };
@@ -2830,6 +2977,18 @@ export interface components {
             updatedProperties?: {
                 [key: string]: unknown;
             };
+        };
+        /** @description A workspace team and the role its members inherit on a board. */
+        BoardTeam: {
+            /** @description No team may administer a board. */
+            role: components["schemas"]["MinimumRole"];
+            /** @description The group, including its current nonguest members. */
+            team: components["schemas"]["Team"];
+        };
+        /** @description The role given to a team on a board. */
+        BoardTeamRole: {
+            /** @description The team's role, at most editor. */
+            role: components["schemas"]["MinimumRole"];
         };
         /**
          * @description Who may see and join a board.
@@ -3973,6 +4132,35 @@ export interface components {
             /** @description The kind of entity that subscribes. */
             subscriberType: components["schemas"]["SubscriberType"];
         };
+        /** @description A named group of people within a workspace. */
+        Team: {
+            /** @description The group's identifier. */
+            id: string;
+            /** @description Its people, ordered by user identifier. */
+            members: components["schemas"]["TeamMember"][];
+            /** @description Its name, unique within the workspace in any letter case. */
+            name: string;
+            /** @description The workspace it belongs to. */
+            workspaceId: string;
+        };
+        /** @description A person in a team. Neither email addresses nor credentials are exposed. */
+        TeamMember: {
+            /** @description Their displayed name, empty when none is set. */
+            displayName: string;
+            /** @description The person's identifier. */
+            userId: string;
+            /** @description Their login name. */
+            username: string;
+        };
+        /** @description The name when creating or renaming a team. */
+        TeamName: {
+            /**
+             * @description The name, by the rule of an organization's: surrounding whitespace is removed, and
+             *     what is left is 1 to 64 characters (UTF-16 code units), none of them a control
+             *     character or one that shows nothing, breaks a line or turns the text around.
+             */
+            name: string;
+        };
         /**
          * @description The colors of the interface.
          * @enum {string}
@@ -4185,6 +4373,8 @@ export interface components {
             createAt: number;
             /** @description The name the user is shown by; empty if they have none. */
             displayName: string;
+            /** @description Whether this membership is a temporary joining as organization administrator. */
+            joinedAsOrgAdmin: boolean;
             /** @description What the user is in the workspace. */
             role: components["schemas"]["WorkspaceRole"];
             /** @description The identifier of the user. */
@@ -7302,6 +7492,112 @@ export interface operations {
             };
         };
     };
+    getBoardTeams: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
+                workspaceId: string;
+                /** @description The identifier of the board. */
+                boardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Assigned teams. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoardTeam"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    setBoardTeam: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
+                workspaceId: string;
+                /** @description The identifier of the board. */
+                boardId: string;
+                /** @description The identifier of a team within this workspace. */
+                teamId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BoardTeamRole"];
+            };
+        };
+        responses: {
+            /** @description The team has this role. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    removeBoardTeam: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
+                workspaceId: string;
+                /** @description The identifier of the board. */
+                boardId: string;
+                /** @description The identifier of a team within this workspace. */
+                teamId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The team has no role on this board. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     getDeletedCards: {
         parameters: {
             query?: {
@@ -8198,6 +8494,246 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Subscription"][];
                 };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getTeams: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Teams. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Team"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    createTeam: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TeamName"];
+            };
+        };
+        responses: {
+            /** @description The new team. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Team"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getTeam: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
+                workspaceId: string;
+                /** @description The identifier of a team within this workspace. */
+                teamId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The team. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Team"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    renameTeam: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
+                workspaceId: string;
+                /** @description The identifier of a team within this workspace. */
+                teamId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TeamName"];
+            };
+        };
+        responses: {
+            /** @description The renamed team. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Team"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    deleteTeam: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
+                workspaceId: string;
+                /** @description The identifier of a team within this workspace. */
+                teamId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The team is deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    addTeamMember: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
+                workspaceId: string;
+                /** @description The identifier of a team within this workspace. */
+                teamId: string;
+                /** @description The identifier of the user. */
+                userId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The person is in the team. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    removeTeamMember: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
+                workspaceId: string;
+                /** @description The identifier of a team within this workspace. */
+                teamId: string;
+                /** @description The identifier of the user. */
+                userId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The person is out of the team. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
             default: {

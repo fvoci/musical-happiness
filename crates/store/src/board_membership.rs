@@ -1,6 +1,6 @@
 //! Making a user a member of a board, and recording it where that is to be accounted for.
 
-use fvoci_model::{BoardMember, WorkspaceRole};
+use fvoci_model::{BoardMember, BoardRole, WorkspaceRole};
 
 use crate::Store;
 use crate::audit::{self, AuditEntry};
@@ -22,6 +22,8 @@ pub struct Standing<'a> {
     pub workspace_role: Option<WorkspaceRole>,
     /// Their membership of the board; `None` if they were no member of it.
     pub member: Option<&'a BoardMember>,
+    /// Their highest inherited board role when authorization was checked.
+    pub team_role: Option<BoardRole>,
 }
 
 impl Store {
@@ -268,7 +270,10 @@ async fn standing_holds(
             member.scheme_viewer,
         ]
     };
-    if now_role == asked.workspace_role && now_member.as_ref().map(flags) == asked.member.map(flags)
+    let team_role = crate::board_team_access::role_for(scope, board_id, asked.user_id).await?;
+    if now_role == asked.workspace_role
+        && now_member.as_ref().map(flags) == asked.member.map(flags)
+        && team_role == asked.team_role
     {
         Ok(())
     } else {

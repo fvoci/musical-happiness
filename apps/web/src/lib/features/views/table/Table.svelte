@@ -11,7 +11,7 @@
 
   The parts: HeaderCell (the menu and the width of a column), Row (a card),
   GroupHeader, CalculationCell. What they need of the table is in the
-  controller, table.svelte.ts; this file lays them out and reads the keys.
+  controller, table-controller.svelte.ts; this file lays them out and reads the keys.
 -->
 <script lang="ts">
   import { untrack } from 'svelte';
@@ -32,7 +32,7 @@
   import HeaderCell from './HeaderCell.svelte';
   import { CELL_FOCUS, DROP_LINE_ROW, ROW, ROW_HEIGHT } from './host.ts';
   import Row from './Row.svelte';
-  import { TableController, type RowList } from './table.svelte.ts';
+  import { TableController, type RowList } from './table-controller.svelte.ts';
 
   let { board, view, cards, cardHref, onOpenCard }: ViewProps = $props();
 

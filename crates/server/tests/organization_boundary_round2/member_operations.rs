@@ -26,6 +26,8 @@ struct Named {
     invitation: String,
     invitation_id: String,
     read_token: String,
+    /// A team of the workspace with a role on the board, which the member is in.
+    team: String,
 }
 
 /// What a plain member who is on the board is answered 404 in the first organization
@@ -114,6 +116,7 @@ impl Named {
             .replace("{subscriberId}", &self.member_id)
             .replace("{categoryId}", &self.category)
             .replace("{invitationId}", &self.invitation_id)
+            .replace("{teamId}", &self.team)
             .replace("{partNumber}", "1")
     }
 
@@ -229,18 +232,8 @@ async fn organization(server: &TestServer, name: &str) -> Named {
         )
         .await
         .value();
-    let access = server
-        .app
-        .store()
-        .resolve_workspace(&member_id, &workspace)
-        .await
-        .expect("the directory answers")
-        .expect("the member is in the workspace");
-    assert_eq!(
-        (access.workspace_role, access.org_role),
-        (WorkspaceRole::Member, Some(OrgRole::Member)),
-        "a plain member asks"
-    );
+    let team = team_on_board(&founder, &at, &board, &member_id).await;
+    plain_member(server, &member_id, &workspace).await;
     Named {
         member,
         member_id,
@@ -254,7 +247,50 @@ async fn organization(server: &TestServer, name: &str) -> Named {
         org,
         workspace,
         board,
+        team,
     }
+}
+
+/// The member of the workspace `workspace` asks as a plain member: no administrator of
+/// the workspace or of the organization.
+async fn plain_member(server: &TestServer, member_id: &str, workspace: &str) {
+    let access = server
+        .app
+        .store()
+        .resolve_workspace(member_id, workspace)
+        .await
+        .expect("the directory answers")
+        .expect("the member is in the workspace");
+    assert_eq!(
+        (access.workspace_role, access.org_role),
+        (WorkspaceRole::Member, Some(OrgRole::Member)),
+        "a plain member asks"
+    );
+}
+
+/// A team of the workspace at `at` with the member in it and a role on the board: the
+/// member asks its teams' routes too.
+async fn team_on_board(founder: &Client, at: &str, board: &str, member_id: &str) -> String {
+    let team = founder
+        .post(&format!("{at}/teams"), &json!({"name": "Design"}))
+        .await
+        .value();
+    let team = text(&team, "id");
+    founder
+        .put(
+            &format!("{at}/teams/{team}/members/{member_id}"),
+            &json!({}),
+        )
+        .await
+        .check_no_content();
+    founder
+        .put(
+            &format!("{at}/boards/{board}/teams/{team}"),
+            &json!({"role": "viewer"}),
+        )
+        .await
+        .check_no_content();
+    team
 }
 
 fn text(value: &Value, field: &str) -> String {

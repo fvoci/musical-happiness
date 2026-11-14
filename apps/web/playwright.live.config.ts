@@ -29,7 +29,7 @@ export default defineConfig({
   // One server, one database: the tests run one after another.
   workers: 1,
   use: {
-    baseURL: `http://127.0.0.1:${PORT}`,
+    baseURL: `http://localhost:${PORT}`,
     trace: 'retain-on-failure',
   },
   // The tests of the first use start on a server that nobody has used: they
@@ -54,7 +54,7 @@ export default defineConfig({
     {
       name: 'organizations',
       testMatch: ORGANIZATIONS,
-      use: { ...devices['Desktop Chrome'], baseURL: `http://127.0.0.1:${PORT + 4}` },
+      use: { ...devices['Desktop Chrome'], baseURL: `http://localhost:${PORT + 4}` },
     },
   ],
   webServer: [

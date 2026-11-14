@@ -22,6 +22,24 @@ use super::{answer, db_type_of_the_tests};
 // identifier of nothing; `{partNumber}` with 1.
 pub(super) const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
     ("GET", "", "getWorkspace"),
+    ("GET", "/boards/{boardId}/teams", "getBoardTeams"),
+    ("PUT", "/boards/{boardId}/teams/{teamId}", "setBoardTeam"),
+    (
+        "DELETE",
+        "/boards/{boardId}/teams/{teamId}",
+        "removeBoardTeam",
+    ),
+    ("GET", "/teams", "getTeams"),
+    ("POST", "/teams", "createTeam"),
+    ("GET", "/teams/{teamId}", "getTeam"),
+    ("PUT", "/teams/{teamId}", "renameTeam"),
+    ("DELETE", "/teams/{teamId}", "deleteTeam"),
+    ("PUT", "/teams/{teamId}/members/{userId}", "addTeamMember"),
+    (
+        "DELETE",
+        "/teams/{teamId}/members/{userId}",
+        "removeTeamMember",
+    ),
     ("GET", "/archive/export", "exportWorkspaceArchive"),
     ("POST", "/archive/import", "importArchive"),
     ("POST", "/archive/uploads", "createImportUpload"),
@@ -749,6 +767,7 @@ struct Items<'a> {
     user: &'a str,
     /// A live link that lets members into the items' workspace.
     invitation: &'a str,
+    team: &'a str,
     /// The subscriber of the path, and the one of the same path for nothing: the asker
     /// themselves for both when they are subscribed to the card.
     subscriber: (&'a str, &'a str),
@@ -772,6 +791,7 @@ async fn compare_resource_routes(
         category,
         user,
         invitation,
+        team,
         subscriber,
     } = items;
     let caller = client.me().await.id;
@@ -808,6 +828,7 @@ async fn compare_resource_routes(
                     .replace("{uploadId}", &pick(absent, upload_id, "missing-upload"))
                     .replace("{userId}", &pick(absent, user, UNKNOWN_ID))
                     .replace("{invitationId}", &pick(absent, invitation, UNKNOWN_ID))
+                    .replace("{teamId}", &pick(absent, team, UNKNOWN_ID))
                     .replace(
                         "{subscriberId}",
                         if absent { subscriber.1 } else { subscriber.0 },
@@ -991,6 +1012,7 @@ async fn identifier_only_inventory_hides_resources_of_an_unjoined_workspace() {
         .expect("a guest who has no board invitation");
     let category = hidden_category(&ts, &owner).await;
     let invitation = a_link_into(&ts, HIDDEN_WORKSPACE_ID, &owner).await;
+    let team = a_team_in(&ts, &board.workspace_id, &board.created_by).await;
     let items = Items {
         board: &board,
         card: &card,
@@ -999,6 +1021,7 @@ async fn identifier_only_inventory_hides_resources_of_an_unjoined_workspace() {
         category: &category,
         user: &owner,
         invitation: &invitation,
+        team: &team,
         subscriber: (&owner, UNKNOWN_ID),
     };
     let mut violations = compare_resource_routes(&ts.client, ROOT_WORKSPACE_ID, &items).await;
@@ -1354,6 +1377,7 @@ async fn what_is_of_one_workspace_is_not_there_under_another() {
         "followed in its workspace"
     );
     let invitation = a_link_into(&ts, TEST_WORKSPACE_ID, &me).await;
+    let team = a_team_in(&ts, &board.workspace_id, &board.created_by).await;
     let items = Items {
         board: &board,
         card: &card,
@@ -1362,6 +1386,7 @@ async fn what_is_of_one_workspace_is_not_there_under_another() {
         category: &category,
         user: &elsewhere,
         invitation: &invitation,
+        team: &team,
         subscriber: (&me, &me),
     };
     let violations = compare_resource_routes(&ts.client, ROOT_WORKSPACE_ID, &items).await;
@@ -1375,4 +1400,16 @@ async fn what_is_of_one_workspace_is_not_there_under_another() {
         "what is of the test workspace, asked for under the root one:\n{}",
         violations.join("\n")
     );
+}
+
+/// A real group for every resource guard, including bodies that do not decode.
+async fn a_team_in(ts: &crate::common::TestServer, workspace_id: &str, owner: &str) -> String {
+    ts.app.store().execute_unchecked(&format!(
+        "UPDATE workspace_members SET role = 'admin' WHERE workspace_id = '{workspace_id}' AND user_id = '{owner}'"
+    )).await.expect("the fixture owner administers its workspace");
+    ts.app
+        .store()
+        .create_team(workspace_id, "Resource guard group", owner)
+        .await
+        .expect("a team in the resource's workspace")
 }

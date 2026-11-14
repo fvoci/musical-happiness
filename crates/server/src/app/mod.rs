@@ -46,6 +46,7 @@ mod sso;
 mod startup;
 mod store_metrics;
 mod subscriptions;
+mod teams;
 mod templates;
 mod trash;
 mod uploads;

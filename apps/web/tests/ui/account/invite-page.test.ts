@@ -222,12 +222,14 @@ describe('the sign-in page and who may make an account', () => {
 
   it('starts an organization with the account where the server takes one', async () => {
     const { onRegister, onSignIn } = signInPage(true);
-    await fireEvent.click(await screen.findByRole('button', { name: 'New here? Start a team' }));
-    await fill(/^team name$/i, ' Acme ');
+    await fireEvent.click(
+      await screen.findByRole('button', { name: 'New here? Start an organization' }),
+    );
+    await fill(/^organization name$/i, ' Acme ');
     await fill(/^user name$/i, 'ada');
     await fill(/email/i, 'ada@example.test');
     await fill(/^password$/i, 'a long password');
-    await fireEvent.click(screen.getByRole('button', { name: 'Start team' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Start organization' }));
     await waitFor(() => {
       expect(onSignIn).toHaveBeenCalledExactlyOnceWith('ada', 'a long password');
     });
@@ -243,8 +245,10 @@ describe('the sign-in page and who may make an account', () => {
   it('offers no account where the server has its organization, and says what to ask for', async () => {
     signInPage(false);
     expect(await screen.findByTestId('invitation-needed')).toHaveTextContent(
-      'No account yet? Ask an administrator of your team for an invite link.',
+      'No account yet? Ask an administrator of your organization for an invite link.',
     );
-    expect(screen.queryByRole('button', { name: /start a team/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /start an organization/i }),
+    ).not.toBeInTheDocument();
   });
 });

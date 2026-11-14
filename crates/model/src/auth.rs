@@ -3,6 +3,7 @@
 use std::fmt;
 
 use crate::allowlist::utf16_len;
+use crate::name::{self, Named};
 use crate::problem::json_pointer;
 use crate::refusal::{Refusal, RefusalReason, Refusals};
 use crate::serde_util::null_as_default;
@@ -68,35 +69,14 @@ pub fn display_name(raw: &str) -> Result<String, AuthParamError> {
 pub const ORGANIZATION_NAME_MAX_LENGTH: usize = 64;
 
 /// Reads the name of the organization somebody starts by signing up, which is the
-/// name of its first workspace too: without the white space around it, not empty, and
-/// otherwise as [`display_name`] has a name. Returns the name to store.
+/// name of its first workspace too, by the rule of [`crate::required_name`].
 ///
 /// # Errors
 ///
 /// Returns an [`AuthParamError`] for `organizationName` if the name is blank, too long or
 /// holds a character it may not.
 pub fn organization_name(raw: &str) -> Result<String, AuthParamError> {
-    let name = display_name(raw).map_err(|error| {
-        let message = match error.reason() {
-            RefusalReason::TooLong => {
-                format!(
-                    "an organization name has at most {ORGANIZATION_NAME_MAX_LENGTH} characters"
-                )
-            }
-            _ => "an organization name has no control characters, and none that show nothing or \
-                  turn the text around"
-                .to_owned(),
-        };
-        AuthParamError::new("organizationName", error.reason(), message)
-    })?;
-    if name.is_empty() {
-        return Err(AuthParamError::new(
-            "organizationName",
-            RefusalReason::Required,
-            "organization name is required",
-        ));
-    }
-    Ok(name)
+    name::required_name(raw, Named::Organization)
 }
 
 // An organization is named as a person is: one rule for both.

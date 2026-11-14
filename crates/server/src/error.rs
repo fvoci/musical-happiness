@@ -11,9 +11,8 @@
 //! as a number and nothing else of HTTP.
 
 use fvoci_model::{
-    AuthParamError, BlockError, BoardError, CardError, CategoryError, InvalidInput, Problem,
-    RELATION_LIMIT, Refusal, Refusals, RelationError, RelationProblem, SubscriptionError,
-    json_pointer,
+    AuthParamError, BlockError, BoardError, CategoryError, InvalidInput, Problem, Refusal,
+    Refusals, SubscriptionError, json_pointer,
 };
 use fvoci_store::StoreError;
 
@@ -184,6 +183,8 @@ reasons! {
     AdminRequired => "admin_required", "Administrator required";
     /// A guest of the workspace is given no role on a board above editor.
     GuestRoleLimit => "guest_role_limit", "A guest is no more than an editor";
+    /// A temporary organization administrator cannot add themselves to a team.
+    TeamSelfJoining => "team_self_joining", "Cannot add yourself to a team during administrative joining";
     /// Public sharing is turned off in the server's configuration.
     SharingDisabled => "sharing_disabled", "Public sharing turned off";
     /// The user has as many uploads in parts open as one may.
@@ -278,6 +279,8 @@ reasons! {
     RelationCardNotFound => "relation_card_not_found", "Card relation names a card not on the board";
     /// Another workspace in use of the organization has the name.
     WorkspaceNameTaken => "workspace_name_taken", "Workspace name taken";
+    /// Another team of the workspace has the name, in some letter case.
+    TeamNameTaken => "team_name_taken", "Team name taken";
     /// The organization's default workspace is not deleted.
     DefaultWorkspace => "default_workspace", "Default workspace";
     /// The change would leave the organization without an administrator.
@@ -808,6 +811,9 @@ impl From<anyhow::Error> for AppError {
 impl From<StoreError> for AppError {
     fn from(error: StoreError) -> Self {
         match error {
+            StoreError::TeamSelfJoining => {
+                Self::forbidden(error).with_reason(Reason::TeamSelfJoining)
+            }
             // What was not found is in the store's message, which names identifiers; the
             // answer does not repeat it. Routes say what kind of thing they miss.
             StoreError::NotFound(_) | StoreError::NotAllFound { .. } | StoreError::NoRows => {
@@ -925,71 +931,12 @@ impl From<CategoryError> for AppError {
     }
 }
 
-impl From<BlockError> for AppError {
-    fn from(error: BlockError) -> Self {
-        match error {
-            BlockError::TitleSizeLimitExceeded
-            | BlockError::FieldsSizeLimitExceeded
-            | BlockError::InvalidCardProperties(_) => Self::bad_request(error),
-            BlockError::BodyNotAllowed | BlockError::ImageWithoutFile => {
-                Self::bad_request(error).with_field("body")
-            }
-            BlockError::NulInTitle => Self::bad_request(error).with_field("title"),
-            BlockError::InvalidCardField { .. } => Self::bad_request(error).with_field("fields"),
-            BlockError::InvalidRelation(error) => Self::from(error),
-            BlockError::TypeNotCurrent(_) | BlockError::TypeStrandsComments => {
-                Self::bad_request(error).with_field("type")
-            }
-            BlockError::ParentNotOnBoard
-            | BlockError::ParentBelowBlock
-            | BlockError::CommentNotOnCard
-            | BlockError::ParentIsComment => Self::bad_request(error).with_field("parentId"),
-            BlockError::EmptyBoardId => Self::from(anyhow::Error::from(error)),
-        }
-    }
-}
-
-impl From<RelationError> for AppError {
-    /// A bad request on `fields` (where a card's property values are), with the reason
-    /// of the problem: the words name the property, and no card.
-    fn from(error: RelationError) -> Self {
-        let reason = match error.problem {
-            RelationProblem::NotAList => Reason::RelationNotAList,
-            RelationProblem::ToItself => Reason::RelationToItself,
-            RelationProblem::Repeated => Reason::RelationRepeated,
-            RelationProblem::TooMany => Reason::RelationTooMany,
-            RelationProblem::NotACard => Reason::RelationNotACard,
-            RelationProblem::CardNotFound => Reason::RelationCardNotFound,
-        };
-        let refused = Self::bad_request(&error).with_reason(reason);
-        let refused = if error.problem == RelationProblem::TooMany {
-            refused.with_limit(u64::try_from(RELATION_LIMIT).unwrap_or(u64::MAX))
-        } else {
-            refused
-        };
-        refused.with_field("fields")
-    }
-}
-
-impl From<CardError> for AppError {
-    fn from(error: CardError) -> Self {
-        match error {
-            // What a client sent.
-            CardError::BoardIdMismatch | CardError::Invalid(_) => Self::bad_request(error),
-            CardError::ReadAtMissing => Self::bad_request(error).with_field("readAt"),
-            // What is stored cannot be read as a card.
-            CardError::NotCardBlock | CardError::InvalidFieldType { .. } => {
-                Self::from(anyhow::Error::from(error))
-            }
-        }
-    }
-}
-
 impl From<SubscriptionError> for AppError {
     fn from(error: SubscriptionError) -> Self {
         Self::from(error.into_refusals())
     }
 }
 
+mod model_errors;
 #[cfg(test)]
 mod tests;

@@ -288,7 +288,7 @@
       <span class="min-w-0 flex-1 truncate">{m.shell_trash()}</span>
     </button>
   {/if}
-  {#if access && administers(workspace)}
+  {#if access && !isGuest(workspace) && (administers(workspace) || access.people.teams)}
     <button
       type="button"
       data-testid="open-people"

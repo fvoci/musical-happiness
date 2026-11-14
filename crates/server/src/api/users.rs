@@ -128,7 +128,9 @@ async fn handle_patch_me(
 /// The user's memberships, with the roles of each, of the boards of the workspaces the
 /// user is a member of, in every organization the session opens: one that takes only
 /// sessions made through its provider leaves its boards out of another session's list.
-/// By the identifier of the board.
+/// A board the user has a role on only through a team of its workspace is listed too
+/// (`synthetic`, with the team's role in `inheritedRole`); a guest is in no team. By the
+/// identifier of the board.
 #[utoipa::path(
     get,
     path = "/users/me/memberships",

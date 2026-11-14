@@ -8,6 +8,7 @@ mod admin;
 mod archive;
 mod auth;
 mod blocks;
+mod board_teams;
 mod boards;
 mod boards_and_blocks;
 mod body;
@@ -31,6 +32,7 @@ mod shared;
 mod sharing;
 mod subscriptions;
 mod system;
+mod teams;
 mod templates;
 mod trash;
 mod uploads;
@@ -118,6 +120,8 @@ fn routes() -> Routes {
         .merge(invitation_mail::routes())
         .merge(members::routes())
         .merge(workspace_members::routes())
+        .merge(teams::routes())
+        .merge(board_teams::routes())
         .merge(onboarding::routes())
         .merge(org::routes())
         .merge(org_admin::routes())

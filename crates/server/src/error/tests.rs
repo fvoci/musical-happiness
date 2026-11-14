@@ -1,6 +1,6 @@
 //! The tests of the errors and the bodies they are reported with.
 
-use fvoci_model::Category;
+use fvoci_model::{CardError, Category};
 
 use super::*;
 

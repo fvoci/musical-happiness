@@ -212,6 +212,7 @@ async fn change_role(
     }
     let mut taken_over = Vec::new();
     if to == WorkspaceRole::Guest {
+        crate::board_team_membership::remove_workspace_teams(scope, workspace_id, user_id).await?;
         taken_over = hand_over(scope, workspace_id, &boards, user_id, by).await?;
         let mut sql = scope.sql("UPDATE board_members SET scheme_admin = ");
         sql.bind(false)
@@ -282,6 +283,7 @@ async fn remove(
     scope.execute(sql).await?;
     trash::change_member_of_deleted_boards(scope, workspace_id, user_id, TrashedRoles::Forget)
         .await?;
+    crate::board_team_membership::remove_workspace_teams(scope, workspace_id, user_id).await?;
     let mut sql = scope.sql("DELETE FROM workspace_members WHERE workspace_id = ");
     sql.bind(Id(workspace_id))
         .push_bind(" AND user_id = ", Id(user_id));
@@ -292,7 +294,7 @@ async fn remove(
 /// The members of a workspace `t` of an organization; the workspace's identifier and
 /// the conditions on `t` follow.
 const SELECT_MEMBERS: &str = "SELECT wm.user_id, u.username, u.display_name, wm.role, \
-     wm.create_at FROM workspace_members AS wm \
+     wm.create_at, wm.via_org_admin FROM workspace_members AS wm \
      JOIN workspaces AS t ON t.id = wm.workspace_id \
      JOIN users AS u ON u.id = wm.user_id WHERE wm.workspace_id = ";
 
@@ -303,6 +305,7 @@ fn member_from_row(row: &Row) -> Result<WorkspaceMember, StoreError> {
         display_name: row.text(2)?,
         role: role_from(&row.text(3)?)?,
         create_at: row.int(4)?,
+        joined_as_org_admin: row.bool(5)?,
     })
 }
 

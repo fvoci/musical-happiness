@@ -42,6 +42,7 @@
   import { Switch } from '$lib/ui/switch/index.js';
 
   import GuestInvite from './GuestInvite.svelte';
+  import BoardTeams from './BoardTeams.svelte';
   import { ROLE_ORDER, roleOfMember } from './share-logic.ts';
 
   interface Props {
@@ -58,6 +59,8 @@
   }
 
   let { open = $bindable(), workspace, board, linkOf, membersOnly = false }: Props = $props();
+
+  const workspaceName = $derived(workspace.info?.title || m.shell_workspace_unnamed());
 
   const uid = $props.id();
   const compact = $derived(page.stage === 'compact');
@@ -104,7 +107,7 @@
 
   const candidates = $derived(
     (query.trim() === '' ? workspace.workspaceUsers : found).filter(
-      (user) => !board.members.some((member) => member.userId === user.id),
+      (user) => !board.members.some((member) => member.userId === user.id && !member.synthetic),
     ),
   );
 
@@ -220,9 +223,15 @@
       <!-- The workspace. -->
       {#if !membersOnly}
         <section class="grid gap-2" aria-labelledby="{uid}-workspace">
-          <h3 id="{uid}-workspace" class="font-medium">{m.share_workspace_title()}</h3>
+          <h3 id="{uid}-workspace" class="font-medium">
+            {m.share_workspace_title({
+              workspace: workspace.info?.title || m.shell_workspace_unnamed_title(),
+            })}
+          </h3>
           <label class="flex min-h-8 items-center gap-3 roomy:min-h-touch">
-            <span class="min-w-0 flex-1 text-muted-foreground">{m.share_workspace_open()}</span>
+            <span class="min-w-0 flex-1 text-muted-foreground"
+              >{m.share_workspace_open({ workspace: workspaceName })}</span
+            >
             <Switch
               checked={isOpen}
               data-testid="share-open"
@@ -256,7 +265,7 @@
       <section class="grid grid-cols-1 gap-2" aria-labelledby="{uid}-members">
         <h3 id="{uid}-members" class="font-medium">{m.share_members_title()}</h3>
         <ul class="grid grid-cols-1 gap-1" data-testid="share-members">
-          {#each board.orderedMembers as member (member.userId)}
+          {#each board.orderedMembers.filter((member) => !member.synthetic) as member (member.userId)}
             {@const name = nameOf(member.userId)}
             {@const mine = member.userId === workspace.me?.id}
             <li class="flex min-h-8 items-center gap-2 roomy:min-h-touch" data-member={name}>
@@ -330,9 +339,15 @@
         {/if}
         <!-- In the page from the start: a live region that appears with its words is often not read. -->
         <p class="text-muted-foreground empty:hidden" role="status">
-          {candidates.length === 0 && query.trim() !== '' ? m.share_nobody_found() : ''}
+          {candidates.length === 0 && query.trim() !== ''
+            ? m.share_nobody_found({ workspace: workspaceName })
+            : ''}
         </p>
       </section>
+
+      {#if access?.people.teams && !isGuest(workspace)}
+        <BoardTeams {workspace} {board} teams={access.people.teams} />
+      {/if}
 
       <!-- The public link. -->
       {#if !membersOnly}

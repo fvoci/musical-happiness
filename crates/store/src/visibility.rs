@@ -339,8 +339,11 @@ impl Drop for Writing<'_> {
 /// blocks, whose going changes nobody's access, as the purge of the trash writes them;
 /// a user's row only as it goes, with the user's memberships.
 fn writes_access(text: &str) -> bool {
-    const TABLES: [&str; 8] = [
+    const TABLES: [&str; 11] = [
         "workspace_members",
+        "teams",
+        "team_members",
+        "board_teams",
         "organization_members",
         "board_members",
         "sharing",
@@ -375,8 +378,12 @@ fn writes_access(text: &str) -> bool {
 /// A user's row is read by no cached check, so changing it (a name, a password) moves
 /// nothing; deleting one does, as it takes the user's memberships with it.
 fn affects_visibility(text: &str) -> bool {
-    const TABLES: [&str; 10] = [
+    const TABLES: [&str; 13] = [
         "workspace_members",
+        // A team's people and its roles on boards make board members too.
+        "teams",
+        "team_members",
+        "board_teams",
         "organization_members",
         "board_members",
         "sharing",
@@ -589,6 +596,18 @@ mod tests {
             !visibility.version(org(2)).await.cacheable(),
             "an abandoned write of every organization unsettles each"
         );
+    }
+
+    #[test]
+    fn a_write_of_a_teams_people_or_roles_moves_the_revision() {
+        for statement in [
+            "INSERT INTO team_members (team_id, org_id, workspace_id, user_id) VALUES ($1, $2, $3, $4)",
+            "INSERT INTO board_teams (board_id, team_id, workspace_id, org_id, role) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (board_id, team_id, org_id) DO UPDATE SET role = EXCLUDED.role",
+            "DELETE FROM teams WHERE id = $1",
+        ] {
+            assert!(affects_visibility(statement), "{statement}");
+            assert!(writes_access(statement), "{statement}");
+        }
     }
 
     #[test]

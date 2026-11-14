@@ -45,6 +45,11 @@ impl Observer for Recorder {
     }
 }
 
+/// How many calls are begun and given up at once before one of them is still waiting.
+/// Each try takes no time: on a fast machine an SQLite read often ends within its first
+/// poll (about 19 in 20 here), and twenty tries left the test failing two runs in five.
+const TRIES_TO_GIVE_UP: usize = 1_000;
+
 /// The access and the outcome of each call.
 fn shapes(calls: &[Call]) -> Vec<(Access, Outcome)> {
     calls
@@ -121,7 +126,7 @@ async fn every_call_is_told_with_whether_it_wrote_and_how_it_ended() {
 
     // A call its caller gives up is told as given up, when it is dropped.
     let mut abandoned = false;
-    for _ in 0..20 {
+    for _ in 0..TRIES_TO_GIVE_UP {
         let given_up = tokio::time::timeout(Duration::ZERO, store.get_registered_user_count())
             .await
             .is_err();

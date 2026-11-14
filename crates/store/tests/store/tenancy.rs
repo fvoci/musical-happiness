@@ -538,6 +538,7 @@ async fn something_in_every_table(store: &Store, username: &str) -> (String, Str
         .expect("the board is filed");
     in_the_files(store, &user_id, &board_id, username).await;
     a_body_edited_together(store, &board_id, &user_id).await;
+    a_team_on_board(store, &board, &user_id).await;
     // The trash: a card of the live board, and a whole board.
     let mut card = fvoci_model::Block {
         id: new_id(),
@@ -1908,4 +1909,20 @@ async fn an_open_board_is_found_by_who_works_in_its_workspace() {
         "a guest who is on the board"
     );
     test.teardown().await;
+}
+
+/// Real rows in all three group tables, so every organization wall is exercised.
+async fn a_team_on_board(store: &Store, board: &Board, user_id: &str) {
+    let group = store
+        .create_team(&board.workspace_id, user_id, user_id)
+        .await
+        .expect("a team is stored");
+    store
+        .add_team_member(&board.workspace_id, &group, user_id, user_id)
+        .await
+        .expect("a team member is stored");
+    store.execute_unchecked(&format!(
+        "INSERT INTO board_teams (board_id, team_id, workspace_id, role) VALUES ('{}', '{group}', '{}', 'editor')",
+        board.id, board.workspace_id
+    )).await.expect("the team has a board role");
 }

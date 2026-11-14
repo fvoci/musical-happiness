@@ -154,7 +154,7 @@ impl Audience {
             .read(
                 &self.store,
                 (self.store.tenant(), board_id.to_owned()),
-                || async { self.store.get_present_members_for_board(board_id).await },
+                || async { self.store.effective_board_members(board_id).await },
             )
             .await
     }

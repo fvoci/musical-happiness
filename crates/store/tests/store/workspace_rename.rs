@@ -228,6 +228,7 @@ async fn a_database_with_teams_keeps_every_row_under_the_names_of_the_workspaces
     // Up to this migration, and not past it: what later ones add is theirs to test.
     fvoci_store::testing::migrate_to_the_workspaces(&database).await;
     let new = dump(&database).await;
+    assert_eq!(names_of_a_team(&database).await, Vec::<String>::new());
     let store = Store::connect(database.db_type(), database.dbconfig())
         .await
         .expect("the store migrates the database");
@@ -292,7 +293,6 @@ async fn a_database_with_teams_keeps_every_row_under_the_names_of_the_workspaces
             assert_eq!(new_rows, rows, "{table}: the same rows");
         }
     }
-    assert_eq!(names_of_a_team(&database).await, Vec::<String>::new());
 
     database.remove().await;
 }

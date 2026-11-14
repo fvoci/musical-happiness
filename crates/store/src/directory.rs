@@ -20,6 +20,7 @@ use fvoci_model::{
 };
 use subtle::ConstantTimeEq as _;
 
+use crate::board_team_access;
 use crate::db::{Dialect, Id, Row, Scope, Sql};
 use crate::error::StoreError;
 use crate::file_info;
@@ -27,7 +28,7 @@ use crate::loose_objects::LooseState;
 use crate::oidc::{FLOW_COLUMNS, LoginFlow, flow_from_row};
 use crate::uploads::{OpenUploads, UploadUsage};
 use crate::{Store, Tenant};
-use crate::{boards, invitations, users, workspaces};
+use crate::{invitations, memberships_everywhere, users, workspaces};
 
 /// The organization that holds what the server ships with and is nobody's: the
 /// built-in templates. The schema makes it, under this identifier.
@@ -38,7 +39,7 @@ pub const SYSTEM_WORKSPACE_ID: &str = "00000000-0000-7000-8000-00000000a001";
 
 /// The condition every lookup here ends with: the workspace `t` and its organization
 /// `o` are in use, and are not the system's, which is nobody's to work in.
-const IN_USE: &str = " AND t.delete_at = 0 AND o.delete_at = 0 AND o.is_system = false \
+pub(crate) const IN_USE: &str = " AND t.delete_at = 0 AND o.delete_at = 0 AND o.is_system = false \
                       AND t.is_system = false";
 
 /// What a user is in a workspace, and whose the workspace is.
@@ -136,14 +137,15 @@ fn push_seen(sql: &mut Sql, scope: &Scope<'_>, sight: Sight<'_>) {
             .push_bind(" AND seer.user_id = ", Id(seer_id))
             .push_bind(") AND (id = ", Id(seer_id))
             // On a board of the workspace with the seer, and in the workspace still.
-            .push(
+            .push(&format!(
                 " OR id IN (SELECT other.user_id FROM board_members AS mine \
                  JOIN boards AS b ON b.id = mine.board_id \
-                 JOIN board_members AS other ON other.board_id = mine.board_id \
+                 JOIN {directory_members} AS other ON other.board_id = mine.board_id \
                  JOIN workspace_members AS them \
                  ON them.workspace_id = b.workspace_id AND them.user_id = other.user_id \
                  WHERE mine.user_id = ",
-            )
+                directory_members = board_team_access::directory_members(scope)
+            ))
             .bind(Id(seer_id))
             .push_bind(" AND b.workspace_id = ", Id(workspace_id))
             .push(ROLES_HELD)
@@ -171,18 +173,19 @@ fn push_seen(sql: &mut Sql, scope: &Scope<'_>, sight: Sight<'_>) {
                 .push_bind(" AND me.role <> ", WorkspaceRole::Guest.as_str())
                 .push(IN_USE)
                 .push(&scope.same_organization(&[("me", "t"), ("them", "t")]))
-                .push(
+                .push(&format!(
                     ") OR id IN (SELECT other.user_id FROM board_members AS mine \
                      JOIN boards AS b ON b.id = mine.board_id \
                      JOIN workspace_members AS me \
                      ON me.workspace_id = b.workspace_id AND me.user_id = mine.user_id \
                      JOIN workspaces AS t ON t.id = b.workspace_id \
                      JOIN organizations AS o ON o.id = t.org_id \
-                     JOIN board_members AS other ON other.board_id = mine.board_id \
+                     JOIN {directory_members} AS other ON other.board_id = mine.board_id \
                      JOIN workspace_members AS them \
                      ON them.workspace_id = b.workspace_id AND them.user_id = other.user_id \
                      WHERE mine.user_id = ",
-                )
+                    directory_members = board_team_access::directory_members(scope)
+                ))
                 .bind(Id(seer_id))
                 .push(IN_USE)
                 .push(ROLES_HELD)
@@ -230,6 +233,8 @@ fn push_writer(sql: &mut Sql, scope: &Scope<'_>, seer_id: &str, within: Option<(
     )
     .push(&scope.same_organization(&[("mine", "b")]))
     .push(")");
+    sql.push(" OR ");
+    board_team_access::push_has_team_role(sql, scope, seer_id);
     if open_where_seer_works {
         // Read without a role: an open template, for who works in its workspace. An
         // open board that is none is joined to be read.
@@ -622,10 +627,11 @@ impl Store {
             .await
     }
 
-    /// The user's board memberships in live workspaces of every organization, ordered
-    /// by board identifier. Only the named user's memberships are returned, and only of
-    /// the organizations a session made through `login_provider` (`None` for a
-    /// password) opens: one that takes only sessions of another provider is left out.
+    /// The user's board memberships in live workspaces of every organization, direct
+    /// and through a team (`inherited_role`), ordered by board identifier. Only the
+    /// named user's memberships are returned, and only of the organizations a session
+    /// made through `login_provider` (`None` for a password) opens: one that takes only
+    /// sessions of another provider is left out.
     ///
     /// # Errors
     ///
@@ -637,27 +643,7 @@ impl Store {
     ) -> Result<Vec<BoardMember>, StoreError> {
         self.system()
             .with_conn(async |scope| {
-                let mut sql = boards::select_members(scope);
-                sql.push(
-                    " JOIN boards AS b ON b.id = bm.board_id \
-                JOIN workspaces AS t ON t.id = b.workspace_id \
-                JOIN organizations AS o ON o.id = t.org_id \
-                JOIN workspace_members AS wm ON wm.workspace_id = t.id AND wm.user_id = bm.user_id \
-                WHERE bm.user_id = ",
-                )
-                .bind(Id(user_id))
-                .push(IN_USE)
-                .push(&scope.same_organization(&[("bm", "b"), ("b", "t"), ("wm", "t")]))
-                .push(
-                    " AND NOT EXISTS (SELECT 1 FROM oidc_providers AS p \
-                     WHERE p.org_id = t.org_id AND p.sso_required = ",
-                )
-                .bind(true);
-                if let Some(provider) = login_provider {
-                    sql.push_bind(" AND p.id <> ", Id(provider));
-                }
-                sql.push(") ORDER BY bm.board_id");
-                boards::fetch_members(scope, sql).await
+                memberships_everywhere::of_user(scope, user_id, login_provider).await
             })
             .await
     }

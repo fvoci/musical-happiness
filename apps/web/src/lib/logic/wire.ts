@@ -16,6 +16,8 @@
  * top level: `id`, `title`, `type`, `boardId`, `parentId`, `createdBy`,
  * `modifiedBy`, `createAt`, `updateAt`, `deleteAt` and `limited`.
  */
+import type { MemberRole } from './board-members.ts';
+export type { BoardMember, MemberRole } from './board-members.ts';
 import { parseCalendarDate, type CalendarDate, type DatePoint, type DateValue } from './dates.ts';
 import { diagnostics } from './diagnostics.ts';
 import { optionalViewFields, type OptionalViewFields } from './view-members.ts';
@@ -492,8 +494,6 @@ export const BOARD_TYPE_OPEN = 'O';
 export const BOARD_TYPE_PRIVATE = 'P';
 export type BoardType = typeof BOARD_TYPE_OPEN | typeof BOARD_TYPE_PRIVATE;
 
-export type MemberRole = 'viewer' | 'commenter' | 'editor' | 'admin' | '';
-
 export type PropertyType =
   | 'text'
   | 'number'
@@ -562,18 +562,6 @@ export interface BoardPatch {
   deletedProperties?: string[];
   updatedCardProperties?: PropertyTemplate[];
   deletedCardProperties?: string[];
-}
-
-export interface BoardMember {
-  boardId: string;
-  userId: string;
-  roles?: string;
-  minimumRole: MemberRole;
-  schemeAdmin: boolean;
-  schemeEditor: boolean;
-  schemeCommenter: boolean;
-  schemeViewer: boolean;
-  synthetic: boolean;
 }
 
 export interface BoardsAndBlocks {

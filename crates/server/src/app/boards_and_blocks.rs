@@ -220,7 +220,7 @@ impl App {
         // the blocks are gone afterwards, so which board each was on is read first.
         let mut former_members = HashMap::with_capacity(request.boards.len());
         for board_id in &request.boards {
-            let members = self.store().get_members_for_board(board_id).await?;
+            let members = self.store().effective_board_members(board_id).await?;
             former_members.insert(board_id.as_str(), members);
         }
         let mut deleted_blocks = Vec::with_capacity(request.blocks.len());

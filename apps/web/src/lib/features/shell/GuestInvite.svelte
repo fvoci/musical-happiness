@@ -23,6 +23,8 @@
 
   let { workspace, access, boardId }: Props = $props();
 
+  const workspaceName = $derived(workspace.info?.title || m.shell_workspace_unnamed());
+
   const uid = $props.id();
   const ROLES: readonly GuestBoardRole[] = ['editor', 'commenter', 'viewer'];
   const ROLE_LABELS: Record<GuestBoardRole, () => string> = {
@@ -50,7 +52,9 @@
           : { address: access.inviteLink(link.token), token: link.token };
     } catch (error) {
       problem =
-        isBackendError(error) && error.status === 403 ? m.share_guest_off() : m.people_failed();
+        isBackendError(error) && error.status === 403
+          ? m.share_guest_off({ workspace: workspaceName })
+          : m.people_failed();
     } finally {
       working = false;
     }
@@ -59,7 +63,7 @@
 
 <section class="grid gap-2" aria-labelledby="{uid}-guest" data-testid="share-guest">
   <h3 id="{uid}-guest" class="font-medium">{m.share_guest_title()}</h3>
-  <p class="text-sm text-muted-foreground">{m.share_guest_hint()}</p>
+  <p class="text-sm text-muted-foreground">{m.share_guest_hint({ workspace: workspaceName })}</p>
   <div class="flex flex-wrap items-center gap-2">
     <select
       class="h-8 rounded-md border border-input-border bg-background px-2 roomy:h-touch"

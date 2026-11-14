@@ -735,6 +735,8 @@ pub(crate) async fn delete_board(
         .push(")");
     scope.execute(sql).await?;
 
+    crate::board_team_trash::keep(scope, board_id).await?;
+
     // The blocks first: a board does not go while it has any. With the board go its
     // memberships, its sharing, its file records and where users filed it (kept above).
     let mut sql = scope.sql("DELETE FROM blocks WHERE board_id = ");
@@ -800,12 +802,16 @@ pub(crate) async fn undelete_board(
         .with_role(Some(fvoci_model::BoardRole::Admin));
         boards::save_member(scope, &admin).await?;
     }
+    crate::board_team_trash::restore(scope, &board, user_id).await?;
     // Each user who still exists finds the board where they had filed it; a private
     // board, only those who are its members again (a member removed earlier keeps the
     // place but cannot see the board).
     for place in places.into_iter().map(BoardPlace::from) {
         let sees = board.board_type == BoardType::Open
-            || members.iter().any(|member| member.user_id == place.user_id);
+            || members.iter().any(|member| member.user_id == place.user_id)
+            || crate::board_team_access::role_for(scope, board_id, &place.user_id)
+                .await?
+                .is_some();
         if sees && known_users.has(scope, &place.user_id).await? {
             category_boards::put_back(scope, board_id, &board.workspace_id, &place).await?;
         }

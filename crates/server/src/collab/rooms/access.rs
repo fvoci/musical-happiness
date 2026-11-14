@@ -1,6 +1,6 @@
 //! Immediate access changes and the periodic fallback for the rooms.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::future::Future;
 use std::hash::Hash;
 use std::sync::Arc;
@@ -26,12 +26,12 @@ use crate::permissions::DocMode;
 const IMMEDIATE_PASS_INTERVALS: u32 = 2;
 
 /// The facts changed in this part of the application's organization, for everybody
-/// or for one user.
+/// or for some users.
 #[derive(Debug, Clone)]
 pub(crate) struct AccessScope {
     place: Place,
-    /// The one user whose facts changed; everybody's when `None`.
-    user_id: Option<String>,
+    /// The users whose facts changed; everybody's when `None`.
+    users: Option<BTreeSet<String>>,
 }
 
 #[derive(Debug, Clone)]
@@ -73,17 +73,23 @@ impl AccessScope {
     /// The same place, where only `user_id`'s facts changed: the others in its rooms
     /// are not asked about.
     pub(crate) fn of_user(self, user_id: &str) -> Self {
+        self.of_users([user_id])
+    }
+
+    /// The same place, where only the facts of `users` changed (the people of a
+    /// team): the others in its rooms are not asked about. A change of nobody's facts
+    /// is no change: a caller has none to recheck.
+    pub(crate) fn of_users<'id>(self, users: impl IntoIterator<Item = &'id str>) -> Self {
+        let users: BTreeSet<String> = users.into_iter().map(str::to_owned).collect();
+        debug_assert!(!users.is_empty(), "a change of nobody's facts at {self:?}");
         Self {
-            user_id: Some(user_id.to_owned()),
+            users: Some(users),
             ..self
         }
     }
 
     fn of(place: Place) -> Self {
-        Self {
-            place,
-            user_id: None,
-        }
+        Self { place, users: None }
     }
 
     /// Whether the change reached the room of `room`'s card.
@@ -120,9 +126,9 @@ impl AccessScope {
 
     /// Whether the change concerns `user_id`'s facts.
     pub(super) fn concerns(&self, user_id: &str) -> bool {
-        self.user_id
-            .as_deref()
-            .is_none_or(|changed| changed == user_id)
+        self.users
+            .as_ref()
+            .is_none_or(|changed| changed.contains(user_id))
     }
 }
 
@@ -573,6 +579,9 @@ mod tests {
             assert!(of_user.concerns("user") && !of_user.concerns("another user"));
         }
         assert!(AccessScope::organization().concerns("anybody"));
+        let of_users = AccessScope::board("board").of_users(["one", "two"]);
+        assert!(of_users.concerns("one") && of_users.concerns("two"));
+        assert!(!of_users.concerns("three"));
     }
 
     #[test]

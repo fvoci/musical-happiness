@@ -4,6 +4,8 @@
  * are the server's.
  */
 
+import type { Teams } from './team-types.ts';
+
 /** What somebody is in a workspace. A guest is on the boards they were invited to, and nothing else of it. */
 export type WorkspaceRole = 'admin' | 'member' | 'guest';
 
@@ -18,6 +20,8 @@ export interface WorkspaceMember {
   /** The name they are shown by; empty for none. */
   displayName: string;
   role: WorkspaceRole;
+  /** Temporary administration ends when the organization-admin joining ends. */
+  joinedAsOrgAdmin?: boolean;
 }
 
 /** A link that lets somebody into a workspace. */
@@ -51,6 +55,8 @@ export interface InvitationMail {
  * admins make and see.
  */
 export interface People {
+  /** Present where the backend supports workspace groups. */
+  readonly teams?: Teams;
   /** Present when the backend supports outgoing invitation mail. */
   mail?: InvitationMail;
   members(workspaceId: string): Promise<WorkspaceMember[]>;

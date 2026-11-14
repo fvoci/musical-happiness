@@ -461,6 +461,17 @@
             "description": "The identifier of the board.",
             "type": "string"
           },
+          "inheritedRole": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/MinimumRole",
+                "description": "The highest role inherited from teams; direct flags remain unchanged."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "schemeAdmin": {
             "description": "The user administers the board.",
             "type": "boolean"
@@ -475,6 +486,10 @@
           },
           "schemeViewer": {
             "description": "The user may view the board.",
+            "type": "boolean"
+          },
+          "synthetic": {
+            "description": "The membership has no directly stored role record.",
             "type": "boolean"
           },
           "userId": {
@@ -573,6 +588,37 @@
             "type": "object"
           }
         },
+        "type": "object"
+      },
+      "BoardTeam": {
+        "description": "A workspace team and the role its members inherit on a board.",
+        "properties": {
+          "role": {
+            "$ref": "#/components/schemas/MinimumRole",
+            "description": "No team may administer a board."
+          },
+          "team": {
+            "$ref": "#/components/schemas/Team",
+            "description": "The group, including its current nonguest members."
+          }
+        },
+        "required": [
+          "role",
+          "team"
+        ],
+        "type": "object"
+      },
+      "BoardTeamRole": {
+        "description": "The role given to a team on a board.",
+        "properties": {
+          "role": {
+            "$ref": "#/components/schemas/MinimumRole",
+            "description": "The team's role, at most editor."
+          }
+        },
+        "required": [
+          "role"
+        ],
         "type": "object"
       },
       "BoardType": {
@@ -2479,6 +2525,11 @@
             "type": "/problems/guest-role-limit"
           },
           {
+            "reason": "team_self_joining",
+            "title": "Cannot add yourself to a team during administrative joining",
+            "type": "/problems/team-self-joining"
+          },
+          {
             "reason": "sharing_disabled",
             "title": "Public sharing turned off",
             "type": "/problems/sharing-disabled"
@@ -2707,6 +2758,11 @@
             "reason": "workspace_name_taken",
             "title": "Workspace name taken",
             "type": "/problems/workspace-name-taken"
+          },
+          {
+            "reason": "team_name_taken",
+            "title": "Team name taken",
+            "type": "/problems/team-name-taken"
           },
           {
             "reason": "default_workspace",
@@ -3068,6 +3124,73 @@
           "notifiedAt",
           "subscriberId",
           "subscriberType"
+        ],
+        "type": "object"
+      },
+      "Team": {
+        "description": "A named group of people within a workspace.",
+        "properties": {
+          "id": {
+            "description": "The group's identifier.",
+            "type": "string"
+          },
+          "members": {
+            "description": "Its people, ordered by user identifier.",
+            "items": {
+              "$ref": "#/components/schemas/TeamMember"
+            },
+            "type": "array"
+          },
+          "name": {
+            "description": "Its name, unique within the workspace in any letter case.",
+            "type": "string"
+          },
+          "workspaceId": {
+            "description": "The workspace it belongs to.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "members",
+          "name",
+          "workspaceId"
+        ],
+        "type": "object"
+      },
+      "TeamMember": {
+        "description": "A person in a team. Neither email addresses nor credentials are exposed.",
+        "properties": {
+          "displayName": {
+            "description": "Their displayed name, empty when none is set.",
+            "type": "string"
+          },
+          "userId": {
+            "description": "The person's identifier.",
+            "type": "string"
+          },
+          "username": {
+            "description": "Their login name.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "displayName",
+          "userId",
+          "username"
+        ],
+        "type": "object"
+      },
+      "TeamName": {
+        "description": "The name when creating or renaming a team.",
+        "properties": {
+          "name": {
+            "description": "The name, by the rule of an organization's: surrounding whitespace is removed, and\nwhat is left is 1 to 64 characters (UTF-16 code units), none of them a control\ncharacter or one that shows nothing, breaks a line or turns the text around.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
         ],
         "type": "object"
       },
@@ -3446,6 +3569,10 @@
             "description": "The name the user is shown by; empty if they have none.",
             "type": "string"
           },
+          "joinedAsOrgAdmin": {
+            "description": "Whether this membership is a temporary joining as organization administrator.",
+            "type": "boolean"
+          },
           "role": {
             "$ref": "#/components/schemas/WorkspaceRole",
             "description": "What the user is in the workspace."
@@ -3462,6 +3589,7 @@
         "required": [
           "createAt",
           "displayName",
+          "joinedAsOrgAdmin",
           "role",
           "userId",
           "username"
@@ -5692,7 +5820,7 @@
     },
     "/api/v1/users/me/memberships": {
       "get": {
-        "description": "The user's memberships, with the roles of each, of the boards of the workspaces the\nuser is a member of, in every organization the session opens: one that takes only\nsessions made through its provider leaves its boards out of another session's list.\nBy the identifier of the board.",
+        "description": "The user's memberships, with the roles of each, of the boards of the workspaces the\nuser is a member of, in every organization the session opens: one that takes only\nsessions made through its provider leaves its boards out of another session's list.\nA board the user has a role on only through a team of its workspace is listed too\n(`synthetic`, with the team's role in `inheritedRole`); a guest is in no team. By the\nidentifier of the board.",
         "operationId": "getMyMemberships",
         "responses": {
           "200": {
@@ -6535,7 +6663,7 @@
     },
     "/api/v1/w/{workspaceId}/boards/{boardId}": {
       "delete": {
-        "description": "The board goes to the trash with its blocks and its members, and `undeleteBoard`\nbrings it back until the trash is emptied of it. Its sharing ends, with its read\ntoken, and so do its places in the users' sidebars and the subscriptions to its\nblocks; those do not come back with the board. For the board's admins.",
+        "description": "The board goes to the trash with its blocks and its members, and `undeleteBoard`\nbrings it back until the trash is emptied of it. Team IDs and their roles are kept,\nbut grant no access while the board is in the trash. Its sharing ends, with its read\ntoken, and so do its places in the users' sidebars and the subscriptions to its\nblocks; those do not come back with the board. For the board's admins.",
         "operationId": "deleteBoard",
         "parameters": [
           {
@@ -8286,6 +8414,177 @@
         ]
       }
     },
+    "/api/v1/w/{workspaceId}/boards/{boardId}/teams": {
+      "get": {
+        "description": "For nonguest members allowed to list board members. Includes the team's current\npeople and its role. Ordered by team name in any letter case, by code point, then by\nidentifier.\nDirect memberships remain separate.",
+        "operationId": "getBoardTeams",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/BoardTeam"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Assigned teams."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "List the teams assigned to a board",
+        "tags": [
+          "members"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/boards/{boardId}/teams/{teamId}": {
+      "delete": {
+        "description": "For board administrators and workspace administrators. Direct roles and the\nroles inherited from other teams remain. Idempotent for an existing team.",
+        "operationId": "removeBoardTeam",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of a team within this workspace.",
+            "in": "path",
+            "name": "teamId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The team has no role on this board."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Remove a team's board role",
+        "tags": [
+          "members"
+        ]
+      },
+      "put": {
+        "description": "For board administrators and workspace administrators. The role is viewer,\ncommenter, or editor; admin is rejected. The board and team must belong to this\nworkspace and are checked before decoding the body. Managed access is audited.",
+        "operationId": "setBoardTeam",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of a team within this workspace.",
+            "in": "path",
+            "name": "teamId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BoardTeamRole"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "The team has this role."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Give or change a team's board role",
+        "tags": [
+          "members"
+        ]
+      }
+    },
     "/api/v1/w/{workspaceId}/boards/{boardId}/trash/cards": {
       "get": {
         "description": "One page of the board's cards that are in the trash, each with its identifier, its\ntitle, when it was deleted and by whom; `undeleteBlock` brings one back until the\ntrash is emptied of it. A card that went with the block it was on (another card, a\nview) comes back with that block, and is not listed. For the board's editors. The\nlast deleted first; the pages cut that order. A `page` or `perPage` that is no whole\nnumber is 400.",
@@ -8363,7 +8662,7 @@
     },
     "/api/v1/w/{workspaceId}/boards/{boardId}/undelete": {
       "post": {
-        "description": "Restores a board from the trash with its blocks and its members. Each user who had\nfiled it, and can see it again, finds it where it was in the sidebar (the same\ncategory and place, hidden or not) or in the default category if that one was\ndeleted since, and is told with `UPDATE_BOARD_CATEGORY` and the category's\n`REORDER_CATEGORY_BOARDS`. Its sharing and the subscriptions to its blocks ended with\nthe deletion and stay ended. For who was an admin of the board when it was deleted,\nand for the workspace's administrators (who, if they were no member, get it without\nits description and properties); to anybody else there is no such board.",
+        "description": "Restores a board from the trash with its blocks and its members. Each user who had\nfiled it, and can see it again, finds it where it was in the sidebar (the same\ncategory and place, hidden or not) or in the default category if that one was\ndeleted since, and is told with `UPDATE_BOARD_CATEGORY` and the category's\n`REORDER_CATEGORY_BOARDS`. Its sharing and the subscriptions to its blocks ended with\nthe deletion and stay ended. Surviving teams regain their saved roles for their\ncurrent members; deleted teams are skipped. For who was an admin of the board when\nit was deleted, and for the workspace's administrators (who, if they were no member,\nget it without its description and properties); to anybody else there is no such board.",
         "operationId": "undeleteBoard",
         "parameters": [
           {
@@ -9681,6 +9980,364 @@
         "summary": "The subscriptions of the user",
         "tags": [
           "subscriptions"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/teams": {
+      "get": {
+        "description": "Includes the login and display names of their nonguest members, ordered by user\nidentifier. Teams are ordered by name in any letter case, by code point and not by\nany language's alphabet (`Émile` after `zeta`), then by identifier, alike on every\ndatabase. Guests are answered 404.",
+        "operationId": "getTeams",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Team"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Teams."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "List the workspace's teams",
+        "tags": [
+          "workspaces"
+        ]
+      },
+      "post": {
+        "description": "For workspace administrators. The name is read as an organization's at sign-up:\nsurrounding\nwhitespace is removed, and a name that is then empty, longer than 64 characters or\nholds a control character or one that shows nothing or turns the text around is 400\nat `/name` with the reason `required`, `too_long` or `invalid_characters`. The name of\nanother team of this workspace, in any letter case, is 409 with the reason\n`team_name_taken`.",
+        "operationId": "createTeam",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TeamName"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Team"
+                }
+              }
+            },
+            "description": "The new team."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Create an empty team",
+        "tags": [
+          "workspaces"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/teams/{teamId}": {
+      "delete": {
+        "description": "For workspace administrators. This does not delete the people's accounts or\nchange their membership of the workspace or their direct roles on boards.",
+        "operationId": "deleteTeam",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of a team within this workspace.",
+            "in": "path",
+            "name": "teamId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The team is deleted."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Delete a team and its board roles",
+        "tags": [
+          "workspaces"
+        ]
+      },
+      "get": {
+        "description": "A team outside the workspace or a guest is answered 404.",
+        "operationId": "getTeam",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of a team within this workspace.",
+            "in": "path",
+            "name": "teamId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Team"
+                }
+              }
+            },
+            "description": "The team."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Read a team in this workspace",
+        "tags": [
+          "workspaces"
+        ]
+      },
+      "put": {
+        "description": "For workspace administrators. The same name rules as creation apply. The team is\nchecked before the request body, so a team in another workspace is always 404.",
+        "operationId": "renameTeam",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of a team within this workspace.",
+            "in": "path",
+            "name": "teamId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TeamName"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Team"
+                }
+              }
+            },
+            "description": "The renamed team."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Rename a team",
+        "tags": [
+          "workspaces"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/teams/{teamId}/members/{userId}": {
+      "delete": {
+        "description": "For workspace administrators. Idempotent within a team that exists.",
+        "operationId": "removeTeamMember",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of a team within this workspace.",
+            "in": "path",
+            "name": "teamId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the user.",
+            "in": "path",
+            "name": "userId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The person is out of the team."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Remove a person from a team",
+        "tags": [
+          "workspaces"
+        ]
+      },
+      "put": {
+        "description": "For workspace administrators. Idempotent. A guest or somebody outside the\nworkspace is 404. Removing a workspace member or making them a guest removes\nthem from every team of that workspace. A person joined as organization administrator\ncannot add themselves: 403, reason `team_self_joining`. Other administrators may add them.",
+        "operationId": "addTeamMember",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of a team within this workspace.",
+            "in": "path",
+            "name": "teamId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the user.",
+            "in": "path",
+            "name": "userId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The person is in the team."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Add a nonguest workspace member to a team",
+        "tags": [
+          "workspaces"
         ]
       }
     },

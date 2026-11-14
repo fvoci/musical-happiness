@@ -10,11 +10,11 @@ use crate::common::{Setup, TEST_WORKSPACE_ID};
 use crate::rooms::{Peer, give, paragraphs, two_in_a_room};
 
 /// The periodic check cannot account for any notice received by these tests.
-fn seldom() -> Setup {
+pub(crate) fn seldom() -> Setup {
     Setup::native().configure(|config| config.collab.collab_recheck_seconds = 3600)
 }
 
-async fn soon(peer: &mut Peer, action: &str, changed_at: Instant) -> Value {
+pub(crate) async fn soon(peer: &mut Peer, action: &str, changed_at: Instant) -> Value {
     let message = tokio::time::timeout_at(changed_at + Duration::from_secs(1), peer.text(action))
         .await
         .expect("the change reaches the room within one second");
@@ -96,7 +96,7 @@ async fn removal_from_the_workspace_reaches_the_room_immediately() {
     th.teardown().await;
 }
 
-async fn workspace_admin(th: &crate::common::TestServer) {
+pub(crate) async fn workspace_admin(th: &crate::common::TestServer) {
     let admin = th.client.me().await.id;
     th.app
         .store()
