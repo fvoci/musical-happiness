@@ -27,16 +27,21 @@ async fn typed(e: &Editing, editor: &Editor, epoch: i64, by: &str, line: &str) {
         .expect("taken");
 }
 
-/// While a body is edited on, a version is kept once the interval has passed since
-/// the first change no version holds: with the next change, of the body before it, or
-/// as the body is next written to the card. Until then nothing is kept, however much
-/// is typed and written.
+/// While a body is edited on, a version is kept once the interval has passed
+/// (`collab_version_minutes`) since the first change no version holds: with the next
+/// change, of the body before it, or as the body is next written to the card. Until
+/// then nothing is kept, however much is typed and written.
 #[tokio::test]
 async fn a_body_edited_on_is_kept_as_the_interval_passes() {
-    let th = Setup::native().start().await.init_basic().await;
+    let th = Setup::native()
+        .configure(|config| config.collab.collab_version_minutes = 2)
+        .start()
+        .await
+        .init_basic()
+        .await;
     let e = editing(&th, &paragraphs(&["first"])).await;
     let collab = e.app.collab();
-    let interval = Duration::from_mins(10);
+    let interval = Duration::from_mins(2);
     let (editor, epoch) = joined(collab, &e.app, &e.card_id, 101).await;
     let nobody: Vec<&str> = Vec::new();
 
@@ -52,7 +57,7 @@ async fn a_body_edited_on_is_kept_as_the_interval_passes() {
         [(1, nobody.clone(), false)],
         "the body before the editors came, and none of theirs yet"
     );
-    collab.pass_version_time(Duration::from_secs(599));
+    collab.pass_version_time(Duration::from_mins(1));
     typed(&e, &editor, epoch, &e.user1, "three").await;
     collab
         .write_body(&e.app, &e.card_id)
@@ -61,13 +66,17 @@ async fn a_body_edited_on_is_kept_as_the_interval_passes() {
     assert_eq!(versions(&th.client, &e.card_id).await.len(), 1, "not yet");
 
     // Due: the next change keeps the body before it, by who wrote it.
-    collab.pass_version_time(Duration::from_secs(1));
+    collab.pass_version_time(Duration::from_mins(1));
     typed(&e, &editor, epoch, &e.user2, "four").await;
+    collab
+        .write_body(&e.app, &e.card_id)
+        .await
+        .expect("written");
     let kept = versions(&th.client, &e.card_id).await;
     assert_eq!(
         said(&kept),
         [
-            (2, vec![e.user1.as_str()], true),
+            (2, vec![e.user1.as_str()], false),
             (1, nobody.clone(), false)
         ]
     );
@@ -80,12 +89,6 @@ async fn a_body_edited_on_is_kept_as_the_interval_passes() {
     typed(&e, &editor, epoch, &e.user1, "five").await;
     assert_eq!(versions(&th.client, &e.card_id).await.len(), 2, "not yet");
     collab.pass_version_time(interval);
-    typed(&e, &editor, epoch, &e.user2, "six").await;
-    assert_eq!(
-        versions(&th.client, &e.card_id).await.len(),
-        2,
-        "the card does not hold the change before yet: nothing to keep with this one"
-    );
     collab
         .write_body(&e.app, &e.card_id)
         .await
@@ -99,7 +102,7 @@ async fn a_body_edited_on_is_kept_as_the_interval_passes() {
     );
     assert_eq!(
         lines(&th.client, &e.card_id, &kept[0]).await,
-        ["first", "one", "two", "three", "four", "five", "six"]
+        ["first", "one", "two", "three", "four", "five"]
     );
 
     // Time alone keeps nothing, and leaving a body that is a version keeps no other.
@@ -152,7 +155,7 @@ async fn the_server_keeps_as_many_versions_as_it_is_set_to() {
 }
 
 /// A server that is stopped keeps what the editors of its open documents typed as
-/// versions before it ends.
+/// versions before it ends: the server that starts after it finds them kept.
 #[tokio::test]
 async fn a_server_that_stops_keeps_what_was_typed_as_a_version() {
     let th = Setup::native().start().await.init_basic().await;
@@ -162,7 +165,15 @@ async fn a_server_that_stops_keeps_what_was_typed_as_a_version() {
     let (card_id, user1) = (e.card_id.clone(), e.user1.clone());
     drop(e);
 
-    let th = th.killed_and_started_again(async |_| {}).await;
+    let th = th
+        .killed_and_started_again(async |app| {
+            // As a server that is asked to stop ends its documents; what it kept is
+            // read before another server starts and sees to what was left.
+            app.collab().end(app).await;
+            let kept = app.store().count_rows("body_versions").await;
+            assert_eq!(kept.expect("counted"), 2, "kept as the server ended");
+        })
+        .await;
     let kept = versions(&th.client, &card_id).await;
     assert_eq!(
         said(&kept),

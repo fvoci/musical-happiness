@@ -20,10 +20,10 @@
 //! not have. The body of the document is written to the card (`blocks.body`, which
 //! everything else reads) two seconds after the last update, ten seconds after the
 //! first one that is not written at the latest, and when the document is closed or the
-//! server stops. Versions of the body are kept as `versions` says. The log is folded into the stored state every [`FOLD_AFTER`] updates;
-//! a document whose state comes near its limit is made again from its body. A server
-//! that ended before it wrote a body writes it when it starts again
-//! ([`Collab::recover`]).
+//! server stops. Versions of the body are kept as `versions` says. The log is folded
+//! into the stored state every [`FOLD_AFTER`] updates; a document whose state comes
+//! near its limit is made again from its body. A server that ended before it wrote a
+//! body writes it when it starts again ([`Collab::recover`]).
 
 mod admission;
 #[cfg(unix)]
@@ -564,14 +564,14 @@ impl Collab {
             tracing::warn!(%error, "the bodies a run that ended did not write are not written");
             return;
         }
-        let unwritten = match app.store().unfinished_body_docs().await {
-            Ok(unwritten) => unwritten,
+        let unfinished = match app.store().unfinished_body_docs().await {
+            Ok(unfinished) => unfinished,
             Err(error) => {
-                tracing::error!(%error, "cannot read which bodies are not written");
+                tracing::error!(%error, "cannot read which bodies are not written or not kept");
                 return;
             }
         };
-        for (card_id, org_id) in unwritten {
+        for (card_id, org_id) in unfinished {
             let tenant = match Tenant::org(&org_id) {
                 Ok(tenant) => tenant,
                 Err(error) => {
@@ -580,9 +580,9 @@ impl Collab {
                 }
             };
             match self.close_after_open(&app.scoped(tenant), &card_id).await {
-                Ok(()) => tracing::info!(card_id, "wrote a body the server had not written"),
+                Ok(()) => tracing::info!(card_id, "saw to a body a server that ended had left"),
                 Err(error) => {
-                    tracing::error!(%error, card_id, "cannot write a body the server had not written");
+                    tracing::error!(%error, card_id, "cannot write a body a server that ended had left");
                 }
             }
         }

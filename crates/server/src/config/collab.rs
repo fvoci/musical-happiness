@@ -60,7 +60,8 @@ pub struct CollabSettings {
     /// How many messages of the rooms may wait for one websocket connection. 16 to
     /// 65536.
     pub collab_queue_messages: u32,
-    /// How many versions of a card's body are kept, the newest. 1 to 1000.
+    /// How many versions of a card's body are kept, the newest. 2 to 1000: a write of
+    /// a whole body keeps the body before and the body after.
     pub collab_body_versions: u32,
     /// How many minutes after the first change no version of a body holds the next
     /// version is kept, while the body is edited on. 1 to 1440.
@@ -104,6 +105,11 @@ pub(super) const LEAST_QUEUE_MESSAGES: u32 = 16;
 /// The most `collab_recheck_seconds`: an hour. A room that asks less often lets who
 /// was taken off a board write on for longer than anybody would expect.
 pub(super) const MOST_RECHECK_SECONDS: u64 = 3600;
+
+/// The least `collab_body_versions`: a write of a whole body keeps the body it
+/// writes over and the body it writes, and with one version the first would go as the
+/// second comes.
+pub(super) const LEAST_BODY_VERSIONS: u32 = 2;
 
 /// The most `collab_body_versions`: every version is a whole body, and the files
 /// its images show are kept as long as it is.
@@ -227,7 +233,7 @@ impl CollabSettings {
             (
                 "collab_body_versions",
                 self.collab_body_versions,
-                1..=MOST_BODY_VERSIONS,
+                LEAST_BODY_VERSIONS..=MOST_BODY_VERSIONS,
             ),
             (
                 "collab_version_minutes",
@@ -364,7 +370,10 @@ mod tests {
             let error = settings.check().expect_err(key).to_string();
             assert!(error.contains(key), "{error}");
         };
-        refused(|s| s.collab_body_versions = 0, "collab_body_versions");
+        refused(
+            |s| s.collab_body_versions = LEAST_BODY_VERSIONS - 1,
+            "collab_body_versions",
+        );
         refused(
             |s| s.collab_body_versions = MOST_BODY_VERSIONS + 1,
             "collab_body_versions",

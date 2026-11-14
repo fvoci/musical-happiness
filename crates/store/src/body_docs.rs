@@ -404,7 +404,9 @@ impl Store {
                 &scope.same_organization(&[("o", "b")]),
                 " JOIN workspaces w ON w.id = o.workspace_id",
                 &scope.same_organization(&[("w", "o")]),
-                " WHERE d.projected_seq < d.log_end OR EXISTS                  (SELECT 1 FROM body_version_editors e WHERE e.block_id = d.block_id                  AND e.version = 0",
+                " WHERE d.projected_seq < d.log_end OR EXISTS \
+                 (SELECT 1 FROM body_version_editors e WHERE e.block_id = d.block_id",
+                &format!(" AND e.version = {}", body_versions::PENDING),
                 &scope.same_organization(&[("e", "d")]),
                 ") ORDER BY d.block_id",
             ]

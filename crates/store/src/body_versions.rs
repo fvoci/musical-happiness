@@ -26,7 +26,7 @@ use crate::{blocks, boards};
 pub const DEFAULT_BODY_VERSIONS_KEPT: u32 = 50;
 
 /// The version of [`body_version_editors`] rows for who wrote since the newest version.
-const PENDING: i64 = 0;
+pub(crate) const PENDING: i64 = 0;
 
 /// A version kept of a card's body, without the body.
 #[derive(Debug, Clone, PartialEq, Eq)]
