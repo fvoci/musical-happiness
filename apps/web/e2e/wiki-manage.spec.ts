@@ -58,6 +58,8 @@ test.describe('a wiki looked after', () => {
     await asked.getByRole('button', { name: 'Delete' }).click();
     await showTree(page);
     expect(await treeShape(page)).toEqual(['Policies']);
+    // The focus is in the tree, where the deleted page's row was.
+    await expect(treeItem(page, 'Policies')).toBeFocused();
     await expect(page.getByTestId('page-title')).toHaveValue('Policies');
   });
 
@@ -85,6 +87,7 @@ test.describe('a wiki looked after', () => {
     await settings.getByTestId('wiki-settings-save').click();
     await expect(page.getByTestId('wiki-header-title')).toHaveText('Guide');
     await expect(page.getByTestId('wiki-header-description')).toHaveText('How we work.');
+    await expect(page.getByTestId('wiki-header-icon')).not.toBeEmpty();
     await showSidebar(page);
     await expect(sidebar(page).getByRole('link', { name: 'Guide, wiki' })).toBeVisible();
     await hideSidebar(page);
@@ -93,6 +96,9 @@ test.describe('a wiki looked after', () => {
     await showSidebar(page);
     await expect(sidebar(page).getByRole('link', { name: 'Handbook, wiki' })).toBeVisible();
     await hideSidebar(page);
+    await showTree(page);
+    await expect(page.getByTestId('wiki-header-description')).toHaveCount(0);
+    await expect(page.getByTestId('wiki-header-icon')).toHaveCount(0);
 
     // Deleted from its own menu: to the first of the sidebar, and back from the trash.
     await showTree(page);
@@ -130,27 +136,34 @@ test.describe('a wiki looked after', () => {
     await expect(page.getByTestId('page-title')).toHaveValue('Hello');
   });
 
-  test('whoever may only read a wiki sees its pages and no way to change them', async ({
-    page,
-  }) => {
-    await openApp(page);
-    const made = await wikiBySomebodyElse(page, {
-      title: 'Rules',
-      type: 'P',
-      page: 'Read me',
-      readerRole: 'viewer',
+  for (const role of ['viewer', 'commenter']) {
+    test(`a ${role} of a wiki sees its pages and no way to change them`, async ({ page }) => {
+      await openApp(page);
+      const made = await wikiBySomebodyElse(page, {
+        title: 'Rules',
+        type: 'P',
+        page: 'Read me',
+        readerRole: role,
+      });
+      await goInside(page, wikiPath(made.wikiId, made.pageId));
+      await expect(page.locator('h1[data-testid="page-title"]')).toHaveText('Read me');
+      await expect(page.getByTestId('page-add-icon')).toHaveCount(0);
+      const body = page.getByTestId('page-body');
+      await expect(body).toHaveAttribute('data-editor', 'reading');
+      // The editor's placeholder, drawn from its attribute, says the page is empty.
+      await expect(body.locator('[data-placeholder]').first()).toHaveAttribute(
+        'data-placeholder',
+        'There is nothing on this page yet.',
+      );
+      await expect(body).toContainText('You can read this page but not change it.');
+      await showTree(page);
+      await expect(page.getByTestId('new-page')).toHaveCount(0);
+      await expect(page.getByTestId('wiki-menu')).toHaveCount(0);
+      await expect(treeItem(page, 'Read me').getByRole('button', { name: /^Menu of/ })).toHaveCount(
+        0,
+      );
     });
-    await goInside(page, wikiPath(made.wikiId, made.pageId));
-    await expect(page.locator('h1[data-testid="page-title"]')).toHaveText('Read me');
-    await expect(page.getByTestId('page-add-icon')).toHaveCount(0);
-    await expect(page.getByTestId('page-body')).toHaveAttribute('data-editor', /reading|none/);
-    await showTree(page);
-    await expect(page.getByTestId('new-page')).toHaveCount(0);
-    await expect(page.getByTestId('wiki-menu')).toHaveCount(0);
-    await expect(treeItem(page, 'Read me').getByRole('button', { name: /^Menu of/ })).toHaveCount(
-      0,
-    );
-  });
+  }
 });
 
 test.describe('the tree with the keyboard alone', () => {
@@ -158,23 +171,36 @@ test.describe('the tree with the keyboard alone', () => {
     await openApp(page);
     await wikiWithPages(page);
     await showTree(page);
+    // Tab from the button before the tree reaches one page of it: the page shown.
+    await page.getByTestId('new-page').focus();
+    await page.keyboard.press('Tab');
+    const welcome = treeItem(page, 'Welcome');
+    const started = treeItem(page, 'Getting started');
     const policies = treeItem(page, 'Policies');
-    await policies.focus();
+    await expect(policies).toBeFocused();
     await page.keyboard.press('Home');
-    await expect(treeItem(page, 'Welcome')).toBeFocused();
-    // Open (its child shows), down into it, left back to the parent, left folds it.
-    await page.keyboard.press('ArrowRight');
-    await expect(treeItem(page, 'Welcome')).toHaveAttribute('aria-expanded', 'true');
-    await page.keyboard.press('ArrowRight');
-    await expect(treeItem(page, 'Getting started')).toBeFocused();
+    await expect(welcome).toBeFocused();
+    // Left folds an open page, right opens it again and stays, then goes into it.
     await page.keyboard.press('ArrowLeft');
-    await expect(treeItem(page, 'Welcome')).toBeFocused();
+    await expect(welcome).toHaveAttribute('aria-expanded', 'false');
+    await expect(started).toHaveCount(0);
+    await page.keyboard.press('ArrowRight');
+    await expect(welcome).toHaveAttribute('aria-expanded', 'true');
+    await expect(welcome).toBeFocused();
+    await page.keyboard.press('ArrowRight');
+    await expect(started).toBeFocused();
+    // Left from a page without children goes to its parent; down and up go row by row.
     await page.keyboard.press('ArrowLeft');
-    await expect(treeItem(page, 'Welcome')).toHaveAttribute('aria-expanded', 'false');
-    await page.keyboard.press('End');
+    await expect(welcome).toBeFocused();
+    await page.keyboard.press('ArrowDown');
+    await expect(started).toBeFocused();
+    await page.keyboard.press('ArrowDown');
     await expect(policies).toBeFocused();
     await page.keyboard.press('ArrowUp');
-    await expect(treeItem(page, 'Welcome')).toBeFocused();
+    await expect(started).toBeFocused();
+    await page.keyboard.press('End');
+    await expect(policies).toBeFocused();
+    await page.keyboard.press('Home');
     await page.keyboard.press('Enter');
     await expect(page.getByTestId('page-title')).toHaveValue('Welcome');
 
@@ -186,7 +212,7 @@ test.describe('the tree with the keyboard alone', () => {
     await page.locator('[data-action="add-child"]').press('Enter');
     await nameThePage(page, 'Leave');
     await showTree(page);
-    expect(await treeShape(page)).toEqual(['Welcome', 'Policies', '  Leave']);
+    expect(await treeShape(page)).toEqual(['Welcome', '  Getting started', 'Policies', '  Leave']);
     await expect(page).toHaveURL(ON_A_PAGE);
     expect(wikiPlaceOf(page.url()).pageId).not.toBe('');
   });
@@ -215,6 +241,15 @@ test.describe('at a phone’s width', () => {
     await expect(drawer).toBeHidden();
     await expect(page.getByTestId('page-title')).toHaveValue('Welcome');
     await expect(pageBody(page)).toBeVisible();
+
+    // A page made in the drawer: the drawer goes, the new page's title has the caret.
+    await page.getByTestId('open-page-tree').click();
+    await page.getByTestId('new-page').click();
+    await expect(drawer).toBeHidden();
+    await nameThePage(page, 'From the drawer');
+    await page.getByTestId('open-page-tree').click();
+    await expect(treeItem(page, 'From the drawer')).toBeVisible();
+    await page.keyboard.press('Escape');
 
     await page.getByTestId('open-page-tree').click();
     await page.getByTestId('page-tree-scrim').click({ position: { x: 380, y: 400 } });

@@ -109,6 +109,8 @@
       return true;
     });
     if (!done || workspace.boards.some((left) => left.id === store.wikiId)) return;
+    // The reader went elsewhere meanwhile: they stay there.
+    if (router.route.wikiId !== store.wikiId) return;
     const next = workspace.sidebar.flatMap((entry) => entry.boards)[0];
     if (next) router.openBoard(next);
   }
@@ -187,6 +189,11 @@
     onConfirm={() => {
       if (deleting) void store.deletePage(deleting.id);
     }}
+    focusAfter={() =>
+      // The page's row is gone with it: the tree's place in the tab order instead.
+      document.querySelector<HTMLElement>(
+        '[data-testid="page-tree"] [role="treeitem"][tabindex="0"]',
+      )}
   />
   {#if store.wiki}
     <WikiSettingsDialog

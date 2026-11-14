@@ -332,7 +332,7 @@ export class WikiStore {
           return made;
         },
         async (made) => {
-          await this.#deletePage(made.id);
+          await unlessGone(() => this.#deletePage(made.id));
           this.#forget([made.id], 'reader');
         },
         'createPage',
@@ -356,8 +356,8 @@ export class WikiStore {
     }
     try {
       await this.workspace.undo.perform(
-        () => this.#writeLooks(pageId, looks, back),
-        () => this.#writeLooks(pageId, back, looks),
+        () => unlessGone(() => this.#writeLooks(pageId, looks, back)),
+        () => unlessGone(() => this.#writeLooks(pageId, back, looks)),
         looks.title === undefined ? 'changePageIcon' : 'changePageTitle',
       );
     } catch (error) {
@@ -432,6 +432,15 @@ export class WikiStore {
     } catch (error) {
       this.workspace.report('save', error);
     }
+  }
+}
+
+/** A step of undo on a page deleted since (by the reader too): nothing is left to do. */
+async function unlessGone(step: () => Promise<void>): Promise<void> {
+  try {
+    await step();
+  } catch (error) {
+    if (!isBackendError(error) || error.status !== 404) throw error;
   }
 }
 

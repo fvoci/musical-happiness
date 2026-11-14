@@ -4,6 +4,8 @@
   what was changed is saved (`onSave`), with undo; Enter in the name saves.
 -->
 <script lang="ts">
+  import { untrack } from 'svelte';
+
   import ShuffleIcon from '@lucide/svelte/icons/shuffle';
   import XIcon from '@lucide/svelte/icons/x';
 
@@ -30,11 +32,13 @@
   let description = $state('');
   let icon = $state('');
 
-  /** Each opening starts from the wiki as it is. */
+  /** Each opening starts from the wiki as it is then; a change of it meanwhile keeps what is typed. */
   function opened(): void {
-    title = wiki.title;
-    description = wiki.description;
-    icon = wiki.icon ?? '';
+    untrack(() => {
+      title = wiki.title;
+      description = wiki.description;
+      icon = wiki.icon ?? '';
+    });
   }
 
   function submit(event: SubmitEvent): void {

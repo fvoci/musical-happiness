@@ -154,6 +154,18 @@ describe('an open wiki', () => {
     expect(shown?.removed).toEqual({ by: 'reader', title: 'Top' });
   });
 
+  it('undoes nothing, and says nothing, of a page deleted since', async () => {
+    const made = await openWiki();
+    const page = await made.store.createPage({ title: 'Draft' });
+    if (!page) throw new Error('no page');
+    await made.store.changePage(page.id, { title: 'Named' });
+    expect(await made.store.deletePage(page.id)).toBe(true);
+    await made.workspace.undoLast();
+    await made.workspace.undoLast();
+    expect(made.workspace.problems).toEqual([]);
+    expect(titles(made.store)).toEqual([]);
+  });
+
   it('changes the wiki’s title, also in the sidebar, and undoes it', async () => {
     const made = await openWiki();
     await settle();
