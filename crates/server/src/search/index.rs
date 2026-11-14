@@ -11,8 +11,14 @@ use serde_json::{Value, json};
 
 /// The version of what the index holds. An index made from another is made again,
 /// and every document sent again: raise it with every change of [`definition`], and
-/// of which blocks have a document (2: the pages of wikis beside the cards).
-pub(crate) const VERSION: i64 = 2;
+/// of which blocks have a document (2: the pages of wikis beside the cards; 3: the
+/// highlighter reads a whole body).
+pub(crate) const VERSION: i64 = 3;
+
+/// How many characters of a text the highlighter reads to find the piece it shows:
+/// more than the longest body there is (a megabyte as it is stored). Both search
+/// servers read a million by default, and fail the whole search over a longer text.
+const HIGHLIGHTED_CHARS: u32 = 2_000_000;
 
 /// The name of the analyser of Korean text.
 const KOREAN: &str = "fvoci_korean";
@@ -39,6 +45,7 @@ fn text_field(copy_to: Option<&str>) -> Value {
 pub(crate) fn definition() -> Value {
     json!({
         "settings": {
+            "index": {"highlight": {"max_analyzed_offset": HIGHLIGHTED_CHARS}},
             "analysis": {
                 "tokenizer": {
                     "fvoci_nori": {

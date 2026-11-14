@@ -27,6 +27,8 @@ const ROUNDS_A_RUN: usize = 5;
 const DOCUMENTS_AT_ONCE: usize = 50;
 /// [`DOCUMENTS_AT_ONCE`], as the limit of a query.
 const PAGE: i64 = 50;
+/// How many refused documents of one container are named in the log, each by a line.
+const REFUSALS_NAMED: usize = 5;
 /// How long a row whose document was refused waits for its next try, at first and at
 /// most; doubled with every refusal in a row.
 const FIRST_RETRY_MILLIS: i64 = 5_000;
@@ -96,12 +98,13 @@ pub(super) async fn work_off(
     metrics: &Metrics,
 ) -> Result<usize, Stopped> {
     let mut looked_at = 0;
-    for round in 0..ROUNDS_A_RUN {
+    for _ in 0..ROUNDS_A_RUN {
         let changes = store.due_search_changes(now_millis(), ROUND).await?;
         if changes.is_empty() {
             break;
         }
-        if round == 0 && !index_is_kept(store, client).await? {
+        // Before every round: a run goes on for a while when everything is sent again.
+        if !index_is_kept(store, client).await? {
             return Err(Stopped::IndexLost);
         }
         looked_at += changes.len();
@@ -168,21 +171,43 @@ async fn send_board(
         .await?;
     // Every page is put, also after a document was refused: what is refused is one
     // document, and the others of the board are not left out for it.
-    let mut after = String::new();
-    let mut refused = None;
+    let mut after: Option<String> = None;
+    let mut refused: Option<String> = None;
+    let mut refused_count = 0_usize;
     loop {
         let page = store
-            .search_documents_of_container(&change.id, &after, PAGE)
+            .search_documents_of_container(&change.id, after.as_deref(), PAGE)
             .await?;
         let Some(last) = page.last() else {
             break;
         };
-        after.clone_from(&last.id);
+        after = Some(last.id.clone());
         let operations: Vec<Operation> = page.into_iter().map(Operation::Put).collect();
         let refusals = client.write(&operations).await?;
-        if refused.is_none() {
-            refused = refusals.into_iter().flatten().next();
+        for (operation, kind) in operations.iter().zip(refusals) {
+            let (Operation::Put(document), Some(kind)) = (operation, kind) else {
+                continue;
+            };
+            // Which documents, so that somebody can look at them: the first few of a
+            // container, and how many in all below.
+            if refused_count < REFUSALS_NAMED {
+                tracing::warn!(
+                    kind,
+                    id = %document.id,
+                    container_id = %change.id,
+                    "the search server refused a document of a container sent whole"
+                );
+            }
+            refused_count += 1;
+            refused.get_or_insert(kind);
         }
+    }
+    if refused_count > REFUSALS_NAMED {
+        tracing::warn!(
+            container_id = %change.id,
+            refused = refused_count,
+            "the search server refused more documents of the container than were named"
+        );
     }
     settle(store, metrics, change, refused.as_deref()).await
 }
@@ -197,8 +222,10 @@ async fn settle(
 ) -> Result<(), Stopped> {
     match refusal {
         None => {
-            store.settle_search_change(change).await?;
-            metrics.search_sent(SearchSent::Done);
+            // A row noted again meanwhile stays, and is counted when it is sent again.
+            if store.settle_search_change(change).await? {
+                metrics.search_sent(SearchSent::Done);
+            }
         }
         Some(kind) => {
             tracing::warn!(

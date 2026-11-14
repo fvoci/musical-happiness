@@ -277,7 +277,7 @@ fn describe_search(reason: Reason) -> Option<&'static str> {
     Some(match reason {
         Reason::SearchNotConfigured => {
             "Status 404. The server has no search server (`search_url`), or the one it has \
-             cannot hold the index: what cards say is not searched. `searchEnabled` of \
+             cannot hold the index: what cards and pages say is not searched. `searchEnabled` of \
              `getClientConfig` says so beforehand."
         }
         Reason::SearchUnavailable => {

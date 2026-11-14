@@ -51,8 +51,10 @@ async fn sync_index(store: &Store, engine: &Engine) -> Result<Synced, Stopped> {
     match client.describe_index().await? {
         IndexFound::Foreign => {
             tracing::error!(
-                "search_index names an index this server did not make; it is left as \
-                 it is, and bodies are not searched: name another index, or remove it"
+                "search_index names an index without this server's mark: one that is \
+                 not its own, or one the search server made by itself for a document \
+                 written after the server's index was removed. It is left as it is, \
+                 and bodies are not searched: name another index, or remove it"
             );
             return Ok(Synced::Refused);
         }
@@ -275,7 +277,7 @@ pub async fn reindex(app: &App) -> Result<u64, AppError> {
 ///
 /// Returns an error if that cannot be forgotten: what such a server writes is noted
 /// nowhere, and an index kept in the database's memory would be taken for whole.
-pub async fn settle_at_start(app: &App) -> anyhow::Result<()> {
+pub(crate) async fn settle_at_start(app: &App) -> anyhow::Result<()> {
     if app.search().configured() {
         return Ok(());
     }

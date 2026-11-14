@@ -93,7 +93,7 @@ impl Store {
     }
 
     /// Up to `limit` documents of the blocks of a board or a wiki, by identifier, those after
-    /// the identifier `after` (empty for the first): for sending a board whole, a page
+    /// the identifier `after` (`None` for the first): for sending a board whole, a page
     /// at a time. A board that is a template, or is not there, has none.
     ///
     /// # Errors
@@ -102,13 +102,13 @@ impl Store {
     pub async fn search_documents_of_container(
         &self,
         board_id: &str,
-        after: &str,
+        after: Option<&str>,
         limit: i64,
     ) -> Result<Vec<SearchDocument>, StoreError> {
         self.with_conn(async |scope| {
             let mut sql = select_documents(scope);
             sql.push_bind(" AND b.board_id = ", Id(board_id));
-            if !after.is_empty() {
+            if let Some(after) = after {
                 sql.push_bind(" AND b.id > ", Id(after));
             }
             sql.push_bind(" ORDER BY b.id LIMIT ", limit);

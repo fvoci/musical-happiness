@@ -27,8 +27,8 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 pub use find::{Asked, AskedError, MAX_LIMIT, MAX_TEXT_CHARS};
-pub use upkeep::{reindex, settle_at_start, tend};
-pub(crate) use upkeep::{start_upkeep, stop_upkeep};
+pub use upkeep::{reindex, tend};
+pub(crate) use upkeep::{settle_at_start, start_upkeep, stop_upkeep};
 
 use client::{Client, ClientError};
 use limit::Limiter;
@@ -40,6 +40,8 @@ use crate::config::search::SearchSettings;
 const FIRST_PAUSE: Duration = Duration::from_secs(1);
 /// See [`FIRST_PAUSE`].
 const LONGEST_PAUSE: Duration = Duration::from_secs(60);
+/// How often the log says that searches are not answered, while they are not.
+const FAILURES_SAID_EVERY: Duration = Duration::from_secs(30);
 
 /// The search of bodies, as the server is configured: on a search server, or none.
 #[derive(Debug)]
@@ -55,6 +57,8 @@ pub(crate) struct Engine {
     index: Mutex<IndexState>,
     /// Held by the upkeep while it runs: one at a time.
     upkeep: tokio::sync::Mutex<Pause>,
+    /// When a search that the search server did not answer was last said in the log.
+    search_failure_said: Mutex<Option<Instant>>,
 }
 
 /// What is known of the index on the search server.
@@ -122,6 +126,7 @@ impl Search {
                 limiter: Limiter::new(server.requests_per_second),
                 index: Mutex::new(IndexState::Unknown),
                 upkeep: tokio::sync::Mutex::default(),
+                search_failure_said: Mutex::new(None),
             }),
         })
     }
@@ -152,6 +157,20 @@ impl Engine {
             .index
             .lock()
             .expect("the lock of the index state is not poisoned")
+    }
+
+    /// Whether a search that failed at `now` is to be said in the log: the first, and
+    /// then one every [`FAILURES_SAID_EVERY`].
+    pub(super) fn search_failure_is_news(&self, now: Instant) -> bool {
+        let mut said = self
+            .search_failure_said
+            .lock()
+            .expect("the lock of the failures said is not poisoned");
+        let news = said.is_none_or(|last| now.duration_since(last) >= FAILURES_SAID_EVERY);
+        if news {
+            *said = Some(now);
+        }
+        news
     }
 
     /// Notes that the index turned out not to be there: the upkeep looks for it

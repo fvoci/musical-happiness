@@ -7,13 +7,13 @@ use fvoci_store::SearchDocument;
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 
-/// How many bytes of the hash a digest keeps: enough that two texts of one card never
-/// share one by chance.
+/// How many bytes of the hash a digest keeps: enough that two texts of one card or
+/// page never share one by chance.
 const DIGEST_BYTES: usize = 16;
 
 /// The digest of a title and a text: what a document is indexed with, so that a
-/// search can tell whether what the search server holds of a card is the card as it
-/// is now.
+/// search can tell whether what the search server holds of a card or a page is what
+/// it is now.
 pub(crate) fn digest(title: &str, text: &str) -> String {
     let mut hasher = Sha256::new();
     // The length first: no title and text read as another title and text.

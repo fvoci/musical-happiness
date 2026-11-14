@@ -103,15 +103,15 @@ impl Store {
         self.inner.search_outbox.store(true, Ordering::Relaxed);
     }
 
-    /// Stops noting changes, and forgets the list and the index it was kept for: for a
-    /// server that has no search server, or one that cannot hold the index. An index
-    /// found later is one the list was not kept for.
+    /// Forgets the list and the index it was kept for, and then stops noting changes:
+    /// for a server that has no search server, or one that cannot hold the index. An
+    /// index found later is one the list was not kept for. If it cannot be forgotten,
+    /// changes are noted as before.
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if a statement fails.
     pub async fn drop_search_outbox(&self) -> Result<(), StoreError> {
-        self.inner.search_outbox.store(false, Ordering::Relaxed);
         self.transaction(async |scope| {
             // Read first: a server that never had a search server writes nothing here.
             let sql = scope.sql(
@@ -128,7 +128,12 @@ impl Store {
             }
             Ok(())
         })
-        .await
+        .await?;
+        // Only once the index is forgotten: while it is remembered, what changes is
+        // noted, or the index would be taken for whole when it is found again. What
+        // is noted between the two is forgotten or listed again by the next start.
+        self.inner.search_outbox.store(false, Ordering::Relaxed);
+        Ok(())
     }
 
     /// Up to `limit` rows of the list that are due at `now`, those due the longest

@@ -266,7 +266,7 @@ async fn the_trash_and_the_way_back_are_noted() {
     );
     assert_eq!(
         store
-            .search_documents_of_container(&board.id, "", 10)
+            .search_documents_of_container(&board.id, None, 10)
             .await
             .expect("read"),
         [],
@@ -285,11 +285,11 @@ async fn the_trash_and_the_way_back_are_noted() {
     expected.sort_by(|a, b| a.1.cmp(&b.1));
     assert_eq!(listed(store).await, expected, "each card that came back");
     let first = store
-        .search_documents_of_container(&board.id, "", 1)
+        .search_documents_of_container(&board.id, None, 1)
         .await
         .expect("read");
     let second = store
-        .search_documents_of_container(&board.id, &first[0].id, 10)
+        .search_documents_of_container(&board.id, Some(&first[0].id), 10)
         .await
         .expect("read");
     let mut paged = vec![first[0].id.clone(), second[0].id.clone()];

@@ -2769,7 +2769,9 @@ export interface paths {
          *     `snippet`, a piece of its body in stretches of plain text, those that matched
          *     marked; the snippet is empty for a body that changed a moment ago, or has nothing
          *     to show. The best match first. Nothing says how many match in all: fewer than
-         *     `limit` means that no more of what the user reads matches.
+         *     `limit` means that no more of what the user reads matches (for a user with a role
+         *     on more than 1,000 boards and wikis: among the 10,000 best matches of the
+         *     workspace).
          *
          *     A `q` of more than 200 characters, a `kind` that is none and a `limit` outside 1
          *     to 50 are 400; a `q` that is empty finds nothing. A user who searches more often
@@ -3849,8 +3851,8 @@ export interface components {
              */
             maxImportSize: number;
             /**
-             * @description Whether the bodies of cards can be searched (`searchWorkspaceContent`): the
-             *     server has a search server.
+             * @description Whether what cards and pages say can be searched (`searchWorkspaceContent`):
+             *     the server has a search server, and one that can hold its index.
              */
             searchEnabled: boolean;
             /** @description How other users' names are displayed. */

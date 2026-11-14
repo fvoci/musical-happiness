@@ -136,10 +136,14 @@ impl App {
         if theirs.is_empty() {
             return Ok(Vec::new());
         }
-        let listed: Vec<String> = theirs.iter().cloned().collect();
-        let (containers, asked_for) = if listed.len() > MAX_LISTED_CONTAINERS {
+        let listed: Vec<String>;
+        let (containers, asked_for) = if theirs.len() > MAX_LISTED_CONTAINERS {
             (Containers::All, ASKED_FOR_ALL)
         } else {
+            // In one order, whatever order the set has them in.
+            let mut ids: Vec<String> = theirs.iter().cloned().collect();
+            ids.sort_unstable();
+            listed = ids;
             (Containers::Listed(&listed), ASKED_FOR_LISTED)
         };
         let scope = Scope::Workspace {
@@ -199,8 +203,8 @@ impl App {
         check: &mut Check<'_>,
         hits: Vec<Hit>,
     ) -> Result<Vec<SearchHit>, AppError> {
-        let ids: Vec<String> = hits.iter().map(|hit| hit.id.clone()).collect();
-        let documents: HashMap<String, SearchDocument> = self
+        let ids: Vec<&str> = hits.iter().map(|hit| hit.id.as_str()).collect();
+        let mut documents: HashMap<String, SearchDocument> = self
             .store()
             .search_documents(&ids)
             .await?
@@ -209,11 +213,13 @@ impl App {
             .collect();
         let mut found = Vec::new();
         for hit in hits {
-            let Some(document) = documents.get(&hit.id) else {
+            // Taken out: an identifier the index answers twice has a document once.
+            let Some(document) = documents.remove(&hit.id) else {
                 continue;
             };
-            // A board the user has no role on is asked nothing about: what the index
-            // answers of the boards of others costs the same as what it does not.
+            // A container the user has no role on is asked nothing about: what the
+            // index answers of the containers of others costs the same as what it
+            // does not.
             if document.workspace_id != check.workspace_id
                 || check.kind.is_some_and(|kind| kind != document.kind)
                 || !check.theirs.contains(&document.container_id)
@@ -240,11 +246,11 @@ impl App {
             }
             let current = hit.digest == document::digest(&document.title, &document.text);
             found.push(SearchHit {
-                id: document.id.clone(),
+                id: document.id,
                 kind: document.kind,
-                container_id: document.container_id.clone(),
+                container_id: document.container_id,
                 container_kind: document.container_kind,
-                title: document.title.clone(),
+                title: document.title,
                 snippet: if current { hit.snippet } else { Vec::new() },
             });
         }
@@ -258,7 +264,7 @@ struct Check<'a> {
     user_id: &'a str,
     workspace_id: &'a str,
     kind: Option<SearchKind>,
-    /// The boards of the workspace the user has a role on.
+    /// The boards and wikis of the workspace the user has a role on.
     theirs: &'a HashSet<String>,
     /// Whether the user reads a board, for the boards asked about.
     reads: HashMap<String, bool>,
@@ -269,7 +275,10 @@ struct Check<'a> {
 /// The 503 of a search that failed so, noted. An index that is gone is looked for
 /// again by the upkeep.
 fn search_failed(engine: &Engine, error: &ClientError) -> AppError {
-    tracing::warn!(%error, "a search was not answered by the search server");
+    // Said now and then: while the search server is away, every search fails so.
+    if engine.search_failure_is_news(Instant::now()) {
+        tracing::warn!(%error, "a search was not answered by the search server");
+    }
     if error.is_missing_index() {
         engine.lose_index();
     }

@@ -330,7 +330,13 @@ async fn korean_questions_find_their_cards_on_a_real_search_server() {
             new_card(&th.client, &board.id, title, text).await;
         }
     }
+    // A body as long as one may be: longer than what the highlighter of either search
+    // server reads unless the index says otherwise.
+    let long = format!("{} zyzzyva", "refund policy words ".repeat(51_500));
+    assert!(long.len() > 1_000_000, "{}", long.len());
+    new_card(&th.client, &board.id, "긴 본문", &long).await;
     sent_and_shown(&th, &settings).await;
+    let in_the_long_one: Vec<SearchHit> = search(&th.client, TEST_WS, "zyzzyva").await.ok_json();
 
     let mut table = format!(
         "### {flavor}\n\n| 질문 | 보려는 것 | 찾을 것 | 바란 대로인가 | 찾은 것(순서대로) | 조각 |\n|---|---|---|---|---|---|\n"
@@ -408,10 +414,22 @@ async fn korean_questions_find_their_cards_on_a_real_search_server() {
         std::fs::write(&report, &table).expect("the table is written");
     }
     assert!(removed.status().is_success(), "{}", removed.status());
+    assert_eq!(
+        in_the_long_one
+            .iter()
+            .map(|hit| hit.title.as_str())
+            .collect::<Vec<_>>(),
+        ["긴 본문"],
+        "a word at the end of the longest body is found, and the search answered"
+    );
+    assert!(
+        in_the_long_one[0].snippet.iter().any(|part| part.matched),
+        "and marked in its piece"
+    );
     assert_eq!(trashed, [], "a page in the trash is found no more");
     assert_eq!(
         others,
-        WRITTEN.len() - 1,
+        WRITTEN.len(),
         "its document was removed, and no other"
     );
     assert_eq!(

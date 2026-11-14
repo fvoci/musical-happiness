@@ -4,7 +4,7 @@
 //! index, describing it, and `_search`. Where the two differ, in how the server signs
 //! in and in what an answer that refuses says, this file reads both. Nothing of an
 //! answer is kept but its status, the name of its error, and what a search found:
-//! never its text, which may repeat what a card says.
+//! never its text, which may repeat what a card or a page says.
 
 use std::time::Duration;
 
@@ -107,7 +107,7 @@ impl ClientError {
 pub(crate) enum IndexFound {
     /// Nothing.
     Absent,
-    /// An index this server made, from the definition of this version.
+    /// An index with this server's mark, made from the definition of some version.
     Ours {
         /// The version of [`index::definition`] it was made from.
         version: i64,
