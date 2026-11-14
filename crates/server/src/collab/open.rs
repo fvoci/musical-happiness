@@ -9,6 +9,7 @@ use tokio::sync::OwnedSemaphorePermit;
 use tokio::time::Instant;
 
 use super::place::{OpenDoc, Opening};
+use super::versions::Versioned;
 use super::worker::CallError;
 use super::{Collab, DocChange, given, refusals, upkeep};
 use crate::app::App;
@@ -87,6 +88,8 @@ impl Collab {
             last_update: Instant::now(),
             writing_scheduled: false,
             retry_at: None,
+            versioned: Versioned::Unknown,
+            editors: Vec::new(),
             aside: None,
         })
     }
@@ -133,6 +136,8 @@ impl Collab {
             last_update: Instant::now(),
             writing_scheduled: false,
             retry_at: None,
+            versioned: Versioned::Unknown,
+            editors: Vec::new(),
             aside,
         };
         let opened = self

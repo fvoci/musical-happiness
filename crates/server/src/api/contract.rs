@@ -209,6 +209,8 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("BoardTeam", Members::All),
     ("BoardTeamRole", Members::AsWritten),
     ("BoardsAndBlocks", Members::All),
+    ("BodyVersion", Members::All),
+    ("BodyVersionContent", Members::All),
     ("Card", Members::AllBut(&["preview"])),
     ("CardPreview", Members::All),
     ("Category", Members::All),

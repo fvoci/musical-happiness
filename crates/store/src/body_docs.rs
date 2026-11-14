@@ -12,6 +12,7 @@ use fvoci_model::{BlockPatch, BlockType, Body, BodyChange};
 
 use crate::Store;
 use crate::blocks;
+use crate::body_versions;
 use crate::db::{Id, OptId, Param, Row, Scope, now_millis};
 use crate::error::StoreError;
 use crate::file_refs::{self, NewImages};
@@ -158,7 +159,10 @@ impl Store {
     /// with them: those the block does not show yet are asked of its board and held as
     /// a write of its body holds them ([`crate::NewImages::Recorded`]), and the block
     /// shows them from now on, so that the files are not collected before the body is
-    /// written to it.
+    /// written to it. `new_editors` are those of the senders who are not yet put down
+    /// as having written the body since its newest version
+    /// ([`Store::keep_body_versions`]), as far as the caller knows: putting one down
+    /// again changes nothing.
     ///
     /// # Errors
     ///
@@ -169,11 +173,13 @@ impl Store {
         block_id: &str,
         updates: &[(&[u8], &str)],
         images: &[String],
+        new_editors: &[&str],
     ) -> Result<Vec<i64>, StoreError> {
         self.transaction(async |scope| {
             if !images.is_empty() {
                 file_refs::show_images(scope, block_id, images).await?;
             }
+            body_versions::note_editors(scope, block_id, new_editors).await?;
             let now = now_millis();
             let mut seqs = Vec::with_capacity(updates.len());
             for (bytes, written_by) in updates {

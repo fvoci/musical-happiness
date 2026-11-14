@@ -10,6 +10,7 @@ use tokio::time::{Instant, sleep_until};
 
 use super::open::unexpected;
 use super::place::{Held, OpenDoc, Opening, died_over};
+use super::versions::Versioned;
 use super::{Collab, DocChange, FOLD_AFTER, REMAKE_RETRY, Taken, bytes};
 use crate::app::App;
 use crate::collab_worker::wire::{Answer, Request};
@@ -37,6 +38,7 @@ impl Collab {
             update: update.to_vec(),
         };
         self.at_epoch(app, card_id, slot, epoch).await?;
+        self.version_before_update(app, card_id, slot).await;
         let answer = match self.ask(app, card_id, slot, request).await {
             Ok(answer) => answer,
             Err(refused) => {
@@ -63,11 +65,16 @@ impl Collab {
         if let Some(repair) = &repair {
             entries.push((repair, ""));
         }
+        // Put down as having written since the newest version, unless they are.
+        let known = slot.open.as_ref().is_some_and(|open| {
+            user_id.is_empty() || open.editors.iter().any(|editor| editor == user_id)
+        });
+        let new_editors: &[&str] = if known { &[] } else { &[user_id] };
         #[cfg(feature = "test-util")]
         self.paused_before_log().await;
         let logged = app
             .store()
-            .append_body_updates(card_id, &entries, &images)
+            .append_body_updates(card_id, &entries, &images, new_editors)
             .await;
         let seqs = match logged {
             Ok(seqs) => seqs,
@@ -95,6 +102,7 @@ impl Collab {
         open.last_update = now;
         open.first_unwritten.get_or_insert(now);
         self.schedule_write(app, card_id, open);
+        self.updated_by(slot, user_id);
         let remade = self.keep_up(app, card_id, slot).await;
         Ok(Taken {
             seq: seqs.first().copied().unwrap_or_default(),
@@ -271,6 +279,10 @@ impl Collab {
         open.state_bytes = state_bytes;
         open.made_bytes = state_bytes;
         open.first_unwritten = None;
+        // Whether the body it was made from is a version is not known, and who is put
+        // down as having written is read again with the next update.
+        open.versioned = Versioned::Unknown;
+        open.editors.clear();
         Ok(())
     }
 
@@ -474,7 +486,7 @@ async fn announce(app: &App, card_id: &str) {
 /// The digest of a body as `body_docs.body_digest` holds it: SHA-256 of its JSON with
 /// the members of every object in the order of their names and no space; of nothing for
 /// no body.
-pub(super) fn digest_of(body: Option<&Body>) -> Vec<u8> {
+pub(crate) fn digest_of(body: Option<&Body>) -> Vec<u8> {
     let mut json = Vec::new();
     if let Some(body) = body {
         write_canonical(body.document(), &mut json);

@@ -9,6 +9,7 @@ mod auth;
 mod blocks;
 mod boards;
 mod boards_and_blocks;
+mod body_versions;
 mod cards;
 mod category;
 mod category_boards;

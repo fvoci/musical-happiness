@@ -3,6 +3,7 @@
 use fvoci_model::{
     Block, BlockPatch, BlockType, Board, BoardMember, BoardType, Body, BodyChange, User, new_id,
 };
+use fvoci_store::BodyToKeep;
 use serde_json::json;
 
 use crate::boards::{member, new_board};
@@ -15,6 +16,7 @@ enum Authorship {
     Board,
     CommentVersion,
     TrashedCommentVersion,
+    BodyVersion,
 }
 
 fn body(text: &str) -> Body {
@@ -29,7 +31,9 @@ async fn authored_board(th: &TestServer, authorship: Authorship, leaver: &str) -
     let owner = th.client.me().await.id;
     let creator = match authorship {
         Authorship::Board => &th.client2,
-        Authorship::CommentVersion | Authorship::TrashedCommentVersion => &th.client,
+        Authorship::CommentVersion
+        | Authorship::TrashedCommentVersion
+        | Authorship::BodyVersion => &th.client,
     };
     let board: Board = creator
         .create_board(&new_board(
@@ -47,6 +51,8 @@ async fn authored_board(th: &TestServer, authorship: Authorship, leaver: &str) -
             })
             .await
             .check_ok();
+    } else if matches!(authorship, Authorship::BodyVersion) {
+        versioned_card(th, &board.id, &owner, leaver).await;
     } else {
         let mut card = Block {
             id: new_id(),
@@ -116,6 +122,45 @@ async fn authored_board(th: &TestServer, authorship: Authorship, leaver: &str) -
         }
     }
     board
+}
+
+/// A card of the board whose body the owner made and wrote last, with an earlier
+/// version of it that the leaver wrote.
+async fn versioned_card(th: &TestServer, board_id: &str, owner: &str, leaver: &str) {
+    let store = th.app.store();
+    let mut card = Block {
+        id: new_id(),
+        board_id: board_id.to_owned(),
+        block_type: BlockType::Card,
+        body: Some(body("Original")),
+        ..Block::default()
+    };
+    store.insert_block(&mut card, owner).await.expect("a card");
+    for (writer, text) in [(leaver, "An earlier version"), (owner, "Current")] {
+        let patch = BlockPatch {
+            body: BodyChange::Set(body(text)),
+            ..BlockPatch::default()
+        };
+        store
+            .patch_block(&card.id, &patch, owner)
+            .await
+            .expect("a body written");
+        let block = store.get_block(&card.id).await.expect("the card");
+        assert_eq!(
+            (block.created_by.as_str(), block.modified_by.as_str()),
+            (owner, owner),
+            "the leaver neither made the card nor changed it last"
+        );
+        let kept = store
+            .keep_body_versions(&[BodyToKeep {
+                block: &block,
+                digest: text.as_bytes(),
+                written_by: writer,
+            }])
+            .await
+            .expect("a version kept");
+        assert!(kept[0].is_some(), "a version of {text}");
+    }
 }
 
 async fn named(client: &Client, workspace: &str, user: &str) -> Vec<User> {
@@ -229,4 +274,9 @@ async fn a_departed_comment_revision_writer_is_named_only_to_readers() {
 #[tokio::test]
 async fn a_departed_writer_of_a_readable_trashed_comment_revision_is_named() {
     check_authorship(Authorship::TrashedCommentVersion).await;
+}
+
+#[tokio::test]
+async fn a_departed_writer_of_a_version_of_a_readable_card_body_is_named() {
+    check_authorship(Authorship::BodyVersion).await;
 }

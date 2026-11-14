@@ -15,6 +15,7 @@ mod board_teams;
 mod boards;
 mod boards_and_blocks;
 mod bodies;
+mod body_versions;
 mod card_previews;
 mod cards;
 mod collab;

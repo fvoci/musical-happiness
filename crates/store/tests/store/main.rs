@@ -11,6 +11,7 @@ mod block_reads_and_patches;
 mod blocks;
 mod boards;
 mod boards_and_blocks;
+mod body_versions;
 mod categories;
 mod category_boards;
 mod common;

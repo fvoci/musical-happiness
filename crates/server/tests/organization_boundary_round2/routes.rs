@@ -114,6 +114,16 @@ pub(super) const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
     ("POST", "/boards/{boardId}/uploads", "createUpload"),
     ("GET", "/cards/{cardId}", "getCard"),
     ("PATCH", "/cards/{cardId}", "patchCard"),
+    (
+        "GET",
+        "/cards/{cardId}/body-versions",
+        "getCardBodyVersions",
+    ),
+    (
+        "GET",
+        "/cards/{cardId}/body-versions/{version}",
+        "getCardBodyVersion",
+    ),
     ("POST", "/categories", "createCategory"),
     ("GET", "/categories", "getCategories"),
     ("DELETE", "/categories/{categoryId}", "deleteCategory"),
@@ -218,6 +228,8 @@ const REACHED_BY_ITEM: &[&str] = &[
     "createUpload",
     "getCard",
     "patchCard",
+    "getCardBodyVersions",
+    "getCardBodyVersion",
     "createSubscription",
     "deleteSubscription",
     "getSubscriptions",
@@ -774,6 +786,14 @@ struct Items<'a> {
     subscriber: (&'a str, &'a str),
 }
 
+/// A path of the contract with the numbers it takes filled in: the first part of an
+/// upload, the first version of a body.
+fn numbered(template: &str) -> String {
+    template
+        .replace("{partNumber}", "1")
+        .replace("{version}", "1")
+}
+
 /// Asks every operation under `/w/{workspace}` whose path names something (and the
 /// subscriptions, whose body names a block) about `items`, and again about nothing:
 /// the answers must be the same, and none a success. Where both requests are the same
@@ -819,7 +839,7 @@ async fn compare_resource_routes(
                 if absent { nothing } else { there }.to_owned()
             };
             let path = |absent: bool| {
-                template
+                numbered(template)
                     .trim_start_matches("/api/v1")
                     .replace("{workspaceId}", workspace)
                     .replace("{boardId}", &pick(absent, &board.id, UNKNOWN_ID))
@@ -834,7 +854,6 @@ async fn compare_resource_routes(
                         "{subscriberId}",
                         if absent { subscriber.1 } else { subscriber.0 },
                     )
-                    .replace("{partNumber}", "1")
                     .replace("{categoryId}", &pick(absent, category, UNKNOWN_ID))
             };
             let block = |absent: bool| pick(absent, &card.id, UNKNOWN_ID);
@@ -1285,8 +1304,8 @@ async fn the_paths_from_before_the_workspace_are_not_there() {
     }
     ts.teardown().await;
     assert_eq!(
-        count, 46,
-        "the operations that moved, and the two that went"
+        count, 48,
+        "the operations that moved or came after under the workspace, and the two that went"
     );
     assert!(violations.is_empty(), "{}", violations.join("\n"));
 }

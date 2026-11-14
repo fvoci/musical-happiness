@@ -429,6 +429,7 @@ async fn an_unreadable_log_gives_way_to_the_card() {
             &e.card_id,
             &[(b"\xff\xff no update", e.user1.as_str())],
             &[],
+            &[],
         )
         .await
         .expect("logged past the server");

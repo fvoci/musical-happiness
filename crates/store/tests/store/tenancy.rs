@@ -578,12 +578,13 @@ async fn a_link_for_a_guest(store: &Store, board: &Board, user_id: &str) {
         .expect("a link is stored");
 }
 
-/// The document of a card's body that is edited together, with an update logged.
+/// The document of a card's body that is edited together: an update logged, a version kept.
 async fn a_body_edited_together(store: &Store, board_id: &str, user_id: &str) {
     let mut edited = fvoci_model::Block {
         id: new_id(),
         board_id: board_id.to_owned(),
         block_type: BlockType::Card,
+        body: crate::body_versions::body_showing("kept", &[]),
         ..fvoci_model::Block::default()
     };
     common::insert_blocks(store, std::slice::from_mut(&mut edited), user_id).await;
@@ -592,9 +593,10 @@ async fn a_body_edited_together(store: &Store, board_id: &str, user_id: &str) {
         .await
         .expect("a document is stored");
     store
-        .append_body_updates(&edited.id, &[(b"an update", user_id)], &[])
+        .append_body_updates(&edited.id, &[(b"an update", user_id)], &[], &[user_id])
         .await
         .expect("an update is logged");
+    crate::body_versions::keep(store, &edited.id, "").await;
 }
 
 /// The organization's provider of sign-ins (one, whoever sets it), its pending settings,

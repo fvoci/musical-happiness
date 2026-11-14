@@ -38,6 +38,7 @@ mod removal;
 mod rooms;
 mod seat;
 mod upkeep;
+mod versions;
 mod whole;
 pub mod worker;
 
@@ -47,6 +48,7 @@ pub(crate) use removal::Deletion;
 pub use removal::DeletionStage;
 pub(crate) use rooms::{AccessChange, AccessScope, Wall};
 pub use seat::{Outbox, Seat};
+pub(crate) use upkeep::digest_of as body_digest;
 pub use whole::cards_written_whole;
 
 use std::collections::HashMap;
@@ -80,6 +82,9 @@ pub const WRITE_QUIET: Duration = Duration::from_secs(2);
 /// How long after the first update that is not written the body is written at the
 /// latest, whatever comes after it.
 pub const WRITE_LONGEST: Duration = Duration::from_secs(10);
+
+/// How long after the first update no version of a body holds the next is due.
+const VERSION_INTERVAL: Duration = Duration::from_mins(10);
 
 /// How many events a subscriber may fall behind before it misses some.
 const EVENTS: usize = 256;
@@ -118,6 +123,9 @@ struct Inner {
     /// The next number a document is opened under in a worker.
     numbers: AtomicU64,
     limits: Limits,
+    /// How long after the first update no version of the body holds the next version
+    /// is due.
+    version_interval: Duration,
     events: broadcast::Sender<DocEvent>,
     /// The connections that hold the documents together.
     rooms: rooms::Rooms,
@@ -230,6 +238,7 @@ impl Collab {
                 slots: Mutex::new(HashMap::new()),
                 numbers: AtomicU64::new(1),
                 limits,
+                version_interval: VERSION_INTERVAL,
                 events: broadcast::channel(EVENTS).0,
                 rooms: rooms::Rooms::new(settings),
                 #[cfg(feature = "test-util")]
@@ -470,8 +479,9 @@ impl Collab {
         .await
     }
 
-    /// Writes the body of a card's document to the card and closes the document. The
-    /// next request opens it again from what is stored. A body that cannot be written
+    /// Writes the body of a card's document to the card, keeps it as a version if the
+    /// document took updates no version holds, and closes the document. The next
+    /// request opens it again from what is stored. A body that cannot be written
     /// now stays in the log and is written when the document is opened again, or when
     /// the server starts: the document is closed all the same.
     ///
@@ -485,6 +495,9 @@ impl Collab {
             move |collab, app, card_id, mut slot| async move {
                 let (collab, app, card_id, slot) = (&collab, &app, card_id.as_str(), &mut slot);
                 let written = collab.write_now(app, card_id, slot).await;
+                if written.is_ok() {
+                    collab.version_as_left(app, card_id, slot).await;
+                }
                 collab.forget(slot).await;
                 collab.retire(slot);
                 written

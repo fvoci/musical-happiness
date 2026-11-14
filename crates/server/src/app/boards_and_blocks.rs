@@ -153,12 +153,12 @@ impl App {
                 .patch_boards_and_blocks(patches, user_id)
                 .await?
         } else {
-            let (patches, user_id) = (patches.clone(), user_id.to_owned());
+            let (patches, writer) = (patches.clone(), user_id.to_owned());
             self.collab()
-                .write_whole(self, card_ids, async move |app| {
+                .write_whole(self, card_ids, user_id, async move |app| {
                     Ok(app
                         .store()
-                        .patch_boards_and_blocks(&patches, &user_id)
+                        .patch_boards_and_blocks(&patches, &writer)
                         .await?)
                 })
                 .await?
