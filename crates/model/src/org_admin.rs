@@ -162,13 +162,13 @@ pub enum AuditAction {
     /// the server's own doing.
     OidcFormerProviderLapsed,
     /// The trial that made the pending settings the provider's tied who the new
-    /// issuer (`detail`) vouches for to the account of the administrator who tried
-    /// them (the actor and the subject), who had signed in through the provider
-    /// before a moment earlier.
+    /// issuer (`detail`) vouches for (`identity`) to the account of the administrator
+    /// who tried them (the actor and the subject), who had signed in through the
+    /// provider before a moment earlier.
     OidcIdentityBound,
-    /// A member (the actor and the subject) carried their account over: who the new
-    /// issuer (`detail`) vouches for is tied to the account the former provider
-    /// vouched for.
+    /// Somebody with a place in the organization (the actor and the subject) carried
+    /// their account over: who the new issuer (`detail`) vouches for (`identity`) is
+    /// tied to the account the former provider vouched for.
     OidcIdentityCarriedOver,
 }
 
@@ -304,6 +304,12 @@ pub struct AuditRecord {
     /// The issuer a record of a provider's move names (`oidc_former_provider_…`,
     /// `oidc_identity_…`); `null` for the others.
     pub detail: Option<String>,
+    /// Who the identity a record of `oidc_identity_bound` or
+    /// `oidc_identity_carried_over` tied is: the email address its provider gave, or
+    /// its subject where it gave none, as it was then. `null` for the others, and in
+    /// the records of a workspace: the organization's are read by its administrators
+    /// alone.
+    pub identity: Option<String>,
 }
 
 #[cfg(test)]

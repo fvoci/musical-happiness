@@ -128,6 +128,8 @@ fn at_two() -> Identity<'static> {
 struct Asked<'a> {
     trier_id: &'a str,
     identity: Identity<'a>,
+    /// The address the provider gave for the identity; empty for none.
+    provider_email: &'a str,
     session_id: &'a str,
     token_digest: &'a str,
     made_since: i64,
@@ -154,7 +156,7 @@ async fn try_unbound(
     };
     let binding = Binding {
         identity: asked.identity,
-        provider_email: "admin@two.example.test",
+        provider_email: asked.provider_email,
         session: LinkingSession {
             session_id: asked.session_id,
             token_digest: asked.token_digest,
@@ -204,6 +206,7 @@ async fn a_session_made_just_now_binds_the_identity_and_applies_the_settings() {
         Asked {
             trier_id: &admin.id,
             identity: at_two(),
+            provider_email: "admin@two.example.test",
             session_id: &organization.session_id,
             token_digest: DIGEST,
             made_since: MADE,
@@ -249,6 +252,18 @@ async fn a_session_made_just_now_binds_the_identity_and_applies_the_settings() {
     assert_eq!(bound.len(), 1, "recorded once");
     assert_eq!(bound[0].detail.as_deref(), Some(TWO));
     assert_eq!(
+        bound[0].identity.as_deref(),
+        Some("admin@two.example.test"),
+        "who the identity is, by the address its provider gave"
+    );
+    assert!(
+        records
+            .iter()
+            .filter(|record| record.action != AuditAction::OidcIdentityBound)
+            .all(|record| record.identity.is_none()),
+        "no other record tells an identity"
+    );
+    assert_eq!(
         bound[0].subject.as_ref().map(|person| person.id.as_str()),
         Some(admin.id.as_str())
     );
@@ -257,6 +272,43 @@ async fn a_session_made_just_now_binds_the_identity_and_applies_the_settings() {
             .iter()
             .any(|record| record.action == AuditAction::OidcProviderPendingApplied)
     );
+    test.teardown().await;
+}
+
+/// A provider that gave no address for the identity it vouched for: the record tells
+/// who the identity is by its subject.
+#[tokio::test]
+async fn an_identity_without_an_address_is_recorded_by_its_subject() {
+    let test = common::setup().await;
+    let organization = enforced(&test, TWO).await;
+    let asked = Asked {
+        trier_id: &organization.admin.id,
+        identity: at_two(),
+        provider_email: "",
+        session_id: &organization.session_id,
+        token_digest: DIGEST,
+        made_since: MADE,
+        idle_since: 0,
+    };
+
+    try_unbound(&test, &organization, asked)
+        .await
+        .expect("bound and applied");
+
+    let paging = Paging {
+        page: 0,
+        per_page: 100,
+    };
+    let records = test
+        .audit_records(AuditPlace::Organization, paging)
+        .await
+        .expect("records");
+    let identities: Vec<_> = records
+        .iter()
+        .filter(|record| record.action == AuditAction::OidcIdentityBound)
+        .map(|record| record.identity.as_deref())
+        .collect();
+    assert_eq!(identities, [Some("the administrator at two")]);
     test.teardown().await;
 }
 
@@ -352,6 +404,7 @@ async fn anything_less_binds_nothing_and_applies_nothing() {
         let mut asked = Asked {
             trier_id: &organization.admin.id,
             identity: at_two(),
+            provider_email: "admin@two.example.test",
             session_id: &organization.session_id,
             token_digest: DIGEST,
             made_since: MADE,
@@ -409,6 +462,7 @@ async fn settings_of_the_same_issuer_bind_nothing() {
                 issuer: ONE,
                 subject: "another person at one",
             },
+            provider_email: "admin@two.example.test",
             session_id: &organization.session_id,
             token_digest: DIGEST,
             made_since: MADE,

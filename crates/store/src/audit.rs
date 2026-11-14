@@ -84,7 +84,7 @@ impl FromStr for ActorKind {
 /// One record of the audit log as it is written: who did what to what (and whom), in
 /// which workspace, and when. The organization is the one of the store's handle, or
 /// the one named to `record_entry_in`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct AuditEntry {
     /// The workspace it was done in; empty for what was done to the organization.
     pub workspace_id: String,
@@ -100,6 +100,24 @@ pub struct AuditEntry {
     pub create_at: i64,
     /// The issuer a record of a provider's move names; empty for the others.
     pub detail: String,
+    /// Who an identity a record of a move tied is: the email address its provider
+    /// gave, or its subject; empty for the others.
+    pub identity: String,
+}
+
+impl std::fmt::Debug for AuditEntry {
+    /// Leaves out who the identity is.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AuditEntry")
+            .field("workspace_id", &self.workspace_id)
+            .field("actor", &self.actor)
+            .field("action", &self.action)
+            .field("target_id", &self.target_id)
+            .field("subject_id", &self.subject_id)
+            .field("create_at", &self.create_at)
+            .field("detail", &self.detail)
+            .finish_non_exhaustive()
+    }
 }
 
 impl AuditEntry {
@@ -129,6 +147,7 @@ impl AuditEntry {
             subject_id: String::new(),
             create_at: 0,
             detail: String::new(),
+            identity: String::new(),
         }
     }
 
@@ -143,6 +162,15 @@ impl AuditEntry {
     #[must_use]
     pub fn with_detail(mut self, detail: &str) -> Self {
         detail.clone_into(&mut self.detail);
+        self
+    }
+
+    /// The record with who the identity it tied is: `email`, the address its provider
+    /// gave, or the subject of `identity` where that is empty.
+    #[must_use]
+    pub(crate) fn with_identity(mut self, email: &str, subject: &str) -> Self {
+        let shown = if email.is_empty() { subject } else { email };
+        shown.clone_into(&mut self.identity);
         self
     }
 }
@@ -184,6 +212,8 @@ impl Store {
                         subject_id: row.id(4)?,
                         create_at: row.int(5)?,
                         detail: row.text(7)?,
+                        // Of the organization's records alone, which are no workspace's.
+                        identity: String::new(),
                     })
                 })
                 .collect()
@@ -210,7 +240,7 @@ impl Store {
             let mut sql = scope.sql(
                 "SELECT a.id, a.action, a.actor_id, actor.username, actor.display_name, \
                  a.subject_id, subject.username, subject.display_name, a.target_id, w.name, \
-                 a.create_at, a.actor_kind, a.detail FROM audit_log AS a \
+                 a.create_at, a.actor_kind, a.detail, a.identity FROM audit_log AS a \
                  LEFT JOIN users AS actor ON actor.id = a.actor_id \
                  LEFT JOIN users AS subject ON subject.id = a.subject_id \
                  LEFT JOIN workspaces AS w ON w.id = a.target_id AND w.org_id = a.org_id \
@@ -226,6 +256,7 @@ impl Store {
                 }
             }
             sql.push(" ORDER BY a.create_at DESC, a.id DESC");
+            let identities = Identities::of(place);
             if paging.per_page > 0 {
                 sql.push_bind(" LIMIT ", i64::from(paging.per_page))
                     .push_bind(
@@ -233,7 +264,12 @@ impl Store {
                         i64::from(paging.page) * i64::from(paging.per_page),
                     );
             }
-            scope.fetch_all(sql).await?.iter().map(record).collect()
+            scope
+                .fetch_all(sql)
+                .await?
+                .iter()
+                .map(|row| record(row, identities))
+                .collect()
         })
         .await
     }
@@ -257,7 +293,26 @@ fn actor(row: &Row, kind: usize, id: usize) -> Result<AuditActor, StoreError> {
     })
 }
 
-fn record(row: &Row) -> Result<AuditRecord, StoreError> {
+/// Whether the records read tell who an identity they tied is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Identities {
+    /// Told: the organization's records, which its administrators alone read.
+    Told,
+    /// Not told: a workspace's, read by its members. No such record is a
+    /// workspace's; it would not be told if one were.
+    Withheld,
+}
+
+impl Identities {
+    const fn of(place: AuditPlace<'_>) -> Self {
+        match place {
+            AuditPlace::Organization => Self::Told,
+            AuditPlace::Workspace(_) => Self::Withheld,
+        }
+    }
+}
+
+fn record(row: &Row, identities: Identities) -> Result<AuditRecord, StoreError> {
     let subject_id = row.id(5)?;
     let target_name = row.text(9)?;
     let action = action(row, 1)?;
@@ -287,6 +342,10 @@ fn record(row: &Row) -> Result<AuditRecord, StoreError> {
         target_name: (!target_name.is_empty()).then_some(target_name),
         create_at: row.int(10)?,
         detail: row.opt_text(12)?,
+        identity: match identities {
+            Identities::Told => row.opt_text(13)?,
+            Identities::Withheld => None,
+        },
     })
 }
 
@@ -318,7 +377,7 @@ async fn insert_entry(
 ) -> Result<(), StoreError> {
     let mut sql = scope.sql(
         "INSERT INTO audit_log (id, org_id, workspace_id, actor_id, action, target_id, \
-         subject_id, create_at, actor_kind, detail) VALUES (",
+         subject_id, create_at, actor_kind, detail, identity) VALUES (",
     );
     sql.bind(Id(&new_id()))
         .push_bind(", ", org)
@@ -332,6 +391,10 @@ async fn insert_entry(
         .push_bind(
             ", ",
             Param::OptText((!entry.detail.is_empty()).then(|| entry.detail.clone())),
+        )
+        .push_bind(
+            ", ",
+            Param::OptText((!entry.identity.is_empty()).then(|| entry.identity.clone())),
         )
         .push(")");
     scope.execute(sql).await?;

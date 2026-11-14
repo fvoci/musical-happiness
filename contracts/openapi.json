@@ -154,6 +154,13 @@
             "description": "The record's identifier.",
             "type": "string"
           },
+          "identity": {
+            "description": "Who the identity a record of `oidc_identity_bound` or\n`oidc_identity_carried_over` tied is: the email address its provider gave, or\nits subject where it gave none, as it was then. `null` for the others, and in\nthe records of a workspace: the organization's are read by its administrators\nalone.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "subject": {
             "oneOf": [
               {
@@ -183,6 +190,7 @@
           "createAt",
           "detail",
           "id",
+          "identity",
           "subject",
           "targetId",
           "targetName"

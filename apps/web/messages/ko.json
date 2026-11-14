@@ -1140,6 +1140,7 @@
   "audit_oidc_former_ended": "{actor} 님이 옛 공급자({issuer})의 연결용 기간을 일찍 끝냈습니다",
   "audit_oidc_former_lapsed": "옛 공급자({issuer})의 연결용 기간이 끝났습니다",
   "audit_oidc_identity_bound": "{actor} 님이 새 공급자({issuer})의 신원을 자기 계정에 연결하며 그 설정을 적용했습니다",
+  "audit_identity": "연결된 신원: {identity}",
   "audit_oidc_identity_carried_over": "{actor} 님이 예전 로그인으로 확인하고 새 공급자({issuer})의 신원을 자기 계정에 이었습니다",
   "org_sso_former_title": "옛 공급자(연결용)",
   "org_sso_former_info": "공급자를 옮긴 뒤에도 옛 공급자를 아래 시각까지 남겨 둡니다. 옛 공급자로는 로그인되지 않습니다. 새 공급자로 처음 들어온 구성원이 예전 로그인을 한 번 거쳐 쓰던 계정을 이어 받는 데만 쓰입니다. 공급자를 다시 옮기면 이 기간은 그때 끝나고, 옮기기 직전의 공급자가 대신 남습니다.",

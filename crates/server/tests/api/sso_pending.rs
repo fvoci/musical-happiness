@@ -502,6 +502,17 @@ async fn another_issuer_is_bound_and_applied_from_a_session_made_just_now() {
         Some(fake.issuer.as_str()),
         "the provider before the trial is kept for linking"
     );
+    let records: Vec<Value> = applied.get(&format!("/org/{org_id}/audit")).await.ok_json();
+    let bound: Vec<&Value> = records
+        .iter()
+        .filter(|record| record["action"] == "oidc_identity_bound")
+        .collect();
+    assert_eq!(bound.len(), 1, "{records:?}");
+    assert_eq!(
+        bound[0]["identity"],
+        format!("{ADMIN_SUBJECT}@example.com"),
+        "who the identity tied is, by the address the new provider gave"
+    );
     let actions = recorded(&applied, &org_id).await;
     for action in [
         "oidc_identity_bound",

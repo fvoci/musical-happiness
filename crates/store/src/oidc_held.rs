@@ -275,7 +275,8 @@ impl Store {
                         &provider.org_id,
                     )
                     .with_subject(&user_id)
-                    .with_detail(&held.issuer);
+                    .with_detail(&held.issuer)
+                    .with_identity(&held.email, &held.subject);
                     audit::record_entry(scope, &entry).await?;
                 }
             }

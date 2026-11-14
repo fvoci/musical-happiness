@@ -190,16 +190,16 @@ fn location_of(response: &reqwest::Response) -> String {
 /// An organization that moved from `old` to `new`, taking passwords, with `ada`, a
 /// member whose account the old provider made: the server, the organization, and
 /// ada's identifier.
-struct Moved {
-    ts: TestServer,
-    org_id: String,
-    ada: String,
+pub(crate) struct Moved {
+    pub(crate) ts: TestServer,
+    pub(crate) org_id: String,
+    pub(crate) ada: String,
 }
 
-const ADA: &str = "ada-at-the-old-provider";
+pub(crate) const ADA: &str = "ada-at-the-old-provider";
 const ADA_NEW: &str = "ada-at-the-new-provider";
 
-async fn moved(old: &FakeProvider, new: &FakeProvider) -> Moved {
+pub(crate) async fn moved(old: &FakeProvider, new: &FakeProvider) -> Moved {
     let ts = server_for_two(old, new, |_| {}).await;
     let org_id = org_of(&ts).await;
     set_provider(&ts, &org_id, old).await;
@@ -220,7 +220,7 @@ async fn count(ts: &TestServer, table: &str) -> i64 {
     rows.expect("counted")
 }
 
-fn held_page(org_id: &str) -> String {
+pub(crate) fn held_page(org_id: &str) -> String {
     format!("/login?org={org_id}&oidc_held=1")
 }
 

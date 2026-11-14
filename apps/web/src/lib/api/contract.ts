@@ -2977,6 +2977,14 @@ export interface components {
             detail: string | null;
             /** @description The record's identifier. */
             id: string;
+            /**
+             * @description Who the identity a record of `oidc_identity_bound` or
+             *     `oidc_identity_carried_over` tied is: the email address its provider gave, or
+             *     its subject where it gave none, as it was then. `null` for the others, and in
+             *     the records of a workspace: the organization's are read by its administrators
+             *     alone.
+             */
+            identity: string | null;
             subject: components["schemas"]["AuditPerson"] | null;
             /** @description What it was done to: a board, a workspace or the organization. */
             targetId: string;

@@ -29,6 +29,9 @@
       targetName: hidden ? null : 'Example workspace with a long name · 이름이 긴 예시 작업 공간',
       createAt: STORY_NOW - index * 60_000,
       detail: 'https://login.example.com',
+      identity: AUDIT_ACTIONS[index % AUDIT_ACTIONS.length]?.startsWith('oidc_identity_')
+        ? 'example.person.with.a.long.address@login.example.com'
+        : null,
     })),
   );
 </script>

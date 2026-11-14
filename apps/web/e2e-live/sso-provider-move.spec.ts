@@ -11,7 +11,8 @@
  *
  * A member the new provider knows under another name signs in through it: no
  * account is made, the sign-in page asks whether they had one, and by their
- * previous sign-in they come in to the account they had, with its board.
+ * previous sign-in they come in to the account they had, with its board. The
+ * records tell the administrator which identity each move connected.
  *
  * It runs with the other tests that close the organization to passwords
  * (`playwright.live.config.ts`), and by its name after `sso-operator.spec.ts`,
@@ -142,10 +143,12 @@ test('an administrator moves the organization to another provider, and a member 
     await expect(section.getByTestId('sso-issuer')).toHaveValue(NEXT_ISSUER);
     await expect(section.getByTestId('sso-required-switch')).toBeChecked();
     await expect(section.getByTestId('sso-former-issuer')).toHaveText(ISSUER);
-    await pictures(page, 'moved', 'i2c');
     await expect(records).toContainText(
       `connected their identity at the new provider (${NEXT_ISSUER}) to their account`,
     );
+    // Which identity it was, by the address the new provider gave.
+    await expect(records).toContainText(`Identity connected: ${ADMIN.email}`);
+    await pictures(page, 'moved', 'i2c');
     await expect(records).toContainText(`the previous one (${ISSUER}) is kept for linking`);
 
     // The member, whom the new provider knows under another name and address: no
@@ -190,6 +193,8 @@ test('an administrator moves the organization to another provider, and a member 
     // The administrator sees who continued, and ends the linking period early.
     await page.reload();
     await expect(records).toContainText('confirmed their previous sign-in');
+    await expect(records).toContainText(`Identity connected: ${member}@new.example.test`);
+    await pictures(page, 'carried-over', 'i2c');
     await section.getByTestId('sso-former-end').click();
     await page.getByTestId('confirm-dialog').getByRole('button', { name: 'End early' }).click();
     await expect(section.getByRole('status')).toContainText('linking period was ended');

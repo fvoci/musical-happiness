@@ -60,4 +60,10 @@ export interface AuditRecord {
   createAt: number;
   /** The issuer a record of a provider's move names; null for the others. */
   detail: string | null;
+  /**
+   * Who the identity a record of `oidc_identity_bound` or `oidc_identity_carried_over`
+   * tied is: the address its provider gave, or its subject. Null for the others, and in
+   * a workspace's records.
+   */
+  identity: string | null;
 }

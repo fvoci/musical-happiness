@@ -470,7 +470,8 @@ async fn bind_to_trier(
             let entry =
                 AuditEntry::new("", trier_id, AuditAction::OidcIdentityBound, &before.org_id)
                     .with_subject(trier_id)
-                    .with_detail(binding.identity.issuer);
+                    .with_detail(binding.identity.issuer)
+                    .with_identity(binding.provider_email, binding.identity.subject);
             audit::record_entry(scope, &entry).await?;
         }
     }

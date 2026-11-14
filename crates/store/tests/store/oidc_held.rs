@@ -267,6 +267,11 @@ async fn a_held_sign_in_is_carried_over_to_the_members_account() {
     assert_eq!(carried.len(), 1, "recorded once");
     assert_eq!(carried[0].detail.as_deref(), Some(NEW));
     assert_eq!(
+        carried[0].identity.as_deref(),
+        Some("ada@new.example.test"),
+        "who the identity is, by the address its provider gave"
+    );
+    assert_eq!(
         carried[0].subject.as_ref().map(|person| person.id.as_str()),
         Some(member.as_str())
     );

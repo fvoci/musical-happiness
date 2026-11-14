@@ -2,6 +2,7 @@
   Records of an audit log, the newest first: who did what, to what and whom,
   and when. A person is named "display name (@login)"; one whose account is
   gone as such. A board the reader does not see is "a board", not its title.
+  An identity a provider's move tied is told under its record.
 -->
 <script lang="ts">
   import { m } from '$lib/i18n/paraglide/messages.js';
@@ -105,6 +106,11 @@
     {#each records as record (record.id)}
       <li class="flex flex-col gap-0.5 rounded-md border px-3 py-2" data-action={record.action}>
         <span class="text-sm">{said(record)}</span>
+        {#if record.identity}
+          <span class="text-xs break-all" data-testid="audit-identity"
+            >{m.audit_identity({ identity: record.identity })}</span
+          >
+        {/if}
         <time
           class="text-xs text-muted-foreground"
           datetime={new Date(record.createAt).toISOString()}>{when.format(record.createAt)}</time
