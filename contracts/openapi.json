@@ -11016,6 +11016,136 @@
         ]
       }
     },
+    "/api/v1/w/{workspaceId}/references/search": {
+      "get": {
+        "description": "The cards and pages of this workspace, on a board or a wiki the user reads, whose\ntitle has every word of `q` in it, as spaces divide it and whatever the case of the\nletters (of every letter, not only ASCII); `%` and `_` are characters like any\nother. At most 20, the one changed last first; without `q`, the 20 changed last.\nBodies are not looked into. What is in the trash, what is on a template, and a card\nthat is a template of its board's cards are never found.",
+        "operationId": "searchReferences",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The words to look for in titles. Without it, what was changed last is found.",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/LinkedBlock"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "What was found."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Find what a reference may name",
+        "tags": [
+          "references"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/references/to/{blockId}": {
+      "get": {
+        "description": "The cards and pages of this workspace whose body names the block of the path with a\nreference, or which have a comment whose body does, on a board or a wiki the user\nreads; the block itself is never among them. Oldest first, 50 to a page unless\n`perPage` says otherwise, at most 200. What names it from where the user does not\nread is left out and takes no place in a page: the answer does not say how many\nthere are, nor whether there are any.\n\n404 unless the block is a card or a page the user reads, as `resolveReferences`\ntells of it: for anything else, as for an identifier of nothing.",
+        "operationId": "getReferencesTo",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the block.",
+            "in": "path",
+            "name": "blockId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The page, counted from 0. Left out, the first one.",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "How many a page has, at most 200. Left out, or zero or less, 50.",
+            "in": "query",
+            "name": "perPage",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/LinkedBlock"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "What names it, of the page."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "What names a card or a page",
+        "tags": [
+          "references"
+        ]
+      }
+    },
     "/api/v1/w/{workspaceId}/subscriptions": {
       "post": {
         "description": "Subscribes the user of the session to a block of a board they are a member of. A\n`subscriberId` that is not the user of the session is 403, and a `subscriberType`\nother than `user` is 400. The `blockType` is stored as it is sent, and not compared\nwith the block. Subscribing again is no error: the subscription stays as it was\nmade, with its `blockType` and `createAt`, and only its `notifiedAt` is set anew.",

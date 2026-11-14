@@ -9,10 +9,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::block::{Block, BlockType};
 use crate::board::{Board, BoardKind};
+use crate::card::CARD_ICON_FIELD;
 use crate::page::PAGE_ICON_FIELD;
-
-/// The member of a card's fields that holds its icon.
-const CARD_ICON_FIELD: &str = "icon";
 
 /// What a reference may name: a card of a board or a page of a wiki.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema)]
@@ -32,15 +30,6 @@ impl LinkedKind {
             BlockType::Card => Some(Self::Card),
             BlockType::Page => Some(Self::Page),
             _ => None,
-        }
-    }
-
-    /// The type of the blocks of this kind.
-    #[must_use]
-    pub const fn block_type(self) -> BlockType {
-        match self {
-            Self::Card => BlockType::Card,
-            Self::Page => BlockType::Page,
         }
     }
 }

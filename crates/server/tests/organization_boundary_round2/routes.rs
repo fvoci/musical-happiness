@@ -159,6 +159,8 @@ pub(super) const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
     ("DELETE", "/members/{user}", "removeWorkspaceMember"),
     ("POST", "/onboard", "onboard"),
     ("POST", "/references/resolve", "resolveReferences"),
+    ("GET", "/references/search?q=secret", "searchReferences"),
+    ("GET", "/references/to/{blockId}", "getReferencesTo"),
     ("PUT", "/guest-invitations", "setGuestInvitations"),
     ("GET", "/invitations", "getInvitations"),
     ("POST", "/invitations", "createInvitation"),
@@ -205,6 +207,7 @@ const REFUSED_IN_REACH: [StatusCode; 3] = [
 /// they name, as a member does: for the guest the workspace is there, and what is refused
 /// is what the path names (a board, a card, an upload, a user), or the operation.
 const REACHED_BY_ITEM: &[&str] = &[
+    "getReferencesTo",
     "createBoard",
     "createWiki",
     "getPageTree",
@@ -372,9 +375,14 @@ fn route_body(operation: &str, user_id: &str, workspace: &str) -> Value {
 }
 
 /// The operations of `WORKSPACE_ROUTES` that answer a guest of a workspace that has
-/// nothing for them with an empty list: the boards and the wikis the guest is on, and
-/// what the references of no body name.
-const EMPTY_FOR_A_GUEST: &[&str] = &["getWorkspaceBoards", "getWikis", "resolveReferences"];
+/// nothing for them with an empty list: the boards and the wikis the guest is on, what
+/// the references of no body name, and what a reference of the guest may name.
+const EMPTY_FOR_A_GUEST: &[&str] = &[
+    "getWorkspaceBoards",
+    "getWikis",
+    "resolveReferences",
+    "searchReferences",
+];
 
 async fn compare_workspace_routes(client: &Client, user_id: &str, asker: Asker) -> Vec<String> {
     let mut violations = Vec::new();
@@ -1354,10 +1362,11 @@ async fn an_invited_workspace_guest_reads_its_board_without_gaining_editor_right
 #[tokio::test]
 async fn the_paths_from_before_the_workspace_are_not_there() {
     let ts = Setup::native().start().await.init_basic().await;
-    // The wikis came after the move, and were never anywhere else.
+    // The wikis and the references came after the move, and were never anywhere else.
     let gone = WORKSPACE_ROUTES
         .iter()
         .filter(|(_, suffix, _)| !suffix.starts_with("/wikis"))
+        .filter(|(_, suffix, _)| !suffix.starts_with("/references"))
         .filter(|(_, _, operation)| REACHED_BY_ITEM.contains(operation))
         .map(|(method, suffix, operation)| (*method, fill_with_nothing(suffix), *operation))
         .chain([

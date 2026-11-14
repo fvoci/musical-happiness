@@ -84,6 +84,7 @@ pub use oidc_settings::secret_context;
 pub use org_admin::{DEFAULT_PER_PAGE, MAX_PER_PAGE, PageAsked};
 pub use readiness::{Readiness, ReadinessCheck};
 pub use reconcile::{Found, Reconciliation, UNRECORDED_MIN_AGE_MILLIS, Unrecorded};
+pub use references::MAX_REFERENCE_IDS;
 pub use shared_reads::{MAX_SHARED_READ_FAILURES, SHARED_READ_WINDOW, SharedReads};
 pub use sso::Asker;
 pub use uploads::{

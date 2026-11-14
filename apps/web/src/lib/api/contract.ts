@@ -2691,6 +2691,59 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/w/{workspaceId}/references/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Find what a reference may name
+         * @description The cards and pages of this workspace, on a board or a wiki the user reads, whose
+         *     title has every word of `q` in it, as spaces divide it and whatever the case of the
+         *     letters (of every letter, not only ASCII); `%` and `_` are characters like any
+         *     other. At most 20, the one changed last first; without `q`, the 20 changed last.
+         *     Bodies are not looked into. What is in the trash, what is on a template, and a card
+         *     that is a template of its board's cards are never found.
+         */
+        get: operations["searchReferences"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/references/to/{blockId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What names a card or a page
+         * @description The cards and pages of this workspace whose body names the block of the path with a
+         *     reference, or which have a comment whose body does, on a board or a wiki the user
+         *     reads; the block itself is never among them. Oldest first, 50 to a page unless
+         *     `perPage` says otherwise, at most 200. What names it from where the user does not
+         *     read is left out and takes no place in a page: the answer does not say how many
+         *     there are, nor whether there are any.
+         *
+         *     404 unless the block is a card or a page the user reads, as `resolveReferences`
+         *     tells of it: for anything else, as for an identifier of nothing.
+         */
+        get: operations["getReferencesTo"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/w/{workspaceId}/subscriptions": {
         parameters: {
             query?: never;
@@ -9516,6 +9569,80 @@ export interface operations {
         };
         responses: {
             /** @description What the user is shown of them. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LinkedBlock"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    searchReferences: {
+        parameters: {
+            query?: {
+                /** @description The words to look for in titles. Without it, what was changed last is found. */
+                q?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What was found. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LinkedBlock"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getReferencesTo: {
+        parameters: {
+            query?: {
+                /** @description The page, counted from 0. Left out, the first one. */
+                page?: number;
+                /** @description How many a page has, at most 200. Left out, or zero or less, 50. */
+                perPage?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the block. */
+                blockId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What names it, of the page. */
             200: {
                 headers: {
                     [name: string]: unknown;

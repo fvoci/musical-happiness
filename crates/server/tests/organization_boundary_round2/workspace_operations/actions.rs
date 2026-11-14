@@ -141,6 +141,9 @@ async fn pages(case: &mut Case, wiki: &str) {
         .filter_map(|linked| linked["id"].as_str())
         .collect();
     assert_eq!(told, [page.as_str()], "what the references name");
+    case.present("searchReferences", &[], &page).await;
+    case.run("getReferencesTo", &[("blockId", page.as_str())], json!({}))
+        .await;
     case.run("patchPage", of_page, json!({"title": "changed page"}))
         .await;
     let of_below = &[("wikiId", wiki), ("pageId", below.as_str())];

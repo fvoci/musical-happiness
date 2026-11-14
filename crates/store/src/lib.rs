@@ -37,6 +37,7 @@ mod file_info;
 mod file_refs;
 mod invitations;
 mod joinings;
+mod linked_blocks;
 mod loose_objects;
 mod members;
 mod memberships_everywhere;

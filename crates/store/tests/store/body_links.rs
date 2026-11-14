@@ -382,3 +382,64 @@ async fn the_rows_outlive_the_trash_and_go_with_what_is_gone_for_good() {
     );
     test.teardown().await;
 }
+
+/// The titles are looked through some at a time, the block changed last first: a title
+/// far down is found, as many as asked for are, and of the boards asked about only.
+#[tokio::test]
+async fn a_title_is_found_past_the_blocks_read_at_once() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let user = common::user(store, "kevin.malone").await;
+    let workspace_id = common::workspace_of(store, &[&user]).await;
+    let board = container(store, &workspace_id, &user, BoardKind::Board).await;
+    let other = container(store, &workspace_id, &user, BoardKind::Board).await;
+    let titled = |board: &Board, title: String| Block {
+        id: new_id(),
+        board_id: board.id.clone(),
+        block_type: BlockType::Card,
+        title,
+        ..Block::default()
+    };
+    // The oldest is what is looked for; six hundred changed after it are not.
+    let mut needle = titled(&board, "The Needle".to_owned());
+    common::insert_blocks(store, std::slice::from_mut(&mut needle), &user).await;
+    let mut elsewhere = titled(&other, "a needle elsewhere".to_owned());
+    common::insert_blocks(store, std::slice::from_mut(&mut elsewhere), &user).await;
+    let mut hay: Vec<Block> = (0..600)
+        .map(|number| titled(&board, format!("hay {number}")))
+        .collect();
+    common::insert_blocks(store, &mut hay, &user).await;
+
+    let found = store
+        .titled_blocks(&[&board.id], "needle the", 20)
+        .await
+        .expect("searched");
+    assert_eq!(
+        found.iter().map(|block| &block.id).collect::<Vec<_>>(),
+        [&needle.id]
+    );
+    assert!(found[0].body.is_none() && found[0].board_id == board.id);
+    let both = store
+        .titled_blocks(&[&board.id, &other.id], "NEEDLE", 20)
+        .await
+        .expect("searched");
+    assert_eq!(both.len(), 2);
+    let some = store
+        .titled_blocks(&[&board.id], "hay", 7)
+        .await
+        .expect("searched");
+    assert_eq!(some.len(), 7);
+    let every = store
+        .titled_blocks(&[&board.id], "", 1000)
+        .await
+        .expect("searched");
+    assert_eq!(every.len(), 601);
+    for nowhere in [&[][..], &[new_id().as_str()][..]] {
+        let none = store
+            .titled_blocks(nowhere, "", 20)
+            .await
+            .expect("searched");
+        assert_eq!(none.len(), 0, "{nowhere:?}");
+    }
+    test.teardown().await;
+}

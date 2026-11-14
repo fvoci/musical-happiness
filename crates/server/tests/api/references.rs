@@ -9,7 +9,9 @@ use reqwest::StatusCode;
 use serde_json::{Value, json};
 
 use crate::blocks::{block_path, undelete_path};
-use crate::common::{ApiResponse, Client, ROOT_WS, Setup, TEST_WS, UNKNOWN_ID};
+use crate::common::{
+    ApiResponse, Client, ROOT_WS, Setup, TEST_WORKSPACE_ID, TEST_WS, TestServer, UNKNOWN_ID,
+};
 
 /// What the title of everything a test hides has in it: no answer to who does not read
 /// it may hold this.
@@ -66,7 +68,7 @@ pub(crate) async fn resolved(client: &Client, at: &str, ids: &[&str]) -> ApiResp
 }
 
 /// The identifiers of what the answer names, in its order.
-fn named(response: &ApiResponse) -> Vec<String> {
+pub(crate) fn named(response: &ApiResponse) -> Vec<String> {
     response.check_ok();
     response
         .value()
@@ -80,7 +82,13 @@ fn named(response: &ApiResponse) -> Vec<String> {
 /// Checks that `client` is answered about `ids`, alone and beside `known` (which it
 /// reads), exactly as about identifiers of nothing: the same bytes, and no title that
 /// is hidden.
-async fn check_as_nothing(client: &Client, at: &str, ids: &[&str], known: &str, what: &str) {
+pub(crate) async fn check_as_nothing(
+    client: &Client,
+    at: &str,
+    ids: &[&str],
+    known: &str,
+    what: &str,
+) {
     let nothing: Vec<&str> = ids.iter().map(|_| UNKNOWN_ID).collect();
     let (of_ids, of_nothing) = (
         resolved(client, at, ids).await,
@@ -115,8 +123,8 @@ pub(crate) async fn let_read(admin: &Client, board_id: &str, user_id: &str) {
 }
 
 /// A card and a page are told to who reads them, as what they are and where: each once,
-/// in the order asked. A block that is neither, and one in the trash, are told to
-/// nobody; a list too long, and what is no identifier, are refused.
+/// in the order asked. A block that is neither is told to nobody; a list too long, and
+/// what is no identifier, are refused.
 #[tokio::test]
 async fn a_reference_names_a_card_or_a_page_to_who_reads_it() {
     let th = Setup::native().start().await.init_basic().await;
@@ -161,28 +169,6 @@ async fn a_reference_names_a_card_or_a_page_to_who_reads_it() {
     let neither: Vec<&str> = neither.iter().map(|id| id.as_str()).collect();
     check_as_nothing(&th.client, TEST_WS, &neither, &mine.card, "neither").await;
 
-    // In the trash a card is told to nobody, and told again when it is back.
-    th.client
-        .delete(&block_path(&mine.board, &mine.card))
-        .await
-        .check_no_content();
-    check_as_nothing(
-        &th.client,
-        TEST_WS,
-        &[&mine.card],
-        &mine.page,
-        "in the trash",
-    )
-    .await;
-    th.client
-        .post_empty(&undelete_path(&mine.board, &mine.card))
-        .await
-        .check_ok();
-    assert_eq!(
-        named(&resolved(&th.client, TEST_WS, &[&mine.card]).await),
-        [mine.card.as_str()]
-    );
-
     // A hundred at once and no more; and only what has the form of an identifier.
     let hundred: Vec<String> = (0..100).map(|_| fvoci_model::new_id()).collect();
     let mut many: Vec<&str> = hundred.iter().map(String::as_str).collect();
@@ -206,6 +192,70 @@ async fn a_reference_names_a_card_or_a_page_to_who_reads_it() {
             .await
             .check_bad_request();
     }
+    th.teardown().await;
+}
+
+/// In the trash a card or a page is told to nobody, and so is what is on a board or a
+/// wiki in the trash; each is told again when it is back.
+#[tokio::test]
+async fn what_is_in_the_trash_is_resolved_as_nothing() {
+    let th = Setup::native().start().await.init_basic().await;
+    let mine = made(&th.client, TEST_WS, "P", "The plan").await;
+    th.client
+        .delete(&block_path(&mine.board, &mine.card))
+        .await
+        .check_no_content();
+    check_as_nothing(
+        &th.client,
+        TEST_WS,
+        &[&mine.card],
+        &mine.page,
+        "in the trash",
+    )
+    .await;
+    th.client
+        .post_empty(&undelete_path(&mine.board, &mine.card))
+        .await
+        .check_ok();
+    assert_eq!(
+        named(&resolved(&th.client, TEST_WS, &[&mine.card]).await),
+        [mine.card.as_str()]
+    );
+
+    // So is a page; and with its board or its wiki in the trash, what is on it.
+    let page_path = format!("{TEST_WS}/wikis/{}/pages/{}", mine.wiki, mine.page);
+    th.client.delete(&page_path).await.check_no_content();
+    check_as_nothing(
+        &th.client,
+        TEST_WS,
+        &[&mine.page],
+        &mine.card,
+        "a page gone",
+    )
+    .await;
+    let other = made(&th.client, TEST_WS, "P", HIDDEN).await;
+    for container in [&other.board, &other.wiki] {
+        th.client
+            .delete(&format!("{TEST_WS}/boards/{container}"))
+            .await
+            .check_no_content();
+    }
+    check_as_nothing(
+        &th.client,
+        TEST_WS,
+        &other.both(),
+        &mine.card,
+        "boards gone",
+    )
+    .await;
+    th.client
+        .post_empty(&format!("{TEST_WS}/boards/{}/undelete", other.wiki))
+        .await
+        .check_ok();
+    assert_eq!(
+        named(&resolved(&th.client, TEST_WS, &other.both()).await),
+        [other.page.as_str()]
+    );
     th.teardown().await;
 }
 
@@ -271,7 +321,33 @@ async fn a_guest_is_told_what_it_was_invited_to_and_nothing_else() {
         named(&resolved(&th.client2, TEST_WS, &invited.both()).await),
         [invited.card.as_str()]
     );
-    let hidden = [private.both(), open.both(), [&invited.page, UNKNOWN_ID]].concat();
+    // A template for everybody who works in the workspace is read by its members, and
+    // is not for a guest.
+    let template: Board = th
+        .client
+        .create_board(&Board {
+            is_template: true,
+            ..crate::boards::new_board(TEST_WORKSPACE_ID, BoardType::Open, HIDDEN)
+        })
+        .await
+        .created_json();
+    let on_template = th
+        .client
+        .post(
+            &format!("{TEST_WS}/boards/{}/cards", template.id),
+            &json!({"title": HIDDEN}),
+        )
+        .await
+        .value();
+    let on_template = on_template["id"].as_str().expect("an id");
+    let member = th.add_user("member.here").await;
+    assert_eq!(
+        named(&resolved(&member, TEST_WS, &[on_template]).await),
+        [on_template]
+    );
+
+    let mut hidden = [private.both(), open.both(), [&invited.page, UNKNOWN_ID]].concat();
+    hidden.push(on_template);
     check_as_nothing(&th.client2, TEST_WS, &hidden, &invited.card, "a guest").await;
     th.teardown().await;
 }
@@ -407,37 +483,109 @@ async fn what_is_on_a_built_in_template_is_resolved_as_nothing() {
         .await
         .check_ok();
 
-    let answer = resolved(&th.client, TEST_WS, &[&here.card, card]).await;
-    assert_eq!(named(&answer), [here.card.as_str()]);
+    check_as_nothing(&th.client, TEST_WS, &[card], &here.card, "shipped").await;
     th.teardown().await;
 }
 
-/// Without a session nothing is asked, whatever link to a board the request shows.
+/// Without a session nothing is asked, whatever link to a board the request shows: the
+/// operation takes no read token, and there is none like it for a shared board.
 #[tokio::test]
 async fn a_reader_by_a_link_does_not_ask_what_references_name() {
     let th = Setup::native().start().await.init_basic().await;
     let shared = made(&th.client, TEST_WS, "O", HIDDEN).await;
     let token = th.share(&shared.board).await;
     let ids = [shared.card.as_str()];
-    for path in [
-        format!("{TEST_WS}/references/resolve"),
-        format!("{TEST_WS}/references/resolve?readToken={token}"),
-        format!(
-            "/shared/{}/references/resolve?readToken={token}",
-            shared.board
+    let reader = th.anonymous();
+    for (path, status) in [
+        (
+            format!("{TEST_WS}/references/resolve"),
+            StatusCode::UNAUTHORIZED,
+        ),
+        (
+            format!("{TEST_WS}/references/resolve?readToken={token}"),
+            StatusCode::UNAUTHORIZED,
+        ),
+        (
+            format!(
+                "/shared/{}/references/resolve?readToken={token}",
+                shared.board
+            ),
+            StatusCode::NOT_FOUND,
         ),
     ] {
-        let refused = th.anonymous().post(&path, &ids).await;
-        assert!(
-            [StatusCode::UNAUTHORIZED, StatusCode::NOT_FOUND].contains(&refused.status),
-            "{path}: {}",
-            refused.status
-        );
+        let refused = reader.post(&path, &ids).await;
+        assert_eq!(refused.status, status, "{path}");
         assert!(!refused.text().contains(HIDDEN), "{path}");
     }
-    th.anonymous()
-        .post(&format!("{TEST_WS}/references/resolve"), &ids)
-        .await
-        .check_unauthorized();
     th.teardown().await;
+}
+
+/// How many reads of the store a question takes says how many identifiers it asked
+/// about and nothing of what they name: whether there is such a block, whether the
+/// asker reads it, or which of them are on one board.
+#[tokio::test]
+async fn the_reads_a_question_takes_tell_nothing_of_what_is_named() {
+    let th = Setup::native()
+        .metrics_at("127.0.0.1:0")
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let member = &th.client2;
+    let own = made(member, TEST_WS, "P", "own").await;
+    let private = made(&th.client, TEST_WS, "P", HIDDEN).await;
+    let other = made(&th.client, TEST_WS, "P", HIDDEN).await;
+    let beside = th
+        .client
+        .post(
+            &format!("{TEST_WS}/boards/{}/cards", private.board),
+            &json!({"title": HIDDEN}),
+        )
+        .await
+        .value();
+    let beside = beside["id"].as_str().expect("an id");
+    let (nothing, nothing_else) = (fvoci_model::new_id(), fvoci_model::new_id());
+
+    let pairs: [[&str; 2]; 8] = [
+        [&own.card, &own.page],
+        [&own.card, &private.card],
+        // Two cards of one board the member does not read, and one with its board.
+        [&private.card, beside],
+        [&private.card, &private.board],
+        [&private.card, &other.board],
+        [&private.card, &other.page],
+        [&private.card, &nothing],
+        [&nothing, &nothing_else],
+    ];
+    let mut taken = Vec::new();
+    for pair in pairs {
+        taken.push(reads_of(&th, member, &pair).await);
+    }
+    assert!(
+        taken.iter().all(|reads| *reads == taken[0]),
+        "every pair takes the same reads: {taken:?}"
+    );
+    let of_one = reads_of(&th, member, &[&private.card]).await;
+    assert_eq!(of_one, reads_of(&th, member, &[&nothing]).await);
+    assert!(of_one < taken[0], "one identifier takes fewer than two");
+    th.teardown().await;
+}
+
+/// How many reads the store counted for one question about `ids`: the fewest of a few
+/// askings, as what the server does on its own between two scrapes reads too.
+async fn reads_of(th: &TestServer, client: &Client, ids: &[&str]) -> u64 {
+    let counted = async || {
+        let text = crate::metrics::scrape(th).await;
+        text.lines()
+            .filter(|line| line.starts_with("fvoci_db_call_duration_seconds_count{access=\"read\""))
+            .filter_map(|line| line.rsplit(' ').next()?.parse::<u64>().ok())
+            .sum::<u64>()
+    };
+    let mut fewest = u64::MAX;
+    for _ in 0..3 {
+        let before = counted().await;
+        resolved(client, TEST_WS, ids).await.check_ok();
+        fewest = fewest.min(counted().await - before);
+    }
+    fewest
 }
