@@ -465,6 +465,16 @@ async fn another_issuer_is_applied_by_its_administrators_trial() {
     );
     assert_eq!(read.issuer, other.issuer);
     assert!(read.sso_required && read.can_require_sso && read.pending.is_none());
+    assert_eq!(
+        read.former.as_ref().map(|former| former.issuer.as_str()),
+        Some(fake.issuer.as_str()),
+        "the provider before the trial is kept for linking"
+    );
+    assert!(
+        recorded(&applied, &org_id)
+            .await
+            .contains(&"oidc_former_provider_kept".to_owned())
+    );
     admin.get("/users/me").await.check_unauthorized();
     ts.teardown().await;
     fake.stop();

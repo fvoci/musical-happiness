@@ -238,6 +238,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("LoginOrganization", Members::All),
     ("OidcProvider", Members::All),
     ("OidcFormerProvider", Members::All),
+    ("OidcFormerProviderEnd", Members::All),
     ("OidcPendingProvider", Members::All),
     ("OnboardingStart", Members::AsWritten),
     (

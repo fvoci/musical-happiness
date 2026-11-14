@@ -1,4 +1,6 @@
 //! Durable provider changes, operator attribution, and immutable records on both databases.
+use std::time::Duration;
+
 use crate::common;
 use fvoci_model::{AuditAction, AuditRecordActor, new_id};
 use fvoci_store::{AuditPlace, Paging, StoredProvider};
@@ -23,7 +25,7 @@ fn settings() -> StoredProvider {
 async fn operator_records_are_distinct_immutable_and_made_with_the_release() {
     let test = common::setup().await;
     let actor = common::user(&test, "administrator").await;
-    test.put_oidc_provider_as_read(&settings(), None, &actor, 0)
+    test.put_oidc_provider_as_read(&settings(), None, &actor, Duration::ZERO)
         .await
         .expect("stored");
     assert!(
@@ -104,14 +106,14 @@ async fn a_missing_actor_rolls_back_the_provider_change() {
     let test = common::setup().await;
     let actor = common::user(&test, "administrator").await;
     let before = test
-        .put_oidc_provider_as_read(&settings(), None, &actor, 0)
+        .put_oidc_provider_as_read(&settings(), None, &actor, Duration::ZERO)
         .await
         .expect("stored")
         .expect("new");
     let mut changed = before.clone();
     changed.client_id = "replacement".to_owned();
     assert!(
-        test.put_oidc_provider_as_read(&changed, Some(&before), "", 0)
+        test.put_oidc_provider_as_read(&changed, Some(&before), "", Duration::ZERO)
             .await
             .is_err()
     );
@@ -173,7 +175,7 @@ async fn a_release_or_removal_without_its_record_rolls_back() {
         let mut provider = settings();
         provider.sso_required = required;
         let before = test
-            .put_oidc_provider_as_read(&provider, None, &actor, 0)
+            .put_oidc_provider_as_read(&provider, None, &actor, Duration::ZERO)
             .await
             .expect("stored")
             .expect("new");
@@ -244,23 +246,23 @@ async fn a_save_records_only_what_it_changed() {
     let mut provider = settings();
     provider.sso_required = false;
     let first = test
-        .put_oidc_provider_as_read(&provider, None, &actor, 0)
+        .put_oidc_provider_as_read(&provider, None, &actor, Duration::ZERO)
         .await
         .expect("stored")
         .expect("new");
     let unchanged = test
-        .put_oidc_provider_as_read(&provider, Some(&first), &actor, 0)
+        .put_oidc_provider_as_read(&provider, Some(&first), &actor, Duration::ZERO)
         .await
         .expect("stored")
         .expect("as read");
     provider.sso_required = true;
     let enforced = test
-        .put_oidc_provider_as_read(&provider, Some(&unchanged), &actor, 0)
+        .put_oidc_provider_as_read(&provider, Some(&unchanged), &actor, Duration::ZERO)
         .await
         .expect("stored")
         .expect("as read");
     provider.auto_join = false;
-    test.put_oidc_provider_as_read(&provider, Some(&enforced), &actor, 0)
+    test.put_oidc_provider_as_read(&provider, Some(&enforced), &actor, Duration::ZERO)
         .await
         .expect("stored")
         .expect("as read");

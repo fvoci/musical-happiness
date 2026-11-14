@@ -72,6 +72,14 @@ pub struct OidcFormerProvider {
     pub expires_at: i64,
 }
 
+/// Which former provider an administrator ends the keeping of: the one they read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct OidcFormerProviderEnd {
+    /// The `createAt` of the former provider as it was read.
+    pub create_at: i64,
+}
+
 /// The pending settings of an organization's provider, without the client secret:
 /// `hasClientSecret` says whether there is one.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]

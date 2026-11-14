@@ -30,7 +30,7 @@ function mount(value: OidcProvider | undefined = provider) {
   const onSignIn = vi.fn(() => Promise.resolve());
   const discard = vi.fn(() => Promise.resolve());
   const onTry = vi.fn(() => Promise.resolve());
-  const endFormer = vi.fn(() => Promise.resolve());
+  const endFormer = vi.fn((_createAt: number) => Promise.resolve());
   const read = vi.fn(() => Promise.resolve(value));
   render(OrgSso, { read, save, remove, onSignIn, discard, onTry, endFormer });
   return { read, save, remove, onSignIn, discard, onTry, endFormer };
@@ -186,18 +186,36 @@ describe('the SSO settings', () => {
     };
     const { read, endFormer } = mount({ ...provider, former });
     expect(await screen.findByTestId('sso-former-issuer')).toHaveTextContent(former.issuer);
-    // The day in the reader's zone: the second of December east of UTC+12.
-    const day = new Intl.DateTimeFormat('en', { dateStyle: 'long' }).format(former.expiresAt);
-    expect(day).toMatch(/^December [12], 2026$/);
-    expect(screen.getByTestId('sso-former-until')).toHaveTextContent(day);
+    // The moment in the reader's zone: the second of December east of UTC+12.
+    const moment = new Intl.DateTimeFormat('en', {
+      dateStyle: 'long',
+      timeStyle: 'short',
+    }).format(former.expiresAt);
+    expect(moment).toMatch(/^December [12], 2026 at \d+:00/);
+    expect(screen.getByTestId('sso-former-until')).toHaveTextContent(moment);
     await fireEvent.click(screen.getByTestId('sso-former-end'));
     expect(endFormer).not.toHaveBeenCalled();
     read.mockResolvedValueOnce(provider);
     const dialog = await screen.findByTestId('confirm-dialog');
     await fireEvent.click(within(dialog).getByRole('button', { name: 'End early' }));
     await screen.findByText("The previous provider's linking period was ended.");
-    expect(endFormer).toHaveBeenCalledOnce();
+    expect(endFormer).toHaveBeenCalledExactlyOnceWith(former.createAt);
     expect(screen.queryByTestId('sso-former')).not.toBeInTheDocument();
+  });
+
+  it('reads the provider again when ending is refused: another one may be kept by now', async () => {
+    const former = { issuer: 'https://before.example.test', createAt: 1, expiresAt: 2 };
+    const next = { issuer: 'https://between.example.test', createAt: 3, expiresAt: 4 };
+    const { read, endFormer } = mount({ ...provider, former });
+    endFormer.mockRejectedValueOnce(new BackendError(409, {}));
+    await fireEvent.click(await screen.findByTestId('sso-former-end'));
+    read.mockResolvedValueOnce({ ...provider, former: next });
+    const dialog = await screen.findByTestId('confirm-dialog');
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'End early' }));
+    await vi.waitFor(() => {
+      expect(screen.getByTestId('sso-former-issuer')).toHaveTextContent(next.issuer);
+    });
+    expect(screen.getByRole('alert')).not.toBeEmptyDOMElement();
   });
 
   it('shows no previous provider where none is kept', async () => {

@@ -21,8 +21,8 @@
     discard: () => Promise<void>;
     /** Sends the browser to sign in through the pending settings. */
     onTry: () => Promise<void>;
-    /** Ends the keeping of the former provider before its time. */
-    endFormer: () => Promise<void>;
+    /** Ends the keeping of the former provider as it was read (`createAt`), before its time. */
+    endFormer: (createAt: number) => Promise<void>;
   }
   let { read, save, remove, onSignIn, discard, onTry, endFormer }: Props = $props();
   const uid = $props.id();
@@ -150,17 +150,19 @@
     }
   }
 
-  async function endKeeping(): Promise<void> {
+  async function endKeeping(createAt: number): Promise<void> {
     if (busy) return;
     busy = true;
     problem = '';
     notice = '';
     try {
-      await endFormer();
+      await endFormer(createAt);
       accept(await read());
       notice = m.org_sso_former_ended();
     } catch (error) {
       problem = oidcProblem(error);
+      // Refused because another one is kept by now: what is shown is read again.
+      await read().then(accept, () => undefined);
     } finally {
       busy = false;
     }
@@ -362,7 +364,8 @@
         />
       {/if}
       {#if provider?.former}
-        <OrgSsoFormer former={provider.former} {busy} onEnd={() => void endKeeping()} />
+        {@const former = provider.former}
+        <OrgSsoFormer {former} {busy} onEnd={() => void endKeeping(former.createAt)} />
       {/if}
       <div class="flex flex-wrap gap-2">
         <Button

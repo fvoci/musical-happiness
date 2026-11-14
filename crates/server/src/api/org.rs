@@ -10,7 +10,9 @@ use axum::extract::Extension;
 use axum::extract::rejection::RawPathParamsRejection;
 use axum::extract::{FromRequestParts, RawPathParams};
 use axum::http::request::Parts;
-use fvoci_model::{OidcProvider, OidcProviderSettings, OidcStart, Problem, Session};
+use fvoci_model::{
+    OidcFormerProviderEnd, OidcProvider, OidcProviderSettings, OidcStart, Problem, Session,
+};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
@@ -224,8 +226,10 @@ async fn handle_delete_oidc_pending(org: OrgAdmin) -> ApiResult {
 /// one for `oidc_former_provider_days` (30 by default): nobody signs in through it,
 /// but somebody the new provider vouches for who has no account yet may sign in
 /// through it once to carry their account over. This ends that before its time: from
-/// then on nobody carries an account over from it. An organization that keeps none
-/// answers the same. Recorded in the organization's audit log
+/// then on nobody carries an account over from it. The body names the former
+/// provider as it was read (`createAt`): if the organization moved again since, and
+/// another one is kept, the request is 409, to be read and sent again. An organization
+/// that keeps none answers 204 as well. Recorded in the organization's audit log
 /// (`oidc_former_provider_ended`), as its keeping (`oidc_former_provider_kept`) and
 /// its running out (`oidc_former_provider_lapsed`, the server's doing) are.
 #[utoipa::path(
@@ -234,11 +238,21 @@ async fn handle_delete_oidc_pending(org: OrgAdmin) -> ApiResult {
     operation_id = "deleteOidcFormerProvider",
     tag = tag::AUTH,
     params(OrgId),
-    responses((status = 204, description = "The organization keeps no former provider.")),
+    request_body = OidcFormerProviderEnd,
+    responses(
+        (status = 204, description = "The organization keeps no former provider."),
+        (
+            status = 409,
+            description = "Another former provider is kept than the one read.",
+            body = Problem,
+            content_type = "application/problem+json",
+        ),
+    ),
 )]
-async fn handle_delete_oidc_former(org: OrgAdmin) -> ApiResult {
+async fn handle_delete_oidc_former(org: OrgAdmin, body: Bytes) -> ApiResult {
+    let read: OidcFormerProviderEnd = decode_object(&body)?;
     org.app
-        .end_oidc_former_provider(&org.session.user_id)
+        .end_oidc_former_provider(&org.session.user_id, read.create_at)
         .await?;
     Ok(no_content())
 }

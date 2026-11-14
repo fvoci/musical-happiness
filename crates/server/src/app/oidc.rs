@@ -723,7 +723,7 @@ impl App {
                         provider_id: &stored.id,
                         pending_at,
                         trier_id,
-                        keep_former_millis: self.limits().former_provider_millis,
+                        keep_former: self.limits().former_provider_kept,
                     },
                     account,
                     session,

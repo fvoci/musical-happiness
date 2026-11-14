@@ -5,6 +5,8 @@
 //! provider's. Until then the provider is signed in through as it was, so that settings
 //! that do not work lock nobody out. The provider and its sign-ins are in `oidc.rs`.
 
+use std::time::Duration;
+
 use fvoci_model::{AuditAction, LoginOrigin, OrgRole, Session};
 
 use crate::Store;
@@ -97,8 +99,8 @@ pub struct Trial<'a> {
     /// The administrator who started it, whose account alone it may end in.
     pub trier_id: &'a str,
     /// How long the provider before is kept as the former one if the trial moves
-    /// the organization to another issuer, in milliseconds; zero keeps none.
-    pub keep_former_millis: i64,
+    /// the organization to another issuer; no time keeps none.
+    pub keep_former: Duration,
 }
 
 /// What a trial of the pending settings that ended well did.
@@ -259,7 +261,7 @@ impl Store {
             provider_id,
             pending_at,
             trier_id,
-            keep_former_millis,
+            keep_former,
         } = trial;
         self.transaction(async |scope| {
             hold_provider_of_organization(scope).await?;
@@ -293,7 +295,7 @@ impl Store {
             scope.execute(sql).await?;
             let applied = pending.applied_to(&before);
             let keeping = Keeping {
-                millis: keep_former_millis,
+                time: keep_former,
                 actor_id: Some(trier_id),
             };
             let provider = oidc::write_provider(scope, Some(&before), &applied, keeping)

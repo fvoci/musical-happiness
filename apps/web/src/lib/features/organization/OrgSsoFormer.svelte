@@ -1,7 +1,7 @@
 <!--
   The provider the organization moved away from, kept for linking only: nobody
   signs in through it, but a member the new provider does not know yet signs in
-  through it once to carry their account over. Shown until the day it ends, with
+  through it once to carry their account over. Shown with the moment it ends, and
   a way to end it sooner.
 -->
 <script lang="ts">
@@ -22,7 +22,11 @@
   const uid = $props.id();
   let confirming = $state(false);
   const until = $derived(
-    new Intl.DateTimeFormat(getLocale(), { dateStyle: 'long', timeZone }).format(former.expiresAt),
+    new Intl.DateTimeFormat(getLocale(), {
+      dateStyle: 'long',
+      timeStyle: 'short',
+      timeZone,
+    }).format(former.expiresAt),
   );
 </script>
 

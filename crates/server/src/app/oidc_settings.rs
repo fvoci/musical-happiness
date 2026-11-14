@@ -9,7 +9,7 @@ use fvoci_model::{
     OidcFormerProvider, OidcPendingProvider, OidcProvider, OidcProviderSettings, RefusalReason,
     Refusals, Session,
 };
-use fvoci_store::{FormerProvider, PendingProvider, Removal, StoredProvider};
+use fvoci_store::{FormerEnd, FormerProvider, PendingProvider, Removal, StoredProvider};
 
 use super::App;
 use super::sso;
@@ -92,7 +92,7 @@ impl App {
                 &next,
                 existing.as_ref(),
                 &session.user_id,
-                self.limits().former_provider_millis,
+                self.limits().former_provider_kept,
             )
             .await?
             // Changed by another request since it was read here: what was kept from it
@@ -151,21 +151,34 @@ impl App {
     }
 
     /// Ends the keeping of the former provider of the handle's organization before
-    /// its time, as the administrator `actor_id`: from then on nobody carries an
+    /// its time, as the administrator `actor_id`, if it is the one they read: the one
+    /// kept since `kept_since` (its `createAt`). From then on nobody carries an
     /// account over from it. Ending none changes nothing.
     ///
     /// # Errors
     ///
-    /// Returns the store's error.
-    pub async fn end_oidc_former_provider(&self, actor_id: &str) -> Result<(), AppError> {
-        if self
+    /// Returns 409 if another former provider is kept than the one read (the
+    /// organization moved again since), and the store's error.
+    pub async fn end_oidc_former_provider(
+        &self,
+        actor_id: &str,
+        kept_since: i64,
+    ) -> Result<(), AppError> {
+        match self
             .store()
-            .end_oidc_former_provider(actor_id, now_millis())
+            .end_oidc_former_provider(actor_id, kept_since, now_millis())
             .await?
         {
-            tracing::info!("the keeping of a former provider was ended before its time");
+            FormerEnd::Ended => {
+                tracing::info!("the keeping of a former provider was ended before its time");
+                Ok(())
+            }
+            FormerEnd::NoneKept => Ok(()),
+            FormerEnd::Another => Err(AppError::conflict(
+                "another former provider is kept than the one read; read the provider and try \
+                 again",
+            )),
         }
-        Ok(())
     }
 
     /// `stored` as the administrators read it, with what is kept beside it now: its

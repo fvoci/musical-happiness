@@ -83,7 +83,7 @@ pub use observe::{Access, Call, Observer, Outcome};
 pub use oidc::{
     FlowPurpose, Identity, LoginFlow, OidcAccount, OidcRefusal, Removal, StoredProvider,
 };
-pub use oidc_former::{FormerProvider, Keeping};
+pub use oidc_former::{FormerEnd, FormerProvider};
 pub use oidc_identities::{LinkRefusal, Linked, LinkingSession, TiedIdentity, Unlinked};
 pub use oidc_pending::{Applied, PendingProvider, PendingSettings, Trial};
 pub use org_admin::{Joining, OrgRoleChange, WorkspaceTrashing};

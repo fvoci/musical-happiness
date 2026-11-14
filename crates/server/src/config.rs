@@ -766,9 +766,9 @@ impl Configuration {
         i64::from(self.session_max_days).saturating_mul(MILLIS_PER_DAY)
     }
 
-    /// How long the provider an organization moves away from is kept, in milliseconds.
-    pub fn oidc_former_provider_millis(&self) -> i64 {
-        i64::from(self.oidc_former_provider_days).saturating_mul(MILLIS_PER_DAY)
+    /// How long the provider an organization moves away from is kept.
+    pub fn oidc_former_provider_kept(&self) -> std::time::Duration {
+        std::time::Duration::from_hours(u64::from(self.oidc_former_provider_days) * 24)
     }
 
     /// How long a deleted board or block stays in the trash, in milliseconds.

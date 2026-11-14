@@ -3,8 +3,13 @@
 //! by the housekeeping when its time ran out, and gone with another move or with the
 //! provider; each recorded in the organization's audit log.
 
-use fvoci_model::{AuditAction, AuditRecordActor, new_id};
-use fvoci_store::{AuditPlace, FormerProvider, Paging, Removal, Store, StoredProvider};
+use fvoci_model::{AuditAction, AuditRecordActor, OrgRole, Session, User, new_id};
+use std::time::Duration;
+
+use fvoci_store::{
+    AuditPlace, DbType, FormerEnd, FormerProvider, Identity, OidcAccount, Paging, PendingSettings,
+    Removal, Store, StoredProvider, Tenant, Trial,
+};
 
 use crate::common;
 
@@ -12,8 +17,11 @@ const ONE: &str = "https://one.example.test";
 const TWO: &str = "https://two.example.test";
 const THREE: &str = "https://three.example.test";
 
-/// Thirty days, in milliseconds.
-const KEPT: i64 = 30 * 24 * 60 * 60 * 1000;
+/// Thirty days.
+const KEPT: Duration = Duration::from_hours(30 * 24);
+
+/// [`KEPT`] in milliseconds.
+const KEPT_MILLIS: i64 = 30 * 24 * 60 * 60 * 1000;
 
 /// Now, in milliseconds since the Unix epoch.
 fn now_millis() -> i64 {
@@ -45,7 +53,7 @@ async fn put(
     next: &StoredProvider,
     read: Option<&StoredProvider>,
     actor: &str,
-    kept: i64,
+    kept: Duration,
 ) -> StoredProvider {
     store
         .put_oidc_provider_as_read(next, read, actor, kept)
@@ -132,7 +140,7 @@ async fn another_issuer_keeps_the_provider_before_for_its_time() {
         "the provider as it was"
     );
     assert_eq!(kept.org_id, moved.org_id);
-    assert_eq!(kept.expires_at - kept.create_at, KEPT);
+    assert_eq!(kept.expires_at - kept.create_at, KEPT_MILLIS);
     assert!(former(&test, kept.expires_at - 1).await.is_some());
     assert_eq!(former(&test, kept.expires_at).await, None, "past its time");
     assert_eq!(still, Some(kept), "another client of the issuer leaves it");
@@ -148,33 +156,56 @@ async fn another_issuer_keeps_the_provider_before_for_its_time() {
 async fn no_time_keeps_none() {
     let test = common::setup().await;
     let actor = common::user(&test, "administrator").await;
-    let first = put(&test, &provider(ONE, "client"), None, &actor, 0).await;
+    let first = put(
+        &test,
+        &provider(ONE, "client"),
+        None,
+        &actor,
+        Duration::ZERO,
+    )
+    .await;
 
-    put(&test, &provider(TWO, "client"), Some(&first), &actor, 0).await;
+    put(
+        &test,
+        &provider(TWO, "client"),
+        Some(&first),
+        &actor,
+        Duration::ZERO,
+    )
+    .await;
 
     assert_eq!(former(&test, now_millis()).await, None);
     assert_eq!(records(&test).await, []);
     test.teardown().await;
 }
 
-/// An administrator ends the keeping before its time, once: it is recorded as theirs.
+/// An administrator ends the keeping before its time, once, of the one they read and
+/// no other: it is recorded as theirs.
 #[tokio::test]
-async fn it_is_ended_before_its_time_once() {
+async fn it_is_ended_before_its_time_once_as_it_was_read() {
     let test = common::setup().await;
     let actor = common::user(&test, "administrator").await;
     let first = put(&test, &provider(ONE, "client"), None, &actor, KEPT).await;
     put(&test, &provider(TWO, "client"), Some(&first), &actor, KEPT).await;
+    let kept = former(&test, now_millis()).await.expect("kept");
+    let end = async |kept_since: i64| {
+        test.end_oidc_former_provider(&actor, kept_since, now_millis())
+            .await
+            .expect("asked")
+    };
 
-    let ended = test
-        .end_oidc_former_provider(&actor, now_millis())
-        .await
-        .expect("asked");
-    let again = test
-        .end_oidc_former_provider(&actor, now_millis())
-        .await
-        .expect("asked");
+    let another = end(kept.create_at - 1).await;
+    let still = former(&test, now_millis()).await;
+    let ended = end(kept.create_at).await;
+    let again = end(kept.create_at).await;
 
-    assert!(ended && !again);
+    assert_eq!(another, FormerEnd::Another, "not the one that was read");
+    assert_eq!(still.as_ref(), Some(&kept));
+    assert_eq!(
+        (ended, again),
+        (FormerEnd::Ended, FormerEnd::NoneKept),
+        "ended once"
+    );
     assert_eq!(former(&test, now_millis()).await, None);
     let records = records(&test).await;
     let by = recorded(&records, AuditAction::OidcFormerProviderEnded, ONE);
@@ -183,7 +214,8 @@ async fn it_is_ended_before_its_time_once() {
 }
 
 /// One whose time ran out is not an administrator's to end: the housekeeping removes
-/// it, once, and records it as the server's own doing; one still kept stays.
+/// it, once, with the system's reach and no other, and records it as the server's own
+/// doing; one still kept stays.
 #[tokio::test]
 async fn one_whose_time_ran_out_is_removed_by_the_housekeeping() {
     let test = common::setup().await;
@@ -198,7 +230,23 @@ async fn one_whose_time_ran_out_is_removed_by_the_housekeeping() {
         .await
         .expect("asked");
     let by_an_administrator = test
-        .end_oidc_former_provider(&actor, kept.expires_at)
+        .end_oidc_former_provider(&actor, kept.create_at, kept.expires_at)
+        .await
+        .expect("asked");
+    // SQLite holds one organization: there is no other to ask as.
+    let by_another_organization = if common::db_type() == DbType::Postgres {
+        let (other_org, _) = common::organization(&test.scoped(Tenant::Unset), "the other").await;
+        test.for_org(&other_org)
+            .expect("an identifier")
+            .end_lapsed_oidc_former_providers(kept.expires_at)
+            .await
+            .expect("asked")
+    } else {
+        0
+    };
+    let by_no_organization = test
+        .scoped(Tenant::Unset)
+        .end_lapsed_oidc_former_providers(kept.expires_at)
         .await
         .expect("asked");
     let removed = system
@@ -211,7 +259,16 @@ async fn one_whose_time_ran_out_is_removed_by_the_housekeeping() {
         .expect("asked");
 
     assert_eq!((too_early, removed, again), (0, 1, 0));
-    assert!(!by_an_administrator, "its time ran out: not theirs to end");
+    assert_eq!(
+        (by_another_organization, by_no_organization),
+        (0, 0),
+        "a handle of another organization, or of none, ends none of ours"
+    );
+    assert_eq!(
+        by_an_administrator,
+        FormerEnd::NoneKept,
+        "its time ran out: not theirs to end"
+    );
     let rows = test.count_rows("oidc_former_providers").await;
     assert_eq!(rows.expect("counted"), 0);
     let records = records(&test).await;
@@ -269,4 +326,131 @@ async fn another_move_and_the_removal_of_the_provider_end_it() {
         "{records:?}"
     );
     test.teardown().await;
+}
+
+/// A move that meets a former provider whose time ran out, not removed yet, records
+/// that one as lapsed, the server's doing, and not as ended by who moves.
+#[tokio::test]
+async fn a_move_records_one_whose_time_ran_out_as_lapsed() {
+    let test = common::setup().await;
+    let actor = common::user(&test, "administrator").await;
+    let first = put(&test, &provider(ONE, "client"), None, &actor, KEPT).await;
+    let second = put(&test, &provider(TWO, "client"), Some(&first), &actor, KEPT).await;
+    test.execute_unchecked("UPDATE oidc_former_providers SET expires_at = 1")
+        .await
+        .expect("its time ran out");
+
+    put(
+        &test,
+        &provider(THREE, "client"),
+        Some(&second),
+        &actor,
+        KEPT,
+    )
+    .await;
+
+    let kept = former(&test, now_millis()).await.expect("kept");
+    assert_eq!(kept.issuer, TWO);
+    let records = records(&test).await;
+    assert_eq!(
+        recorded(&records, AuditAction::OidcFormerProviderLapsed, ONE),
+        [AuditRecordActor::Server],
+        "{records:?}"
+    );
+    assert_eq!(
+        recorded(&records, AuditAction::OidcFormerProviderEnded, ONE),
+        [],
+        "{records:?}"
+    );
+    test.teardown().await;
+}
+
+/// A trial of pending settings of another issuer keeps the provider before as a save
+/// of them does, recorded as the trier's; with no time it keeps none.
+#[tokio::test]
+async fn a_trial_that_moves_keeps_the_provider_before() {
+    for kept_for in [KEPT, Duration::ZERO] {
+        let test = common::setup().await;
+        let mut trier = User {
+            id: new_id(),
+            username: "trier".to_owned(),
+            email: "trier@example.com".to_owned(),
+            password_hash: "a password hash".to_owned(),
+            ..User::default()
+        };
+        test.create_user(&mut trier).await.expect("stored");
+        test.execute_unchecked(&format!(
+            "UPDATE organization_members SET role = '{}' WHERE user_id = '{}'",
+            OrgRole::Admin.as_str(),
+            trier.id
+        ))
+        .await
+        .expect("an administrator of the organization");
+        let identity = Identity {
+            issuer: TWO,
+            subject: "the trier at two",
+        };
+        test.add_identity(&trier.id, identity, "")
+            .await
+            .expect("tied");
+        let enforced = StoredProvider {
+            sso_required: true,
+            ..provider(ONE, "client")
+        };
+        let enforced = put(&test, &enforced, None, &trier.id, KEPT).await;
+        let aside = PendingSettings {
+            issuer: TWO.to_owned(),
+            client_id: "client".to_owned(),
+            sealed_client_secret: "the sealed secret at two".to_owned(),
+        };
+        let (_, pending) = test
+            .put_oidc_pending_provider(&aside, &enforced, &enforced, &trier.id)
+            .await
+            .expect("asked")
+            .expect("saved aside");
+        let mut session = Session {
+            id: new_id(),
+            created_at: 1,
+            expires_at: i64::MAX,
+            ..Session::default()
+        };
+
+        let applied = test
+            .finish_oidc_trial(
+                Trial {
+                    provider_id: &enforced.id,
+                    pending_at: pending.create_at,
+                    trier_id: &trier.id,
+                    keep_former: kept_for,
+                },
+                OidcAccount::Known {
+                    user_id: &trier.id,
+                    password_hash: &trier.password_hash,
+                    identity,
+                },
+                &mut session,
+                "the digest of the trial's session",
+            )
+            .await
+            .expect("asked")
+            .expect("applied");
+
+        assert_eq!(applied.provider.issuer, TWO);
+        let kept = former(&test, now_millis()).await;
+        let records = records(&test).await;
+        let by = recorded(&records, AuditAction::OidcFormerProviderKept, ONE);
+        if kept_for.is_zero() {
+            assert_eq!(kept, None, "no time keeps none");
+            assert_eq!(by, [], "{records:?}");
+        } else {
+            let kept = kept.expect("the provider before is kept");
+            assert_eq!(
+                (kept.issuer.as_str(), kept.sealed_client_secret.as_str()),
+                (ONE, enforced.sealed_client_secret.as_str())
+            );
+            assert_eq!(kept.expires_at - kept.create_at, KEPT_MILLIS);
+            assert!(by.len() == 1 && is_person(&by[0], &trier.id), "{records:?}");
+        }
+        test.teardown().await;
+    }
 }

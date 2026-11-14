@@ -366,7 +366,7 @@ pub(crate) async fn sign_in_under_way(store: &Store, name: &str) {
                 &settings("https://idp.example.com"),
                 Some(&former),
                 &fvoci_model::new_id(),
-                i64::from(u32::MAX),
+                std::time::Duration::from_hours(24),
             )
             .await
             .expect("asked")

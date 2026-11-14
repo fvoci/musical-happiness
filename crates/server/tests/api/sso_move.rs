@@ -55,8 +55,8 @@ pub(crate) async fn records(client: &Client, org_id: &str) -> Vec<(String, Strin
 }
 
 /// A move to another issuer keeps the provider before for thirty days, without its
-/// secret in any answer; an administrator ends that before its time, once, and nobody
-/// else does.
+/// secret in any answer; an administrator ends that before its time, once, naming the
+/// one they read, and nobody else does.
 #[tokio::test]
 async fn the_provider_before_is_kept_and_ended_by_an_administrator() {
     let (old, new) = (FakeProvider::start().await, FakeProvider::start().await);
@@ -67,9 +67,20 @@ async fn the_provider_before_is_kept_and_ended_by_an_administrator() {
 
     let moved = ts.client.put(&path, &settings_of(&new)).await;
     let read: OidcProvider = ts.client.get(&path).await.ok_json();
-    let by_a_member = ts.client2.delete(&format!("{path}/former")).await;
-    let ended = ts.client.delete(&format!("{path}/former")).await;
-    let again = ts.client.delete(&format!("{path}/former")).await;
+    let kept_since = read.former.as_ref().map_or(0, |former| former.create_at);
+    let end = async |client: &Client, create_at: i64| {
+        Client::send(
+            client
+                .request(reqwest::Method::DELETE, &format!("{path}/former"))
+                .json(&json!({ "createAt": create_at })),
+        )
+        .await
+    };
+    let by_a_member = end(&ts.client2, kept_since).await;
+    let of_another = end(&ts.client, kept_since - 1).await;
+    let unnamed = ts.client.delete(&format!("{path}/former")).await;
+    let ended = end(&ts.client, kept_since).await;
+    let again = end(&ts.client, kept_since).await;
     let after: OidcProvider = ts.client.get(&path).await.ok_json();
 
     assert_eq!(first.former, None, "the first provider took no one's place");
@@ -81,6 +92,8 @@ async fn the_provider_before_is_kept_and_ended_by_an_administrator() {
     assert_eq!(moved.issuer, new.issuer);
     assert_eq!(read.former, moved.former);
     by_a_member.check_status(StatusCode::NOT_FOUND);
+    of_another.check_status(StatusCode::CONFLICT);
+    unnamed.check_status(StatusCode::BAD_REQUEST);
     ended.check_no_content();
     again.check_no_content();
     assert_eq!(after.former, None);

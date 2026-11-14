@@ -7,6 +7,8 @@
 //! back, which organization a login page is for) is in `directory.rs`; tying an
 //! identity to an account and removing it, in `oidc_identities.rs`.
 
+use std::time::Duration;
+
 use fvoci_model::{AuditAction, LoginOrigin, OrgRole, Session, User, WorkspaceRole, new_id};
 
 use crate::Store;
@@ -196,7 +198,7 @@ impl Store {
     /// another provider, under a new identifier, and the sign-ins under way through the
     /// one before end with it; with another issuer, so do the sessions made through a
     /// provider of the organization under the issuer before, and the provider before is
-    /// kept as the former one for `keep_former_millis` (none for zero), in place of
+    /// kept as the former one for `keep_former` (none for no time), in place of
     /// the one kept until then. `provider.id`, `org_id` and the times are the store's;
     /// the time of a change of a provider is always later than that of the one before,
     /// and a provider removed and set again is another, so that a reading names one
@@ -211,11 +213,11 @@ impl Store {
         provider: &StoredProvider,
         read: Option<&StoredProvider>,
         actor_id: &str,
-        keep_former_millis: i64,
+        keep_former: Duration,
     ) -> Result<Option<StoredProvider>, StoreError> {
         let read = read.map(|read| (read.id.clone(), read.update_at));
         let keeping = Keeping {
-            millis: keep_former_millis,
+            time: keep_former,
             actor_id: Some(actor_id),
         };
         self.put_provider(provider, AsRead::Was(read), keeping)
@@ -259,8 +261,9 @@ impl Store {
 
     /// Removes the provider of the handle's organization, the sign-ins under way
     /// through it, the former provider kept beside it, and the sessions made through a
-    /// provider of the organization under its issuer, unless it is the one the organization takes nothing else than
-    /// (`sso_required`): that one stays, and is released first. Asked and removed in
+    /// provider of the organization under its issuer, unless it is the one the
+    /// organization takes nothing else than (`sso_required`): that one stays, and is
+    /// released first. Asked and removed in
     /// one transaction that holds the provider, so that no removal passes an
     /// enforcement that is switched on beside it.
     ///

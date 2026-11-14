@@ -19,6 +19,11 @@ fn empty_object_gives_the_defaults() {
     assert_eq!(config.session_idle_millis(), 14 * 24 * 60 * 60 * 1000);
     assert_eq!(config.session_max_millis(), 90 * 24 * 60 * 60 * 1000);
     assert_eq!(config.trash_retention_days, 30);
+    assert_eq!(config.oidc_former_provider_days, 30);
+    assert_eq!(
+        config.oidc_former_provider_kept(),
+        std::time::Duration::from_hours(30 * 24)
+    );
     assert_eq!(config.upload_part_bytes, 8 * 1024 * 1024);
     assert_eq!(config.max_file_size, 100 * 1024 * 1024);
     assert_eq!(config.max_pending_upload_bytes, 2 * 1024 * 1024 * 1024);
@@ -655,4 +660,24 @@ fn the_example_configuration_files_are_read() {
             .unwrap_or_else(|error| panic!("{path} is accepted: {error:#}"));
         assert!(warnings.is_empty(), "{path} gives no warning: {warnings:?}");
     }
+}
+
+/// How long a former provider is kept is read from the file and the environment; no
+/// days keep none, and a number that is no count of days is refused.
+#[test]
+fn the_days_a_former_provider_is_kept_are_read() {
+    let from_file = Configuration::parse(r#"{"oidc_former_provider_days": 7}"#, no_env);
+    let env = |name: &str| (name == "FVOCI_OIDC_FORMER_PROVIDER_DAYS").then(|| "0".to_owned());
+    let from_env = Configuration::parse(r#"{"oidc_former_provider_days": 7}"#, env);
+    let negative = Configuration::parse(r#"{"oidc_former_provider_days": -1}"#, no_env);
+
+    assert_eq!(from_file.expect("valid").oidc_former_provider_days, 7);
+    assert!(
+        from_env
+            .expect("valid")
+            .oidc_former_provider_kept()
+            .is_zero(),
+        "the environment's zero keeps none"
+    );
+    assert!(negative.is_err(), "a negative number of days is refused");
 }

@@ -143,9 +143,9 @@ export class OrgAdmin {
     }
   }
 
-  async endOidcFormer(): Promise<void> {
+  async endOidcFormer(createAt: number): Promise<void> {
     try {
-      await this.#api.endOidcFormer(this.orgId);
+      await this.#api.endOidcFormer(this.orgId, createAt);
     } finally {
       await this.load();
     }

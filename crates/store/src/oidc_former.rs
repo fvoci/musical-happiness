@@ -5,13 +5,15 @@
 //! time it is read as none, and the server's housekeeping removes it. The provider and
 //! its sign-ins are in `oidc.rs`.
 
+use std::time::Duration;
+
 use fvoci_model::AuditAction;
 
-use crate::Store;
 use crate::audit::{self, AuditActor, AuditEntry};
 use crate::db::{Row, Scope, now_millis};
 use crate::error::StoreError;
 use crate::oidc::{StoredProvider, hold_provider_of_organization};
+use crate::{Store, Tenant};
 
 /// The columns of a former provider, in the order [`former_from_row`] reads them.
 const FORMER_COLUMNS: &str = "org_id, issuer, client_id, client_secret, create_at, expires_at";
@@ -48,20 +50,31 @@ impl std::fmt::Debug for FormerProvider {
 
 /// How a change of the provider's issuer treats the provider before.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Keeping<'a> {
-    /// How long the provider before is kept, in milliseconds; zero keeps none.
-    pub millis: i64,
+pub(crate) struct Keeping<'a> {
+    /// How long the provider before is kept; none for no time.
+    pub(crate) time: Duration,
     /// Who changes the provider: what becomes of the former one is recorded as
     /// theirs. `None` records nothing.
-    pub actor_id: Option<&'a str>,
+    pub(crate) actor_id: Option<&'a str>,
 }
 
 impl Keeping<'_> {
     /// Keeps nothing and records nothing: for a change that leaves the issuer.
     pub(crate) const NOTHING: Self = Self {
-        millis: 0,
+        time: Duration::ZERO,
         actor_id: None,
     };
+}
+
+/// What came of ending the keeping of a former provider before its time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FormerEnd {
+    /// It is ended, and that is recorded.
+    Ended,
+    /// None is kept: its time ran out, or it was ended already.
+    NoneKept,
+    /// Another one is kept than the one read: the organization moved again since.
+    Another,
 }
 
 impl Store {
@@ -80,8 +93,9 @@ impl Store {
     }
 
     /// Ends the keeping of the former provider of the handle's organization before
-    /// its time, recorded as `actor_id`'s. Returns whether one was kept at `now`: one
-    /// whose time ran out is the housekeeping's to remove and record.
+    /// its time, recorded as `actor_id`'s, if it is still the one read: the one kept
+    /// since `kept_since` (its `create_at`). One whose time ran out at `now` is the
+    /// housekeeping's to remove and record, and is none here.
     ///
     /// # Errors
     ///
@@ -90,30 +104,43 @@ impl Store {
     pub async fn end_oidc_former_provider(
         &self,
         actor_id: &str,
+        kept_since: i64,
         now: i64,
-    ) -> Result<bool, StoreError> {
+    ) -> Result<FormerEnd, StoreError> {
         self.transaction(async |scope| {
             hold_provider_of_organization(scope).await?;
             let Some(former) = read_former(scope, now).await? else {
-                return Ok(false);
+                return Ok(FormerEnd::NoneKept);
             };
+            if former.create_at != kept_since {
+                return Ok(FormerEnd::Another);
+            }
             end_former(scope, &former, Ended::By(actor_id)).await?;
-            Ok(true)
+            Ok(FormerEnd::Ended)
         })
         .await
     }
 
-    /// Removes the former providers, of every organization, whose time ran out by
-    /// `now`, each recorded in its organization as the server's own doing; and says
-    /// how many there were. For the handle with the system's reach.
+    /// Removes the former providers whose time ran out by `now`, each recorded in its
+    /// organization as the server's own doing, and says how many there were: those of
+    /// every organization for the handle with the system's reach, which the
+    /// housekeeping holds; those of its own for a handle of one organization, and
+    /// none for a handle of none, on either database.
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if a statement fails.
     pub async fn end_lapsed_oidc_former_providers(&self, now: i64) -> Result<usize, StoreError> {
+        if self.tenant() == Tenant::Unset {
+            return Ok(0);
+        }
         self.transaction(async |scope| {
             let mut sql = scope.sql("DELETE FROM oidc_former_providers WHERE expires_at <= ");
-            sql.bind(now).push(" RETURNING org_id, issuer");
+            sql.bind(now);
+            if scope.has_org() {
+                sql.push_bind(" AND org_id = ", scope.org()?);
+            }
+            sql.push(" RETURNING org_id, issuer");
             let rows = scope.fetch_all(sql).await?;
             for row in &rows {
                 let org_id = row.id(0)?;
@@ -151,17 +178,18 @@ pub(crate) async fn read_former(
 
 /// Follows a change of the issuer of the transaction's organization's provider, from
 /// `before`, which the caller holds: the former provider kept until now gives way
-/// ([`give_way`]), and `before` is kept in its place for `keeping.millis`.
+/// ([`give_way`]), and `before` is kept in its place for `keeping.time`.
 pub(crate) async fn keep_after_move(
     scope: &mut Scope<'_>,
     before: &StoredProvider,
     keeping: Keeping<'_>,
 ) -> Result<(), StoreError> {
     give_way(scope, keeping.actor_id).await?;
-    if keeping.millis <= 0 {
+    if keeping.time.is_zero() {
         return Ok(());
     }
     let now = now_millis();
+    let kept_for = i64::try_from(keeping.time.as_millis()).unwrap_or(i64::MAX);
     let mut sql = scope.sql(&format!(
         "INSERT INTO oidc_former_providers ({FORMER_COLUMNS}) VALUES ("
     ));
@@ -170,7 +198,7 @@ pub(crate) async fn keep_after_move(
         .push_bind(", ", &before.client_id)
         .push_bind(", ", &before.sealed_client_secret)
         .push_bind(", ", now)
-        .push_bind(", ", now.saturating_add(keeping.millis))
+        .push_bind(", ", now.saturating_add(kept_for))
         .push(")");
     scope.execute(sql).await?;
     if let Some(actor_id) = keeping.actor_id {
@@ -221,15 +249,20 @@ enum Ended<'a> {
     Unrecorded,
 }
 
-/// Removes `former`, the transaction's organization's, and records how it ended.
+/// Removes `former`, the transaction's organization's, and records how it ended, if
+/// it was still there: one that another transaction removed meanwhile (the
+/// housekeeping holds no organization) was recorded by that one.
 async fn end_former(
     scope: &mut Scope<'_>,
     former: &FormerProvider,
     ended: Ended<'_>,
 ) -> Result<(), StoreError> {
     let mut sql = scope.sql("DELETE FROM oidc_former_providers WHERE org_id = ");
-    sql.bind(scope.org()?);
-    scope.execute(sql).await?;
+    sql.bind(scope.org()?)
+        .push_bind(" AND create_at = ", former.create_at);
+    if scope.execute(sql).await? == 0 {
+        return Ok(());
+    }
     let entry = match ended {
         Ended::By(actor_id) => AuditEntry::new(
             "",

@@ -472,8 +472,10 @@ export interface paths {
          *     one for `oidc_former_provider_days` (30 by default): nobody signs in through it,
          *     but somebody the new provider vouches for who has no account yet may sign in
          *     through it once to carry their account over. This ends that before its time: from
-         *     then on nobody carries an account over from it. An organization that keeps none
-         *     answers the same. Recorded in the organization's audit log
+         *     then on nobody carries an account over from it. The body names the former
+         *     provider as it was read (`createAt`): if the organization moved again since, and
+         *     another one is kept, the request is 409, to be read and sent again. An organization
+         *     that keeps none answers 204 as well. Recorded in the organization's audit log
          *     (`oidc_former_provider_ended`), as its keeping (`oidc_former_provider_kept`) and
          *     its running out (`oidc_former_provider_lapsed`, the server's doing) are.
          */
@@ -3876,6 +3878,14 @@ export interface components {
             /** @description Its issuer. */
             issuer: string;
         };
+        /** @description Which former provider an administrator ends the keeping of: the one they read. */
+        OidcFormerProviderEnd: {
+            /**
+             * Format: int64
+             * @description The `createAt` of the former provider as it was read.
+             */
+            createAt: number;
+        };
         /**
          * @description The pending settings of an organization's provider, without the client secret:
          *     `hasClientSecret` says whether there is one.
@@ -5246,7 +5256,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OidcFormerProviderEnd"];
+            };
+        };
         responses: {
             /** @description The organization keeps no former provider. */
             204: {
@@ -5254,6 +5268,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Another former provider is kept than the one read. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
             default: {
