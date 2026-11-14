@@ -265,17 +265,26 @@ async fn handle_delete_oidc_former(org: OrgAdmin, body: Bytes) -> ApiResult {
 /// (`finishOidcLogin`) and the sign-in ends well, in the account of the administrator
 /// who started it, the pending settings become the provider's, at a new revision that the
 /// new session proves (`canRequireSso`); another issuer ends the sessions of the one
-/// before. A sign-in that fails changes nothing; one that ends in another account (the
-/// provider vouches for an identity that is not tied to this administrator's account,
-/// or they administer the organization no more) is refused with
-/// `oidc_trial_account`, and makes no account and ties no identity. So another issuer
-/// is put in use by a trial only for an administrator whose identity there is tied to
-/// their account already. Without one, the requirement is switched off before the
-/// issuer is changed, which leaves an administrator only the password of their account
-/// to sign in and link with (one made through the provider has none: the operator's
-/// socket sets one). 409 with the reason `oidc_unavailable` if there are no pending
-/// settings, the provider is off, or their issuer cannot be
-/// reached; 429 when this address made too many sign-ins of late.
+/// before, and keeps the provider before as the `former` one. A sign-in that fails
+/// changes nothing, and no trial makes an account.
+///
+/// Whose account it ends in: the identity the pending settings vouch for must be tied
+/// to the account of the administrator who started the trial. One that is another
+/// account's, or that administrator administering the organization no more, is
+/// refused with `oidc_trial_account`. One that is tied to no account, as an
+/// administrator's is at an issuer the organization moves to, is tied to their own
+/// account by the trial, in the transaction that applies the settings and recorded
+/// (`oidc_identity_bound`), only if the trial was started from a session made through
+/// the organization's provider as it is stored no more than five minutes before
+/// (`bindsIdentityUntil` of the pending settings), and the browser comes back with
+/// that session: who only holds a session cannot sign in through the provider again,
+/// and ties nothing. Otherwise it is refused with `oidc_trial_stale`: sign in through
+/// the provider again (`startOidcLogin`) and try within five minutes. Pending
+/// settings of the same issuer tie nothing.
+///
+/// 409 with the reason `oidc_unavailable` if there are no pending settings, the
+/// provider is off, or their issuer cannot be reached; 429 when this address made too
+/// many sign-ins of late.
 #[utoipa::path(
     post,
     path = "/org/{orgId}/oidc/pending/sign-in",

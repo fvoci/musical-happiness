@@ -17,7 +17,7 @@ use std::time::Instant;
 use fvoci_model::{LoginOptions, Session, User, is_email_valid, new_id};
 use fvoci_store::{
     Applied, FlowPurpose, Identity, LoginFlow, OidcAccount, OidcRefusal, PendingProvider,
-    StoreError, StoredProvider, Trial,
+    StoreError, StoredProvider, Tried,
 };
 
 use super::App;
@@ -332,18 +332,21 @@ impl App {
                 Some((stored, FlowPurpose::Link { session_id }))
             }
             Start::CarryOver { held_hash } => self.former_to_start(&stored, held_hash).await?,
-            Start::Trial { user_id } => {
-                self.store()
-                    .oidc_pending_provider()
-                    .await?
-                    .and_then(|pending| {
-                        let purpose = FlowPurpose::Trial {
-                            pending_at: pending.create_at,
-                            user_id: user_id.to_owned(),
-                        };
-                        trying(&stored, &pending).map(|trying| (trying, purpose))
-                    })
-            }
+            Start::Trial {
+                user_id,
+                session_id,
+            } => self
+                .store()
+                .oidc_pending_provider()
+                .await?
+                .and_then(|pending| {
+                    let purpose = FlowPurpose::Trial {
+                        pending_at: pending.create_at,
+                        user_id: user_id.to_owned(),
+                        session_id: session_id.to_owned(),
+                    };
+                    trying(&stored, &pending).map(|trying| (trying, purpose))
+                }),
         })
     }
 
@@ -437,15 +440,10 @@ impl App {
         let org = self
             .enter_org_for_sign_in(&flow.org_id)
             .ok_or(unavailable)?;
-        // What a sign-in to carry over went through is gone: told as every refusal of
-        // carrying over is.
-        let gone = match flow.purpose {
-            FlowPurpose::CarryOver { .. } => Reason::OidcCarryOverRefused.into(),
-            FlowPurpose::SignIn | FlowPurpose::Link { .. } | FlowPurpose::Trial { .. } => {
-                unavailable
-            }
-        };
-        let stored = org.provider_of_flow(flow).await?.ok_or(gone)?;
+        let stored = org
+            .provider_of_flow(flow)
+            .await?
+            .ok_or_else(|| gone(&flow.purpose))?;
         let secret = self.open_client_secret(&stored)?;
         let discovery = provider::discover(self.oidc_fetcher(), &stored.issuer)
             .await
@@ -491,10 +489,14 @@ impl App {
             FlowPurpose::Trial {
                 pending_at,
                 user_id,
-            } => Ending::Trial {
+                session_id,
+            } => Ending::Trial(TrialEnd {
                 pending_at: *pending_at,
                 trier_id: user_id,
-            },
+                started_at: flow.create_at,
+                session_id,
+                came_with: callback.session_token.as_deref(),
+            }),
         };
         let token = new_secret();
         let mut session = self.new_session(user_agent, now_millis());
@@ -664,21 +666,27 @@ impl App {
                 .let_in(&user, identity, stored, ending, session, digest)
                 .await;
         }
-        // A trial ends in the account of the administrator who started it, which the
-        // identity is not: no account is made for it, and no identity tied. (Tying one
-        // by a trial would let whoever saved the issuer, or holds the session, tie an
-        // identity of their own to the trier's account.)
-        if matches!(ending, Ending::Trial { .. }) {
-            tracing::info!(org_id = %stored.org_id, "a trial of pending settings signed in somebody without an account");
-            return Err(Reason::OidcTrialAccount.into());
-        }
         // The identity of an account that is deleted: not let in, and not made anew.
-        if self
+        let of_a_deleted_account = self
             .store()
             .is_identity_known(identity)
             .await
-            .map_err(|error| logged(&error, "looking up an identity"))?
-        {
+            .map_err(|error| logged(&error, "looking up an identity"))?;
+        // A trial ends in the account of the administrator who started it, and makes
+        // none: an identity that is nobody's is tied to theirs only where their
+        // session shows they signed in through the provider just now
+        // (`oidc_pending.rs`), and one of a deleted account not at all.
+        if let Ending::Trial(end) = ending {
+            if of_a_deleted_account {
+                tracing::info!(org_id = %stored.org_id, "a trial of pending settings signed in somebody whose account is deleted");
+                return Err(Reason::OidcTrialAccount.into());
+            }
+            return self
+                .bind_by_trial(claims, stored, end, session, digest)
+                .await
+                .map(Some);
+        }
+        if of_a_deleted_account {
             tracing::info!(issuer = %claims.issuer, "a sign-in through a provider was for a deleted account");
             return Err(Reason::OidcUnavailable.into());
         }
@@ -750,25 +758,29 @@ impl App {
                 .finish_oidc_sign_in(&stored.id, stored.revision, account, session, digest)
                 .await?
                 .map(|joined| (joined, None)),
-            Ending::Trial {
-                pending_at,
-                trier_id,
-            } => self
+            Ending::Trial(end) => self
                 .store()
                 .finish_oidc_trial(
-                    Trial {
-                        provider_id: &stored.id,
-                        pending_at,
-                        trier_id,
-                        keep_former: self.limits().former_provider_kept,
-                    },
-                    account,
+                    self.trial_of(stored, end),
+                    Tried::Account(account),
                     session,
                     digest,
                 )
                 .await?
                 .map(|applied| (applied.joined, Some(applied))),
         })
+    }
+}
+
+/// The failure of a sign-in whose provider is gone when it comes back: switched off,
+/// removed or another one. What a sign-in to carry over went through (the former
+/// provider too) is told as every refusal of carrying over is.
+fn gone(purpose: &FlowPurpose) -> LoginFailure {
+    match purpose {
+        FlowPurpose::CarryOver { .. } => Reason::OidcCarryOverRefused.into(),
+        FlowPurpose::SignIn | FlowPurpose::Link { .. } | FlowPurpose::Trial { .. } => {
+            Reason::OidcUnavailable.into()
+        }
     }
 }
 
@@ -807,6 +819,8 @@ pub(super) enum Start<'a> {
     Trial {
         /// The administrator whose account alone the trial may end in.
         user_id: &'a str,
+        /// The session it is started from.
+        session_id: &'a str,
     },
     /// To carry over the sign-in held under this digest, through the former provider.
     CarryOver {
@@ -835,14 +849,24 @@ impl Start<'_> {
 pub(super) enum Ending<'a> {
     /// Through the provider as it is.
     SignIn,
-    /// Through the pending settings saved at `pending_at`, which become the provider's,
-    /// in the account of the administrator `trier_id` only.
-    Trial {
-        /// When they were saved.
-        pending_at: i64,
-        /// The administrator who started it.
-        trier_id: &'a str,
-    },
+    /// Through the pending settings, which become the provider's, in the account of
+    /// the administrator who tries them only.
+    Trial(TrialEnd<'a>),
+}
+
+/// The end of a trial of the pending settings, as the sign-in that came back names it.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct TrialEnd<'a> {
+    /// When the pending settings were saved.
+    pub(super) pending_at: i64,
+    /// The administrator who started it.
+    pub(super) trier_id: &'a str,
+    /// When it was started, in milliseconds since the Unix epoch.
+    pub(super) started_at: i64,
+    /// The session it was started from; empty for none.
+    pub(super) session_id: &'a str,
+    /// The token of the session cookie the browser came back with, if it has one.
+    pub(super) came_with: Option<&'a str>,
 }
 
 /// The provider as a trial signs in through it: with the pending settings' issuer,
@@ -862,6 +886,10 @@ pub(super) fn refused(refusal: OidcRefusal, stored: &StoredProvider) -> LoginFai
         OidcRefusal::NotTheTrier => {
             tracing::info!(org_id = %stored.org_id, "a trial of pending settings ended in another account than its administrator's");
             Reason::OidcTrialAccount.into()
+        }
+        OidcRefusal::NotFresh => {
+            tracing::info!(org_id = %stored.org_id, "a trial of pending settings vouched for an identity tied to no account, from a session that does not show a sign-in through the provider just now");
+            Reason::OidcTrialStale.into()
         }
         OidcRefusal::AccountChanged => {
             tracing::info!(org_id = %stored.org_id, "an account was deleted, given a password or unlinked from the identity while signing in through a provider");

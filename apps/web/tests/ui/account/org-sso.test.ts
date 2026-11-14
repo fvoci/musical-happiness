@@ -152,6 +152,7 @@ describe('the SSO settings', () => {
       clientId: 'next-client',
       hasClientSecret: true,
       createAt: 2,
+      bindsIdentityUntil: null,
     };
     const { save, onTry } = mount(enforced);
     save.mockResolvedValueOnce({ ...enforced, pending });
@@ -169,7 +170,13 @@ describe('the SSO settings', () => {
   });
 
   it('throws the pending settings away', async () => {
-    const pending = { issuer: provider.issuer, clientId: 'c', hasClientSecret: false, createAt: 2 };
+    const pending = {
+      issuer: provider.issuer,
+      clientId: 'c',
+      hasClientSecret: false,
+      createAt: 2,
+      bindsIdentityUntil: null,
+    };
     const { discard } = mount({ ...provider, ssoRequired: true, pending });
     await fireEvent.click(await screen.findByTestId('sso-pending-discard'));
     await vi.waitFor(() => {
@@ -222,6 +229,65 @@ describe('the SSO settings', () => {
     mount();
     await screen.findByTestId('sso-client');
     expect(screen.queryByTestId('sso-former')).not.toBeInTheDocument();
+  });
+
+  it('asks to sign in again before trying settings of another issuer from an older session', async () => {
+    const enforced = { ...provider, canRequireSso: true, ssoRequired: true };
+    const moving = {
+      issuer: 'https://next.example.test',
+      clientId: 'client',
+      hasClientSecret: true,
+      createAt: 2,
+      bindsIdentityUntil: Date.now() - 1,
+    };
+    const { onSignIn, onTry } = mount({ ...enforced, pending: moving });
+    expect(await screen.findByTestId('sso-pending-binding')).toHaveTextContent(
+      'sign in through the current provider again first',
+    );
+    await fireEvent.click(screen.getByTestId('sso-pending-sign-in-again'));
+    expect(onSignIn).toHaveBeenCalledOnce();
+    expect(onTry).not.toHaveBeenCalled();
+    // An identity connected already still applies them: trying stays possible.
+    expect(screen.getByTestId('sso-pending-try')).toBeInTheDocument();
+  });
+
+  it('says until when trying settings of another issuer connects the new identity', async () => {
+    const enforced = { ...provider, canRequireSso: true, ssoRequired: true };
+    const until = Date.now() + 4 * 60 * 1000;
+    const moving = {
+      issuer: 'https://next.example.test',
+      clientId: 'client',
+      hasClientSecret: true,
+      createAt: 2,
+      bindsIdentityUntil: until,
+    };
+    const { onTry } = mount({ ...enforced, pending: moving });
+    const time = new Intl.DateTimeFormat('en', { timeStyle: 'short' }).format(until);
+    expect(await screen.findByTestId('sso-pending-binding')).toHaveTextContent(`by ${time}`);
+    expect(screen.queryByTestId('sso-pending-sign-in-again')).not.toBeInTheDocument();
+    await fireEvent.click(screen.getByTestId('sso-pending-try'));
+    expect(onTry).toHaveBeenCalledOnce();
+  });
+
+  it('says nothing of connecting an identity for settings of the same issuer', async () => {
+    const pending = {
+      issuer: provider.issuer,
+      clientId: 'c',
+      hasClientSecret: false,
+      createAt: 2,
+      bindsIdentityUntil: null,
+    };
+    mount({ ...provider, ssoRequired: true, pending });
+    await screen.findByTestId('sso-pending');
+    expect(screen.queryByTestId('sso-pending-binding')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('sso-pending-sign-in-again')).not.toBeInTheDocument();
+  });
+
+  it('says to sign in again when a trial came back too late to connect the identity', async () => {
+    history.replaceState(null, '', '/org/o?oidc_pending_error=oidc-trial-stale');
+    mount();
+    await screen.findByText(/Sign in through the current provider again, then try/);
+    expect(location.search).toBe('');
   });
 
   it('tells what came of a sign-in through the pending settings, once', async () => {

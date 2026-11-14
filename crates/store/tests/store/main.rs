@@ -25,6 +25,7 @@ mod oidc_audit;
 mod oidc_former;
 mod oidc_held;
 mod oidc_pending;
+mod oidc_trial_binding;
 mod operator_password;
 mod order;
 mod org_admin;

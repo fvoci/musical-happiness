@@ -2160,6 +2160,14 @@
       "OidcPendingProvider": {
         "description": "The pending settings of an organization's provider, without the client secret:\n`hasClientSecret` says whether there is one.",
         "properties": {
+          "bindsIdentityUntil": {
+            "description": "Until when a trial started from the session that asks ties an identity of\nanother issuer that is nobody's yet to the administrator's own account, in\nmilliseconds since the Unix epoch: five minutes after the session was made\nthrough the provider as it is stored. `null` for a session that was not, or\nfor pending settings of the same issuer, which tie nothing.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "clientId": {
             "description": "The client identifier.",
             "type": "string"
@@ -2179,6 +2187,7 @@
           }
         },
         "required": [
+          "bindsIdentityUntil",
           "clientId",
           "createAt",
           "hasClientSecret",
@@ -2900,6 +2909,11 @@
             "reason": "oidc_trial_account",
             "title": "Trial in another account",
             "type": "/problems/oidc-trial-account"
+          },
+          {
+            "reason": "oidc_trial_stale",
+            "title": "Trial from a session not made just now",
+            "type": "/problems/oidc-trial-stale"
           },
           {
             "reason": "oidc_carry_over_refused",
@@ -3867,7 +3881,7 @@
   "paths": {
     "/api/v1/auth/oidc/callback/{orgId}": {
       "get": {
-        "description": "Where a provider sends the browser back to: each organization has an address of its\nown, its provider's `redirectUri`, and a sign-in started for one organization does\nnot finish at another's address, nor with an `iss` (RFC 9207) other than the\nprovider's, before any code is exchanged. The sign-in is taken by its `state`, once, and only from the\nbrowser that started it; another browser takes nothing. The code is\nexchanged for an ID token, whose signature, issuer, audience, time and nonce are\nchecked. The person is known by the issuer and the subject: an account of theirs\nsigns in, and somebody who has none gets one, if the organization lets newcomers in\nand no account has their email address. The session comes in the `Set-Cookie`\nheader, and the browser goes to the web app (303). A sign-in that was started to\nlink sets no session: the browser goes to the web app with `oidc_linked=1` in the\nquery. A trial of the provider's pending settings (`startOidcTrial`) that ends well\nmakes them the provider's and sets the session, made through them, and the browser\ngoes to the organization's page (`/org/{orgId}`) with `oidc_pending=applied`; one\nthat fails changes nothing, and goes there with `oidc_pending_error` naming the\nreason as `oidc_error` does.\n\nOtherwise the browser goes to the login page of the organization (`/login?org=…`),\nwith the reason of what went wrong in `oidc_error`, by the name of its problem\n(`oidc_state_invalid` as `oidc-state-invalid`): `oidc_state_invalid`, `oidc_denied`,\n`oidc_token_refused`, `oidc_token_invalid`, `oidc_email_missing`,\n`oidc_email_unverified`, `oidc_email_taken`, `oidc_join_closed`,\n`oidc_identity_taken`, `oidc_email_mismatch`, `oidc_carry_over_refused` or\n`oidc_unavailable`.\n\nWhile the organization keeps the provider it moved away from (`former` of its\nprovider), a sign-in that vouches for somebody who has no account makes none: what\nthe provider said is held for this browser for ten minutes, under a cookie of its\nown, and the browser goes to the login page with `oidc_held=1`, which asks whether\nthe person had an account: `startOidcCarryOver` if they had, `finishHeldOidcLogin`\nif not. A sign-in through the former provider, which `startOidcCarryOver` starts,\ncomes back here too: it sets a session only by carrying the held sign-in over,\nand otherwise goes to the login page with `oidc_carry_over_refused`.",
+        "description": "Where a provider sends the browser back to: each organization has an address of its\nown, its provider's `redirectUri`, and a sign-in started for one organization does\nnot finish at another's address, nor with an `iss` (RFC 9207) other than the\nprovider's, before any code is exchanged. The sign-in is taken by its `state`, once, and only from the\nbrowser that started it; another browser takes nothing. The code is\nexchanged for an ID token, whose signature, issuer, audience, time and nonce are\nchecked. The person is known by the issuer and the subject: an account of theirs\nsigns in, and somebody who has none gets one, if the organization lets newcomers in\nand no account has their email address. The session comes in the `Set-Cookie`\nheader, and the browser goes to the web app (303). A sign-in that was started to\nlink sets no session: the browser goes to the web app with `oidc_linked=1` in the\nquery. A trial of the provider's pending settings (`startOidcTrial`) that ends well\nmakes them the provider's and sets the session, made through them, and the browser\ngoes to the organization's page (`/org/{orgId}`) with `oidc_pending=applied`; one\nthat fails changes nothing, and goes there with `oidc_pending_error` naming the\nreason as `oidc_error` does (among them `oidc_trial_account` and\n`oidc_trial_stale`).\n\nOtherwise the browser goes to the login page of the organization (`/login?org=…`),\nwith the reason of what went wrong in `oidc_error`, by the name of its problem\n(`oidc_state_invalid` as `oidc-state-invalid`): `oidc_state_invalid`, `oidc_denied`,\n`oidc_token_refused`, `oidc_token_invalid`, `oidc_email_missing`,\n`oidc_email_unverified`, `oidc_email_taken`, `oidc_join_closed`,\n`oidc_identity_taken`, `oidc_email_mismatch`, `oidc_carry_over_refused` or\n`oidc_unavailable`.\n\nWhile the organization keeps the provider it moved away from (`former` of its\nprovider), a sign-in that vouches for somebody who has no account makes none: what\nthe provider said is held for this browser for ten minutes, under a cookie of its\nown, and the browser goes to the login page with `oidc_held=1`, which asks whether\nthe person had an account: `startOidcCarryOver` if they had, `finishHeldOidcLogin`\nif not. A sign-in through the former provider, which `startOidcCarryOver` starts,\ncomes back here too: it sets a session only by carrying the held sign-in over,\nand otherwise goes to the login page with `oidc_carry_over_refused`.",
         "operationId": "finishOidcLogin",
         "parameters": [
           {
@@ -5108,7 +5122,7 @@
     },
     "/api/v1/org/{orgId}/oidc/pending/sign-in": {
       "post": {
-        "description": "Starts a sign-in through the pending settings (`pending` of the provider), as\n`startOidcLogin` starts one through the provider: it answers where the page sends\nthe browser, with the cookie of the sign-in. When the browser comes back\n(`finishOidcLogin`) and the sign-in ends well, in the account of the administrator\nwho started it, the pending settings become the provider's, at a new revision that the\nnew session proves (`canRequireSso`); another issuer ends the sessions of the one\nbefore. A sign-in that fails changes nothing; one that ends in another account (the\nprovider vouches for an identity that is not tied to this administrator's account,\nor they administer the organization no more) is refused with\n`oidc_trial_account`, and makes no account and ties no identity. So another issuer\nis put in use by a trial only for an administrator whose identity there is tied to\ntheir account already. Without one, the requirement is switched off before the\nissuer is changed, which leaves an administrator only the password of their account\nto sign in and link with (one made through the provider has none: the operator's\nsocket sets one). 409 with the reason `oidc_unavailable` if there are no pending\nsettings, the provider is off, or their issuer cannot be\nreached; 429 when this address made too many sign-ins of late.",
+        "description": "Starts a sign-in through the pending settings (`pending` of the provider), as\n`startOidcLogin` starts one through the provider: it answers where the page sends\nthe browser, with the cookie of the sign-in. When the browser comes back\n(`finishOidcLogin`) and the sign-in ends well, in the account of the administrator\nwho started it, the pending settings become the provider's, at a new revision that the\nnew session proves (`canRequireSso`); another issuer ends the sessions of the one\nbefore, and keeps the provider before as the `former` one. A sign-in that fails\nchanges nothing, and no trial makes an account.\n\nWhose account it ends in: the identity the pending settings vouch for must be tied\nto the account of the administrator who started the trial. One that is another\naccount's, or that administrator administering the organization no more, is\nrefused with `oidc_trial_account`. One that is tied to no account, as an\nadministrator's is at an issuer the organization moves to, is tied to their own\naccount by the trial, in the transaction that applies the settings and recorded\n(`oidc_identity_bound`), only if the trial was started from a session made through\nthe organization's provider as it is stored no more than five minutes before\n(`bindsIdentityUntil` of the pending settings), and the browser comes back with\nthat session: who only holds a session cannot sign in through the provider again,\nand ties nothing. Otherwise it is refused with `oidc_trial_stale`: sign in through\nthe provider again (`startOidcLogin`) and try within five minutes. Pending\nsettings of the same issuer tie nothing.\n\n409 with the reason `oidc_unavailable` if there are no pending settings, the\nprovider is off, or their issuer cannot be reached; 429 when this address made too\nmany sign-ins of late.",
         "operationId": "startOidcTrial",
         "parameters": [
           {

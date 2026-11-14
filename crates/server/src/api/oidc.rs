@@ -213,7 +213,8 @@ pub(super) fn started_response(app: &App, started: StartedLogin) -> Response {
 /// makes them the provider's and sets the session, made through them, and the browser
 /// goes to the organization's page (`/org/{orgId}`) with `oidc_pending=applied`; one
 /// that fails changes nothing, and goes there with `oidc_pending_error` naming the
-/// reason as `oidc_error` does.
+/// reason as `oidc_error` does (among them `oidc_trial_account` and
+/// `oidc_trial_stale`).
 ///
 /// Otherwise the browser goes to the login page of the organization (`/login?org=…`),
 /// with the reason of what went wrong in `oidc_error`, by the name of its problem

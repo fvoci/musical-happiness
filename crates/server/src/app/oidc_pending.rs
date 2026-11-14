@@ -8,14 +8,23 @@
 use std::net::IpAddr;
 
 use fvoci_model::{OidcProvider, Session};
-use fvoci_store::{Applied, PendingSettings, StoredProvider};
+use fvoci_store::{
+    Applied, Binding, Identity, LinkingSession, PendingSettings, StoredProvider, Trial, Tried,
+};
 
 use super::App;
-use super::oidc::{Start, StartedLogin};
+use super::oidc::{LoginFailure, Start, StartedLogin, TrialEnd, logged, refused};
 use super::oidc_settings::Beside;
 use super::sso;
 use crate::auth::now_millis;
-use crate::error::AppError;
+use crate::auth::oidc::provider::IdClaims;
+use crate::auth::secret::token_digest;
+use crate::error::{AppError, Reason};
+
+/// How long before a trial is started its administrator may have signed in through
+/// the provider, at the most, for the trial to tie an identity that is nobody's to
+/// their account, in milliseconds: who only holds an older session binds nothing.
+pub(super) const FRESH_SIGN_IN_MILLIS: i64 = 5 * 60 * 1000;
 
 impl App {
     /// Saves the sign-in of `next` (its issuer, client and secret) as the pending
@@ -87,8 +96,71 @@ impl App {
     ) -> Result<StartedLogin, AppError> {
         let start = Start::Trial {
             user_id: &session.user_id,
+            session_id: &session.id,
         };
         self.start_oidc_flow(org_id, address, start).await
+    }
+
+    /// The trial that `end` ends, of the pending settings of `stored`, as the store is
+    /// asked to end it.
+    pub(super) fn trial_of<'a>(&self, stored: &'a StoredProvider, end: TrialEnd<'a>) -> Trial<'a> {
+        Trial {
+            provider_id: &stored.id,
+            pending_at: end.pending_at,
+            trier_id: end.trier_id,
+            keep_former: self.limits().former_provider_kept,
+        }
+    }
+
+    /// Ends a trial of the pending settings `stored` (the provider with them) that
+    /// vouched, by `claims`, for an identity tied to no account, on the handle of
+    /// its organization: the identity is tied to the account of the administrator
+    /// who started the trial, and the settings applied, if the browser came back
+    /// with the session the trial was started from and that session was made through
+    /// the provider as it is no more than [`FRESH_SIGN_IN_MILLIS`] before the trial
+    /// was started. What decides is read where it is stored
+    /// (`Store::finish_oidc_trial`). No address is compared: who signed in through
+    /// the provider a moment ago is who tries.
+    pub(super) async fn bind_by_trial(
+        &self,
+        claims: &IdClaims,
+        stored: &StoredProvider,
+        end: TrialEnd<'_>,
+        session: &mut Session,
+        digest: &str,
+    ) -> Result<Applied, LoginFailure> {
+        let Some(token) = end.came_with.filter(|token| !token.is_empty()) else {
+            tracing::info!(org_id = %stored.org_id, "a trial of pending settings vouched for an identity tied to no account, and came back without a session");
+            return Err(Reason::OidcTrialStale.into());
+        };
+        let now = now_millis();
+        let binding = Binding {
+            identity: Identity {
+                issuer: &claims.issuer,
+                subject: &claims.subject,
+            },
+            provider_email: claims.email.as_deref().unwrap_or_default(),
+            session: LinkingSession {
+                session_id: end.session_id,
+                token_digest: &token_digest(token),
+                now,
+                idle_since: now.saturating_sub(self.config().session_idle_millis()),
+            },
+            made_since: end.started_at.saturating_sub(FRESH_SIGN_IN_MILLIS),
+        };
+        let applied = self
+            .store()
+            .finish_oidc_trial(
+                self.trial_of(stored, end),
+                Tried::Unbound(binding),
+                session,
+                digest,
+            )
+            .await
+            .map_err(|error| logged(&error, "storing a trial"))?
+            .map_err(|refusal| refused(refusal, stored))?;
+        tracing::info!(user_id = %end.trier_id, org_id = %stored.org_id, issuer = %claims.issuer, "an administrator tied their identity at another issuer to their account by a trial of its settings");
+        Ok(applied)
     }
 
     /// Follows the pending settings that became the provider's: the sessions of the

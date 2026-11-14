@@ -1103,7 +1103,7 @@
   "org_sso_pending_applied": "Signed in with the new settings. They are now in use.",
   "org_sso_pending_failed": "Signing in with the new settings failed, so nothing was changed.",
   "org_sso_pending_refused": "The provider did not accept the client ID or secret.",
-  "org_sso_pending_other_account": "Sign in as yourself: new settings are put in use only by a sign-in into your own account, through an identity already connected to it. For another issuer without one, switch off the requirement first, but only if you can then sign in with your account's password: an account made through single sign-on has none until the server operator sets one.",
+  "org_sso_pending_other_account": "Sign in as yourself: the identity the new settings vouched for belongs to another account, or you no longer administer this organization.",
   "org_sso_pending_discarded": "The pending settings were discarded.",
   "org_sso_pending_hint": "While single sign-on is required, a changed issuer, client ID or secret is saved as pending and put in use only after a sign-in through it succeeds.",
   "org_sso_keep_secret": "Keep the stored secret",
@@ -1156,5 +1156,9 @@
   "account_held_start_anew": "Start fresh",
   "account_held_start_anew_hint": "Makes a new account. It is not connected to an account you had before.",
   "account_held_cancel": "Back to sign-in",
-  "account_oidc_carry_over_refused": "Your account could not be continued with the previous sign-in. Check that you signed in as the account you used before, then sign in again from the start. If the move period is over, ask an administrator of the organization."
+  "account_oidc_carry_over_refused": "Your account could not be continued with the previous sign-in. Check that you signed in as the account you used before, then sign in again from the start. If the move period is over, ask an administrator of the organization.",
+  "org_sso_pending_bind_fresh": "These settings move the organization to another provider. You signed in through the current provider just now: start 'Sign in with the new settings' by {until}, and your identity at the new provider is connected to your account as the settings are put in use.",
+  "org_sso_pending_bind_stale": "These settings move the organization to another provider. If your identity at the new provider is not connected to your account yet, sign in through the current provider again first. Back on this page, start 'Sign in with the new settings' within five minutes: only then is it connected to your account and the settings put in use.",
+  "org_sso_pending_sign_in_again": "Sign in again with the current provider",
+  "org_sso_pending_stale": "Your identity at the new provider is not connected to any account yet, and you signed in through the current provider more than five minutes ago. Sign in through the current provider again, then try within five minutes."
 }

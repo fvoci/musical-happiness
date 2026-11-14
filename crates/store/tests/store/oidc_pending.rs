@@ -8,7 +8,7 @@ use std::time::Duration;
 use fvoci_model::{AuditAction, OrgRole, Session, User, new_id};
 use fvoci_store::{
     AuditPlace, Identity, OidcAccount, OidcRefusal, Paging, PendingProvider, PendingSettings,
-    Store, StoredProvider, Trial,
+    Store, StoredProvider, Trial, Tried,
 };
 
 use crate::common;
@@ -123,7 +123,7 @@ async fn trial(
                 trier_id: user_id,
                 keep_former: Duration::ZERO,
             },
-            account,
+            Tried::Account(account),
             &mut session,
             digest,
         )
@@ -300,7 +300,7 @@ async fn a_trial_ends_only_in_its_administrators_account() {
                 trier_id: &started_by_another,
                 keep_former: Duration::ZERO,
             },
-            account,
+            Tried::Account(account),
             &mut session,
             "another",
         )

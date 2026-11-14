@@ -133,6 +133,11 @@ pub enum FlowPurpose {
         pending_at: i64,
         /// The administrator who started it.
         user_id: String,
+        /// The session it was started from, kept in the column a link keeps its
+        /// session in: an identity nobody has is tied to the administrator's
+        /// account only for the browser that comes back with this session. Empty
+        /// for a trial started before that was kept, which ties nothing.
+        session_id: String,
     },
     /// To sign in through the former provider, and so tie the identity of the held
     /// sign-in to the account the former provider vouches for (`oidc_held.rs`). It
@@ -365,7 +370,13 @@ impl Store {
                 FlowPurpose::Trial {
                     pending_at,
                     user_id,
-                } => ("", Some(*pending_at), user_id.as_str(), None),
+                    session_id,
+                } => (
+                    session_id.as_str(),
+                    Some(*pending_at),
+                    user_id.as_str(),
+                    None,
+                ),
                 FlowPurpose::CarryOver { held_hash } => ("", None, "", Some(held_hash.clone())),
             };
             sql.bind(&flow.state_hash)
@@ -833,6 +844,10 @@ pub enum OidcRefusal {
     /// administrator who started it, or that one administers the organization no
     /// more.
     NotTheTrier,
+    /// A trial of pending settings of another issuer vouched for an identity tied to
+    /// no account, and the session it was started from does not show that the trier
+    /// signed in through the provider just now: nothing is tied.
+    NotFresh,
 }
 
 /// Whether the identity is still the account's.
@@ -942,11 +957,12 @@ pub(crate) fn flow_from_row(row: &Row) -> Result<LoginFlow, StoreError> {
         expires_at: row.int(7)?,
         purpose: match (row.id(8)?, row.opt_int(9)?, row.opt_text(11)?) {
             (_, _, Some(held_hash)) => FlowPurpose::CarryOver { held_hash },
-            (session_id, _, None) if !session_id.is_empty() => FlowPurpose::Link { session_id },
-            (_, Some(pending_at), None) => FlowPurpose::Trial {
+            (session_id, Some(pending_at), None) => FlowPurpose::Trial {
                 pending_at,
                 user_id: row.id(10)?,
+                session_id,
             },
+            (session_id, None, None) if !session_id.is_empty() => FlowPurpose::Link { session_id },
             (_, None, None) => FlowPurpose::SignIn,
         },
     })

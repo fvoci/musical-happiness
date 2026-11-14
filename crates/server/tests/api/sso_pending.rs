@@ -11,7 +11,9 @@ use serde_json::{Value, json};
 use crate::common::{Client, ROOT_WORKSPACE_ID, Setup, TestServer};
 use crate::fake_oidc::{CLIENT_ID, CLIENT_SECRET, FakeProvider, NEXT_CLIENT_SECRET, Person};
 use crate::oidc::{Browser, org_of, server_for, set_provider, with_key_and_private_addresses};
-use crate::sso::{ADMIN_SUBJECT, Passwords, admin_through_provider, require_sso, tie};
+use crate::sso::{
+    ADMIN_SUBJECT, Passwords, admin_through_provider, require_sso, through_provider, tie,
+};
 
 /// A secret the fake provider does not take at its token endpoint.
 const WRONG_SECRET: &str = "a secret the provider never issued";
@@ -37,6 +39,19 @@ async fn try_as(
     admin: &Client,
     org_id: &str,
     subject: &str,
+) -> Tried {
+    try_and_come_back_with(ts, fake, admin, org_id, (subject, &admin.token)).await
+}
+
+/// Tries the pending settings from `admin`'s browser as [`try_as`] does, signing in the
+/// person `subject`, and comes back from the provider with the session cookie
+/// `back_with`: the browser's own, or another.
+async fn try_and_come_back_with(
+    ts: &TestServer,
+    fake: &FakeProvider,
+    admin: &Client,
+    org_id: &str,
+    (subject, back_with): (&str, &str),
 ) -> Tried {
     fake.sign_in_as(Person::new(subject, &format!("{subject}@example.com")));
     let http = reqwest::Client::builder()
@@ -73,7 +88,7 @@ async fn try_as(
         .get(format!("{}{path}", ts.base_url))
         .header(
             "Cookie",
-            format!("fvoci_oidc={flow}; fvoci_session={}", admin.token),
+            format!("fvoci_oidc={flow}; fvoci_session={back_with}"),
         )
         .send()
         .await
@@ -390,15 +405,10 @@ async fn a_trial_in_another_account_changes_nothing() {
     fake.stop();
 }
 
-/// Another issuer is put in use by a trial in the account of the administrator only
-/// when their identity at it is tied to them already (as through another
-/// organization's provider; here through the store): a trial ties none. Untied, the
-/// trial is refused and ties nothing; tied, the sessions made through the issuer
-/// before end, and the trial's goes on and proves the provider.
-#[tokio::test]
-async fn another_issuer_is_applied_by_its_administrators_trial() {
-    let fake = FakeProvider::start().await;
-    let other = FakeProvider::start().await;
+/// An organization that takes no password and moves from `fake` to `other`: the
+/// server, the organization, and the administrator's session made through `fake` just
+/// now, with the settings of `other` saved aside.
+async fn moving(fake: &FakeProvider, other: &FakeProvider) -> (TestServer, String, Client) {
     let ts = Setup::native()
         .trusting_oidc_provider(&fake.certificate_der)
         .trusting_oidc_provider(&other.certificate_der)
@@ -408,61 +418,80 @@ async fn another_issuer_is_applied_by_its_administrators_trial() {
         .init_basic()
         .await;
     let org_id = org_of(&ts).await;
-    set_provider(&ts, &org_id, &fake).await;
-    let admin = admin_through_provider(&ts, &fake, &org_id).await;
-    require_sso(&admin, &org_id, &fake, Passwords::Refused)
+    set_provider(&ts, &org_id, fake).await;
+    let admin = admin_through_provider(&ts, fake, &org_id).await;
+    require_sso(&admin, &org_id, fake, Passwords::Refused)
         .await
         .check_ok();
-    let path = format!("/org/{org_id}/oidc");
+    let aside =
+        json!({ "issuer": other.issuer, "clientId": CLIENT_ID, "clientSecret": CLIENT_SECRET });
     admin
-        .put(
-            &path,
-            &json!({ "issuer": other.issuer, "clientId": CLIENT_ID, "clientSecret": CLIENT_SECRET }),
-        )
+        .put(&format!("/org/{org_id}/oidc"), &aside)
         .await
         .check_ok();
+    (ts, org_id, admin)
+}
+
+/// Makes the session of `client` one that was made `minutes` earlier than it was.
+async fn age(ts: &TestServer, client: &Client, minutes: i64) {
+    let aged = format!(
+        "UPDATE sessions SET created_at = created_at - {} WHERE token_hash = '{}'",
+        minutes * 60 * 1000,
+        fvoci_server::auth::secret::token_digest(&client.token)
+    );
+    let changed = ts.app.store().system().execute_unchecked(&aged).await;
+    assert_eq!(changed.expect("aged"), 1, "the session of the client");
+}
+
+/// Who the issuer of `fake` vouches for under the administrator's subject, if anybody.
+async fn bound_to(ts: &TestServer, fake: &FakeProvider) -> Option<String> {
+    let identity = fvoci_store::Identity {
+        issuer: &fake.issuer,
+        subject: ADMIN_SUBJECT,
+    };
+    let owner = ts.app.store().user_of_identity(identity).await;
+    owner.expect("read").map(|user| user.id)
+}
+
+fn now_millis() -> i64 {
+    let since = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("the clock is past the epoch");
+    i64::try_from(since.as_millis()).expect("the time fits")
+}
+
+/// Another issuer is put in use by the trial of an administrator who signed in
+/// through the provider just now: their identity at the new issuer, tied to no
+/// account, is tied to theirs, the settings are applied, the provider before is kept
+/// for linking, the sessions made through it end, and each is recorded.
+#[tokio::test]
+async fn another_issuer_is_bound_and_applied_from_a_session_made_just_now() {
+    let (fake, other) = (FakeProvider::start().await, FakeProvider::start().await);
+    let (ts, org_id, admin) = moving(&fake, &other).await;
+    let path = format!("/org/{org_id}/oidc");
     let users_before = ts.app.store().count_rows("users").await.expect("counted");
-    let untied = try_pending(&ts, &other, &admin, &org_id).await;
-    let users_after = ts.app.store().count_rows("users").await.expect("counted");
-    let tied_by_it = ts
-        .app
-        .store()
-        .user_of_identity(fvoci_store::Identity {
-            issuer: &other.issuer,
-            subject: ADMIN_SUBJECT,
-        })
-        .await
-        .expect("read");
-    let still: OidcProvider = admin.get(&path).await.ok_json();
-    tie(&ts, &ts.client, &other, ADMIN_SUBJECT).await;
+    let waiting: OidcProvider = admin.get(&path).await.ok_json();
 
     let tried = try_pending(&ts, &other, &admin, &org_id).await;
     let applied = ts.client_with_token(tried.token.as_deref().unwrap_or_default());
     let read: OidcProvider = applied.get(&path).await.ok_json();
 
-    assert_eq!(
-        (untied.location, untied.token),
-        (
-            format!("/org/{org_id}?oidc_pending_error=oidc-trial-account"),
-            None
-        ),
-        "an identity of nobody's is not tied by a trial"
-    );
-    assert!(tied_by_it.is_none(), "tied to nobody");
-    assert_eq!(users_after, users_before, "no account made");
+    let until = waiting
+        .pending
+        .and_then(|pending| pending.binds_identity_until);
     assert!(
-        still.pending.is_some() && still.issuer == fake.issuer,
-        "nothing applied"
+        until.is_some_and(|until| until > now_millis()),
+        "the session was made just now: {until:?}"
     );
     assert_eq!(
         tried.location,
         format!("/org/{org_id}?oidc_pending=applied")
     );
-    assert_eq!(
-        applied.me().await.id,
-        ts.client.me().await.id,
-        "the administrator's own account"
-    );
+    let me = ts.client.me().await.id;
+    assert_eq!(applied.me().await.id, me, "the administrator's own account");
+    assert_eq!(bound_to(&ts, &other).await, Some(me), "tied to it");
+    let users_after = ts.app.store().count_rows("users").await.expect("counted");
+    assert_eq!(users_after, users_before, "no account made");
     assert_eq!(read.issuer, other.issuer);
     assert!(read.sso_required && read.can_require_sso && read.pending.is_none());
     assert_eq!(
@@ -470,12 +499,122 @@ async fn another_issuer_is_applied_by_its_administrators_trial() {
         Some(fake.issuer.as_str()),
         "the provider before the trial is kept for linking"
     );
-    assert!(
-        recorded(&applied, &org_id)
-            .await
-            .contains(&"oidc_former_provider_kept".to_owned())
-    );
+    let actions = recorded(&applied, &org_id).await;
+    for action in [
+        "oidc_identity_bound",
+        "oidc_provider_pending_applied",
+        "oidc_former_provider_kept",
+    ] {
+        assert!(
+            actions.contains(&action.to_owned()),
+            "{action}: {actions:?}"
+        );
+    }
     admin.get("/users/me").await.check_unauthorized();
+    ts.teardown().await;
+    fake.stop();
+    other.stop();
+}
+
+/// From a session made more than five minutes before the trial, or with another
+/// session's cookie on the way back, an identity that is nobody's is tied to nobody
+/// and nothing is applied; after signing in through the provider again, the trial
+/// from that session binds and applies.
+#[tokio::test]
+async fn an_older_session_binds_nothing_until_the_administrator_signs_in_again() {
+    let (fake, other) = (FakeProvider::start().await, FakeProvider::start().await);
+    let (ts, org_id, admin) = moving(&fake, &other).await;
+    let path = format!("/org/{org_id}/oidc");
+    // Another session of the same administrator, made just now: not the one the trial
+    // is started from.
+    let beside = through_provider(&ts, &fake, &org_id, ADMIN_SUBJECT).await;
+    let another_cookie = (ADMIN_SUBJECT, beside.token.as_str());
+    let with_another = try_and_come_back_with(&ts, &other, &admin, &org_id, another_cookie).await;
+    age(&ts, &admin, 6).await;
+    let waiting: OidcProvider = admin.get(&path).await.ok_json();
+
+    let stale = try_pending(&ts, &other, &admin, &org_id).await;
+    let after_the_refusals = (
+        bound_to(&ts, &other).await,
+        admin.get(&path).await.ok_json::<OidcProvider>(),
+        recorded(&admin, &org_id).await,
+    );
+    let again = through_provider(&ts, &fake, &org_id, ADMIN_SUBJECT).await;
+    let tried = try_pending(&ts, &other, &again, &org_id).await;
+
+    let refused = format!("/org/{org_id}?oidc_pending_error=oidc-trial-stale");
+    assert_eq!(
+        (with_another.location, with_another.token),
+        (refused.clone(), None),
+        "not the session the trial was started from"
+    );
+    let until = waiting
+        .pending
+        .and_then(|pending| pending.binds_identity_until);
+    assert!(
+        until.is_some_and(|until| until < now_millis()),
+        "the time to bind has passed: {until:?}"
+    );
+    assert_eq!((stale.location, stale.token), (refused, None));
+    let (bound, still, actions) = after_the_refusals;
+    assert_eq!(bound, None, "tied to nobody");
+    assert!(
+        still.pending.is_some() && still.issuer == fake.issuer && still.former.is_none(),
+        "nothing applied"
+    );
+    assert!(
+        !actions.contains(&"oidc_identity_bound".to_owned()),
+        "{actions:?}"
+    );
+    assert_eq!(
+        tried.location,
+        format!("/org/{org_id}?oidc_pending=applied"),
+        "from the session made by signing in again"
+    );
+    assert_eq!(
+        bound_to(&ts, &other).await,
+        Some(ts.client.me().await.id),
+        "tied to the administrator"
+    );
+    ts.teardown().await;
+    fake.stop();
+    other.stop();
+}
+
+/// An identity at the new issuer that is the administrator's already applies the
+/// settings from a session of any age, as before; one that is another account's is
+/// refused, also from a session made just now, and stays the other's.
+#[tokio::test]
+async fn an_identity_tied_already_needs_no_session_made_just_now() {
+    let (fake, other) = (FakeProvider::start().await, FakeProvider::start().await);
+    let (ts, org_id, admin) = moving(&fake, &other).await;
+    let another = ts.client2.me().await.id;
+    tie(&ts, &ts.client2, &other, "somebody-else").await;
+
+    let as_another = try_as(&ts, &other, &admin, &org_id, "somebody-else").await;
+    tie(&ts, &ts.client, &other, ADMIN_SUBJECT).await;
+    age(&ts, &admin, 60).await;
+    let tried = try_pending(&ts, &other, &admin, &org_id).await;
+
+    assert_eq!(
+        (as_another.location, as_another.token),
+        (
+            format!("/org/{org_id}?oidc_pending_error=oidc-trial-account"),
+            None
+        ),
+        "another account's identity is not the trier's"
+    );
+    let identity = fvoci_store::Identity {
+        issuer: &other.issuer,
+        subject: "somebody-else",
+    };
+    let owner = ts.app.store().user_of_identity(identity).await;
+    assert_eq!(owner.expect("read").map(|user| user.id), Some(another));
+    assert_eq!(
+        tried.location,
+        format!("/org/{org_id}?oidc_pending=applied")
+    );
+    assert!(tried.token.is_some(), "the trial's session is set");
     ts.teardown().await;
     fake.stop();
     other.stop();

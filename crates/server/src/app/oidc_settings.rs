@@ -12,6 +12,7 @@ use fvoci_model::{
 use fvoci_store::{FormerEnd, FormerProvider, PendingProvider, Removal, StoredProvider};
 
 use super::App;
+use super::oidc_pending::FRESH_SIGN_IN_MILLIS;
 use super::sso;
 use crate::auth::now_millis;
 use crate::auth::oidc::provider;
@@ -222,6 +223,9 @@ impl App {
                     client_id: pending.client_id.clone(),
                     has_client_secret: !pending.sealed_client_secret.is_empty(),
                     create_at: pending.create_at,
+                    binds_identity_until: (pending.issuer != stored.issuer
+                        && sso::proves(session, stored))
+                    .then(|| session.created_at.saturating_add(FRESH_SIGN_IN_MILLIS)),
                 }),
             former: former.map(|former| OidcFormerProvider {
                 issuer: former.issuer.clone(),
