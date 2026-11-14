@@ -13,6 +13,7 @@ const WAITING: BodyDocState = {
   doc: undefined,
   carets: undefined,
   composing: () => undefined,
+  readsFirst: () => () => undefined,
   mode: 'read',
   reason: undefined,
   writable: false,

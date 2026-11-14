@@ -63,6 +63,7 @@
     collab,
     carets,
     onComposing,
+    readsFirst,
     onEditor,
     canWrite = false,
     onImageDropped,
@@ -141,9 +142,9 @@
     };
 
   /** What binds the editor to a shared document, and keeps the reader's moves through what the others do. */
-  const sharing = (document: NonNullable<BodyEditorProps['collab']>) => [
-    Collaboration.configure({ document, field: BODY_FIELD }),
-    MovesKept,
+  const sharing = (shared: NonNullable<BodyEditorProps['collab']>) => [
+    Collaboration.configure({ document: shared, field: BODY_FIELD }),
+    MovesKept.configure({ readsFirst }),
   ];
 
   onMount(() => {

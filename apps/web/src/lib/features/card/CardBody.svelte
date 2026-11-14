@@ -117,6 +117,7 @@
   data-editor={Editor && doc ? (writable ? 'ready' : 'reading') : room ? 'loading' : 'none'}
   data-room={room?.status ?? 'none'}
   data-settling={settling ? '' : undefined}
+  data-pending={room?.pending ? '' : undefined}
 >
   {#if card.lost.length > 0}
     <div
@@ -150,6 +151,7 @@
           collab={doc}
           {carets}
           onComposing={room?.composing}
+          readsFirst={room?.readsFirst}
           editable={writable}
           canWrite={board.canEdit && room?.mode === 'write'}
           onFitsAgain={() => {

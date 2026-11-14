@@ -79,6 +79,12 @@ export interface BodyEditorProps {
    * meanwhile.
    */
   onComposing?: (composing: boolean) => void;
+  /**
+   * With `collab`: takes what has the editor read the selection of the page
+   * and gives what takes it back. Whoever brings the others' changes calls
+   * it before each (moves-kept.ts).
+   */
+  readsFirst?: (read: () => void) => () => void;
   /** Called once the editor is made, with it: for whoever puts the caret back where it was. */
   onEditor?: (editor: Editor) => void;
   /**

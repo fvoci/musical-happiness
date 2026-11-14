@@ -38,6 +38,13 @@ export interface BodyDocState {
    * line being composed would end the composition.
    */
   composing: (composing: boolean) => void;
+  /**
+   * Takes what has the editor of that document read the selection of the
+   * page, and gives what takes it back. It is called before a change the
+   * room sent is taken into the document: a move of the reader's caret that
+   * the editor has not read yet would be taken back by the change.
+   */
+  readsFirst: (read: () => void) => () => void;
   /** `write` or `read`: as the server let the reader in. */
   mode: 'write' | 'read';
   /** Why it is `out`. */

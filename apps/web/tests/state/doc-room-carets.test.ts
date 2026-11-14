@@ -185,6 +185,52 @@ describe('the carets of the rooms in memory', () => {
     third.close();
   });
 
+  it('has the editor read the page before each change of the others is in the document, until the editor takes that back', async () => {
+    const { backend, other, boardId, cardId } = world();
+    const mine = backend.openDoc('w', boardId, cardId, hears());
+    const theirs = other.openDoc('w', boardId, cardId, hears());
+    const [a, b] = await Promise.all([caretsOf(mine), caretsOf(theirs)]);
+    const lines = (doc: Y.Doc): number => doc.getXmlFragment(FIELD).length;
+    const write = (doc: Y.Doc): void => {
+      const paragraph = new Y.XmlElement('paragraph');
+      doc.getXmlFragment(FIELD).insert(lines(doc), [paragraph]);
+    };
+    const before = lines(a.doc);
+    /** How many lines the document had each time the reading was asked for. */
+    const read: number[] = [];
+    const leave = mine.state.readsFirst(() => read.push(lines(a.doc)));
+
+    // What the reader writes themselves asks for no reading.
+    write(a.doc);
+    expect(read).toEqual([]);
+    // The other's line: read before it is in.
+    write(b.doc);
+    await vi.waitFor(() => {
+      expect(lines(a.doc)).toBe(before + 2);
+    });
+    expect(read).toEqual([before + 1]);
+
+    // Another editor took its place, and the first goes away after: the second's reading stays.
+    const second: number[] = [];
+    const leaveSecond = mine.state.readsFirst(() => second.push(lines(a.doc)));
+    leave();
+    write(b.doc);
+    await vi.waitFor(() => {
+      expect(lines(a.doc)).toBe(before + 3);
+    });
+    expect(read).toEqual([before + 1]);
+    expect(second).toEqual([before + 2]);
+    // Taken back, nothing is asked.
+    leaveSecond();
+    write(b.doc);
+    await vi.waitFor(() => {
+      expect(lines(a.doc)).toBe(before + 4);
+    });
+    expect(second).toEqual([before + 2]);
+    mine.close();
+    theirs.close();
+  });
+
   it("holds back the changes the room sends while the reader composes a syllable, and not the others' carets", async () => {
     const { backend, other, boardId, cardId } = world();
     const mine = backend.openDoc('w', boardId, cardId, hears());

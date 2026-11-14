@@ -52,6 +52,8 @@ class RoomClient implements BodyDoc {
   /** The changes the room sent while the reader composes a syllable, in their order; undefined while they do not. */
   #held: (() => void)[] | undefined;
   #heldTimer: ReturnType<typeof setTimeout> | undefined;
+  /** What has the editor read the selection of the page (`BodyDocState.readsFirst`). */
+  #read: (() => void) | undefined;
   #closed = false;
 
   constructor(line: RoomLine, hears: BodyDocHears) {
@@ -80,8 +82,9 @@ class RoomClient implements BodyDoc {
     const { phase, mode, reason, writable, pending, retrying } = this.#room.status;
     const doc = this.#doc;
     const carets = this.#carets?.awareness;
-    const composing = this.#composing;
-    return { status: phase, doc, carets, composing, mode, reason, writable, pending, retrying };
+    const [composing, readsFirst] = [this.#composing, this.#readsFirst];
+    const told = { status: phase, doc, carets, composing, readsFirst, mode, reason };
+    return { ...told, writable, pending, retrying };
   }
 
   retry(): void {
@@ -106,6 +109,14 @@ class RoomClient implements BodyDoc {
       this.#settling.push(done);
     });
   }
+
+  /** The editor's reading of the page, until it is taken back (`BodyDocState.readsFirst`). */
+  readonly #readsFirst = (read: () => void): (() => void) => {
+    this.#read = read;
+    return () => {
+      if (this.#read === read) this.#read = undefined;
+    };
+  };
 
   /** The reader composes a syllable, or no longer does (`BodyDocState.composing`). */
   readonly #composing = (composing: boolean): void => {
@@ -210,7 +221,10 @@ class RoomClient implements BodyDoc {
         // Into the document it was sent for: one let go meanwhile takes nothing.
         const doc = this.#doc;
         this.#later(() => {
-          if (doc && doc === this.#doc) this.#apply(doc, effect.update);
+          if (!doc || doc !== this.#doc) return;
+          // Where the reader's caret went is read first: the change would take an unread move back.
+          this.#read?.();
+          this.#apply(doc, effect.update);
         });
         break;
       }

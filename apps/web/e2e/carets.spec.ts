@@ -259,9 +259,10 @@ test('a syllable being composed is kept while the other moves and writes in the 
   await other.keyboard.type(' 아래.');
   await expect(theirs.locator('p')).toHaveText(['가앞에 나다 라마바하', 'Below. 아래.']);
   await compose('한');
-  // The other goes to the start of the line below, where they have not been. A caret is not
-  // held back, and what is said is heard in its order: once it is there in the reader's page,
-  // all they wrote has come, and waits.
+  // The room has all the other wrote; then they go to the start of the line below, where they
+  // have not been. A caret is not held back, and what the room says is heard in its order:
+  // once that caret is in the reader's page, all they wrote has come, and waits.
+  await expect(other.getByTestId('card-body')).not.toHaveAttribute('data-pending');
   await other.keyboard.press('Home');
   await expect.poll(() => ahead(mine.locator('p').nth(1))).toBe('');
   await expect(mine.locator('p')).toHaveText(['가나다 라마바한', 'Below.']);
@@ -293,14 +294,21 @@ test('a move of the caret by a key is kept while the other writes and moves', as
   // and each comes to the reader's page between two of the reader's keys or in the moment
   // after one. The browser moves the reader's caret itself (Home, an arrow) and tells the
   // editor a moment later: no move is taken back by what came in meanwhile.
-  const written = 'x'.repeat(1200);
-  const writing = other.keyboard.type(written, { delay: 8 });
-  for (let round = 0; round < 12; round += 1) {
-    await page.keyboard.press('Home');
-    for (let step = 0; step < 20; step += 1) await page.keyboard.press('ArrowRight');
-    expect(await page.evaluate(() => getSelection()?.anchorOffset)).toBe(20);
+  const written = 'x'.repeat(400);
+  const still = { writing: true };
+  const writing = other.keyboard.type(written, { delay: 8 }).finally(() => {
+    still.writing = false;
+  });
+  try {
+    // While they write, and no fewer than these.
+    for (let round = 0; round < 12 || (still.writing && round < 60); round += 1) {
+      await page.keyboard.press('Home');
+      for (let step = 0; step < 20; step += 1) await page.keyboard.press('ArrowRight');
+      expect(await page.evaluate(() => getSelection()?.anchorOffset)).toBe(20);
+    }
+  } finally {
+    await writing.catch(() => undefined);
   }
-  await writing;
   for (const body of [mine, theirs]) {
     await expect(body.locator('p')).toHaveText(['a'.repeat(24), `Below.${written}`]);
   }

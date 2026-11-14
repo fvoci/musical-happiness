@@ -5,83 +5,95 @@
  * moment, a caret of theirs to draw or what they wrote, has the editor write
  * the selection it still holds into the page, and the move is taken back.
  *
- * So before such a change is applied the selection of the page is read, and
- * the change carries it: as it is where the document stays the same, and
- * through the change where the others wrote (`placeAfter`). A selection
- * within what they changed is left to the binding, which puts it back by
- * what it stood next to.
+ * So the selection of the page is read before either:
+ *
+ * - What the others wrote: whoever brings it is given the reading
+ *   (`readsFirst`) and asks for it before the change enters the shared
+ *   document. The binding then puts the selection back from where the
+ *   reader moved to.
+ * - A caret of theirs: the binding asks for it to be drawn with a
+ *   transaction made a moment before it is applied. The reading is done in
+ *   between, and where it found something the drawing is asked for again,
+ *   of what the editor holds now.
  */
 import { Extension } from '@tiptap/core';
-import type { Node } from '@tiptap/pm/model';
-import { TextSelection, type Selection, type Transaction } from '@tiptap/pm/state';
+import type { Transaction } from '@tiptap/pm/state';
 import type { EditorView } from '@tiptap/pm/view';
-import { yCursorPluginKey, ySyncPluginKey } from '@tiptap/y-tiptap';
+import { yCursorPluginKey } from '@tiptap/y-tiptap';
 
-/**
- * Where a position of `before` is in `after`, the two alike but for one
- * stretch: itself ahead of the stretch, moved by what the stretch grew
- * behind it, and undefined within it.
- */
-export function placeAfter(before: Node, after: Node, position: number): number | undefined {
-  const start = before.content.findDiffStart(after.content);
-  if (start === null || position <= start) return position;
-  const end = before.content.findDiffEnd(after.content);
-  if (!end) return position;
-  // Where the two ends reach past the start (the same letters on both sides), the stretch ends later.
-  const short = Math.max(0, start - Math.min(end.a, end.b));
-  return position >= end.a + short ? position + end.b - end.a : undefined;
-}
-
-/** The part of the view that reads the page: no public name, so each member may be missing. */
-interface Reader {
-  flush?: () => void;
-  pendingRecords?: () => unknown[];
+export interface MovesKeptOptions {
+  /**
+   * Takes what has the editor read the selection of the page, to be called
+   * before a change of the others is taken into the shared document; gives
+   * what takes it back, as the editor goes away.
+   */
+  readsFirst: ((read: () => void) => () => void) | undefined;
 }
 
 /**
- * Has the editor read the selection of the page now, where it waits to be
- * told of it. Not while something written is unread as well: reading that
- * here would change the document under the change about to be applied.
+ * Has the editor read the page now (the selection, and whatever was written
+ * and not yet read), where it waits for the browser's word. The view has no
+ * public name for it: this is the reading it does on that word. Not during
+ * a composition, which the editor reads in its own time.
  */
-function readSelection(view: EditorView): void {
-  const reader = (view as unknown as { domObserver?: Reader }).domObserver;
-  if (!reader?.flush || !reader.pendingRecords || reader.pendingRecords().length > 0) return;
-  reader.flush();
-}
-
-/** Whether a transaction is what the others did: a caret of theirs to draw, or a change of the shared document. */
-function fromOthers(transaction: Transaction): boolean {
-  const drawn = transaction.getMeta(yCursorPluginKey) as { awarenessUpdated?: boolean } | undefined;
-  if (drawn?.awarenessUpdated) return !transaction.docChanged && !transaction.selectionSet;
-  const shared = transaction.getMeta(ySyncPluginKey) as { isChangeOrigin?: boolean } | undefined;
-  return shared?.isChangeOrigin === true;
-}
-
-/** Has a transaction of the others end with the selection the reader moved to, where it has a place there. */
-function carry(transaction: Transaction, selection: Selection): void {
-  if (!transaction.docChanged) {
-    transaction.setSelection(selection);
-    return;
+function readPage(view: EditorView): void {
+  if (view.isDestroyed || view.composing) return;
+  try {
+    (view as unknown as { domObserver?: { flush?: () => void } }).domObserver?.flush?.();
+  } catch {
+    // What could not be read now is read on the browser's word, as it was before.
   }
-  if (!(selection instanceof TextSelection)) return;
-  const anchor = placeAfter(transaction.before, transaction.doc, selection.anchor);
-  const head = placeAfter(transaction.before, transaction.doc, selection.head);
-  if (anchor === undefined || head === undefined) return;
-  transaction.setSelection(TextSelection.create(transaction.doc, anchor, head));
 }
 
-/** The extension that keeps a move of the reader's caret when a change of the others comes right behind it. */
-export const MovesKept = Extension.create({
+/** Whether a transaction only has the others' carets drawn again. */
+function drawsCarets(transaction: Transaction): boolean {
+  const drawn = transaction.getMeta(yCursorPluginKey) as { awarenessUpdated?: boolean } | undefined;
+  return (
+    drawn?.awarenessUpdated === true &&
+    !transaction.docChanged &&
+    !transaction.selectionSet &&
+    !transaction.storedMarksSet
+  );
+}
+
+/** The extension that keeps a move of the reader's caret when something of the others comes right behind it. */
+export const MovesKept = Extension.create<MovesKeptOptions, { leave: (() => void) | undefined }>({
   name: 'movesKept',
+
+  addOptions() {
+    return { readsFirst: undefined };
+  },
+
+  addStorage() {
+    return { leave: undefined };
+  },
+
+  onCreate() {
+    const { view } = this.editor;
+    this.storage.leave = this.options.readsFirst?.(() => {
+      readPage(view);
+    });
+  },
+
+  onDestroy() {
+    this.storage.leave?.();
+    this.storage.leave = undefined;
+  },
 
   dispatchTransaction({ transaction, next }) {
     const { view } = this.editor;
-    if (fromOthers(transaction) && !view.composing) {
-      const held = view.state.selection;
-      readSelection(view);
-      const { selection, doc } = view.state;
-      if (!selection.eq(held) && doc === transaction.before) carry(transaction, selection);
+    if (!drawsCarets(transaction)) {
+      next(transaction);
+      return;
     }
-    next(transaction);
+    const held = view.state;
+    readPage(view);
+    if (view.state === held) {
+      next(transaction);
+      return;
+    }
+    // Something was read: the transaction is of a state the editor holds no more.
+    const drawn: unknown = transaction.getMeta(yCursorPluginKey);
+    view.dispatch(view.state.tr.setMeta(yCursorPluginKey, drawn));
   },
 });
