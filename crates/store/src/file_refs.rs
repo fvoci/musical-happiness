@@ -100,8 +100,8 @@ pub enum NewImages {
 
 /// Puts down the files a block shows now, in place of those it showed, and marks the
 /// files of its board whose state that changes. A comment shows the files of its kept
-/// versions too, also while it is made a block of another type, and a card those of
-/// the kept versions of its body. What the images of
+/// versions too, also while it is made a block of another type, and a card or a page
+/// those of the kept versions of its body. What the images of
 /// the body newly show is asked as `new_images` says.
 pub(crate) async fn refresh(
     scope: &mut Scope<'_>,

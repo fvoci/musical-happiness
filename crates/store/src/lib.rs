@@ -36,6 +36,7 @@ mod error;
 mod file_info;
 mod file_refs;
 mod invitations;
+mod invited_signups;
 mod joinings;
 mod linked_blocks;
 mod loose_objects;
@@ -56,6 +57,7 @@ mod schema;
 mod server_lock;
 mod sessions;
 mod sharing;
+mod signups;
 mod subscriptions;
 mod teams;
 #[cfg(feature = "test-util")]
@@ -90,6 +92,7 @@ pub use directory::{Looking, Reach, SYSTEM_ORG_ID, SYSTEM_WORKSPACE_ID, Sight, W
 pub use error::{StoreError, Taken};
 pub use file_refs::NewImages;
 pub use invitations::{Acceptance, Accepted, Acceptor, Inviter, InviterOfBoard, MailedTo, NewLink};
+pub use invited_signups::InvitedConfirmation;
 pub use loose_objects::{LooseCounts, LooseObject, LooseState};
 pub use observe::{Access, Call, Observer, Outcome};
 pub use oidc::{
@@ -103,6 +106,10 @@ pub use org_admin::{Joining, OrgRoleChange, WorkspaceTrashing};
 pub use password_reset::PASSWORD_RESET_LIFETIME_MILLIS;
 pub use server_lock::ServerLock;
 pub use sharing::SharingChange;
+pub use signups::{
+    Confirmed, Proof, SIGNUP_LIFETIME_MILLIS, SIGNUP_LINK_LIFETIME_MILLIS, Signup, SignupLookup,
+    SignupStart,
+};
 pub use trash::{DeletedBlock, DeletedBoard, Purged};
 pub use uploads::{OpenUploads, PartRecord, UploadUsage};
 pub use users::{AdminChange, InstanceRole, Preference};

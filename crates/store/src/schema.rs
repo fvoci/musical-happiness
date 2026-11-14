@@ -37,7 +37,7 @@ struct Step {
 }
 
 /// Every migration, oldest first. Applied ones are never edited: add a new one.
-const STEPS: [Step; 35] = [
+const STEPS: [Step; 36] = [
     Step {
         version: 1,
         description: "baseline",
@@ -250,6 +250,12 @@ const STEPS: [Step; 35] = [
         sqlite: include_str!("../schema/sqlite/0037_body_links.sql"),
         postgres: include_str!("../schema/postgres/0037_body_links.sql"),
     },
+    Step {
+        version: 39,
+        description: "signups",
+        sqlite: include_str!("../schema/sqlite/0039_signups.sql"),
+        postgres: include_str!("../schema/postgres/0039_signups.sql"),
+    },
 ];
 
 /// The migration that makes the organizations and, on PostgreSQL, puts up the wall
@@ -269,13 +275,14 @@ pub(crate) const ORG_MANAGEMENT_VERSION: i64 = 23;
 /// The tables that are no organization's: the accounts and what is true of the
 /// installation. Every other table of the schema is one of [`ORG_TABLES`].
 #[cfg(any(test, feature = "test-util"))]
-pub(crate) const GLOBAL_TABLES: [&str; 8] = [
+pub(crate) const GLOBAL_TABLES: [&str; 9] = [
     "_sqlx_migrations",
     "data_steps",
     "instance",
     "preferences",
     "password_resets",
     "sessions",
+    "signups",
     "user_identities",
     "users",
 ];

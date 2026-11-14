@@ -16,6 +16,7 @@ mod cards;
 mod categories;
 mod config;
 pub mod contract;
+mod email_verification;
 mod files;
 mod invitation_mail;
 mod invitations;
@@ -27,6 +28,7 @@ mod onboarding;
 mod org;
 mod org_admin;
 mod password_reset;
+mod recovery;
 mod references;
 mod search;
 mod session;
@@ -144,6 +146,7 @@ fn routes() -> Routes {
     let unauthenticated = OpenApiRouter::new()
         .merge(auth::unauthenticated_routes())
         .merge(password_reset::routes())
+        .merge(email_verification::routes())
         .merge(invitations::unauthenticated_routes())
         .merge(oidc::unauthenticated_routes())
         .merge(system::routes());

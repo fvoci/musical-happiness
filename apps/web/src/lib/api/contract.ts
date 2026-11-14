@@ -197,6 +197,68 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/email-verification/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm the email address of a registration
+         * @description Consumes the token of the link mailed to a registration's address, within a day of
+         *     the mail and seven days of the registration: makes the account, and the
+         *     organization and first workspace it registered with, and signs it in, in whatever
+         *     browser the link was opened (the mailbox is the proof). The session comes in the
+         *     `Set-Cookie` header, as from `login`, and the answer says where the account was let
+         *     in. A link is used once, and a newer mail of the same registration ends the links
+         *     before it. A missing, ended, used or replaced token answers 400, naming `token` in
+         *     `errors`. On a server that takes one organization and has its first user by now,
+         *     the registration is removed and the answer is 403 with the reason
+         *     `invitation_required`. A registration made by the link of an invitation
+         *     (`acceptInvitation`) is let in as the acceptance would have let it in, and the answer
+         *     names the board of a guest's link (`boardId`); if the link lets nobody in any more
+         *     (revoked, or who made it may no longer invite), the registration is removed and the
+         *     answer is 404 with the reason `invitation_unavailable`. Requests are counted by where they come from, as
+         *     registrations are, and too many are 429.
+         */
+        post: operations["completeEmailVerification"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/email-verification/request": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mail a new confirmation link
+         * @description Answers 204 with an empty body whether or not a registration that is not confirmed
+         *     yet has the user name (or else the address), and whatever became of the message;
+         *     lookup and delivery run in the background. A new link ends the one before it. A
+         *     registration's address is sent at most `mail_reset_per_account_hour` messages an
+         *     hour, its first link counted: more requests are answered the same, send nothing
+         *     and lock nothing. Requests are limited by where they come from, with the requests
+         *     for a reset link (429). A request that names neither is 400. A server that sends no
+         *     mail answers 404; one that sends mail answers also after `emailVerification` was
+         *     turned off, for the registrations made while it was on.
+         */
+        post: operations["requestEmailVerification"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/hello": {
         parameters: {
             query?: never;
@@ -245,6 +307,17 @@ export interface paths {
          *     stays what they are in it. The answer names the board then (`boardId`). The account
          *     is made, the membership stored and the use of the link counted together or not at
          *     all, and an acceptance that changes nothing uses nothing of the link.
+         *
+         *     On a server that asks for the email address of a registration to be confirmed
+         *     (`emailVerification` of `getLoginOptions`), a new `account` waits for its address,
+         *     unless the link was made for one recipient of a mailed guest link at that address,
+         *     which the mail proves: the answer is 202 with no body, nobody is let in, and the
+         *     link mailed to the address (`completeEmailVerification`) makes the account and lets
+         *     it in, as this acceptance would have, and signs it in. The registration counts as a
+         *     use of the link from the start, so a link for one guest lets nobody else in
+         *     meanwhile, and it holds its name and address as an account would. Not confirmed in
+         *     seven days, it is removed and gives the use back. `language` is the language of the
+         *     mail (English or Korean).
          *
          *     A session that the link's organization does not take (it takes no password,
          *     `ssoRequired`, and the session was not made through its provider) is 401 with the
@@ -308,6 +381,11 @@ export interface paths {
          *     about them, a missing password too. Attempts are counted at the name and at the
          *     email address the request gives, each for itself, and by where they come from; too
          *     many are 429. What is counted does not depend on whether there is such an account.
+         *
+         *     On a server that asks for the email address of a registration to be confirmed
+         *     (`emailVerification` of `getLoginOptions`), the right password of a registration
+         *     that is not confirmed yet is 403 with the reason `email_unverified`, and opens no
+         *     session; a wrong one is the 401 of no account.
          */
         post: operations["login"];
         delete?: never;
@@ -334,7 +412,9 @@ export interface paths {
          *
          *     `registrationOpen` says whether `register` takes somebody without an invitation:
          *     always on a server where everybody starts an organization of their own, and until the first
-         *     user registered on a server that holds one organization.
+         *     user registered on a server that holds one organization. `emailVerification` says
+         *     whether a registration waits for the link mailed to its address
+         *     (`completeEmailVerification`) before there is an account.
          */
         get: operations["getLoginOptions"];
         put?: never;
@@ -884,6 +964,14 @@ export interface paths {
          *     says, and gets in by the link of an invitation (`acceptInvitation`). A name or an
          *     email address that is taken is 409 with the reason `username_taken` or
          *     `email_taken`. Registering does not sign in.
+         *
+         *     On a server that asks for the email address to be confirmed (`emailVerification` of
+         *     `getLoginOptions`), registering makes no account: it answers 202 with no body, and
+         *     mails a link to the address, in the language of `language` (English or Korean), that
+         *     makes the account and the organization and signs in (`completeEmailVerification`).
+         *     Until then there is nothing of it but its name and address, which are taken as an
+         *     account's are, for seven days; a registration that is not confirmed by then is
+         *     removed, and its name and address are free again.
          *
          *     The name and the email address must not be blank, the email address must look like
          *     one, the display name (`displayName`, may be left out) is read as `patchMe` reads it,
@@ -3192,6 +3280,12 @@ export interface components {
         /** @description A request to accept a link. */
         AcceptInvitation: {
             account?: components["schemas"]["NewAccount"] | null;
+            /**
+             * @description The language tag of the screen the request comes from (`ko`, `en-GB`): the
+             *     language of the mail that confirms a new account's address, where the server asks
+             *     for that (English, Korean); English for any other.
+             */
+            language?: string;
             /** @description The token of the link. */
             token: string;
         };
@@ -3219,7 +3313,7 @@ export interface components {
          * @description What a record of the audit log says was done.
          * @enum {string}
          */
-        AuditAction: "self_added_to_board" | "added_to_board" | "org_admin_joined" | "org_admin_left" | "org_admin_revoked" | "org_admin_granted" | "org_admin_removed" | "workspace_created" | "workspace_renamed" | "workspace_deleted" | "workspace_restored" | "public_links_disabled" | "public_links_enabled" | "oidc_provider_configured" | "oidc_provider_removed" | "sso_required" | "sso_released" | "oidc_provider_pending_saved" | "oidc_provider_pending_applied" | "oidc_provider_pending_discarded" | "password_reset_link_made" | "password_set_by_operator" | "oidc_former_provider_kept" | "oidc_former_provider_ended" | "oidc_former_provider_lapsed" | "oidc_identity_bound" | "oidc_identity_carried_over";
+        AuditAction: "self_added_to_board" | "added_to_board" | "org_admin_joined" | "org_admin_left" | "org_admin_revoked" | "org_admin_granted" | "org_admin_removed" | "workspace_created" | "workspace_renamed" | "workspace_deleted" | "workspace_restored" | "public_links_disabled" | "public_links_enabled" | "oidc_provider_configured" | "oidc_provider_removed" | "sso_required" | "sso_released" | "oidc_provider_pending_saved" | "oidc_provider_pending_applied" | "oidc_provider_pending_discarded" | "password_reset_link_made" | "password_set_by_operator" | "oidc_former_provider_kept" | "oidc_former_provider_ended" | "oidc_former_provider_lapsed" | "oidc_identity_bound" | "oidc_identity_carried_over" | "email_verified_by_operator";
         /** @description A user as a record of the audit log names them. */
         AuditPerson: {
             /** @description The name the user shows; empty for none. */
@@ -3824,6 +3918,10 @@ export interface components {
              */
             writtenBy: string;
         };
+        CompleteEmailVerification: {
+            /** @description The secret from the confirmation link's fragment. */
+            token: string;
+        };
         /** @description The identifiers of boards and blocks to delete together. */
         DeleteBoardsAndBlocks: {
             /** @description The identifiers of the blocks. */
@@ -3854,6 +3952,21 @@ export interface components {
          * @enum {string}
          */
         Density: "auto" | "compact" | "comfortable";
+        /** @description Where a confirmed registration's account was let in. */
+        EmailVerified: {
+            /** @description For a guest's link: the board it was let onto. */
+            boardId?: string | null;
+            /**
+             * @description Whether the registration started its organization, rather than joining one by
+             *     the link of an invitation.
+             */
+            organizationStarted: boolean;
+            /**
+             * @description The workspace: the first of the organization it started, or the one its link
+             *     leads into.
+             */
+            workspaceId: string;
+        };
         /** @description A form with one file. */
         FileForm: {
             /**
@@ -4064,6 +4177,11 @@ export interface components {
         LinkedKind: "card" | "page";
         /** @description What the login page shows: the organization it is for, if it is for one. */
         LoginOptions: {
+            /**
+             * @description Whether a registration opens nothing until the link mailed to its address
+             *     confirms it, which signs it in (`email_verification`).
+             */
+            emailVerification: boolean;
             /** @description Whether this server can deliver password recovery and invitation mail. */
             mailEnabled: boolean;
             organization: components["schemas"]["LoginOrganization"] | null;
@@ -4791,6 +4909,12 @@ export interface components {
             /** @description The email address. */
             email: string;
             /**
+             * @description The language tag of the screen the request comes from (`ko`, `en-GB`): the
+             *     language of the mail that confirms the address, where the server asks for that
+             *     (English, Korean); English for any other.
+             */
+            language?: string;
+            /**
              * @description The name of the organization the account starts, and of that organization's
              *     first workspace. Read as `organization_name` reads it.
              */
@@ -4799,6 +4923,24 @@ export interface components {
             password: string;
             /** @description The login name. */
             username: string;
+        };
+        RequestEmailVerification: {
+            /**
+             * @description The address the registration was made with, used when no registration has the
+             *     given name.
+             */
+            email?: string;
+            /**
+             * @description The requester's language tag (`ko`, `en-GB`), used when the registration's own
+             *     screen named no language the mail is written in (English, Korean); English if
+             *     neither does.
+             */
+            language?: string;
+            /**
+             * @description The user name the registration was made with; or leave it empty and give the
+             *     address.
+             */
+            username?: string;
         };
         RequestPasswordReset: {
             /** @description The account's email address. */
@@ -5466,6 +5608,83 @@ export interface operations {
             };
         };
     };
+    completeEmailVerification: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CompleteEmailVerification"];
+            };
+        };
+        responses: {
+            /** @description The account was made and signed in, and was let in here. */
+            200: {
+                headers: {
+                    /** @description The session cookie. */
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmailVerified"];
+                };
+            };
+            /** @description Too many requests from where this one comes from. */
+            429: {
+                headers: {
+                    /** @description How many seconds to wait before trying again. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    requestEmailVerification: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RequestEmailVerification"];
+            };
+        };
+        responses: {
+            /** @description If a registration waits, its address will receive a new link. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     hello: {
         parameters: {
             query?: never;
@@ -5516,6 +5735,13 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["AcceptedInvitation"];
                 };
+            };
+            /** @description A new account waits for its email address to be confirmed by the link mailed to it. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Too many requests from where this one comes from, or the server has too much password work to do at the moment. */
             429: {
@@ -6481,6 +6707,13 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["User"];
                 };
+            };
+            /** @description The registration waits for its email address to be confirmed by the link mailed to it. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Too many registrations from where this one comes from, or the server has too much password work to do at the moment. */
             429: {

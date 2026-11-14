@@ -220,8 +220,21 @@ impl World {
                 let pages = format!("{ROOT_WS}/wikis/{container}/pages");
                 let page = client.post(&pages, &json!({"title": "a page"})).await;
                 page.check_done();
+                let page = page.value();
+                // A body written to the page is a version of it, as the card's is: an
+                // operation on a card's versions that reached it would find one.
+                let body = json!({"type": "doc", "content": [{"type": "paragraph", "content": [
+                    {"type": "text", "text": "written"}
+                ]}]});
+                client
+                    .patch(
+                        &format!("{pages}/{}", text(&page, "id")),
+                        &json!({"readAt": page["updateAt"], "body": body}),
+                    )
+                    .await
+                    .check_ok();
                 // A page has no comment yet.
-                (text(&page.value(), "id"), UNKNOWN_ID.to_owned())
+                (text(&page, "id"), UNKNOWN_ID.to_owned())
             }
             Reaches::Boards | Reaches::Both => self.card_with_a_comment(&container).await,
         };

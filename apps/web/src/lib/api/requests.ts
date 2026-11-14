@@ -20,6 +20,7 @@ import type {
   User,
 } from '../state/backend.ts';
 
+import type { Registered } from '../state/account-types.ts';
 import { BackendError } from '../state/backend.ts';
 import type { BodyVersions } from '../state/body-versions.ts';
 import type { People } from '../state/people-types.ts';
@@ -179,12 +180,20 @@ export class ServerRequests implements TrashReads {
     return found.flat().map(userOf);
   }
 
-  async register(registration: Registration): Promise<void> {
+  async register(registration: Registration, language = ''): Promise<Registered> {
     const request: Schemas['RegisterRequest'] = {
       ...accountOf(registration),
       organizationName: registration.organizationName,
+      // The language of the confirmation mail, where the server sends one.
+      ...(language ? { language } : {}),
     };
-    await this.#http.request('/api/v1/register', {}, { method: 'POST', json: request });
+    // 201 with the account, or 202 with nothing: the address is to be confirmed first.
+    const made = await this.#http.request<Schemas['User'] | undefined>(
+      '/api/v1/register',
+      {},
+      { method: 'POST', json: request },
+    );
+    return made === undefined ? 'waiting' : 'made';
   }
 
   /** The token goes in the body: an address would keep it in logs. */
@@ -202,16 +211,23 @@ export class ServerRequests implements TrashReads {
     };
   }
 
-  async acceptInvitation(token: string, account?: NewAccount): Promise<AcceptedInvitation> {
+  async acceptInvitation(
+    token: string,
+    account?: NewAccount,
+    language = '',
+  ): Promise<AcceptedInvitation | 'waiting'> {
     const request: Schemas['AcceptInvitation'] = {
       token,
+      ...(language ? { language } : {}),
       ...(account ? { account: accountOf(account) } : {}),
     };
-    const accepted = await this.#http.request<Schemas['AcceptedInvitation']>(
+    // 202 with nothing: the new account waits for its address to be confirmed.
+    const accepted = await this.#http.request<Schemas['AcceptedInvitation'] | undefined>(
       '/api/v1/invitations/accept',
       {},
       { method: 'POST', json: request },
     );
+    if (accepted === undefined) return 'waiting';
     return {
       workspaceId: accepted.workspaceId,
       ...(accepted.boardId ? { boardId: accepted.boardId } : {}),
@@ -228,6 +244,7 @@ export class ServerRequests implements TrashReads {
       ...(options.organization ? { organization: options.organization } : {}),
       registrationOpen: options.registrationOpen,
       mailEnabled: options.mailEnabled,
+      emailVerification: options.emailVerification,
     };
   }
 

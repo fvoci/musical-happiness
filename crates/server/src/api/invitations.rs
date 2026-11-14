@@ -8,6 +8,8 @@
 
 use axum::body::Bytes;
 use axum::extract::{Extension, Path, State};
+use axum::http::StatusCode;
+use axum::response::IntoResponse as _;
 use fvoci_model::{
     AcceptInvitation, AcceptedInvitation, BoardRole, GuestInvitationsChange, Invitation,
     InvitationPreview, InvitationToken, NewInvitation, Workspace, WorkspaceRole,
@@ -21,7 +23,7 @@ use super::contract::params::{InvitationId, WorkerWorkspaceId};
 use super::contract::tag;
 use super::workspace::Ws;
 use super::{ApiResult, OptionalSession, created, decode_object, json_response, no_content};
-use crate::app::{Accepting, App, Inviting};
+use crate::app::{Accepting, Admission, App, Inviting};
 use crate::client_address::ClientAddress;
 use crate::error::AppError;
 use crate::permissions::{self, BoardPermission, WorkspacePermission};
@@ -311,6 +313,17 @@ async fn handle_preview_invitation(
 /// is made, the membership stored and the use of the link counted together or not at
 /// all, and an acceptance that changes nothing uses nothing of the link.
 ///
+/// On a server that asks for the email address of a registration to be confirmed
+/// (`emailVerification` of `getLoginOptions`), a new `account` waits for its address,
+/// unless the link was made for one recipient of a mailed guest link at that address,
+/// which the mail proves: the answer is 202 with no body, nobody is let in, and the
+/// link mailed to the address (`completeEmailVerification`) makes the account and lets
+/// it in, as this acceptance would have, and signs it in. The registration counts as a
+/// use of the link from the start, so a link for one guest lets nobody else in
+/// meanwhile, and it holds its name and address as an account would. Not confirmed in
+/// seven days, it is removed and gives the use back. `language` is the language of the
+/// mail (English or Korean).
+///
 /// A session that the link's organization does not take (it takes no password,
 /// `ssoRequired`, and the session was not made through its provider) is 401 with the
 /// reason `sso_required` and its `orgId`, and lets nobody in.
@@ -328,6 +341,7 @@ async fn handle_preview_invitation(
     security((), ("sessionCookie" = []), ("bearerToken" = [])),
     responses(
         (status = 200, description = "Where the account was let in.", body = AcceptedInvitation),
+        (status = 202, description = "A new account waits for its email address to be confirmed by the link mailed to it."),
         (
             status = 429,
             description = "Too many requests from where this one comes from, or the server has too much password work to do at the moment.",
@@ -357,7 +371,10 @@ async fn handle_accept_invitation(
             account
                 .validate()
                 .map_err(|refused| AppError::from(refused).under(ACCOUNT))?;
-            Accepting::NewAccount(account)
+            Accepting::NewAccount {
+                account,
+                language: &request.language,
+            }
         }
         (None, None) => {
             return Err(AppError::unauthorized(
@@ -366,9 +383,12 @@ async fn handle_accept_invitation(
         }
     };
     // What is refused of the body is of the account: a name or an address that is taken.
-    let accepted = app
+    let admission = app
         .accept_invitation(&request.token, accepting, address_of(client))
         .await
         .map_err(|error| error.under(ACCOUNT))?;
-    Ok(json_response(&accepted))
+    Ok(match admission {
+        Admission::LetIn(accepted) => json_response(&accepted),
+        Admission::Waiting => StatusCode::ACCEPTED.into_response(),
+    })
 }

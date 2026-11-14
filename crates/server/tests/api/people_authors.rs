@@ -1,7 +1,8 @@
 //! Departed authors remain named only through work the reader can read.
 
 use fvoci_model::{
-    Block, BlockPatch, BlockType, Board, BoardMember, BoardType, Body, BodyChange, User, new_id,
+    Block, BlockPatch, BlockType, Board, BoardMember, BoardType, Body, BodyChange, NewPage, User,
+    new_id,
 };
 use serde_json::json;
 
@@ -16,6 +17,7 @@ enum Authorship {
     CommentVersion,
     TrashedCommentVersion,
     BodyVersion,
+    PageVersion,
 }
 
 fn body(text: &str) -> Body {
@@ -26,13 +28,26 @@ fn body(text: &str) -> Body {
     .expect("nonempty body")
 }
 
+/// A wiki of the owner with a page whose body the leaver wrote a version of.
+async fn authored_wiki(th: &TestServer, leaver: &str) -> Board {
+    let owner = th.client.me().await.id;
+    let wiki: Board = th
+        .client
+        .post(&format!("{TEST_WS}/wikis"), &json!({"type": "P"}))
+        .await
+        .created_json();
+    versioned_page(th, &wiki.id, &owner, leaver).await;
+    wiki
+}
+
 async fn authored_board(th: &TestServer, authorship: Authorship, leaver: &str) -> Board {
     let owner = th.client.me().await.id;
     let creator = match authorship {
         Authorship::Board => &th.client2,
         Authorship::CommentVersion
         | Authorship::TrashedCommentVersion
-        | Authorship::BodyVersion => &th.client,
+        | Authorship::BodyVersion
+        | Authorship::PageVersion => &th.client,
     };
     let board: Board = creator
         .create_board(&new_board(
@@ -155,6 +170,34 @@ async fn versioned_card(th: &TestServer, board_id: &str, owner: &str, leaver: &s
     assert_eq!(versions[1].editors, [leaver], "the version before the last");
 }
 
+/// A page of the wiki that the owner made and wrote last, with an earlier version of
+/// its body that the leaver wrote.
+async fn versioned_page(th: &TestServer, wiki_id: &str, owner: &str, leaver: &str) {
+    let store = th.app.store();
+    let page = store
+        .create_page(wiki_id, &NewPage::default(), owner)
+        .await
+        .expect("a page");
+    for (writer, text) in [(leaver, "An earlier version"), (owner, "Current")] {
+        let patch = BlockPatch {
+            body: BodyChange::Set(body(text)),
+            ..BlockPatch::default()
+        };
+        store
+            .patch_block(&page.id, &patch, writer)
+            .await
+            .expect("a body written");
+    }
+    let block = store.get_block(&page.id).await.expect("the page");
+    assert_eq!(
+        (block.created_by.as_str(), block.modified_by.as_str()),
+        (owner, owner),
+        "the leaver neither made the page nor changed it last"
+    );
+    let versions = store.body_versions(&page.id).await.expect("the versions");
+    assert_eq!(versions[1].editors, [leaver], "the version before the last");
+}
+
 async fn named(client: &Client, workspace: &str, user: &str) -> Vec<User> {
     client
         .post(&format!("{workspace}/users"), &[user])
@@ -165,7 +208,10 @@ async fn named(client: &Client, workspace: &str, user: &str) -> Vec<User> {
 async fn check_authorship(authorship: Authorship) {
     let th = Setup::native().start().await.init_basic().await;
     let leaver = th.client2.me().await.id;
-    let board = authored_board(&th, authorship, &leaver).await;
+    let board = match authorship {
+        Authorship::PageVersion => authored_wiki(&th, &leaver).await,
+        _ => authored_board(&th, authorship, &leaver).await,
+    };
     for workspace in [ROOT_WORKSPACE_ID, TEST_WORKSPACE_ID] {
         th.app.store().execute_unchecked(&format!(
             "DELETE FROM workspace_members WHERE user_id = '{leaver}' AND workspace_id = '{workspace}'"
@@ -271,4 +317,9 @@ async fn a_departed_writer_of_a_readable_trashed_comment_revision_is_named() {
 #[tokio::test]
 async fn a_departed_writer_of_a_version_of_a_readable_card_body_is_named() {
     check_authorship(Authorship::BodyVersion).await;
+}
+
+#[tokio::test]
+async fn a_departed_writer_of_a_version_of_a_readable_page_body_is_named() {
+    check_authorship(Authorship::PageVersion).await;
 }

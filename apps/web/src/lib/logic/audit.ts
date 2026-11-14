@@ -30,6 +30,7 @@ export const AUDIT_ACTIONS = [
   'oidc_former_provider_lapsed',
   'oidc_identity_bound',
   'oidc_identity_carried_over',
+  'email_verified_by_operator',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

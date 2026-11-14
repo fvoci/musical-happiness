@@ -169,6 +169,18 @@ impl Named {
     }
 }
 
+/// Writes a body to the card: a version of it, which the member reads.
+async fn write_a_body(founder: &Client, at: &str, card: &Value) {
+    founder
+        .patch(
+            &format!("{at}/cards/{}", text(card, "id")),
+            &json!({"readAt": card["updateAt"], "body": {"type": "doc", "content": [
+                {"type": "paragraph", "content": [{"type": "text", "text": "a body"}]}]}}),
+        )
+        .await
+        .check_ok();
+}
+
 /// Signs up `name` with an organization of that name, and makes, as its founder, what the sweep
 /// names; then lets a plain member in by a link for members.
 async fn organization(server: &TestServer, name: &str) -> Named {
@@ -193,15 +205,7 @@ async fn organization(server: &TestServer, name: &str) -> Named {
         .await
         .value();
     let (wiki, page) = wiki_with_a_page(&founder, &at, name).await;
-    // A body written to the card is a version of it, which the member reads.
-    founder
-        .patch(
-            &format!("{at}/cards/{}", text(&card, "id")),
-            &json!({"readAt": card["updateAt"], "body": {"type": "doc", "content": [
-                {"type": "paragraph", "content": [{"type": "text", "text": "a body"}]}]}}),
-        )
-        .await
-        .check_ok();
+    write_a_body(&founder, &at, &card).await;
     let file = Client::send(
         founder
             .request(Method::POST, &format!("{at}/boards/{board}/files"))
