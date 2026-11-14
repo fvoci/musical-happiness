@@ -18,9 +18,6 @@ import { REJOIN_SPACING, afterPutOut } from './card-parts.ts';
 import type { WikiStore } from './wiki.svelte.ts';
 import type { LoadStatus } from './workspace.svelte.ts';
 
-/** How long the line under the body says "saving" after the server had it all. */
-const SAVING_SHOWN = 600;
-
 const sameDoc = (first: DocNode | null, second: DocNode | null): boolean =>
   JSON.stringify(first) === JSON.stringify(second);
 
@@ -42,16 +39,10 @@ export class PageStore {
   room = $state.raw<BodyDocState | undefined>(undefined);
   /** Why things of the reader's were dropped, each once, until dismissed (`CardStore.lost`). */
   lost = $state.raw<readonly string[]>([]);
-  /** What the reader wrote is on its way, or reached the server a moment ago. */
-  bodySaving = $state(false);
-
-  /** Its title and icon, from the wiki's list. */
-  readonly page = $derived.by<WikiPage | undefined>(() => this.wiki.page(this.pageId));
 
   /** The version of the page the body was read at. */
   #readAt = 0;
   #bodyDoc: BodyDoc | undefined;
-  #savingShown: ReturnType<typeof setTimeout> | undefined;
   #closed = false;
   #rejoinedAt = -Infinity;
   /** News of the page heard while the body was the room's: read once it is not. */
@@ -162,7 +153,6 @@ export class PageStore {
           void this.#stillThere(opened, this.room?.doc !== undefined);
         }
         this.room = state;
-        this.#showSaving(state.pending);
         if (!state.doc) this.#catchUp();
       },
       discarded: (why) => {
@@ -189,30 +179,12 @@ export class PageStore {
     if (read.found === 'gone') this.gone();
   }
 
-  #showSaving(pending: boolean): void {
-    clearTimeout(this.#savingShown);
-    if (pending) {
-      this.bodySaving = true;
-      return;
-    }
-    this.#savingShown = setTimeout(() => {
-      this.bodySaving = false;
-    }, SAVING_SHOWN);
-  }
-
   /** Leaves the body's room; what waits is sent first. */
   closeBody(): void {
-    clearTimeout(this.#savingShown);
-    this.bodySaving = false;
     const opened = this.#bodyDoc;
     this.#bodyDoc = undefined;
     this.room = undefined;
     opened?.close();
-  }
-
-  /** Sends what the reader wrote at once; settles when the server has it, or cannot now. */
-  settleBody(): Promise<void> {
-    return this.#bodyDoc?.settle() ?? Promise.resolve();
   }
 
   retryBody(): void {

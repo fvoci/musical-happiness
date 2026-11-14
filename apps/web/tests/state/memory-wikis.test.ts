@@ -129,6 +129,25 @@ describe('the pages of a wiki in memory', () => {
     expect(atTop.parentId).toBe('');
   });
 
+  it('are given the places the server gives, by the server’s own examples', () => {
+    // As in `crates/model/src/page.rs`'s tests.
+    expect(orderBetween(undefined, undefined)).toBe('V');
+    expect(orderBetween(undefined, '1')).toBe('0z');
+    expect(orderBetween(undefined, '01')).toBe('00z');
+    expect(orderBetween('V', 'W')).toBe('VV');
+    expect(orderBetween('z', undefined)).toBe('z1');
+    for (const [before, after] of [
+      ['1', '2'],
+      ['V', 'V1'],
+      ['Vz', 'W'],
+      ['01', '1'],
+      ['z', 'z1'],
+    ] as const) {
+      const made = orderBetween(before, after);
+      expect(before < made && made < after).toBe(true);
+    }
+  });
+
   it('are given places that sort by code unit, as the server’s', async () => {
     let order = orderBetween(undefined, undefined);
     const orders = [order];

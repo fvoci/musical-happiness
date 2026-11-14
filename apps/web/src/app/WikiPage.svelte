@@ -51,6 +51,9 @@
     untrack(() => {
       workspace.closeBoard();
       holder.current = store;
+      // What the head of the page told, and the focus of a join, were the wiki's before.
+      notice = undefined;
+      joined = false;
       void store.load();
     });
     return () => {

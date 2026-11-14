@@ -9,15 +9,17 @@ import { SvelteSet } from 'svelte/reactivity';
 const KEY = 'fvoci:wiki-open:';
 
 export class TreeOpen {
-  readonly #key: string;
+  /** None while the reader is not known yet: the tree is then kept for the visit alone. */
+  readonly #key: string | undefined;
   readonly #open: SvelteSet<string>;
 
   constructor(userId: string, wikiId: string) {
-    this.#key = `${KEY}${userId}:${wikiId}`;
+    this.#key = userId === '' ? undefined : `${KEY}${userId}:${wikiId}`;
     this.#open = new SvelteSet(this.#read());
   }
 
   #read(): string[] {
+    if (this.#key === undefined) return [];
     try {
       const kept: unknown = JSON.parse(localStorage.getItem(this.#key) ?? '[]');
       return Array.isArray(kept) ? kept.filter((id) => typeof id === 'string') : [];
@@ -27,6 +29,7 @@ export class TreeOpen {
   }
 
   #keep(): void {
+    if (this.#key === undefined) return;
     try {
       localStorage.setItem(this.#key, JSON.stringify([...this.#open]));
     } catch {

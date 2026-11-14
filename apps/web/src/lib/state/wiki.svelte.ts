@@ -15,6 +15,7 @@
  * changing the wiki can be undone; deleting a page cannot (nothing brings one
  * back yet).
  */
+import { isEmptyDoc } from '../editor/schema.ts';
 import { pageTree, withDescendants } from '../logic/page-tree.ts';
 import type { Board, BoardMember, MemberRole } from '../logic/wire.ts';
 
@@ -199,7 +200,9 @@ export class WikiStore {
 
   /** Shows a page: its store is made, and the one before closed. None for `undefined`. */
   showPage(pageId: string | undefined): PageStore | undefined {
-    if (this.openPage?.pageId === pageId) return this.openPage;
+    // The same page, unless it was found gone: shown again, it is read anew (restored, let back in).
+    const open = this.openPage;
+    if (open && open.pageId === pageId && !open.missing) return open;
     this.openPage?.close();
     this.openPage = pageId === undefined ? undefined : new PageStore(this, pageId);
     void this.openPage?.load();
@@ -332,6 +335,8 @@ export class WikiStore {
           return made;
         },
         async (made) => {
+          // Written in since, or with pages below it: kept, for undo would lose them for good.
+          if (await this.#grownSince(made.id)) return;
           await unlessGone(() => this.#deletePage(made.id));
           this.#forget([made.id], 'reader');
         },
@@ -340,6 +345,18 @@ export class WikiStore {
     } catch (error) {
       this.workspace.report('save', error);
       return undefined;
+    }
+  }
+
+  /** Whether a page has pages below it now, or a body: undoing its making would delete them. */
+  async #grownSince(pageId: string): Promise<boolean> {
+    if (this.pages.some((page) => page.parentId === pageId)) return true;
+    try {
+      const { body } = await this.#wikis.page(this.wikiId, pageId);
+      return body !== null && !isEmptyDoc(body);
+    } catch (error) {
+      if (isBackendError(error) && error.status === 404) return false;
+      throw error;
     }
   }
 

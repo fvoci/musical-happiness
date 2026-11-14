@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
 import { pageRows } from '$lib/logic/page-tree.ts';
 import { BackendError, WikiStore, Workspace, type WikiPage } from '$lib/state/index.ts';
 
-import { settle, setup } from './support.ts';
+import { settle, setup, text } from './support.ts';
 
 async function openWiki(type: 'O' | 'P' = 'P') {
   const made = setup();
@@ -152,6 +152,24 @@ describe('an open wiki', () => {
     expect(await made.store.deletePage(top.id)).toBe(true);
     expect(titles(made.store)).toEqual([]);
     expect(shown?.removed).toEqual({ by: 'reader', title: 'Top' });
+  });
+
+  it('keeps a page made when undone after it was written in, or has pages below it', async () => {
+    const made = await openWiki();
+    const written = await made.store.createPage({ title: 'Written' });
+    if (!written) throw new Error('no page');
+    await made.backend.wiki.patchPage(made.wikiId, written.id, {
+      body: text('kept'),
+      readAt: written.updateAt,
+    });
+    const parent = await made.store.createPage({ title: 'Parent' });
+    if (!parent) throw new Error('no page');
+    await made.backend.wiki.createPage(made.wikiId, { title: 'Child', parentId: parent.id });
+    await settle();
+    await made.workspace.undoLast();
+    await made.workspace.undoLast();
+    expect(titles(made.store)).toEqual(['Written', 'Parent', '  Child']);
+    expect(made.workspace.problems).toEqual([]);
   });
 
   it('undoes nothing, and says nothing, of a page deleted since', async () => {

@@ -265,7 +265,8 @@ test.describe('screens', () => {
   /** Opens a page's menu in the tree whatever the language, and presses one of its lines. */
   async function onPage(page: Page, name: string, action: string): Promise<void> {
     await showTree(page);
-    await treeItem(page, name).locator('[aria-haspopup="menu"]').click();
+    // The row's last button is its menu's (a sheet in a narrow pane, a menu elsewhere).
+    await treeItem(page, name).getByRole('button').last().click();
     await page.locator(`[data-action="${action}"]`).click();
   }
 
@@ -276,6 +277,11 @@ test.describe('screens', () => {
     test(`the wiki in Korean, ${size}`, async ({ page }, info) => {
       test.skip(info.project.name !== 'desktop', 'one set of pictures');
       const shot = async (name: string): Promise<void> => {
+        // A drawer of the tree that is out has slid all the way in first.
+        const drawer = page.getByRole('dialog', { name: '페이지' });
+        if (await drawer.isVisible()) {
+          await expect.poll(async () => (await drawer.boundingBox())?.x).toBe(0);
+        }
         await page.screenshot({ path: `${screensDir('wiki')}/${name}-${size}.png` });
       };
       await page.setViewportSize({ width, height });
@@ -319,11 +325,14 @@ test.describe('screens', () => {
       await hideTree(page);
       await showSidebar(page);
       await shot('sidebar');
+      await hideSidebar(page);
 
       // An open wiki of somebody else's, to be joined.
       const made = await wikiBySomebodyElse(page, { title: '디자인 노트', type: 'O', page: '색' });
       await goInside(page, wikiPath(made.wikiId));
       await expect(page.getByTestId('wiki-join')).toBeVisible();
+      // The sidebar's drawer has slid all the way out.
+      if (size === '390') await expect(sidebar(page)).toBeHidden();
       await shot('join');
     });
   }

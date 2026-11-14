@@ -101,7 +101,7 @@ test.describe('a new wiki', () => {
     await expect(picker.getByText('Handbook')).toHaveCount(0);
   });
 
-  test('a wiki’s address without a wiki is not found, and the root goes to the last place', async ({
+  test('a wiki’s address naming no wiki is not found, and the root goes to the last place', async ({
     page,
   }) => {
     await openApp(page);

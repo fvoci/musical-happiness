@@ -135,9 +135,11 @@
   async function create(draft: PageDraft): Promise<void> {
     if (creating) return;
     creating = true;
+    const making = wiki;
     try {
-      const madePage = await whileHere(wiki.workspace, () => wiki.createPage(draft));
-      if (!madePage) return;
+      const madePage = await whileHere(making.workspace, () => making.createPage(draft));
+      // Shown only while its wiki is: the reader may have gone on to another meanwhile.
+      if (!madePage || wiki !== making) return;
       if (madePage.parentId) open.set([madePage.parentId]);
       if (drawerOut) drawer = false;
       made = undefined;

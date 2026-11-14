@@ -132,7 +132,7 @@ export class MemoryWikis implements Wikis {
     this.#world.tellBoard(wikiId, { kind: 'pages', boardId: wikiId, pages: blocks.map(pageOf) });
   }
 
-  /** As the server: the reader's wikis and the workspace's open ones, oldest first. */
+  /** As the server: the reader's wikis and the workspace's open ones, in no order to count on. */
   async wikis(workspaceId: string): Promise<Board[]> {
     await this.#enter('wikis');
     if (workspaceId !== this.#world.workspace.id) fail(404, 'no such workspace');
