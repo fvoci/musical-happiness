@@ -872,23 +872,11 @@ impl From<StoreError> for AppError {
                 error.subject = Some(Subject::Board);
                 error
             }
-            // A parent that is no block of the board, whether it is none at all or
-            // another board's: the answer does not tell the two apart.
-            StoreError::InvalidBlock {
-                id,
-                source:
-                    source @ (BlockError::ParentNotOnBoard
-                    | BlockError::ParentBelowBlock
-                    | BlockError::CommentNotOnCard
-                    | BlockError::ParentIsComment
-                    | BlockError::TypeStrandsComments
-                    | BlockError::BodyNotAllowed
-                    | BlockError::ImageWithoutFile
-                    | BlockError::NulInTitle
-                    | BlockError::InvalidCardField { .. }
-                    | BlockError::InvalidRelation(_)
-                    | BlockError::TypeNotCurrent(_)),
-            } => {
+            // Whatever else the store refuses of a block names the member at fault and
+            // the block. A parent that is no block of the board, whether it is none at all
+            // or another board's: the answer does not tell the two apart. A block without a
+            // board is no request's mistake.
+            StoreError::InvalidBlock { id, source } if source != BlockError::EmptyBoardId => {
                 let mut error = Self::from(source);
                 error.subject = Some(Subject::Block(id));
                 error

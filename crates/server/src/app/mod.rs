@@ -28,6 +28,7 @@ mod oidc_pending;
 mod oidc_settings;
 mod onboarding;
 mod org_admin;
+mod pages;
 mod password_reset;
 mod presence;
 mod readiness;

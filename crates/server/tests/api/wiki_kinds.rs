@@ -84,6 +84,12 @@ const REACHED: &[(&str, Reaches)] = &[
     ("patchCard", Reaches::Boards),
     ("getDeletedCards", Reaches::Boards),
     ("deleteSubscription", Reaches::Boards),
+    // What a wiki holds.
+    ("getPageTree", Reaches::Wikis),
+    ("createPage", Reaches::Wikis),
+    ("getPage", Reaches::Wikis),
+    ("patchPage", Reaches::Wikis),
+    ("deletePage", Reaches::Wikis),
     // What the holder of a read token reads.
     ("getSharedBoard", Reaches::Boards),
     ("getSharedBlocks", Reaches::Boards),
@@ -165,7 +171,7 @@ impl World {
 
     /// Makes a board, or a wiki, with the second user and the team on it, a file, an
     /// open upload and a link; a board with a card the first user is subscribed to and
-    /// a comment on it besides.
+    /// a comment on it besides, a wiki with a page.
     async fn make(&self, kind: Reaches) -> Things {
         let client = &self.ts.client;
         let made_at = match kind {
@@ -205,7 +211,13 @@ impl World {
             .check_done();
         let sharing = client.get(&format!("{at}/sharing")).await.value();
         let (block, comment) = match kind {
-            Reaches::Wikis => (UNKNOWN_ID.to_owned(), UNKNOWN_ID.to_owned()),
+            Reaches::Wikis => {
+                let pages = format!("{ROOT_WS}/wikis/{container}/pages");
+                let page = client.post(&pages, &json!({"title": "a page"})).await;
+                page.check_done();
+                // A page has no comment yet.
+                (text(&page.value(), "id"), UNKNOWN_ID.to_owned())
+            }
             Reaches::Boards | Reaches::Both => self.card_with_a_comment(&container).await,
         };
         Things {
@@ -319,7 +331,9 @@ impl World {
     /// The body an operation is sent with: one it takes.
     fn body(&self, operation: &str, things: &Things) -> Value {
         match operation {
-            "patchBoard" | "patchBlock" | "patchCard" => json!({"title": "changed"}),
+            "patchBoard" | "patchBlock" | "patchCard" | "patchPage" => {
+                json!({"title": "changed"})
+            }
             "addMember" | "updateMember" => {
                 json!({"boardId": things.container, "userId": self.other, "schemeViewer": true})
             }

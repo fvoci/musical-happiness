@@ -96,6 +96,34 @@ async fn wikis(case: &mut Case) {
     assert_eq!(made["kind"], "wiki", "a wiki is made as one");
     case.present("getWikis", &[], &wiki).await;
     case.present("getBoard", &[("boardId", &wiki)], &wiki).await;
+    pages(case, &wiki).await;
+}
+
+/// Pages of the wiki, one below the other: made, listed, read, changed and deleted.
+async fn pages(case: &mut Case, wiki: &str) {
+    let at = &[("wikiId", wiki)];
+    let title = format!("secret {} page", case.label);
+    let made = case
+        .run("createPage", at, json!({"title": title}))
+        .await
+        .value();
+    let page = case.remember(&made, "id");
+    let below = case
+        .run(
+            "createPage",
+            at,
+            json!({"title": "below", "parentId": page}),
+        )
+        .await
+        .value();
+    let below = case.remember(&below, "id");
+    case.present("getPageTree", at, &page).await;
+    let of_page = &[("wikiId", wiki), ("pageId", page.as_str())];
+    case.present("getPage", of_page, &page).await;
+    case.run("patchPage", of_page, json!({"title": "changed page"}))
+        .await;
+    let of_below = &[("wikiId", wiki), ("pageId", below.as_str())];
+    case.run("deletePage", of_below, json!({})).await;
 }
 
 async fn cards(case: &mut Case, board: &str) -> String {

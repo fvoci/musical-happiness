@@ -30,6 +30,7 @@ mod name;
 mod oidc;
 mod org_admin;
 mod organization;
+mod page;
 mod problem;
 mod refusal;
 mod relation;
@@ -103,6 +104,10 @@ pub use org_admin::{
 };
 pub use organization::{
     OrgRole, UnknownRole, UserWorkspace, WorkspaceMember, WorkspaceRole, WorkspaceRoleChange,
+};
+pub use page::{
+    NewPage, OrderError, PAGE_ICON_FIELD, PAGE_ORDER_FIELD, Page, PageNode, PagePatch,
+    order_between, sort_pages,
 };
 pub use problem::{InvalidInput, PROBLEM_MEDIA_TYPE, Problem, json_pointer, pointer_token};
 pub use refusal::{NAME_SHOWN_CHARS, Refusal, RefusalReason, Refusals, shown_name};

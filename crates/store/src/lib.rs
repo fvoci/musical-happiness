@@ -42,6 +42,8 @@ mod oidc_identities;
 mod oidc_pending;
 mod operator_records;
 mod org_admin;
+mod page_places;
+mod pages;
 mod password_reset;
 mod schema;
 mod server_lock;

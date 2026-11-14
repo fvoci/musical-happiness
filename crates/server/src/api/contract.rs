@@ -276,6 +276,8 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("WorkspaceMember", Members::All),
     ("WorkspaceRole", Members::AsWritten),
     ("OrgRole", Members::AsWritten),
+    ("Page", Members::All),
+    ("PageNode", Members::All),
     ("WorkspaceRoleChange", Members::All),
     // What a request carries.
     ("AcceptInvitation", Members::Only(&["token"])),
@@ -311,6 +313,8 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("NewBoard", Members::AsWritten),
     ("NewBoardsAndBlocks", Members::AsWritten),
     ("NewWiki", Members::AsWritten),
+    ("NewPage", Members::Only(&[])),
+    ("PagePatch", Members::Only(&[])),
     ("NewCard", Members::AsWritten),
     ("NewCategory", Members::AsWritten),
     ("NewInvitation", Members::Only(&["role"])),

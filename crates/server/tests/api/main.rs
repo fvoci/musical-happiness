@@ -63,6 +63,7 @@ mod onboarding;
 mod org_admin;
 mod org_admin_review;
 mod organizations;
+mod pages;
 mod password_reset;
 mod paths;
 mod people;

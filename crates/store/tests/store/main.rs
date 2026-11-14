@@ -28,6 +28,7 @@ mod oidc_pending;
 mod operator_password;
 mod order;
 mod org_admin;
+mod pages;
 mod password_reset;
 mod registration;
 mod restored_boards;
