@@ -112,6 +112,8 @@ pub struct Confirmed {
     pub workspace_id: String,
     /// For a guest's link: the board it was let onto.
     pub board_id: Option<String>,
+    /// Whether it started its organization, or joined one by a link.
+    pub started_organization: bool,
 }
 
 /// The columns of a registration, in the order [`signup_from_row`] reads them.
@@ -243,6 +245,7 @@ impl Store {
                     org_id: org_id.clone(),
                     workspace_id,
                     board_id: None,
+                    started_organization: true,
                 }))
             })
             .await
@@ -261,9 +264,14 @@ impl Store {
                 let Some(signup) = find(scope, proof, now).await? else {
                     return Ok(false);
                 };
-                // The link before the registration, as a registration by it is made.
+                // The link before the registration, as a registration by it is made;
+                // the use goes back only with the registration that took it.
+                hold_link_of(scope, &signup).await?;
+                if !take(scope, &signup.id, proof, now).await? {
+                    return Ok(false);
+                }
                 give_back_use(scope, &signup).await?;
-                take(scope, &signup.id, proof, now).await
+                Ok(true)
             })
             .await
     }
@@ -481,22 +489,50 @@ fn push_proof(sql: &mut Sql, proof: Proof<'_>, now: i64) {
 /// they were made by first; returns how many. Needs the system's reach: the links are
 /// of every organization, and a statement the wall hides them from changes nothing.
 async fn remove_ended(scope: &mut Scope<'_>, now: i64) -> Result<u64, StoreError> {
+    // Those made by a link one by one, each link held before its registration goes, as
+    // a registration by it is made and confirmed, and in the order of the links, so that
+    // two clean-ups at once hold them alike: a use goes back only with the registration
+    // that took it, one confirmed meanwhile keeping it.
     let mut sql = scope.sql(&format!(
         "SELECT {COLUMNS} FROM signups WHERE expires_at <= "
     ));
-    sql.bind(now).push(" AND invitation_id IS NOT NULL");
+    sql.bind(now)
+        .push(" AND invitation_id IS NOT NULL ORDER BY invitation_id, id");
     let held = scope
         .fetch_all(sql)
         .await?
         .iter()
         .map(signup_from_row)
         .collect::<Result<Vec<_>, _>>()?;
+    let mut removed = 0;
     for signup in &held {
-        give_back_use(scope, signup).await?;
+        hold_link_of(scope, signup).await?;
+        let mut sql = scope.sql("DELETE FROM signups WHERE id = ");
+        sql.bind(Id(&signup.id))
+            .push_bind(" AND expires_at <= ", now);
+        if scope.execute(sql).await? == 1 {
+            give_back_use(scope, signup).await?;
+            removed += 1;
+        }
     }
-    let mut sql = scope.sql("DELETE FROM signups WHERE expires_at <= ");
+    let mut sql = scope.sql("DELETE FROM signups WHERE invitation_id IS NULL AND expires_at <= ");
     sql.bind(now);
-    scope.execute(sql).await
+    Ok(removed + scope.execute(sql).await?)
+}
+
+/// Holds the link a registration was made by, if it is there, against its acceptances
+/// and confirmations; the scope reaches the link's organization.
+async fn hold_link_of(scope: &mut Scope<'_>, signup: &Signup) -> Result<(), StoreError> {
+    if let (SignupStart::Invitation { id, org_id }, Dialect::Postgres) =
+        (&signup.start, scope.dialect())
+    {
+        let mut sql = scope.sql("SELECT id FROM invitations WHERE id = ");
+        sql.bind(Id(id))
+            .push_bind(" AND org_id = ", Id(org_id))
+            .push(" FOR UPDATE");
+        scope.fetch_optional(sql).await?;
+    }
+    Ok(())
 }
 
 /// Gives back the use a registration took of the link it was made by, if it was; the

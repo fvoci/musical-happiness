@@ -4,8 +4,7 @@
 use axum::body::Bytes;
 use axum::extract::{Extension, State};
 use axum::http::HeaderMap;
-use fvoci_model::AcceptedInvitation;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use super::auth::{address_of, user_agent, with_session_cookie};
@@ -14,6 +13,21 @@ use super::recovery::RecoveryResponse;
 use super::{ApiResult, decode_object, json_response};
 use crate::app::App;
 use crate::client_address::ClientAddress;
+
+/// Where a confirmed registration's account was let in.
+#[derive(Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct EmailVerified {
+    /// The workspace: the first of the organization it started, or the one its link
+    /// leads into.
+    workspace_id: String,
+    /// For a guest's link: the board it was let onto.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    board_id: Option<String>,
+    /// Whether the registration started its organization, rather than joining one by
+    /// the link of an invitation.
+    organization_started: bool,
+}
 
 #[derive(Deserialize, utoipa::ToSchema)]
 struct CompleteEmailVerification {
@@ -100,7 +114,7 @@ async fn request(
         (
             status = 200,
             description = "The account was made and signed in, and was let in here.",
-            body = AcceptedInvitation,
+            body = EmailVerified,
             headers(("Set-Cookie" = String, description = "The session cookie.")),
         ),
         (
@@ -122,9 +136,10 @@ async fn complete(
     let (token, confirmed) = app
         .confirm_signup(&request.token, &user_agent(&headers), address_of(client))
         .await?;
-    let answer = AcceptedInvitation {
+    let answer = EmailVerified {
         workspace_id: confirmed.workspace_id,
         board_id: confirmed.board_id,
+        organization_started: confirmed.started_organization,
     };
     Ok(with_session_cookie(&app, &token, json_response(&answer)))
 }

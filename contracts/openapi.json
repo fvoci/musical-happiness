@@ -1224,6 +1224,31 @@
         ],
         "type": "string"
       },
+      "EmailVerified": {
+        "description": "Where a confirmed registration's account was let in.",
+        "properties": {
+          "boardId": {
+            "description": "For a guest's link: the board it was let onto.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "organizationStarted": {
+            "description": "Whether the registration started its organization, rather than joining one by\nthe link of an invitation.",
+            "type": "boolean"
+          },
+          "workspaceId": {
+            "description": "The workspace: the first of the organization it started, or the one its link\nleads into.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "organizationStarted",
+          "workspaceId"
+        ],
+        "type": "object"
+      },
       "FileForm": {
         "description": "A form with one file.",
         "properties": {
@@ -4082,7 +4107,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AcceptedInvitation"
+                  "$ref": "#/components/schemas/EmailVerified"
                 }
               }
             },

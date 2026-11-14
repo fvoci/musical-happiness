@@ -3467,6 +3467,21 @@ export interface components {
          * @enum {string}
          */
         Density: "auto" | "compact" | "comfortable";
+        /** @description Where a confirmed registration's account was let in. */
+        EmailVerified: {
+            /** @description For a guest's link: the board it was let onto. */
+            boardId?: string | null;
+            /**
+             * @description Whether the registration started its organization, rather than joining one by
+             *     the link of an invitation.
+             */
+            organizationStarted: boolean;
+            /**
+             * @description The workspace: the first of the organization it started, or the one its link
+             *     leads into.
+             */
+            workspaceId: string;
+        };
         /** @description A form with one file. */
         FileForm: {
             /**
@@ -4830,7 +4845,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AcceptedInvitation"];
+                    "application/json": components["schemas"]["EmailVerified"];
                 };
             };
             /** @description Too many requests from where this one comes from. */

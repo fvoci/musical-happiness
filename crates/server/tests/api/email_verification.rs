@@ -102,6 +102,7 @@ async fn a_registration_opens_nothing_until_its_mailed_link_signs_it_in() {
         .post("/email-verification/complete", &json!({"token": token}))
         .await;
     confirmed.check_status(StatusCode::OK);
+    assert_eq!(confirmed.value()["organizationStarted"], true, "its own");
     let session = confirmed.session_cookie().expect("a session");
     let workspace_id = confirmed.value()["workspaceId"]
         .as_str()

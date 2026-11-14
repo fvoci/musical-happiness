@@ -124,13 +124,13 @@ impl Store {
             };
             let lets_in = lets_in(scope, &link).await?;
             let Some(inviter) = inviter.filter(|_| lets_in) else {
-                // The link before the registration, as a registration by it is made.
+                // The use goes back with the registration that took it, and only then:
+                // one confirmed or replaced meanwhile keeps it. The link is held.
+                if !signups::take(scope, &signup.id, proof, now).await? {
+                    return Ok(InvitedConfirmation::Gone);
+                }
                 count_uses(scope, &link.id, -1).await?;
-                return Ok(if signups::take(scope, &signup.id, proof, now).await? {
-                    InvitedConfirmation::Unavailable
-                } else {
-                    InvitedConfirmation::Gone
-                });
+                return Ok(InvitedConfirmation::Unavailable);
             };
             if !inviter_still(scope, &link, inviter.standing).await? {
                 return Ok(InvitedConfirmation::InviterChanged);
@@ -157,6 +157,7 @@ impl Store {
                 org_id,
                 workspace_id: link.workspace_id,
                 board_id: link.board_id,
+                started_organization: false,
             })))
         })
         .await

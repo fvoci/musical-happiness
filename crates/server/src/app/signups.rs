@@ -401,7 +401,8 @@ impl App {
                 InvitedConfirmation::InviterChanged => {}
             }
         }
-        // Changed every time: the registration stays, to be confirmed again.
+        // Changed every time: as good as no link for now, but the registration stays,
+        // to be confirmed again once its maker holds still.
         Err(AppError::invitation_unavailable())
     }
 }

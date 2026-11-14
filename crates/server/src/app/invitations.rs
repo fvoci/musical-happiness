@@ -420,7 +420,12 @@ impl App {
         for _ in 0..ATTEMPTS {
             match self.try_accepting(token, accepting, &mut new_user).await? {
                 Tried::Settled(found) => {
-                    settled = Some(*found);
+                    let Settled {
+                        app,
+                        accepted,
+                        waiting,
+                    } = *found;
+                    settled = Some((app, accepted, waiting));
                     break;
                 }
                 // Whether the maker may still invite is asked again, of what they are now.
@@ -522,7 +527,11 @@ impl App {
                         )
                         .await;
                 }
-                Ok(Tried::Settled(Box::new((app, accepted, waiting))))
+                Ok(Tried::Settled(Box::new(Settled {
+                    app,
+                    accepted,
+                    waiting,
+                })))
             }
             // Ended, used up or revoked since it was read.
             Acceptance::Unavailable => Err(AppError::invitation_unavailable()),
@@ -571,10 +580,11 @@ impl App {
 /// Whether `invitation` was mailed to the address `email`, which its mailbox proves: a
 /// link made for one recipient of a mailed guest link.
 fn mailed_to(invitation: &Invitation, email: &str) -> bool {
+    // Addresses are ASCII (`fvoci_model::is_email_valid`), and folded as `lower()` folds.
     invitation
         .recipient
         .as_deref()
-        .is_some_and(|recipient| recipient.to_lowercase() == email.to_lowercase())
+        .is_some_and(|recipient| recipient.eq_ignore_ascii_case(email))
 }
 
 /// Where an acceptance let somebody in, or that it waits for an address.
@@ -587,10 +597,19 @@ pub enum Admission {
     Waiting,
 }
 
+/// An acceptance that was written.
+struct Settled {
+    /// The application behind the wall of the link's organization.
+    app: App,
+    accepted: Accepted,
+    /// The registration that waits for its address, where a new account waits.
+    waiting: Option<Signup>,
+}
+
 /// What an attempt to accept came to.
 enum Tried {
     /// Accepted, by an account or by a registration that waits.
-    Settled(Box<(App, Accepted, Option<Signup>)>),
+    Settled(Box<Settled>),
     /// The maker of the link changed meanwhile.
     Again,
 }

@@ -160,6 +160,11 @@ async fn a_new_account_by_a_link_for_members_waits_for_its_address_and_joins_wit
         confirmed.value()["workspaceId"],
         scene.workspace_id.as_str()
     );
+    assert_eq!(
+        confirmed.value()["organizationStarted"],
+        false,
+        "it joined by the link"
+    );
     let pat = scene
         .th
         .client_with_token(&confirmed.session_cookie().expect("a session"));
@@ -279,9 +284,8 @@ async fn a_one_use_link_reserved_by_a_registration_lets_nobody_else_in_until_it_
     scene.stop().await;
 }
 
-/// The operator confirms a registration whose mail does not arrive: a registration of
-/// its own starts its organization unrecorded; one by a link for members joins, and the
-/// organization it joins has it on record.
+/// The operator confirms a registration whose mail does not arrive: one by a link for
+/// members joins, and the organization it joins has it on record.
 #[tokio::test]
 async fn the_operator_confirms_a_registration_and_records_it_where_it_joins() {
     let socket = socket_path();
