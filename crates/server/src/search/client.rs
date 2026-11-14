@@ -9,16 +9,21 @@
 use std::time::Duration;
 
 use fvoci_model::SnippetPart;
-use serde_json::Value;
+use fvoci_store::SearchDocument;
+use serde_json::{Value, json};
 
-use super::index;
 use super::query::{MATCH_END, MATCH_START, Scope};
+use super::{document, index};
 use crate::config::search::{SearchCredentials, SearchServer};
 
 /// The longest the connection to the search server may take to open.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
-/// How long a request that makes, removes or describes the index may take.
+/// How long a request that makes, removes or describes the index, or writes or
+/// removes documents, may take.
 const INDEX_TIMEOUT: Duration = Duration::from_secs(30);
+/// About the most one request that writes documents carries: both search servers
+/// take 100 MB by default.
+const MOST_WRITTEN: usize = 8 * 1024 * 1024;
 /// The most of an answer that is read. An answer to a search holds as many pieces of
 /// text as it was asked for, each about a line long.
 const MOST_BODY: usize = 8 * 1024 * 1024;
@@ -65,9 +70,10 @@ pub(crate) enum ClientError {
     /// No answer: the connection failed, or the answer did not come in time.
     #[error("the search server did not answer ({0})")]
     Unreachable(NoAnswer),
-    /// A search was answered with a part of what matches: it ran out of the search
-    /// server's own time, or some of the index did not answer.
-    #[error("the search server answered a search in part")]
+    /// A search was answered with a part of what matches, or a removal removed a
+    /// part: the search server ran out of its own time, or some of the index did not
+    /// answer.
+    #[error("the search server did a request in part")]
     Partial,
     /// The search server has no analyser of Korean text.
     #[error("the search server has no nori analysis plugin")]
@@ -100,10 +106,43 @@ pub(crate) enum IndexFound {
     /// An index this server made, from the definition of this version.
     Ours {
         /// The version of [`index::definition`] it was made from.
-        version: u64,
+        version: i64,
+        /// The identifier the search server gave it when it was made.
+        uuid: String,
     },
     /// An index that does not say it is this server's.
     Foreign,
+}
+
+/// A write of one document.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Operation {
+    /// The document is put, in place of what the search server holds of its card.
+    Put(SearchDocument),
+    /// The document of the card of this identifier is removed, if there is one.
+    Remove(String),
+}
+
+impl Operation {
+    /// The lines of the operation in a `_bulk` request.
+    fn lines(&self) -> String {
+        match self {
+            Self::Put(put) => format!(
+                "{}\n{}\n",
+                json!({"index": {"_id": put.id}}),
+                document::source(put)
+            ),
+            Self::Remove(id) => format!("{}\n", json!({"delete": {"_id": id}})),
+        }
+    }
+
+    /// The member of an item of the answer that says what became of the operation.
+    fn answered_under(&self) -> &'static str {
+        match self {
+            Self::Put(_) => "index",
+            Self::Remove(_) => "delete",
+        }
+    }
 }
 
 /// What a search found of one document.
@@ -252,9 +291,16 @@ impl Client {
             .filter(|indices| indices.len() == 1)
             .and_then(|indices| indices.values().next())
             .ok_or(ClientError::Unreadable)?;
-        Ok(match index::version_of(described) {
-            Some(version) => IndexFound::Ours { version },
-            None => IndexFound::Foreign,
+        let Some(version) = index::version_of(described) else {
+            return Ok(IndexFound::Foreign);
+        };
+        let uuid = described
+            .pointer("/settings/index/uuid")
+            .and_then(Value::as_str)
+            .ok_or(ClientError::Unreadable)?;
+        Ok(IndexFound::Ours {
+            version,
+            uuid: uuid.to_owned(),
         })
     }
 
@@ -296,6 +342,117 @@ impl Client {
             Some(refusal) if answer.status != 404 => Err(refusal),
             _ => Ok(()),
         }
+    }
+
+    /// Writes documents, in the order given. Returns what became of each: `None` for
+    /// one that was written (a removal of what was not there too), or the name of the
+    /// search server's error for one it refused.
+    ///
+    /// # Errors
+    ///
+    /// Returns why a request was not taken at all: then none of it was written, and
+    /// what earlier requests of this call wrote stays.
+    pub(crate) async fn write(
+        &self,
+        operations: &[Operation],
+    ) -> Result<Vec<Option<String>>, ClientError> {
+        let mut refusals = Vec::with_capacity(operations.len());
+        let mut sent = 0;
+        while sent < operations.len() {
+            let mut body = String::new();
+            let mut count = 0;
+            for operation in &operations[sent..] {
+                let lines = operation.lines();
+                if count > 0 && body.len() + lines.len() > MOST_WRITTEN {
+                    break;
+                }
+                body.push_str(&lines);
+                count += 1;
+            }
+            let batch = &operations[sent..sent + count];
+            refusals.extend(self.write_batch(batch, body).await?);
+            sent += count;
+        }
+        Ok(refusals)
+    }
+
+    /// One `_bulk` request of [`Client::write`].
+    async fn write_batch(
+        &self,
+        operations: &[Operation],
+        body: String,
+    ) -> Result<Vec<Option<String>>, ClientError> {
+        let request = self
+            .http
+            .post(self.url("/_bulk"))
+            .header("content-type", "application/x-ndjson")
+            .body(body);
+        let answer = self.send(request, INDEX_TIMEOUT).await?;
+        if let Some(refusal) = answer.refusal() {
+            return Err(refusal);
+        }
+        let items = answer
+            .body
+            .get("items")
+            .and_then(Value::as_array)
+            .filter(|items| items.len() == operations.len())
+            .ok_or(ClientError::Unreadable)?;
+        Ok(operations
+            .iter()
+            .zip(items)
+            .map(|(operation, item)| {
+                let outcome = &item[operation.answered_under()];
+                let status = outcome["status"].as_u64().unwrap_or(0);
+                let removed_nothing = matches!(operation, Operation::Remove(_)) && status == 404;
+                if (200..300).contains(&status) || removed_nothing {
+                    None
+                } else {
+                    Some(kind_of(outcome))
+                }
+            })
+            .collect())
+    }
+
+    /// Makes what was written until now visible to searches and removals by query.
+    ///
+    /// # Errors
+    ///
+    /// Returns why the index was not refreshed.
+    pub(crate) async fn refresh(&self) -> Result<(), ClientError> {
+        let answer = self
+            .send(self.http.post(self.url("/_refresh")), INDEX_TIMEOUT)
+            .await?;
+        answer.refusal().map_or(Ok(()), Err)
+    }
+
+    /// Removes every document of `scope` that searches see.
+    ///
+    /// # Errors
+    ///
+    /// Returns why the documents were not removed, all of them or some.
+    pub(crate) async fn remove_documents(&self, scope: &Scope<'_>) -> Result<(), ClientError> {
+        let request = self
+            .http
+            .post(self.url("/_delete_by_query?refresh=true&conflicts=proceed"))
+            .json(&scope.every_document());
+        let answer = self.send(request, INDEX_TIMEOUT).await?;
+        if let Some(refusal) = answer.refusal() {
+            return Err(refusal);
+        }
+        let failed = answer
+            .body
+            .get("failures")
+            .and_then(Value::as_array)
+            .is_some_and(|failures| !failures.is_empty());
+        if failed {
+            return Err(ClientError::Partial);
+        }
+        Ok(())
+    }
+
+    /// The name of the index.
+    pub(crate) fn index(&self) -> &str {
+        &self.index
     }
 
     /// Finds up to `size` documents of `scope` by `text`, past the `from` that match

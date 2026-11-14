@@ -2,8 +2,8 @@
 //! query of a search.
 //!
 //! [`Scope::clauses`] is the one place that says whose documents a request reaches;
-//! every request that reads documents by a query is built here, and none without an
-//! organization. What a user typed goes into `match` queries as a JSON
+//! every request that reads or removes documents by a query is built here, and none
+//! without an organization. What a user typed goes into `match` queries as a JSON
 //! string and nowhere else: the search server reads it as words, never as a query of
 //! its own language.
 
@@ -40,6 +40,11 @@ pub(crate) enum Scope<'a> {
         containers: Containers<'a>,
         kind: Option<SearchKind>,
     },
+    /// Every document of one container of an organization.
+    Container {
+        org_id: &'a str,
+        container_id: &'a str,
+    },
 }
 
 impl Scope<'_> {
@@ -65,7 +70,19 @@ impl Scope<'_> {
                 }
                 clauses
             }
+            Self::Container {
+                org_id,
+                container_id,
+            } => vec![
+                json!({"term": {"orgId": org_id}}),
+                json!({"term": {"containerId": container_id}}),
+            ],
         }
+    }
+
+    /// The query of every document of the scope: for removing them.
+    pub(crate) fn every_document(&self) -> Value {
+        json!({"query": {"bool": {"filter": self.clauses()}}})
     }
 
     /// The request that finds up to `size` documents of the scope by `text`, past
@@ -151,6 +168,17 @@ mod tests {
             [
                 json!({"term": {"orgId": "o1"}}),
                 json!({"term": {"workspaceId": "w1"}}),
+            ]
+        );
+        let container = Scope::Container {
+            org_id: "o1",
+            container_id: "b1",
+        };
+        assert_eq!(
+            filter(&container.every_document()),
+            [
+                json!({"term": {"orgId": "o1"}}),
+                json!({"term": {"containerId": "b1"}}),
             ]
         );
     }

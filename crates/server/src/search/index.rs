@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 
 /// The version of the definition below. An index made from another is made again,
 /// and every document sent again: raise it with every change of [`definition`].
-pub(crate) const VERSION: u64 = 1;
+pub(crate) const VERSION: i64 = 1;
 
 /// The name of the analyser of Korean text.
 const KOREAN: &str = "fvoci_korean";
@@ -78,10 +78,10 @@ pub(crate) fn definition() -> Value {
 
 /// The version the index of this description (`GET /{index}`, the value under the
 /// index's name) was made from; `None` for an index that is not this server's.
-pub(crate) fn version_of(described: &Value) -> Option<u64> {
+pub(crate) fn version_of(described: &Value) -> Option<i64> {
     described
         .pointer(&format!("/mappings/_meta/{META}/version"))
-        .and_then(Value::as_u64)
+        .and_then(Value::as_i64)
 }
 
 #[cfg(test)]

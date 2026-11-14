@@ -272,6 +272,9 @@ pub(crate) struct Scope<'c> {
     /// How many earlier versions of a comment are kept
     /// ([`crate::Store::set_comment_versions_kept`]).
     comment_versions_kept: usize,
+    /// Whether the store notes changes for the search server
+    /// ([`crate::Store::keep_search_outbox`]); `None` for a scope that notes none.
+    search_outbox: Option<&'c AtomicBool>,
 }
 
 /// Binds every parameter of `$sql` to `$query` for one database. `$id` turns an
@@ -314,7 +317,22 @@ impl<'c> Scope<'c> {
             writes: None,
             visibility: None,
             comment_versions_kept,
+            search_outbox: None,
         }
+    }
+
+    /// The same scope, which notes changes for the search server while `kept` says so.
+    pub(crate) fn noting_for_search(self, kept: &'c AtomicBool) -> Self {
+        Self {
+            search_outbox: Some(kept),
+            ..self
+        }
+    }
+
+    /// Whether the changes of this scope are noted for the search server.
+    pub(crate) fn keeps_search_outbox(&self) -> bool {
+        self.search_outbox
+            .is_some_and(|kept| kept.load(Ordering::Relaxed))
     }
 
     /// The same scope, which also sets `writes` when a statement that may write starts.

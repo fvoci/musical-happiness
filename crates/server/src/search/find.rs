@@ -11,6 +11,7 @@ use super::query::{Containers, Scope};
 use super::{Engine, IndexState, document};
 use crate::app::App;
 use crate::error::{AppError, Reason};
+use crate::metrics::SearchAsked;
 
 /// The most hits a search answers with.
 pub const MAX_LIMIT: usize = 50;
@@ -112,7 +113,10 @@ impl App {
         engine
             .limiter
             .take(user_id, Instant::now())
-            .map_err(AppError::rate_limited)?;
+            .map_err(|wait| {
+                self.metrics().search_asked(SearchAsked::Limited);
+                AppError::rate_limited(wait)
+            })?;
         if asked.text.is_empty() {
             return Ok(Vec::new());
         }
@@ -160,7 +164,10 @@ impl App {
                 .client
                 .search(&scope, &asked.text, from, size, left)
                 .await
-                .map_err(|error| search_failed(engine, &error))?;
+                .map_err(|error| {
+                    self.metrics().search_asked(SearchAsked::Unavailable);
+                    search_failed(engine, &error)
+                })?;
             let more_may_match = hits.len() == size;
             found.extend(self.check_hits(&mut check, hits).await?);
             from += size;
@@ -169,6 +176,7 @@ impl App {
             }
         }
         found.truncate(asked.limit);
+        self.metrics().search_asked(SearchAsked::Answered);
         Ok(found)
     }
 

@@ -1,7 +1,10 @@
-//! What tells whether the search server holds a card as it is now.
+//! A card as the search server holds it, and what tells whether it holds the card as
+//! it is now.
 
 use std::fmt::Write as _;
 
+use fvoci_store::SearchDocument;
+use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 
 /// How many bytes of the hash a digest keeps: enough that two texts of one card never
@@ -25,9 +28,49 @@ pub(crate) fn digest(title: &str, text: &str) -> String {
     digest
 }
 
+/// The document of a card: what the mapping of the index names, and nothing else.
+pub(crate) fn source(document: &SearchDocument) -> Value {
+    json!({
+        "orgId": document.org_id,
+        "workspaceId": document.workspace_id,
+        "containerId": document.container_id,
+        "kind": document.kind.as_str(),
+        "digest": digest(&document.title, &document.text),
+        "title": document.title,
+        "text": document.text,
+    })
+}
+
 #[cfg(test)]
 mod tests {
+    use fvoci_model::SearchKind;
+
     use super::*;
+    use crate::search::index;
+
+    #[test]
+    fn a_document_has_the_members_the_index_maps_and_no_other() {
+        let document = SearchDocument {
+            id: "c".to_owned(),
+            org_id: "o".to_owned(),
+            workspace_id: "w".to_owned(),
+            container_id: "b".to_owned(),
+            kind: SearchKind::Card,
+            title: "제목".to_owned(),
+            text: "본문".to_owned(),
+        };
+        let source = source(&document);
+        let definition = index::definition();
+        let mapped = definition["mappings"]["properties"]
+            .as_object()
+            .expect("properties");
+        for member in source.as_object().expect("an object").keys() {
+            assert!(mapped.contains_key(member), "{member} is mapped");
+        }
+        assert_eq!(source["kind"], "card");
+        assert_eq!(source["containerId"], "b");
+        assert_eq!(source["digest"], digest("제목", "본문"));
+    }
 
     #[test]
     fn a_digest_tells_a_title_and_a_text_from_any_other() {

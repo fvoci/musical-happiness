@@ -265,6 +265,10 @@ impl App {
         let collab = Collab::new(&config.collab)
             .context("unable to find the executable to start the collab workers from")?;
         let search = Search::from_config(&config.search).context("unable to set up the search")?;
+        // From before the first request: what changes is noted for the search server.
+        if search.configured() {
+            store.keep_search_outbox();
+        }
         Ok(Self {
             store,
             ws,

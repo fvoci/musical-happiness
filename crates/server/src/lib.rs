@@ -145,6 +145,7 @@ impl Server {
         app.spawn_background(async move {
             everyone.collab().recover(&everyone).await;
         });
+        search::settle_at_start(&app).await;
         match app.housekeeping().sweep_temporary_files().await {
             Ok(0) => {}
             Ok(removed) => tracing::info!(removed, "removed left-over temporary files"),
@@ -753,7 +754,7 @@ async fn handle_websocket(
         .max_message_size(limit)
         .max_frame_size(limit)
         .on_upgrade(move |socket| async move {
-            app.ws().serve(&app, socket, identity, address).await;
+            Box::pin(app.ws().serve(&app, socket, identity, address)).await;
         })
 }
 

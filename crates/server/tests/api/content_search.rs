@@ -658,8 +658,10 @@ async fn an_index_made_from_another_definition_is_made_again() {
         [
             ("GET".to_owned(), path.clone()),
             ("DELETE".to_owned(), path.clone()),
-            ("PUT".to_owned(), path),
-        ]
+            ("PUT".to_owned(), path.clone()),
+            ("GET".to_owned(), path),
+        ],
+        "described, removed, made, and asked which index it is now"
     );
 }
 

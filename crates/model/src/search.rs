@@ -5,6 +5,8 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
+use crate::BlockType;
+
 /// The kind of thing a search finds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "lowercase")]
@@ -14,6 +16,16 @@ pub enum SearchKind {
 }
 
 impl SearchKind {
+    /// The kind of thing a block of this type is to a search; `None` for a block a
+    /// search never finds: a view, a comment, an attachment.
+    #[must_use]
+    pub fn of_block(block_type: &BlockType) -> Option<Self> {
+        match block_type {
+            BlockType::Card => Some(Self::Card),
+            _ => None,
+        }
+    }
+
     /// The word of the kind, as the API and the index write it.
     #[must_use]
     pub fn as_str(self) -> &'static str {

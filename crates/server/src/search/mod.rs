@@ -3,10 +3,16 @@
 //!
 //! The browser never reaches the search server. The server keeps one index there; a
 //! search asks it for documents of the user's workspace, and then asks the database
-//! about every document that comes back ([`App::search_workspace`]): the index may be
+//! about every document that comes back (`App::search_workspace`): the index may be
 //! behind what is stored, and what it says is never an answer by itself.
 //!
-//! Without `search_url` there is no search of bodies, and nothing stands in for it.
+//! What changes is sent after it is stored: the store notes every change that a
+//! search would find differently, in the transaction that makes it, and the upkeep
+//! ([`tend`]) sends what is stored of what was noted, with the reach of the
+//! housekeeping, as the one server of its database.
+//!
+//! Without `search_url` there is no search of bodies, nothing stands in for it, and
+//! nothing is noted.
 
 mod client;
 mod document;
@@ -14,29 +20,26 @@ mod find;
 mod index;
 mod limit;
 mod query;
+mod upkeep;
+mod worker;
 
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 pub use find::{Asked, AskedError, MAX_LIMIT, MAX_TEXT_CHARS};
+pub use upkeep::{reindex, settle_at_start, tend};
+pub(crate) use upkeep::{start_upkeep, stop_upkeep};
 
-use client::{Client, ClientError, IndexFound};
+use client::{Client, ClientError};
 use limit::Limiter;
 
-use crate::app::App;
 use crate::config::search::SearchSettings;
-use crate::scheduler::RecurringTask;
 
-/// How often the upkeep of the search runs.
-const UPKEEP_INTERVAL: Duration = Duration::from_secs(1);
 /// How long the upkeep leaves a search server that did not answer alone, at first
 /// and at most; doubled with every failure in a row.
 const FIRST_PAUSE: Duration = Duration::from_secs(1);
 /// See [`FIRST_PAUSE`].
 const LONGEST_PAUSE: Duration = Duration::from_secs(60);
-/// How long stopping waits for a run of the upkeep that is under way: a request to a
-/// search server that does not answer is not waited for.
-const STOP_WAIT: Duration = Duration::from_secs(1);
 
 /// The search of bodies, as the server is configured: on a search server, or none.
 #[derive(Debug)]
@@ -73,6 +76,8 @@ struct Pause {
     failures: u32,
     /// Why the last run failed.
     last: Option<ClientError>,
+    /// How many runs in a row found nothing to send.
+    idle_runs: u32,
 }
 
 impl Pause {
@@ -122,6 +127,11 @@ impl Search {
         self.engine().is_some()
     }
 
+    /// Whether the configuration names a search server, whatever became of it.
+    pub(crate) fn configured(&self) -> bool {
+        self.engine.is_some()
+    }
+
     /// The search server, if bodies can be searched.
     fn engine(&self) -> Option<&Engine> {
         self.engine
@@ -144,121 +154,6 @@ impl Engine {
             .lock()
             .expect("the lock of the index state is not poisoned") = state;
     }
-
-    /// Sees that the index is on the search server, made from this server's
-    /// definition: makes it where there is none, and makes it again where it was made
-    /// from another version.
-    async fn ensure_index(&self) -> Result<IndexState, ClientError> {
-        match self.client.describe_index().await? {
-            IndexFound::Ours { version } if version == index::VERSION => Ok(IndexState::Ready),
-            IndexFound::Ours { version } if version > index::VERSION => {
-                tracing::error!(
-                    index = version,
-                    server = index::VERSION,
-                    "the search index was made by a newer server; it is left as it is, \
-                     and bodies are not searched"
-                );
-                Ok(IndexState::Refused)
-            }
-            IndexFound::Ours { version } => {
-                tracing::info!(
-                    from = version,
-                    to = index::VERSION,
-                    "the search index was made from another definition; making it again"
-                );
-                self.client.delete_index().await?;
-                self.client.create_index().await?;
-                Ok(IndexState::Ready)
-            }
-            IndexFound::Absent => {
-                self.client.create_index().await?;
-                tracing::info!("made the search index");
-                Ok(IndexState::Ready)
-            }
-            IndexFound::Foreign => {
-                tracing::error!(
-                    "search_index names an index this server did not make; it is left as \
-                     it is, and bodies are not searched: name another index, or remove it"
-                );
-                Ok(IndexState::Refused)
-            }
-        }
-    }
-}
-
-/// Does the upkeep of the search once, now: what its task does every interval. Until
-/// the index is known to be there, it asks the search server for it, leaving a server
-/// that does not answer alone for a while. The server does it by itself while it
-/// serves; this is for its tests.
-pub async fn tend(app: &App) {
-    let Some(engine) = app.search().engine() else {
-        return;
-    };
-    let mut pause = engine.upkeep.lock().await;
-    if engine.index_state() != IndexState::Unknown || !pause.is_over(Instant::now()) {
-        return;
-    }
-    if let Err(error) = app.require_server_lock() {
-        tracing::warn!(%error, "the search index is not looked after");
-        return;
-    }
-    match engine.ensure_index().await {
-        Ok(state) => {
-            *pause = Pause::default();
-            engine.set_index_state(state);
-        }
-        Err(ClientError::NoNori) => {
-            tracing::error!(
-                "the search server has no nori analysis plugin (analysis-nori): bodies \
-                 are not searched until it is installed there and this server started again"
-            );
-            engine.set_index_state(IndexState::Refused);
-        }
-        Err(error) => {
-            // Said once for a row of the same failure: the next ones say the same.
-            let refused = matches!(error, ClientError::Refused { .. });
-            if pause.failed(Instant::now(), error.clone()) {
-                if refused {
-                    tracing::error!(
-                        %error,
-                        "the search server refused the search index; trying again"
-                    );
-                } else {
-                    tracing::warn!(
-                        %error,
-                        "the search index could not be looked after; trying again"
-                    );
-                }
-            }
-        }
-    }
-}
-
-/// Stops the task of the upkeep, waiting a moment for a run that is under way and no
-/// longer: what a run has not settled is done again by the next server.
-pub(crate) async fn stop_upkeep(task: Option<RecurringTask>) {
-    if let Some(task) = task
-        && tokio::time::timeout(STOP_WAIT, task.cancel())
-            .await
-            .is_err()
-    {
-        tracing::info!("the upkeep of the search was under way when the server stopped");
-    }
-}
-
-/// Starts the task of the search's upkeep ([`tend`]); `None` where no search server
-/// is configured.
-pub(crate) fn start_upkeep(app: &App) -> Option<RecurringTask> {
-    app.search().engine.as_ref()?;
-    let app = app.clone();
-    Some(RecurringTask::spawn_starting_now(
-        "searchUpkeep",
-        UPKEEP_INTERVAL,
-        move || {
-            let app = app.clone();
-            async move { tend(&app).await }
-        },
-    ))
 }
 
 #[cfg(test)]

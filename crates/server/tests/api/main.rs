@@ -96,6 +96,7 @@ mod rooms_review;
 mod rooms_snapshots;
 mod rooms_teams;
 mod search;
+mod search_index;
 mod server_lock;
 mod shared;
 mod shared_blocks;

@@ -14,13 +14,14 @@ use fvoci_model::{
 use serde_json::Value;
 
 use crate::Store;
+use crate::block_derived;
 use crate::boards;
 use crate::card_values::{self, NamedCards};
 use crate::comment_places;
 use crate::comment_versions::{self, EDITED_AT_COLUMN};
 use crate::db::{Id, OptId, Param, Row, Scope, Sql, now_millis};
 use crate::error::StoreError;
-use crate::file_refs::{self, NewImages};
+use crate::file_refs::NewImages;
 
 /// The name of every block column, in the order rows are read and written.
 pub(crate) const BLOCK_COLUMNS: &str = "id, parent_id, created_by, modified_by, \"schema\", type, title, \
@@ -390,7 +391,7 @@ impl Store {
                     )));
                 }
                 let block = get_block(scope, &block_id).await?;
-                file_refs::refresh(scope, &block, NewImages::Recorded).await?;
+                block_derived::refresh(scope, &block, None, NewImages::Recorded).await?;
             }
             Ok(())
         })
@@ -749,7 +750,7 @@ async fn insert_block_at(
             } else {
                 existing.edited_at
             };
-        file_refs::refresh(scope, block, new_images).await?;
+        block_derived::refresh(scope, block, Some(&existing), new_images).await?;
     } else {
         user_id.clone_into(&mut block.created_by);
         block.create_at = now;
@@ -783,7 +784,7 @@ pub(crate) async fn insert_block_row(
     push_body(&mut sql, block.body.as_ref(), BodyColumns::List)?;
     sql.push(")");
     scope.execute(sql).await?;
-    file_refs::refresh(scope, block, new_images).await
+    block_derived::refresh(scope, block, None, new_images).await
 }
 
 /// How [`push_body`] writes the body's columns.
