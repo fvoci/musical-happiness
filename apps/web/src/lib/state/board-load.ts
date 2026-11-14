@@ -13,8 +13,11 @@ export async function readBoard(workspace: Workspace, boardId: string) {
     backend.members(boardId),
   ]);
   if (workspace.info === visit) {
-    void workspace.learnUsers([board.createdBy, ...authorIds(cards)]);
-    void workspace.learnUsers(members.map(memberId), { members: true });
+    // One request for the authors and the members together; only the members are asked again.
+    const memberIds = members.map(memberId);
+    void workspace.learnUsers([board.createdBy, ...authorIds(cards), ...memberIds], {
+      members: memberIds,
+    });
   }
   return [board, views, cards, members] as const;
 }

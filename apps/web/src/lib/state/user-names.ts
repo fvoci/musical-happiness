@@ -9,8 +9,11 @@ export function authorIds(blocks: readonly { createdBy: string; modifiedBy: stri
 export const memberId = (member: { userId: string }): string => member.userId;
 
 export interface Learning {
-  /** The people are members now: one left out earlier in the visit is asked again. */
-  members?: boolean;
+  /**
+   * Who are members now (`true`: all of them; else those listed): one left out earlier in the
+   * visit is asked again.
+   */
+  members?: true | readonly string[];
 }
 
 /**
@@ -36,7 +39,8 @@ export class UserNames {
     this.#pending.set(visit, pending);
     const answered = this.#answered.get(visit) ?? new Set<string>();
     this.#answered.set(visit, answered);
-    if (learning.members) for (const id of userIds) answered.delete(id);
+    const members = learning.members === true ? userIds : (learning.members ?? []);
+    for (const id of members) answered.delete(id);
     const missing = [...new Set(userIds)].filter(
       (id) => id !== '' && !answered.has(id) && !workspace.user(id),
     );
