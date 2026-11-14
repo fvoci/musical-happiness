@@ -439,9 +439,10 @@ struct Moving<'a> {
 }
 
 /// Ties the identity of `binding` to the account of the trier, in the trial's
-/// transaction, where `moving` moves the organization to another issuer, the one the identity is of, and the session the
-/// trial was started from shows that the trier signed in through the provider just
-/// now ([`is_made_just_now`]); and records it as the trier's.
+/// transaction, where `moving` moves the organization to another issuer, the one the
+/// identity is of, and the session the trial was started from shows that the trier
+/// signed in through the provider just now ([`is_made_just_now`]); and records it as
+/// the trier's, with who the identity is.
 async fn bind_to_trier(
     scope: &mut Scope<'_>,
     binding: &Binding<'_>,

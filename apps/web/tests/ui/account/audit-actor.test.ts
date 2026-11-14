@@ -85,8 +85,8 @@ it('says what became of the previous provider, and whose identity was connected'
   );
   const identities = screen.getAllByTestId('audit-identity').map((line) => line.textContent);
   expect(identities).toEqual([
-    'Identity connected: ada@after.example.test',
-    'Identity connected: subject-of-ada',
+    'Identity connected: ada@after.example.test (as the new provider gave it, unchecked)',
+    'Identity connected: subject-of-ada (as the new provider gave it, unchecked)',
   ]);
 });
 

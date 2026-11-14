@@ -118,9 +118,9 @@ impl App {
     /// who started the trial, and the settings applied, if the browser came back
     /// with the session the trial was started from and that session was made through
     /// the provider as it is no more than [`FRESH_SIGN_IN_MILLIS`] before this
-    /// moment: the trial is to come back within them. What decides is read where it is stored
-    /// (`Store::finish_oidc_trial`). No address is compared: who signed in through
-    /// the provider a moment ago is who tries.
+    /// moment: the trial is to come back within them. What decides is read where it
+    /// is stored (`Store::finish_oidc_trial`). No address is compared: who signed in
+    /// through the provider a moment ago is who tries.
     pub(super) async fn bind_by_trial(
         &self,
         claims: &IdClaims,

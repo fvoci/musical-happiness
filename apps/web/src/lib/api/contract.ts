@@ -117,8 +117,8 @@ export interface paths {
          *     provider vouched for, a member of the organization, if the organization lets
          *     newcomers in and no account has their email address; the session comes in the
          *     `Set-Cookie` header. An identity that was tied to an account meanwhile (carried
-         *     over from another browser) signs in to that account, as any sign-in would. The held sign-in is taken by this, whatever comes of it, and
-         *     its cookie cleared.
+         *     over from another browser) signs in to that account, as any sign-in would. The
+         *     held sign-in is taken by this, whatever comes of it, and its cookie cleared.
          *
          *     409 with the reason `oidc_carry_over_refused` if no sign-in of the organization is
          *     held for this browser, or the provider changed since; 409 with the reason a first

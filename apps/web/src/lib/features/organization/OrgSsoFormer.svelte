@@ -1,7 +1,7 @@
 <!--
   The provider the organization moved away from, kept for linking only: nobody
-  signs in through it, but a member the new provider does not know yet signs in
-  through it once to carry their account over. Shown with the moment it ends, and
+  signs in through it, but a member or guest the new provider does not know yet
+  signs in through it once to carry their account over. Shown with the moment it ends, and
   a way to end it sooner.
 -->
 <script lang="ts">
