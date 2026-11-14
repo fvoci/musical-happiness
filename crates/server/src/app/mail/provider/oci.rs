@@ -73,24 +73,23 @@ impl Oci {
         let length = body.len().to_string();
         let hash = STANDARD.encode(Sha256::digest(body.as_bytes()));
         let target = format!("post {PATH}");
-        let authorization = authorization(
-            &self.key,
-            &self.key_id,
-            &[
-                ("date", &date),
-                ("(request-target)", &target),
-                ("host", &self.host),
-                ("content-length", &length),
-                ("content-type", "application/json"),
-                ("x-content-sha256", &hash),
-            ],
-        );
-        let request = self
-            .client
-            .post(&self.url)
-            .header("date", date)
-            .header("content-type", "application/json")
-            .header("x-content-sha256", hash)
+        // What is signed is what is sent: the request target, the host and the length
+        // are the ones reqwest writes.
+        let headers = [
+            ("date", date.as_str()),
+            ("(request-target)", target.as_str()),
+            ("host", self.host.as_str()),
+            ("content-length", length.as_str()),
+            ("content-type", "application/json"),
+            ("x-content-sha256", hash.as_str()),
+        ];
+        let authorization = authorization(&self.key, &self.key_id, &headers);
+        let request = headers
+            .iter()
+            .filter(|(name, _)| !matches!(*name, "(request-target)" | "host" | "content-length"))
+            .fold(self.client.post(&self.url), |request, (name, value)| {
+                request.header(*name, *value)
+            })
             .header("authorization", authorization)
             .body(body);
         match super::send(request).await {

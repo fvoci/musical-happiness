@@ -116,13 +116,18 @@ impl App {
         };
         // The link is made once the message has its turn: its hour starts as it leaves.
         queued
-            .deliver(&self.inner.mail, || async {
-                let link = self.reset_link_for(&user.id).await?;
-                Ok::<_, AppError>(Letter {
-                    to: user.email.clone(),
-                    content: Content::reset(&link, language),
-                })
-            })
+            .deliver(
+                &self.inner.mail,
+                || async {
+                    let link = self.reset_link_for(&user.id).await?;
+                    Ok::<_, AppError>(Letter {
+                        to: user.email.clone(),
+                        content: Content::reset(&link, language),
+                    })
+                },
+                // The link was made for this message, and holds until it is used or ends.
+                || async { Ok(true) },
+            )
             .await?;
         Ok(())
     }

@@ -92,12 +92,16 @@ fn send(mailer: &Mailer, queued: Queued, to: &str) -> tokio::task::JoinHandle<()
     let to = to.to_owned();
     tokio::spawn(async move {
         let written = queued
-            .deliver(&mailer, || async {
-                Ok::<_, ()>(Letter {
-                    to,
-                    content: Content::reset("https://example.test/reset", Language::English),
-                })
-            })
+            .deliver(
+                &mailer,
+                || async {
+                    Ok::<_, ()>(Letter {
+                        to,
+                        content: Content::reset("https://example.test/reset", Language::English),
+                    })
+                },
+                || async { Ok(true) },
+            )
             .await;
         assert!(written.is_ok());
     })
@@ -662,4 +666,31 @@ fn three_busy_organizations_leave_a_fourth_room_and_one_alone_takes_all() {
         Some(InvitationRefusal::QueueFull),
         "the queue, not a share of it"
     );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_message_that_no_longer_stands_is_withdrawn_before_its_next_attempt() {
+    let fake = Fake::new(&[DOWN, Outcome::Sent]);
+    let mailer = mailer_of(&fake, Metrics::none());
+    let stands = std::sync::atomic::AtomicBool::new(true);
+    let queued = invitation(&mailer);
+    let delivering = queued.deliver(
+        &mailer,
+        || async {
+            Ok::<_, ()>(Letter {
+                to: "i@example.test".to_owned(),
+                content: Content::reset("https://example.test/reset", Language::English),
+            })
+        },
+        || async { Ok(stands.load(std::sync::atomic::Ordering::SeqCst)) },
+    );
+    let mut delivering = std::pin::pin!(delivering);
+    // The first attempt finds the way closed; meanwhile its link is revoked.
+    tokio::select! {
+        _ = &mut delivering => panic!("held while the way is closed"),
+        () = tokio::time::sleep(Duration::from_secs(30)) => {}
+    }
+    stands.store(false, std::sync::atomic::Ordering::SeqCst);
+    assert_eq!(delivering.await, Ok(Delivered::Withdrawn));
+    assert_eq!(fake.attempts().len(), 1, "nothing more was sent");
 }

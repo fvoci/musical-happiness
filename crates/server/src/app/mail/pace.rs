@@ -91,6 +91,11 @@ impl Pace {
             .expect("the mail pace is never held across a panic")
     }
 
+    /// Whether the way is closed now.
+    pub(super) fn is_closed(&self) -> bool {
+        self.state().next_probe.is_some()
+    }
+
     /// Waits until a message of `kind` may make an attempt, and takes that turn.
     pub(super) async fn turn(&self, kind: MailKind) {
         let _waiting = (kind == MailKind::PasswordReset).then(|| ResetWaiting::new(self));

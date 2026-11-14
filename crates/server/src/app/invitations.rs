@@ -139,8 +139,9 @@ impl App {
         Ok(invitation)
     }
 
-    /// The live links into the workspace that the user sees: all of them for who
-    /// invites its members, their own for anybody else. The newest first, and none
+    /// The links into the workspace that the user sees (the live ones, and a used one
+    /// while an unused child of it is out): all of them for who invites its members,
+    /// their own for anybody else. The newest first, and none
     /// with its token.
     ///
     /// # Errors
@@ -159,9 +160,9 @@ impl App {
             .await?)
     }
 
-    /// Revokes a live link into the workspace: any of them for who invites its
-    /// members, one of their own for anybody else. The link lets nobody in from then
-    /// on.
+    /// Revokes a link into the workspace that is neither revoked nor ended, used or
+    /// not, with its children nobody used: any of them for who invites its members, one
+    /// of their own for anybody else. The link lets nobody in from then on.
     ///
     /// # Errors
     ///

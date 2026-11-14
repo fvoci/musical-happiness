@@ -36,9 +36,10 @@ const ATTEMPT_TIMEOUT: Duration = Duration::from_secs(10);
 const RETRY_DELAYS: [Duration; 2] = [Duration::from_secs(1), Duration::from_secs(4)];
 /// What a mail semaphore's acquire expects: none is ever closed.
 const CLOSED: &str = "the mail semaphores are never closed";
-/// The longest a message waits for another attempt: a way that asks for longer has its
-/// message given up then, rather than asked again before it said.
-const LONGEST_RETRY_WAIT: Duration = Duration::from_mins(1);
+/// The longest a message waits for another attempt, as long as invitations are held
+/// back at most: a way that asks for longer has its message given up then, rather than
+/// asked again before it said. SES asks to wait up to ten minutes when it throttles.
+const LONGEST_RETRY_WAIT: Duration = Duration::from_mins(15);
 /// The longest a recovery message waits for a closed way to open, from the first of its
 /// attempts the way refused so: a reset link is good for an hour, and the queue's
 /// places are for mail that may still go. Invitations wait as long as it stays closed.
@@ -91,18 +92,18 @@ impl std::fmt::Debug for Mailer {
 
 impl Mailer {
     /// `server_root` is where the links of the mail lead; the way of sending is the one
-    /// `way` reads from the settings (`mail_transport`, or SMTP when `smtp_host` is set).
+    /// `mail` names (`mail_transport`, or SMTP when `smtp_host` is set).
     ///
     /// # Errors
     /// Returns an error for settings that are invalid or cannot make the way.
     pub(super) fn new(
         settings: &SmtpSettings,
-        way: &MailSettings,
+        mail: &MailSettings,
         server_root: &str,
         metrics: Metrics,
     ) -> anyhow::Result<Self> {
         settings.check()?;
-        let way = way.way(settings)?;
+        let way = mail.way(settings)?;
         if way.is_some() && is_loopback_root(server_root) {
             tracing::warn!(
                 server_root,
@@ -268,18 +269,21 @@ impl Queued {
     /// Attempts follow the way's [`Outcome`]: up to three while it asks for later, one
     /// when it refuses; while the way is closed, the message waits for the pace's next
     /// attempt at it, which counts against none of the three (a recovery message for
-    /// up to [`LONGEST_PATH_WAIT`]). What became of the message is logged and counted here,
+    /// up to [`LONGEST_PATH_WAIT`]). Each attempt after the first asks `still` whether the
+    /// message stands, and stops if not. What became of the message is logged and counted here,
     /// without a reply text, an address or a token.
     ///
     /// # Errors
     /// Returns what `write` returned.
-    pub(super) async fn deliver<E, Writing>(
+    pub(super) async fn deliver<E, Writing, Checking>(
         self,
         mailer: &Mailer,
         write: impl FnOnce() -> Writing,
+        mut still: impl FnMut() -> Checking,
     ) -> Result<Delivered, E>
     where
         Writing: Future<Output = Result<Letter, E>>,
+        Checking: Future<Output = Result<bool, E>>,
     {
         let Some(outbound) = mailer.outbound.as_ref() else {
             tracing::warn!("a message was queued while outgoing mail is disabled");
@@ -294,6 +298,13 @@ impl Queued {
             closed_since: None,
         };
         for attempt in 1.. {
+            // A recovery message's quarter of an hour starts when it first waits for a
+            // closed way, whether or not an attempt of its own found it so.
+            if kind == MailKind::PasswordReset && mailer.pace.is_closed() {
+                tried
+                    .closed_since
+                    .get_or_insert_with(tokio::time::Instant::now);
+            }
             // An invitation's sendings first, its organization's and the invitations':
             // they keep waiting only invitations, and an invitation that has its turn
             // has them, so it neither spends a turn waiting nor uses one after a pause.
@@ -311,6 +322,17 @@ impl Queued {
             }
             let sending = mailer.sending(held).await;
             let message: &Outgoing = if let Some(ref message) = message {
+                // What it was written of may have changed while it waited (a closed way
+                // holds an invitation for as long as it stays closed).
+                if !still().await? {
+                    delivered = Delivered::Withdrawn;
+                    tracing::info!(
+                        kind = kind.as_str(),
+                        attempt,
+                        "mail withdrawn: it no longer stands"
+                    );
+                    break;
+                }
                 message
             } else {
                 let write = write
@@ -452,6 +474,9 @@ pub(super) enum Delivered {
     Refused,
     /// The way asked for later at every attempt, or for longer than it may wait.
     GivenUp,
+    /// Its next attempt found that it no longer stands (its link revoked or ended,
+    /// its sender no longer allowed): nothing more was sent.
+    Withdrawn,
     /// Nothing was sent: mail is off.
     Unwritten,
 }

@@ -61,11 +61,17 @@ async fn mail_smoke_one_invitation_leaves_through_the_way_of_the_environment() {
         )
         .await
         .check_no_content();
-    assert!(
-        th.app.finish_background(Duration::from_secs(60)).await,
-        "the message is sent or given up within a minute"
-    );
+    let finished = th.app.finish_background(Duration::from_secs(60)).await;
     let body = scrape(&th).await;
+    assert_eq!(
+        sample(&body, "fvoci_mail_path_down", &[]),
+        Some(0.0),
+        "{transport}: the way refuses the keys or cannot be reached (the log says the code)"
+    );
+    assert!(
+        finished,
+        "{transport}: the message is neither sent nor given up within a minute"
+    );
     for class in ["permanent", "temporary"] {
         assert_eq!(
             sample(
@@ -77,11 +83,6 @@ async fn mail_smoke_one_invitation_leaves_through_the_way_of_the_environment() {
             "{transport}: nothing was given up ({class}); the log says the code"
         );
     }
-    assert_eq!(
-        sample(&body, "fvoci_mail_path_down", &[]),
-        Some(0.0),
-        "{transport}: the way took the keys"
-    );
     eprintln!("{transport}: the invitation left for the recipient");
     th.teardown().await;
 }

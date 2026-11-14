@@ -250,8 +250,9 @@ impl Store {
         .await
     }
 
-    /// The live links into a workspace of the handle's organization at `now`, the
-    /// newest first: all of them, or those `created_by` made.
+    /// The links into a workspace of the handle's organization listed at `now` (the
+    /// live ones, and a used one while an unused child of it is live), the newest
+    /// first: all of them, or those `created_by` made.
     ///
     /// # Errors
     ///
@@ -280,8 +281,9 @@ impl Store {
         .await
     }
 
-    /// Revokes a live link into a workspace of the handle's organization, any of them
-    /// or one `created_by` made; says whether there was such a link. A revoked link
+    /// Revokes a link into a workspace of the handle's organization that is neither
+    /// revoked nor ended, used or not, any of them or one `created_by` made; says
+    /// whether there was such a link. A revoked link
     /// lets nobody in from then on, and nor do the links made like it for the
     /// recipients of its mail that nobody used yet, whoever made them.
     ///

@@ -188,50 +188,67 @@ impl App {
         let requested = Language::written_in(&request.language);
         let root = self.config().server_root.trim_end_matches('/');
         for (recipient, place) in request.recipients.into_iter().zip(queued) {
-            // The guest link made for this recipient, if one was.
-            let mut made = None;
+            // The guest link made for this recipient, if one was: its identifier and
+            // its token.
+            let made: std::sync::Mutex<Option<(String, String)>> = std::sync::Mutex::default();
             let delivered = place
-                .deliver(&self.inner.mail, || async {
-                    // Permissions and expiry may have changed while this waited its turn.
-                    let invitation = self
-                        .invitation_for_mail(workspace_id, sender, &request.token)
-                        .await?;
-                    let recipient_language = match self.store().get_user_by_email(&recipient).await
-                    {
-                        Ok(user) => Language::written_in(
-                            self.user_settings(&user.id).await?.language.as_str(),
-                        ),
-                        Err(error) if error.is_not_found() => None,
-                        Err(error) => return Err(AppError::from(error)),
-                    };
-                    let language =
-                        Language::first_of([recipient_language, sender_language, requested]);
-                    let token = match invitation.role {
-                        // A guest link lets one person in once: each recipient has their
-                        // own, made by the sender as their message leaves.
-                        WorkspaceRole::Guest => {
-                            let link = self
-                                .guest_link_like(&invitation, sender, &recipient)
-                                .await?;
-                            made = Some(link.id);
-                            link.token
-                                .ok_or_else(|| AppError::internal("a new link without its token"))?
-                        }
-                        // Members share the one link.
-                        _ => request.token.clone(),
-                    };
-                    let link = format!("{root}/invite/{token}");
-                    Ok(Letter {
-                        content: Content::invitation(&link, language, invitation.role),
-                        to: recipient,
-                    })
-                })
+                .deliver(
+                    &self.inner.mail,
+                    || async {
+                        // Permissions and expiry may have changed while this waited its turn.
+                        let invitation = self
+                            .invitation_for_mail(workspace_id, sender, &request.token)
+                            .await?;
+                        let recipient_language =
+                            match self.store().get_user_by_email(&recipient).await {
+                                Ok(user) => Language::written_in(
+                                    self.user_settings(&user.id).await?.language.as_str(),
+                                ),
+                                Err(error) if error.is_not_found() => None,
+                                Err(error) => return Err(AppError::from(error)),
+                            };
+                        let language =
+                            Language::first_of([recipient_language, sender_language, requested]);
+                        let token = match invitation.role {
+                            // A guest link lets one person in once: each recipient has their
+                            // own, made by the sender as their message leaves.
+                            WorkspaceRole::Guest => {
+                                let link = self
+                                    .guest_link_like(&invitation, sender, &recipient)
+                                    .await?;
+                                let token = link.token.ok_or_else(|| {
+                                    AppError::internal("a new link without its token")
+                                })?;
+                                *made
+                                    .lock()
+                                    .expect("the link made is never held across a panic") =
+                                    Some((link.id, token.clone()));
+                                token
+                            }
+                            // Members share the one link.
+                            _ => request.token.clone(),
+                        };
+                        let link = format!("{root}/invite/{token}");
+                        Ok(Letter {
+                            content: Content::invitation(&link, language, invitation.role),
+                            to: recipient,
+                        })
+                    },
+                    // A message held a while (a closed way) goes only while what it was written
+                    // of stands: its link, and who may send it.
+                    || self.invitation_mail_stands(workspace_id, sender, &request.token, &made),
+                )
                 .await?;
             // Nobody holds the link of a message refused for good or given up: it goes
             // with it, and the sender may mail the link again. A failure here is logged;
             // the other recipients are still sent theirs.
-            if matches!(delivered, Delivered::Refused | Delivered::GivenUp)
-                && let Some(id) = made
+            let made = made
+                .into_inner()
+                .expect("the link made is never held across a panic");
+            if matches!(
+                delivered,
+                Delivered::Refused | Delivered::GivenUp | Delivered::Withdrawn
+            ) && let Some((id, _)) = made
             {
                 match self
                     .store()
@@ -253,6 +270,39 @@ impl App {
             }
         }
         Ok(())
+    }
+
+    /// Whether an invitation message written a while ago still stands: the link it was
+    /// mailed of is neither revoked nor ended and its sender may still send it, and the
+    /// guest link made for its recipient, if one was, is live still.
+    ///
+    /// # Errors
+    /// Returns what failed other than a refusal.
+    async fn invitation_mail_stands(
+        &self,
+        workspace_id: &str,
+        sender: &str,
+        token: &str,
+        made: &std::sync::Mutex<Option<(String, String)>>,
+    ) -> Result<bool, AppError> {
+        match self.invitation_for_mail(workspace_id, sender, token).await {
+            Ok(_) => {}
+            Err(error) if error.is_refusal() => return Ok(false),
+            Err(error) => return Err(error),
+        }
+        let child = made
+            .lock()
+            .expect("the link made is never held across a panic")
+            .as_ref()
+            .map(|(_, token)| token_digest(token));
+        let Some(child) = child else {
+            return Ok(true);
+        };
+        Ok(self
+            .store()
+            .live_invitation(&child, now_millis())
+            .await?
+            .is_some())
     }
 
     /// A new one-use guest link like `invitation` (its board, its role on it and its

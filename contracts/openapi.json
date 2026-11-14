@@ -9156,7 +9156,7 @@
     },
     "/api/v1/w/{workspaceId}/invitations": {
       "get": {
-        "description": "The links into the workspace that are not ended, not used as often as they may be\nand not revoked. One of them may let nobody in all the same, while who made it may\nnot invite as they did: it is listed, so that it can be revoked. Its\nadministrators get all of them, anybody else\nwho works there the links they made themselves. No link comes with its token, which\nwas told when it was made. The newest first.\n\nA guest of the workspace is told that it is not there (404).",
+        "description": "The links into the workspace that are not ended, not used as often as they may be\nand not revoked, and a used one while a guest link made like it for one recipient of\nits mail (`parentId`) is still out, unused. One of them may let nobody in all the same, while who made it may\nnot invite as they did: it is listed, so that it can be revoked. Its\nadministrators get all of them, anybody else\nwho works there the links they made themselves. No link comes with its token, which\nwas told when it was made. The newest first.\n\nA guest of the workspace is told that it is not there (404).",
         "operationId": "getInvitations",
         "parameters": [
           {
@@ -9299,7 +9299,7 @@
     },
     "/api/v1/w/{workspaceId}/invitations/{invitationId}": {
       "delete": {
-        "description": "The link lets nobody in from now on. The workspace's administrators revoke any link\ninto it, anybody else who works there the links they made themselves. A link that\nis not there, that no longer lets anybody in, or that is not the user's to revoke\nis 404, the same for each.\n\nA guest of the workspace is told that it is not there (404).",
+        "description": "The link lets nobody in from now on, nor do the guest links made like it for the\nrecipients of its mail that nobody used yet. The workspace's administrators revoke\nany link into it, anybody else who works there the links they made themselves. A\nlink that is not there, that is revoked or ended already, or that is not the user's\nto revoke is 404, the same for each; a used link that has not ended is revoked.\n\nA guest of the workspace is told that it is not there (404).",
         "operationId": "revokeInvitation",
         "parameters": [
           {

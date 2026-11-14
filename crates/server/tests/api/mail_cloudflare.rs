@@ -119,7 +119,7 @@ async fn cloudflares_answers_sort_the_attempts() {
 
     // Throttled for longer than another attempt may wait: given up at once, which only
     // the answer's Retry-After can have said.
-    fake.answer_next_after(429, 120).await;
+    fake.answer_next_after(429, 3600).await;
     request_reset(&th).await;
     let body = scrape_until(&th, |body| failed(body, "temporary") == Some(1.0)).await;
     assert_eq!(failed(&body, "temporary"), Some(1.0), "{body}");
