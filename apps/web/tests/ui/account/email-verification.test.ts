@@ -246,6 +246,31 @@ describe('the page of the confirmation link', () => {
     });
   });
 
+  it('says what became of a registration that a right password found gone, without a form', async () => {
+    const onPassword = vi.fn();
+    const { rerender } = render(VerifyEmailPage, {
+      confirming: Promise.reject(new BackendError(403, { reason: 'password_required' })),
+      homeHref: '/',
+      resend: vi.fn(),
+      onPassword,
+    });
+    await fireEvent.input(await screen.findByLabelText('Password'), {
+      target: { value: 'the password' },
+    });
+    await fireEvent.submit(screen.getByTestId('verify-password-form'));
+    // The password was right: the registration's link lets nobody in, and it is removed.
+    await rerender({
+      confirming: Promise.reject(
+        new BackendError(404, { reason: 'invitation_unavailable', detail: 'x' }),
+      ),
+    });
+    expect(await screen.findByTestId('verify-problem')).toHaveTextContent(
+      'This invite link cannot be used',
+    );
+    expect(screen.queryByTestId('verify-password-form')).toBeNull();
+    expect(screen.queryByTestId('verify-request-form')).toBeNull();
+  });
+
   it('says an invitation that lets nobody in any more is so, without a form', async () => {
     const complete = vi.fn(() =>
       Promise.reject(new BackendError(404, { reason: 'invitation_unavailable', detail: 'x' })),

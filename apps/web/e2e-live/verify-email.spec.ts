@@ -156,6 +156,12 @@ test('in another browser the link asks for the password the registration was mad
   await expect(reader.getByTestId('verify-password-intro')).toContainText(
     '가입한 브라우저가 아닙니다',
   );
+  // At a phone's width, nothing is wider than the screen.
+  await reader.setViewportSize({ width: 390, height: 844 });
+  expect(
+    await reader.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+  ).toBe(true);
+  await reader.setViewportSize({ width: 1280, height: 720 });
   expect((await reader.request.get('/api/v1/users/me')).status()).toBe(401);
   await verifyShot(reader, 'password-asked-ko');
   await reader.getByLabel('비밀번호').fill('not the password');

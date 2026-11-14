@@ -3857,7 +3857,7 @@ export interface components {
              *     another browser than the one the registration was made from, and not read in
              *     that one.
              */
-            password: string;
+            password?: string;
             /** @description The secret from the confirmation link's fragment. */
             token: string;
         };
@@ -5549,7 +5549,7 @@ export interface operations {
                     "application/json": components["schemas"]["EmailVerified"];
                 };
             };
-            /** @description Too many requests from where this one comes from. */
+            /** @description Too many requests from where this one comes from, or too many wrong passwords at the registration's user name. */
             429: {
                 headers: {
                     /** @description How many seconds to wait before trying again. */

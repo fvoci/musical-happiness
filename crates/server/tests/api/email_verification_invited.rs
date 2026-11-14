@@ -396,5 +396,26 @@ async fn a_registration_by_a_link_is_finished_by_who_made_it_only() {
     refused.check_status(StatusCode::NOT_FOUND);
     assert_eq!(refused.error_reason(), "invitation_unavailable");
     assert!(!waits().await, "told to its registrant, and removed");
+
+    // By a link that still lets in, the browser that accepted joins at once.
+    let link = scene.link(Role::Member).await;
+    let answer = scene
+        .accept(
+            link.token.as_deref().expect("its token"),
+            "vito",
+            "vito@example.test",
+        )
+        .await;
+    answer.check_status(StatusCode::ACCEPTED);
+    let marker = marker_of(&answer).expect("a marker");
+    let token = link_token(&scene.sent().await.pop().expect("its mail"));
+    let joined = complete_with_marker(&scene.th, &token, &marker).await;
+    joined.check_status(StatusCode::OK);
+    assert_eq!(joined.value()["workspaceId"], scene.workspace_id.as_str());
+    assert_eq!(
+        marker_of(&joined).as_deref(),
+        Some(""),
+        "the marker is done"
+    );
     scene.stop().await;
 }

@@ -555,18 +555,45 @@ impl App {
             .login_limiter()
             .admit_login(&[&user.username], address, Instant::now())
             .map_err(|RetryAfter(wait)| AppError::rate_limited(wait))?;
-        let right = password.len() <= MAXIMUM_PASSWORD_BYTES
-            && self.verify(&user.password_hash, password).await? != Verdict::Mismatch;
-        if !right {
+        let known = Known {
+            username: &user.username,
+            password_hash: &user.password_hash,
+        };
+        if !self.is_password_of(known, password, attempt).await? {
             tracing::debug!(user_id = %user.id, "invalid password for user");
-            attempt.failed(Instant::now());
             return Err(AppError::bad_request(wrong.words)
                 .with_reason(Reason::InvalidCredentials)
                 .with_field(wrong.field));
         }
-        attempt.succeeded(&user.username);
         Ok(())
     }
+
+    /// Whether `password` is the one of `known`, which ends `attempt`, admitted at its
+    /// name: a wrong one is a failure at the name, a right one ends the failures there.
+    pub(super) async fn is_password_of(
+        &self,
+        known: Known<'_>,
+        password: &str,
+        attempt: crate::auth::limiter::Attempt,
+    ) -> Result<bool, AppError> {
+        let right = password.len() <= MAXIMUM_PASSWORD_BYTES
+            && self.verify(known.password_hash, password).await? != Verdict::Mismatch;
+        if right {
+            attempt.succeeded(known.username);
+        } else {
+            attempt.failed(Instant::now());
+        }
+        Ok(right)
+    }
+}
+
+/// Whose password is asked for: an account's, or a registration's that waits.
+#[derive(Clone, Copy)]
+pub(super) struct Known<'a> {
+    /// The name its failed attempts are counted at.
+    pub(super) username: &'a str,
+    /// An Argon2id PHC string.
+    pub(super) password_hash: &'a str,
 }
 
 /// What a login looks a user up by.
@@ -667,7 +694,7 @@ impl App {
             .map_err(|error| AppError::internal(format_args!("{error}")))
     }
 
-    pub(super) async fn verify(&self, hash: &str, password: &str) -> Result<Verdict, AppError> {
+    async fn verify(&self, hash: &str, password: &str) -> Result<Verdict, AppError> {
         let (hash, password) = (hash.to_owned(), password.to_owned());
         self.password_work(move || verify_password(&hash, &password))
             .await

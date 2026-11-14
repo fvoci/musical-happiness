@@ -208,11 +208,19 @@ mod tests {
                 content.plain
             );
             assert!(content.html.contains("a&lt;b"), "escaped: {}", content.html);
-            let unasked = match language {
-                Language::English => "If you did not sign up, ignore this message",
-                Language::Korean => "가입한 적이 없으면 이 메일을 무시하면 됩니다",
+            let said = match language {
+                Language::English => [
+                    "In another browser than the one you signed up in, it asks for the password you chose.",
+                    "If you did not sign up, ignore this message",
+                ],
+                Language::Korean => [
+                    "가입한 브라우저가 아닌 곳에서 열면 가입할 때 정한 비밀번호를 묻습니다.",
+                    "가입한 적이 없으면 이 메일을 무시하면 됩니다",
+                ],
             };
-            assert!(content.plain.contains(unasked), "{}", content.plain);
+            for sentence in said {
+                assert!(content.plain.contains(sentence), "{}", content.plain);
+            }
             assert!(
                 content
                     .html

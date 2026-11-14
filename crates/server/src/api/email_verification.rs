@@ -145,7 +145,7 @@ async fn request(
         ),
         (
             status = 429,
-            description = "Too many requests from where this one comes from.",
+            description = "Too many requests from where this one comes from, or too many wrong passwords at the registration's user name.",
             body = fvoci_model::Problem,
             content_type = "application/problem+json",
             headers(("Retry-After" = u64, description = "How many seconds to wait before trying again.")),

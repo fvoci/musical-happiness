@@ -594,7 +594,7 @@ fn mailed_to(invitation: &Invitation, email: &str) -> bool {
 }
 
 /// Where an acceptance let somebody in, or that it waits for an address.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum Admission {
     /// Somebody was let in, here.
     LetIn(AcceptedInvitation),

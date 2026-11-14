@@ -168,6 +168,28 @@ async fn the_marker_is_a_cookie_of_the_browser_that_opens_nothing() {
         cookie.ends_with("; Path=/; HttpOnly; SameSite=Lax; Secure"),
         "{cookie}"
     );
+    // That name is the one read back, and no other; and the one cleared.
+    let pair = cookie.split_once(';').expect("attributes").0;
+    let token = link_token(&smtp.received(1).await[0]);
+    let complete = |cookie: String| {
+        let request = th
+            .anonymous()
+            .request(Method::POST, COMPLETE)
+            .header("Cookie", cookie)
+            .json(&json!({"token": token}));
+        Client::send(request)
+    };
+    let plain = pair.replacen("__Host-fvoci_signup", SIGNUP_COOKIE, 1);
+    check_password_asked(&complete(plain).await);
+    let confirmed = complete(pair.to_owned()).await;
+    confirmed.check_status(StatusCode::OK);
+    assert!(
+        confirmed
+            .set_cookies()
+            .contains(&"__Host-fvoci_signup=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax; Secure"),
+        "{:?}",
+        confirmed.set_cookies()
+    );
     th.teardown().await;
     smtp.stop().await;
 }
@@ -307,6 +329,9 @@ async fn a_link_opened_from_an_address_takes_one_turn_of_it() {
         .configure(|config| {
             config.mail.email_verification = true;
             config.trusted_proxies = vec!["127.0.0.1".to_owned()];
+            config.login_pair_free_failures = 1;
+            config.login_pair_base_delay_seconds = 30;
+            config.login_address_attempts_per_minute = 4;
         })
         .start()
         .await;
@@ -315,21 +340,49 @@ async fn a_link_opened_from_an_address_takes_one_turn_of_it() {
         .await
         .check_status(StatusCode::ACCEPTED);
     let token = link_token(&smtp.received(1).await[0]);
-    let from = |body: serde_json::Value| {
+    let from = |address: &'static str, body: serde_json::Value| {
         let request = th
             .anonymous()
             .request(Method::POST, COMPLETE)
-            .header("X-Forwarded-For", "203.0.113.7")
+            .header("X-Forwarded-For", address)
             .json(&body);
         Client::send(request)
     };
-    check_password_asked(&from(json!({"token": token})).await);
-    from(json!({"token": token, "password": "a guess"}))
+    let guesser = "203.0.113.7";
+    check_password_asked(&from(guesser, json!({"token": token})).await);
+    // One failure is free; after the next the address waits at the name, as after
+    // failed logins: also with the right password.
+    for _ in 0..2 {
+        from(guesser, json!({"token": token, "password": "a guess"}))
+            .await
+            .check_status(StatusCode::UNAUTHORIZED);
+    }
+    let waits = from(
+        guesser,
+        json!({"token": token, "password": SIGNUP_PASSWORD}),
+    )
+    .await;
+    waits.check_status(StatusCode::TOO_MANY_REQUESTS);
+    assert!(
+        waits
+            .header("retry-after")
+            .parse::<u64>()
+            .is_ok_and(|wait| wait > 1),
+        "the wait at the name, not a busy address: {}",
+        waits.text()
+    );
+    // Each of the four took one turn of the address's four a minute, and no more: the
+    // fifth is one too many.
+    from(guesser, json!({"token": token}))
         .await
-        .check_status(StatusCode::UNAUTHORIZED);
-    from(json!({"token": token, "password": SIGNUP_PASSWORD}))
-        .await
-        .check_status(StatusCode::OK);
+        .check_status(StatusCode::TOO_MANY_REQUESTS);
+    // Another address is not held by that, and the link was not used.
+    from(
+        "203.0.113.8",
+        json!({"token": token, "password": SIGNUP_PASSWORD}),
+    )
+    .await
+    .check_status(StatusCode::OK);
     th.teardown().await;
     smtp.stop().await;
 }

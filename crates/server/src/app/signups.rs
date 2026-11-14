@@ -10,18 +10,17 @@
 use std::net::IpAddr;
 use std::time::Instant;
 
-use fvoci_model::{MAXIMUM_PASSWORD_BYTES, RegisterRequest, Session, User, new_id};
+use fvoci_model::{RegisterRequest, Session, User, new_id};
 use fvoci_store::{
     Accepted, Confirmed, Founding, InvitedConfirmation, Proof, SIGNUP_LIFETIME_MILLIS, Signup,
     SignupStart, StoreError,
 };
 
 use super::App;
-use super::auth::{account_error, incorrect_login};
+use super::auth::{Known, account_error, incorrect_login};
 use super::mail::{Content, Language, Letter};
 use crate::auth::limiter::RetryAfter;
 use crate::auth::now_millis;
-use crate::auth::password::Verdict;
 use crate::auth::secret::{new_secret, token_digest};
 use crate::collab::AccessScope;
 use crate::error::{AppError, Reason};
@@ -242,13 +241,12 @@ impl App {
         let turn = self.admit_registration(address)?;
         let digest = token_digest(token);
         let proof = Proof::Link(&digest);
-        let now = now_millis();
         let link_refused = || {
             AppError::bad_request("the confirmation link is invalid or expired").with_field("token")
         };
         let signup = self
             .store()
-            .signup_of(proof, now)
+            .signup_of(proof, now_millis())
             .await?
             .ok_or_else(link_refused)?;
         let made_here = registrant
@@ -257,20 +255,31 @@ impl App {
         // Nothing of the registration is touched before its registrant is known: what
         // confirming finds (a link that lets nobody in, a server that has its first
         // user) removes it.
-        let _turn = if made_here {
-            Some(turn)
-        } else {
+        if !made_here {
             if registrant.password.is_empty() {
                 return Err(password_required());
             }
-            // The check is a login's, which takes the address's turn itself.
-            drop(turn);
-            self.check_password_of(&signup, registrant.password, address)
-                .await?;
-            None
-        };
+            // The same turn of the address, now an attempt at the password of the
+            // registration's name, as a login's is.
+            let attempt = turn
+                .at_account(&signup.username, Instant::now())
+                .map_err(|RetryAfter(wait)| AppError::rate_limited(wait))?;
+            let known = Known {
+                username: &signup.username,
+                password_hash: &signup.password_hash,
+            };
+            if !self
+                .is_password_of(known, registrant.password, attempt)
+                .await?
+            {
+                tracing::debug!(signup_id = %signup.id, "invalid password for a registration");
+                return Err(incorrect_login());
+            }
+        }
+        // Read again: checking a password takes a while, and a link that ended
+        // meanwhile confirms nothing.
         let confirmed = self
-            .confirm(&signup, proof, now)
+            .confirm(&signup, proof, now_millis())
             .await?
             .ok_or_else(link_refused)?;
         let session_token = new_secret();
@@ -303,30 +312,6 @@ impl App {
             confirmed,
             made_here,
         })
-    }
-
-    /// Checks the password a registration was made with, given with its link from
-    /// another browser than its own: counted as a login to its user name from
-    /// `address` is, and refused as one.
-    async fn check_password_of(
-        &self,
-        signup: &Signup,
-        password: &str,
-        address: Option<IpAddr>,
-    ) -> Result<(), AppError> {
-        let attempt = self
-            .login_limiter()
-            .admit_login(&[&signup.username], address, Instant::now())
-            .map_err(|RetryAfter(wait)| AppError::rate_limited(wait))?;
-        let right = password.len() <= MAXIMUM_PASSWORD_BYTES
-            && self.verify(&signup.password_hash, password).await? != Verdict::Mismatch;
-        if !right {
-            tracing::debug!(signup_id = %signup.id, "invalid password for a registration");
-            attempt.failed(Instant::now());
-            return Err(incorrect_login());
-        }
-        attempt.succeeded(&signup.username);
-        Ok(())
     }
 
     /// Confirms the registration with the user name `username`, in any letter case, on
@@ -486,7 +471,7 @@ impl App {
 /// as long as the registration waits: no session, and nothing is reached by it. It
 /// shows the browser to be the registrant's, where the link of the mail confirms the
 /// registration at once. The store has its digest only.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone)]
 pub struct SignupMarker(String);
 
 impl SignupMarker {
@@ -535,7 +520,6 @@ impl std::fmt::Debug for Registrant<'_> {
 }
 
 /// A confirmed registration, signed in.
-#[derive(Clone)]
 pub struct ConfirmedSignup {
     /// The token of the new session.
     pub session_token: String,

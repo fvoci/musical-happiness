@@ -310,6 +310,30 @@ async fn a_server_that_does_not_ask_registers_and_answers_as_it_did() {
         Vec::<&str>::new(),
         "no marker where nothing waits"
     );
+    // Nor from an acceptance that makes its account at once.
+    let fern = th.login("fern", SIGNUP_PASSWORD).await;
+    let workspaces: Vec<fvoci_model::UserWorkspace> =
+        fern.get("/users/me/workspaces").await.ok_json();
+    let link: fvoci_model::Invitation = fern
+        .post(
+            &format!("/w/{}/invitations", workspaces[0].id),
+            &json!({"role": "member"}),
+        )
+        .await
+        .created_json();
+    let accepted = th
+        .anonymous()
+        .post(
+            "/invitations/accept",
+            &json!({"token": link.token, "account": {
+                "username": "finn",
+                "email": "finn@example.test",
+                "password": SIGNUP_PASSWORD,
+            }}),
+        )
+        .await;
+    accepted.check_status(StatusCode::OK);
+    assert_eq!(accepted.set_cookies(), Vec::<&str>::new(), "no marker");
     th.anonymous()
         .login("fern", "Pa$$word-1")
         .await

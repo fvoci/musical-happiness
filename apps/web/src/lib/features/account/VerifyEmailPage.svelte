@@ -62,11 +62,16 @@
   /**
    * Whether the link would confirm, and the server wants the password of the
    * registration with it: asked for the first time, or again after one that
-   * was refused or got no answer.
+   * was wrong, one too many, or got no answer. Any other refusal of a password
+   * that was sent is of the registration itself, which is gone by then.
    */
   function passwordWanted(error: unknown): boolean {
-    if (isBackendError(error) && error.reason === 'password_required') return true;
-    return passwordSent && !linkRefused(error);
+    if (!isBackendError(error)) return passwordSent && error !== NO_TOKEN;
+    if (error.reason === 'password_required') return true;
+    return (
+      passwordSent &&
+      (error.reason === 'invalid_credentials' || error.status === 429 || error.status === 0)
+    );
   }
 
   /** What is wrong with the password that was sent; nothing before one was. */

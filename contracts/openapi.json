@@ -1290,7 +1290,6 @@
           }
         },
         "required": [
-          "password",
           "token"
         ],
         "type": "object"
@@ -4750,7 +4749,7 @@
                 }
               }
             },
-            "description": "Too many requests from where this one comes from.",
+            "description": "Too many requests from where this one comes from, or too many wrong passwords at the registration's user name.",
             "headers": {
               "Retry-After": {
                 "description": "How many seconds to wait before trying again.",

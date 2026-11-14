@@ -440,9 +440,10 @@ fn flow_cookie(app: &App, secret: &str, max_age_seconds: i64) -> HeaderValue {
     browser_cookie(app, flow_cookie_name(app), secret, max_age_seconds)
 }
 
-/// A cookie that ties a sign-in to this browser: not readable by scripts, sent along
-/// with the browser's return from the provider (a top-level navigation, which
-/// `SameSite=Lax` lets through), for the whole host as the `__Host-` prefix wants.
+/// A cookie that ties a sign-in, or a registration that waits, to this browser: not
+/// readable by scripts, sent along with the browser's return from the provider (a
+/// top-level navigation, which `SameSite=Lax` lets through), for the whole host as the
+/// `__Host-` prefix wants.
 pub(super) fn browser_cookie(
     app: &App,
     name: &str,
