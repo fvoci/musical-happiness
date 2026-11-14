@@ -135,27 +135,35 @@ describe('the versions of a body, in memory', () => {
     theirs.close();
   });
 
-  it('keeps nothing as one who wrote leaves while another who wrote stays', async () => {
+  it('keeps what two wrote as the last of them leaves, and not as the first does, with one in the room who wrote nothing', async () => {
     const { world: stored, BOARD, backend, other, cardId, me, them } = world();
+    const idleId = [...stored.users.keys()].find((id) => id !== me && id !== them);
+    if (!idleId) throw new Error('the seed has two people only');
+    await backend.setMemberRole(BOARD, idleId, 'editor');
     const versions = backend.bodyVersions;
     const mine = backend.openDoc('w', BOARD, cardId, hears());
     const theirs = other.openDoc('w', BOARD, cardId, hears());
+    const idle = backend.as(idleId).openDoc('w', BOARD, cardId, hears());
+    await joined(idle);
     await type(mine, 'one');
     await type(theirs, 'two', ['one']);
     mine.close();
     await vi.waitFor(() => {
-      expect(roomsOf(stored).members(cardId)).toBe(1);
+      expect(roomsOf(stored).members(cardId)).toBe(2);
     });
     expect(await versions.list(BOARD, cardId)).toHaveLength(1);
     theirs.close();
     await vi.waitFor(async () => {
       expect(await versions.list(BOARD, cardId)).toHaveLength(2);
     });
+    // Kept by the leaving, not by the room's closing: one is still in it.
+    expect(roomsOf(stored).members(cardId)).toBe(1);
     expect((await versions.list(BOARD, cardId))[0]).toMatchObject({
       version: 2,
       editors: [me, them].sort(),
       isCurrent: true,
     });
+    idle.close();
   });
 
   it('keeps a version as the room writes the card once the body has been written on for the period', async () => {

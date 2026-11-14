@@ -239,9 +239,10 @@ struct Turn {
     members: Vec<Member>,
     /// The room is no longer among the rooms: who waited for it looks again.
     closed: bool,
-    /// The room took an update since it last kept what its writers typed as a version
-    /// of the card's body.
-    typed: bool,
+    /// The users whose updates the room took since it last had what was typed kept
+    /// as a version of the card's body: when one of them is in the room to write no
+    /// more, the room asks for it.
+    typed: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -827,7 +828,9 @@ impl Collab {
                 // Told whatever waits for the sender: the update is logged, and is
                 // sent on to the others also if the sender is put out for its queue.
                 turn.answer(connection, doc, messages::ack(doc, epoch, taken.seq));
-                turn.typed = true;
+                if !turn.typed.contains(&connection.user_id) {
+                    turn.typed.push(connection.user_id.clone());
+                }
                 if taken.remade {
                     // The update is in the body the document was made again from.
                     // If it cannot be opened for now, the room's task hears of the
@@ -937,26 +940,34 @@ impl Collab {
 
     /// Closes a held room that nobody is in: its document is closed, which writes its
     /// body to the card, and whoever comes next makes the room anew. The room is held
-    /// until the document is closed, so that the next opens it after. A room that
-    /// those who typed have left, to its readers and to who writes and typed nothing,
-    /// has what they typed kept as a version, once: what fails then is kept when the
-    /// room closes.
+    /// until the document is closed, so that the next opens it after. A room that one
+    /// who typed has left, or writes in no more, asks for what was typed to be kept as
+    /// a version: it is, unless another who typed it is still there to write.
     async fn shut_if_empty(&self, room: &Arc<Room>, turn: &mut Turn) {
         if turn.closed {
             return;
         }
         if !turn.members.is_empty() {
-            if turn.typed {
-                let writing: Vec<String> = turn
-                    .members
-                    .iter()
-                    .filter(|member| member.mode == DocMode::Write)
-                    .map(|member| member.connection.user_id.clone())
-                    .collect();
-                turn.typed = self
-                    .version_without_writers(&room.app, &room.card_id, room.gone.clone(), writing)
-                    .await;
+            let members = &turn.members;
+            let writes = |user_id: &String| {
+                members.iter().any(|member| {
+                    member.mode == DocMode::Write && member.connection.user_id == *user_id
+                })
+            };
+            if turn.typed.iter().all(writes) {
+                return;
             }
+            let writing: Vec<String> = turn.typed.iter().filter(|by| writes(by)).cloned().collect();
+            // Those who left are asked about once: the names that stay are the ones
+            // whose leaving asks again.
+            turn.typed = if self
+                .version_without_writers(&room.app, &room.card_id, room.gone.clone(), &writing)
+                .await
+            {
+                writing
+            } else {
+                Vec::new()
+            };
             return;
         }
         turn.closed = true;

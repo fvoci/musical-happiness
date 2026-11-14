@@ -210,29 +210,34 @@ async fn a_room_left_to_its_readers_keeps_what_its_writers_typed() {
 }
 
 /// Those who typed leave a room where another who may write stays and typed nothing:
-/// what was typed is kept then. Of two who typed, the first to leave keeps nothing
-/// while the other stays, and the other's leaving keeps it, by both.
+/// what was typed is kept as the last of them leaves, by all of them, and not as the
+/// first does while another who typed is still there to write.
 #[tokio::test]
 async fn a_room_left_by_those_who_typed_keeps_it_whoever_stays() {
     let th = Setup::native().start().await.init_basic().await;
     let t = table(&th, &paragraphs(&["first"])).await;
     let user1 = th.client.me().await.id;
     let user2 = th.client2.me().await.id;
-    give(&th, &t.board_id, &user2, "editor").await;
+    let idle = th.add_user("idle").await;
+    for user_id in [&user2, &idle.me().await.id] {
+        give(&th, &t.board_id, user_id, "editor").await;
+    }
     let mut typist = Peer::connect(&th.client, 101).await;
     let mut other = Peer::connect(&th.client2, 102).await;
-    typist.joined(TEST_WORKSPACE_ID, &t.card_id).await;
-    other.joined(TEST_WORKSPACE_ID, &t.card_id).await;
+    let mut stays = Peer::connect(&idle, 103).await;
+    for peer in [&mut typist, &mut other, &mut stays] {
+        peer.joined(TEST_WORKSPACE_ID, &t.card_id).await;
+    }
     typist.write_acked("typed").await;
     typist.leave().await;
     let kept = kept_after(&th.client, &t.card_id, 2).await;
     assert_eq!(
         said(&kept),
         [(2, vec![user1.as_str()], true), (1, vec![], false)],
-        "kept as its writer left, with another who may write in the room"
+        "kept as its writer left, with others who may write in the room"
     );
 
-    let mut typist = Peer::connect(&th.client, 103).await;
+    let mut typist = Peer::connect(&th.client, 104).await;
     typist.joined(TEST_WORKSPACE_ID, &t.card_id).await;
     other.write_acked("more").await;
     typist.write_acked("a third").await;
@@ -247,7 +252,10 @@ async fn a_room_left_by_those_who_typed_keeps_it_whoever_stays() {
     let mut both = vec![user1.as_str(), user2.as_str()];
     both.sort_unstable();
     assert_eq!(said(&kept)[0], (3, both, true));
+    // Kept by the leaving, not by the room's closing: one was still in it.
+    stays.leave().await;
     crate::rooms::no_rooms(&th).await;
+    assert_eq!(versions(&th.client, &t.card_id).await, kept);
     th.teardown().await;
 }
 

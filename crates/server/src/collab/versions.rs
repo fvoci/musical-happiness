@@ -135,19 +135,21 @@ impl Collab {
         }
     }
 
-    /// For a room some of whose members left: writes the body of its open document to
-    /// the card and keeps it as a version, if the document took updates no version
-    /// holds and none of them is by one of `writing`, the users still in the room who
-    /// may write. Whether one is: the room asks again as its members leave. A document
-    /// that is not open is left: it has none. What fails is logged, and done when the
-    /// room closes.
+    /// For a room that one who typed has left, or writes in no more: writes the body
+    /// of its open document to the card and keeps it as a version, if the document
+    /// took updates no version holds and none of them is by one of `writing`, the
+    /// users still in the room to write. Whether one is: the room asks again when
+    /// they leave. A document that is not open is left to who opens it next, with a
+    /// version due: it is kept when the room closes. What fails is logged, and done
+    /// then too.
     pub(super) async fn version_without_writers(
         &self,
         app: &App,
         card_id: &str,
         gone: CancellationToken,
-        writing: Vec<String>,
+        writing: &[String],
     ) -> bool {
+        let writing = writing.to_vec();
         let left = self
             .on_slot_while(
                 app,
