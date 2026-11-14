@@ -109,4 +109,6 @@ export async function focusAtEnd(body: Locator): Promise<void> {
         element.editor?.commands.focus('end');
       },
     );
+  // The editor takes the focus a frame after it is asked to: a key pressed before goes elsewhere.
+  await expect(body.locator('.ProseMirror')).toBeFocused();
 }

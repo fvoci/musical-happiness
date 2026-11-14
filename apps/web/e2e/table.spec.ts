@@ -9,7 +9,7 @@
  */
 import { scrollTo } from './scroll.support.ts';
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import { primaryKey, primaryName, tabKey } from './keyboard.support.ts';
+import { clipboardPermissions, primaryKey, primaryName, tabKey } from './keyboard.support.ts';
 import { boardPath } from './address.ts';
 import { screensDir } from './screens.ts';
 import { touchScreen } from './touch.support.ts';
@@ -53,7 +53,11 @@ interface Opened {
 const TITLE = '__title';
 const STAGES: Record<string, string> = { desktop: 'expanded', middle: 'medium', mobile: 'compact' };
 
-test.use({ permissions: ['clipboard-read'] });
+test.use({
+  permissions: async ({ browserName }, use) => {
+    await use(clipboardPermissions(browserName));
+  },
+});
 
 /** Opens a view of a seeded board by the titles of both. */
 async function openView(page: Page, boardTitle: string, viewTitle: string): Promise<Opened> {

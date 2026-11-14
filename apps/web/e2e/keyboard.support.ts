@@ -25,6 +25,15 @@ export function engineOf(page: Page): string | undefined {
   return page.context().browser()?.browserType().name();
 }
 
+/**
+ * What a test that reads back what the page copied is granted. Chromium refuses every
+ * permission a grant leaves out, the writing too; WebKit knows none for writing and lets a
+ * page write after a press.
+ */
+export function clipboardPermissions(engine: string): string[] {
+  return engine === 'webkit' ? ['clipboard-read'] : ['clipboard-read', 'clipboard-write'];
+}
+
 /** Safari on macOS uses Option+Tab to include buttons regardless of host preferences. */
 export async function tabKey(page: Page, backwards = false): Promise<string> {
   const safariOnMac = process.platform === 'darwin' && engineOf(page) === 'webkit';

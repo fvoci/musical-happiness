@@ -16,7 +16,12 @@ import path from 'node:path';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { ON_A_CARD, boardPath, viewAddress } from './address.ts';
 import { screensDir } from './screens.ts';
-import { primaryKey, primaryName, documentBoundary } from './keyboard.support.ts';
+import {
+  clipboardPermissions,
+  primaryKey,
+  primaryName,
+  documentBoundary,
+} from './keyboard.support.ts';
 import { scrollTo } from './scroll.support.ts';
 
 // The longer tests here take a dozen steps each. On a machine that is busy with
@@ -1229,8 +1234,8 @@ test('the menu deletes the card without asking, the card closes, and undo brings
   await expect(onBoard).toHaveCount(1);
 });
 
-test('the menu copies the link to the card', async ({ page, context }) => {
-  await context.grantPermissions(['clipboard-read']);
+test('the menu copies the link to the card', async ({ page, context, browserName }) => {
+  await context.grantPermissions(clipboardPermissions(browserName));
   const place = await openTaskCard(page);
   await cardMenu(page, 'copy-link');
   await expect(saveState(page)).toHaveText('Copied!');

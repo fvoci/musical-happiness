@@ -258,6 +258,8 @@ test.describe('a mouse', () => {
     const lastBefore = (await gantt(page).getAttribute('data-last')) ?? '';
     const box = await scroller(page).boundingBox();
     if (!box) throw new Error('no chart');
+    // Hover waits for a stable, hittable bar before the coordinate-driven gesture.
+    await bar(page, 'Drag cards').hover();
     const from = await pointOn(bar(page, 'Drag cards'));
     await page.mouse.move(from.x, from.y);
     await page.mouse.down();
