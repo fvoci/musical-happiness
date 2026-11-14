@@ -1,5 +1,5 @@
 //! The authors an imported archive names: kept where they are members of the
-//! organization imported into, the importer everywhere else.
+//! organization and of the workspace imported into, the importer everywhere else.
 
 use std::collections::{HashMap, HashSet};
 
@@ -7,7 +7,7 @@ use fvoci_model::BoardsAndBlocks;
 
 use crate::Store;
 use crate::boards_and_blocks::create_boards_and_blocks;
-use crate::db::{Id, OptId, Scope};
+use crate::db::{Id, OptId, Param, Scope};
 use crate::error::StoreError;
 use crate::file_refs::NewImages;
 
@@ -17,11 +17,12 @@ const CHUNK: usize = 500;
 impl Store {
     /// Stores an archive's boards and blocks for `importer` as
     /// [`Store::create_boards_and_blocks`] does with [`NewImages::Unchecked`], and keeps
-    /// each author the archive names (`created_by`, `modified_by`) who is a member of the
-    /// handle's organization. Any other author, or none, is the importer: an archive
-    /// cannot make somebody of another organization an author in the workspace, whom
-    /// its readers would then be named. `boards_and_blocks` is updated to what was
-    /// stored.
+    /// each author the archive names (`created_by`, `modified_by`) who is a member of
+    /// the handle's organization and of the board's workspace: somebody the importer, who
+    /// works there, already sees. Any other author, or none, is the importer: an archive
+    /// cannot make somebody of another organization, or of a workspace the importer does
+    /// not know, an author whom the workspace's readers would then be named.
+    /// `boards_and_blocks` is updated to what was stored.
     ///
     /// # Errors
     ///
@@ -33,8 +34,12 @@ impl Store {
         importer: &str,
     ) -> Result<(), StoreError> {
         self.transaction(async |scope| {
+            let org = scope.org()?;
             let named = Named::of(boards_and_blocks);
-            let members = members_among(scope, &named.authors()).await?;
+            let mut members = HashSet::new();
+            for (workspace_id, authors) in named.authors_by_workspace() {
+                members.extend(members_among(scope, &org, &workspace_id, &authors).await?);
+            }
             create_boards_and_blocks(scope, boards_and_blocks, importer, NewImages::Unchecked)
                 .await?;
             named
@@ -53,11 +58,16 @@ struct Authors {
 }
 
 /// The authors the archive named for each board and block, by identifier, before the
-/// store wrote the importer there.
+/// store wrote the importer there, with the workspace each is in.
 struct Named {
     boards: HashMap<String, Authors>,
     blocks: HashMap<String, Authors>,
+    /// The workspace of each board and block, by identifier.
+    workspaces: HashMap<String, String>,
 }
+
+/// A user kept as an author in a workspace: `(workspace_id, user_id)`.
+type Member = (String, String);
 
 impl Named {
     fn of(boards_and_blocks: &BoardsAndBlocks) -> Self {
@@ -65,6 +75,16 @@ impl Named {
             created_by: created_by.to_owned(),
             modified_by: modified_by.to_owned(),
         };
+        let mut workspaces: HashMap<String, String> = boards_and_blocks
+            .boards
+            .iter()
+            .map(|board| (board.id.clone(), board.workspace_id.clone()))
+            .collect();
+        for block in &boards_and_blocks.blocks {
+            if let Some(workspace_id) = workspaces.get(&block.board_id).cloned() {
+                workspaces.insert(block.id.clone(), workspace_id);
+            }
+        }
         Self {
             boards: boards_and_blocks
                 .boards
@@ -82,19 +102,31 @@ impl Named {
                     (block.id.clone(), named)
                 })
                 .collect(),
+            workspaces,
         }
     }
 
-    /// Every user named, each once.
-    fn authors(&self) -> Vec<String> {
-        let named: HashSet<&String> = self
-            .boards
-            .values()
-            .chain(self.blocks.values())
-            .flat_map(|authors| [&authors.created_by, &authors.modified_by])
-            .filter(|id| !id.is_empty())
-            .collect();
-        named.into_iter().cloned().collect()
+    /// Every user named, each once, by the workspace they are named in.
+    fn authors_by_workspace(&self) -> HashMap<String, Vec<String>> {
+        let mut named: HashMap<&String, HashSet<&String>> = HashMap::new();
+        for (id, authors) in self.boards.iter().chain(&self.blocks) {
+            let Some(workspace_id) = self.workspaces.get(id) else {
+                continue;
+            };
+            let users = named.entry(workspace_id).or_default();
+            for user in [&authors.created_by, &authors.modified_by] {
+                if !user.is_empty() {
+                    users.insert(user);
+                }
+            }
+        }
+        named
+            .into_iter()
+            .map(|(workspace_id, users)| {
+                let users = users.into_iter().cloned().collect();
+                (workspace_id.clone(), users)
+            })
+            .collect()
     }
 
     /// Writes back, over the stored importer, each author named who is one of
@@ -103,14 +135,15 @@ impl Named {
         &self,
         scope: &mut Scope<'_>,
         boards_and_blocks: &mut BoardsAndBlocks,
-        members: &HashSet<String>,
+        members: &HashSet<Member>,
         importer: &str,
     ) -> Result<(), StoreError> {
-        let kept = |named: Option<&Authors>| {
+        let kept = |id: &String, named: Option<&Authors>| {
             let named = named?;
-            let keep = |id: &String| {
-                if members.contains(id) {
-                    id.clone()
+            let workspace_id = self.workspaces.get(id)?;
+            let keep = |user: &String| {
+                if members.contains(&(workspace_id.clone(), user.clone())) {
+                    user.clone()
                 } else {
                     importer.to_owned()
                 }
@@ -123,7 +156,7 @@ impl Named {
         };
         let mut boards: HashMap<Authors, Vec<String>> = HashMap::new();
         for board in &mut boards_and_blocks.boards {
-            if let Some(authors) = kept(self.boards.get(&board.id)) {
+            if let Some(authors) = kept(&board.id, self.boards.get(&board.id)) {
                 board.created_by.clone_from(&authors.created_by);
                 board.modified_by.clone_from(&authors.modified_by);
                 boards.entry(authors).or_default().push(board.id.clone());
@@ -131,46 +164,70 @@ impl Named {
         }
         let mut blocks: HashMap<Authors, Vec<String>> = HashMap::new();
         for block in &mut boards_and_blocks.blocks {
-            if let Some(authors) = kept(self.blocks.get(&block.id)) {
+            if let Some(authors) = kept(&block.id, self.blocks.get(&block.id)) {
                 block.created_by.clone_from(&authors.created_by);
                 block.modified_by.clone_from(&authors.modified_by);
                 blocks.entry(authors).or_default().push(block.id.clone());
             }
         }
-        write_authors(scope, "boards", &boards).await?;
-        write_authors(scope, "blocks", &blocks).await
+        write_authors(scope, Authored::Boards, &boards).await?;
+        write_authors(scope, Authored::Blocks, &blocks).await
     }
 }
 
-/// The users of `ids` who are members of the handle's organization.
+/// The users of `ids` who are members of the organization `org` and of its workspace
+/// `workspace_id`, as `(workspace_id, user_id)`.
 async fn members_among(
     scope: &mut Scope<'_>,
+    org: &Param,
+    workspace_id: &str,
     ids: &[String],
-) -> Result<HashSet<String>, StoreError> {
+) -> Result<HashSet<Member>, StoreError> {
     let mut members = HashSet::new();
     for chunk in ids.chunks(CHUNK) {
-        let mut sql = scope.sql("SELECT user_id FROM organization_members WHERE org_id = ");
-        sql.bind(scope.org()?)
-            .push(" AND user_id IN (")
+        let mut sql = scope.sql(
+            "SELECT wm.user_id FROM workspace_members AS wm \
+             JOIN workspaces AS t ON t.id = wm.workspace_id \
+             JOIN organization_members AS om ON om.user_id = wm.user_id AND om.org_id = t.org_id \
+             WHERE t.org_id = ",
+        );
+        sql.bind(org.clone())
+            .push_bind(" AND wm.workspace_id = ", Id(workspace_id))
+            .push(" AND wm.user_id IN (")
             .bind_list(chunk.iter().map(|id| Id(id)))
             .push(")");
         for row in scope.fetch_all(sql).await? {
-            members.insert(row.id(0)?);
+            members.insert((workspace_id.to_owned(), row.id(0)?));
         }
     }
     Ok(members)
 }
 
-/// Sets the authors of the rows of `table` (`boards` or `blocks`) with each identifier
-/// listed under them.
+/// A table whose rows have authors.
+#[derive(Debug, Clone, Copy)]
+enum Authored {
+    Boards,
+    Blocks,
+}
+
+impl Authored {
+    fn table(self) -> &'static str {
+        match self {
+            Self::Boards => "boards",
+            Self::Blocks => "blocks",
+        }
+    }
+}
+
+/// Sets the authors of the rows of `table` with each identifier listed under them.
 async fn write_authors(
     scope: &mut Scope<'_>,
-    table: &str,
+    table: Authored,
     authored: &HashMap<Authors, Vec<String>>,
 ) -> Result<(), StoreError> {
     for (authors, ids) in authored {
         for chunk in ids.chunks(CHUNK) {
-            let mut sql = scope.sql(&format!("UPDATE {table} SET created_by = "));
+            let mut sql = scope.sql(&format!("UPDATE {} SET created_by = ", table.table()));
             sql.bind(OptId(&authors.created_by))
                 .push_bind(", modified_by = ", OptId(&authors.modified_by))
                 .push(" WHERE id IN (")

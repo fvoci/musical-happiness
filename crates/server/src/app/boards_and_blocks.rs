@@ -16,7 +16,7 @@ impl App {
     /// members. The images of the bodies name the archive's files, which the import
     /// stores after them and points them at: the board's files are not asked of them
     /// ([`fvoci_store::NewImages::Unchecked`]). An author the archive names who is no
-    /// member of the organization, or none, is `user_id`
+    /// member of the workspace and its organization, or none, is `user_id`
     /// ([`fvoci_store::Store::create_imported_boards_and_blocks`]).
     ///
     /// # Errors

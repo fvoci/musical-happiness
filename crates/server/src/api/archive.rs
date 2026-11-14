@@ -191,7 +191,9 @@ async fn handle_export_workspace(
 /// pointed at the board's new copies of them, the images of bodies included; a card
 /// value that does not fit its property's kind is cleared, as a copy does. Who made
 /// and who last changed a board, card, block or comment stay as the archive names them
-/// where they are members of the organization; anybody else, or nobody, is the user.
+/// where they are members of the workspace and its organization; anybody else, or
+/// nobody, is the user. An attachment pointed at its new copy is last changed by the
+/// user.
 ///
 /// The boards are made one after the other, not all or none: when one of them fails,
 /// those before it stay. The members of a board who are not in the workspace are left

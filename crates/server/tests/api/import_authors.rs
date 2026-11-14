@@ -1,13 +1,14 @@
-//! The authors an archive names: whoever is no member of the organization imported into
-//! is written as the importer, so an archive cannot make a stranger an author whose name
-//! the workspace may then read; a member stays the author.
+//! The authors an archive names: whoever is no member of the workspace and the
+//! organization imported into is written as the importer, so an archive cannot make
+//! somebody the importer does not see an author whom the workspace may then name; a
+//! member stays the author.
 
 use std::io::{Cursor, Write as _};
 
-use fvoci_model::{Block, BlockType, Board, User};
+use fvoci_model::{Block, BlockType, Board, User, new_id};
 use serde_json::{Value, json};
 
-use crate::common::{ROOT_WORKSPACE_ID, ROOT_WS, Setup, TestServer};
+use crate::common::{Setup, TEST_WORKSPACE_ID, TEST_WS, TestServer};
 use crate::export::import;
 
 /// An archive of one board, whose lines are `lines`.
@@ -29,77 +30,105 @@ fn archive(lines: &[Value]) -> Vec<u8> {
     writer.finish().expect("finish").into_inner()
 }
 
-fn block(id: &str, parent: &str, kind: &str, created_by: &str, modified_by: &str) -> Value {
+fn block(id: &str, kind: &str, created_by: &str, modified_by: &str) -> Value {
     json!({"type": "block", "data": {
-        "id": id, "boardId": "board", "parentId": parent, "type": kind, "title": id,
+        "id": id, "boardId": "board", "parentId": "board", "type": kind, "title": id,
         "createdBy": created_by, "modifiedBy": modified_by, "createAt": 1, "updateAt": 1,
     }})
 }
 
 /// A user who is no member of the organization, nor of any of its workspaces.
 async fn outsider(th: &TestServer) -> String {
-    let outsider = th.stranger().await;
+    let mut user = User {
+        id: new_id(),
+        username: "outsider".to_owned(),
+        email: "outsider@sample.com".to_owned(),
+        ..User::default()
+    };
+    th.app
+        .store()
+        .create_user(&mut user)
+        .await
+        .expect("the outsider is stored");
     for table in ["workspace_members", "organization_members"] {
         th.app
             .store()
-            .execute_unchecked(&format!("DELETE FROM {table} WHERE user_id = '{outsider}'"))
+            .execute_unchecked(&format!(
+                "DELETE FROM {table} WHERE user_id = '{}'",
+                user.id
+            ))
             .await
-            .expect("the stranger leaves");
+            .expect("the outsider leaves");
     }
-    outsider
+    user.id
 }
 
 async fn named(th: &TestServer, user: &str) -> Vec<User> {
     th.client
-        .post(&format!("{ROOT_WS}/users"), &[user])
+        .post(&format!("{TEST_WS}/users"), &[user])
         .await
         .ok_json()
 }
 
 #[tokio::test]
-async fn an_imported_author_who_is_no_member_of_the_organization_is_the_importer() {
+async fn an_imported_author_the_importer_does_not_see_is_the_importer() {
     let th = Setup::native().start().await.init_basic().await;
     let importer = th.client.me().await.id;
     let colleague = th.client2.me().await.id;
-    let stranger = outsider(&th).await;
+    let outsider = outsider(&th).await;
+    // A member of the organization in its default workspace only: not in this one.
+    let elsewhere = th.stranger().await;
     assert!(
-        named(&th, &stranger).await.is_empty(),
-        "nobody names the stranger before the import"
+        named(&th, &outsider).await.is_empty(),
+        "nobody names the outsider before the import"
+    );
+    assert!(
+        named(&th, &elsewhere).await.is_empty(),
+        "the importer does not see a member of another workspace"
+    );
+    assert_eq!(
+        named(&th, &colleague).await.len(),
+        1,
+        "the colleague works in the workspace"
     );
     let comment = json!({"type": "block", "data": {
         "id": "comment", "boardId": "board", "parentId": "theirs", "type": "comment",
-        "title": "", "createdBy": stranger, "modifiedBy": stranger, "createAt": 1,
+        "title": "", "createdBy": outsider, "modifiedBy": outsider, "createAt": 1,
         "updateAt": 1,
         "body": {"type": "doc", "content": [
             {"type": "paragraph", "content": [{"type": "text", "text": "hello"}]}]},
     }});
     let bytes = archive(&[
         json!({"type": "board", "data": {
-            "id": "board", "workspaceId": ROOT_WORKSPACE_ID, "type": "P", "title": "Authored",
-            "createdBy": stranger, "modifiedBy": stranger, "createAt": 1, "updateAt": 1,
+            "id": "board", "workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": "Authored",
+            "createdBy": outsider, "modifiedBy": colleague, "createAt": 1, "updateAt": 1,
         }}),
-        block("theirs", "board", "card", &stranger, &stranger),
-        block("ours", "board", "card", &colleague, &colleague),
-        block("mixed", "board", "card", &colleague, &stranger),
+        block("theirs", "card", &outsider, &outsider),
+        block("elsewhere", "card", &elsewhere, &elsewhere),
+        block("ours", "card", &colleague, &colleague),
+        block("mixed", "card", &colleague, &outsider),
+        block("nobody", "card", "", ""),
         comment,
     ]);
-    import(&th.client, ROOT_WORKSPACE_ID, &bytes)
+    import(&th.client, TEST_WORKSPACE_ID, &bytes)
         .await
         .check_ok();
 
-    let boards: Vec<Board> = th.client.get(&format!("{ROOT_WS}/boards")).await.ok_json();
+    let boards: Vec<Board> = th.client.get(&format!("{TEST_WS}/boards")).await.ok_json();
     let board = boards
         .into_iter()
         .find(|board| board.title == "Authored")
         .expect("the imported board");
-    assert_eq!(board.created_by, importer, "the board's stranger creator");
-    assert_eq!(board.modified_by, importer, "the board's stranger modifier");
+    assert_eq!(board.created_by, importer, "the board's outside creator");
+    assert_eq!(
+        board.modified_by, colleague,
+        "the board's colleague modifier"
+    );
     let blocks: Vec<Block> = th
-        .app
-        .store()
-        .get_blocks(&fvoci_store::BlockFilter::board(&board.id))
+        .client
+        .get(&format!("{TEST_WS}/boards/{}/blocks", board.id))
         .await
-        .expect("the imported blocks");
+        .ok_json();
     let by_title = |title: &str| {
         blocks
             .iter()
@@ -108,8 +137,10 @@ async fn an_imported_author_who_is_no_member_of_the_organization_is_the_importer
     };
     for (title, created_by, modified_by) in [
         ("theirs", &importer, &importer),
+        ("elsewhere", &importer, &importer),
         ("ours", &colleague, &colleague),
         ("mixed", &colleague, &importer),
+        ("nobody", &importer, &importer),
     ] {
         let block = by_title(title);
         assert_eq!(&block.created_by, created_by, "{title}'s creator");
@@ -119,20 +150,16 @@ async fn an_imported_author_who_is_no_member_of_the_organization_is_the_importer
         .iter()
         .find(|block| block.block_type == BlockType::Comment)
         .expect("the imported comment");
-    assert_eq!(
-        comment.created_by, importer,
-        "the comment's stranger writer"
-    );
+    assert_eq!(comment.created_by, importer, "the comment's outside writer");
     assert_eq!(comment.modified_by, importer);
 
     assert!(
-        named(&th, &stranger).await.is_empty(),
-        "the stranger is still named to nobody"
+        named(&th, &outsider).await.is_empty(),
+        "the outsider is still named to nobody"
     );
-    assert_eq!(
-        named(&th, &colleague).await.len(),
-        1,
-        "the colleague is named as before"
+    assert!(
+        named(&th, &elsewhere).await.is_empty(),
+        "the member of another workspace is still named to nobody here"
     );
     th.teardown().await;
 }
