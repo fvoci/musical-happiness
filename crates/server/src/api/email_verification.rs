@@ -10,7 +10,7 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 
 use super::auth::{address_of, user_agent, with_session_cookie};
 use super::contract::tag;
-use super::password_reset::RecoveryResponse;
+use super::recovery::RecoveryResponse;
 use super::{ApiResult, decode_object, json_response};
 use crate::app::App;
 use crate::client_address::ClientAddress;
@@ -53,9 +53,9 @@ struct RequestEmailVerification {
 /// registration's address is sent at most `mail_reset_per_account_hour` messages an
 /// hour, its first link counted: more requests are answered the same, send nothing
 /// and lock nothing. Requests are limited by where they come from, with the requests
-/// for a reset link (429). A request that names neither is 400. A server that does not
-/// ask for addresses to be confirmed (`emailVerification` of `getLoginOptions`)
-/// answers 404.
+/// for a reset link (429). A request that names neither is 400. A server that sends no
+/// mail answers 404; one that sends mail answers also after `emailVerification` was
+/// turned off, for the registrations made while it was on.
 #[utoipa::path(
     post, path = "/email-verification/request", operation_id = "requestEmailVerification",
     tag = tag::AUTH, security(()), request_body = RequestEmailVerification,

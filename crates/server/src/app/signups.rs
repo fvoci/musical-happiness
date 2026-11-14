@@ -73,12 +73,13 @@ impl App {
     /// adapter releases it only after handing off its response. The registration's
     /// address is sent no more than an account's recovery messages
     /// (`mail_reset_per_account_hour`, the first link counted), and further requests are
-    /// answered the same and lock nothing. Requests are limited by their address, with
-    /// the requests for a reset link.
+    /// answered the same and lock nothing. Requests are limited by where they come from
+    /// (`address`), with the requests for a reset link. A registration made while
+    /// `email_verification` was on still gets its link once it is off, while mail is sent.
     ///
     /// # Errors
     ///
-    /// Returns 404 where registrations are not confirmed by mail, 400 for a request
+    /// Returns 404 where no mail is sent, 400 for a request
     /// that names neither a name nor an address, and 429 for too many requests from
     /// `address`.
     pub fn prepare_signup_mail(
@@ -88,7 +89,7 @@ impl App {
         language: &str,
         address: Option<IpAddr>,
     ) -> Result<impl Future<Output = ()> + Send + 'static + use<>, AppError> {
-        if !self.verifies_email() {
+        if !self.config().mail_enabled() {
             return Err(AppError::not_found("route"));
         }
         let (username, email) = (username.trim().to_owned(), email.trim().to_owned());

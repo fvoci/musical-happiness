@@ -157,9 +157,9 @@ export interface paths {
          *     registration's address is sent at most `mail_reset_per_account_hour` messages an
          *     hour, its first link counted: more requests are answered the same, send nothing
          *     and lock nothing. Requests are limited by where they come from, with the requests
-         *     for a reset link (429). A request that names neither is 400. A server that does not
-         *     ask for addresses to be confirmed (`emailVerification` of `getLoginOptions`)
-         *     answers 404.
+         *     for a reset link (429). A request that names neither is 400. A server that sends no
+         *     mail answers 404; one that sends mail answers also after `emailVerification` was
+         *     turned off, for the registrations made while it was on.
          */
         post: operations["requestEmailVerification"];
         delete?: never;

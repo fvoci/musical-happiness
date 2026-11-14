@@ -27,6 +27,7 @@ mod onboarding;
 mod org;
 mod org_admin;
 mod password_reset;
+mod recovery;
 mod search;
 mod session;
 mod shared;

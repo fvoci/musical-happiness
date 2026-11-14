@@ -4133,7 +4133,7 @@
     },
     "/api/v1/email-verification/request": {
       "post": {
-        "description": "Answers 204 with an empty body whether or not a registration that is not confirmed\nyet has the user name (or else the address), and whatever became of the message;\nlookup and delivery run in the background. A new link ends the one before it. A\nregistration's address is sent at most `mail_reset_per_account_hour` messages an\nhour, its first link counted: more requests are answered the same, send nothing\nand lock nothing. Requests are limited by where they come from, with the requests\nfor a reset link (429). A request that names neither is 400. A server that does not\nask for addresses to be confirmed (`emailVerification` of `getLoginOptions`)\nanswers 404.",
+        "description": "Answers 204 with an empty body whether or not a registration that is not confirmed\nyet has the user name (or else the address), and whatever became of the message;\nlookup and delivery run in the background. A new link ends the one before it. A\nregistration's address is sent at most `mail_reset_per_account_hour` messages an\nhour, its first link counted: more requests are answered the same, send nothing\nand lock nothing. Requests are limited by where they come from, with the requests\nfor a reset link (429). A request that names neither is 400. A server that sends no\nmail answers 404; one that sends mail answers also after `emailVerification` was\nturned off, for the registrations made while it was on.",
         "operationId": "requestEmailVerification",
         "requestBody": {
           "content": {

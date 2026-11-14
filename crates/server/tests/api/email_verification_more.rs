@@ -157,14 +157,76 @@ async fn a_registration_not_confirmed_in_seven_days_goes_and_frees_its_names() {
     smtp.stop().await;
 }
 
+/// A registration made while the switch was on still gets its link, and is confirmed,
+/// once the switch is off; a server that sends no mail has no links to send.
 #[tokio::test]
-async fn a_server_that_does_not_ask_has_no_new_links() {
+async fn a_registration_from_before_the_switch_went_off_still_gets_its_link() {
     let smtp = FakeSmtp::start_on(0).await;
-    let th = Setup::native().smtp(smtp.settings()).start().await;
+    let th = verifying(&smtp).await;
     th.anonymous()
-        .post(RESEND, &json!({"username": "kim"}))
+        .post("/register", &registration("kai", "en"))
+        .await
+        .check_status(StatusCode::ACCEPTED);
+    smtp.received(1).await;
+    let mut th = th;
+    th.config.mail.email_verification = false;
+    let th = th.killed_and_started_again(async |_| {}).await;
+    let refused = th.anonymous().login("kai", "Pa$$word-1").await;
+    assert_eq!(
+        refused.error_reason(),
+        "email_unverified",
+        "still no account"
+    );
+    th.anonymous()
+        .post(RESEND, &json!({"username": "kai"}))
+        .await
+        .check_no_content();
+    let token = link_token(&smtp.received(2).await[1]);
+    th.anonymous()
+        .post(COMPLETE, &json!({"token": token}))
+        .await
+        .check_status(StatusCode::OK);
+    th.teardown().await;
+
+    let without_mail = Setup::native().start().await;
+    without_mail
+        .anonymous()
+        .post(RESEND, &json!({"username": "kai"}))
         .await
         .check_status(StatusCode::NOT_FOUND);
+    without_mail.teardown().await;
+    smtp.stop().await;
+}
+
+/// The hourly clean-up removes what ended: a registration past its seven days goes.
+#[tokio::test]
+async fn the_hourly_clean_up_removes_the_registrations_that_ended() {
+    let smtp = FakeSmtp::start_on(0).await;
+    let th = verifying(&smtp).await;
+    let long_ago = fvoci_server::auth::now_millis() - SIGNUP_LIFETIME_MILLIS - 1;
+    let ended = fvoci_store::Signup {
+        id: fvoci_model::new_id(),
+        username: "old".to_owned(),
+        email: "old@example.test".to_owned(),
+        display_name: String::new(),
+        password_hash: "hash".to_owned(),
+        language: String::new(),
+        start: fvoci_store::SignupStart::Organization("Old".to_owned()),
+        create_at: long_ago - 1,
+        expires_at: long_ago,
+    };
+    let store = th.app.store();
+    store
+        .create_signup(&ended, long_ago - 1)
+        .await
+        .expect("stored as it was");
+    assert_eq!(store.count_rows("signups").await.expect("counted"), 1);
+    fvoci_server::keep_house(&th.app).await;
+    assert_eq!(
+        store.count_rows("signups").await.expect("counted"),
+        0,
+        "removed by the clean-up"
+    );
     th.teardown().await;
     smtp.stop().await;
 }
