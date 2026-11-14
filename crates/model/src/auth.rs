@@ -180,6 +180,11 @@ pub struct RegisterRequest {
     /// first workspace. Read as [`organization_name`] reads it.
     #[serde(rename = "organizationName", deserialize_with = "null_as_default")]
     pub organization_name: String,
+    /// The language tag of the screen the request comes from (`ko`, `en-GB`): the
+    /// language of the mail that confirms the address, where the server asks for that
+    /// (English, Korean); English for any other.
+    #[serde(deserialize_with = "null_as_default")]
+    pub language: String,
 }
 
 impl RegisterRequest {
@@ -213,6 +218,7 @@ impl RegisterRequest {
             display_name: account.display_name,
             organization_name: organization_name(&self.organization_name)
                 .unwrap_or(self.organization_name),
+            language: self.language,
         }
     }
 

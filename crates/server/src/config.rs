@@ -851,7 +851,7 @@ impl Configuration {
         }
         self.check_upload_limits()?;
         self.smtp.check()?;
-        self.mail.way(&self.smtp)?;
+        self.mail.check(&self.smtp)?;
         self.metrics_address()?;
         self.check_metrics_token()?;
         match self.files_driver.as_str() {

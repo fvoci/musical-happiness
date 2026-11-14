@@ -45,6 +45,7 @@ mod schema;
 mod server_lock;
 mod sessions;
 mod sharing;
+mod signups;
 mod subscriptions;
 mod teams;
 #[cfg(feature = "test-util")]
@@ -88,6 +89,10 @@ pub use org_admin::{Joining, OrgRoleChange, WorkspaceTrashing};
 pub use password_reset::PASSWORD_RESET_LIFETIME_MILLIS;
 pub use server_lock::ServerLock;
 pub use sharing::SharingChange;
+pub use signups::{
+    Confirmed, Proof, SIGNUP_LIFETIME_MILLIS, SIGNUP_LINK_LIFETIME_MILLIS, Signup, SignupLookup,
+    SignupStart,
+};
 pub use trash::{DeletedBlock, DeletedBoard, Purged};
 pub use uploads::{OpenUploads, PartRecord, UploadUsage};
 pub use users::{AdminChange, InstanceRole, Preference};

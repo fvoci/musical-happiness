@@ -59,7 +59,9 @@ pub(super) fn unauthenticated_routes() -> OpenApiRouter<App> {
 ///
 /// `registrationOpen` says whether `register` takes somebody without an invitation:
 /// always on a server where everybody starts an organization of their own, and until the first
-/// user registered on a server that holds one organization.
+/// user registered on a server that holds one organization. `emailVerification` says
+/// whether a registration waits for the link mailed to its address
+/// (`completeEmailVerification`) before there is an account.
 #[utoipa::path(
     get,
     path = "/login-options",

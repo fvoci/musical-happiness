@@ -4,7 +4,7 @@ use std::net::IpAddr;
 use std::time::Instant;
 
 use fvoci_model::{MAXIMUM_PASSWORD_BYTES, NewAccount, RegisterRequest, Session, User, new_id};
-use fvoci_store::{Founding, StoreError, Taken};
+use fvoci_store::{Founding, SignupLookup, StoreError, Taken};
 
 use super::App;
 use crate::auth::hash_queue::QueueError;
@@ -74,6 +74,9 @@ impl App {
             .map_err(|RetryAfter(wait)| AppError::rate_limited(wait))?;
 
         let (user, found_by) = self.find_account(username, email).await?;
+        // Asked whatever was found, as the email address is: the work of a login must
+        // not tell whether there is an account or a registration of that name.
+        let signup = self.find_signup(username, email).await?;
 
         // Nothing this long was ever set as a password; it is not worth a hash.
         if password.len() > MAXIMUM_PASSWORD_BYTES {
@@ -83,6 +86,15 @@ impl App {
         // One answer for an unknown user, for a wrong password and for an account that
         // has no password (one made through a provider), after the same work.
         let Some(user) = user.filter(|user| !user.password_hash.is_empty()) else {
+            // A registration whose address is not confirmed yet is told so to who knows
+            // its password, and to nobody else.
+            if let Some(signup) = signup {
+                if self.verify(&signup.password_hash, password).await? == Verdict::Mismatch {
+                    attempt.failed(Instant::now());
+                    return Err(incorrect_login());
+                }
+                return Err(email_unverified());
+            }
             let password = password.to_owned();
             self.password_work(move || verify_against_no_account(&password))
                 .await?;
@@ -184,6 +196,30 @@ impl App {
             (None, Some(user)) => (Some(user), email),
             (None, None) => (None, username),
         })
+    }
+
+    /// The registration whose address is not confirmed yet that a login names, by its
+    /// name or else by its email address; both are asked whenever they are given, as
+    /// [`App::find_account`] asks of the accounts.
+    async fn find_signup(
+        &self,
+        username: &str,
+        email: &str,
+    ) -> Result<Option<fvoci_store::Signup>, AppError> {
+        let now = now_millis();
+        let mut found = None;
+        for lookup in [SignupLookup::Username(username), SignupLookup::Email(email)] {
+            if matches!(lookup, SignupLookup::Username("") | SignupLookup::Email("")) {
+                continue;
+            }
+            let signup = self
+                .store()
+                .live_signup(lookup, now)
+                .await
+                .map_err(|error| AppError::from(error).context("looking up a registration"))?;
+            found = found.or(signup);
+        }
+        Ok(found)
     }
 
     /// Looks a user up for a login; a user who is not there is `None`.
@@ -367,10 +403,13 @@ impl App {
     pub(crate) async fn new_account(&self, account: &NewAccount) -> Result<User, AppError> {
         // Asked first so that a taken name costs no hash. Two registrations at once
         // both pass these, and then the unique indexes decide: the same conflict.
+        // A registration whose address is not confirmed yet holds its name and address
+        // as an account does, and is told as one.
         if self
             .find_user_for_login(Lookup::Username(&account.username))
             .await?
             .is_some()
+            || self.find_signup(&account.username, "").await?.is_some()
         {
             return Err(username_taken());
         }
@@ -378,6 +417,7 @@ impl App {
             .find_user_for_login(Lookup::Email(&account.email))
             .await?
             .is_some()
+            || self.find_signup("", &account.email).await?.is_some()
         {
             return Err(email_taken());
         }
@@ -528,6 +568,9 @@ enum Lookup<'a> {
 fn login_outcome<T>(result: &Result<T, AppError>) -> LoginOutcome {
     match result {
         Ok(_) => LoginOutcome::Succeeded,
+        Err(error) if error.reason() == Some(Reason::EmailUnverified) => {
+            LoginOutcome::EmailUnverified
+        }
         Err(error) => match error.kind() {
             ErrorKind::Unauthorized => LoginOutcome::InvalidCredentials,
             ErrorKind::RateLimited => LoginOutcome::Limited,
@@ -552,6 +595,13 @@ impl Drop for LoginEnding<'_> {
 /// The refusal of a login, whatever was wrong.
 fn incorrect_login() -> AppError {
     AppError::unauthorized("incorrect login").with_reason(Reason::InvalidCredentials)
+}
+
+/// The refusal of a login whose password is right, of a registration whose address is
+/// not confirmed yet.
+fn email_unverified() -> AppError {
+    AppError::forbidden("the email address is not confirmed yet")
+        .with_reason(Reason::EmailUnverified)
 }
 
 /// What the store's refusal of a new account is to the client.
@@ -616,12 +666,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_login_ends_in_one_of_four_outcomes_by_the_kind_of_its_error() {
+    fn a_login_ends_in_one_of_five_outcomes_by_the_kind_of_its_error() {
         let ended = |result: Result<(), AppError>| login_outcome(&result);
         assert_eq!(ended(Ok(())), LoginOutcome::Succeeded);
         assert_eq!(
             ended(Err(incorrect_login())),
             LoginOutcome::InvalidCredentials
+        );
+        assert_eq!(
+            ended(Err(email_unverified())),
+            LoginOutcome::EmailUnverified
         );
         assert_eq!(
             ended(Err(AppError::rate_limited(std::time::Duration::from_secs(

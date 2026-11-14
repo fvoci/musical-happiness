@@ -196,6 +196,14 @@ fn describe_reason(reason: Reason) -> &'static str {
         Reason::EmailTaken => {
             "Status 409. Another user has the email address. `errors` names `/email`."
         }
+        Reason::EmailUnverified => {
+            "Status 403 from a login whose password is right, on a server that asks a \
+             registration to confirm its email address (`email_verification`): the \
+             registration has not been confirmed, and there is no account until the link \
+             mailed to the address confirms it, within seven days. \
+             `requestEmailVerification` with the same name or address mails a new link. A \
+             wrong password is answered as for no account."
+        }
         Reason::LastAdmin => {
             "Status 409. The change would leave the board, the workspace or the server \
              without an administrator. Make somebody else one first."

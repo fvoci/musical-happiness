@@ -28,6 +28,7 @@ mod content_blocks;
 mod cookies;
 mod deleted_cards;
 mod document_visibility;
+mod email_verification;
 mod export;
 mod fake_oidc;
 mod fake_provider;

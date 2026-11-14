@@ -12,7 +12,8 @@ use serde_json::{Map, Value};
 
 use super::smtp::SmtpSettings;
 
-pub(super) const ENV_KEYS: [(&str, super::EnvKind); 13] = [
+pub(super) const ENV_KEYS: [(&str, super::EnvKind); 14] = [
+    ("email_verification", super::EnvKind::Flag),
     ("mail_transport", super::EnvKind::Text),
     ("mail_api_endpoint", super::EnvKind::Text),
     ("cloudflare_account_id", super::EnvKind::Text),
@@ -65,6 +66,9 @@ impl MailTransport {
 #[cfg_attr(test, derive(serde::Serialize))]
 #[serde(default)]
 pub struct MailSettings {
+    /// Whether a registration opens nothing until the link mailed to its address
+    /// confirms it; needs a way of sending.
+    pub email_verification: bool,
     /// `smtp`, `cloudflare`, `ses` or `oci`; empty for SMTP when `smtp_host` is set and
     /// no mail otherwise.
     #[serde(deserialize_with = "transport_or_none")]
@@ -101,6 +105,7 @@ pub struct MailSettings {
 impl fmt::Debug for MailSettings {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("MailSettings")
+            .field("email_verification", &self.email_verification)
             .field("mail_transport", &self.mail_transport)
             .field(
                 "mail_api_endpoint",
@@ -257,6 +262,22 @@ impl MailSettings {
             ),
             (MailTransport::Oci, "oci_compartment", &self.oci_compartment),
         ]
+    }
+
+    /// Checks the way mail leaves ([`MailSettings::way`]), and that a registration that
+    /// is to be confirmed by mail has one.
+    ///
+    /// # Errors
+    /// Returns the error of [`MailSettings::way`], or one naming `email_verification`
+    /// when it is on and no mail is sent.
+    pub fn check(&self, smtp: &SmtpSettings) -> anyhow::Result<()> {
+        if self.way(smtp)?.is_none() && self.email_verification {
+            bail!(
+                "email_verification is on, but this server sends no mail: set mail_transport \
+                 or smtp_host, or turn email_verification off"
+            );
+        }
+        Ok(())
     }
 
     /// The way mail leaves, or `None` for no mail, with the sender (`mail_from`) checked
@@ -603,6 +624,26 @@ mod tests {
         env.0.push(("FVOCI_MAIL_TRANSPORT", "cloudflare"));
         let config = Configuration::parse("{}", |name| env.get(name)).expect("parse");
         assert_eq!(config.mail.mail_transport, Some(MailTransport::Cloudflare));
+    }
+
+    #[test]
+    fn email_verification_is_off_by_default_and_needs_a_way_of_sending() {
+        let config = Configuration::parse("{}", |_| None).expect("parse");
+        assert!(!config.mail.email_verification, "off unless turned on");
+        let error = checked(&json!({"email_verification": true})).expect_err("no mail");
+        assert!(error.contains("email_verification"), "{error}");
+        let mut smtp =
+            json!({"smtp_host": "smtp.example.test", "mail_from": "sender@example.test"});
+        smtp["email_verification"] = Value::Bool(true);
+        assert!(matches!(checked(&smtp), Ok(Some(Way::Smtp))));
+        let mut cloudflare = cloudflare();
+        cloudflare["email_verification"] = Value::Bool(true);
+        assert!(matches!(checked(&cloudflare), Ok(Some(Way::Cloudflare(_)))));
+        let mut env = BTreeMapEnv::default();
+        env.0.push(("FVOCI_EMAIL_VERIFICATION", "true"));
+        let config = Configuration::parse("{}", |name| env.get(name)).expect("parse");
+        assert!(config.mail.email_verification, "turned on by its variable");
+        assert!(config.check().is_err(), "and refused without mail");
     }
 
     #[test]

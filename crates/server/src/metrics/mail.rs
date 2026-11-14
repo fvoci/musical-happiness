@@ -11,16 +11,23 @@ use super::{Metrics, PREFIX};
 pub(crate) enum MailKind {
     PasswordReset,
     Invitation,
+    /// The link that confirms the address of a registration.
+    EmailVerification,
 }
 
 impl MailKind {
-    const ALL: [Self; 2] = [Self::PasswordReset, Self::Invitation];
+    const ALL: [Self; 3] = [
+        Self::PasswordReset,
+        Self::Invitation,
+        Self::EmailVerification,
+    ];
 
     /// The value of the `kind` label.
     pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::PasswordReset => "password_reset",
             Self::Invitation => "invitation",
+            Self::EmailVerification => "email_verification",
         }
     }
 
@@ -28,6 +35,16 @@ impl MailKind {
         match self {
             Self::PasswordReset => 0,
             Self::Invitation => 1,
+            Self::EmailVerification => 2,
+        }
+    }
+
+    /// Whether the message lets somebody into their own account: it goes before the
+    /// invitations, and gives up a closed way as a reset link does.
+    pub(crate) fn goes_first(self) -> bool {
+        match self {
+            Self::PasswordReset | Self::EmailVerification => true,
+            Self::Invitation => false,
         }
     }
 }
@@ -64,7 +81,7 @@ impl MailFailure {
 #[derive(Debug)]
 pub(super) struct MailMetrics {
     /// By [`MailKind::index`], then by [`MailFailure::index`].
-    failed: [[IntCounter; 2]; 2],
+    failed: [[IntCounter; 2]; 3],
     path_down: IntGauge,
 }
 
@@ -74,7 +91,8 @@ impl MailMetrics {
         let failed = IntCounterVec::new(
             Opts::new(
                 "mail_failed_total",
-                "How many messages were given up, by kind (password_reset, invitation) \
+                "How many messages were given up, by kind (password_reset, invitation, \
+                 email_verification) \
                  and class: permanent (the mail server or provider refused it for good) \
                  or temporary (it asked to try later at every attempt).",
             )

@@ -46,6 +46,7 @@ pub use slots::Slot;
 pub(crate) use startup::{open_store, prepare_store};
 mod shared_reads;
 mod sharing;
+mod signups;
 mod sso;
 mod startup;
 mod store_metrics;
