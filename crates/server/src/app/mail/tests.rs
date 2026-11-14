@@ -79,7 +79,7 @@ fn mailer_of(fake: &Arc<Fake>, metrics: Metrics) -> Mailer {
 fn mailer_with(fake: &Arc<Fake>, metrics: Metrics, settings: SmtpSettings) -> Mailer {
     let settings = SmtpSettings {
         smtp_host: "smtp.example.test".to_owned(),
-        smtp_from: "sender@example.test".to_owned(),
+        mail_from: "sender@example.test".to_owned(),
         ..settings
     };
     let outbound: Arc<dyn Outbound> = Arc::<Fake>::clone(fake);

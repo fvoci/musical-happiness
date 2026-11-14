@@ -63,7 +63,7 @@ pub(super) enum InvitationRefusal {
 #[derive(Clone)]
 pub(super) struct Mailer {
     outbound: Option<Arc<dyn Outbound>>,
-    /// The sender's address of every message (`smtp_from`).
+    /// The sender's address of every message (`mail_from`).
     from: Arc<str>,
     connections: Arc<Semaphore>,
     invitation_connections: Arc<Semaphore>,
@@ -138,7 +138,7 @@ impl Mailer {
     ) -> anyhow::Result<Self> {
         Ok(Self {
             outbound,
-            from: Arc::from(settings.smtp_from.as_str()),
+            from: Arc::from(settings.mail_from.as_str()),
             connections: Arc::new(Semaphore::new(CONNECTIONS)),
             invitation_connections: Arc::new(Semaphore::new(INVITATION_CONNECTIONS)),
             reset_queue: Arc::new(Semaphore::new(usize::try_from(settings.mail_reset_queue)?)),
