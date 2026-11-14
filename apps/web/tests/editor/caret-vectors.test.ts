@@ -12,7 +12,14 @@ import { describe, expect, it } from 'vitest';
 import { applyAwarenessUpdate, Awareness } from 'y-protocols/awareness';
 import * as Y from 'yjs';
 
-import { CARET_BYTES, caretSaid, caretState, caretTold } from '$lib/logic/caret-frame.ts';
+import { BODY_FIELD } from '$lib/editor/body-editor.ts';
+import {
+  CARET_BYTES,
+  CARET_FIELD,
+  caretSaid,
+  caretState,
+  caretTold,
+} from '$lib/logic/caret-frame.ts';
 
 import {
   buildCaretVectors,
@@ -50,7 +57,8 @@ describe('the vectors of a caret', () => {
   });
 
   it('are read and written by the rooms in memory as by the server', () => {
-    expect(vectors.cases.length).toBeGreaterThanOrEqual(6);
+    expect(CARET_FIELD).toBe(BODY_FIELD);
+    expect(vectors.cases.length).toBeGreaterThanOrEqual(8);
     for (const each of vectors.cases) {
       const said = caretSaid(bytes(each.said));
       expect(said, each.name).not.toBeUndefined();
@@ -59,7 +67,7 @@ describe('the vectors of a caret', () => {
       expect(caretTold(each.number, each.clock, state), each.name).toEqual(bytes(each.told));
       expect(bytes(each.said).length, each.name).toBeLessThanOrEqual(CARET_BYTES);
     }
-    expect(vectors.refused.length).toBeGreaterThanOrEqual(8);
+    expect(vectors.refused.length).toBeGreaterThanOrEqual(13);
     for (const each of vectors.refused) {
       expect(caretSaid(bytes(each.said)), each.name).toBeUndefined();
     }

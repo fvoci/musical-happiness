@@ -166,17 +166,23 @@ async fn a_caret_is_gone_with_its_member() {
     two.barrier().await;
     no_caret(&mut one, "a caret that is not shown is not withdrawn").await;
 
-    // Left.
+    // In the room anew without leaving it: the caret of the member before is gone.
     show(&mut two, 2).await;
     let shown = one.caret().await;
-    two.leave().await;
+    two.joined(TEST_WORKSPACE_ID, &t.card_id).await;
     gone(&shown, &one.caret().await);
 
-    // Back in the room, under another number: put out of it.
+    // Left.
+    show(&mut two, 2).await;
+    let anew = one.caret().await;
+    assert_ne!(anew.number, shown.number, "a member anew has a caret anew");
+    two.leave().await;
+    gone(&anew, &one.caret().await);
+
+    // Back in the room: put out of it.
     two.joined(TEST_WORKSPACE_ID, &t.card_id).await;
     show(&mut two, 3).await;
     let again = one.caret().await;
-    assert_ne!(again.number, shown.number, "a member anew has a caret anew");
     th.client
         .delete(&format!(
             "/w/{TEST_WORKSPACE_ID}/boards/{}/members/{user2}",
@@ -326,9 +332,23 @@ async fn what_is_no_caret_of_the_room_is_dropped() {
     let client = one.client();
     let state = |cursor: Value| json!({"user": {}, "cursor": cursor});
 
-    // Larger than a caret is: padded past 1,024 bytes.
-    let padded = json!({"user": {"name": "x".repeat(1024)}, "cursor": cursor(1)});
-    one.send_caret(&awareness(client, 1, &padded)).await;
+    // Larger than a caret is: an update of 1,025 bytes.
+    let padded = |bytes: usize| {
+        let name =
+            |length: usize| json!({"user": {"name": "x".repeat(length)}, "cursor": cursor(1)});
+        let empty = awareness(client, 1, &name(0)).len();
+        awareness(client, 1, &name(bytes - empty))
+    };
+    assert_eq!(padded(1025).len(), 1025);
+    one.send_caret(&padded(1025)).await;
+    // A place that names nothing, and one in a root type that is not the body's.
+    let mut nowhere = cursor(1);
+    nowhere["head"] = json!({"assoc": 0});
+    one.send_caret(&awareness(client, 1, &state(nowhere))).await;
+    let mut elsewhere = cursor(1);
+    elsewhere["head"] = json!({"tname": "another"});
+    one.send_caret(&awareness(client, 1, &state(elsewhere)))
+        .await;
     // Two states in one update.
     let mut two_states = awareness(client, 1, &state(cursor(1)));
     two_states[0] = 2;
@@ -354,8 +374,8 @@ async fn what_is_no_caret_of_the_room_is_dropped() {
     one.barrier().await;
     no_caret(&mut two, "none of these is a caret of the room").await;
 
-    // The room goes on: a caret is told, and an update taken.
-    show(&mut one, 2).await;
+    // The room goes on: a caret of 1,024 bytes is told, and an update taken.
+    one.send_caret(&padded(1024)).await;
     assert_eq!(two.caret().await.clock, 1, "the first that was one");
     one.write_acked("second").await;
     th.teardown().await;
@@ -409,8 +429,11 @@ async fn the_document_made_again_leaves_no_caret() {
     one.text("DOC_RESET").await;
     two.text("DOC_RESET").await;
     one.settle().await;
-    two.settle().await;
-    two.carets.clear();
+    no_caret(
+        &mut two,
+        "nothing is told of a caret of the document before",
+    )
+    .await;
 
     let mut late = Peer::connect(&th.client2, 103).await;
     late.joined(TEST_WORKSPACE_ID, &t.card_id).await;

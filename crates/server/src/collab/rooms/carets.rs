@@ -20,7 +20,6 @@ use tokio::time::Instant;
 
 use super::super::Collab;
 use super::super::caret::{self, Said};
-use super::super::queue::Queued;
 use super::{Asked, Connection, Member, Room, Turn};
 use crate::permissions::DocMode;
 
@@ -33,16 +32,27 @@ const TOLD_FOR: Duration = Duration::from_secs(30);
 /// rest they let go by themselves ([`TOLD_FOR`]).
 const MOST_MISSED: usize = 64;
 
+/// The numbers of the carets come after this: past what the client of a Y document
+/// has for a number (32 bits), so that none is the number a receiver's own editor
+/// holds its own state under.
+pub(super) const NUMBERS_AFTER: u64 = 1 << 32;
+
 /// The caret of a member.
 #[derive(Debug)]
 pub(super) struct Caret {
-    /// What the others know it under: the server's number, of no other caret of any
-    /// room.
-    number: u64,
-    /// Which telling of it the last was: a later one takes an earlier one's place.
-    clock: u64,
+    /// What the others were last told of it.
+    told: Telling,
     /// Where it is, if it is shown.
     shown: Option<Shown>,
+}
+
+/// One telling of a caret: the number the others know the caret under, the server's
+/// and of no other caret of any room, and which telling of it this is. A later one
+/// takes an earlier one's place.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct Telling {
+    number: u64,
+    clock: u64,
 }
 
 #[derive(Debug)]
@@ -52,16 +62,15 @@ struct Shown {
     heard: Instant,
 }
 
-/// The carets that went while a check held a member: each with the telling that said
-/// so.
-pub(super) type CaretsMissed = Vec<(u64, u64)>;
+/// The carets that went while a check held a member: the telling that said so of each.
+pub(super) type CaretsMissed = Vec<Telling>;
 
 impl Turn {
     /// Takes a member out of the room. The others are told that its caret is gone.
     pub(super) fn take_out(&mut self, index: usize) -> Member {
         let mut member = self.members.swap_remove(index);
-        if let Some((number, clock)) = member.caret.as_mut().and_then(Caret::withdraw) {
-            self.tell_caret(None, number, clock, None);
+        if let Some(gone) = member.caret.as_mut().and_then(Caret::withdraw) {
+            self.tell_caret(None, gone, None);
         }
         member
     }
@@ -71,8 +80,8 @@ impl Turn {
     pub(super) fn withdraw_caret(&mut self, index: usize) {
         let member = &mut self.members[index];
         let but = member.connection.id;
-        if let Some((number, clock)) = member.caret.as_mut().and_then(Caret::withdraw) {
-            self.tell_caret(Some(but), number, clock, None);
+        if let Some(gone) = member.caret.as_mut().and_then(Caret::withdraw) {
+            self.tell_caret(Some(but), gone, None);
         }
     }
 
@@ -82,24 +91,28 @@ impl Turn {
         let member = &mut self.members[index];
         let state = caret::state_of(&member.connection.user_id, cursor);
         let caret = member.caret.get_or_insert_with(|| Caret {
-            number: number(),
-            clock: 0,
+            told: Telling {
+                number: number(),
+                clock: 0,
+            },
             shown: None,
         });
-        caret.clock += 1;
-        caret.shown = Some(Shown {
-            state: state.clone(),
-            heard: Instant::now(),
-        });
-        let (but, number, clock) = (member.connection.id, caret.number, caret.clock);
-        self.tell_caret(Some(but), number, clock, Some(&state));
+        caret.told.clock += 1;
+        let (but, told) = (member.connection.id, caret.told);
+        self.tell_caret(Some(but), told, Some(&state));
+        if let Some(caret) = &mut self.members[index].caret {
+            caret.shown = Some(Shown {
+                state,
+                heard: Instant::now(),
+            });
+        }
     }
 
     /// Tells every member, but the connection `but` and whom a check holds, a caret:
     /// where it is, or that it is gone. A connection with no room for it is not told:
     /// it reads nothing, and a caret is said again.
-    fn tell_caret(&mut self, but: Option<u64>, number: u64, clock: u64, state: Option<&str>) {
-        let update = caret::told(number, clock, state);
+    fn tell_caret(&mut self, but: Option<u64>, told: Telling, state: Option<&str>) {
+        let update = caret::told(told.number, told.clock, state);
         let epoch = self.epoch;
         for member in &mut self.members {
             if Some(member.connection.id) == but {
@@ -108,12 +121,12 @@ impl Turn {
             if member.is_held() {
                 let missed = member.carets_missed.get_or_insert_default();
                 if state.is_none() && missed.len() < MOST_MISSED {
-                    missed.push((number, clock));
+                    missed.push(told);
                 }
                 continue;
             }
-            let told = Queued::caret(member.doc, epoch, number, &update);
-            member.connection.queue.push_caret(told);
+            let queue = &member.connection.queue;
+            queue.push_caret(member.doc, epoch, told.number, &update);
         }
     }
 
@@ -138,14 +151,16 @@ impl Turn {
             if other.connection.id == to.connection.id || shown.heard.elapsed() >= TOLD_FOR {
                 continue;
             }
-            let update = caret::told(caret.number, caret.clock, Some(&shown.state));
-            let told = Queued::caret(to.doc, self.epoch, caret.number, &update);
-            to.connection.queue.push_caret(told);
+            let Telling { number, clock } = caret.told;
+            let update = caret::told(number, clock, Some(&shown.state));
+            let queue = &to.connection.queue;
+            queue.push_caret(to.doc, self.epoch, number, &update);
         }
     }
 
     /// Tells the member `asked` names, whom a check let go of and kept, what they
-    /// were not told of the carets meanwhile: where each is now, and which went.
+    /// were not told of the carets meanwhile: where each is now, and which went (of
+    /// those, [`MOST_MISSED`] at most).
     pub(super) fn send_carets_missed(&mut self, asked: &Asked) {
         let Some(index) = self.members.iter().position(|member| asked.is(member)) else {
             return;
@@ -155,28 +170,28 @@ impl Turn {
         };
         self.send_carets(index);
         let to = &self.members[index];
-        for (number, clock) in missed {
+        for gone in missed {
             let shown_again = self.members.iter().any(|member| {
                 member
                     .caret
                     .as_ref()
-                    .is_some_and(|caret| caret.number == number && caret.shown.is_some())
+                    .is_some_and(|caret| caret.told.number == gone.number && caret.shown.is_some())
             });
             if !shown_again {
-                let update = caret::told(number, clock, None);
-                let told = Queued::caret(to.doc, self.epoch, number, &update);
-                to.connection.queue.push_caret(told);
+                let update = caret::told(gone.number, gone.clock, None);
+                let queue = &to.connection.queue;
+                queue.push_caret(to.doc, self.epoch, gone.number, &update);
             }
         }
     }
 }
 
 impl Caret {
-    /// Shows it no more; the number and the telling that says so, if it was shown.
-    fn withdraw(&mut self) -> Option<(u64, u64)> {
+    /// Shows it no more; the telling that says so, if it was shown.
+    fn withdraw(&mut self) -> Option<Telling> {
         self.shown.take()?;
-        self.clock += 1;
-        Some((self.number, self.clock))
+        self.told.clock += 1;
+        Some(self.told)
     }
 }
 
@@ -211,12 +226,111 @@ impl Collab {
         }
         match said {
             Said::Shown(cursor) => {
-                let numbers = &self.inner.rooms.next_caret;
+                let numbered = &self.inner.rooms.carets_numbered;
                 turn.show_caret(index, &cursor, || {
-                    numbers.fetch_add(1, Ordering::Relaxed) + 1
+                    NUMBERS_AFTER + numbered.fetch_add(1, Ordering::Relaxed) + 1
                 });
             }
             Said::Withdrawn => turn.withdraw_caret(index),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, Mutex};
+
+    use super::*;
+    use crate::collab::queue::{Capacity, Queue};
+    use crate::collab::rooms::{Joined, Who};
+
+    fn member(id: u64, checking: Option<u64>) -> Member {
+        Member {
+            connection: Arc::new(Connection {
+                id,
+                user_id: format!("user {id}"),
+                made_through: None,
+                queue: Queue::new(Capacity {
+                    messages: 512,
+                    bytes: 1 << 20,
+                }),
+                joined: Mutex::new(Joined::default()),
+            }),
+            doc: 1,
+            workspace_id: "workspace".to_owned(),
+            mode: DocMode::Write,
+            checking,
+            missed: None,
+            caret: None,
+            carets_missed: None,
+        }
+    }
+
+    /// A caret an editor says: at the start of the body.
+    fn said() -> caret::Cursor {
+        let state = r#"{"cursor":{"anchor":{"tname":"default"},"head":{"tname":"default"}}}"#;
+        let mut update = vec![1, 1, 1, u8::try_from(state.len()).expect("a short state")];
+        update.extend_from_slice(state.as_bytes());
+        match caret::said(&Bytes::from(update)) {
+            Some(Said::Shown(cursor)) => cursor,
+            other => panic!("a caret: {other:?}"),
+        }
+    }
+
+    /// Takes what waits for a member, and says how many messages it was.
+    fn taken(member: &Member) -> usize {
+        use futures_util::FutureExt as _;
+        let queue = &member.connection.queue;
+        std::iter::from_fn(|| queue.next().now_or_never().flatten()).count()
+    }
+
+    /// Who comes in is told the carets heard of within thirty seconds, and no other.
+    #[tokio::test(start_paused = true)]
+    async fn a_caret_nothing_was_heard_of_is_not_told_to_who_comes_in() {
+        let mut turn = Turn {
+            members: vec![member(1, None), member(2, None), member(3, None)],
+            ..Turn::default()
+        };
+        turn.show_caret(0, &said(), || 7);
+        tokio::time::advance(Duration::from_secs(29)).await;
+        turn.show_caret(1, &said(), || 8);
+        assert_eq!(taken(&turn.members[2]), 2, "told as each was shown");
+        turn.send_carets(2);
+        assert_eq!(taken(&turn.members[2]), 2, "both, to who comes in now");
+        tokio::time::advance(Duration::from_secs(1)).await;
+        turn.send_carets(2);
+        assert_eq!(taken(&turn.members[2]), 1, "the one heard of since");
+    }
+
+    /// A held member is told nothing, and once let go, of no more carets that went
+    /// than the bound.
+    #[test]
+    fn a_held_member_is_told_of_so_many_carets_that_went_and_no_more() {
+        let mut turn = Turn {
+            members: vec![member(1, None), member(2, Some(1))],
+            ..Turn::default()
+        };
+        for number in 1..=MOST_MISSED + 10 {
+            let number = u64::try_from(number).expect("a small number");
+            turn.show_caret(0, &said(), || number);
+            turn.withdraw_caret(0);
+            // The next is a caret anew, as of a member come in anew.
+            turn.members[0].caret = None;
+        }
+        assert_eq!(taken(&turn.members[1]), 0, "held, told nothing");
+        let held = &mut turn.members[1];
+        held.checking = None;
+        let asked = Asked {
+            connection: held.connection.id,
+            doc: held.doc,
+            who: Who {
+                user_id: held.connection.user_id.clone(),
+                made_through: None,
+                workspace_id: held.workspace_id.clone(),
+            },
+        };
+        turn.send_carets_missed(&asked);
+        assert_eq!(taken(&turn.members[1]), MOST_MISSED);
+        assert!(turn.members[1].carets_missed.is_none());
     }
 }

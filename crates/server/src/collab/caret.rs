@@ -14,7 +14,7 @@
 //! ([`told`]): nothing a client wrote of those is sent on.
 
 use bytes::{BufMut as _, Bytes, BytesMut};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use super::frame::{put_varuint, take_varuint};
@@ -28,8 +28,13 @@ pub(super) const MOST_BYTES: usize = 1024;
 /// largest whole number a browser counts with.
 const MOST_NUMBER: u64 = (1 << 53) - 1;
 
-/// The longest name of a shared type a place may give, in bytes.
-const LONGEST_NAME: usize = 64;
+/// What a client's awareness state is read for: its caret. Whatever else it says (a
+/// name, a colour, a user) is passed over unread, be it what no reader would keep.
+#[derive(Debug, Deserialize)]
+struct State {
+    #[serde(default)]
+    cursor: Option<Value>,
+}
 
 /// A caret: the two ends of a selection.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -59,7 +64,7 @@ struct Id {
     clock: u64,
 }
 
-/// The members of `object`, if it has none but those of `known`.
+/// The members of `value`, if it is an object that has none but those of `known`.
 fn members<'object>(value: &'object Value, known: &[&str]) -> Option<&'object Map<String, Value>> {
     let object = value.as_object()?;
     object
@@ -97,17 +102,21 @@ impl Id {
 impl Position {
     fn read(value: &Value) -> Option<Self> {
         let object = members(value, &["type", "tname", "item", "assoc"])?;
+        // A root type other than the body's is none of the document: named, the
+        // editor's library would make it in the document of whoever is told.
         let name = |value: &Value| {
             let name = value.as_str()?;
-            (name.len() <= LONGEST_NAME).then(|| name.to_owned())
+            (name == fvoci_collab::FIELD).then(|| name.to_owned())
         };
         let side = |value: &Value| i8::try_from(value.as_i64()?).ok();
-        Some(Self {
+        let place = Self {
             kind: optional(object, "type", Id::read).ok()?,
             tname: optional(object, "tname", name).ok()?,
             item: optional(object, "item", Id::read).ok()?,
             assoc: optional(object, "assoc", side).ok()?,
-        })
+        };
+        // A place that names nothing is none: the editor's library cannot find it.
+        (place.kind.is_some() || place.tname.is_some() || place.item.is_some()).then_some(place)
     }
 }
 
@@ -131,9 +140,8 @@ pub(super) enum Said {
 }
 
 /// Reads what a client said of its caret from the awareness update it sent. `None` for
-/// what is no update of exactly one state to its last byte, and for a caret that is
-/// not two places of a document. The rest of the state (a name, a colour, a user) is
-/// not read.
+/// what is no update of exactly one state to its last byte, an object or `null` as an
+/// editor's library writes it, and for a caret that is not two places of the body.
 pub(super) fn said(update: &Bytes) -> Option<Said> {
     let mut rest = update.clone();
     if take_varuint(&mut rest)? != 1 {
@@ -146,9 +154,9 @@ pub(super) fn said(update: &Bytes) -> Option<Said> {
     if rest.len() != length {
         return None;
     }
-    let cursor = match serde_json::from_slice(&rest).ok()? {
-        Value::Null => None,
-        Value::Object(mut state) => state.remove("cursor").filter(|cursor| !cursor.is_null()),
+    let cursor = match rest.first() {
+        Some(b'{') => serde_json::from_slice::<State>(&rest).ok()?.cursor,
+        _ if rest.as_ref() == b"null" => None,
         _ => return None,
     };
     match cursor {
@@ -235,7 +243,7 @@ mod tests {
     #[test]
     fn a_caret_is_told_as_the_vectors_have_it() {
         let vectors = vectors();
-        assert!(vectors.cases.len() >= 6, "the cases are there");
+        assert!(vectors.cases.len() >= 8, "the cases are there");
         for case in vectors.cases {
             let said = said(&bytes(&case.said)).unwrap_or_else(|| panic!("{}: read", case.name));
             let state = match &said {
@@ -255,7 +263,7 @@ mod tests {
     #[test]
     fn what_is_no_caret_is_not_read() {
         let vectors = vectors();
-        assert!(vectors.refused.len() >= 8, "the refused are there");
+        assert!(vectors.refused.len() >= 13, "the refused are there");
         for refused in vectors.refused {
             assert_eq!(said(&bytes(&refused.said)), None, "{}", refused.name);
         }

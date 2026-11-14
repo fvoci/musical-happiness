@@ -38,6 +38,15 @@
       "told": "AQkDnQF7InVzZXIiOnsiaWQiOiJ1N2szbXBxMXg5Zmp6cjVkMmE4d2JuNHloYyJ9LCJjdXJzb3IiOnsiYW5jaG9yIjp7InR5cGUiOnsiY2xpZW50IjoxMSwiY2xvY2siOjF9LCJhc3NvYyI6MH0sImhlYWQiOnsidHlwZSI6eyJjbGllbnQiOjExLCJjbG9jayI6MX0sImFzc29jIjowfX19"
     },
     {
+      "name": "a caret beside what no reader would keep: half of a pair of surrogates in a name",
+      "said": "AbLyGQToAXsidXNlciI6eyJuYW1lIjoiY3V0IFx1ZDgzZCJ9LCJjdXJzb3IiOnsiYW5jaG9yIjp7InR5cGUiOnsiY2xpZW50IjoxMSwiY2xvY2siOjJ9LCJ0bmFtZSI6bnVsbCwiaXRlbSI6eyJjbGllbnQiOjExLCJjbG9jayI6NX0sImFzc29jIjowfSwiaGVhZCI6eyJ0eXBlIjp7ImNsaWVudCI6MTEsImNsb2NrIjoyfSwidG5hbWUiOm51bGwsIml0ZW0iOnsiY2xpZW50IjoxMSwiY2xvY2siOjl9LCJhc3NvYyI6LTF9fX0=",
+      "userId": "u7k3mpq1x9fjzr5d2a8wbn4yhc",
+      "number": 4294967297,
+      "clock": 1,
+      "state": "{\"user\":{\"id\":\"u7k3mpq1x9fjzr5d2a8wbn4yhc\"},\"cursor\":{\"anchor\":{\"type\":{\"client\":11,\"clock\":2},\"item\":{\"client\":11,\"clock\":5},\"assoc\":0},\"head\":{\"type\":{\"client\":11,\"clock\":2},\"item\":{\"client\":11,\"clock\":9},\"assoc\":-1}}}",
+      "told": "AYGAgIAQAdwBeyJ1c2VyIjp7ImlkIjoidTdrM21wcTF4OWZqenI1ZDJhOHdibjR5aGMifSwiY3Vyc29yIjp7ImFuY2hvciI6eyJ0eXBlIjp7ImNsaWVudCI6MTEsImNsb2NrIjoyfSwiaXRlbSI6eyJjbGllbnQiOjExLCJjbG9jayI6NX0sImFzc29jIjowfSwiaGVhZCI6eyJ0eXBlIjp7ImNsaWVudCI6MTEsImNsb2NrIjoyfSwiaXRlbSI6eyJjbGllbnQiOjExLCJjbG9jayI6OX0sImFzc29jIjotMX19fQ=="
+    },
+    {
       "name": "a state that names no caret",
       "said": "AbLyGQRQeyJ1c2VyIjp7ImlkIjoic29tZWJvZHktZWxzZSIsIm5hbWUiOiJNYWxsb3J5IiwiY29sb3IiOiIjZmYwMDAwIn0sImN1cnNvciI6bnVsbH0=",
       "userId": "u7k3mpq1x9fjzr5d2a8wbn4yhc",
@@ -93,6 +102,14 @@
     {
       "name": "a place of a client no browser counts to",
       "said": "AbLyGQTMAXsiY3Vyc29yIjp7ImFuY2hvciI6eyJ0eXBlIjp7ImNsaWVudCI6MTEsImNsb2NrIjoyfSwiaXRlbSI6eyJjbGllbnQiOjkwMDcxOTkyNTQ3NDA5OTIsImNsb2NrIjowfSwiYXNzb2MiOjB9LCJoZWFkIjp7InR5cGUiOnsiY2xpZW50IjoxMSwiY2xvY2siOjJ9LCJ0bmFtZSI6bnVsbCwiaXRlbSI6eyJjbGllbnQiOjExLCJjbG9jayI6OX0sImFzc29jIjotMX19fQ=="
+    },
+    {
+      "name": "a place that names nothing",
+      "said": "AbLyGQSAAXsiY3Vyc29yIjp7ImFuY2hvciI6eyJhc3NvYyI6MH0sImhlYWQiOnsidHlwZSI6eyJjbGllbnQiOjExLCJjbG9jayI6Mn0sInRuYW1lIjpudWxsLCJpdGVtIjp7ImNsaWVudCI6MTEsImNsb2NrIjo5fSwiYXNzb2MiOi0xfX19"
+    },
+    {
+      "name": "a place in a root type that is not the body's",
+      "said": "AbLyGQSSAXsiY3Vyc29yIjp7ImFuY2hvciI6eyJ0bmFtZSI6ImFub3RoZXIiLCJhc3NvYyI6MH0sImhlYWQiOnsidHlwZSI6eyJjbGllbnQiOjExLCJjbG9jayI6Mn0sInRuYW1lIjpudWxsLCJpdGVtIjp7ImNsaWVudCI6MTEsImNsb2NrIjo5fSwiYXNzb2MiOi0xfX19"
     },
     {
       "name": "a caret that is no two places",

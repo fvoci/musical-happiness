@@ -168,8 +168,8 @@ pub(crate) struct Peer {
     texts: VecDeque<Value>,
     /// The sync messages it took into its document, in the order they came.
     pub(crate) taken: Vec<Frame>,
-    /// What it was told of the carets of the room it is in that no test asked for
-    /// yet, in the order it came.
+    /// What it was told of carets that no test asked for yet, in the order it came:
+    /// of whatever room the frame named.
     pub(crate) carets: VecDeque<Told>,
 }
 
@@ -314,9 +314,11 @@ impl Peer {
                 self.taken.push(frame);
             }
             Incoming::Caret(told) => {
-                if told.doc == self.doc {
-                    self.carets.push_back(told);
-                }
+                assert!(
+                    told.doc != self.doc || self.editor.is_some(),
+                    "a caret of a room comes after its document: {told:?}"
+                );
+                self.carets.push_back(told);
             }
         }
         true

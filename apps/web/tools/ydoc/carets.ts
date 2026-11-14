@@ -158,6 +158,13 @@ export function buildCaretVectors(): CaretVectors {
       ),
       caseOf('a caret at the start of a body', { user: {}, cursor: start }, start, 8, 2),
       caseOf('a caret in an empty paragraph', { user: {}, cursor: empty }, empty, 9, 3),
+      caseOf(
+        'a caret beside what no reader would keep: half of a pair of surrogates in a name',
+        { user: { name: 'cut \ud83d' }, cursor: line },
+        line,
+        4_294_967_297,
+        1,
+      ),
       caseOf('a state that names no caret', { user: somebodyElse, cursor: null }, undefined, 7, 2),
       caseOf('a state without a caret', { user: {} }, undefined, 7, 2),
       caseOf('a state that is gone', null, undefined, 16_384, 2_097_152),
@@ -189,6 +196,16 @@ export function buildCaretVectors(): CaretVectors {
       refuse(
         'a place of a client no browser counts to',
         saidBy(424_242, [[424_242, { cursor: { anchor: huge, head: line.head } }]]),
+      ),
+      refuse(
+        'a place that names nothing',
+        saidBy(424_242, [[424_242, { cursor: { anchor: { assoc: 0 }, head: line.head } }]]),
+      ),
+      refuse(
+        "a place in a root type that is not the body's",
+        saidBy(424_242, [
+          [424_242, { cursor: { anchor: { tname: 'another', assoc: 0 }, head: line.head } }],
+        ]),
       ),
       refuse('a caret that is no two places', saidBy(424_242, [[424_242, { cursor: 'here' }]])),
       refuse(

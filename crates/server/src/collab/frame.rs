@@ -41,6 +41,9 @@ const KIND_CARETS: u64 = 1;
 /// frame is the largest update and this.
 pub(super) const HEAD_ROOM: usize = 32;
 
+/// The most bytes a varuint of 64 bits takes.
+const LONGEST_VARUINT: usize = 10;
+
 /// What a sync message is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Sync {
@@ -125,23 +128,22 @@ pub(super) fn room_of(mut frame: Bytes) -> Option<(u32, Bytes)> {
 pub(super) fn received(mut rest: Bytes) -> Option<Received> {
     let kind = take_varuint(&mut rest)?;
     let epoch = i64::try_from(take_varuint(&mut rest)?).ok()?;
-    let sync = match kind {
-        KIND_SYNC => Some(Sync::of(take_varuint(&mut rest)?)?),
-        KIND_CARETS => None,
+    let carried = match kind {
+        KIND_SYNC => {
+            let sync = Sync::of(take_varuint(&mut rest)?)?;
+            let payload = measured(rest)?;
+            Carried::Sync { sync, payload }
+        }
+        KIND_CARETS => Carried::Carets(measured(rest)?),
         _ => return None,
     };
-    let length = usize::try_from(take_varuint(&mut rest)?).ok()?;
-    if rest.len() != length {
-        return None;
-    }
-    let carried = match sync {
-        Some(sync) => Carried::Sync {
-            sync,
-            payload: rest,
-        },
-        None => Carried::Carets(rest),
-    };
     Some(Received { epoch, carried })
+}
+
+/// The bytes after the length at the front of `rest`, if they are as many as it says.
+fn measured(mut rest: Bytes) -> Option<Bytes> {
+    let length = usize::try_from(take_varuint(&mut rest)?).ok()?;
+    (rest.len() == length).then_some(rest)
 }
 
 pub(super) fn put_varuint(out: &mut BytesMut, mut value: u64) {
@@ -173,7 +175,7 @@ pub(super) fn framed(doc: u32, epoch: i64, message: &Bytes) -> Bytes {
 /// The frame of carets for one connection: its room there, the epoch, and the
 /// awareness update that tells them ([`super::caret::told`]).
 pub(super) fn carets(doc: u32, epoch: i64, update: &Bytes) -> Bytes {
-    let mut out = head(doc, KIND_CARETS, epoch, update.len() + 10);
+    let mut out = head(doc, KIND_CARETS, epoch, update.len() + LONGEST_VARUINT);
     put_varuint(&mut out, u64::try_from(update.len()).unwrap_or(u64::MAX));
     out.put_slice(update);
     out.freeze()

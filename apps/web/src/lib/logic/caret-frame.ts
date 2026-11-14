@@ -14,7 +14,12 @@
 export const CARET_BYTES = 1024;
 
 const MOST_NUMBER = Number.MAX_SAFE_INTEGER;
-const LONGEST_NAME = 64;
+/**
+ * The one root type a place may name: the field of a body's Y document
+ * (`editor/body-editor.ts`, `BODY_FIELD`). Another, named, would be made in
+ * the document of whoever is told the caret.
+ */
+export const CARET_FIELD = 'default';
 
 type Json = Record<string, unknown>;
 
@@ -46,9 +51,7 @@ function placeOf(value: unknown): Json | undefined {
   const place: Json = {};
   if (type) place.type = type;
   if (tname !== null && tname !== undefined) {
-    if (typeof tname !== 'string' || new TextEncoder().encode(tname).length > LONGEST_NAME) {
-      return undefined;
-    }
+    if (tname !== CARET_FIELD) return undefined;
     place.tname = tname;
   }
   if (item) place.item = item;
@@ -58,6 +61,8 @@ function placeOf(value: unknown): Json | undefined {
     }
     place.assoc = assoc;
   }
+  // A place that names nothing is none: the editor's library cannot find it.
+  if (!type && !item && place.tname === undefined) return undefined;
   return place;
 }
 
