@@ -21,6 +21,7 @@ use utoipa_axum::routes;
 use super::auth::address_of;
 use super::contract::params::{InvitationId, WorkerWorkspaceId};
 use super::contract::tag;
+use super::signup_cookie::with_marker;
 use super::workspace::Ws;
 use super::{ApiResult, OptionalSession, created, decode_object, json_response, no_content};
 use crate::app::{Accepting, Admission, App, Inviting};
@@ -318,7 +319,8 @@ async fn handle_preview_invitation(
 /// unless the link was made for one recipient of a mailed guest link at that address,
 /// which the mail proves: the answer is 202 with no body, nobody is let in, and the
 /// link mailed to the address (`completeEmailVerification`) makes the account and lets
-/// it in, as this acceptance would have, and signs it in. The registration counts as a
+/// it in, as this acceptance would have, and signs it in. The 202 sets the cookie of
+/// the browser the registration was made from, as `register` does. The registration counts as a
 /// use of the link from the start, so a link for one guest lets nobody else in
 /// meanwhile, and it holds its name and address as an account would. Not confirmed in
 /// seven days, it is removed and gives the use back. `language` is the language of the
@@ -341,7 +343,11 @@ async fn handle_preview_invitation(
     security((), ("sessionCookie" = []), ("bearerToken" = [])),
     responses(
         (status = 200, description = "Where the account was let in.", body = AcceptedInvitation),
-        (status = 202, description = "A new account waits for its email address to be confirmed by the link mailed to it."),
+        (
+            status = 202,
+            description = "A new account waits for its email address to be confirmed by the link mailed to it.",
+            headers(("Set-Cookie" = String, description = "The cookie that tells the browser the registration was made from, as from `register`; no session.")),
+        ),
         (
             status = 429,
             description = "Too many requests from where this one comes from, or the server has too much password work to do at the moment.",
@@ -389,6 +395,8 @@ async fn handle_accept_invitation(
         .map_err(|error| error.under(ACCOUNT))?;
     Ok(match admission {
         Admission::LetIn(accepted) => json_response(&accepted),
-        Admission::Waiting => StatusCode::ACCEPTED.into_response(),
+        Admission::Waiting(marker) => {
+            with_marker(&app, &marker, StatusCode::ACCEPTED.into_response())
+        }
     })
 }

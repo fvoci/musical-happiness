@@ -24,6 +24,7 @@ use fvoci_store::{
 };
 
 use super::auth::account_error;
+use super::signups::SignupMarker;
 use super::{App, Asker, BoardAccess};
 use crate::auth::now_millis;
 use crate::auth::secret::{new_secret, token_digest};
@@ -440,7 +441,7 @@ impl App {
         let Some((app, accepted, waiting)) = settled else {
             return Err(AppError::invitation_unavailable());
         };
-        if let Some(signup) = waiting {
+        if let Some((signup, browser)) = waiting {
             tracing::info!(
                 signup_id = %signup.id,
                 workspace_id = %accepted.workspace_id,
@@ -448,7 +449,7 @@ impl App {
             );
             let app = self.clone();
             self.spawn_background(async move { app.mail_signup_link(&signup, None).await });
-            return Ok(Admission::Waiting);
+            return Ok(Admission::Waiting(browser));
         }
         if new_user.is_some() {
             self.metrics().registered();
@@ -499,14 +500,15 @@ impl App {
                     empty => empty.insert(app.new_account(account).await?),
                 };
                 if self.verifies_email() && !mailed_to(&invitation, &user.email) {
+                    let browser = SignupMarker::new();
                     let signup = app
-                        .signup_by_link(user, &invitation.id, language, now)
+                        .signup_by_link(user, &invitation.id, language, &browser, now)
                         .await?;
                     let reserved = app
                         .store()
                         .reserve_invitation(&digest, &signup, now, inviter)
                         .await;
-                    waiting = Some(signup);
+                    waiting = Some((signup, browser));
                     reserved
                 } else {
                     let acceptor = Acceptor::NewAccount(user);
@@ -597,8 +599,9 @@ pub enum Admission {
     /// Somebody was let in, here.
     LetIn(AcceptedInvitation),
     /// A registration waits for its address to be confirmed by the link mailed to it:
-    /// nobody is let in until then.
-    Waiting,
+    /// nobody is let in until then. The marker is for the cookie of the browser it was
+    /// made from.
+    Waiting(SignupMarker),
 }
 
 /// An acceptance that was written.
@@ -606,8 +609,9 @@ struct Settled {
     /// The application behind the wall of the link's organization.
     app: App,
     accepted: Accepted,
-    /// The registration that waits for its address, where a new account waits.
-    waiting: Option<Signup>,
+    /// The registration that waits for its address, where a new account waits, and
+    /// the marker of the browser it was made from.
+    waiting: Option<(Signup, SignupMarker)>,
 }
 
 /// What an attempt to accept came to.

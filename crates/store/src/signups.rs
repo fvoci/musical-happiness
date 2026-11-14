@@ -36,6 +36,9 @@ pub struct Signup {
     pub language: String,
     /// What it starts once it is confirmed.
     pub start: SignupStart,
+    /// The digest of the secret kept by the cookie of the browser it was made from;
+    /// empty for one made before browsers were told apart.
+    pub browser_hash: String,
     /// When it was made.
     pub create_at: i64,
     /// When it ends unconfirmed, and is removed.
@@ -118,7 +121,7 @@ pub struct Confirmed {
 
 /// The columns of a registration, in the order [`signup_from_row`] reads them.
 const COLUMNS: &str = "id, username, email, display_name, password_hash, language, \
-    organization_name, create_at, expires_at, invitation_id, invitation_org_id";
+    organization_name, create_at, expires_at, invitation_id, invitation_org_id, browser_hash";
 
 impl Store {
     /// Stores a registration whose address is to be confirmed, holding its name and
@@ -432,7 +435,8 @@ async fn insert(scope: &mut Scope<'_>, signup: &Signup) -> Result<(), StoreError
         .push_bind(", ", signup.expires_at)
         .push_bind(", ", OptId(invitation_id))
         .push_bind(", ", OptId(invitation_org_id))
-        .push(")");
+        .push_bind(", NULLIF(", &signup.browser_hash)
+        .push(", ''))");
     match scope.execute(sql).await {
         Ok(_) => Ok(()),
         Err(StoreError::Database(error)) => Err(users::unique_violation(error)),
@@ -566,6 +570,7 @@ fn signup_from_row(row: &Row) -> Result<Signup, StoreError> {
                 org_id: row.id(10)?,
             },
         },
+        browser_hash: row.opt_text(11)?.unwrap_or_default(),
         create_at: row.int(7)?,
         expires_at: row.int(8)?,
     })

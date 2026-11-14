@@ -10,8 +10,9 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 use super::auth::{address_of, user_agent, with_session_cookie};
 use super::contract::tag;
 use super::recovery::RecoveryResponse;
+use super::signup_cookie::{marker_of, without_marker};
 use super::{ApiResult, decode_object, json_response};
-use crate::app::App;
+use crate::app::{App, Registrant};
 use crate::client_address::ClientAddress;
 
 /// Where a confirmed registration's account was let in.
@@ -34,6 +35,19 @@ struct CompleteEmailVerification {
     /// The secret from the confirmation link's fragment.
     #[serde(default)]
     token: String,
+    /// The password the registration was made with: needed where the link is opened in
+    /// another browser than the one the registration was made from, and not read in
+    /// that one.
+    #[serde(default)]
+    password: String,
+}
+
+impl std::fmt::Debug for CompleteEmailVerification {
+    /// Leaves out the token and the password.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CompleteEmailVerification")
+            .finish_non_exhaustive()
+    }
 }
 
 pub(super) fn routes() -> OpenApiRouter<App> {
@@ -94,12 +108,24 @@ async fn request(
 ///
 /// Consumes the token of the link mailed to a registration's address, within a day of
 /// the mail and seven days of the registration: makes the account, and the
-/// organization and first workspace it registered with, and signs it in, in whatever
-/// browser the link was opened (the mailbox is the proof). The session comes in the
-/// `Set-Cookie` header, as from `login`, and the answer says where the account was let
-/// in. A link is used once, and a newer mail of the same registration ends the links
-/// before it. A missing, ended, used or replaced token answers 400, naming `token` in
-/// `errors`. On a server that takes one organization and has its first user by now,
+/// organization and first workspace it registered with, and signs it in. The session
+/// comes in the `Set-Cookie` header, as from `login`, and the answer says where the
+/// account was let in. A link is used once, and a newer mail of the same registration
+/// ends the links before it. A missing, ended, used or replaced token answers 400,
+/// naming `token` in `errors`.
+///
+/// Only who registered finishes a registration, so that nobody is signed in to an
+/// account whose password somebody else chose. In the browser the registration was
+/// made from, which the cookie of `register` or `acceptInvitation` shows, the token is
+/// enough. Anywhere else a token that would confirm is answered 403 with the reason
+/// `password_required`, and the request is sent again with `password`, the password the
+/// registration was made with: a wrong one is the 401 of `login` (`invalid_credentials`),
+/// counted with the failed logins to the registration's user name, and too many are
+/// 429. A request that is refused so leaves the link as it was. Nothing is asked of a
+/// token that confirms nothing, so the answers tell no more of whether a registration
+/// waits than the token does.
+///
+/// On a server that takes one organization and has its first user by now,
 /// the registration is removed and the answer is 403 with the reason
 /// `invitation_required`. A registration made by the link of an invitation
 /// (`acceptInvitation`) is let in as the acceptance would have let it in, and the answer
@@ -133,13 +159,28 @@ async fn complete(
     body: Bytes,
 ) -> ApiResult {
     let request: CompleteEmailVerification = decode_object(&body)?;
-    let (token, confirmed) = app
-        .confirm_signup(&request.token, &user_agent(&headers), address_of(client))
+    let marker = marker_of(&app, &headers);
+    let registrant = Registrant {
+        marker: marker.as_deref(),
+        password: &request.password,
+    };
+    let signed_in = app
+        .confirm_signup(
+            &request.token,
+            registrant,
+            &user_agent(&headers),
+            address_of(client),
+        )
         .await?;
     let answer = EmailVerified {
-        workspace_id: confirmed.workspace_id,
-        board_id: confirmed.board_id,
-        organization_started: confirmed.started_organization,
+        workspace_id: signed_in.confirmed.workspace_id,
+        board_id: signed_in.confirmed.board_id,
+        organization_started: signed_in.confirmed.started_organization,
     };
-    Ok(with_session_cookie(&app, &token, json_response(&answer)))
+    let response = with_session_cookie(&app, &signed_in.session_token, json_response(&answer));
+    Ok(if signed_in.made_here {
+        without_marker(&app, response)
+    } else {
+        response
+    })
 }

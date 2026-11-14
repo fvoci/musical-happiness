@@ -1,24 +1,30 @@
 //! Registrations that wait for their address to be confirmed (`email_verification`):
 //! the link mailed to the address makes the account, starts what the registration
 //! starts and signs its person in. Until then there is no account.
+//!
+//! Only who registered finishes it: the browser the registration was made from, which
+//! keeps a secret of it in a cookie ([`SignupMarker`]), or whoever knows the password it
+//! was made with. The mailbox alone confirms nothing, so that nobody is signed in to
+//! an account whose password somebody else chose.
 
 use std::net::IpAddr;
 use std::time::Instant;
 
-use fvoci_model::{RegisterRequest, Session, User, new_id};
+use fvoci_model::{MAXIMUM_PASSWORD_BYTES, RegisterRequest, Session, User, new_id};
 use fvoci_store::{
     Accepted, Confirmed, Founding, InvitedConfirmation, Proof, SIGNUP_LIFETIME_MILLIS, Signup,
     SignupStart, StoreError,
 };
 
 use super::App;
-use super::auth::account_error;
+use super::auth::{account_error, incorrect_login};
 use super::mail::{Content, Language, Letter};
 use crate::auth::limiter::RetryAfter;
 use crate::auth::now_millis;
+use crate::auth::password::Verdict;
 use crate::auth::secret::{new_secret, token_digest};
 use crate::collab::AccessScope;
-use crate::error::AppError;
+use crate::error::{AppError, Reason};
 use crate::metrics::ResetMailDrop;
 
 impl App {
@@ -32,7 +38,8 @@ impl App {
     /// Stores the registration of somebody who signs up, to be confirmed by the link
     /// mailed to its address, and mails that link in the background, in the language of
     /// the screen it came from: nothing is made of it until then. The caller has tidied
-    /// and checked the request, as for [`App::sign_up`].
+    /// and checked the request, as for [`App::sign_up`]. Returns the marker of the
+    /// browser it was made from, for its cookie.
     ///
     /// # Errors
     ///
@@ -42,12 +49,13 @@ impl App {
         &self,
         request: &RegisterRequest,
         address: Option<IpAddr>,
-    ) -> Result<(), AppError> {
+    ) -> Result<SignupMarker, AppError> {
         let _attempt = self.admit_registration(address)?;
         let user = self.new_account(&request.account()).await?;
         let now = now_millis();
         let start = SignupStart::Organization(request.organization_name.clone());
-        let signup = waiting(&user, &request.language, start, now);
+        let marker = SignupMarker::new();
+        let signup = waiting(&user, &request.language, start, &marker, now);
         self.store()
             .create_signup(&signup, now)
             .await
@@ -55,17 +63,19 @@ impl App {
         tracing::info!(signup_id = %signup.id, "a registration waits for its address");
         let app = self.clone();
         self.spawn_background(async move { app.mail_signup_link(&signup, None).await });
-        Ok(())
+        Ok(marker)
     }
 
     /// The registration of `user`, an account asked for by the link `invitation_id` from
-    /// a screen in `language`, to be stored as that link's (`reserve_invitation`). The
-    /// registrations that ended go first: they hold no name, but their rows do.
+    /// a screen in `language` of the browser of `marker`, to be stored as that link's
+    /// (`reserve_invitation`). The registrations that ended go first: they hold no
+    /// name, but their rows do.
     pub(super) async fn signup_by_link(
         &self,
         user: &User,
         invitation_id: &str,
         language: &str,
+        marker: &SignupMarker,
         now: i64,
     ) -> Result<Signup, AppError> {
         self.store().remove_ended_signups(now).await?;
@@ -74,7 +84,7 @@ impl App {
             // The link's organization, which the store sets as it holds the link.
             org_id: String::new(),
         };
-        Ok(waiting(user, language, start, now))
+        Ok(waiting(user, language, start, marker, now))
     }
 
     /// Admits a request for a new confirmation link identically whether or not a
@@ -206,28 +216,63 @@ impl App {
         ))
     }
 
-    /// Confirms the registration of the link `token` is of: makes its account, starts
-    /// its organization, and signs it in, whatever browser the link was opened in (the
-    /// mailbox is the proof). Returns the token of the new session and where the
-    /// account was let in.
+    /// Confirms the registration of the link `token` is of, for `registrant`: makes its
+    /// account, starts its organization, and signs it in. The link alone confirms
+    /// nothing: the browser the registration was made from finishes it at once, and any
+    /// other only with the password it was made with, which is counted against the
+    /// registration's user name and the address as a login's is. A registrant who is
+    /// refused leaves the link as it was. Returns the token of the new session and
+    /// where the account was let in.
     ///
     /// # Errors
     ///
     /// Returns 400 naming `token` for a link that confirms nothing (none, ended, used,
-    /// or replaced by a newer one); 403 (`invitation_required`) if the server takes one
+    /// or replaced by a newer one); for a link that does, 403 (`password_required`) from
+    /// another browser without a password, the 401 of a login for a wrong one, and 429
+    /// for too many wrong ones; 403 (`invitation_required`) if the server takes one
     /// organization and it has its first user now, which removes the registration;
     /// 429 for too many attempts from `address`; or the store's error.
     pub async fn confirm_signup(
         &self,
         token: &str,
+        registrant: Registrant<'_>,
         user_agent: &str,
         address: Option<IpAddr>,
-    ) -> Result<(String, Confirmed), AppError> {
-        let _attempt = self.admit_registration(address)?;
+    ) -> Result<ConfirmedSignup, AppError> {
+        let turn = self.admit_registration(address)?;
         let digest = token_digest(token);
-        let confirmed = self.confirm(Proof::Link(&digest)).await?.ok_or_else(|| {
+        let proof = Proof::Link(&digest);
+        let now = now_millis();
+        let link_refused = || {
             AppError::bad_request("the confirmation link is invalid or expired").with_field("token")
-        })?;
+        };
+        let signup = self
+            .store()
+            .signup_of(proof, now)
+            .await?
+            .ok_or_else(link_refused)?;
+        let made_here = registrant
+            .marker
+            .is_some_and(|secret| SignupMarker::is_of(secret, &signup));
+        // Nothing of the registration is touched before its registrant is known: what
+        // confirming finds (a link that lets nobody in, a server that has its first
+        // user) removes it.
+        let _turn = if made_here {
+            Some(turn)
+        } else {
+            if registrant.password.is_empty() {
+                return Err(password_required());
+            }
+            // The check is a login's, which takes the address's turn itself.
+            drop(turn);
+            self.check_password_of(&signup, registrant.password, address)
+                .await?;
+            None
+        };
+        let confirmed = self
+            .confirm(&signup, proof, now)
+            .await?
+            .ok_or_else(link_refused)?;
         let session_token = new_secret();
         let now = now_millis();
         let session = Session {
@@ -253,7 +298,35 @@ impl App {
                 "the account was changed in the meantime; sign in",
             ));
         }
-        Ok((session_token, confirmed))
+        Ok(ConfirmedSignup {
+            session_token,
+            confirmed,
+            made_here,
+        })
+    }
+
+    /// Checks the password a registration was made with, given with its link from
+    /// another browser than its own: counted as a login to its user name from
+    /// `address` is, and refused as one.
+    async fn check_password_of(
+        &self,
+        signup: &Signup,
+        password: &str,
+        address: Option<IpAddr>,
+    ) -> Result<(), AppError> {
+        let attempt = self
+            .login_limiter()
+            .admit_login(&[&signup.username], address, Instant::now())
+            .map_err(|RetryAfter(wait)| AppError::rate_limited(wait))?;
+        let right = password.len() <= MAXIMUM_PASSWORD_BYTES
+            && self.verify(&signup.password_hash, password).await? != Verdict::Mismatch;
+        if !right {
+            tracing::debug!(signup_id = %signup.id, "invalid password for a registration");
+            attempt.failed(Instant::now());
+            return Err(incorrect_login());
+        }
+        attempt.succeeded(&signup.username);
+        Ok(())
     }
 
     /// Confirms the registration with the user name `username`, in any letter case, on
@@ -269,24 +342,26 @@ impl App {
     /// [`App::accept_invitation`] if its link lets nobody in any more (and the
     /// registration is removed), and as [`App::confirm_signup`] otherwise.
     pub async fn confirm_signup_by_operator(&self, username: &str) -> Result<String, AppError> {
-        let confirmed = self
-            .confirm(Proof::Operator(username))
-            .await?
-            .ok_or_else(|| AppError::not_found("registration"))?;
+        let proof = Proof::Operator(username);
+        let now = now_millis();
+        let gone = || AppError::not_found("registration");
+        let signup = self.store().signup_of(proof, now).await?.ok_or_else(gone)?;
+        let confirmed = self.confirm(&signup, proof, now).await?.ok_or_else(gone)?;
         Ok(confirmed.user.id)
     }
 
-    /// Confirms the registration `proof` names: starts its organization, or lets its
-    /// account in by the link it was made by.
-    async fn confirm(&self, proof: Proof<'_>) -> Result<Option<Confirmed>, AppError> {
-        let now = now_millis();
-        let Some(signup) = self.store().signup_of(proof, now).await? else {
-            return Ok(None);
-        };
+    /// Confirms `signup`, which `proof` names at `now`: starts its organization, or
+    /// lets its account in by the link it was made by. `None` if it is gone meanwhile.
+    async fn confirm(
+        &self,
+        signup: &Signup,
+        proof: Proof<'_>,
+        now: i64,
+    ) -> Result<Option<Confirmed>, AppError> {
         let confirmed = match &signup.start {
-            SignupStart::Organization(_) => self.confirm_founding(&signup, proof, now).await?,
+            SignupStart::Organization(_) => self.confirm_founding(signup, proof, now).await?,
             SignupStart::Invitation { id, org_id } => {
-                self.confirm_invited(&signup, proof, (id, org_id), now)
+                self.confirm_invited(signup, proof, (id, org_id), now)
                     .await?
             }
         };
@@ -407,8 +482,97 @@ impl App {
     }
 }
 
-/// The registration of `user`, made now from a screen in `language`, to start `start`.
-fn waiting(user: &User, language: &str, start: SignupStart, now: i64) -> Signup {
+/// The secret of the browser a registration was made from, which its cookie keeps for
+/// as long as the registration waits: no session, and nothing is reached by it. It
+/// shows the browser to be the registrant's, where the link of the mail confirms the
+/// registration at once. The store has its digest only.
+#[derive(Clone, PartialEq, Eq)]
+pub struct SignupMarker(String);
+
+impl SignupMarker {
+    /// How long a browser keeps one, in seconds: as long as its registration waits.
+    pub const MAX_AGE_SECONDS: i64 = SIGNUP_LIFETIME_MILLIS / 1_000;
+
+    /// A new one, of 256 random bits.
+    pub(super) fn new() -> Self {
+        Self(new_secret())
+    }
+
+    /// The secret, for the cookie.
+    #[must_use]
+    pub fn secret(&self) -> &str {
+        &self.0
+    }
+
+    /// Whether `secret`, as a browser's cookie has it, is the one `signup` was made
+    /// with. One made before browsers were told apart has none.
+    fn is_of(secret: &str, signup: &Signup) -> bool {
+        !signup.browser_hash.is_empty() && token_digest(secret) == signup.browser_hash
+    }
+}
+
+impl std::fmt::Debug for SignupMarker {
+    /// Leaves out the secret.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("SignupMarker(..)")
+    }
+}
+
+/// What whoever opens a confirmation link shows of being who registered.
+#[derive(Clone, Copy)]
+pub struct Registrant<'a> {
+    /// The secret of the browser's cookie, if it has one.
+    pub marker: Option<&'a str>,
+    /// The password the registration was made with; empty for none given.
+    pub password: &'a str,
+}
+
+impl std::fmt::Debug for Registrant<'_> {
+    /// Leaves out the secret and the password.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Registrant").finish_non_exhaustive()
+    }
+}
+
+/// A confirmed registration, signed in.
+#[derive(Clone)]
+pub struct ConfirmedSignup {
+    /// The token of the new session.
+    pub session_token: String,
+    /// The account, and where it was let in.
+    pub confirmed: Confirmed,
+    /// Whether the browser was the one the registration was made from: its cookie has
+    /// nothing left to show.
+    pub made_here: bool,
+}
+
+impl std::fmt::Debug for ConfirmedSignup {
+    /// Leaves out the token.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ConfirmedSignup")
+            .field("confirmed", &self.confirmed)
+            .field("made_here", &self.made_here)
+            .finish_non_exhaustive()
+    }
+}
+
+/// The refusal of a confirmation link opened in another browser than the registration
+/// was made from, without the password it was made with.
+fn password_required() -> AppError {
+    AppError::forbidden("the password of the registration is required")
+        .with_reason(Reason::PasswordRequired)
+        .with_field("password")
+}
+
+/// The registration of `user`, made now from a screen in `language` of the browser of
+/// `marker`, to start `start`.
+fn waiting(
+    user: &User,
+    language: &str,
+    start: SignupStart,
+    marker: &SignupMarker,
+    now: i64,
+) -> Signup {
     Signup {
         id: user.id.clone(),
         username: user.username.clone(),
@@ -420,6 +584,7 @@ fn waiting(user: &User, language: &str, start: SignupStart, now: i64) -> Signup 
             .unwrap_or_default()
             .to_owned(),
         start,
+        browser_hash: token_digest(marker.secret()),
         create_at: now,
         expires_at: now.saturating_add(SIGNUP_LIFETIME_MILLIS),
     }

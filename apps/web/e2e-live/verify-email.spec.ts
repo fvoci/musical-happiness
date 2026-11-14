@@ -9,7 +9,13 @@ import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 import { screensDir } from '../e2e/screens.ts';
-import { person, watchErrors } from './support.ts';
+import { memberLink, person, signedIn, watchErrors, type Person } from './support.ts';
+
+// The server holds one organization: who registers first starts it, and the
+// account after comes by a link of theirs.
+test.describe.configure({ mode: 'serial' });
+/** Who started the organization, once the first test has. */
+let founder: Person | undefined;
 
 /** What the server's fake SMTP received, from its inbox three ports up. */
 async function inbox(baseURL: string): Promise<{ recipient: string; decoded: string }[]> {
@@ -101,6 +107,7 @@ test('a registration waits for its mailed link, which signs in on the first boar
   await expect(page.getByTestId('verify-request-form')).toBeVisible();
   await verifyShot(page, 'link-refused');
 
+  // The browser that registered: the link is enough there.
   await page.goto(second);
   await expect(page).toHaveURL(/\/w\/[^/]+\/boards\/[^/]+/);
   expect(new URL(page.url()).hash).toBe('');
@@ -110,4 +117,71 @@ test('a registration waits for its mailed link, which signs in on the first boar
   expect(((await me.json()) as { username: string }).username).toBe(who.username);
   await verifyShot(page, 'first-board');
   expect(errors).toEqual([]);
+  founder = who;
+});
+
+test('in another browser the link asks for the password the registration was made with', async ({
+  page,
+  browser,
+  baseURL,
+}) => {
+  if (!baseURL || !founder) throw new Error('the server has no organization yet');
+  const api = await signedIn(baseURL, founder);
+  const [workspace] = (await (await api.get('/api/v1/users/me/workspaces')).json()) as {
+    id: string;
+  }[];
+  if (!workspace) throw new Error('the founder has no organization');
+  const invitation = await memberLink(api, workspace.id);
+  await api.dispose();
+
+  // A new account by the link: it waits for its address, as a registration does.
+  const who = person('elsewhere');
+  await page.goto(`/invite/${invitation.token ?? ''}`);
+  await expect(page.getByTestId('invite-summary')).toBeVisible();
+  await page.getByLabel('User name', { exact: true }).fill(who.username);
+  await page.getByLabel('Email address').fill(who.email);
+  await page.getByLabel('Password', { exact: true }).fill(who.password);
+  await page.getByRole('button', { name: 'Create account and join' }).click();
+  await expect(page.getByTestId('check-mail')).toContainText(who.email);
+  await expect.poll(async () => (await links(baseURL, who.email)).length).toBe(1);
+  const [link] = await links(baseURL, who.email);
+  if (!link) throw new Error('a link was mailed');
+
+  // Whoever reads the mail elsewhere: nothing comes of the link alone, in Korean as in English.
+  const korean = await browser.newContext({ baseURL, locale: 'ko-KR' });
+  const reader = await korean.newPage();
+  const readerErrors = watchErrors(reader);
+  await reader.goto(link);
+  await expect(reader.getByLabel('비밀번호')).toBeFocused();
+  await expect(reader.getByTestId('verify-password-intro')).toContainText(
+    '가입한 브라우저가 아닙니다',
+  );
+  expect((await reader.request.get('/api/v1/users/me')).status()).toBe(401);
+  await verifyShot(reader, 'password-asked-ko');
+  await reader.getByLabel('비밀번호').fill('not the password');
+  await reader.getByRole('button', { name: '확인하고 로그인' }).click();
+  await expect(reader.getByRole('alert')).toContainText('가입할 때 정한 비밀번호가 아닙니다');
+  expect((await reader.request.get('/api/v1/users/me')).status()).toBe(401);
+  await verifyShot(reader, 'password-wrong-ko');
+  expect(readerErrors).toEqual([]);
+  await korean.close();
+
+  // The link was not used: who registered, in yet another browser, finishes it.
+  const other = await browser.newContext({ baseURL, locale: 'en-US' });
+  const registrant = await other.newPage();
+  await registrant.goto(link);
+  await expect(registrant.getByLabel('Password')).toBeFocused();
+  await verifyShot(registrant, 'password-asked');
+  await registrant.getByLabel('Password').fill(who.password);
+  await registrant.getByRole('button', { name: 'Confirm and sign in' }).click();
+  await expect(registrant).toHaveURL(/\/w\/[^/]+/);
+  expect(new URL(registrant.url()).hash).toBe('');
+  const me = await registrant.request.get('/api/v1/users/me');
+  expect(((await me.json()) as { username: string }).username).toBe(who.username);
+  await other.close();
+
+  // Used once: the browser that registered is told so, and is not signed in by it.
+  await page.goto(link);
+  await expect(page.getByTestId('verify-problem')).toContainText('invalid, has expired');
+  expect((await page.request.get('/api/v1/users/me')).status()).toBe(401);
 });

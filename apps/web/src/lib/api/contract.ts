@@ -210,12 +210,24 @@ export interface paths {
          * Confirm the email address of a registration
          * @description Consumes the token of the link mailed to a registration's address, within a day of
          *     the mail and seven days of the registration: makes the account, and the
-         *     organization and first workspace it registered with, and signs it in, in whatever
-         *     browser the link was opened (the mailbox is the proof). The session comes in the
-         *     `Set-Cookie` header, as from `login`, and the answer says where the account was let
-         *     in. A link is used once, and a newer mail of the same registration ends the links
-         *     before it. A missing, ended, used or replaced token answers 400, naming `token` in
-         *     `errors`. On a server that takes one organization and has its first user by now,
+         *     organization and first workspace it registered with, and signs it in. The session
+         *     comes in the `Set-Cookie` header, as from `login`, and the answer says where the
+         *     account was let in. A link is used once, and a newer mail of the same registration
+         *     ends the links before it. A missing, ended, used or replaced token answers 400,
+         *     naming `token` in `errors`.
+         *
+         *     Only who registered finishes a registration, so that nobody is signed in to an
+         *     account whose password somebody else chose. In the browser the registration was
+         *     made from, which the cookie of `register` or `acceptInvitation` shows, the token is
+         *     enough. Anywhere else a token that would confirm is answered 403 with the reason
+         *     `password_required`, and the request is sent again with `password`, the password the
+         *     registration was made with: a wrong one is the 401 of `login` (`invalid_credentials`),
+         *     counted with the failed logins to the registration's user name, and too many are
+         *     429. A request that is refused so leaves the link as it was. Nothing is asked of a
+         *     token that confirms nothing, so the answers tell no more of whether a registration
+         *     waits than the token does.
+         *
+         *     On a server that takes one organization and has its first user by now,
          *     the registration is removed and the answer is 403 with the reason
          *     `invitation_required`. A registration made by the link of an invitation
          *     (`acceptInvitation`) is let in as the acceptance would have let it in, and the answer
@@ -313,7 +325,8 @@ export interface paths {
          *     unless the link was made for one recipient of a mailed guest link at that address,
          *     which the mail proves: the answer is 202 with no body, nobody is let in, and the
          *     link mailed to the address (`completeEmailVerification`) makes the account and lets
-         *     it in, as this acceptance would have, and signs it in. The registration counts as a
+         *     it in, as this acceptance would have, and signs it in. The 202 sets the cookie of
+         *     the browser the registration was made from, as `register` does. The registration counts as a
          *     use of the link from the start, so a link for one guest lets nobody else in
          *     meanwhile, and it holds its name and address as an account would. Not confirmed in
          *     seven days, it is removed and gives the use back. `language` is the language of the
@@ -971,7 +984,10 @@ export interface paths {
          *     makes the account and the organization and signs in (`completeEmailVerification`).
          *     Until then there is nothing of it but its name and address, which are taken as an
          *     account's are, for seven days; a registration that is not confirmed by then is
-         *     removed, and its name and address are free again.
+         *     removed, and its name and address are free again. The 202 sets a cookie that tells
+         *     the browser the registration was made from (`fvoci_signup`, `__Host-fvoci_signup`
+         *     over HTTPS; `HttpOnly`, for the seven days): no session, it reaches nothing, and
+         *     shows `completeEmailVerification` that the browser is the registrant's.
          *
          *     The name and the email address must not be blank, the email address must look like
          *     one, the display name (`displayName`, may be left out) is read as `patchMe` reads it,
@@ -3836,6 +3852,12 @@ export interface components {
             writtenBy: string;
         };
         CompleteEmailVerification: {
+            /**
+             * @description The password the registration was made with: needed where the link is opened in
+             *     another browser than the one the registration was made from, and not read in
+             *     that one.
+             */
+            password: string;
             /** @description The secret from the confirmation link's fragment. */
             token: string;
         };
@@ -5634,6 +5656,8 @@ export interface operations {
             /** @description A new account waits for its email address to be confirmed by the link mailed to it. */
             202: {
                 headers: {
+                    /** @description The cookie that tells the browser the registration was made from, as from `register`; no session. */
+                    "Set-Cookie"?: string;
                     [name: string]: unknown;
                 };
                 content?: never;
@@ -6606,6 +6630,8 @@ export interface operations {
             /** @description The registration waits for its email address to be confirmed by the link mailed to it. */
             202: {
                 headers: {
+                    /** @description The cookie that tells the browser the registration was made from; no session. */
+                    "Set-Cookie"?: string;
                     [name: string]: unknown;
                 };
                 content?: never;

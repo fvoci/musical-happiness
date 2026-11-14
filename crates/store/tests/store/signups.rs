@@ -20,6 +20,7 @@ fn signup(username: &str, email: &str, now: i64) -> Signup {
         password_hash: "hash".to_owned(),
         language: String::new(),
         start: SignupStart::Organization("Ours".to_owned()),
+        browser_hash: String::new(),
         create_at: now,
         expires_at: now + SIGNUP_LIFETIME_MILLIS,
     }

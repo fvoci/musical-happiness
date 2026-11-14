@@ -33,6 +33,7 @@ mod search;
 mod session;
 mod shared;
 mod sharing;
+mod signup_cookie;
 mod subscriptions;
 mod system;
 mod teams;

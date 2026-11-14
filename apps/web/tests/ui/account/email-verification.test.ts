@@ -128,7 +128,12 @@ describe('the page of the confirmation link', () => {
     const complete = vi.fn((_token: string): Promise<Confirmed> =>
       Promise.resolve({ workspaceId: 'w1', organizationStarted: true }),
     );
-    render(VerifyEmailPage, { confirming: complete('secret'), homeHref: '/', resend: vi.fn() });
+    render(VerifyEmailPage, {
+      confirming: complete('secret'),
+      homeHref: '/',
+      resend: vi.fn(),
+      onPassword: vi.fn(),
+    });
     await waitFor(() => {
       expect(screen.getByTestId('verify-status')).toHaveTextContent('Your address is confirmed');
     });
@@ -144,7 +149,7 @@ describe('the page of the confirmation link', () => {
       ),
     );
     const resend = vi.fn(() => Promise.resolve());
-    render(VerifyEmailPage, { confirming: complete(), homeHref: '/', resend });
+    render(VerifyEmailPage, { confirming: complete(), homeHref: '/', resend, onPassword: vi.fn() });
     expect(await screen.findByTestId('verify-problem')).toHaveTextContent(
       'invalid, has expired or was replaced',
     );
@@ -160,22 +165,97 @@ describe('the page of the confirmation link', () => {
 
   it('tells a request that got no answer from a link that confirms nothing', async () => {
     const failed = Promise.reject(new BackendError(0, { detail: 'no answer' }));
-    render(VerifyEmailPage, { confirming: failed, homeHref: '/', resend: vi.fn() });
+    render(VerifyEmailPage, {
+      confirming: failed,
+      homeHref: '/',
+      resend: vi.fn(),
+      onPassword: vi.fn(),
+    });
     expect(await screen.findByTestId('verify-problem')).not.toHaveTextContent('invalid');
     expect(screen.queryByTestId('verify-request-form')).toBeNull();
   });
 
   it('says a link without a token confirms nothing', async () => {
-    render(VerifyEmailPage, { confirming: undefined, homeHref: '/', resend: vi.fn() });
+    render(VerifyEmailPage, {
+      confirming: undefined,
+      homeHref: '/',
+      resend: vi.fn(),
+      onPassword: vi.fn(),
+    });
     expect(await screen.findByTestId('verify-problem')).toHaveTextContent('invalid');
     expect(screen.getByTestId('verify-request-form')).toBeInTheDocument();
+  });
+
+  it('asks for the password of the registration where it was not made, and says a wrong one is', async () => {
+    const asked = Promise.reject(
+      new BackendError(403, { reason: 'password_required', detail: 'internal words' }),
+    );
+    const onPassword = vi.fn();
+    const { rerender } = render(VerifyEmailPage, {
+      confirming: asked,
+      homeHref: '/',
+      resend: vi.fn(),
+      onPassword,
+    });
+    const field = await screen.findByLabelText('Password');
+    expect(field).toHaveFocus();
+    expect(field).toHaveAttribute('type', 'password');
+    expect(screen.getByTestId('verify-password-intro')).toHaveTextContent(
+      'not the browser you signed up in',
+    );
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.queryByTestId('verify-request-form')).toBeNull();
+
+    await fireEvent.input(field, { target: { value: 'a guess' } });
+    await fireEvent.submit(screen.getByTestId('verify-password-form'));
+    expect(onPassword).toHaveBeenCalledExactlyOnceWith('a guess');
+
+    // What the page is given next is that attempt: refused as a login is.
+    await rerender({
+      confirming: Promise.reject(
+        new BackendError(401, { reason: 'invalid_credentials', detail: 'incorrect login' }),
+      ),
+    });
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'not the password this sign-up was made with',
+    );
+    expect(screen.getByLabelText('Password')).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByLabelText('Password')).toHaveValue('a guess');
+
+    // Too many: told how it is, with the field still there to try again later.
+    await rerender({
+      confirming: Promise.reject(new BackendError(429, { detail: 'x', retryAfter: 30 })),
+    });
+    expect(await screen.findByRole('alert')).not.toHaveTextContent('not the password');
+    expect(screen.getByTestId('verify-password-form')).toBeInTheDocument();
+
+    // The link ended meanwhile: the password has nothing left to confirm.
+    await rerender({
+      confirming: Promise.reject(
+        new BackendError(400, { errors: [{ pointer: '/token', reason: 'invalid', detail: 'x' }] }),
+      ),
+    });
+    expect(await screen.findByTestId('verify-request-form')).toBeInTheDocument();
+    expect(screen.queryByTestId('verify-password-form')).toBeNull();
+
+    await rerender({
+      confirming: Promise.resolve({ workspaceId: 'w1', organizationStarted: false }),
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('verify-status')).toHaveTextContent('Your address is confirmed');
+    });
   });
 
   it('says an invitation that lets nobody in any more is so, without a form', async () => {
     const complete = vi.fn(() =>
       Promise.reject(new BackendError(404, { reason: 'invitation_unavailable', detail: 'x' })),
     );
-    render(VerifyEmailPage, { confirming: complete(), homeHref: '/', resend: vi.fn() });
+    render(VerifyEmailPage, {
+      confirming: complete(),
+      homeHref: '/',
+      resend: vi.fn(),
+      onPassword: vi.fn(),
+    });
     expect(await screen.findByTestId('verify-problem')).toHaveTextContent(
       'This invite link cannot be used',
     );

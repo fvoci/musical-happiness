@@ -10,6 +10,7 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use super::contract::tag;
+use super::signup_cookie::with_marker;
 
 use super::{ApiResult, RequiredSession, created, decode_object, no_content};
 use crate::app::App;
@@ -161,7 +162,10 @@ pub(super) fn address_of(client: Option<Extension<ClientAddress>>) -> Option<std
 /// makes the account and the organization and signs in (`completeEmailVerification`).
 /// Until then there is nothing of it but its name and address, which are taken as an
 /// account's are, for seven days; a registration that is not confirmed by then is
-/// removed, and its name and address are free again.
+/// removed, and its name and address are free again. The 202 sets a cookie that tells
+/// the browser the registration was made from (`fvoci_signup`, `__Host-fvoci_signup`
+/// over HTTPS; `HttpOnly`, for the seven days): no session, it reaches nothing, and
+/// shows `completeEmailVerification` that the browser is the registrant's.
 ///
 /// The name and the email address must not be blank, the email address must look like
 /// one, the display name (`displayName`, may be left out) is read as `patchMe` reads it,
@@ -179,7 +183,11 @@ pub(super) fn address_of(client: Option<Extension<ClientAddress>>) -> Option<std
     security(()),
     responses(
         (status = 201, description = "The user that was made.", body = User),
-        (status = 202, description = "The registration waits for its email address to be confirmed by the link mailed to it."),
+        (
+            status = 202,
+            description = "The registration waits for its email address to be confirmed by the link mailed to it.",
+            headers(("Set-Cookie" = String, description = "The cookie that tells the browser the registration was made from; no session.")),
+        ),
         (
             status = 429,
             description = "Too many registrations from where this one comes from, or the server has too much password work to do at the moment.",
@@ -204,9 +212,14 @@ async fn handle_register(
     let register = register.tidied();
     register.validate()?;
     if app.verifies_email() {
-        app.sign_up_to_confirm(&register, address_of(client))
+        let marker = app
+            .sign_up_to_confirm(&register, address_of(client))
             .await?;
-        return Ok(StatusCode::ACCEPTED.into_response());
+        return Ok(with_marker(
+            &app,
+            &marker,
+            StatusCode::ACCEPTED.into_response(),
+        ));
     }
     let user = app.sign_up(&register, address_of(client)).await?;
     Ok(created(&user))

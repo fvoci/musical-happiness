@@ -606,7 +606,7 @@ impl Drop for LoginEnding<'_> {
 }
 
 /// The refusal of a login, whatever was wrong.
-fn incorrect_login() -> AppError {
+pub(super) fn incorrect_login() -> AppError {
     AppError::unauthorized("incorrect login").with_reason(Reason::InvalidCredentials)
 }
 
@@ -667,7 +667,7 @@ impl App {
             .map_err(|error| AppError::internal(format_args!("{error}")))
     }
 
-    async fn verify(&self, hash: &str, password: &str) -> Result<Verdict, AppError> {
+    pub(super) async fn verify(&self, hash: &str, password: &str) -> Result<Verdict, AppError> {
         let (hash, password) = (hash.to_owned(), password.to_owned());
         self.password_work(move || verify_password(&hash, &password))
             .await

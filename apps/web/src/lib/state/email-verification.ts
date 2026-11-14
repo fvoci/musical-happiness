@@ -26,9 +26,13 @@ export interface EmailVerification {
   resend(waiting: WaitingAccount, language: string): Promise<void>;
   /**
    * Confirms by the link's token: makes the account, lets it in and signs this
-   * browser in. A token that confirms nothing is refused with 400 naming `/token`.
+   * browser in. A token that confirms nothing is refused with 400 naming
+   * `/token`. One that would is enough in the browser the registration was
+   * made from (its cookie shows it); anywhere else it is refused with 403
+   * `password_required` until `password`, the one the registration was made
+   * with, comes with it (a wrong one is 401 `invalid_credentials`, as a login's).
    */
-  complete(token: string): Promise<Confirmed>;
+  complete(token: string, password?: string): Promise<Confirmed>;
   /**
    * Starts the tour of the first workspace of an organization the confirmation
    * started, as a new account's first sign-in does: its welcome board.

@@ -234,9 +234,32 @@ pub(super) async fn confirm(
         .find(|line| line.starts_with("http") && line.contains("/verify-email#"))
         .expect("the confirmation mail has its link");
     let token = link.split_once('#').expect("a fragment").1.trim();
-    let confirmed = server
+    // Not the browser that registered: the link alone confirms nothing, in either
+    // organization, and a wrong password is a failed login.
+    let asked = server
         .anonymous()
         .post("/email-verification/complete", &json!({"token": token}))
+        .await;
+    assert_eq!(asked.status.as_u16(), 403, "{}", asked.text());
+    assert_eq!(
+        asked.error_reason(),
+        "password_required",
+        "the link alone confirms nothing"
+    );
+    let wrong = server
+        .anonymous()
+        .post(
+            "/email-verification/complete",
+            &json!({"token": token, "password": "not the password"}),
+        )
+        .await;
+    assert_eq!(wrong.status.as_u16(), 401, "{}", wrong.text());
+    let confirmed = server
+        .anonymous()
+        .post(
+            "/email-verification/complete",
+            &json!({"token": token, "password": PASSWORD}),
+        )
         .await;
     assert_eq!(confirmed.status.as_u16(), 200, "{}", confirmed.text());
     confirmed

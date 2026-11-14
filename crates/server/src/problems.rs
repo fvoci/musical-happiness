@@ -234,6 +234,7 @@ fn describe_reason(reason: Reason) -> &'static str {
         | Reason::OidcTrialStale
         | Reason::OidcCarryOverRefused
         | Reason::EmailUnverified
+        | Reason::PasswordRequired
         | Reason::PasswordNotSet
         | Reason::LastSignIn
         | Reason::SsoRequired
@@ -486,6 +487,14 @@ fn describe_sign_in(reason: Reason) -> Option<&'static str> {
              registration has not been confirmed, and there is no account until the link \
              mailed to the address confirms it, within seven days. A wrong password is \
              answered as for no account."
+        }
+        Reason::PasswordRequired => {
+            "Status 403 from `completeEmailVerification`, for a link that would confirm a \
+             registration, opened in another browser than the one it was made from: send \
+             the request again with `password`, the password the registration was made \
+             with. The link stays as it was. Only who registered finishes a registration, \
+             so that nobody is signed in to an account whose password somebody else \
+             chose; `errors` names `password`."
         }
         Reason::SecretKeyRequired => {
             "Status 409. The server seals the client secret of a provider with its key, \

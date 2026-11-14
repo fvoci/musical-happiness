@@ -12,10 +12,11 @@ use serde_json::{Value, json};
 
 use crate::admin::socket::{socket_path, socket_request};
 use crate::common::{Client, Setup, TestServer};
-use crate::email_verification::{link_token, registration};
+use crate::email_verification::{
+    COMPLETE, SIGNUP_PASSWORD, complete_elsewhere, complete_with_marker, link_token, marker_of,
+    registration,
+};
 use crate::fake_smtp::{FakeSmtp, Received};
-
-const COMPLETE: &str = "/email-verification/complete";
 
 /// A server that confirms addresses, and its first user, `ada`, who confirmed hers and
 /// administers the organization: signed in, with the workspace she was let into.
@@ -115,10 +116,10 @@ enum Role {
     Guest,
 }
 
+/// Confirms the registration whose mail is `message`, from another browser than it was
+/// made from, with its password.
 async fn confirm(th: &TestServer, message: &Received) -> crate::common::ApiResponse {
-    th.anonymous()
-        .post(COMPLETE, &json!({"token": link_token(message)}))
-        .await
+    complete_elsewhere(th, &link_token(message), SIGNUP_PASSWORD).await
 }
 
 #[tokio::test]
@@ -340,4 +341,60 @@ async fn the_operator_confirms_a_registration_and_records_it_where_it_joins() {
     assert_eq!(of_uma[0]["actor"]["kind"], "server_operator", "{records:?}");
     scene.stop().await;
     let _ = std::fs::remove_file(&socket);
+}
+
+/// A registration by a link is its registrant's to finish too: its acceptance gives the
+/// browser its marker, and where the mail is opened without it or the password nothing
+/// is touched, not even a registration whose link lets nobody in any more.
+#[tokio::test]
+async fn a_registration_by_a_link_is_finished_by_who_made_it_only() {
+    let scene = Scene::start(None).await;
+    let link = scene.link(Role::Member).await;
+    let answer = scene
+        .accept(
+            link.token.as_deref().expect("its token"),
+            "vera",
+            "vera@example.test",
+        )
+        .await;
+    answer.check_status(StatusCode::ACCEPTED);
+    let marker = marker_of(&answer).expect("the marker of the browser that accepted");
+    let token = link_token(&scene.smtp.received(2).await[1]);
+    let waits = async || {
+        scene
+            .th
+            .app
+            .store()
+            .live_signup(
+                SignupLookup::Username("vera"),
+                fvoci_server::auth::now_millis(),
+            )
+            .await
+            .expect("read")
+            .is_some()
+    };
+
+    // Revoked: confirming would remove the registration. Asking for the password does not.
+    scene
+        .ada
+        .delete(&format!("{}/{}", scene.links(), link.id))
+        .await
+        .check_no_content();
+    let asked = scene
+        .th
+        .anonymous()
+        .post(COMPLETE, &json!({"token": token}))
+        .await;
+    asked.check_status(StatusCode::FORBIDDEN);
+    assert_eq!(asked.error_reason(), "password_required");
+    complete_elsewhere(&scene.th, &token, "a guess")
+        .await
+        .check_status(StatusCode::UNAUTHORIZED);
+    assert!(waits().await, "nothing was touched");
+
+    let refused = complete_with_marker(&scene.th, &token, &marker).await;
+    refused.check_status(StatusCode::NOT_FOUND);
+    assert_eq!(refused.error_reason(), "invitation_unavailable");
+    assert!(!waits().await, "told to its registrant, and removed");
+    scene.stop().await;
 }
