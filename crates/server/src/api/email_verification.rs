@@ -10,6 +10,7 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 
 use super::auth::{address_of, user_agent, with_session_cookie};
 use super::contract::tag;
+use super::password_reset::RecoveryResponse;
 use super::{ApiResult, decode_object, json_response};
 use crate::app::App;
 use crate::client_address::ClientAddress;
@@ -22,7 +23,57 @@ struct CompleteEmailVerification {
 }
 
 pub(super) fn routes() -> OpenApiRouter<App> {
-    OpenApiRouter::new().routes(routes!(complete))
+    OpenApiRouter::new()
+        .routes(routes!(complete))
+        .routes(routes!(request))
+}
+
+#[derive(Deserialize, utoipa::ToSchema)]
+struct RequestEmailVerification {
+    /// The user name the registration was made with; or leave it empty and give the
+    /// address.
+    #[serde(default)]
+    username: String,
+    /// The address the registration was made with, used when no registration has the
+    /// given name.
+    #[serde(default)]
+    email: String,
+    /// The requester's language tag (`ko`, `en-GB`), used when the registration's own
+    /// screen named no language the mail is written in (English, Korean); English if
+    /// neither does.
+    #[serde(default)]
+    language: String,
+}
+
+/// Mail a new confirmation link
+///
+/// Answers 204 with an empty body whether or not a registration that is not confirmed
+/// yet has the user name (or else the address), and whatever became of the message;
+/// lookup and delivery run in the background. A new link ends the one before it. A
+/// registration's address is sent at most `mail_reset_per_account_hour` messages an
+/// hour, its first link counted: more requests are answered the same, send nothing
+/// and lock nothing. Requests are limited by where they come from, with the requests
+/// for a reset link (429). A request that names neither is 400. A server that does not
+/// ask for addresses to be confirmed (`emailVerification` of `getLoginOptions`)
+/// answers 404.
+#[utoipa::path(
+    post, path = "/email-verification/request", operation_id = "requestEmailVerification",
+    tag = tag::AUTH, security(()), request_body = RequestEmailVerification,
+    responses((status = 204, description = "If a registration waits, its address will receive a new link.")),
+)]
+async fn request(
+    State(app): State<App>,
+    client: Option<Extension<ClientAddress>>,
+    body: Bytes,
+) -> ApiResult {
+    let request: RequestEmailVerification = decode_object(&body)?;
+    let work = app.prepare_signup_mail(
+        &request.username,
+        &request.email,
+        &request.language,
+        address_of(client),
+    )?;
+    Ok(RecoveryResponse::releasing(app, work))
 }
 
 /// Confirm the email address of a registration

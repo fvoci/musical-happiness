@@ -214,7 +214,7 @@ impl App {
     /// The registration whose address is not confirmed yet that a login names, by its
     /// name or else by its email address; both are asked whenever they are given, as
     /// [`App::find_account`] asks of the accounts.
-    async fn find_signup(
+    pub(super) async fn find_signup(
         &self,
         username: &str,
         email: &str,

@@ -3,6 +3,7 @@
 //! starts and signs its person in. Until then there is no account.
 
 use std::net::IpAddr;
+use std::time::Instant;
 
 use fvoci_model::{RegisterRequest, Session, new_id};
 use fvoci_store::{
@@ -12,6 +13,7 @@ use fvoci_store::{
 use super::App;
 use super::auth::account_error;
 use super::mail::{Content, Language, Letter};
+use crate::auth::limiter::RetryAfter;
 use crate::auth::now_millis;
 use crate::auth::secret::{new_secret, token_digest};
 use crate::error::AppError;
@@ -64,6 +66,62 @@ impl App {
         let app = self.clone();
         self.spawn_background(async move { app.mail_signup_link(&signup, None).await });
         Ok(())
+    }
+
+    /// Admits a request for a new confirmation link identically whether or not a
+    /// registration has the name or the address, and returns unstarted work: the HTTP
+    /// adapter releases it only after handing off its response. The registration's
+    /// address is sent no more than an account's recovery messages
+    /// (`mail_reset_per_account_hour`, the first link counted), and further requests are
+    /// answered the same and lock nothing. Requests are limited by their address, with
+    /// the requests for a reset link.
+    ///
+    /// # Errors
+    ///
+    /// Returns 404 where registrations are not confirmed by mail, 400 for a request
+    /// that names neither a name nor an address, and 429 for too many requests from
+    /// `address`.
+    pub fn prepare_signup_mail(
+        &self,
+        username: &str,
+        email: &str,
+        language: &str,
+        address: Option<IpAddr>,
+    ) -> Result<impl Future<Output = ()> + Send + 'static + use<>, AppError> {
+        if !self.verifies_email() {
+            return Err(AppError::not_found("route"));
+        }
+        let (username, email) = (username.trim().to_owned(), email.trim().to_owned());
+        if username.is_empty() && email.is_empty() {
+            return Err(AppError::bad_request(
+                "the user name or the email address of the registration is required",
+            )
+            .with_field("email"));
+        }
+        let _request = self
+            .inner
+            .reset_limiter
+            .admit_from_address(address, Instant::now())
+            .map_err(|RetryAfter(wait)| AppError::rate_limited(wait))?;
+        let app = self.clone();
+        let requested = Language::written_in(language);
+        Ok(async move {
+            match app.find_signup(&username, &email).await {
+                Ok(Some(signup)) => app.mail_signup_link(&signup, requested).await,
+                Ok(None) => {}
+                Err(error) => tracing::warn!(%error, "a confirmation link was not resent"),
+            }
+        })
+    }
+
+    /// Removes the registrations that ended unconfirmed by `now` and the links that
+    /// ended: their names and addresses are free again. For the housekeeping.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error; nothing is removed then.
+    pub async fn remove_ended_signups(&self, now: i64) -> Result<u64, AppError> {
+        Ok(self.store().remove_ended_signups(now).await?)
     }
 
     /// Mails the registration a new link that confirms it: the link it had confirms

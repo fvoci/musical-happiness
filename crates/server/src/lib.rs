@@ -534,6 +534,11 @@ async fn clean_up_sessions(app: &App) {
         }
         Err(error) => tracing::error!(%error, "unable to clean up the sessions"),
     }
+    match app.remove_ended_signups(now).await {
+        Ok(0) => {}
+        Ok(removed) => tracing::info!(removed, "removed registrations that were not confirmed"),
+        Err(error) => tracing::error!(%error, "unable to remove the registrations that ended"),
+    }
 }
 
 /// Removes for good what has been in the trash for longer than `trash_retention_days`,
@@ -634,7 +639,8 @@ async fn remove_doomed_objects(app: &App) -> JobOutcome {
     }
 }
 
-/// Starts the task that deletes the sessions that have ended. It runs once at the
+/// Starts the task that deletes the sessions that have ended, and the registrations
+/// that were not confirmed in their seven days. It runs once at the
 /// start, so that a server that is restarted often still gets to it, and then every
 /// interval.
 fn start_session_clean_up(app: &App) -> RecurringTask {

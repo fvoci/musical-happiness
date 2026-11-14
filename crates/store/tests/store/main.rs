@@ -33,6 +33,7 @@ mod session_origin;
 mod sessions;
 mod setup;
 mod sharing;
+mod signups;
 mod subscriptions;
 mod tenancy;
 mod trash;

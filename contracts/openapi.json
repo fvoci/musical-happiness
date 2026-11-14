@@ -3022,6 +3022,23 @@
         ],
         "type": "object"
       },
+      "RequestEmailVerification": {
+        "properties": {
+          "email": {
+            "description": "The address the registration was made with, used when no registration has the\ngiven name.",
+            "type": "string"
+          },
+          "language": {
+            "description": "The requester's language tag (`ko`, `en-GB`), used when the registration's own\nscreen named no language the mail is written in (English, Korean); English if\nneither does.",
+            "type": "string"
+          },
+          "username": {
+            "description": "The user name the registration was made with; or leave it empty and give the\naddress.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "RequestPasswordReset": {
         "properties": {
           "email": {
@@ -4109,6 +4126,44 @@
           {}
         ],
         "summary": "Confirm the email address of a registration",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/email-verification/request": {
+      "post": {
+        "description": "Answers 204 with an empty body whether or not a registration that is not confirmed\nyet has the user name (or else the address), and whatever became of the message;\nlookup and delivery run in the background. A new link ends the one before it. A\nregistration's address is sent at most `mail_reset_per_account_hour` messages an\nhour, its first link counted: more requests are answered the same, send nothing\nand lock nothing. Requests are limited by where they come from, with the requests\nfor a reset link (429). A request that names neither is 400. A server that does not\nask for addresses to be confirmed (`emailVerification` of `getLoginOptions`)\nanswers 404.",
+        "operationId": "requestEmailVerification",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RequestEmailVerification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "If a registration waits, its address will receive a new link."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "security": [
+          {}
+        ],
+        "summary": "Mail a new confirmation link",
         "tags": [
           "auth"
         ]

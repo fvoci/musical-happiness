@@ -290,6 +290,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("FileForm", Members::AsWritten),
     ("FinishPasswordReset", Members::All),
     ("CompleteEmailVerification", Members::All),
+    ("RequestEmailVerification", Members::Only(&[])),
     ("RequestPasswordReset", Members::Only(&["email"])),
     ("GuestInvitationsChange", Members::All),
     ("ImportRequest", Members::AsWritten),

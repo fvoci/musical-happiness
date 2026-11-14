@@ -86,20 +86,30 @@ async fn request(
 ) -> ApiResult {
     let request: RequestPasswordReset = decode_object(&body)?;
     let work = app.prepare_password_reset(&request.email, &request.language, address_of(client))?;
-    let mut response = no_content();
-    *response.body_mut() = Body::from_stream(RecoveryResponse {
-        app,
-        work: Some(Box::pin(work)),
-    });
-    Ok(response)
+    Ok(RecoveryResponse::releasing(app, work))
 }
 
 /// The empty acknowledgement owns unstarted work until HTTP releases the response.
 /// A 204 body is normally dropped without polling; a disconnected client also
 /// releases it. Neither body polling nor dropping waits for the background job.
-struct RecoveryResponse {
+pub(super) struct RecoveryResponse {
     app: App,
     work: Option<BoxFuture<'static, ()>>,
+}
+
+impl RecoveryResponse {
+    /// The empty 204 that starts `work` once HTTP releases it.
+    pub(super) fn releasing(
+        app: App,
+        work: impl Future<Output = ()> + Send + 'static,
+    ) -> axum::response::Response {
+        let mut response = no_content();
+        *response.body_mut() = Body::from_stream(Self {
+            app,
+            work: Some(Box::pin(work)),
+        });
+        response
+    }
 }
 
 impl Stream for RecoveryResponse {

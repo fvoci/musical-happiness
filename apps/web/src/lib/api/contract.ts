@@ -140,6 +140,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/email-verification/request": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mail a new confirmation link
+         * @description Answers 204 with an empty body whether or not a registration that is not confirmed
+         *     yet has the user name (or else the address), and whatever became of the message;
+         *     lookup and delivery run in the background. A new link ends the one before it. A
+         *     registration's address is sent at most `mail_reset_per_account_hour` messages an
+         *     hour, its first link counted: more requests are answered the same, send nothing
+         *     and lock nothing. Requests are limited by where they come from, with the requests
+         *     for a reset link (429). A request that names neither is 400. A server that does not
+         *     ask for addresses to be confirmed (`emailVerification` of `getLoginOptions`)
+         *     answers 404.
+         */
+        post: operations["requestEmailVerification"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/hello": {
         parameters: {
             query?: never;
@@ -4202,6 +4230,24 @@ export interface components {
             /** @description The login name. */
             username: string;
         };
+        RequestEmailVerification: {
+            /**
+             * @description The address the registration was made with, used when no registration has the
+             *     given name.
+             */
+            email?: string;
+            /**
+             * @description The requester's language tag (`ko`, `en-GB`), used when the registration's own
+             *     screen named no language the mail is written in (English, Korean); English if
+             *     neither does.
+             */
+            language?: string;
+            /**
+             * @description The user name the registration was made with; or leave it empty and give the
+             *     address.
+             */
+            username?: string;
+        };
         RequestPasswordReset: {
             /** @description The account's email address. */
             email: string;
@@ -4776,6 +4822,37 @@ export interface operations {
                 content: {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    requestEmailVerification: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RequestEmailVerification"];
+            };
+        };
+        responses: {
+            /** @description If a registration waits, its address will receive a new link. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
             default: {

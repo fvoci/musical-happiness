@@ -97,7 +97,7 @@ fn the_contract_says_when_each_reason_comes() {
 }
 
 /// The operations that need no session at all.
-const NO_SESSION: [&str; 13] = [
+const NO_SESSION: [&str; 14] = [
     "completeEmailVerification",
     "completePasswordReset",
     "finishOidcLogin",
@@ -109,6 +109,7 @@ const NO_SESSION: [&str; 13] = [
     "previewInvitation",
     "ready",
     "register",
+    "requestEmailVerification",
     "requestPasswordReset",
     "startOidcLogin",
 ];
