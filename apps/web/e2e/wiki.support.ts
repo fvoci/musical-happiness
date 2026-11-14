@@ -103,3 +103,108 @@ export async function pageAction(page: Page, name: string, action: string): Prom
     .click();
   await page.locator(`[data-action="${action}"]`).click();
 }
+
+/** The editor of the page shown's body. */
+export const pageBody = (page: Page): Locator =>
+  page.getByTestId('page-body').locator('[contenteditable]').first();
+
+/**
+ * What the tests ask of "somebody else" in the world in memory (`fvociDev`):
+ * the same data as another person of the workspace, through the same backend
+ * as the app's (only what these tests use is named here).
+ */
+interface Yish {
+  length: number;
+  get(index: number): Yish | undefined;
+  insert(index: number, text: string): void;
+  toString(): string;
+}
+interface WikiDev {
+  backend: { addMember(boardId: string, userId: string, role: string): Promise<unknown> };
+  someoneElse(): {
+    me(): Promise<{ id: string }>;
+    wiki: {
+      createPage(wikiId: string, draft: object): Promise<{ id: string }>;
+      deletePage(wikiId: string, pageId: string): Promise<void>;
+    };
+    presence: { setPresence(visit: object | null): void };
+    openDoc(
+      workspaceId: string,
+      boardId: string,
+      cardId: string,
+      listener: { state(state: object): void; discarded(why: string): void },
+    ): { state: { doc?: { getXmlFragment(name: string): Yish } } };
+  };
+}
+interface DevWindow {
+  fvociDev: WikiDev;
+}
+
+/** Makes somebody else of the workspace an editor of the wiki, and gives their identifier. */
+export async function letSomebodyElseIn(page: Page, wikiId: string): Promise<string> {
+  return page.evaluate(async (id) => {
+    const dev = (window as unknown as DevWindow).fvociDev;
+    const other = await dev.someoneElse().me();
+    await dev.backend.addMember(id, other.id, 'editor');
+    return other.id;
+  }, wikiId);
+}
+
+/**
+ * Somebody else opens the page's body in its room, waits until it has
+ * `waitFor`, adds `typed` at the end of its first paragraph, and gives the
+ * body's text as their room has it then. They stay on the page (their visit).
+ */
+export async function typeAsSomebodyElse(
+  page: Page,
+  place: { wikiId: string; pageId: string },
+  waitFor: string,
+  typed: string,
+): Promise<string> {
+  return page.evaluate(
+    async ({ wikiId, pageId, waitFor: expected, typed: text }) => {
+      const workspaceId = location.pathname.split('/')[2] ?? '';
+      const other = (window as unknown as DevWindow).fvociDev.someoneElse();
+      other.presence.setPresence({ workspaceId, boardId: wikiId, cardId: pageId });
+      const opened = other.openDoc(workspaceId, wikiId, pageId, {
+        state: () => undefined,
+        discarded: () => undefined,
+      });
+      const deadline = Date.now() + 5000;
+      for (;;) {
+        const body = opened.state.doc?.getXmlFragment('default');
+        if (body?.toString().includes(expected)) {
+          const words = body.get(0)?.get(0);
+          words?.insert(words.length, text);
+          return body.toString();
+        }
+        if (Date.now() > deadline) return body?.toString() ?? '(no document)';
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+    },
+    { ...place, waitFor, typed },
+  );
+}
+
+/** Somebody else makes a page of the wiki, below `parentId` if given; gives its identifier. */
+export async function pageBySomebodyElse(
+  page: Page,
+  wikiId: string,
+  draft: { title: string; parentId?: string },
+): Promise<string> {
+  return page.evaluate(
+    async ({ id, made }) =>
+      (await (window as unknown as DevWindow).fvociDev.someoneElse().wiki.createPage(id, made)).id,
+    { id: wikiId, made: draft },
+  );
+}
+
+/** Somebody else deletes a page of the wiki, with those below it. */
+export async function deleteBySomebodyElse(page: Page, wikiId: string, pageId: string) {
+  await page.evaluate(
+    async ({ id, gone }) => {
+      await (window as unknown as DevWindow).fvociDev.someoneElse().wiki.deletePage(id, gone);
+    },
+    { id: wikiId, gone: pageId },
+  );
+}

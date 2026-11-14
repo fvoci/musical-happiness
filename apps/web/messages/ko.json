@@ -1230,5 +1230,7 @@
   "wiki_page_title": "페이지 제목",
   "wiki_icon_change": "페이지 아이콘 바꾸기",
   "wiki_page_body": "본문",
-  "wiki_page_body_empty": "본문이 없습니다."
+  "wiki_page_body_empty": "본문이 없습니다.",
+  "wiki_page_viewers": "{names}: {count}명이 이 페이지를 보고 있음",
+  "wiki_page_body_placeholder": "내용을 쓰세요…"
 }

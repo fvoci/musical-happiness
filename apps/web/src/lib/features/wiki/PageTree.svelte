@@ -27,6 +27,7 @@
   import { pageRows, type PageRow } from '$lib/logic/page-tree.ts';
   import type { PageDraft, WikiPage, WikiStore } from '$lib/state/index.ts';
 
+  import PageViewers from './PageViewers.svelte';
   import type { TreeOpen } from './tree-open.svelte.ts';
 
   interface Props {
@@ -265,6 +266,7 @@
                 {title}
               </span>
             </a>
+            <PageViewers {wiki} pageId={page.id} />
           </div>
           {#if wiki.canEdit}
             <ActionMenu

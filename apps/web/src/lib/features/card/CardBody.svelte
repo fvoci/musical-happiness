@@ -15,6 +15,10 @@
   be joined. When changes of the reader were dropped with their document,
   a notice says so until it is dismissed. Another document (the server made
   it anew) is another editor: the caret is put back where it was.
+
+  A wiki's page has a body of the same kind, in a room of its own: it is
+  shown by this too, with the wiki in place of the board and the page in
+  place of the card, and its own words.
 -->
 <script lang="ts">
   import type { Editor as TiptapEditor } from '@tiptap/core';
@@ -30,11 +34,38 @@
   import { editorChunk } from './editor-chunk.svelte.ts';
 
   interface Props {
-    board: BoardStore;
-    card: CardStore;
+    /** The board, or the wiki: who may write, and who can be mentioned. */
+    board: Pick<BoardStore, 'workspace' | 'canEdit' | 'orderedMembers'>;
+    /** The card, or the wiki's page: the body and its room. */
+    card: Pick<
+      CardStore,
+      | 'room'
+      | 'body'
+      | 'lost'
+      | 'openBody'
+      | 'closeBody'
+      | 'retryBody'
+      | 'sayLost'
+      | 'dismissLost'
+      | 'uploadImage'
+    >;
+    /** What the body is called, for a screen reader; the card's body by default. */
+    label?: string;
+    /** What an empty body says to whoever may write in it. */
+    placeholder?: string;
+    /** What an empty body says to whoever may only read it. */
+    emptyText?: string;
+    testId?: string;
   }
 
-  let { board, card }: Props = $props();
+  let {
+    board,
+    card,
+    label = m.card_body(),
+    placeholder = m.card_body_placeholder(),
+    emptyText = m.card_body_empty(),
+    testId = 'card-body',
+  }: Props = $props();
 
   const workspace = $derived(board.workspace);
   const room = $derived(card.room);
@@ -102,9 +133,9 @@
 </script>
 
 <section
-  aria-label={m.card_body()}
+  aria-label={label}
   class="flex flex-col gap-3 border-t pt-5"
-  data-testid="card-body"
+  data-testid={testId}
   data-editor={Editor && doc ? (writable ? 'ready' : 'reading') : room ? 'loading' : 'none'}
   data-room={room?.status ?? 'none'}
   data-settling={settling ? '' : undefined}
@@ -152,8 +183,8 @@
           }}
           users={people}
           {resolveUser}
-          label={m.card_body()}
-          placeholder={writable ? m.card_body_placeholder() : ''}
+          {label}
+          placeholder={writable ? placeholder : ''}
           class="min-h-24 text-base outline-none"
           uploadImage={(file: File) => card.uploadImage(file)}
           onEditor={(editor: TiptapEditor) => {
@@ -167,7 +198,7 @@
       <BodyView doc={card.body} {resolveUser} class="text-base">
         {#snippet empty()}
           <p class="text-base text-muted-foreground">
-            {board.canEdit ? m.card_body_placeholder() : m.card_body_empty()}
+            {board.canEdit ? placeholder : emptyText}
           </p>
         {/snippet}
         {#snippet invalid()}

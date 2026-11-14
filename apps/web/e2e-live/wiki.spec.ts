@@ -11,6 +11,7 @@ import {
   nameThePage,
   newWiki,
   pageAction,
+  pageBody,
   showTree,
   treeItem,
   treeShape,
@@ -139,5 +140,87 @@ test('the pages of a wiki are made as a tree, named, and there again after a rel
   await page.goto(`/w/${workspaceId}/wikis/${wikiId}`);
   await expect(page).toHaveURL(`/w/${workspaceId}/wikis/${wikiId}/${welcome}`);
   expect(errors).toEqual([]);
+  await api.dispose();
+});
+
+test('two people write one page together, see each other on it, and the tree follows a deletion', async ({
+  browser,
+  baseURL,
+}) => {
+  const base = baseURL ?? '';
+  const owner = person('wiki-ada');
+  const colleague = person('wiki-bora');
+  await register(base, owner);
+  await register(base, colleague);
+  const api = await signedIn(base, owner);
+  const { workspaceId } = await makeBoard(api, { title: 'Roadmap' });
+  const inWorkspace = `/api/v1/w/${workspaceId}`;
+  const wiki = (await (
+    await api.post(`${inWorkspace}/wikis`, { data: { title: 'Handbook', type: 'P' } })
+  ).json()) as Schemas['Board'];
+  const [found] = (await (
+    await api.get(`${inWorkspace}/users`, { params: { search: colleague.username } })
+  ).json()) as Schemas['User'][];
+  await api.post(`${inWorkspace}/boards/${wiki.id}/members`, {
+    data: { userId: found?.id, schemeViewer: true, schemeCommenter: true, schemeEditor: true },
+  });
+  const pageOf = async (title: string, parentId?: string): Promise<string> =>
+    (
+      (await (
+        await api.post(`${inWorkspace}/wikis/${wiki.id}/pages`, {
+          data: { title, ...(parentId ? { parentId } : {}) },
+        })
+      ).json()) as Schemas['Page']
+    ).id;
+  const welcome = await pageOf('Welcome');
+  await pageOf('Below', welcome);
+  await pageOf('Other');
+  const path = `/w/${workspaceId}/wikis/${wiki.id}/${welcome}`;
+
+  const [first, second] = await Promise.all(
+    [owner, colleague].map(async (who) => {
+      const page = await (await browser.newContext({ locale: 'en-US' })).newPage();
+      await page.goto(path);
+      await signInOnPage(page, who);
+      await expect(page.getByTestId('page-body')).toHaveAttribute('data-editor', 'ready');
+      return page;
+    }),
+  );
+  if (!first || !second) throw new Error('two pages');
+  const watched = [watchErrors(first), watchErrors(second)];
+
+  // What one types the other sees, and the other way round.
+  await pageBody(first).click();
+  await first.keyboard.type('Ada writes.', { delay: 15 });
+  await expect(pageBody(second)).toHaveText('Ada writes.');
+  await pageBody(second).click();
+  await second.keyboard.press('End');
+  await second.keyboard.type(' Bora adds.', { delay: 15 });
+  for (const page of [first, second]) {
+    await expect(pageBody(page)).toHaveText('Ada writes. Bora adds.');
+    // The other is on the page, at its head.
+    await expect(page.getByTestId('page-heading').getByTestId('page-viewers')).toBeVisible();
+  }
+  // The server has the body, and both read it again as it was.
+  await expect
+    .poll(async () => {
+      const stored = (await (
+        await api.get(`${inWorkspace}/wikis/${wiki.id}/pages/${welcome}`)
+      ).json()) as Schemas['Page'];
+      return JSON.stringify(stored.body);
+    })
+    .toContain('Bora adds.');
+  await second.reload();
+  await expect(pageBody(second)).toHaveText('Ada writes. Bora adds.');
+
+  // The page is deleted elsewhere: it and the page below it leave the tree, and the
+  // reader on it is told and taken to the first page left.
+  await api.delete(`${inWorkspace}/wikis/${wiki.id}/pages/${welcome}`);
+  await expect(second.getByTestId('wiki-notice')).toContainText('Welcome');
+  await showTree(second);
+  expect(await treeShape(second)).toEqual(['Other']);
+  for (const errors of watched) expect(errors).toEqual([]);
+  await first.context().close();
+  await second.context().close();
   await api.dispose();
 });

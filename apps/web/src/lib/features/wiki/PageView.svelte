@@ -27,18 +27,18 @@
   import type { PageStore, WikiPage, WikiStore } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
+  import PageViewers from './PageViewers.svelte';
+
   interface Props {
     wiki: WikiStore;
     store: PageStore;
     page: WikiPage;
     /** Start with the caret in the title: for a page that was just made. */
     autofocus?: boolean;
-    /** Who else is on the page now. */
-    viewers?: Snippet<[PageStore]> | undefined;
     body: Snippet<[PageStore]>;
   }
 
-  let { wiki, store, page, autofocus = false, viewers, body }: Props = $props();
+  let { wiki, store, page, autofocus = false, body }: Props = $props();
 
   /** How long the typing has to pause before the title is stored, in milliseconds. */
   const PAUSE = 800;
@@ -181,7 +181,7 @@
         </Button>
       {/if}
       <div class="min-w-0 flex-1"></div>
-      {@render viewers?.(store)}
+      <PageViewers {wiki} pageId={page.id} large />
     </div>
     {#if editable}
       <textarea

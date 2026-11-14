@@ -28,6 +28,7 @@ import {
   type Wikis,
 } from './backend.ts';
 import { boardOfWorkspace, roleOf } from './board-parts.ts';
+import { BoardPresence } from './board-presence.svelte.ts';
 import { orderMembers } from './order.ts';
 import { PageStore } from './page.svelte.ts';
 import { memberId } from './user-names.ts';
@@ -88,9 +89,13 @@ export class WikiStore {
   /** Readings begun (`load`, `#refresh`): the latest is the one that counts. */
   #readings = 0;
 
+  /** Who else is on the wiki, and on which page: started while it is shown (`start`). */
+  readonly presence: BoardPresence;
+
   constructor(workspace: Workspace, wikiId: string) {
     this.workspace = workspace;
     this.wikiId = wikiId;
+    this.presence = new BoardPresence({ workspace, boardId: wikiId });
   }
 
   get #wikis(): Wikis {

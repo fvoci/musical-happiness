@@ -8,11 +8,15 @@
   identifier at a wiki's address, and a page that is not there show the same
   "not found" as the rest of the app. An open wiki the reader has not joined
   shows its title with a way to join.
+
+  The page's body is the card's kind of body (`CardBody`), edited together in
+  the page's room; while the wiki is shown the reader is on it, and on the
+  page shown (the wiki's presence), as on a board and its card.
 -->
 <script lang="ts">
   import { untrack } from 'svelte';
 
-  import BodyView from '$lib/editor/BodyView.svelte';
+  import CardBody from '$lib/features/card/CardBody.svelte';
   import WikiJoin from '$lib/features/wiki/WikiJoin.svelte';
   import WikiScreen from '$lib/features/wiki/WikiScreen.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
@@ -25,9 +29,6 @@
   let { workspace, router }: { workspace: Workspace; router: Router } = $props();
 
   const wikiId = $derived(router.route.wikiId);
-  /** Somebody not known (gone, or a mention that names nobody). */
-  const nameOf = (userId: string): string =>
-    workspace.userName(userId) ?? m['centerPanel.unknown-user']();
   const pageId = $derived(router.route.pageId);
 
   /** The wiki of the address, made anew for another one. */
@@ -69,6 +70,18 @@
       notice = m.wiki_page_gone({ title: removed.title || m.wiki_page_untitled() });
     }
     router.openPage(firstPage(wiki.pages)?.id, { replace: true });
+  });
+
+  // Who is on the wiki, while it is shown and the reader is in it; and on which page.
+  $effect(() => {
+    const shown = wiki;
+    if (shown?.status === 'ready' && !shown.missing && !shown.joinable) {
+      return untrack(() => shown.presence.start());
+    }
+    return undefined;
+  });
+  $effect(() => {
+    wiki?.presence.setCard(pageId);
   });
 
   // The page of the address is the one open; none without one.
@@ -118,16 +131,15 @@
       <NotFound {router} />
     {/snippet}
     {#snippet body(page: PageStore)}
-      <section aria-label={m.wiki_page_body()} data-testid="page-body">
-        <BodyView doc={page.body} resolveUser={nameOf} class="text-base">
-          {#snippet empty()}
-            <p class="text-base text-muted-foreground">{m.wiki_page_body_empty()}</p>
-          {/snippet}
-          {#snippet invalid()}
-            <p class="text-muted-foreground" role="alert">{m.card_body_invalid()}</p>
-          {/snippet}
-        </BodyView>
-      </section>
+      <!-- The page's body is edited together as a card's is, in the page's own room. -->
+      <CardBody
+        board={wiki}
+        card={page}
+        label={m.wiki_page_body()}
+        placeholder={m.wiki_page_body_placeholder()}
+        emptyText={m.wiki_page_body_empty()}
+        testId="page-body"
+      />
     {/snippet}
   </WikiScreen>
 {/if}

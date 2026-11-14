@@ -46,8 +46,6 @@
     missingPage: Snippet;
     /** The body of the page shown. */
     body: Snippet<[PageStore]>;
-    /** Who else is on the page shown. */
-    viewers?: Snippet<[PageStore]> | undefined;
     /** Asks to delete a page; left out where pages are not deleted here. */
     onDelete?: ((page: WikiPage) => void) | undefined;
     /** Something to tell at the head of the page (a page shown was deleted). */
@@ -64,7 +62,6 @@
     onOpenPage,
     missingPage,
     body,
-    viewers,
     onDelete,
     notice,
     onDismissNotice,
@@ -288,14 +285,7 @@
       {@render missingPage()}
     {:else if page && shown}
       {#key page}
-        <PageView
-          {wiki}
-          store={page}
-          page={shown}
-          autofocus={made === page.pageId}
-          {viewers}
-          {body}
-        />
+        <PageView {wiki} store={page} page={shown} autofocus={made === page.pageId} {body} />
       {/key}
     {/if}
   </div>

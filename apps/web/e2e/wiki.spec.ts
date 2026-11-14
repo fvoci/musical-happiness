@@ -18,7 +18,12 @@ import {
   topBar,
 } from './shell.support.ts';
 import {
+  deleteBySomebodyElse,
   goInside,
+  letSomebodyElseIn,
+  pageBody,
+  pageBySomebodyElse,
+  typeAsSomebodyElse,
   newWiki,
   nameThePage,
   ON_A_PAGE,
@@ -199,6 +204,37 @@ test.describe('the pages of a wiki', () => {
     await page.keyboard.press('Enter');
     await expect(drawer).toBeHidden();
     await expect(opener).toBeFocused();
+  });
+
+  test('a page’s body is written together, who else is on it shows, and the tree follows their pages', async ({
+    page,
+  }) => {
+    await openApp(page);
+    const wikiId = await newWiki(page, 'Handbook');
+    await page.getByTestId('wiki-first-page').click();
+    await nameThePage(page, 'Welcome');
+    const place = wikiPlaceOf(page.url());
+    await letSomebodyElseIn(page, wikiId);
+
+    const body = pageBody(page);
+    await expect(page.getByTestId('page-body')).toHaveAttribute('data-editor', 'ready');
+    await body.click();
+    await page.keyboard.type('From the reader.');
+    // Theirs has what the reader typed; the reader's, what they add to it.
+    const theirs = await typeAsSomebodyElse(page, place, 'From the reader.', ' From them.');
+    expect(theirs).toContain('From the reader.');
+    await expect(body).toHaveText('From the reader. From them.');
+    // They are on the page: at its head, and on its row of the tree.
+    await expect(page.getByTestId('page-heading').getByTestId('page-viewers')).toBeVisible();
+
+    // Pages they make and delete show in the tree, those below a deleted one gone too.
+    const theirPage = await pageBySomebodyElse(page, wikiId, { title: 'Theirs' });
+    await pageBySomebodyElse(page, wikiId, { title: 'Below theirs', parentId: theirPage });
+    await showTree(page);
+    await expect(treeItem(page, 'Theirs')).toBeVisible();
+    await deleteBySomebodyElse(page, wikiId, theirPage);
+    await expect(treeItem(page, 'Theirs')).toHaveCount(0);
+    expect(await treeShape(page)).toEqual(['Welcome']);
   });
 
   test('a page that is not there is not found', async ({ page }) => {

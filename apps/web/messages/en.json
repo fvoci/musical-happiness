@@ -1230,5 +1230,7 @@
   "wiki_page_title": "Page title",
   "wiki_icon_change": "Change the page’s icon",
   "wiki_page_body": "Body",
-  "wiki_page_body_empty": "There is nothing on this page yet."
+  "wiki_page_body_empty": "There is nothing on this page yet.",
+  "wiki_page_viewers": "{count} viewing this page: {names}",
+  "wiki_page_body_placeholder": "Write here…"
 }
