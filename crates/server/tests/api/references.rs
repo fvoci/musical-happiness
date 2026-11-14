@@ -571,9 +571,14 @@ async fn the_reads_a_question_takes_tell_nothing_of_what_is_named() {
     th.teardown().await;
 }
 
-/// How many reads the store counted for one question about `ids`: the fewest of a few
-/// askings, as what the server does on its own between two scrapes reads too.
+/// How many reads the store counted for one question about `ids`.
 async fn reads_of(th: &TestServer, client: &Client, ids: &[&str]) -> u64 {
+    fewest_reads(th, async || resolved(client, TEST_WS, ids).await.check_ok()).await
+}
+
+/// How many reads the store counted while `ask` asked once: the fewest of a few
+/// askings, as what the server does on its own between two scrapes reads too.
+pub(crate) async fn fewest_reads(th: &TestServer, ask: impl AsyncFn()) -> u64 {
     let counted = async || {
         let text = crate::metrics::scrape(th).await;
         text.lines()
@@ -584,7 +589,7 @@ async fn reads_of(th: &TestServer, client: &Client, ids: &[&str]) -> u64 {
     let mut fewest = u64::MAX;
     for _ in 0..3 {
         let before = counted().await;
-        resolved(client, TEST_WS, ids).await.check_ok();
+        ask().await;
         fewest = fewest.min(counted().await - before);
     }
     fewest

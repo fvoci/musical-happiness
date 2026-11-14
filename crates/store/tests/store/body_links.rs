@@ -434,6 +434,16 @@ async fn a_title_is_found_past_the_blocks_read_at_once() {
         .await
         .expect("searched");
     assert_eq!(every.len(), 601);
+    // Each once, though they are read in several goes and many were changed at once.
+    let distinct: std::collections::HashSet<&str> =
+        every.iter().map(|block| block.id.as_str()).collect();
+    assert_eq!(distinct.len(), 601);
+    assert!(
+        every
+            .windows(2)
+            .all(|pair| pair[0].update_at >= pair[1].update_at),
+        "the one changed last first"
+    );
     for nowhere in [&[][..], &[new_id().as_str()][..]] {
         let none = store
             .titled_blocks(nowhere, "", 20)

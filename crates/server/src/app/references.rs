@@ -8,10 +8,10 @@
 //! request. To anybody else it is what an identifier of nothing is: left out, with the
 //! same reads made on the way.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 
 use fvoci_model::{Block, Board, LinkedBlock, is_id};
-use fvoci_store::{Paging, PublicBoards, StoreError};
+use fvoci_store::PublicBoards;
 
 use super::App;
 use super::org_admin::PageAsked;
@@ -22,23 +22,6 @@ pub const MAX_REFERENCE_IDS: usize = 100;
 
 /// The most cards and pages a search for what a reference may name finds.
 const FOUND_AT_MOST: usize = 20;
-
-/// What is looked for among the cards and pages of the boards a user reads.
-#[derive(Debug, Clone, Copy)]
-enum Sought<'a> {
-    /// One page of those that name the block.
-    Naming {
-        /// The block that is named.
-        block_id: &'a str,
-        /// The page of them.
-        paging: Paging,
-    },
-    /// Those whose title has the words of the term, the ones changed last first.
-    Titled {
-        /// The words, as spaces divide them.
-        term: &'a str,
-    },
-}
 
 impl App {
     /// What the references to `ids` show the user: the cards and pages among them that
@@ -135,8 +118,13 @@ impl App {
                 .get_template_boards(workspace_id, user_id)
                 .await?,
         );
-        let sought = Sought::Naming { block_id, paging };
-        Ok(Some(self.on_boards_read(user_id, boards, sought).await?))
+        let read = self.boards_read(user_id, boards).await?;
+        let board_ids: Vec<&str> = read.keys().map(String::as_str).collect();
+        let found = self
+            .store()
+            .blocks_naming(block_id, &board_ids, paging)
+            .await?;
+        Ok(Some(linked(&found, &read)))
     }
 
     /// The cards and pages a reference of the user may name, by their titles: those on
@@ -155,97 +143,40 @@ impl App {
         term: &str,
     ) -> Result<Vec<LinkedBlock>, AppError> {
         let boards = self.boards_held(user_id, workspace_id).await?;
-        self.on_boards_read(user_id, boards, Sought::Titled { term })
-            .await
+        let read = self.boards_read(user_id, boards).await?;
+        let board_ids: Vec<&str> = read.keys().map(String::as_str).collect();
+        let found = self
+            .store()
+            .titled_blocks(&board_ids, term, FOUND_AT_MOST)
+            .await?;
+        Ok(linked(&found, &read))
     }
 
     /// The boards and wikis of the workspace the user holds a role on, templates left
     /// out: where to look for what the user reads. Whether the user does read one is
-    /// not said here ([`App::on_boards_read`] asks).
+    /// not said here ([`App::boards_read`] asks).
     async fn boards_held(&self, user_id: &str, workspace_id: &str) -> Result<Vec<Board>, AppError> {
         self.boards_for_user_and_workspace(user_id, workspace_id, PublicBoards::Exclude)
             .await
     }
 
-    /// What is sought on those of `boards` the user reads, as a reference shows it.
+    /// Those of `boards` the user reads ([`App::board_read`]), by their identifiers.
     ///
-    /// The store looks on all of `boards`; the board of each block it finds is then
-    /// asked of [`App::board_access`], and if the user reads every one, that is the
-    /// answer. A board the user does not read is taken out and the store is asked
-    /// again, so that what was found there takes no place in the answer. `boards` is
-    /// where the store says the user holds a role, which is no answer of its own: a
-    /// board that is not among them is never looked on, so what the user has nothing
-    /// to do with costs nothing and shows in nothing.
-    async fn on_boards_read(
-        &self,
-        user_id: &str,
-        boards: Vec<Board>,
-        sought: Sought<'_>,
-    ) -> Result<Vec<LinkedBlock>, AppError> {
-        let mut boards: BTreeMap<String, Board> = boards
-            .into_iter()
-            .map(|board| (board.id.clone(), board))
-            .collect();
-        let mut read: HashSet<String> = HashSet::new();
-        loop {
-            let board_ids: Vec<&str> = boards.keys().map(String::as_str).collect();
-            let found = self.sought_on(&board_ids, sought).await?;
-            let unasked: BTreeSet<&str> = found
-                .iter()
-                .map(|block| block.board_id.as_str())
-                .filter(|board_id| !read.contains(*board_id))
-                .collect();
-            let unasked: Vec<&str> = unasked.into_iter().collect();
-            let answers = self.boards_read(user_id, &unasked).await?;
-            let refused: Vec<String> = unasked
-                .iter()
-                .filter(|board_id| !answers.contains_key(**board_id))
-                .map(|board_id| (*board_id).to_owned())
-                .collect();
-            if refused.is_empty() {
-                return Ok(found
-                    .iter()
-                    .filter_map(|block| LinkedBlock::of(block, boards.get(&block.board_id)?))
-                    .collect());
-            }
-            read.extend(answers.into_keys());
-            for board_id in refused {
-                boards.remove(&board_id);
-            }
-        }
-    }
-
-    /// What is sought, on the boards of `board_ids`, whoever reads them.
-    async fn sought_on(
-        &self,
-        board_ids: &[&str],
-        sought: Sought<'_>,
-    ) -> Result<Vec<Block>, StoreError> {
-        match sought {
-            Sought::Naming { block_id, paging } => {
-                self.store()
-                    .blocks_naming(block_id, board_ids, paging)
-                    .await
-            }
-            Sought::Titled { term } => {
-                self.store()
-                    .titled_blocks(board_ids, term, FOUND_AT_MOST)
-                    .await
-            }
-        }
-    }
-
-    /// The boards and wikis among `board_ids` that the user reads ([`App::board_read`]),
-    /// by their identifiers, each asked one after another: a request holds no more of
-    /// the store's connections than any other does.
+    /// `boards` is where the store says the user holds a role, or what it lists as a
+    /// template, which is no answer of its own: every one is asked of
+    /// [`App::board_access`] before the store is asked what is on any. So the store
+    /// looks only where the user reads, what is found there is the answer as it is, a
+    /// page is cut from that alone, and the reads a question takes are those of the
+    /// boards the user holds a role on, whatever is on them. They are asked one after
+    /// another: a request holds no more of the store's connections than any other does.
     async fn boards_read(
         &self,
         user_id: &str,
-        board_ids: &[&str],
-    ) -> Result<HashMap<String, Board>, AppError> {
-        let mut read = HashMap::new();
-        for board_id in board_ids {
-            if let Some(board) = self.board_read(user_id, board_id).await? {
+        boards: Vec<Board>,
+    ) -> Result<BTreeMap<String, Board>, AppError> {
+        let mut read = BTreeMap::new();
+        for board in boards {
+            if let Some(board) = self.board_read(user_id, &board.id).await? {
                 read.insert(board.id.clone(), board);
             }
         }
@@ -265,4 +196,12 @@ impl App {
             })
             .map(|access| access.board))
     }
+}
+
+/// The blocks as a reference shows them, each with the board it is on.
+fn linked(blocks: &[Block], boards: &BTreeMap<String, Board>) -> Vec<LinkedBlock> {
+    blocks
+        .iter()
+        .filter_map(|block| LinkedBlock::of(block, boards.get(&block.board_id)?))
+        .collect()
 }

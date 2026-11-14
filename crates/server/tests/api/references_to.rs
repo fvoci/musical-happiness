@@ -3,13 +3,13 @@
 //! from where the asker does not read changes no letter of the answer, and a block the
 //! asker does not read is asked about as one that is not there.
 
-use fvoci_model::{Block, BlockType, Board};
+use fvoci_model::{Block, BlockType, Board, BoardType};
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
 use crate::blocks::{block_path, undelete_path};
-use crate::common::{ApiResponse, Client, ROOT_WS, Setup, TEST_WS, UNKNOWN_ID};
-use crate::references::{HIDDEN, Made, let_read, made};
+use crate::common::{ApiResponse, Client, ROOT_WS, Setup, TEST_WORKSPACE_ID, TEST_WS, UNKNOWN_ID};
+use crate::references::{HIDDEN, Made, fewest_reads, let_read, made};
 
 /// A body that says `text` and names the blocks.
 pub(crate) fn body_naming(text: &str, targets: &[&str]) -> Value {
@@ -324,6 +324,67 @@ async fn a_guest_and_who_only_manages_are_told_what_they_read_names() {
         }
         th.teardown().await;
     }
+}
+
+/// What names from a template for who works in the workspace is told to a member and
+/// not to a guest, whom the store lists the template for all the same: to the guest it
+/// takes no place in a page, moves none, and costs not one read more.
+#[tokio::test]
+async fn what_names_from_a_template_a_guest_does_not_read_moves_no_page() {
+    let th = Setup::native()
+        .metrics_at("127.0.0.1:0")
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let guest_id = crate::guests::guest_of_the_workspace(&th).await;
+    let (owner, guest) = (&th.client, &th.client2);
+    let shown = made(owner, TEST_WS, "P", "shown").await;
+    let_read(owner, &shown.board, &guest_id).await;
+    let template: Board = owner
+        .create_board(&Board {
+            is_template: true,
+            ..crate::boards::new_board(TEST_WORKSPACE_ID, BoardType::Open, HIDDEN)
+        })
+        .await
+        .created_json();
+    // The card of the template is the oldest: it would be the first of the first page.
+    let on_template = card_of(owner, TEST_WS, &template.id, HIDDEN).await;
+    let first = card_of(owner, TEST_WS, &shown.board, "first").await;
+    let second = card_of(owner, TEST_WS, &shown.board, "second").await;
+    for card in [&first, &second] {
+        card_names(owner, TEST_WS, card, &[&shown.card]).await;
+    }
+    let pages = async |asker: &Client| {
+        let mut pages = Vec::new();
+        for page in 0..4 {
+            let query = format!("?perPage=1&page={page}");
+            pages.push(naming(asker, TEST_WS, &shown.card, &query).await);
+        }
+        pages
+    };
+    let texts = |pages: &[ApiResponse]| pages.iter().map(ApiResponse::text).collect::<Vec<_>>();
+    let whole = async || naming(guest, TEST_WS, &shown.card, "").await.check_ok();
+    let before = pages(guest).await;
+    let reads_before = fewest_reads(&th, whole).await;
+
+    card_names(owner, TEST_WS, &on_template, &[&shown.card]).await;
+    let after = pages(guest).await;
+    assert_eq!(texts(&after), texts(&before));
+    let told: Vec<Vec<String>> = after.iter().map(listed).collect();
+    assert_eq!(
+        told,
+        [vec![first.clone()], vec![second.clone()], vec![], vec![]]
+    );
+    assert_eq!(fewest_reads(&th, whole).await, reads_before);
+    assert!(!texts(&after).concat().contains(HIDDEN));
+
+    // Who works in the workspace reads the template, and is told what is on it names.
+    let member = th.add_user("member.here").await;
+    let_read(owner, &shown.board, &member.me().await.id).await;
+    let told: Vec<Vec<String>> = pages(&member).await.iter().map(listed).collect();
+    assert_eq!(told, [vec![on_template], vec![first], vec![second], vec![]]);
+    th.teardown().await;
 }
 
 /// What is of another organization names nothing here and is not found, and is asked

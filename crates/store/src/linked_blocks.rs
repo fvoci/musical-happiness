@@ -19,7 +19,7 @@ const SHOWN_COLUMNS: &str = "id, board_id, parent_id, type, title, fields, updat
 const IS_TEMPLATE_FIELD: &str = "isTemplate";
 
 /// How many blocks a search reads at a time while it looks for titles.
-const SEARCHED_AT_ONCE: i64 = 500;
+const SEARCHED_AT_ONCE: u16 = 500;
 
 /// The block of a row read with [`SHOWN_COLUMNS`]: what it is, where it is and what it
 /// is called, and no body.
@@ -132,6 +132,10 @@ impl Store {
     /// every one. A card that is a template of its board's cards is never found, and
     /// nothing in the trash is.
     ///
+    /// The blocks are read some at a time, each time those after the last one read in
+    /// that order: a block that is changed meanwhile moves to before where the reading
+    /// is, so none is found twice.
+    ///
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if a query fails.
@@ -147,15 +151,21 @@ impl Store {
         let words: Vec<String> = term.split_whitespace().map(str::to_lowercase).collect();
         self.with_conn(async |scope| {
             let mut found = Vec::new();
-            let mut offset = 0;
+            let mut last: Option<(i64, String)> = None;
             loop {
                 let mut sql = select_named_on(scope, board_ids);
+                if let Some((update_at, id)) = &last {
+                    sql.push_bind(" AND (update_at < ", *update_at)
+                        .push_bind(" OR (update_at = ", *update_at)
+                        .push_bind(" AND id > ", Id(id))
+                        .push("))");
+                }
                 sql.push(" ORDER BY update_at DESC, id")
-                    .push_bind(" LIMIT ", SEARCHED_AT_ONCE)
-                    .push_bind(" OFFSET ", offset);
+                    .push_bind(" LIMIT ", i64::from(SEARCHED_AT_ONCE));
                 let rows = scope.fetch_all(sql).await?;
                 for row in &rows {
                     let block = shown_block(row)?;
+                    last = Some((block.update_at, block.id.clone()));
                     let is_template =
                         block.fields.get(IS_TEMPLATE_FIELD) == Some(&serde_json::Value::Bool(true));
                     if !is_template && title_has(&block.title, &words) {
@@ -165,10 +175,9 @@ impl Store {
                         }
                     }
                 }
-                if i64::try_from(rows.len()).unwrap_or(i64::MAX) < SEARCHED_AT_ONCE {
+                if rows.len() < usize::from(SEARCHED_AT_ONCE) {
                     return Ok(found);
                 }
-                offset += SEARCHED_AT_ONCE;
             }
         })
         .await
