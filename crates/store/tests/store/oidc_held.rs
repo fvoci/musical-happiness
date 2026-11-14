@@ -292,10 +292,22 @@ async fn a_held_sign_in_is_carried_over_to_a_guests_account() {
     test.add_identity(&guest, at_the_old("guest"), "")
         .await
         .expect("tied");
-    let asked = held(&new, "gwen");
+    // A provider that gives no address but blanks: the record names the subject.
+    let asked = HeldSignIn {
+        email: "  ".to_owned(),
+        ..held(&new, "gwen")
+    };
     assert!(test.hold_oidc_sign_in(&asked).await.expect("asked"), "held");
 
     let carried = carry(&test, &new.id, &asked, at_the_old("guest"), THEN).await;
+    let paging = Paging {
+        page: 0,
+        per_page: 100,
+    };
+    let records = test
+        .audit_records(AuditPlace::Organization, paging)
+        .await
+        .expect("records");
 
     assert_eq!(
         carried,
@@ -334,6 +346,12 @@ async fn a_held_sign_in_is_carried_over_to_a_guests_account() {
         [(test.workspace_id.clone(), WorkspaceRole::Guest)],
         "still a guest of the one workspace"
     );
+    let identities: Vec<_> = records
+        .iter()
+        .filter(|record| record.action == AuditAction::OidcIdentityCarriedOver)
+        .map(|record| record.identity.as_deref())
+        .collect();
+    assert_eq!(identities, [Some("gwen")], "by its subject");
     test.teardown().await;
 }
 

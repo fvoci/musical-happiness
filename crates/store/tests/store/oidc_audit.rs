@@ -292,3 +292,52 @@ async fn a_save_records_only_what_it_changed() {
         "the first save, the switch alone, and the change of joining; nothing for the save that changed nothing"
     );
 }
+
+/// Who an identity is is told in the organization's own records only: a record of a
+/// workspace that carries one, whatever wrote it, is read without it.
+#[tokio::test]
+async fn a_workspaces_records_tell_no_identity_whatever_is_stored() {
+    let test = common::setup().await;
+    let actor = common::user(&test, "administrator").await;
+    let (in_workspace, of_organization) = (new_id(), new_id());
+    for (id, workspace) in [
+        (&in_workspace, format!("'{}'", test.workspace_id)),
+        (&of_organization, "NULL".to_owned()),
+    ] {
+        test.execute_unchecked(&format!(
+            "INSERT INTO audit_log (id, org_id, workspace_id, actor_id, action, target_id, \
+             create_at, actor_kind, detail, identity) VALUES ('{id}', '{}', {workspace}, \
+             '{actor}', 'oidc_identity_bound', '{}', 1, 'person', \
+             'https://issuer.example.test', 'someone@example.test')",
+            test.org_id, test.org_id
+        ))
+        .await
+        .expect("written past the store");
+    }
+    let paging = Paging {
+        page: 0,
+        per_page: 100,
+    };
+
+    let of_workspace = test
+        .audit_records(AuditPlace::Workspace(&test.workspace_id), paging)
+        .await
+        .expect("read");
+    let of_org = test
+        .audit_records(AuditPlace::Organization, paging)
+        .await
+        .expect("read");
+
+    let told = |records: &[fvoci_model::AuditRecord]| -> Vec<(String, Option<String>)> {
+        records
+            .iter()
+            .map(|record| (record.id.clone(), record.identity.clone()))
+            .collect()
+    };
+    assert_eq!(told(&of_workspace), [(in_workspace, None)]);
+    assert_eq!(
+        told(&of_org),
+        [(of_organization, Some("someone@example.test".to_owned()))]
+    );
+    test.teardown().await;
+}

@@ -166,10 +166,16 @@ impl AuditEntry {
     }
 
     /// The record with who the identity it tied is: `email`, the address its provider
-    /// gave, or the subject of `identity` where that is empty.
+    /// gave, without the blanks around it, or `oidc_subject`, the identity's subject at
+    /// its issuer, where that leaves nothing.
     #[must_use]
-    pub(crate) fn with_identity(mut self, email: &str, subject: &str) -> Self {
-        let shown = if email.is_empty() { subject } else { email };
+    pub(crate) fn with_identity(mut self, email: &str, oidc_subject: &str) -> Self {
+        let email = email.trim();
+        let shown = if email.is_empty() {
+            oidc_subject
+        } else {
+            email
+        };
         shown.clone_into(&mut self.identity);
         self
     }
@@ -247,6 +253,7 @@ impl Store {
                  WHERE a.org_id = ",
             );
             sql.bind(scope.org()?);
+            let identities = Identities::of(place);
             match place {
                 AuditPlace::Workspace(workspace_id) => {
                     sql.push_bind(" AND a.workspace_id = ", Id(workspace_id));
@@ -256,7 +263,6 @@ impl Store {
                 }
             }
             sql.push(" ORDER BY a.create_at DESC, a.id DESC");
-            let identities = Identities::of(place);
             if paging.per_page > 0 {
                 sql.push_bind(" LIMIT ", i64::from(paging.per_page))
                     .push_bind(

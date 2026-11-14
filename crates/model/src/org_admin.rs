@@ -283,7 +283,7 @@ pub enum AuditRecordActor {
 }
 
 /// One record of the audit log: who did what, to what and whom, and when.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct AuditRecord {
     /// The record's identifier.
@@ -310,6 +310,22 @@ pub struct AuditRecord {
     /// the records of a workspace: the organization's are read by its administrators
     /// alone.
     pub identity: Option<String>,
+}
+
+impl std::fmt::Debug for AuditRecord {
+    /// Leaves out who an identity it tied is: an address, kept out of the logs.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AuditRecord")
+            .field("id", &self.id)
+            .field("action", &self.action)
+            .field("actor", &self.actor)
+            .field("subject", &self.subject)
+            .field("target_id", &self.target_id)
+            .field("target_name", &self.target_name)
+            .field("create_at", &self.create_at)
+            .field("detail", &self.detail)
+            .finish_non_exhaustive()
+    }
 }
 
 #[cfg(test)]
