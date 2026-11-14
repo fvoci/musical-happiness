@@ -239,9 +239,9 @@ struct Turn {
     members: Vec<Member>,
     /// The room is no longer among the rooms: who waited for it looks again.
     closed: bool,
-    /// The users whose updates the room took since it last had what was typed kept
-    /// as a version of the card's body: when one of them is in the room to write no
-    /// more, the room asks for it.
+    /// The users whose leaving has the room ask for what was typed to be kept as a
+    /// version of the card's body: those whose updates it took since it last asked,
+    /// and, once it asked while one who typed stayed, all who were there to write.
     typed: Vec<String>,
 }
 
@@ -575,6 +575,7 @@ impl Collab {
         let reason = reason_of(&AppError::not_found("card"));
         for room in of_organization {
             let mut turn = room.turn.lock().await;
+            let before = turn.members.len();
             // From the last: a member put out takes the place of none not yet looked at.
             for index in (0..turn.members.len()).rev() {
                 let made_through = turn.members[index].connection.made_through.as_deref();
@@ -582,9 +583,10 @@ impl Collab {
                     turn.put_out(index, &reason);
                 }
             }
-            if turn.members.is_empty() {
+            if turn.members.len() < before {
                 drop(turn);
-                // Closing writes the body to the card: not for the request to wait on.
+                // Closing writes the body to the card, and so does keeping what one
+                // who was put out typed: not for the request to wait on.
                 let collab = self.clone();
                 tokio::spawn(async move {
                     let mut turn = room.turn.lock().await;
@@ -948,18 +950,21 @@ impl Collab {
             return;
         }
         if !turn.members.is_empty() {
-            let members = &turn.members;
-            let writes = |user_id: &String| {
-                members.iter().any(|member| {
-                    member.mode == DocMode::Write && member.connection.user_id == *user_id
-                })
-            };
-            if turn.typed.iter().all(writes) {
+            if turn.typed.is_empty() {
                 return;
             }
-            let writing: Vec<String> = turn.typed.iter().filter(|by| writes(by)).cloned().collect();
-            // Those who left are asked about once: the names that stay are the ones
-            // whose leaving asks again.
+            let mut writing: Vec<String> = turn
+                .members
+                .iter()
+                .filter(|member| member.mode == DocMode::Write)
+                .map(|member| member.connection.user_id.clone())
+                .collect();
+            writing.sort_unstable();
+            writing.dedup();
+            if turn.typed.iter().all(|by| writing.contains(by)) {
+                return;
+            }
+            // Whoever of them typed is not known here: the leaving of each asks again.
             turn.typed = if self
                 .version_without_writers(&room.app, &room.card_id, room.gone.clone(), &writing)
                 .await

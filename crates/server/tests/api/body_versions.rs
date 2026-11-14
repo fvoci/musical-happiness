@@ -259,6 +259,45 @@ async fn a_room_left_by_those_who_typed_keeps_it_whoever_stays() {
     th.teardown().await;
 }
 
+/// One who typed and left comes back, to write and typing nothing, before the other
+/// who typed leaves: what both typed is kept when they leave too, not before.
+#[tokio::test]
+async fn one_who_typed_and_came_back_holds_the_version_until_they_leave() {
+    let th = Setup::native().start().await.init_basic().await;
+    let t = table(&th, &paragraphs(&["first"])).await;
+    let user1 = th.client.me().await.id;
+    let user2 = th.client2.me().await.id;
+    give(&th, &t.board_id, &user2, "editor").await;
+    let mut first = Peer::connect(&th.client, 101).await;
+    let mut second = Peer::connect(&th.client2, 102).await;
+    first.joined(TEST_WORKSPACE_ID, &t.card_id).await;
+    second.joined(TEST_WORKSPACE_ID, &t.card_id).await;
+    first.write_acked("one").await;
+    second.write_acked("two").await;
+    first.settle().await;
+    first.leave().await;
+    first.barrier().await;
+    assert_eq!(versions(&th.client, &t.card_id).await.len(), 1);
+
+    let mut back = Peer::connect(&th.client, 103).await;
+    back.joined(TEST_WORKSPACE_ID, &t.card_id).await;
+    second.settle().await;
+    second.leave().await;
+    second.barrier().await;
+    assert_eq!(
+        versions(&th.client, &t.card_id).await.len(),
+        1,
+        "one who typed it is in the room to write"
+    );
+    back.leave().await;
+    let kept = kept_after(&th.client, &t.card_id, 2).await;
+    let mut both = vec![user1.as_str(), user2.as_str()];
+    both.sort_unstable();
+    assert_eq!(said(&kept)[0], (2, both, true));
+    crate::rooms::no_rooms(&th).await;
+    th.teardown().await;
+}
+
 /// What the versions of a card say besides when they were kept, the newest first:
 /// the number, who wrote, and whether it is the card's body now.
 pub(crate) fn said(kept: &[Value]) -> Vec<(i64, Vec<&str>, bool)> {

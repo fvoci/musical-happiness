@@ -138,10 +138,10 @@ impl Collab {
     /// For a room that one who typed has left, or writes in no more: writes the body
     /// of its open document to the card and keeps it as a version, if the document
     /// took updates no version holds and none of them is by one of `writing`, the
-    /// users still in the room to write. Whether one is: the room asks again when
-    /// they leave. A document that is not open is left to who opens it next, with a
-    /// version due: it is kept when the room closes. What fails is logged, and done
-    /// then too.
+    /// users still in the room to write. Whether the room is to ask again when one of
+    /// those leaves: one of them wrote it, or it could not be told or kept now (the
+    /// document is not open, and is opened with a version due; the store failed,
+    /// which is logged). What is not kept by then is when the room closes.
     pub(super) async fn version_without_writers(
         &self,
         app: &App,
@@ -156,20 +156,17 @@ impl Collab {
                 card_id,
                 Some(gone),
                 move |collab, app, card_id, mut slot| async move {
-                    let (unkept, by_one_here) = slot.open.as_ref().map_or((false, false), |open| {
-                        (
-                            matches!(open.versioned, Versioned::Due(_)),
-                            open.editors.iter().any(|editor| writing.contains(editor)),
-                        )
-                    });
-                    if unkept && by_one_here {
+                    let Some(open) = slot.open.as_ref() else {
+                        collab.retire(&mut slot);
+                        return Ok(true);
+                    };
+                    if !matches!(open.versioned, Versioned::Due(_)) {
+                        return Ok(false);
+                    }
+                    if open.editors.iter().any(|editor| writing.contains(editor)) {
                         return Ok(true);
                     }
-                    let written = if unkept {
-                        collab.write_now(&app, &card_id, &mut slot).await
-                    } else {
-                        Ok(())
-                    };
+                    let written = collab.write_now(&app, &card_id, &mut slot).await;
                     if written.is_ok() {
                         collab.version_as_left(&app, &card_id, &mut slot).await;
                     }
@@ -179,12 +176,11 @@ impl Collab {
             )
             .await;
         match left {
-            Ok(still_written) => still_written,
+            Ok(ask_again) => ask_again,
+            Err(error) if error.is_not_found() => false,
             Err(error) => {
-                if !error.is_not_found() {
-                    tracing::error!(%error, card_id, "cannot keep a version of a body its writers left");
-                }
-                false
+                tracing::error!(%error, card_id, "cannot keep a version of a body its writers left");
+                true
             }
         }
     }

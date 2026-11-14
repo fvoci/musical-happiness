@@ -166,6 +166,31 @@ describe('the versions of a body, in memory', () => {
     idle.close();
   });
 
+  it('keeps nothing as the other who wrote leaves, once the first who wrote has come back', async () => {
+    const { world: stored, BOARD, backend, other, cardId, me, them } = world();
+    const versions = backend.bodyVersions;
+    const mine = backend.openDoc('w', BOARD, cardId, hears());
+    const theirs = other.openDoc('w', BOARD, cardId, hears());
+    await type(mine, 'one');
+    await type(theirs, 'two', ['one']);
+    mine.close();
+    await vi.waitFor(() => {
+      expect(roomsOf(stored).members(cardId)).toBe(1);
+    });
+    const back = backend.openDoc('w', BOARD, cardId, hears());
+    await joined(back);
+    theirs.close();
+    await vi.waitFor(() => {
+      expect(roomsOf(stored).members(cardId)).toBe(1);
+    });
+    expect(await versions.list(BOARD, cardId)).toHaveLength(1);
+    back.close();
+    await vi.waitFor(async () => {
+      expect(await versions.list(BOARD, cardId)).toHaveLength(2);
+    });
+    expect((await versions.list(BOARD, cardId))[0]).toMatchObject({ editors: [me, them].sort() });
+  });
+
   it('keeps a version as the room writes the card once the body has been written on for the period', async () => {
     const { world: stored, BOARD, backend, other, cardId, me, them } = world();
     const versions = backend.bodyVersions;
