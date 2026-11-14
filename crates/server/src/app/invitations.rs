@@ -17,7 +17,9 @@ use fvoci_model::{
     INVITATION_LIFETIME_MILLIS, Invitation, InvitationPreview, NewAccount, Workspace,
     WorkspaceRole,
 };
-use fvoci_store::{Acceptance, Acceptor, Inviter, InviterOfBoard, NewLink, Standing, StoreError};
+use fvoci_store::{
+    Acceptance, Acceptor, Inviter, InviterOfBoard, Mailed, NewLink, Standing, StoreError,
+};
 
 use super::auth::account_error;
 use super::{App, Asker, BoardAccess};
@@ -82,17 +84,19 @@ impl App {
         inviting: Inviting<'_>,
     ) -> Result<Invitation, AppError> {
         let ends = now_millis().saturating_add(INVITATION_LIFETIME_MILLIS);
-        self.store_link(workspace_id, created_by, inviting, ends)
+        self.store_link(workspace_id, created_by, inviting, ends, None)
             .await
     }
 
-    /// Stores a new link that ends at `expires_at`, and returns it with its token.
+    /// Stores a new link that ends at `expires_at`, `mailed` for one recipient of a link
+    /// if it is, and returns it with its token.
     async fn store_link(
         &self,
         workspace_id: &str,
         created_by: &str,
         inviting: Inviting<'_>,
         expires_at: i64,
+        mailed: Option<Mailed<'_>>,
     ) -> Result<Invitation, AppError> {
         let token = new_secret();
         let (guest_of, max_uses) = match inviting {
@@ -109,6 +113,7 @@ impl App {
             now: now_millis(),
             expires_at,
             max_uses,
+            mailed,
         };
         let mut invitation = match self.store().create_invitation(&link).await {
             Ok(invitation) => invitation,

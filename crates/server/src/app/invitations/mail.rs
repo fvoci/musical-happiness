@@ -10,6 +10,7 @@ use super::super::mail::{
 use super::{App, Inviting};
 use crate::auth::{now_millis, secret::token_digest};
 use crate::error::{AppError, Reason};
+use fvoci_store::Mailed;
 
 impl App {
     /// Queues individual messages carrying this workspace's existing invitation.
@@ -139,11 +140,20 @@ impl App {
         sender: &str,
         token: &str,
     ) -> Result<Invitation, AppError> {
+        // A member link is mailed as it is, so it must let somebody in still; a guest
+        // link is only what each recipient's own link is made like, and goes out after
+        // it was used too (while it is neither revoked nor ended).
         let invitation = self
             .store()
-            .live_invitation(&token_digest(token), now_millis())
+            .unended_invitation(&token_digest(token), now_millis())
             .await?
             .filter(|invitation| invitation.workspace_id == workspace_id)
+            .filter(|invitation| {
+                invitation.role == WorkspaceRole::Guest
+                    || invitation
+                        .max_uses
+                        .is_none_or(|most| invitation.uses < most)
+            })
             .ok_or_else(|| AppError::not_found("invitation"))?;
         if self
             .inviter_who_may_still_invite(&invitation)
@@ -200,7 +210,9 @@ impl App {
                         // A guest link lets one person in once: each recipient has their
                         // own, made by the sender as their message leaves.
                         WorkspaceRole::Guest => {
-                            let link = self.guest_link_like(&invitation, sender).await?;
+                            let link = self
+                                .guest_link_like(&invitation, sender, &recipient)
+                                .await?;
                             made = Some(link.id);
                             link.token
                                 .ok_or_else(|| AppError::internal("a new link without its token"))?
@@ -215,9 +227,10 @@ impl App {
                     })
                 })
                 .await?;
-            // Nobody holds the link of a message refused for good: it goes with it. A
-            // failure here is logged; the other recipients are still sent theirs.
-            if delivered == Delivered::Refused
+            // Nobody holds the link of a message refused for good or given up: it goes
+            // with it, and the sender may mail the link again. A failure here is logged;
+            // the other recipients are still sent theirs.
+            if matches!(delivered, Delivered::Refused | Delivered::GivenUp)
                 && let Some(id) = made
             {
                 match self
@@ -243,12 +256,14 @@ impl App {
     }
 
     /// A new one-use guest link like `invitation` (its board, its role on it and its
-    /// end), made by `sender` for one recipient of its mail, with its token. The caller
-    /// has asked whether `sender` may make such a link.
+    /// end), made by `sender` for `recipient` of its mail, with its token, and recorded
+    /// as `invitation`'s child mailed to `recipient`. The caller has asked whether
+    /// `sender` may make such a link.
     async fn guest_link_like(
         &self,
         invitation: &Invitation,
         sender: &str,
+        recipient: &str,
     ) -> Result<Invitation, AppError> {
         let (Some(board_id), Some(role)) = (invitation.board_id.as_deref(), invitation.board_role)
         else {
@@ -261,6 +276,10 @@ impl App {
             sender,
             Inviting::Guest { board_id, role },
             invitation.expires_at,
+            Some(Mailed {
+                parent_id: &invitation.id,
+                recipient,
+            }),
         )
         .await
     }

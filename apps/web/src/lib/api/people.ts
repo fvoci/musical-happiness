@@ -25,6 +25,8 @@ function invitationOf(link: Schemas['Invitation']): Invitation {
     createAt: link.createAt,
     expiresAt: link.expiresAt,
     uses: link.uses,
+    ...(link.parentId ? { parentId: link.parentId } : {}),
+    ...(link.recipient ? { recipient: link.recipient } : {}),
     ...(link.token ? { token: link.token } : {}),
   };
 }

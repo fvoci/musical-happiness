@@ -14,7 +14,14 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const BeforeInviting: Story = {};
+export const BeforeInviting: Story = {
+  play: async ({ canvasElement }) => {
+    // The links out for the board: one made here, one mailed to somebody.
+    await expect(
+      await storyElement(canvasElement, '[data-testid="share-guest-links"]'),
+    ).toHaveTextContent('guest@example.test');
+  },
+};
 export const LinkCreated: Story = {
   play: async ({ canvasElement }) => {
     await clickStory(canvasElement, '[data-testid="share-guest-make"]');

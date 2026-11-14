@@ -33,6 +33,10 @@ export interface Invitation {
   expiresAt: number;
   /** How often it was used. */
   uses: number;
+  /** For a guest link made for one recipient of a mailed one: the link it was made like. */
+  parentId?: string;
+  /** For such a link: the address it was mailed to. */
+  recipient?: string;
   /** The token of the link: known when the link is made, and never again. */
   token?: string;
 }

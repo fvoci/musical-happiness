@@ -27,10 +27,11 @@ use crate::{Standing, Store};
 
 /// The columns of an invitation, in the order [`invitation_from_row`] reads them.
 const COLUMNS: &str = "id, workspace_id, role, board_id, board_role, created_by, create_at, \
-                       expires_at, max_uses, uses";
+                       expires_at, max_uses, uses, parent_id, recipient";
 /// [`COLUMNS`] of the table as `i`.
 const COLUMNS_OF_I: &str = "i.id, i.workspace_id, i.role, i.board_id, i.board_role, \
-                            i.created_by, i.create_at, i.expires_at, i.max_uses, i.uses";
+                            i.created_by, i.create_at, i.expires_at, i.max_uses, i.uses, \
+                            i.parent_id, i.recipient";
 
 /// A link to store.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -50,6 +51,18 @@ pub struct NewLink<'a> {
     pub expires_at: i64,
     /// How often the link may be used; `None` for as often as it is until it ends.
     pub max_uses: Option<i64>,
+    /// For a link made for one recipient of a mailed link: the link it is made like,
+    /// of the same workspace, and the address it is mailed to.
+    pub mailed: Option<Mailed<'a>>,
+}
+
+/// Where a link made for one recipient of a mailed link comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Mailed<'a> {
+    /// The link it is made like.
+    pub parent_id: &'a str,
+    /// The address it is mailed to.
+    pub recipient: &'a str,
 }
 
 /// Who accepts a link.
@@ -140,7 +153,8 @@ impl Store {
             };
             let mut sql = scope.sql(
                 "INSERT INTO invitations (id, org_id, workspace_id, role, board_id, board_role, \
-                 token_hash, created_by, create_at, expires_at, max_uses) SELECT ",
+                 token_hash, created_by, create_at, expires_at, max_uses, parent_id, \
+                 recipient) SELECT ",
             );
             sql.bind(Id(&new_id()))
                 .push(", t.org_id, t.id")
@@ -152,6 +166,14 @@ impl Store {
                 .push_bind(", ", link.now)
                 .push_bind(", ", link.expires_at)
                 .push_bind(", ", Param::OptInt(link.max_uses))
+                .push_bind(
+                    ", ",
+                    OptId(link.mailed.map_or("", |mailed| mailed.parent_id)),
+                )
+                .push_bind(
+                    ", ",
+                    Param::OptText(link.mailed.map(|mailed| mailed.recipient.to_owned())),
+                )
                 .push_bind(" FROM workspaces AS t WHERE t.id = ", Id(link.workspace_id))
                 .push_bind(" AND t.org_id = ", scope.org()?)
                 .push_bind(" AND t.delete_at = ", 0_i64);
@@ -235,7 +257,8 @@ impl Store {
 
     /// Revokes a live link into a workspace of the handle's organization, any of them
     /// or one `created_by` made; says whether there was such a link. A revoked link
-    /// lets nobody in from then on.
+    /// lets nobody in from then on, and nor do the links made like it for the
+    /// recipients of its mail that nobody used yet, whoever made them.
     ///
     /// # Errors
     ///
@@ -248,7 +271,7 @@ impl Store {
         created_by: Option<&str>,
         now: i64,
     ) -> Result<bool, StoreError> {
-        self.with_conn(async |scope| {
+        self.transaction(async |scope| {
             let mut sql = scope.sql("UPDATE invitations AS i SET revoked_at = ");
             sql.bind(now.max(1))
                 .push_bind(" WHERE i.id = ", Id(invitation_id))
@@ -258,7 +281,49 @@ impl Store {
             if let Some(user_id) = created_by {
                 sql.push_bind(" AND i.created_by = ", Id(user_id));
             }
-            Ok(scope.execute(sql).await? > 0)
+            if scope.execute(sql).await? == 0 {
+                return Ok(false);
+            }
+            let mut sql = scope.sql("UPDATE invitations AS i SET revoked_at = ");
+            sql.bind(now.max(1))
+                .push_bind(" WHERE i.parent_id = ", Id(invitation_id))
+                .push_bind(" AND i.org_id = ", scope.org()?)
+                .push_bind(" AND i.uses = ", 0_i64);
+            push_live(&mut sql, now);
+            scope.execute(sql).await?;
+            Ok(true)
+        })
+        .await
+    }
+
+    /// The link of the handle's organization whose token has the digest `token_hash`,
+    /// if it is neither revoked nor ended at `now`, however often it was used: what the
+    /// links of a mailed guest link are made like, which go out whether or not the
+    /// link itself was used.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::NoOrganization`] if the handle names none, and
+    /// [`StoreError::Database`] if the query fails.
+    pub async fn unended_invitation(
+        &self,
+        token_hash: &str,
+        now: i64,
+    ) -> Result<Option<Invitation>, StoreError> {
+        self.with_conn(async |scope| {
+            let mut sql = scope.sql(&format!(
+                "SELECT {COLUMNS_OF_I} FROM invitations AS i WHERE i.org_id = "
+            ));
+            sql.bind(scope.org()?)
+                .push_bind(" AND i.token_hash = ", token_hash)
+                .push_bind(" AND i.revoked_at = ", 0_i64)
+                .push_bind(" AND i.expires_at > ", now);
+            scope
+                .fetch_optional(sql)
+                .await?
+                .as_ref()
+                .map(invitation_from_row)
+                .transpose()
         })
         .await
     }
@@ -585,6 +650,8 @@ fn invitation_from_row(row: &Row) -> Result<Invitation, StoreError> {
         // such an end.
         max_uses: (max_uses > 0).then_some(max_uses),
         uses: row.int(9)?,
+        parent_id: Some(row.id(10)?).filter(|id| !id.is_empty()),
+        recipient: Some(row.text(11)?).filter(|recipient| !recipient.is_empty()),
         token: None,
     })
 }

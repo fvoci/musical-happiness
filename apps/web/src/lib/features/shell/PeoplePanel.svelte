@@ -261,10 +261,16 @@
           {#each guestLinks as link (link.id)}
             {@render linkRow(
               link,
-              m.people_guest_link_row({
-                board: boardTitle(link.boardId),
-                ends: displayDate(link.expiresAt, context),
-              }),
+              link.recipient
+                ? m.people_guest_link_row_to({
+                    recipient: link.recipient,
+                    board: boardTitle(link.boardId),
+                    ends: displayDate(link.expiresAt, context),
+                  })
+                : m.people_guest_link_row({
+                    board: boardTitle(link.boardId),
+                    ends: displayDate(link.expiresAt, context),
+                  }),
             )}
           {/each}
         </ul>

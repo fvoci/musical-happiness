@@ -35,6 +35,7 @@ mod files;
 mod guests;
 mod imports;
 mod invitation_mail;
+mod invitation_mail_children;
 mod invitations;
 mod limits;
 mod login_limits;

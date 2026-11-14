@@ -2164,15 +2164,17 @@ export interface paths {
         /**
          * Email an invitation
          * @description Queues a separate message for each unique email address with an existing link.
-         *     The token must name a live invitation of this workspace, and the sender must
-         *     still be allowed to make that kind of invitation. The same checks are repeated
-         *     before each delivery. A member link is sent as it is, its expiry and uses unchanged.
+         *     The token must name an invitation of this workspace that is neither revoked nor
+         *     ended (a member link must let somebody in still), and the sender must still be
+         *     allowed to make that kind of invitation. The same checks are repeated before each
+         *     delivery. A member link is sent as it is, its expiry and uses unchanged.
          *     A guest link lets one person in once, so it is not sent: each recipient gets a
          *     one-use guest link of their own, to the same board in the same role and ending
-         *     with it, made by the sender as their message leaves (and revoked if the mail server
-         *     refuses that message for good); the named link is left as it is, and messages go
-         *     out only while it is live and unused. Invalid recipients reject the whole request
-         *     before sending.
+         *     with it, made by the sender as their message leaves, naming the named link as its
+         *     `parentId` and the address as its `recipient` (and revoked if that message is
+         *     refused for good or given up). The named link is left as it is; messages go out
+         *     whether or not it was used, and revoking it revokes its children nobody used.
+         *     Invalid recipients reject the whole request before sending.
          *     Each message is in the recipient's language when the mail is written in it, else the
          *     sender's setting, else `language`, else English. A server that sends no mail answers 404.
          *     A request names at most `invitation_mail_recipients` addresses, repeats counted
@@ -3229,6 +3231,13 @@ export interface components {
              *     until it ends.
              */
             maxUses?: number | null;
+            /**
+             * @description For a guest link made for one recipient of a mailed guest link: the link it was
+             *     made like. Revoking that one revokes this one while nobody used it.
+             */
+            parentId: string | null;
+            /** @description For such a link: the address it was mailed to. */
+            recipient: string | null;
             /** @description What whoever accepts becomes in the workspace: `member`, or `guest`. */
             role: components["schemas"]["WorkspaceRole"];
             /** @description The token of the link: in the answer that makes the link, and in no other. */
