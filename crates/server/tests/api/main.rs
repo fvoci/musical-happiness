@@ -17,6 +17,7 @@ mod boards_and_blocks;
 mod bodies;
 mod body_versions;
 mod body_versions_kept;
+mod body_versions_restore;
 mod card_previews;
 mod cards;
 mod collab;

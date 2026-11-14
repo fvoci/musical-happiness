@@ -9329,6 +9329,68 @@
         ]
       }
     },
+    "/api/v1/w/{workspaceId}/cards/{cardId}/body-versions/{version}/restore": {
+      "post": {
+        "description": "Writes the body of the version to the card again, as a write of the whole body by\nthe caller: those who edit the card together are sent the body as a new document\n(`contracts/websocket.md`), the body it replaces is kept as a version first, with\nwhat they typed, and the body written is the card's newest version, by the\ncaller. The versions before stay as they are. A card that has that body already is\nleft as it is. For editors of the card's board (403 for its other members); to a\nuser who is no member of it there is no such card. A number the card has no\nversion of, or has none of any more, is 404. A version whose body may not be\nstored any more, or shows an image whose file the board no longer has, is 409.",
+        "operationId": "restoreCardBodyVersion",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the card.",
+            "in": "path",
+            "name": "cardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The number of the version of the card's body, as `getCardBodyVersions` lists it.",
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Card"
+                }
+              }
+            },
+            "description": "The card as it is now."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Go back to a version of a card's body",
+        "tags": [
+          "cards"
+        ]
+      }
+    },
     "/api/v1/w/{workspaceId}/categories": {
       "get": {
         "description": "The user's categories in the workspace, each with the boards filed under it. A user who\nhas none yet gets the default category made. A guest of the workspace has theirs\ntoo, with the boards they are on and no other, whatever they filed before; the\nroutes that change the sidebar are for who works in the workspace.\n\nThe categories come by `sortOrder`, lowest first, and among those with the same one\nthe oldest first. The boards of a category come in the order the user gave them,\nand by identifier among those with the same place.",

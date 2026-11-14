@@ -118,6 +118,12 @@ async fn cards(case: &mut Case, board: &str) -> String {
         "a kept body",
     )
     .await;
+    case.run(
+        "restoreCardBodyVersion",
+        &[("cardId", &card), ("version", "1")],
+        json!({}),
+    )
+    .await;
     let created = case
         .run(
             "createBlocks",

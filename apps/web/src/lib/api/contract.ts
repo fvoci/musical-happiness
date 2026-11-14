@@ -2087,6 +2087,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/w/{workspaceId}/cards/{cardId}/body-versions/{version}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Go back to a version of a card's body
+         * @description Writes the body of the version to the card again, as a write of the whole body by
+         *     the caller: those who edit the card together are sent the body as a new document
+         *     (`contracts/websocket.md`), the body it replaces is kept as a version first, with
+         *     what they typed, and the body written is the card's newest version, by the
+         *     caller. The versions before stay as they are. A card that has that body already is
+         *     left as it is. For editors of the card's board (403 for its other members); to a
+         *     user who is no member of it there is no such card. A number the card has no
+         *     version of, or has none of any more, is 404. A version whose body may not be
+         *     stored any more, or shows an image whose file the board no longer has, is 409.
+         */
+        post: operations["restoreCardBodyVersion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/w/{workspaceId}/categories": {
         parameters: {
             query?: never;
@@ -8164,6 +8192,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BodyVersionContent"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    restoreCardBodyVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the card. */
+                cardId: string;
+                /** @description The number of the version of the card's body, as `getCardBodyVersions` lists it. */
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The card as it is now. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Card"];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */

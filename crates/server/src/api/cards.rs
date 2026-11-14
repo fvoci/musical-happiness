@@ -40,6 +40,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
         .routes(routes!(handle_get_card, handle_patch_card))
         .routes(routes!(handle_get_card_body_versions))
         .routes(routes!(handle_get_card_body_version))
+        .routes(routes!(handle_restore_card_body_version))
 }
 
 /// Reads the `page` and `perPage` of a list that is answered in pages. Both are read,
@@ -361,6 +362,47 @@ async fn handle_get_card_body_version(
         .body_version(&card.id, version_number(&version)?)
         .await?;
     Ok(json_response(&version))
+}
+
+/// Go back to a version of a card's body
+///
+/// Writes the body of the version to the card again, as a write of the whole body by
+/// the caller: those who edit the card together are sent the body as a new document
+/// (`contracts/websocket.md`), the body it replaces is kept as a version first, with
+/// what they typed, and the body written is the card's newest version, by the
+/// caller. The versions before stay as they are. A card that has that body already is
+/// left as it is. For editors of the card's board (403 for its other members); to a
+/// user who is no member of it there is no such card. A number the card has no
+/// version of, or has none of any more, is 404. A version whose body may not be
+/// stored any more, or shows an image whose file the board no longer has, is 409.
+#[utoipa::path(
+    post,
+    path = "/w/{workspaceId}/cards/{cardId}/body-versions/{version}/restore",
+    operation_id = "restoreCardBodyVersion",
+    tag = tag::CARDS,
+    params(MemberWorkspaceId, CardId, BodyVersionNumber),
+    responses((status = 200, description = "The card as it is now.", body = Card)),
+)]
+async fn handle_restore_card_body_version(
+    ws: Ws,
+    Path((_, card_id, version)): Path<(String, String, String)>,
+) -> ApiResult {
+    let user_id = ws.session.user_id.as_str();
+    let card = card_with_permission(
+        &ws.app,
+        user_id,
+        &card_id,
+        BoardPermission::ManageBoardCards,
+        "access denied to restore a version of the card's body",
+    )
+    .await?;
+    let block = ws
+        .app
+        .restore_body_version(&card.id, version_number(&version)?, user_id)
+        .await?;
+    let restored = ws.app.card_of_block(&block).await?;
+    tracing::debug!(board_id = %restored.board_id, card_id = %restored.id, user_id, "RestoreCardBodyVersion");
+    Ok(json_response(&restored))
 }
 
 /// The number of a version, as a path names it: what is no number names no version.
