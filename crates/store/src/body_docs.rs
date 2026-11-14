@@ -386,14 +386,15 @@ impl Store {
         .await
     }
 
-    /// The documents whose block does not hold their body yet, with the organization
-    /// of each: what a server that ended before it wrote them has to write. Blocks in
-    /// the trash are left out; theirs is written when they are opened again.
+    /// The documents whose block does not hold their body yet, or holds a body its
+    /// editors wrote since its newest version, with the organization of each: what a
+    /// server that ended before it wrote and kept them has to. Blocks in the trash
+    /// are left out; theirs is written when they are opened again.
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if the query fails.
-    pub async fn unwritten_body_docs(&self) -> Result<Vec<(String, String)>, StoreError> {
+    pub async fn unfinished_body_docs(&self) -> Result<Vec<(String, String)>, StoreError> {
         self.with_conn(async |scope| {
             let statement = [
                 "SELECT d.block_id, w.org_id FROM body_docs d \
@@ -403,7 +404,9 @@ impl Store {
                 &scope.same_organization(&[("o", "b")]),
                 " JOIN workspaces w ON w.id = o.workspace_id",
                 &scope.same_organization(&[("w", "o")]),
-                " WHERE d.projected_seq < d.log_end ORDER BY d.block_id",
+                " WHERE d.projected_seq < d.log_end OR EXISTS                  (SELECT 1 FROM body_version_editors e WHERE e.block_id = d.block_id                  AND e.version = 0",
+                &scope.same_organization(&[("e", "d")]),
+                ") ORDER BY d.block_id",
             ]
             .concat();
             let sql = scope.sql(&statement);

@@ -118,7 +118,7 @@ impl Collab {
         // that failed, a server that ended): a version is due at once, so that leaving
         // the document keeps it, whoever opened it.
         let versioned = if unwritten || !stored.unkept_editors.is_empty() {
-            Versioned::Due(Instant::now())
+            Versioned::Due(self.version_clock())
         } else {
             Versioned::Unknown
         };

@@ -211,7 +211,7 @@ async fn a_room_left_to_its_readers_keeps_what_its_writers_typed() {
 
 /// What the versions of a card say besides when they were kept, the newest first:
 /// the number, who wrote, and whether it is the card's body now.
-fn said(kept: &[Value]) -> Vec<(i64, Vec<&str>, bool)> {
+pub(crate) fn said(kept: &[Value]) -> Vec<(i64, Vec<&str>, bool)> {
     kept.iter()
         .map(|version| {
             let editors = version["editors"]
@@ -471,7 +471,8 @@ async fn a_document_opened_again_keeps_what_was_typed_before() {
     th.teardown().await;
 }
 
-/// The versions of a card in the trash are not there, and come back with the card.
+/// The versions of a card in the trash are not there, and come back with the card;
+/// they go when the card is gone for good.
 #[tokio::test]
 async fn the_versions_of_a_card_go_to_the_trash_and_come_back_with_it() {
     let th = Setup::native().start().await.init_basic().await;
@@ -495,6 +496,18 @@ async fn the_versions_of_a_card_go_to_the_trash_and_come_back_with_it() {
         .check_ok();
     assert_eq!(versions(&th.client, &t.card_id).await, kept);
     assert_eq!(lines(&th.client, &t.card_id, &kept[1]).await, ["first"]);
+
+    // Gone for good: nothing of its versions is left.
+    th.client.delete(&block).await.check_no_content();
+    let store = th.app.store();
+    store.purge_trash(i64::MAX).await.expect("purged");
+    for table in ["body_versions", "body_version_editors"] {
+        assert_eq!(
+            store.count_rows(table).await.expect("counted"),
+            0,
+            "{table}"
+        );
+    }
     th.teardown().await;
 }
 

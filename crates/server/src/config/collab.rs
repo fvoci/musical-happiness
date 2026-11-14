@@ -5,7 +5,7 @@ use anyhow::bail;
 use serde::Deserialize;
 
 /// The variables of the environment of these keys ([`super::ENV_KEYS`]).
-pub(super) const ENV_KEYS: [(&str, super::EnvKind); 12] = [
+pub(super) const ENV_KEYS: [(&str, super::EnvKind); 14] = [
     ("collab_workers", super::EnvKind::Number),
     ("collab_documents_per_worker", super::EnvKind::Number),
     ("collab_state_bytes", super::EnvKind::Number),
@@ -18,6 +18,8 @@ pub(super) const ENV_KEYS: [(&str, super::EnvKind); 12] = [
     ("collab_connections_per_user", super::EnvKind::Number),
     ("collab_frames_per_second", super::EnvKind::Number),
     ("collab_queue_messages", super::EnvKind::Number),
+    ("collab_body_versions", super::EnvKind::Number),
+    ("collab_version_minutes", super::EnvKind::Number),
 ];
 
 /// The keys `collab_*` of the configuration, at its top level.
@@ -58,6 +60,11 @@ pub struct CollabSettings {
     /// How many messages of the rooms may wait for one websocket connection. 16 to
     /// 65536.
     pub collab_queue_messages: u32,
+    /// How many versions of a card's body are kept, the newest. 1 to 1000.
+    pub collab_body_versions: u32,
+    /// How many minutes after the first change no version of a body holds the next
+    /// version is kept, while the body is edited on. 1 to 1440.
+    pub collab_version_minutes: u32,
     /// How a worker is started; `None` for this executable. Not a configuration file
     /// key: the tests, whose executable is no server, set it.
     #[serde(skip)]
@@ -98,6 +105,13 @@ pub(super) const LEAST_QUEUE_MESSAGES: u32 = 16;
 /// was taken off a board write on for longer than anybody would expect.
 pub(super) const MOST_RECHECK_SECONDS: u64 = 3600;
 
+/// The most `collab_body_versions`: every version is a whole body, and the files
+/// its images show are kept as long as it is.
+pub(super) const MOST_BODY_VERSIONS: u32 = 1000;
+
+/// The most `collab_version_minutes`: a day.
+pub(super) const MOST_VERSION_MINUTES: u32 = 24 * 60;
+
 /// How many bytes of a worker's memory every byte of the states of its documents
 /// takes: a document in memory is larger than its state, and an update makes a copy of
 /// it and reads its state again. A worker holds states of `collab_worker_memory_bytes`
@@ -119,6 +133,8 @@ impl Default for CollabSettings {
             collab_connections_per_user: 5,
             collab_frames_per_second: 50,
             collab_queue_messages: 512,
+            collab_body_versions: fvoci_store::DEFAULT_BODY_VERSIONS_KEPT,
+            collab_version_minutes: 10,
             worker_command: None,
         }
     }
@@ -129,6 +145,12 @@ impl CollabSettings {
     #[must_use]
     pub fn held_bytes(&self) -> u64 {
         self.collab_worker_memory_bytes / MEMORY_PER_STATE_BYTE
+    }
+
+    /// How long after the first change no version of a body holds the next is due.
+    #[must_use]
+    pub fn version_interval(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(u64::from(self.collab_version_minutes) * 60)
     }
 
     /// Checks the settings against their ranges.
@@ -201,6 +223,16 @@ impl CollabSettings {
                 "collab_queue_messages",
                 self.collab_queue_messages,
                 LEAST_QUEUE_MESSAGES..=65_536,
+            ),
+            (
+                "collab_body_versions",
+                self.collab_body_versions,
+                1..=MOST_BODY_VERSIONS,
+            ),
+            (
+                "collab_version_minutes",
+                self.collab_version_minutes,
+                1..=MOST_VERSION_MINUTES,
             ),
         ] {
             if !range.contains(&value) {
@@ -315,6 +347,32 @@ mod tests {
         refused(
             |s| s.collab_recheck_seconds = MOST_RECHECK_SECONDS + 1,
             "collab_recheck_seconds",
+        );
+    }
+
+    #[test]
+    fn the_bounds_of_the_versions_are_checked() {
+        let settings = CollabSettings::default();
+        assert_eq!(settings.collab_body_versions, 50);
+        assert_eq!(
+            settings.version_interval(),
+            std::time::Duration::from_mins(10)
+        );
+        let refused = |change: fn(&mut CollabSettings), key: &str| {
+            let mut settings = CollabSettings::default();
+            change(&mut settings);
+            let error = settings.check().expect_err(key).to_string();
+            assert!(error.contains(key), "{error}");
+        };
+        refused(|s| s.collab_body_versions = 0, "collab_body_versions");
+        refused(
+            |s| s.collab_body_versions = MOST_BODY_VERSIONS + 1,
+            "collab_body_versions",
+        );
+        refused(|s| s.collab_version_minutes = 0, "collab_version_minutes");
+        refused(
+            |s| s.collab_version_minutes = MOST_VERSION_MINUTES + 1,
+            "collab_version_minutes",
         );
     }
 }

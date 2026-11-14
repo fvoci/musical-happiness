@@ -3,8 +3,16 @@
 //! the body's JSON, so it is taken from the card after the document's body was written
 //! there, by whoever holds the card's place.
 //!
-//! - When the last of a room's writers leaves it, and when the room closes
-//!   ([`Collab::version_as_left`], [`Collab::version_without_writers`]).
+//! - When the last of a room's writers leaves it, when the room closes, and when the
+//!   server stops ([`Collab::version_as_left`], [`Collab::version_without_writers`]).
+//! - While a body is edited on: `collab_version_minutes` after the first update no
+//!   version holds, as the body is next written to the card
+//!   ([`Collab::version_if_due`]) or, of a card that holds it already, with the next
+//!   update ([`Collab::body_before_update`]). A body nobody edits on is kept when its
+//!   writers leave, not by the clock.
+//! - When the server starts, of the documents a server that ended left with what no
+//!   version holds ([`Collab::recover`]): such a document is opened with a version
+//!   due.
 //! - Around a body written whole: the store keeps the body before, so that it can be
 //!   gone back to, and the body after, by its writer, within that write
 //!   (`fvoci_store::Store::patch_block`).
@@ -39,7 +47,7 @@ impl Collab {
     /// `collab_version_minutes` after the first one no version holds, and the user
     /// is put down as having written since the newest.
     pub(super) fn updated_by(&self, slot: &mut Held, user_id: &str) {
-        let due = Instant::now() + self.inner.version_interval;
+        let due = self.version_clock() + self.inner.version_interval;
         let Some(open) = slot.open.as_mut() else {
             return;
         };
@@ -52,18 +60,64 @@ impl Collab {
     }
 
     /// What the log of an update an open document took does with the body its card
-    /// holds: kept as a version first if it is not known to be one (see the module).
-    pub(super) fn body_before_update(slot: &Held) -> BodyBefore {
-        // Only of a card that holds all its document took: a version of less would
-        // take the names of those whose updates it lacks.
+    /// holds: kept as a version first if it is not known to be one, or if one is due
+    /// (see the module).
+    pub(super) fn body_before_update(&self, slot: &Held) -> BodyBefore {
+        // Only of a card that holds all its document took.
         let unknown = slot.open.as_ref().is_some_and(|open| {
             open.versioned == Versioned::Unknown && open.written_seq >= open.log_end
         });
-        if unknown {
+        if unknown || self.is_due(slot) {
             BodyBefore::Keep
         } else {
             BodyBefore::Leave
         }
+    }
+
+    /// After the body of an open document was written to its card: keeps it as a
+    /// version if one is due. What fails is logged, and kept later.
+    pub(super) async fn version_if_due(&self, app: &App, card_id: &str, slot: &mut Held) {
+        if self.is_due(slot)
+            && let Err(error) = self.keep_version(app, card_id, slot).await
+        {
+            tracing::error!(%error, card_id, "cannot keep a version of a card's body");
+        }
+    }
+
+    /// Whether a version of the body the card of an open document holds is due now.
+    /// Only of a card that holds all its document took: a version of less would take
+    /// the names of those whose updates it lacks.
+    fn is_due(&self, slot: &Held) -> bool {
+        let now = self.version_clock();
+        slot.open.as_ref().is_some_and(|open| {
+            matches!(open.versioned, Versioned::Due(due) if due <= now)
+                && open.written_seq >= open.log_end
+        })
+    }
+
+    /// The time the versions are due by.
+    pub(super) fn version_clock(&self) -> Instant {
+        #[cfg(feature = "test-util")]
+        let passed = *self
+            .inner
+            .version_time_passed
+            .lock()
+            .expect("lock poisoned");
+        #[cfg(not(feature = "test-util"))]
+        let passed = std::time::Duration::ZERO;
+        Instant::now() + passed
+    }
+
+    /// Has the versions take it to be `by` later from now on: for the tests of what
+    /// is kept as time passes.
+    #[cfg(feature = "test-util")]
+    #[doc(hidden)]
+    pub fn pass_version_time(&self, by: std::time::Duration) {
+        *self
+            .inner
+            .version_time_passed
+            .lock()
+            .expect("lock poisoned") += by;
     }
 
     /// As the last of a room's writers leaves, and after the document's body was

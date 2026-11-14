@@ -2045,11 +2045,13 @@ export interface paths {
         /**
          * The versions kept of a card's body
          * @description The server keeps the body of a card as a version each time it changed: when the
-         *     last of those who edit it together leaves it, and before and after a write of the
-         *     whole body (`patchCard` and the block routes). The newest first, each with when it
-         *     was kept and who wrote the body up to it, without the bodies
-         *     (`getCardBodyVersion`). The server keeps the newest fifty. Empty for a card whose
-         *     body never changed since versions were kept. For the members of the card's board, whatever
+         *     last of those who edit it together leaves it, every ten minutes while they edit on
+         *     (its setting `collab_version_minutes`), and before and after a write of the whole
+         *     body (`patchCard` and the block routes). The newest first, each with when it was
+         *     kept and who wrote the body up to it, without the bodies (`getCardBodyVersion`).
+         *     The server keeps the newest fifty (its setting `collab_body_versions`), so the
+         *     numbers may leave the lowest out. Empty for a card whose body never changed since
+         *     versions were kept. For the members of the card's board, whatever
          *     their role; to a user who is no member of it there is no such card, and a reader by
          *     the board's read token has no session to ask with. A card in the trash is not
          *     there (404); its versions come back with it, and go when it is gone for good.

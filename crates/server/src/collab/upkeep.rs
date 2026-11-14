@@ -65,7 +65,7 @@ impl Collab {
         }
         // Put down as having written since the newest version, unless they are: a
         // body kept first is by those put down before.
-        let body_before = Self::body_before_update(slot);
+        let body_before = self.body_before_update(slot);
         let known = user_id.is_empty()
             || body_before == BodyBefore::Leave
                 && slot
@@ -97,6 +97,10 @@ impl Collab {
                 });
             }
         };
+        if body_before == BodyBefore::Keep {
+            // The store kept the body the card held, by those put down before.
+            super::versions::kept(slot);
+        }
         let open = slot.open.as_mut().expect("the document is open");
         let now = Instant::now();
         open.log_end = seqs.last().copied().unwrap_or(open.log_end);
@@ -224,7 +228,7 @@ impl Collab {
         // The body the card was written is no version until it is kept as one, and
         // who is put down as having written since the newest may be so no more: a
         // version kept with the write names them.
-        let due = Versioned::Due(Instant::now());
+        let due = Versioned::Due(self.version_clock());
         if let Some(open) = slot.open.as_mut() {
             open.versioned = due;
             open.editors.clear();
@@ -302,13 +306,18 @@ impl Collab {
     /// past the document, whole: that body is not written over; the document is made
     /// again from it ([`DocChange::Replaced`]), and the updates the card did not hold
     /// are gone with the document before.
+    ///
+    /// The body the card then holds is kept as a version if one is due
+    /// ([`Collab::version_if_due`]).
     pub(super) async fn write_now(
         &self,
         app: &App,
         card_id: &str,
         slot: &mut Held,
     ) -> Result<(), AppError> {
-        self.write_or_replace(app, card_id, slot).await.map(drop)
+        self.write_or_replace(app, card_id, slot).await?;
+        self.version_if_due(app, card_id, slot).await;
+        Ok(())
     }
 
     /// As [`Collab::write_now`]; whether the card was written past the document, and the
