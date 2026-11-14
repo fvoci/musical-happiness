@@ -885,7 +885,7 @@ async fn join_as_member(scope: &mut Scope<'_>, user_id: &str) -> Result<bool, St
 /// Whether the user has a place in the transaction's organization: a member of it, or
 /// of one of its workspaces in use (a guest of a workspace is no member of the
 /// organization), as the wall counts them.
-async fn has_place(scope: &mut Scope<'_>, user_id: &str) -> Result<bool, StoreError> {
+pub(crate) async fn has_place(scope: &mut Scope<'_>, user_id: &str) -> Result<bool, StoreError> {
     if is_member(scope, user_id).await? {
         return Ok(true);
     }

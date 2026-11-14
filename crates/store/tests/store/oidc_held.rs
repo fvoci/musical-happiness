@@ -6,7 +6,7 @@
 
 use std::time::Duration;
 
-use fvoci_model::{AuditAction, Session, new_id};
+use fvoci_model::{AuditAction, Session, WorkspaceRole, new_id};
 use fvoci_store::{
     AuditPlace, CarriedOver, CarryOver, CarryOverRefusal, DbType, FlowPurpose, HeldSignIn,
     Identity, LoginFlow, Paging, Store, StoredProvider, Tenant,
@@ -273,6 +273,65 @@ async fn a_held_sign_in_is_carried_over_to_the_members_account() {
     test.teardown().await;
 }
 
+/// A guest of a workspace, who is no member of the organization, has a place in it
+/// as a sign-in through the provider counts one: the held identity is tied to their
+/// account, and they stay what they were, a guest of that workspace and no member.
+#[tokio::test]
+async fn a_held_sign_in_is_carried_over_to_a_guests_account() {
+    let test = common::setup().await;
+    let (new, _) = moved(&test).await;
+    let guest = common::user(&test.scoped(Tenant::Unset), "guest").await;
+    test.add_workspace_member(&test.workspace_id, &guest, WorkspaceRole::Guest)
+        .await
+        .expect("a guest of the workspace, no member of the organization");
+    test.add_identity(&guest, at_the_old("guest"), "")
+        .await
+        .expect("tied");
+    let asked = held(&new, "gwen");
+    assert!(test.hold_oidc_sign_in(&asked).await.expect("asked"), "held");
+
+    let carried = carry(&test, &new.id, &asked, at_the_old("guest"), THEN).await;
+
+    assert_eq!(
+        carried,
+        Ok(CarriedOver {
+            user_id: guest.clone(),
+            issuer: NEW.to_owned()
+        })
+    );
+    let tied = test.identities_of_user(&guest).await.expect("read");
+    assert!(
+        tied.iter()
+            .any(|tied| tied.issuer == NEW && tied.subject == "gwen"),
+        "{tied:?}"
+    );
+    let session = test
+        .get_session(&asked.held_hash, 0, 0)
+        .await
+        .expect("the session is stored");
+    assert_eq!(session.user_id, guest);
+    assert_eq!(
+        test.org_role_of_user(&guest, &test.org_id)
+            .await
+            .expect("asked"),
+        None,
+        "still no member of the organization"
+    );
+    let roles: Vec<_> = test
+        .workspaces_of_user(&guest, None)
+        .await
+        .expect("listed")
+        .iter()
+        .map(|workspace| (workspace.id.clone(), workspace.role))
+        .collect();
+    assert_eq!(
+        roles,
+        [(test.workspace_id.clone(), WorkspaceRole::Guest)],
+        "still a guest of the one workspace"
+    );
+    test.teardown().await;
+}
+
 /// What changes between holding and carrying over.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Meanwhile {
@@ -294,12 +353,116 @@ enum Meanwhile {
     NobodyKnown,
     /// The account it vouches for was deleted.
     AccountDeleted,
-    /// The account it vouches for is no member of the organization any more.
-    NoMember,
+    /// The account it vouches for has no place in the organization any more: no
+    /// member of it, and in none of its workspaces.
+    NoPlace,
+    /// The account it vouches for is no member of the organization, and is in a
+    /// workspace of it only that was deleted.
+    InADeletedWorkspaceOnly,
     /// The held identity was tied to another account.
     TiedToAnother,
 }
 
+/// What is carried over after `meanwhile` came about: the provider the sign-in
+/// was started for, who the former provider vouches for, and how long after it was held.
+struct Attempt {
+    provider_id: String,
+    former: Identity<'static>,
+    after: i64,
+}
+
+/// Brings `meanwhile` about in an organization that moved to `new`, with `member` the
+/// account the former provider vouches for, and says what is carried over then.
+async fn bring_about(
+    store: &Store,
+    meanwhile: Meanwhile,
+    new: &StoredProvider,
+    member: &str,
+) -> Attempt {
+    let mut attempt = Attempt {
+        provider_id: new.id.clone(),
+        former: at_the_old("member"),
+        after: THEN,
+    };
+    match meanwhile {
+        Meanwhile::HeldEnded => {
+            attempt.after = ENDS;
+        }
+        Meanwhile::AnotherSecret => {
+            let again = provider(NEW, "another");
+            store
+                .put_oidc_provider_as_read(&again, Some(new), member, Duration::ZERO)
+                .await
+                .expect("asked")
+                .expect("stored");
+        }
+        Meanwhile::AnotherProvider => {
+            attempt.provider_id = new_id();
+        }
+        Meanwhile::SwitchedOff => {
+            let off = StoredProvider {
+                enabled: false,
+                ..provider(NEW, "one")
+            };
+            store
+                .put_oidc_provider_as_read(&off, Some(new), member, Duration::ZERO)
+                .await
+                .expect("asked")
+                .expect("stored");
+        }
+        Meanwhile::Removed => {
+            store.delete_oidc_provider(member).await.expect("removed");
+        }
+        Meanwhile::AnotherFormerIssuer => {
+            attempt.former = Identity {
+                issuer: "https://elsewhere.example.test",
+                subject: "member",
+            };
+            store
+                .add_identity(member, attempt.former, "")
+                .await
+                .expect("tied");
+        }
+        Meanwhile::KeepingEnded => {
+            let since = former_since(store).await;
+            store
+                .end_oidc_former_provider(member, since, now_millis())
+                .await
+                .expect("ended");
+        }
+        Meanwhile::NobodyKnown => {
+            attempt.former = at_the_old("known to nobody");
+        }
+        Meanwhile::AccountDeleted => {
+            let delete = format!("UPDATE users SET delete_at = 1 WHERE id = '{member}'");
+            store.execute_unchecked(&delete).await.expect("deleted");
+        }
+        Meanwhile::NoPlace => {
+            for table in ["organization_members", "workspace_members"] {
+                let leave = format!("DELETE FROM {table} WHERE user_id = '{member}'");
+                store.execute_unchecked(&leave).await.expect("left");
+            }
+        }
+        Meanwhile::InADeletedWorkspaceOnly => {
+            let leave = format!("DELETE FROM organization_members WHERE user_id = '{member}'");
+            store.execute_unchecked(&leave).await.expect("left");
+            let gone = format!(
+                "UPDATE workspaces SET delete_at = 1 WHERE id IN \
+                 (SELECT workspace_id FROM workspace_members WHERE user_id = '{member}')"
+            );
+            store.execute_unchecked(&gone).await.expect("deleted");
+        }
+        Meanwhile::TiedToAnother => {
+            let another = common::user(store, "another").await;
+            let taken = Identity {
+                issuer: NEW,
+                subject: "ada",
+            };
+            store.add_identity(&another, taken, "").await.expect("tied");
+        }
+    }
+    attempt
+}
 /// Every part that does not hold any more refuses, and nothing is stored: no identity
 /// of the new issuer, no session. The held sign-in is taken by the try.
 #[tokio::test]
@@ -315,89 +478,25 @@ async fn what_does_not_hold_any_more_carries_nothing_over() {
         (Meanwhile::KeepingEnded, Refusal::FormerGone),
         (Meanwhile::NobodyKnown, Refusal::NoAccount),
         (Meanwhile::AccountDeleted, Refusal::NoAccount),
-        (Meanwhile::NoMember, Refusal::NotAMember),
+        (Meanwhile::NoPlace, Refusal::NoPlace),
+        (Meanwhile::InADeletedWorkspaceOnly, Refusal::NoPlace),
         (Meanwhile::TiedToAnother, Refusal::IdentityTaken),
     ] {
         let test = common::setup().await;
         let (new, member) = moved(&test).await;
         let asked = held(&new, "ada");
         assert!(test.hold_oidc_sign_in(&asked).await.expect("asked"), "held");
-        let mut provider_id = new.id.clone();
-        let mut former = at_the_old("member");
-        let mut after = THEN;
-        let before = match meanwhile {
-            Meanwhile::HeldEnded => {
-                after = ENDS;
-                left(&test).await
-            }
-            Meanwhile::AnotherSecret => {
-                let again = provider(NEW, "another");
-                test.put_oidc_provider_as_read(&again, Some(&new), &member, Duration::ZERO)
-                    .await
-                    .expect("asked")
-                    .expect("stored");
-                left(&test).await
-            }
-            Meanwhile::AnotherProvider => {
-                provider_id = new_id();
-                left(&test).await
-            }
-            Meanwhile::SwitchedOff => {
-                let off = StoredProvider {
-                    enabled: false,
-                    ..provider(NEW, "one")
-                };
-                test.put_oidc_provider_as_read(&off, Some(&new), &member, Duration::ZERO)
-                    .await
-                    .expect("asked")
-                    .expect("stored");
-                left(&test).await
-            }
-            Meanwhile::Removed => {
-                test.delete_oidc_provider(&member).await.expect("removed");
-                left(&test).await
-            }
-            Meanwhile::AnotherFormerIssuer => {
-                former = Identity {
-                    issuer: "https://elsewhere.example.test",
-                    subject: "member",
-                };
-                test.add_identity(&member, former, "").await.expect("tied");
-                left(&test).await
-            }
-            Meanwhile::KeepingEnded => {
-                let since = former_since(&test).await;
-                test.end_oidc_former_provider(&member, since, now_millis())
-                    .await
-                    .expect("ended");
-                left(&test).await
-            }
-            Meanwhile::NobodyKnown => {
-                former = at_the_old("known to nobody");
-                left(&test).await
-            }
-            Meanwhile::AccountDeleted => {
-                let delete = format!("UPDATE users SET delete_at = 1 WHERE id = '{member}'");
-                test.execute_unchecked(&delete).await.expect("deleted");
-                left(&test).await
-            }
-            Meanwhile::NoMember => {
-                let leave = format!("DELETE FROM organization_members WHERE user_id = '{member}'");
-                test.execute_unchecked(&leave).await.expect("left");
-                left(&test).await
-            }
-            Meanwhile::TiedToAnother => {
-                let another = common::user(&test, "another").await;
-                let taken = Identity {
-                    issuer: NEW,
-                    subject: "ada",
-                };
-                test.add_identity(&another, taken, "").await.expect("tied");
-                left(&test).await
-            }
-        };
+        let attempt = bring_about(&test, meanwhile, &new, &member).await;
+        let before = left(&test).await;
 
-        let carried = carry(&test, &provider_id, &asked, former, after).await;
+        let carried = carry(
+            &test,
+            &attempt.provider_id,
+            &asked,
+            attempt.former,
+            attempt.after,
+        )
+        .await;
 
         assert_eq!(carried, Err(refusal), "{meanwhile:?}");
         assert_eq!(left(&test).await, before, "{meanwhile:?}: nothing stored");

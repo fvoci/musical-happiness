@@ -8,12 +8,15 @@
 use std::collections::BTreeMap;
 use std::sync::Mutex;
 
-use fvoci_model::{LinkedIdentity, OidcProvider, OidcStart};
+use fvoci_model::{
+    BoardMember, BoardType, LinkedIdentity, OidcProvider, OidcStart, OrgRole, WorkspaceRole,
+};
 use fvoci_store::Identity;
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
-use crate::common::{Client, ROOT_WORKSPACE_ID, TestServer};
+use crate::boards::{member, new_board};
+use crate::common::{Client, ROOT_WORKSPACE_ID, TEST_WORKSPACE_ID, TestServer};
 use crate::fake_oidc::{FakeProvider, Person};
 use crate::oidc::{org_of, set_provider};
 use crate::sso_move::{records, server_for_two, settings_of};
@@ -339,11 +342,11 @@ async fn nothing_is_carried_over_without_the_browsers_own_held_sign_in() {
     new.stop();
 }
 
-/// Who the former provider vouches for must have an account in use that is a member
-/// of the organization: an identity nobody has, and one of an account that is no
-/// member, carry nothing over, and each try takes the held sign-in.
+/// Who the former provider vouches for must have an account in use with a place in
+/// the organization: an identity nobody has, and one of an account that is no member
+/// and in none of its workspaces, carry nothing over, and each try takes the held sign-in.
 #[tokio::test]
-async fn an_identity_of_no_member_carries_nothing_over() {
+async fn an_identity_of_nobody_with_a_place_carries_nothing_over() {
     let (old, new) = (FakeProvider::start().await, FakeProvider::start().await);
     let Moved { ts, org_id, .. } = moved(&old, &new).await;
     // Somebody with an account and an identity at the old provider, but no place here.
@@ -397,6 +400,157 @@ async fn an_identity_of_no_member_carries_nothing_over() {
         ),
         (identities, sessions),
         "nothing tied, nobody signed in"
+    );
+    ts.teardown().await;
+    old.stop();
+    new.stop();
+}
+
+const GWEN: &str = "gwen-at-the-old-provider";
+const GWEN_NEW: &str = "gwen-at-the-new-provider";
+
+/// The second user made a guest of the test workspace alone, no member of the
+/// organization, whose account the old provider vouches for: their identifier.
+async fn guest_known_to_the_old(ts: &TestServer, old: &FakeProvider) -> String {
+    let guest = ts.client2.me().await.id;
+    let store = ts.app.store().system();
+    for statement in [
+        format!("DELETE FROM organization_members WHERE user_id = '{guest}'"),
+        format!(
+            "DELETE FROM workspace_members WHERE user_id = '{guest}' \
+             AND workspace_id <> '{TEST_WORKSPACE_ID}'"
+        ),
+        format!(
+            "UPDATE workspace_members SET role = '{}' WHERE user_id = '{guest}'",
+            WorkspaceRole::Guest.as_str()
+        ),
+    ] {
+        store
+            .execute_unchecked(&statement)
+            .await
+            .expect("a guest of the test workspace alone");
+    }
+    let at_the_old = Identity {
+        issuer: &old.issuer,
+        subject: GWEN,
+    };
+    store
+        .add_identity(&guest, at_the_old, "")
+        .await
+        .expect("tied");
+    guest
+}
+
+/// What the account is in the organization and its workspaces: its role in the
+/// organization, and each workspace it is in with its role there.
+async fn place_of(
+    ts: &TestServer,
+    org_id: &str,
+    user_id: &str,
+) -> (Option<OrgRole>, Vec<(String, WorkspaceRole)>) {
+    let store = ts.app.store().system();
+    let org_role = store
+        .org_role_of_user(user_id, org_id)
+        .await
+        .expect("asked");
+    let workspaces = store
+        .workspaces_of_user(user_id, None)
+        .await
+        .expect("listed")
+        .into_iter()
+        .map(|workspace| (workspace.id, workspace.role))
+        .collect();
+    (org_role, workspaces)
+}
+
+/// A guest of a workspace, who is no member of the organization, has a place in it as
+/// a sign-in counts one, and carries their account over as a member does: the boards
+/// they were invited to open as before, no other does, and they stay a guest, as the
+/// next sign-in through the new provider leaves them.
+#[tokio::test]
+async fn a_guest_carries_their_account_over_and_keeps_their_boards() {
+    let (old, new) = (FakeProvider::start().await, FakeProvider::start().await);
+    let Moved { ts, org_id, .. } = moved(&old, &new).await;
+    let guest = guest_known_to_the_old(&ts, &old).await;
+    let board = async |title: &str| {
+        let board: fvoci_model::Board = ts
+            .client
+            .create_board(&new_board(TEST_WORKSPACE_ID, BoardType::Private, title))
+            .await
+            .created_json();
+        board.id
+    };
+    let invited = board("Invited").await;
+    let other = board("Not invited").await;
+    ts.client
+        .add_member(&BoardMember {
+            scheme_viewer: true,
+            ..member(&invited, &guest)
+        })
+        .await
+        .check_ok();
+    let before = place_of(&ts, &org_id, &guest).await;
+    let users = count(&ts, "users").await;
+
+    new.sign_in_as(Person::new(GWEN_NEW, "gwen@new.example.com"));
+    let browser = Visitor::new(&ts, &[&old, &new]);
+    let held = browser.sign_in(&org_id).await;
+    old.sign_in_as(Person::new(GWEN, "gwen@old.example.com"));
+    let carried = browser.carry_over(&org_id).await;
+    let session = browser.session(&ts).expect("a session is set");
+    let again = Visitor::new(&ts, &[&old, &new]);
+    let next = again.sign_in(&org_id).await;
+
+    assert_eq!(
+        before,
+        (
+            None,
+            vec![(TEST_WORKSPACE_ID.to_owned(), WorkspaceRole::Guest)]
+        )
+    );
+    assert_eq!(held, held_page(&org_id));
+    assert_eq!(carried, Ok("/".to_owned()));
+    assert_eq!(session.me().await.id, guest, "the guest's own account");
+    assert_eq!(count(&ts, "users").await, users, "no account made");
+    session
+        .get(&format!("/w/{TEST_WORKSPACE_ID}/boards/{invited}"))
+        .await
+        .check_ok();
+    session
+        .get(&format!("/w/{TEST_WORKSPACE_ID}/boards/{other}"))
+        .await
+        .check_not_found();
+    let listed: Vec<fvoci_model::Board> = session
+        .get(&format!("/w/{TEST_WORKSPACE_ID}/boards"))
+        .await
+        .ok_json();
+    assert_eq!(
+        listed
+            .iter()
+            .map(|board| board.id.as_str())
+            .collect::<Vec<_>>(),
+        [invited.as_str()],
+        "the boards of their invitations, and no other"
+    );
+    assert_eq!(
+        place_of(&ts, &org_id, &guest).await,
+        before,
+        "a guest still, of the one workspace"
+    );
+    assert_eq!(
+        records(&ts.client, &org_id).await[0],
+        (
+            "oidc_identity_carried_over".to_owned(),
+            "person".to_owned(),
+            new.issuer.clone()
+        )
+    );
+    assert_eq!(next, "/", "the new provider knows them now");
+    assert_eq!(again.session(&ts).expect("a session").me().await.id, guest);
+    assert_eq!(
+        place_of(&ts, &org_id, &guest).await,
+        before,
+        "the next sign-in joins nothing"
     );
     ts.teardown().await;
     old.stop();

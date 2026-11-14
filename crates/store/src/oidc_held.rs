@@ -5,9 +5,10 @@
 //! account at once: what the provider said is held, for the browser that signed in
 //! and for a short while, until the person says whether they had an account. If they
 //! had, they sign in through the former provider, and the held identity is tied to
-//! the account that one vouches for, a member of the organization, with a session
-//! made through the provider ([`Store::finish_oidc_carry_over`]): both identities are
-//! shown, so no address is compared. If not, the held sign-in is taken and ends as a
+//! the account that one vouches for, which has a place in the organization (a member
+//! of it, or a guest of one of its workspaces), with a session made through the
+//! provider ([`Store::finish_oidc_carry_over`]): both identities are shown, so no
+//! address is compared. If not, the held sign-in is taken and ends as a
 //! first sign-in does (`Store::finish_oidc_sign_in`). Either takes it, once. A sign-in
 //! through the former provider ends in nothing else: never in a session of its own.
 
@@ -103,8 +104,9 @@ pub enum CarryOverRefusal {
     HeldGone,
     /// The former provider vouches for nobody who has an account in use.
     NoAccount,
-    /// The account it vouches for is no member of the organization.
-    NotAMember,
+    /// The account it vouches for has no place in the organization: it is no member
+    /// of it, and no guest of one of its workspaces in use.
+    NoPlace,
     /// The held identity was tied to another account meanwhile.
     IdentityTaken,
 }
@@ -209,8 +211,9 @@ impl Store {
     /// comes of it. Then, if the provider is still the one the sign-in was started
     /// for, on and at the revision the held identity was vouched at, a former
     /// provider of the issuer of `carry.former` is still kept, and `carry.former` is
-    /// the identity of an account in use that is a member of the organization: the
-    /// held identity is tied to that account, with the address its provider gave,
+    /// the identity of an account in use that has a place in the organization (a
+    /// member, or a guest of one of its workspaces): the held identity is tied to that
+    /// account, who joins nothing by it, with the address its provider gave,
     /// that is recorded as the account's doing, and `session` is stored for the
     /// account under `token_digest`, made through the provider. An identity that
     /// is the account's already is left as it is, and nothing is recorded of it.
@@ -249,8 +252,8 @@ impl Store {
             let Some(user_id) = hold_account_of(scope, carry.former).await? else {
                 return Ok(Err(CarryOverRefusal::NoAccount));
             };
-            if !oidc::is_member(scope, &user_id).await? {
-                return Ok(Err(CarryOverRefusal::NotAMember));
+            if !oidc::has_place(scope, &user_id).await? {
+                return Ok(Err(CarryOverRefusal::NoPlace));
             }
             let identity = Identity {
                 issuer: &held.issuer,

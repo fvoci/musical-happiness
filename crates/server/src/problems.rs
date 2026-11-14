@@ -582,7 +582,8 @@ fn describe_linking_and_enforcing(reason: Reason) -> Option<&'static str> {
              to everything that keeps that from happening: no sign-in is held for this \
              browser, or it ended or was taken already; the former provider is kept no \
              more; the provider changed meanwhile; the former provider vouched for nobody \
-             who has an account that is a member of the organization; or the held identity \
+             who has an account with a place in the organization (a member, or a guest of \
+             one of its workspaces); or the held identity \
              was tied to another account meanwhile. Nothing is changed: no identity is \
              tied and no session made. Start again from the login page."
         }

@@ -54,8 +54,9 @@ fn held_of(
 /// this provider. Starts a sign-in through the organization's former provider and
 /// answers where the page sends the browser, with the cookie of that sign-in. When
 /// the browser comes back (`finishOidcLogin`), the former provider must vouch for an
-/// identity tied to an account in use that is a member of the organization: the held
-/// identity is then tied to that account, which is recorded in the organization's
+/// identity tied to an account in use that has a place in the organization (a member,
+/// or a guest of one of its workspaces, who joins nothing by it): the held identity is
+/// then tied to that account, which is recorded in the organization's
 /// audit log (`oidc_identity_carried_over`), and a session made through the
 /// organization's provider is set. Both identities are shown by signing in, so no
 /// email address is compared. The former provider signs nobody in otherwise: no

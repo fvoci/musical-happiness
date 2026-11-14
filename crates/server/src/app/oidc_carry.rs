@@ -5,9 +5,10 @@
 //! place of making one: the browser gets a cookie for it, and the login page asks
 //! whether the person had an account. If they had, a sign-in through the former
 //! provider is started from that browser, and when it comes back the held identity is
-//! tied to the account the former provider vouches for, a member of the organization,
-//! and a session made through the provider is opened: both identities are shown, so
-//! no address is compared. If not, the held sign-in ends as a first sign-in does. A
+//! tied to the account the former provider vouches for, which has a place in the
+//! organization (a member, or a guest of one of its workspaces), and a session made
+//! through the provider is opened: both identities are shown, so no address is
+//! compared. If not, the held sign-in ends as a first sign-in does. A
 //! sign-in through the former provider ends in nothing else, and never in a session of
 //! its own. The store's part is `Store::finish_oidc_carry_over`.
 
