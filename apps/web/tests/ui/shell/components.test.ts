@@ -233,7 +233,7 @@ describe('the sidebar over a workspace', () => {
       [...document.querySelectorAll('[data-category-toggle]')].map((toggle) =>
         toggle.textContent.trim(),
       ),
-    ).toEqual(['Team', 'Research', 'Personal', 'Boards']);
+    ).toEqual(['Team', 'Research', 'Personal', 'General']);
   });
 
   it('marks the board on the page, and a link is its address', async () => {
@@ -327,9 +327,9 @@ describe('the sidebar over a workspace', () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
-  it('the foot has "Add board" and the reader’s account, named by the reader', async () => {
+  it('the foot has "New" and the reader’s account, named by the reader', async () => {
     const { onAddBoard, onOpenSettings } = await mount();
-    await fireEvent.click(screen.getByRole('button', { name: 'Add board' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'New' }));
     expect(onAddBoard).toHaveBeenCalledOnce();
     await fireEvent.click(
       screen.getByRole('button', { name: '김하나 (@hana): account and settings' }),

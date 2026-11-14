@@ -35,7 +35,7 @@
   import { closeOnBack } from '$lib/layout/back.svelte.ts';
   import { sidebarShape } from '$lib/layout/presentation.ts';
   import { page, pane } from '$lib/layout/room.svelte.ts';
-  import { whileHere, type Workspace } from '$lib/state/index.ts';
+  import { createWiki, whileHere, type WikiDraft, type Workspace } from '$lib/state/index.ts';
   import type { AuditRecord } from '$lib/state/organization.ts';
 
   import AuditDialog from './AuditDialog.svelte';
@@ -46,6 +46,7 @@
   import { SidebarState } from './sidebar-state.svelte.ts';
   import Sidebar from './Sidebar.svelte';
   import SidebarStrip from './SidebarStrip.svelte';
+  import NewWikiDialog from './NewWikiDialog.svelte';
   import TemplatePicker from './TemplatePicker.svelte';
   import TopBar from './TopBar.svelte';
   import Transfers from './Transfers.svelte';
@@ -230,6 +231,14 @@
     if (made) openBoard(made);
   }
 
+  /** "New wiki" asks for its name and who finds it. */
+  let namingWiki = $state(false);
+
+  async function addWiki(draft: WikiDraft): Promise<void> {
+    const made = await whileHere(workspace, () => createWiki(workspace, draft));
+    if (made) openBoard(made);
+  }
+
   async function addBoardFromTemplate(template: Board): Promise<void> {
     const made = await whileHere(workspace, () => workspace.createBoardFromTemplate(template.id));
     if (made) openBoard(made);
@@ -350,11 +359,22 @@
 <TemplatePicker
   bind:open={picking}
   {workspace}
+  onNewWiki={workspace.backend.wiki
+    ? () => {
+        namingWiki = true;
+      }
+    : undefined}
   onEmptyBoard={() => void addEmptyBoard()}
   onFromTemplate={(template: Board) => void addBoardFromTemplate(template)}
   onEditTemplate={(template: Board) => {
     openBoard(template);
   }}
+/>
+
+<NewWikiDialog
+  bind:open={namingWiki}
+  workspaceName={workspace.info?.title || m.shell_workspace_unnamed()}
+  onCreate={(draft: WikiDraft) => void addWiki(draft)}
 />
 
 <SettingsDialog

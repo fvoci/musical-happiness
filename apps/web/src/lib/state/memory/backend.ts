@@ -72,12 +72,14 @@ import {
   type Role,
 } from './comments.ts';
 import { MemoryPresence } from './presence.ts';
+import { MemoryWikis } from './wikis.ts';
 import { memberRole, memberFileUrl } from './board-access.ts';
 import { usersAmong, usersNamed } from './users.ts';
 import { changeDisplayName } from './account.ts';
 import { archiveOf } from './archive.ts';
 import { checkedBody, checkedWhole, flushBoards, flushCard, openMemoryRoom } from './bodies.ts';
 import { checkRelations, renameCopied } from './references.ts';
+import { searchBoardsOf } from './search.ts';
 import { fail } from './refuse.ts';
 import {
   deletedBoardsOf,
@@ -113,6 +115,7 @@ export class MemoryBackend implements Backend {
   readonly world: World;
   readonly userId: string;
   readonly presence: MemoryPresence;
+  readonly wiki = new MemoryWikis(this);
   /** Milliseconds every call waits before it answers. */
   latency = 0;
   readonly #failures = new Map<MethodName, BackendError>();
@@ -331,8 +334,8 @@ export class MemoryBackend implements Backend {
 
   async boards(workspaceId: string): Promise<Board[]> {
     await this.#enterWorkspace('boards', workspaceId);
-    const mine = [...this.world.boards.values()].filter((board) =>
-      this.#memberIds(board.id).includes(this.userId),
+    const mine = [...this.world.boards.values()].filter(
+      (board) => board.kind !== 'wiki' && this.#memberIds(board.id).includes(this.userId),
     );
     return scramble(mine).map(copy);
   }
@@ -434,27 +437,10 @@ export class MemoryBackend implements Backend {
     return deletedBoardsOf(this.world, this.userId, workspaceId, paging);
   }
 
-  /**
-   * As the server matches: every word of the term in the title, whatever the case; oldest
-   * first. Among the boards of the workspace this backend lists (`boards`: the reader's).
-   */
+  /** As the server matches (`searchBoardsOf`): among the boards this backend lists. */
   async searchBoards(workspaceId: string, query: string): Promise<Board[]> {
     await this.#enterWorkspace('searchBoards', workspaceId);
-    const words = query
-      .toLowerCase()
-      .split(' ')
-      .filter((word) => word !== '');
-    if (words.length === 0) return [];
-    return [...this.world.boards.values()]
-      .filter(
-        (board) =>
-          !board.isTemplate &&
-          board.workspaceId === workspaceId &&
-          this.#memberIds(board.id).includes(this.userId) &&
-          words.every((word) => board.title.toLowerCase().includes(word)),
-      )
-      .sort((first, second) => first.createAt - second.createAt)
-      .map(copy);
+    return searchBoardsOf(this.world, this.userId, workspaceId, query);
   }
 
   /** As the server: the workspace's templates, then the built-in ones, each the oldest first. */
@@ -1111,7 +1097,7 @@ export class MemoryBackend implements Backend {
 
   async fileBytes(boardId: string, fileId: string): Promise<Blob> {
     await this.#enter('fileBytes');
-    this.#memberRole(boardId);
+    memberRole(this.world, this.userId, boardId, 'any');
     const file = this.world.files.get(fileId);
     if (file?.boardId !== boardId || !file.blob) fail(404, 'no such file');
     return file.blob;

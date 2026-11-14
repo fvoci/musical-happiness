@@ -73,6 +73,7 @@ export function deletedBoardsOf(
       title: board.title,
       deletedAt,
       deletedBy,
+      kind: board.kind ?? 'board',
     }));
   return pageOf(items.sort(latestFirst), paging);
 }

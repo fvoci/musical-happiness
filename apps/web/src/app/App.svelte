@@ -21,7 +21,6 @@
   import { setFileUrlResolver } from '$lib/editor/files.ts';
   import InvitePage from '$lib/features/account/InvitePage.svelte';
   import LinkedSignIns from '$lib/features/account/LinkedSignIns.svelte';
-  import SignInNotice from '$lib/features/account/SignInNotice.svelte';
   import SignInPage from '$lib/features/account/SignInPage.svelte';
   import SsoRequired from '$lib/features/account/SsoRequired.svelte';
   import OrgPage from '$lib/features/organization/OrgPage.svelte';
@@ -47,7 +46,6 @@
   import { Button } from '$lib/ui/button/index.js';
 
   import { startBackend } from './backend.ts';
-  import BoardPage from './BoardPage.svelte';
   import { lastWorkspace, rememberWorkspace } from './last-workspace.ts';
   import {
     browserLocale,
@@ -59,8 +57,9 @@
   import NotFound from './NotFound.svelte';
   import Problems from './Problems.svelte';
   import { keepReturn, takeReturn } from './return-to.ts';
-  import { parseRoute, type Router } from './router.svelte.ts';
+  import { parseRoute, placeRoute, type Router } from './router.svelte.ts';
   import { signInOrganizations, signInWays } from './sign-in-organizations.ts';
+  import WorkspacePane from './WorkspacePane.svelte';
 
   let { router }: { router: Router } = $props();
 
@@ -143,10 +142,11 @@
           inviteLink: (token: string) => new URL(router.inviteHref(token), location.origin).href,
         });
       }
-      // The bodies of cards name their images by file; the board that is open says where they are.
-      setFileUrlResolver((fileId) =>
-        made.board ? backend.fileUrl(made.board.boardId, fileId) : undefined,
-      );
+      // The bodies of cards and pages name their images by file; the board or wiki shown has them.
+      setFileUrlResolver((fileId) => {
+        const shownId = router.route.wikiId ?? made.board?.boardId;
+        return shownId ? backend.fileUrl(shownId, fileId) : undefined;
+      });
       workspace = made;
       // On the handle of the browser tests and the console too, where there is
       // one (the backend in memory): a test undoes through it.
@@ -232,20 +232,6 @@
     if (workspace?.entered === 'ready' && workspace.me && workspace.info) {
       rememberWorkspace(workspace.me.id, workspace.info.id);
     }
-  });
-
-  /** The workspace the address names, entered and read. */
-  const shown = $derived(
-    workspace?.entered === 'ready' && workspace.info?.id === router.route.workspaceId
-      ? workspace.info
-      : undefined,
-  );
-
-  // Without a board in the address, show the first one of the sidebar.
-  $effect(() => {
-    if (!shown || !workspace || router.route.boardId) return;
-    const first = workspace.sidebar.flatMap((entry) => entry.boards)[0];
-    if (first) router.go({ workspaceId: shown.id, boardId: first.id }, { replace: true });
   });
 
   // Once signed in: is there an organization the reader administers? Asked once.
@@ -436,9 +422,8 @@
     readRecords={organizations
       ? (workspaceId: string) => organizations?.workspaceRecords(workspaceId) ?? Promise.resolve([])
       : undefined}
-    boardId={router.route.boardId}
-    boardHref={(board: BoardPlace) =>
-      router.href({ workspaceId: board.workspaceId, boardId: board.id })}
+    boardId={router.route.boardId ?? router.route.wikiId}
+    boardHref={(board: BoardPlace) => router.href(placeRoute(board))}
     sharedHref={(boardId: string, readToken: string) => router.href({ boardId, readToken })}
     onOpenBoard={openBoard}
     {locales}
@@ -467,58 +452,18 @@
       }
     }
   >
-    {@const here = workspace.asked === router.route.workspaceId}
-    {#if refused}
-      <SignInNotice
-        problem={refused}
-        onGoOn={() => {
-          refusal = null;
-          router.go({}, { replace: true });
-        }}
-        onOpenLinked={openLinked}
-      />
-    {:else if router.route.unknown || (here && workspace.entered === 'missing')}
-      <NotFound {router} />
-    {:else if here && workspace.entered === 'sso' && workspace.closed?.orgId}
-      {@const orgId = workspace.closed.orgId}
-      {#key orgId}
-        <SsoRequired
-          name={workspace.closed.title}
-          others={openWorkspaces}
-          onContinue={() => toProvider(orgId)}
-          onOpenLinked={openLinked}
-          onGo={(workspaceId: string) => {
-            router.go({ workspaceId });
-          }}
-        />
-      {/key}
-    {:else if !router.route.workspaceId && workspace.workspaces.length === 0}
-      <div class="grid h-full place-items-center p-6 text-center">
-        <p class="text-muted-foreground">{m.app_no_boards()}</p>
-      </div>
-    {:else if here && workspace.entered === 'failed'}
-      <div class="grid h-full place-items-center p-6 text-center" data-testid="enter-failed">
-        <div>
-          <p class="text-muted-foreground" role="alert">{m.app_problem_load()}</p>
-          <Button
-            class="mt-4 roomy:min-h-touch"
-            onclick={() => {
-              if (router.route.workspaceId) void workspace?.enter(router.route.workspaceId);
-            }}>{m.app_retry()}</Button
-          >
-        </div>
-      </div>
-    {:else if !shown}
-      <div class="grid h-full place-items-center p-6">
-        <p class="text-muted-foreground" role="status">{m.app_loading()}</p>
-      </div>
-    {:else if router.route.boardId}
-      <BoardPage {workspace} {router} />
-    {:else}
-      <div class="grid h-full place-items-center p-6 text-center">
-        <p class="text-muted-foreground">{m.app_no_boards()}</p>
-      </div>
-    {/if}
+    <WorkspacePane
+      {workspace}
+      {router}
+      {refused}
+      onGoOn={() => {
+        refusal = null;
+        router.go({}, { replace: true });
+      }}
+      onOpenLinked={openLinked}
+      {openWorkspaces}
+      onSso={(orgId: string) => toProvider(orgId)}
+    />
   </AppShell>
   <Problems {workspace} />
 {/if}

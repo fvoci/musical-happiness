@@ -1,0 +1,229 @@
+/**
+ * The wikis of the backend in memory keep the server's rules
+ * (`crates/store/src/pages.rs`): a wiki is a board of its own kind that the
+ * operations of cards do not reach, its pages are a tree whose places are made
+ * by the backend, a page goes below a page of the same wiki only, deleting
+ * one takes the pages below along, a stale body is refused, and only editors
+ * write.
+ */
+import { describe, expect, it } from 'vitest';
+
+import { comparePlaces, pageTree } from '$lib/logic/page-tree.ts';
+import { BackendError, type Change, type WikiPage } from '$lib/state/index.ts';
+import { orderBetween } from '$lib/state/memory/page-order.ts';
+
+import { settle, setup, text } from './support.ts';
+
+const rejection = async (promise: Promise<unknown>): Promise<BackendError> => {
+  try {
+    await promise;
+  } catch (error) {
+    if (error instanceof BackendError) return error;
+    throw error;
+  }
+  throw new Error('the call did not reject');
+};
+
+async function aWiki(made = setup(), type: 'O' | 'P' = 'P') {
+  const workspaceId = made.world.workspace.id;
+  const wiki = await made.backend.wiki.createWiki(workspaceId, { title: 'Handbook', type });
+  return { ...made, workspaceId, wiki };
+}
+
+/** The titles of a wiki's tree, as nested lists. */
+async function shape(made: Awaited<ReturnType<typeof aWiki>>): Promise<unknown[]> {
+  const pages = await made.backend.wiki.pages(made.wiki.id);
+  const walk = (nodes: ReturnType<typeof pageTree<WikiPage>>): unknown[] =>
+    nodes.map((node) =>
+      node.children.length > 0 ? [node.page.title, walk(node.children)] : node.page.title,
+    );
+  return walk(pageTree(pages));
+}
+
+describe('a wiki in memory', () => {
+  it('is a board of the kind wiki, filed in the maker’s default category, its admin the maker', async () => {
+    const made = await aWiki();
+    expect(made.wiki.kind).toBe('wiki');
+    expect(made.wiki.cardProperties).toEqual([]);
+    const categories = await made.backend.categories(made.workspaceId);
+    const system = categories.find((category) => category.type === 'system');
+    expect(system?.boardIds).toContain(made.wiki.id);
+    const [member] = await made.backend.members(made.wiki.id);
+    expect(member?.schemeAdmin).toBe(true);
+    expect((await made.backend.board(made.wiki.id)).kind).toBe('wiki');
+  });
+
+  it('is among the wikis and not among the boards, the search or the templates', async () => {
+    const made = await aWiki();
+    const wikis = await made.backend.wiki.wikis(made.workspaceId);
+    expect(wikis.map((wiki) => wiki.id)).toEqual([made.wiki.id]);
+    const boards = await made.backend.boards(made.workspaceId);
+    expect(boards.some((board) => board.id === made.wiki.id)).toBe(false);
+    expect(await made.backend.searchBoards(made.workspaceId, 'Handbook')).toEqual([]);
+    const templates = await made.backend.templates(made.workspaceId);
+    expect(templates.some((board) => board.id === made.wiki.id)).toBe(false);
+  });
+
+  it('is not reached by the operations of cards, nor a board by those of pages', async () => {
+    const made = await aWiki();
+    expect((await rejection(made.backend.views(made.wiki.id))).status).toBe(404);
+    expect((await rejection(made.backend.cards(made.wiki.id))).status).toBe(404);
+    const [board] = await made.backend.boards(made.workspaceId);
+    if (!board) throw new Error('no board');
+    expect((await rejection(made.backend.wiki.pages(board.id))).status).toBe(404);
+    expect((await rejection(made.backend.wiki.createPage(board.id, {}))).status).toBe(404);
+  });
+
+  it('is listed to another person when it is open, its pages refused until they join', async () => {
+    const made = await aWiki(setup(), 'O');
+    const listed = await made.other.wiki.wikis(made.workspaceId);
+    expect(listed.map((wiki) => wiki.id)).toEqual([made.wiki.id]);
+    expect((await rejection(made.other.wiki.pages(made.wiki.id))).status).toBe(403);
+    await made.other.joinBoard(made.wiki.id);
+    expect(await made.other.wiki.pages(made.wiki.id)).toEqual([]);
+  });
+
+  it('is not there for another person when it is private', async () => {
+    const made = await aWiki();
+    expect(await made.other.wiki.wikis(made.workspaceId)).toEqual([]);
+    expect((await rejection(made.other.wiki.pages(made.wiki.id))).status).toBe(404);
+  });
+});
+
+describe('the pages of a wiki in memory', () => {
+  it('go last, first, after a page, and below one, as asked', async () => {
+    const made = await aWiki();
+    const { wiki } = made.backend;
+    const a = await wiki.createPage(made.wiki.id, { title: 'A' });
+    await wiki.createPage(made.wiki.id, { title: 'C' });
+    await wiki.createPage(made.wiki.id, { title: 'B', after: a.id });
+    await wiki.createPage(made.wiki.id, { title: 'First', after: '' });
+    const a1 = await wiki.createPage(made.wiki.id, { title: 'A1', parentId: a.id });
+    await wiki.createPage(made.wiki.id, { title: 'A0', parentId: a.id, after: '' });
+    await wiki.createPage(made.wiki.id, { title: 'A1a', parentId: a1.id });
+    expect(await shape(made)).toEqual(['First', ['A', ['A0', ['A1', ['A1a']]]], 'B', 'C']);
+  });
+
+  it('take a parent of the same wiki only, and `after` of the same parent only', async () => {
+    const made = await aWiki();
+    const other = await made.backend.wiki.createWiki(made.workspaceId, {
+      title: 'Other',
+      type: 'P',
+    });
+    const elsewhere = await made.backend.wiki.createPage(other.id, { title: 'There' });
+    const top = await made.backend.wiki.createPage(made.wiki.id, { title: 'Top' });
+    const child = await made.backend.wiki.createPage(made.wiki.id, {
+      title: 'Child',
+      parentId: top.id,
+    });
+    const parent = await rejection(
+      made.backend.wiki.createPage(made.wiki.id, { parentId: elsewhere.id }),
+    );
+    expect(parent.status).toBe(400);
+    expect(parent.errors[0]?.pointer).toBe('/parentId');
+    const after = await rejection(made.backend.wiki.createPage(made.wiki.id, { after: child.id }));
+    expect(after.status).toBe(400);
+    expect(after.errors[0]?.pointer).toBe('/after');
+    // The wiki itself as the parent is the top of it.
+    const atTop = await made.backend.wiki.createPage(made.wiki.id, { parentId: made.wiki.id });
+    expect(atTop.parentId).toBe('');
+  });
+
+  it('are given places that sort by code unit, as the server’s', async () => {
+    let order = orderBetween(undefined, undefined);
+    const orders = [order];
+    for (let at = 0; at < 80; at += 1) {
+      order = orderBetween(order, undefined);
+      orders.push(order);
+    }
+    let low = orders[0] ?? '';
+    for (let at = 0; at < 40; at += 1) {
+      const between = orderBetween(low, orders[1]);
+      expect(between > low && between < (orders[1] ?? '')).toBe(true);
+      low = between;
+    }
+    const sorted = [...orders].sort();
+    expect(sorted).toEqual(orders);
+    expect(orderBetween(undefined, 'V') < 'V').toBe(true);
+    expect(() => orderBetween('V', 'V')).toThrow();
+    expect(
+      comparePlaces({ id: 'b', parentId: '', order: 'a' }, { id: 'a', parentId: '', order: 'Z' }),
+    ).toBe(1);
+  });
+
+  it('go to the trash with every page below, and only the page is told', async () => {
+    const made = await aWiki();
+    const { wiki } = made.backend;
+    const top = await wiki.createPage(made.wiki.id, { title: 'Top' });
+    const child = await wiki.createPage(made.wiki.id, { title: 'Child', parentId: top.id });
+    await wiki.createPage(made.wiki.id, { title: 'Grandchild', parentId: child.id });
+    await wiki.createPage(made.wiki.id, { title: 'Other' });
+    const told: Change[] = [];
+    made.backend.watchBoard(made.wiki.id, (change) => told.push(change));
+    await wiki.deletePage(made.wiki.id, top.id);
+    await settle();
+    expect(await shape(made)).toEqual(['Other']);
+    expect(told).toEqual([{ kind: 'blocksDeleted', boardId: made.wiki.id, blockIds: [top.id] }]);
+    expect((await rejection(wiki.page(made.wiki.id, child.id))).status).toBe(404);
+  });
+
+  it('refuse a body written over one read before a change, and nothing changes', async () => {
+    const made = await aWiki();
+    const { wiki } = made.backend;
+    const page = await wiki.createPage(made.wiki.id, { title: 'Page' });
+    const written = await wiki.patchPage(made.wiki.id, page.id, {
+      body: text('first'),
+      readAt: page.updateAt,
+    });
+    expect(written.body).toEqual(text('first'));
+    const stale = await rejection(
+      wiki.patchPage(made.wiki.id, page.id, { body: text('second'), readAt: page.updateAt }),
+    );
+    expect(stale.status).toBe(409);
+    expect((await wiki.page(made.wiki.id, page.id)).body).toEqual(text('first'));
+    const without = await rejection(wiki.patchPage(made.wiki.id, page.id, { body: text('x') }));
+    expect(without.status).toBe(400);
+  });
+
+  it('change their title and icon, told to whoever listens to the wiki', async () => {
+    const made = await aWiki();
+    const page = await made.backend.wiki.createPage(made.wiki.id, { title: 'Page' });
+    const told: Change[] = [];
+    made.backend.watchBoard(made.wiki.id, (change) => told.push(change));
+    await made.backend.wiki.patchPage(made.wiki.id, page.id, { title: 'Renamed', icon: '📘' });
+    await settle();
+    const [change] = told;
+    expect(change?.kind).toBe('pages');
+    if (change?.kind !== 'pages') return;
+    expect(change.pages.map(({ title, icon }) => ({ title, icon }))).toEqual([
+      { title: 'Renamed', icon: '📘' },
+    ]);
+    const icon = await rejection(
+      made.backend.wiki.patchPage(made.wiki.id, page.id, { icon: 'ab' }),
+    );
+    expect(icon.status).toBe(400);
+  });
+
+  it('are written by the wiki’s editors only', async () => {
+    const made = await aWiki(setup(), 'O');
+    const page = await made.backend.wiki.createPage(made.wiki.id, { title: 'Page' });
+    await made.backend.patchBoard(made.wiki.id, { minimumRole: 'viewer' });
+    await made.other.joinBoard(made.wiki.id);
+    expect((await made.other.wiki.page(made.wiki.id, page.id)).title).toBe('Page');
+    expect((await rejection(made.other.wiki.createPage(made.wiki.id, {}))).status).toBe(403);
+    expect(
+      (await rejection(made.other.wiki.patchPage(made.wiki.id, page.id, { title: 'No' }))).status,
+    ).toBe(403);
+    expect((await rejection(made.other.wiki.deletePage(made.wiki.id, page.id))).status).toBe(403);
+  });
+
+  it('come back with their wiki from the trash', async () => {
+    const made = await aWiki();
+    const page = await made.backend.wiki.createPage(made.wiki.id, { title: 'Kept' });
+    await made.backend.deleteBoard(made.wiki.id);
+    const trash = await made.backend.deletedBoards(made.workspaceId);
+    expect(trash.find((item) => item.id === made.wiki.id)?.kind).toBe('wiki');
+    await made.backend.restoreBoard(made.wiki.id);
+    expect((await made.backend.wiki.page(made.wiki.id, page.id)).title).toBe('Kept');
+  });
+});

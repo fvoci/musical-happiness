@@ -36,6 +36,8 @@ import type { PresenceOfBoards } from './presence.ts';
 import type { DocRooms } from './body-doc.ts';
 import type { WorkspaceRole } from './people-types.ts';
 import type { TrashReads } from './trash-reads.ts';
+import type { ChangeListener } from './changes.ts';
+import type { WikisOfBackend } from './wiki-types.ts';
 
 export type {
   AcceptedInvitation,
@@ -50,6 +52,8 @@ export type {
 } from './account-types.ts';
 export type { DeletedItem, Paging, TrashReads } from './trash-reads.ts';
 export type { BodyDoc, BodyDocHears, BodyDocState, BodyDocStatus, DocRooms } from './body-doc.ts';
+export { isCardBlock, isViewBlock, type Change, type ChangeListener } from './changes.ts';
+export type * from './wiki-types.ts';
 
 /** What an import did beyond making the archive's boards. */
 export interface Imported {
@@ -274,45 +278,9 @@ export interface UploadedFile {
   contentType: string;
 }
 
-// ---------------------------------------------------------------- changes
-
-/**
- * A change that happened on the server, whoever made it: the reader in this
- * tab, the reader in another one, or somebody else. Stores apply these the
- * same way they apply the answer to their own write, so applying one twice
- * does nothing.
- */
-export type Change =
-  | { kind: 'board'; board: Board }
-  | { kind: 'boardDeleted'; boardId: string }
-  /** Blocks that were added or changed. A card comes as its summary. */
-  | { kind: 'blocks'; boardId: string; blocks: (BoardView | CardSummary | Comment | Attachment)[] }
-  | { kind: 'blocksDeleted'; boardId: string; blockIds: string[] }
-  | { kind: 'members'; boardId: string; members: BoardMember[] }
-  | { kind: 'categories'; categories: Category[] }
-  | { kind: 'settings'; settings: AccountSettings }
-  /**
-   * Changes may have been missed (the connection to the server dropped and
-   * is back): read again what is shown. The memory backend never sends it.
-   */
-  | { kind: 'resync' };
-
-export type ChangeListener = (change: Change) => void;
-
-type ChangedBlock = Extract<Change, { kind: 'blocks' }>['blocks'][number];
-
-/** Whether a changed block is a card. The types of the blocks overlap, so `type` has to be asked. */
-export function isCardBlock(block: ChangedBlock): block is CardSummary {
-  return block.type === 'card';
-}
-
-export function isViewBlock(block: ChangedBlock): block is BoardView {
-  return block.type === 'view';
-}
-
 // ---------------------------------------------------------------- backend
 
-export interface Backend extends DocRooms, TrashReads, PresenceOfBoards {
+export interface Backend extends DocRooms, TrashReads, PresenceOfBoards, WikisOfBackend {
   // The reader and the people around them.
   me(): Promise<User>;
   /** Changes the reader's display name, as the server reads it (`patchMe`); `null` is none. */

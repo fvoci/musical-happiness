@@ -12,7 +12,14 @@ import {
   type BoardMember,
   type BoardView,
 } from '../../logic/wire.ts';
-import { type Attachment, type CardDetail, type CardSummary, type Comment } from '../backend.ts';
+import {
+  type Attachment,
+  type CardDetail,
+  type CardSummary,
+  type Change,
+  type Comment,
+  type WikiPage,
+} from '../backend.ts';
 
 import { withPropertyOrder } from '../../logic/property-order.ts';
 import { fail } from './refuse.ts';
@@ -78,6 +85,33 @@ export function attachmentOf(block: StoredBlock): Attachment {
   const { body: _body, file, ...rest } = block;
   if (!file) throw new Error(`attachment ${block.id} has no file`);
   return copy({ ...rest, type: 'attachment', ...file });
+}
+
+/** The place of a page among its siblings, as its `fields` have it. */
+export function orderOf(block: StoredBlock): string {
+  const order = (block.fields as { order?: unknown }).order;
+  return typeof order === 'string' ? order : '';
+}
+
+/** A page as its tree lists it. */
+export function pageOf(block: StoredBlock): WikiPage {
+  const icon = (block.fields as { icon?: unknown }).icon;
+  return {
+    id: block.id,
+    wikiId: block.boardId,
+    parentId: block.parentId,
+    title: block.title,
+    icon: typeof icon === 'string' ? icon : '',
+    order: orderOf(block),
+    createAt: block.createAt,
+    updateAt: block.updateAt,
+  };
+}
+
+/** What the listeners of a board are told of a block made or changed: a page, or another block. */
+export function changeOf(boardId: string, block: StoredBlock): Change {
+  if (block.type === 'page') return { kind: 'pages', boardId, pages: [pageOf(block)] };
+  return { kind: 'blocks', boardId, blocks: [wireOf(block)] };
 }
 
 export function wireOf(block: StoredBlock): BoardView | CardSummary | Comment | Attachment {
