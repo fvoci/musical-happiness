@@ -231,6 +231,7 @@ test.describe('the pages of a wiki', () => {
     const theirPage = await pageBySomebodyElse(page, wikiId, { title: 'Theirs' });
     await pageBySomebodyElse(page, wikiId, { title: 'Below theirs', parentId: theirPage });
     await showTree(page);
+    await expect(treeItem(page, 'Welcome').getByTestId('page-viewers')).toBeVisible();
     await expect(treeItem(page, 'Theirs')).toBeVisible();
     await deleteBySomebodyElse(page, wikiId, theirPage);
     await expect(treeItem(page, 'Theirs')).toHaveCount(0);

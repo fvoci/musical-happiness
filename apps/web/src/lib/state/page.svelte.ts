@@ -58,6 +58,8 @@ export class PageStore {
   #news: WikiPage | undefined;
   /** Readings of the body begun: the latest is the one that counts. */
   #readings = 0;
+  /** The page was shown (read once): its going is told, whoever finds out first. */
+  #shown = false;
 
   constructor(wiki: WikiStore, pageId: string) {
     this.wiki = wiki;
@@ -94,6 +96,7 @@ export class PageStore {
       this.#readAt = detail.updateAt;
       if (!sameDoc(detail.body, this.body)) this.body = detail.body;
       [this.status, this.missing] = ['ready', false];
+      this.#shown = true;
     } catch (error) {
       if (this.#closed || reading !== this.#readings) return;
       if (isBackendError(error) && (error.status === 404 || error.status === 403)) this.gone();
@@ -112,9 +115,11 @@ export class PageStore {
   /**
    * The page was deleted (with one above it, perhaps): nothing more is read or
    * written of it. `by` says who, when it was shown; `title` is its title then.
+   * Who is known from the wiki's list only: the room or a reading may find the
+   * page gone first (no `by`), and the list then says who.
    */
   gone(by?: 'others' | 'reader', title = ''): void {
-    if (by && this.status === 'ready' && !this.missing) this.removed = { by, title };
+    if (by && this.#shown && !this.removed) this.removed = { by, title };
     this.missing = true;
     this.status = 'failed';
     this.closeBody();

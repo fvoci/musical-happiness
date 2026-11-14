@@ -17,8 +17,9 @@
   it anew) is another editor: the caret is put back where it was.
 
   A wiki's page has a body of the same kind, in a room of its own: it is
-  shown by this too, with the wiki in place of the board and the page in
-  place of the card, and its own words.
+  shown by this too (`of="page"`), with the wiki in place of the board and
+  the page in place of the card, and says so in its own words; an empty page
+  says it is empty to whoever may only read it, also in the editor.
 -->
 <script lang="ts">
   import type { Editor as TiptapEditor } from '@tiptap/core';
@@ -29,7 +30,15 @@
   import type { BoardStore, CardStore } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
-  import { FORMULA_DROPPED, IMAGE_DROPPED, LATE_NOTE, lostNote, roomNote } from './body-notes.ts';
+  import {
+    CARD_WORDS,
+    FORMULA_DROPPED,
+    IMAGE_DROPPED,
+    LATE_NOTE,
+    lostNote,
+    PAGE_WORDS,
+    roomNote,
+  } from './body-notes.ts';
   import { keepCaret } from './caret-keeper.ts';
   import { editorChunk } from './editor-chunk.svelte.ts';
 
@@ -49,23 +58,14 @@
       | 'dismissLost'
       | 'uploadImage'
     >;
-    /** What the body is called, for a screen reader; the card's body by default. */
-    label?: string;
-    /** What an empty body says to whoever may write in it. */
-    placeholder?: string;
-    /** What an empty body says to whoever may only read it. */
-    emptyText?: string;
+    /** Whose body it is, for the words it says: a card's, or a wiki's page's. */
+    of?: 'card' | 'page';
     testId?: string;
   }
 
-  let {
-    board,
-    card,
-    label = m.card_body(),
-    placeholder = m.card_body_placeholder(),
-    emptyText = m.card_body_empty(),
-    testId = 'card-body',
-  }: Props = $props();
+  let { board, card, of = 'card', testId = 'card-body' }: Props = $props();
+
+  const words = $derived(of === 'page' ? PAGE_WORDS : CARD_WORDS);
 
   const workspace = $derived(board.workspace);
   const room = $derived(card.room);
@@ -73,7 +73,7 @@
   const Editor = $derived(room ? editorChunk.component : undefined);
   /** The reader may write: the board lets them, and the room does now. */
   const writable = $derived(board.canEdit && (room?.writable ?? false));
-  const note = $derived(room ? roomNote(room, board.canEdit) : undefined);
+  const note = $derived(room ? roomNote(room, board.canEdit, words) : undefined);
   /** The room is being joined, or its document sent again: what is shown is about to change. */
   const settling = $derived(room?.status === 'joining' || room?.status === 'receiving');
 
@@ -133,7 +133,7 @@
 </script>
 
 <section
-  aria-label={label}
+  aria-label={words.label()}
   class="flex flex-col gap-3 border-t pt-5"
   data-testid={testId}
   data-editor={Editor && doc ? (writable ? 'ready' : 'reading') : room ? 'loading' : 'none'}
@@ -148,7 +148,7 @@
     >
       <div class="min-w-0 flex-1">
         {#each card.lost as why (why)}
-          <p>{lostNote(why)}</p>
+          <p>{lostNote(why, words)}</p>
         {/each}
       </div>
       <Button
@@ -183,8 +183,9 @@
           }}
           users={people}
           {resolveUser}
-          {label}
-          placeholder={writable ? placeholder : ''}
+          label={words.label()}
+          placeholder={words.placeholder()}
+          readPlaceholder={words.readEmpty?.() ?? ''}
           class="min-h-24 text-base outline-none"
           uploadImage={(file: File) => card.uploadImage(file)}
           onEditor={(editor: TiptapEditor) => {
@@ -198,11 +199,11 @@
       <BodyView doc={card.body} {resolveUser} class="text-base">
         {#snippet empty()}
           <p class="text-base text-muted-foreground">
-            {board.canEdit ? placeholder : emptyText}
+            {board.canEdit ? words.placeholder() : words.empty()}
           </p>
         {/snippet}
         {#snippet invalid()}
-          <p class="text-muted-foreground" role="alert">{m.card_body_invalid()}</p>
+          <p class="text-muted-foreground" role="alert">{words.invalid()}</p>
         {/snippet}
       </BodyView>
     </div>

@@ -120,10 +120,15 @@ interface Yish {
   toString(): string;
 }
 interface WikiDev {
-  backend: { addMember(boardId: string, userId: string, role: string): Promise<unknown> };
+  backend: {
+    me(): Promise<{ id: string }>;
+    addMember(boardId: string, userId: string, role: string): Promise<unknown>;
+  };
   someoneElse(): {
     me(): Promise<{ id: string }>;
+    addMember(boardId: string, userId: string, role: string): Promise<unknown>;
     wiki: {
+      createWiki(workspaceId: string, draft: object): Promise<{ id: string }>;
       createPage(wikiId: string, draft: object): Promise<{ id: string }>;
       deletePage(wikiId: string, pageId: string): Promise<void>;
     };
@@ -207,4 +212,27 @@ export async function deleteBySomebodyElse(page: Page, wikiId: string, pageId: s
     },
     { id: wikiId, gone: pageId },
   );
+}
+
+/**
+ * Somebody else makes a wiki with a page, open to the workspace (`O`, to be
+ * joined) or for the invited (`P`), the reader in it as `readerRole` if given;
+ * gives the wiki's and the page's identifiers.
+ */
+export async function wikiBySomebodyElse(
+  page: Page,
+  plan: { title: string; type: 'O' | 'P'; page: string; readerRole?: string },
+): Promise<{ wikiId: string; pageId: string }> {
+  return page.evaluate(async (made) => {
+    const dev = (window as unknown as DevWindow).fvociDev;
+    const other = dev.someoneElse();
+    const workspaceId = location.pathname.split('/')[2] ?? '';
+    const wiki = await other.wiki.createWiki(workspaceId, { title: made.title, type: made.type });
+    const first = await other.wiki.createPage(wiki.id, { title: made.page });
+    if (made.readerRole) {
+      const reader = await dev.backend.me();
+      await other.addMember(wiki.id, reader.id, made.readerRole);
+    }
+    return { wikiId: wiki.id, pageId: first.id };
+  }, plan);
 }

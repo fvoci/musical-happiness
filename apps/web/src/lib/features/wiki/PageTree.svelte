@@ -27,6 +27,7 @@
   import { pageRows, type PageRow } from '$lib/logic/page-tree.ts';
   import type { PageDraft, WikiPage, WikiStore } from '$lib/state/index.ts';
 
+  import { viewersOf } from './page-viewers.ts';
   import PageViewers from './PageViewers.svelte';
   import type { TreeOpen } from './tree-open.svelte.ts';
 
@@ -213,6 +214,9 @@
           id={rowId(page.id)}
           role="treeitem"
           aria-label={title}
+          aria-describedby={viewersOf(wiki, page.id).length > 0
+            ? `${rowId(page.id)}-viewers`
+            : undefined}
           aria-level={row.depth + 1}
           aria-setsize={row.siblings}
           aria-posinset={row.position}
@@ -266,7 +270,8 @@
                 {title}
               </span>
             </a>
-            <PageViewers {wiki} pageId={page.id} />
+            <!-- Said with the row (its description): the row's name hides what is inside it. -->
+            <PageViewers {wiki} pageId={page.id} id="{rowId(page.id)}-viewers" />
           </div>
           {#if wiki.canEdit}
             <ActionMenu

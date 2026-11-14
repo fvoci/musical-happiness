@@ -94,6 +94,20 @@ describe('an open wiki', () => {
     expect(shown?.removed).toEqual({ by: 'others', title: 'Below' });
   });
 
+  it('a page shown and found gone first (its room let the reader go) is told gone by others when heard', async () => {
+    const made = await openWiki();
+    await made.backend.addMember(made.wikiId, made.other.userId, 'editor');
+    const page = await made.other.wiki.createPage(made.wikiId, { title: 'Theirs' });
+    await settle();
+    const shown = made.store.showPage(page.id);
+    await settle();
+    shown?.gone();
+    expect([shown?.missing, shown?.removed]).toEqual([true, undefined]);
+    await made.other.wiki.deletePage(made.wikiId, page.id);
+    await settle();
+    expect(shown?.removed).toEqual({ by: 'others', title: 'Theirs' });
+  });
+
   it('undoes making a page by deleting it, and the page shown says the reader did', async () => {
     const made = await openWiki();
     const page = await made.store.createPage({ title: 'Draft' });

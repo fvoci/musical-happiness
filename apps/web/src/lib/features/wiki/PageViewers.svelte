@@ -5,40 +5,36 @@
 -->
 <script lang="ts">
   import Avatar from '$lib/components/avatar/Avatar.svelte';
-  import { m } from '$lib/i18n/paraglide/messages.js';
   import type { WikiStore } from '$lib/state/index.ts';
+
+  import { nameOf, viewersLabel, viewersOf } from './page-viewers.ts';
 
   let {
     wiki,
     pageId,
     large = false,
+    id,
     class: className,
-  }: { wiki: WikiStore; pageId: string; large?: boolean; class?: string } = $props();
+  }: { wiki: WikiStore; pageId: string; large?: boolean; id?: string; class?: string } = $props();
 
-  const people = $derived(wiki.presence.others.filter((person) => person.cardIds.includes(pageId)));
-  const nameOf = (userId: string): string =>
-    wiki.workspace.userName(userId) ?? m['centerPanel.unknown-user']();
-  const label = $derived(
-    m.wiki_page_viewers({
-      count: people.length,
-      names: people.map((person) => nameOf(person.userId)).join(', '),
-    }),
-  );
+  const people = $derived(viewersOf(wiki, pageId));
+  const label = $derived(viewersLabel(wiki, people));
 </script>
 
 {#if people.length > 0}
   <span
     data-testid="page-viewers"
+    {id}
     role="img"
     aria-label={label}
     title={label}
     class={['flex shrink-0 items-center gap-1 text-xs text-muted-foreground', className]}
   >
     <span class="flex -space-x-1">
-      {#each people.slice(0, 2) as person (person.userId)}
+      {#each people.slice(0, 2) as userId (userId)}
         <Avatar
-          name={nameOf(person.userId)}
-          colorKey={person.userId}
+          name={nameOf(wiki, userId)}
+          colorKey={userId}
           locale={wiki.workspace.locale}
           decorative
           class={large ? 'size-7 ring-1 ring-background' : 'size-4 ring-1 ring-background'}

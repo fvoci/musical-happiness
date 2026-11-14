@@ -12,6 +12,7 @@ import {
   newWiki,
   pageAction,
   pageBody,
+  hideTree,
   showTree,
   treeItem,
   treeShape,
@@ -174,7 +175,7 @@ test('two people write one page together, see each other on it, and the tree fol
     ).id;
   const welcome = await pageOf('Welcome');
   await pageOf('Below', welcome);
-  await pageOf('Other');
+  const other = await pageOf('Other');
   const path = `/w/${workspaceId}/wikis/${wiki.id}/${welcome}`;
 
   const [first, second] = await Promise.all(
@@ -213,12 +214,22 @@ test('two people write one page together, see each other on it, and the tree fol
   await second.reload();
   await expect(pageBody(second)).toHaveText('Ada writes. Bora adds.');
 
+  // A page renamed elsewhere is renamed in the tree.
+  await api.patch(`${inWorkspace}/wikis/${wiki.id}/pages/${other}`, {
+    data: { title: 'Elsewhere' },
+  });
+  await showTree(second);
+  await expect(treeItem(second, 'Elsewhere')).toBeVisible();
+  await hideTree(second);
+
   // The page is deleted elsewhere: it and the page below it leave the tree, and the
   // reader on it is told and taken to the first page left.
   await api.delete(`${inWorkspace}/wikis/${wiki.id}/pages/${welcome}`);
   await expect(second.getByTestId('wiki-notice')).toContainText('Welcome');
+  await expect(second).toHaveURL(`/w/${workspaceId}/wikis/${wiki.id}/${other}`);
+  await expect(second.getByTestId('page-title')).toHaveValue('Elsewhere');
   await showTree(second);
-  expect(await treeShape(second)).toEqual(['Other']);
+  expect(await treeShape(second)).toEqual(['Elsewhere']);
   for (const errors of watched) expect(errors).toEqual([]);
   await first.context().close();
   await second.context().close();

@@ -132,14 +132,7 @@
     {/snippet}
     {#snippet body(page: PageStore)}
       <!-- The page's body is edited together as a card's is, in the page's own room. -->
-      <CardBody
-        board={wiki}
-        card={page}
-        label={m.wiki_page_body()}
-        placeholder={m.wiki_page_body_placeholder()}
-        emptyText={m.wiki_page_body_empty()}
-        testId="page-body"
-      />
+      <CardBody board={wiki} card={page} of="page" testId="page-body" />
     {/snippet}
   </WikiScreen>
 {/if}
