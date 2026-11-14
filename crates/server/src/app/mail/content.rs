@@ -86,11 +86,9 @@ impl Content {
                 "이 링크는 받는 분만을 위한 것으로, 보드 하나에 한 번 들어올 수 있습니다. 초대가 끝나면 함께 끝납니다."
             }
             (Language::English, _) => {
-                "This link invites members to a workspace. It keeps its original expiry."
+                "With this link you join as a member. It keeps its original expiry."
             }
-            (Language::Korean, _) => {
-                "이 링크로 워크스페이스에 구성원을 초대합니다. 원래 만료일을 유지합니다."
-            }
+            (Language::Korean, _) => "구성원으로 함께하는 링크입니다. 원래 만료일을 유지합니다.",
         };
         Self::link(subject, intro, ending, link, language)
     }
@@ -164,6 +162,33 @@ mod tests {
             );
             assert!(content.html.contains("&quot;&lt;&amp;"));
             assert!(!content.html.contains("secret\"<&"));
+        }
+    }
+
+    /// Words a member invitation does not use: until someone has signed up and works
+    /// with others, the product names neither the workspace nor the organization.
+    const UNSAID: [&str; 4] = ["workspace", "워크스페이스", "organization", "조직"];
+
+    #[test]
+    fn invitations_name_no_workspace_or_organization_in_either_language() {
+        use fvoci_model::WorkspaceRole;
+        for language in [Language::English, Language::Korean] {
+            for role in [
+                WorkspaceRole::Admin,
+                WorkspaceRole::Member,
+                WorkspaceRole::Guest,
+            ] {
+                let content = Content::invitation("https://example.test/invite/t", language, role);
+                for text in [content.subject, &content.plain, &content.html] {
+                    let text = text.to_lowercase();
+                    for word in UNSAID {
+                        assert!(
+                            !text.contains(word),
+                            "{language:?} {role:?}: {word} in {text}"
+                        );
+                    }
+                }
+            }
         }
     }
 }
