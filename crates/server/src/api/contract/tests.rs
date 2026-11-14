@@ -527,6 +527,10 @@ const ORDERS: &[(&str, &str)] = &[
     ("getOrgMembers", "the oldest member first"),
     ("getOrgWorkspaces", "the oldest first"),
     (
+        "getPageTree",
+        "By `order` as strings compare by code unit, then by `id`",
+    ),
+    (
         "getSharedBlocks",
         "Oldest first; the blocks that one request made come in the order that request had them in",
     ),
@@ -540,6 +544,7 @@ const ORDERS: &[(&str, &str)] = &[
         "ordered by name in any letter case, by code point",
     ),
     ("getTemplates", "Each of the two oldest first"),
+    ("getWikis", "Oldest first"),
     ("getWorkspaceAudit", "the newest first"),
     ("getWorkspaceBoards", "Oldest first"),
     ("getWorkspaceMembers", "The oldest membership first"),

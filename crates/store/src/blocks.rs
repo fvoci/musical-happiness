@@ -22,6 +22,7 @@ use crate::comment_versions::{self, EDITED_AT_COLUMN};
 use crate::db::{Id, OptId, Param, Row, Scope, Sql, now_millis};
 use crate::error::StoreError;
 use crate::file_refs::NewImages;
+use crate::page_places;
 
 /// The name of every block column, in the order rows are read and written.
 pub(crate) const BLOCK_COLUMNS: &str = "id, parent_id, created_by, modified_by, \"schema\", type, title, \
@@ -685,12 +686,12 @@ async fn insert_block_at(
     }
     // One writer per board at a time, from before anything is read: the parent that is
     // found below is still there when the block is stored.
-    if !boards::lock_board(scope, &block.board_id).await? {
+    let Some(kind) = boards::lock_board_of_kind(scope, &block.board_id).await? else {
         return Err(StoreError::not_found(format_args!(
             "board ID={} of block {}",
             block.board_id, block.id
         )));
-    }
+    };
     // Asked here so that a parent that is none, or another board's, is the request's
     // mistake and not a constraint the database reports.
     let parent_type = if block.parent_id.is_empty() {
@@ -707,6 +708,7 @@ async fn insert_block_at(
     user_id.clone_into(&mut block.modified_by);
 
     let existing = find_block(scope, &block.id).await?;
+    page_places::check(block, kind, parent_type.as_ref())?;
     comment_places::check(scope, block, parent_type.as_ref(), existing.as_ref()).await?;
     let named = card_values::check_written(scope, block, existing.as_ref()).await?;
     if let Some(existing) = existing {

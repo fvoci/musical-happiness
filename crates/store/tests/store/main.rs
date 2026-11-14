@@ -9,6 +9,8 @@
 
 mod block_reads_and_patches;
 mod blocks;
+mod board_kinds;
+mod board_search;
 mod boards;
 mod boards_and_blocks;
 mod categories;
@@ -29,6 +31,7 @@ mod oidc_trial_binding;
 mod operator_password;
 mod order;
 mod org_admin;
+mod pages;
 mod password_reset;
 mod registration;
 mod restored_boards;

@@ -869,23 +869,28 @@ impl From<StoreError> for AppError {
                 error.subject = Some(Subject::Board);
                 error
             }
-            // A parent that is no block of the board, whether it is none at all or
-            // another board's: the answer does not tell the two apart.
-            StoreError::InvalidBlock {
-                id,
-                source:
-                    source @ (BlockError::ParentNotOnBoard
-                    | BlockError::ParentBelowBlock
-                    | BlockError::CommentNotOnCard
-                    | BlockError::ParentIsComment
-                    | BlockError::TypeStrandsComments
-                    | BlockError::BodyNotAllowed
-                    | BlockError::ImageWithoutFile
-                    | BlockError::NulInTitle
-                    | BlockError::InvalidCardField { .. }
-                    | BlockError::InvalidRelation(_)
-                    | BlockError::TypeNotCurrent(_)),
-            } => {
+            // What a board of its kind is not: the member that says otherwise.
+            StoreError::InvalidBoard(
+                refused @ (BoardError::KindChanges { .. }
+                | BoardError::WikiIsTemplate
+                | BoardError::WikiHasCardProperties),
+            ) => {
+                let member = match refused {
+                    BoardError::WikiIsTemplate => "isTemplate",
+                    BoardError::WikiHasCardProperties => "cardProperties",
+                    _ => "kind",
+                };
+                let mut error = Self::bad_request(refused).with_field(member);
+                error.subject = Some(Subject::Board);
+                error
+            }
+            // Whatever else the store refuses of a block names the member at fault and
+            // the block. A parent that is no block of the board, whether it is none at all
+            // or another board's: the answer does not tell the two apart. A block without a
+            // board is no request's mistake.
+            StoreError::InvalidBlock { id, source }
+                if !matches!(source, BlockError::EmptyBoardId) =>
+            {
                 let mut error = Self::from(source);
                 error.subject = Some(Subject::Block(id));
                 error

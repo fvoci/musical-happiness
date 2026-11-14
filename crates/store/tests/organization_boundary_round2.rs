@@ -12,8 +12,8 @@
 mod common;
 
 use fvoci_model::{
-    Block, BlockPatch, BlockType, Board, BoardType, Body, BodyChange, Category, FileInfo, Upload,
-    UploadPurpose, new_id,
+    Block, BlockPatch, BlockType, Board, BoardKinds, BoardType, Body, BodyChange, Category,
+    FileInfo, Upload, UploadPurpose, new_id,
 };
 use fvoci_store::{DbType, SYSTEM_ORG_ID, SYSTEM_WORKSPACE_ID, Store};
 
@@ -267,7 +267,7 @@ async fn a_trash_row_under_another_orgs_parent_is_neither_listed_nor_restored() 
         .expect("B's trash of the board");
     let b_boards = b
         .store
-        .get_deleted_boards(&b.workspace_id, Some(&user_id), None)
+        .get_deleted_boards(&b.workspace_id, Some(&user_id), None, BoardKinds::Boards)
         .await
         .expect("B's trash of the workspace");
     let restored_card = test.undelete_block(&card.id, &user_id).await;

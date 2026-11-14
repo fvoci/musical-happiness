@@ -39,6 +39,7 @@ mod templates;
 mod trash;
 mod uploads;
 mod users;
+mod wikis;
 mod workspace;
 mod workspace_members;
 
@@ -112,6 +113,7 @@ fn routes() -> Routes {
         .merge(auth::routes())
         .merge(blocks::routes())
         .merge(boards::routes())
+        .merge(wikis::routes())
         .merge(boards_and_blocks::routes())
         .merge(cards::routes())
         .merge(trash::routes())

@@ -38,6 +38,8 @@ parameter!(MemberWorkspaceId: Path "workspaceId", String, True, "The identifier 
 parameter!(BoardId: Path "boardId", String, True, "The identifier of the board.");
 parameter!(BlockId: Path "blockId", String, True, "The identifier of the block.");
 parameter!(CardId: Path "cardId", String, True, "The identifier of the card.");
+parameter!(WikiId: Path "wikiId", String, True, "The identifier of the wiki: a board of the `kind` `wiki`. A board of another kind is 404, as an identifier of nothing is.");
+parameter!(PageId: Path "pageId", String, True, "The identifier of the page: a page of the wiki of the path. 404 for a page of another wiki.");
 parameter!(CategoryId: Path "categoryId", String, True, "The identifier of the category, one of the user's own.");
 parameter!(TeamId: Path "teamId", String, True, "The identifier of a team within this workspace.");
 parameter!(UserId: Path "userId", String, True, "The identifier of the user.");

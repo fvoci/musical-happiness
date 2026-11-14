@@ -30,6 +30,7 @@ mod name;
 mod oidc;
 mod org_admin;
 mod organization;
+mod page;
 mod problem;
 mod refusal;
 mod relation;
@@ -57,8 +58,8 @@ pub use block::{
 };
 pub use block_ids::{UnmatchedRelation, generate_block_ids, renew_block_ids};
 pub use board::{
-    Board, BoardError, BoardMember, BoardPatch, BoardRole, BoardSearchField, BoardType,
-    MinimumRole, ParseBoardSearchFieldError,
+    Board, BoardError, BoardKind, BoardKinds, BoardMember, BoardPatch, BoardRole, BoardSearchField,
+    BoardType, MinimumRole, ParseBoardSearchFieldError,
 };
 pub use board_teams::{BoardTeam, BoardTeamRole};
 pub use boards_and_blocks::{
@@ -104,6 +105,10 @@ pub use org_admin::{
 };
 pub use organization::{
     OrgRole, UnknownRole, UserWorkspace, WorkspaceMember, WorkspaceRole, WorkspaceRoleChange,
+};
+pub use page::{
+    NewPage, OrderError, PAGE_ICON_FIELD, PAGE_ORDER_FIELD, Page, PageNode, PagePatch,
+    order_between, sort_pages,
 };
 pub use problem::{InvalidInput, PROBLEM_MEDIA_TYPE, Problem, json_pointer, pointer_token};
 pub use refusal::{NAME_SHOWN_CHARS, Refusal, RefusalReason, Refusals, shown_name};

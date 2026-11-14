@@ -266,7 +266,7 @@
             "oneOf": [
               {
                 "$ref": "#/components/schemas/Body",
-                "description": "The body of a card or a comment; `null` for a block without one. Only those two\nhave one: a body on another block is refused (400 naming `body`). Every image of\nit shows a file of the block's board. Whoever reads it by the board's link gets\nevery mention with an empty `userId`: a shape that is only sent, which a write\nwould have refused."
+                "description": "The body of a card, a comment or a page; `null` for a block without one. Only\nthose have one: a body on another block is refused (400 naming `body`). Every image of\nit shows a file of the block's board. Whoever reads it by the board's link gets\nevery mention with an empty `userId`: a shape that is only sent, which a write\nwould have refused."
               },
               {
                 "type": "null"
@@ -294,7 +294,7 @@
           },
           "fields": {
             "additionalProperties": true,
-            "description": "Type-specific data, free-form: serialized, at most 64,000 characters for a card, a\ncomment or an attachment and 800,000 for a view or a block of another type. The\n`icon` of a card is a string and its `isTemplate` a boolean, or either `null`\n(400 naming `fields` otherwise).",
+            "description": "Type-specific data, free-form: serialized, at most 64,000 characters for a card, a\ncomment, an attachment or a page and 800,000 for a view or a block of another\ntype. The `icon` of a card is a string and its `isTemplate` a boolean, or either\n`null` (400 naming `fields` otherwise). A page has its `icon` and its `order`\nhere, as `Page` gives them.",
             "type": "object"
           },
           "id": {
@@ -319,7 +319,7 @@
             "type": "string"
           },
           "type": {
-            "description": "The block type: `card`, `view`, `comment` or `attachment`. No request makes a\nblock of another type or patches one into it (400 naming `type`).",
+            "description": "The block type: `card`, `view`, `comment` or `attachment` on a board, and `page`\non a wiki. No request of blocks makes a block of another type or patches one\ninto it (400 naming `type`), nor a page: `createPage` makes those.",
             "type": "string"
           },
           "updateAt": {
@@ -480,6 +480,10 @@
             "description": "Whether the board is a template.",
             "type": "boolean"
           },
+          "kind": {
+            "$ref": "#/components/schemas/BoardKind",
+            "description": "What the board is for: `board` for cards, `wiki` for pages. It is what the board\nwas made as and never changes; a board decoded without it is a `board`. A wiki\nis no template and has no card properties, and the operations that are about\ncards answer for a wiki as for a board that is not there."
+          },
           "minimumRole": {
             "$ref": "#/components/schemas/MinimumRole",
             "description": "The role a user gets who joins the board, or is added by somebody who does not\nmanage its roles. Never empty and never admin."
@@ -530,6 +534,7 @@
           "id",
           "isBuiltin",
           "isTemplate",
+          "kind",
           "minimumRole",
           "modifiedBy",
           "properties",
@@ -541,6 +546,14 @@
           "workspaceId"
         ],
         "type": "object"
+      },
+      "BoardKind": {
+        "description": "What a container of a workspace is for: a board holds cards and their views, a wiki\nholds pages. A container is of one kind from when it is made and never of another.",
+        "enum": [
+          "board",
+          "wiki"
+        ],
+        "type": "string"
       },
       "BoardMember": {
         "description": "A user's membership of a board.",
@@ -1225,6 +1238,17 @@
           "id": {
             "description": "The identifier of the card or the board.",
             "type": "string"
+          },
+          "kind": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BoardKind",
+                "description": "For a board, its kind: the trash of boards lists boards and wikis together. Left\nout for a card."
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "title": {
             "description": "Its title when it was deleted.",
@@ -2078,6 +2102,32 @@
         ],
         "type": "object"
       },
+      "NewPage": {
+        "additionalProperties": false,
+        "description": "A page to make.",
+        "properties": {
+          "after": {
+            "description": "The identifier of the page it goes right after: a page of the same parent. Empty\nfor the first place; left out or `null`, the last place.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "icon": {
+            "description": "The page's icon, at most one grapheme. Left out, none.",
+            "type": "string"
+          },
+          "parentId": {
+            "description": "The identifier of the page it goes below: a page of the same wiki. Left out or\nempty, the page is at the top of the wiki.",
+            "type": "string"
+          },
+          "title": {
+            "description": "The page's title. Left out, empty.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "NewSubscription": {
         "description": "A subscription to make.",
         "properties": {
@@ -2127,6 +2177,36 @@
         "required": [
           "name",
           "size"
+        ],
+        "type": "object"
+      },
+      "NewWiki": {
+        "additionalProperties": false,
+        "description": "A wiki to make.",
+        "properties": {
+          "description": {
+            "description": "The wiki's description. Left out, empty.",
+            "type": "string"
+          },
+          "icon": {
+            "description": "The wiki's icon, usually one emoji. Left out, none.",
+            "type": "string"
+          },
+          "minimumRole": {
+            "$ref": "#/components/schemas/MinimumRole",
+            "description": "The role a user gets who joins the wiki. Left out, `editor`."
+          },
+          "title": {
+            "description": "The wiki's title. Left out, empty.",
+            "type": "string"
+          },
+          "type": {
+            "$ref": "#/components/schemas/BoardType",
+            "description": "Whether the wiki is open (`O`), for whoever works in the workspace to find and\njoin, or private (`P`), for whom it is shared with."
+          }
+        },
+        "required": [
+          "type"
         ],
         "type": "object"
       },
@@ -2524,6 +2604,163 @@
             "description": "Whether boards may be read by a public link.",
             "type": [
               "boolean",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "Page": {
+        "description": "A page of a wiki.",
+        "properties": {
+          "body": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Body",
+                "description": "The page's body; `null` for a page without one."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "createAt": {
+            "description": "Creation time in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "createdBy": {
+            "description": "The identifier of the user who made the page.",
+            "type": "string"
+          },
+          "icon": {
+            "description": "The page's icon, at most one grapheme; empty for none.",
+            "type": "string"
+          },
+          "id": {
+            "description": "The page's identifier.",
+            "type": "string"
+          },
+          "modifiedBy": {
+            "description": "The identifier of the user who last changed the page.",
+            "type": "string"
+          },
+          "order": {
+            "description": "The page's place among the pages of the same parent, as in the tree\n(`getPageTree`).",
+            "type": "string"
+          },
+          "parentId": {
+            "description": "The identifier of the page it is below; empty for a page at the top of its wiki.",
+            "type": "string"
+          },
+          "title": {
+            "description": "The page's title.",
+            "type": "string"
+          },
+          "updateAt": {
+            "description": "Last modification time in milliseconds since the Unix epoch: what `readAt` of a\nchange of the page names.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "wikiId": {
+            "description": "The identifier of the wiki the page is of.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "body",
+          "createAt",
+          "createdBy",
+          "icon",
+          "id",
+          "modifiedBy",
+          "order",
+          "parentId",
+          "title",
+          "updateAt",
+          "wikiId"
+        ],
+        "type": "object"
+      },
+      "PageNode": {
+        "description": "A page as the tree of its wiki lists it: without its body.",
+        "properties": {
+          "createAt": {
+            "description": "Creation time in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "icon": {
+            "description": "The page's icon, at most one grapheme; empty for none.",
+            "type": "string"
+          },
+          "id": {
+            "description": "The page's identifier.",
+            "type": "string"
+          },
+          "order": {
+            "description": "The page's place among the pages of the same parent: they are listed by it as\nstrings compare (by code unit, not by a locale), and by `id` where two have the\nsame. The server makes it; a client reads it only to sort.",
+            "type": "string"
+          },
+          "parentId": {
+            "description": "The identifier of the page it is below; empty for a page at the top of its wiki.",
+            "type": "string"
+          },
+          "title": {
+            "description": "The page's title.",
+            "type": "string"
+          },
+          "updateAt": {
+            "description": "Last modification time in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "createAt",
+          "icon",
+          "id",
+          "order",
+          "parentId",
+          "title",
+          "updateAt"
+        ],
+        "type": "object"
+      },
+      "PagePatch": {
+        "additionalProperties": false,
+        "description": "What a page is changed to. A member that is left out stays as it is. Where the page\nis in the tree is none of them: a member the patch does not have is refused, so\nthat a request to move the page does not pass for one that did.",
+        "properties": {
+          "body": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Body",
+                "description": "The new body; `null` takes the body away. Sent only with `readAt`."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "icon": {
+            "description": "The new icon, at most one grapheme; empty for none.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "readAt": {
+            "description": "The `updateAt` of the page as the client read it: if the page has changed since,\nthe patch is refused with 409 and changes nothing. Needed with `body`, and\nchecked whenever it is sent.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "title": {
+            "description": "The new title.",
+            "type": [
+              "string",
               "null"
             ]
           }
@@ -6487,7 +6724,7 @@
     },
     "/api/v1/users/me/memberships": {
       "get": {
-        "description": "The user's memberships, with the roles of each, of the boards of the workspaces the\nuser is a member of, in every organization the session opens: one that takes only\nsessions made through its provider leaves its boards out of another session's list.\nA board the user has a role on only through a team of its workspace is listed too\n(`synthetic`, with the team's role in `inheritedRole`); a guest is in no team. By the\nidentifier of the board.",
+        "description": "The user's memberships, with the roles of each, of the boards of the workspaces the\nuser is a member of, in every organization the session opens: one that takes only\nsessions made through its provider leaves its boards out of another session's list.\nA board the user has a role on only through a team of its workspace is listed too\n(`synthetic`, with the team's role in `inheritedRole`); a guest is in no team. A\nwiki the user is on is listed as a board is, under its identifier as `boardId`. By\nthe identifier of the board.",
         "operationId": "getMyMemberships",
         "responses": {
           "200": {
@@ -7065,7 +7302,7 @@
         ]
       },
       "post": {
-        "description": "The user becomes the board's admin, and the board is filed under the user's default\ncategory, unless it is a template.",
+        "description": "The user becomes the board's admin, and the board is filed under the user's default\ncategory, unless it is a template. A board is made here and no wiki: a `kind` other\nthan `board` is 400 at `/kind` (`createWiki` makes a wiki).",
         "operationId": "createBoard",
         "parameters": [
           {
@@ -7213,7 +7450,7 @@
         ]
       },
       "post": {
-        "description": "Makes boards and their blocks together, all or none, under identifiers the server\nmakes; the identifiers of the request only say which block belongs to which board\nand to which other block. The request needs at least one board and one block; every\nboard needs an `id`, and all boards are of one workspace. The user becomes the admin of\neach board, and each board that is no template is filed under the user's default\ncategory.",
+        "description": "Makes boards and their blocks together, all or none, under identifiers the server\nmakes; the identifiers of the request only say which block belongs to which board\nand to which other block. The request needs at least one board and one block; every\nboard needs an `id`, and all boards are of one workspace. The user becomes the admin of\neach board, and each board that is no template is filed under the user's default\ncategory. They are boards: one whose `kind` is not `board` is 400 at its `kind`.",
         "operationId": "createBoardsAndBlocks",
         "parameters": [
           {
@@ -7423,7 +7660,7 @@
         ]
       },
       "patch": {
-        "description": "For who may manage the board's properties. Changing `type` or `minimumRole` is for\nthe board's admins.",
+        "description": "For who may manage the board's properties. Changing `type` or `minimumRole` is for\nthe board's admins. A wiki is changed here too, by its identifier; it takes no card\nproperties (400 at `/updatedCardProperties`), and nothing changes the `kind` of a board.",
         "operationId": "patchBoard",
         "parameters": [
           {
@@ -11130,7 +11367,7 @@
     },
     "/api/v1/w/{workspaceId}/trash/boards": {
       "get": {
-        "description": "One page of the workspace's boards that are in the trash and that the user was an admin\nof when they were deleted, or every one of them for an administrator of the\nworkspace, which is who `undeleteBoard` lets bring them back: each\nwith its identifier, its title, when it was deleted and by whom. The last deleted\nfirst; the pages cut that order. A `page` or `perPage` that is no whole number is\n400. For users of the workspace.",
+        "description": "One page of the workspace's boards that are in the trash and that the user was an admin\nof when they were deleted, or every one of them for an administrator of the\nworkspace, which is who `undeleteBoard` lets bring them back: each\nwith its identifier, its title, when it was deleted and by whom. The last deleted\nfirst; the pages cut that order. A `page` or `perPage` that is no whole number is\n400. For users of the workspace.\n\nThe wikis in the trash are in the same list, which go there and come back as boards\ndo (`deleteBoard`, `undeleteBoard`): each entry says its `kind`.",
         "operationId": "getDeletedBoards",
         "parameters": [
           {
@@ -11577,6 +11814,400 @@
           "workspaces"
         ]
       }
+    },
+    "/api/v1/w/{workspaceId}/wikis": {
+      "get": {
+        "description": "The wikis of the workspace that the user is a member of, and the workspace's open\nwikis; a guest of the workspace gets only the former, an administrator every wiki\nof the workspace (the pages of a private wiki they are no member of stay 404 to\nthem). Each is a board of the `kind` `wiki`. Oldest first. 404 unless the user is a\nmember of the workspace.",
+        "operationId": "getWikis",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Board"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The wikis."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "The wikis of a workspace",
+        "tags": [
+          "wikis"
+        ]
+      },
+      "post": {
+        "description": "The user becomes the wiki's admin, and the wiki is filed under the user's default\ncategory, as a board is. Whoever works in the workspace makes wikis in it; a guest\nis refused (403). A member the request does not know is 400.",
+        "operationId": "createWiki",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewWiki"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Board"
+                }
+              }
+            },
+            "description": "The wiki that was made."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Make a wiki",
+        "tags": [
+          "wikis"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages": {
+      "get": {
+        "description": "Every page of the wiki without its body, for the wiki's members: each names the page\nit is below (`parentId`, empty at the top of the wiki), which is how they are a\ntree. By `order` as strings compare by code unit, then by `id`: the pages of one\nparent are in their order when they are taken out of the list as it is.",
+        "operationId": "getPageTree",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the wiki: a board of the `kind` `wiki`. A board of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "wikiId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PageNode"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The pages."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "The pages of a wiki",
+        "tags": [
+          "wikis"
+        ]
+      },
+      "post": {
+        "description": "The server chooses the identifier, the creator, the times and the `order`. For\neditors of the wiki. The page goes below `parentId`, a page of the same wiki (400 at\n`/parentId` otherwise), or at the top of the wiki; among the pages of that parent it\ngoes right after the page `after` (400 at `/after` if that is no page of the same\nparent), first if `after` is empty, and last if it is left out. Its body is written\nby `patchPage`, or together in its room (`JOIN_DOC`).\n\nThe wiki's members are told with `UPDATE_BLOCK`, whose block of the `type` `page`\nhas the icon and the order among its `fields`.",
+        "operationId": "createPage",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the wiki: a board of the `kind` `wiki`. A board of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "wikiId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewPage"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page"
+                }
+              }
+            },
+            "description": "The page that was made."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Make a page",
+        "tags": [
+          "wikis"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}": {
+      "delete": {
+        "description": "The page goes to the trash with every page below it, for editors of the wiki. The\nwiki's members are told with `UPDATE_BLOCK` of the page alone, whose `deleteAt` is\nnot 0, as for any block that is deleted; the pages below it went with it and are\nnot told of one by one.",
+        "operationId": "deletePage",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the wiki: a board of the `kind` `wiki`. A board of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "wikiId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the page: a page of the wiki of the path. 404 for a page of another wiki.",
+            "in": "path",
+            "name": "pageId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The page is deleted."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Delete a page",
+        "tags": [
+          "wikis"
+        ]
+      },
+      "get": {
+        "description": "The page with its body, for the members of its wiki.",
+        "operationId": "getPage",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the wiki: a board of the `kind` `wiki`. A board of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "wikiId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the page: a page of the wiki of the path. 404 for a page of another wiki.",
+            "in": "path",
+            "name": "pageId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page"
+                }
+              }
+            },
+            "description": "The page."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "A page",
+        "tags": [
+          "wikis"
+        ]
+      },
+      "patch": {
+        "description": "Its title, its icon, or its whole body, for editors of the wiki. A new body is sent\nwith `readAt`, the `updateAt` of the page as it was read: 409 if the page has\nchanged since, and nothing is changed. Where the body is being edited together, what\nthe editors typed is written to the page first, so a writer who read it before is\nrefused and reads it again. Where the page is in the tree does not change here.",
+        "operationId": "patchPage",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the wiki: a board of the `kind` `wiki`. A board of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "wikiId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the page: a page of the wiki of the path. 404 for a page of another wiki.",
+            "in": "path",
+            "name": "pageId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PagePatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page"
+                }
+              }
+            },
+            "description": "The page as it is now."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Change a page",
+        "tags": [
+          "wikis"
+        ]
+      }
     }
   },
   "security": [
@@ -11613,6 +12244,10 @@
     {
       "description": "Boards and templates.",
       "name": "boards"
+    },
+    {
+      "description": "Wikis and their pages. A wiki is a board of the kind `wiki`: who is on it, its sharing, its files, its place in the sidebar and in the trash are asked as a board's are, under `/boards/{boardId}` with the wiki's identifier.",
+      "name": "wikis"
     },
     {
       "description": "Who is on a board, and with which role.",

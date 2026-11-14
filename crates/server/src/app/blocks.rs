@@ -24,7 +24,7 @@ pub enum ChangeNotification {
 
 /// What happened to a block, as the notification service names it.
 #[derive(Debug, Clone, Copy)]
-enum ChangeAction {
+pub(super) enum ChangeAction {
     Add,
     Update,
     Delete,
@@ -82,23 +82,19 @@ impl App {
             .await?)
     }
 
-    /// Returns the block with the given identifier: for a handle of one workspace
-    /// ([`App::in_workspace`]), only a block of a board of that workspace or of a built-in
-    /// template.
+    /// Returns the block with the given identifier: only a block of a board of the kinds
+    /// the handle reaches ([`App::reaching`]) and, for a handle of one workspace
+    /// ([`App::in_workspace`]), of that workspace or of a built-in template.
     ///
     /// # Errors
     ///
     /// Returns a not-found error if there is no such block.
     pub async fn block(&self, block_id: &str) -> Result<Block, AppError> {
-        // A handle of one workspace finds the blocks of its boards only, in the one read.
-        let found = match self.workspace.as_deref() {
-            Some(workspace_id) => {
-                self.store()
-                    .get_block_in_workspace(block_id, workspace_id)
-                    .await
-            }
-            None => self.store().get_block(block_id).await,
-        };
+        // The handle finds the blocks of the boards it reaches only, in the one read.
+        let found = self
+            .store()
+            .get_block_within(block_id, self.workspace.as_deref(), self.kinds)
+            .await;
         match found {
             Ok(block) => Ok(block),
             Err(error) if error.is_not_found() => Err(AppError::not_found("block")),
@@ -122,7 +118,7 @@ impl App {
         notification: ChangeNotification,
     ) -> Result<(), AppError> {
         let board = self.store().get_board(&block.board_id).await?;
-        if block.block_type == BlockType::Card {
+        if block.block_type.has_room() {
             // A card stored again writes its body whole, around its document.
             let (mut stored, modified_by) = (block.clone(), modified_by.to_owned());
             let card_ids = vec![block.id.clone()];
@@ -183,7 +179,7 @@ impl App {
         // error for the third while the first two stay.
         let card_ids: Vec<String> = blocks
             .iter()
-            .filter(|block| block.block_type == BlockType::Card)
+            .filter(|block| block.block_type.has_room())
             .map(|block| block.id.clone())
             .collect();
         if card_ids.is_empty() {
@@ -229,7 +225,7 @@ impl App {
     ) -> Result<Block, AppError> {
         let old_block = self.store().get_block(block_id).await?;
         let board = self.store().get_board(&old_block.board_id).await?;
-        if patch.body.is_keep() || old_block.block_type != BlockType::Card {
+        if patch.body.is_keep() || !old_block.block_type.has_room() {
             let _structure = self.collab().changing_structure(self).await;
             self.store()
                 .patch_block(block_id, patch, modified_by)
@@ -517,7 +513,11 @@ impl App {
 
 /// The whole of a notification on a standalone server: the log line the original's
 /// notification service writes for a block change.
-fn log_notification(notification: ChangeNotification, action: ChangeAction, block_id: &str) {
+pub(super) fn log_notification(
+    notification: ChangeNotification,
+    action: ChangeAction,
+    block_id: &str,
+) {
     if notification == ChangeNotification::Send {
         tracing::debug!(action = action.as_str(), block_id, "Block change event");
     }

@@ -169,6 +169,13 @@ pub(super) const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
     ("GET", "/users", "getWorkspaceUsers"),
     ("POST", "/users", "getWorkspaceUsersById"),
     ("GET", "/users/{userId}", "getWorkspaceUser"),
+    ("GET", "/wikis", "getWikis"),
+    ("POST", "/wikis", "createWiki"),
+    ("GET", "/wikis/{wikiId}/pages", "getPageTree"),
+    ("POST", "/wikis/{wikiId}/pages", "createPage"),
+    ("GET", "/wikis/{wikiId}/pages/{pageId}", "getPage"),
+    ("PATCH", "/wikis/{wikiId}/pages/{pageId}", "patchPage"),
+    ("DELETE", "/wikis/{wikiId}/pages/{pageId}", "deletePage"),
 ];
 
 /// What a guest of the workspace is told by an operation of `REACHED_BY_ITEM` about
@@ -184,6 +191,12 @@ const REFUSED_IN_REACH: [StatusCode; 3] = [
 /// is what the path names (a board, a card, an upload, a user), or the operation.
 const REACHED_BY_ITEM: &[&str] = &[
     "createBoard",
+    "createWiki",
+    "getPageTree",
+    "createPage",
+    "getPage",
+    "patchPage",
+    "deletePage",
     "createBoardsAndBlocks",
     "deleteBoardsAndBlocks",
     "patchBoardsAndBlocks",
@@ -355,9 +368,10 @@ async fn compare_workspace_routes(client: &Client, user_id: &str, asker: Asker) 
         };
         let hidden = send(HIDDEN_WORKSPACE_ID).await;
         let absent = send(UNKNOWN_ID).await;
-        let equal = if *operation == "getWorkspaceBoards" && asker == Asker::Guest {
-            // A guest of the workspace is a member of it: the boards are those the
-            // guest is on, none here (the route of `api/workspaces.rs`).
+        let lists_boards = matches!(*operation, "getWorkspaceBoards" | "getWikis");
+        let equal = if lists_boards && asker == Asker::Guest {
+            // A guest of the workspace is a member of it: the boards, and the wikis, are
+            // those the guest is on, none here (the route of `api/workspaces.rs`).
             hidden.status == StatusCode::OK
                 && answer(&hidden).1 == json!([])
                 && absent.status == StatusCode::NOT_FOUND
@@ -766,6 +780,8 @@ async fn a_link_into(ts: &crate::common::TestServer, workspace_id: &str, maker: 
 struct Items<'a> {
     board: &'a Board,
     card: &'a Block,
+    /// A page of a wiki of the same workspace; its `board_id` is the wiki.
+    page: &'a Block,
     file: &'a str,
     upload_id: &'a str,
     category: &'a str,
@@ -779,6 +795,47 @@ struct Items<'a> {
     subscriber: (&'a str, &'a str),
 }
 
+/// What a request of [`compare_resource_routes`] is about.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum About {
+    /// The items.
+    Them,
+    /// Identifiers of nothing.
+    Nothing,
+}
+
+impl Items<'_> {
+    /// The path of `template` under `workspace` about these items, or about nothing:
+    /// every parameter filled in.
+    fn path(&self, template: &str, workspace: &str, about: About) -> String {
+        let absent = about == About::Nothing;
+        let pick = |there: &str, nothing: &'static str| -> String {
+            if absent { nothing } else { there }.to_owned()
+        };
+        let subscriber = if absent {
+            self.subscriber.1
+        } else {
+            self.subscriber.0
+        };
+        template
+            .trim_start_matches("/api/v1")
+            .replace("{workspaceId}", workspace)
+            .replace("{boardId}", &pick(&self.board.id, UNKNOWN_ID))
+            .replace("{cardId}", &pick(&self.card.id, UNKNOWN_ID))
+            .replace("{blockId}", &pick(&self.card.id, UNKNOWN_ID))
+            .replace("{wikiId}", &pick(&self.page.board_id, UNKNOWN_ID))
+            .replace("{pageId}", &pick(&self.page.id, UNKNOWN_ID))
+            .replace("{fileId}", &pick(self.file, "missing-file"))
+            .replace("{uploadId}", &pick(self.upload_id, "missing-upload"))
+            .replace("{userId}", &pick(self.user, UNKNOWN_ID))
+            .replace("{invitationId}", &pick(self.invitation, UNKNOWN_ID))
+            .replace("{teamId}", &pick(self.team, UNKNOWN_ID))
+            .replace("{subscriberId}", subscriber)
+            .replace("{partNumber}", "1")
+            .replace("{categoryId}", &pick(self.category, UNKNOWN_ID))
+    }
+}
+
 /// Asks every operation under `/w/{workspace}` whose path names something (and the
 /// subscriptions, whose body names a block) about `items`, and again about nothing:
 /// the answers must be the same, and none a success. Where both requests are the same
@@ -789,17 +846,7 @@ async fn compare_resource_routes(
     workspace: &str,
     items: &Items<'_>,
 ) -> Vec<String> {
-    let Items {
-        board,
-        card,
-        file,
-        upload_id,
-        category,
-        user,
-        invitation,
-        team,
-        subscriber,
-    } = items;
+    let Items { card, user, .. } = items;
     let caller = client.me().await.id;
     let contract: Value = serde_json::from_str(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -820,29 +867,11 @@ async fn compare_resource_routes(
             };
             // The contract writes methods in lower case, which HTTP does not.
             let method: reqwest::Method = method.to_uppercase().parse().expect("an HTTP method");
-            let pick = |absent: bool, there: &str, nothing: &'static str| -> String {
-                if absent { nothing } else { there }.to_owned()
-            };
             let path = |absent: bool| {
-                template
-                    .trim_start_matches("/api/v1")
-                    .replace("{workspaceId}", workspace)
-                    .replace("{boardId}", &pick(absent, &board.id, UNKNOWN_ID))
-                    .replace("{cardId}", &pick(absent, &card.id, UNKNOWN_ID))
-                    .replace("{blockId}", &pick(absent, &card.id, UNKNOWN_ID))
-                    .replace("{fileId}", &pick(absent, file, "missing-file"))
-                    .replace("{uploadId}", &pick(absent, upload_id, "missing-upload"))
-                    .replace("{userId}", &pick(absent, user, UNKNOWN_ID))
-                    .replace("{invitationId}", &pick(absent, invitation, UNKNOWN_ID))
-                    .replace("{teamId}", &pick(absent, team, UNKNOWN_ID))
-                    .replace(
-                        "{subscriberId}",
-                        if absent { subscriber.1 } else { subscriber.0 },
-                    )
-                    .replace("{partNumber}", "1")
-                    .replace("{categoryId}", &pick(absent, category, UNKNOWN_ID))
+                let about = if absent { About::Nothing } else { About::Them };
+                items.path(template, workspace, about)
             };
-            let block = |absent: bool| pick(absent, &card.id, UNKNOWN_ID);
+            let block = |absent: bool| if absent { UNKNOWN_ID } else { &card.id };
             let body = |absent: bool| match operation {
                 "patchBlocks" => {
                     json!({"blockIds": [block(absent)], "blockPatches": [{"title": "changed"}]})
@@ -962,6 +991,47 @@ async fn hidden_category(ts: &super::common::TestServer, owner: &str) -> String 
         .id
 }
 
+/// Makes the user follow the card.
+async fn follow(store: &fvoci_store::Store, card: &Block, user_id: &str) {
+    store
+        .create_subscription(fvoci_model::Subscription {
+            block_type: BlockType::Card,
+            block_id: card.id.clone(),
+            subscriber_type: fvoci_model::SubscriberType::User,
+            subscriber_id: user_id.to_owned(),
+            notified_at: 0,
+            create_at: 0,
+            delete_at: 0,
+        })
+        .await
+        .expect("the user follows the card");
+}
+
+/// A page of a new open wiki of the workspace, made by `owner`.
+async fn a_page_in(ts: &super::common::TestServer, workspace_id: &str, owner: &str) -> Block {
+    let mut wiki = Board {
+        id: new_id(),
+        workspace_id: workspace_id.to_owned(),
+        board_type: BoardType::Open,
+        kind: fvoci_model::BoardKind::Wiki,
+        title: "Hidden wiki".to_owned(),
+        ..Board::default()
+    };
+    let store = ts.app.store();
+    store
+        .insert_board_with_admin(&mut wiki, owner)
+        .await
+        .expect("a wiki of the workspace");
+    let new = fvoci_model::NewPage {
+        title: "Hidden page".to_owned(),
+        ..fvoci_model::NewPage::default()
+    };
+    store
+        .create_page(&wiki.id, &new, owner)
+        .await
+        .expect("its page")
+}
+
 #[tokio::test]
 async fn identifier_only_inventory_hides_resources_of_an_unjoined_workspace() {
     let ts = Setup::native().start().await.init_basic().await;
@@ -1019,9 +1089,11 @@ async fn identifier_only_inventory_hides_resources_of_an_unjoined_workspace() {
     let category = hidden_category(&ts, &owner).await;
     let invitation = a_link_into(&ts, HIDDEN_WORKSPACE_ID, &owner).await;
     let team = a_team_in(&ts, &board.workspace_id, &board.created_by).await;
+    let page = a_page_in(&ts, &board.workspace_id, &board.created_by).await;
     let items = Items {
         board: &board,
         card: &card,
+        page: &page,
         file: &file,
         upload_id: &upload.id,
         category: &category,
@@ -1259,8 +1331,10 @@ async fn an_invited_workspace_guest_reads_its_board_without_gaining_editor_right
 #[tokio::test]
 async fn the_paths_from_before_the_workspace_are_not_there() {
     let ts = Setup::native().start().await.init_basic().await;
+    // The wikis came after the move, and were never anywhere else.
     let gone = WORKSPACE_ROUTES
         .iter()
+        .filter(|(_, suffix, _)| !suffix.starts_with("/wikis"))
         .filter(|(_, _, operation)| REACHED_BY_ITEM.contains(operation))
         .map(|(method, suffix, operation)| (*method, fill_with_nothing(suffix), *operation))
         .chain([
@@ -1353,21 +1427,13 @@ async fn what_is_of_one_workspace_is_not_there_under_another() {
         .await
         .expect("the asker's category there")
         .id;
-    store
-        .create_subscription(fvoci_model::Subscription {
-            block_type: BlockType::Card,
-            block_id: card.id.clone(),
-            subscriber_type: fvoci_model::SubscriberType::User,
-            subscriber_id: me.clone(),
-            notified_at: 0,
-            create_at: 0,
-            delete_at: 0,
-        })
-        .await
-        .expect("the asker follows the card");
+    follow(store, &card, &me).await;
+    let page = a_page_in(&ts, &board.workspace_id, &board.created_by).await;
     // Under its own workspace each of them is there.
+    let page_path = format!("wikis/{}/pages/{}", page.board_id, page.id);
     for path in [
         format!("/w/{TEST_WORKSPACE_ID}/boards/{}", board.id),
+        format!("/w/{TEST_WORKSPACE_ID}/{page_path}"),
         format!("/w/{TEST_WORKSPACE_ID}/cards/{}", card.id),
         format!("/w/{TEST_WORKSPACE_ID}/uploads/{}", upload.id),
         format!("/w/{TEST_WORKSPACE_ID}/users/{elsewhere}"),
@@ -1387,6 +1453,7 @@ async fn what_is_of_one_workspace_is_not_there_under_another() {
     let items = Items {
         board: &board,
         card: &card,
+        page: &page,
         file: &file,
         upload_id: &upload.id,
         category: &category,

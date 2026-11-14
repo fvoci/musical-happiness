@@ -3,7 +3,7 @@
 use std::collections::{HashMap, HashSet};
 
 use fvoci_model::{
-    Board, BoardCategoryWebsocketData, CATEGORY_BOARDS_SORT_ORDER_GAP, Category,
+    Board, BoardCategoryWebsocketData, BoardKinds, CATEGORY_BOARDS_SORT_ORDER_GAP, Category,
     CategoryBoardMetadata, CategoryBoards, CategoryType,
 };
 use fvoci_store::{BoardVisibility, PublicBoards};
@@ -14,6 +14,22 @@ use crate::error::AppError;
 
 /// The name of the category every user has, which collects the boards filed nowhere else.
 pub const DEFAULT_CATEGORY_BOARDS: &str = fvoci_model::DEFAULT_CATEGORY_NAME;
+
+/// The default category of a user who has `existing` categories in the workspace: it
+/// goes after them.
+fn default_category(user_id: &str, workspace_id: &str, existing: usize) -> Category {
+    Category {
+        name: DEFAULT_CATEGORY_BOARDS.to_owned(),
+        user_id: user_id.to_owned(),
+        workspace_id: workspace_id.to_owned(),
+        collapsed: false,
+        category_type: CategoryType::System,
+        sort_order: i64::try_from(existing)
+            .unwrap_or(i64::MAX)
+            .saturating_mul(CATEGORY_BOARDS_SORT_ORDER_GAP),
+        ..Category::default()
+    }
+}
 
 fn has_default_category(category_boards: &[CategoryBoards]) -> bool {
     category_boards
@@ -102,18 +118,7 @@ impl App {
         workspace_id: &str,
         existing: &[CategoryBoards],
     ) -> Result<CategoryBoards, AppError> {
-        let sort_order = i64::try_from(existing.len())
-            .unwrap_or(i64::MAX)
-            .saturating_mul(CATEGORY_BOARDS_SORT_ORDER_GAP);
-        let category = Category {
-            name: DEFAULT_CATEGORY_BOARDS.to_owned(),
-            user_id: user_id.to_owned(),
-            workspace_id: workspace_id.to_owned(),
-            collapsed: false,
-            category_type: CategoryType::System,
-            sort_order,
-            ..Category::default()
-        };
+        let category = default_category(user_id, workspace_id, existing.len());
         let created = self.create_category(category).await.map_err(|error| {
             error.context("createBoardsCategory default category creation failed")
         })?;
@@ -121,9 +126,16 @@ impl App {
         // The boards are read before the memberships. The original reads them the other
         // way round, so a board created by another request in between is in its list of
         // boards but not in its list of memberships, and the request fails.
+        // Boards and wikis alike, whichever the request is about that makes the category:
+        // it is made once, and files what the user is on.
         let boards = self
             .store()
-            .get_boards_for_user_and_workspace(user_id, workspace_id, PublicBoards::Exclude)
+            .get_boards_for_user_and_workspace(
+                user_id,
+                workspace_id,
+                PublicBoards::Exclude,
+                BoardKinds::Every,
+            )
             .await
             .map_err(|error| {
                 AppError::from(error)
