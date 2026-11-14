@@ -10,6 +10,7 @@ import { watchSystemTheme } from '$lib/theme.svelte.js';
 import App from './App.svelte';
 import ResetPasswordApp from './ResetPasswordApp.svelte';
 import SharedApp from './SharedApp.svelte';
+import VerifyEmailApp from './VerifyEmailApp.svelte';
 import { startLocale } from './locale.ts';
 import { readBasePath, Router } from './router.svelte.ts';
 
@@ -34,6 +35,8 @@ router.listen();
 // so is an address under `/shared` that is no whole link (not found there).
 export default router.route.passwordReset || router.route.passwordForgot
   ? mount(ResetPasswordApp, { target, props: { router } })
-  : router.route.shared
-    ? mount(SharedApp, { target, props: { router } })
-    : mount(App, { target, props: { router } });
+  : router.route.emailVerify
+    ? mount(VerifyEmailApp, { target, props: { router } })
+    : router.route.shared
+      ? mount(SharedApp, { target, props: { router } })
+      : mount(App, { target, props: { router } });

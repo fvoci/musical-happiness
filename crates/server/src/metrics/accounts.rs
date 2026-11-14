@@ -18,6 +18,8 @@ pub(crate) enum LoginOutcome {
     /// The name or the password was wrong: one count for both, as the answer is one,
     /// so that the metrics do not tell whether an account exists.
     InvalidCredentials,
+    /// The password was right, of a registration whose address is not confirmed yet.
+    EmailUnverified,
     /// A limit refused it: the login limits, or the queue of password work was full.
     Limited,
     /// The server could not check it: the database or the password work failed.
@@ -28,12 +30,13 @@ pub(crate) enum LoginOutcome {
 }
 
 impl LoginOutcome {
-    const ALL: [Self; 5] = [
+    const ALL: [Self; 6] = [
         Self::Succeeded,
         Self::InvalidCredentials,
         Self::Limited,
         Self::Failed,
         Self::Abandoned,
+        Self::EmailUnverified,
     ];
 
     /// The value of the `outcome` label.
@@ -44,6 +47,7 @@ impl LoginOutcome {
             Self::Limited => "limited",
             Self::Failed => "failed",
             Self::Abandoned => "abandoned",
+            Self::EmailUnverified => "email_unverified",
         }
     }
 
@@ -55,6 +59,7 @@ impl LoginOutcome {
             Self::Limited => 2,
             Self::Failed => 3,
             Self::Abandoned => 4,
+            Self::EmailUnverified => 5,
         }
     }
 }
@@ -92,7 +97,7 @@ impl ResetMailDrop {
 #[derive(Debug)]
 pub(super) struct AccountMetrics {
     /// The counter of each outcome, in the order of [`LoginOutcome::ALL`].
-    logins: [IntCounter; 5],
+    logins: [IntCounter; 6],
     registrations: IntCounter,
     /// The counter of each reason, in the order of [`ResetMailDrop::ALL`].
     reset_mail_dropped: [IntCounter; 2],
@@ -111,7 +116,9 @@ impl AccountMetrics {
                  succeeded, invalid_credentials (no such account or a wrong password, \
                  which are not told apart), limited (a login limit, or the password work \
                  was too busy), failed (the server could not check it), abandoned (the \
-                 server shut down first). An attempt the server could not read is not \
+                 server shut down first), email_unverified (the password of a \
+                 registration whose address is not confirmed yet). An attempt the server \
+                 could not read is not \
                  counted.",
             )
             .namespace(PREFIX),

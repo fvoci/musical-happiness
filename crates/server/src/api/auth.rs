@@ -2,9 +2,9 @@
 
 use axum::body::Bytes;
 use axum::extract::{Extension, State};
-use axum::http::HeaderMap;
 use axum::http::header::{SET_COOKIE, USER_AGENT};
-use axum::response::Response;
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::{IntoResponse as _, Response};
 use fvoci_model::{ChangePasswordRequest, LoginRequest, Problem, RegisterRequest, User};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
@@ -59,6 +59,11 @@ pub(super) fn unauthenticated_routes() -> OpenApiRouter<App> {
 /// about them, a missing password too. Attempts are counted at the name and at the
 /// email address the request gives, each for itself, and by where they come from; too
 /// many are 429. What is counted does not depend on whether there is such an account.
+///
+/// On a server that asks for the email address of a registration to be confirmed
+/// (`emailVerification` of `getLoginOptions`), the right password of a registration
+/// that is not confirmed yet is 403 with the reason `email_unverified`, and opens no
+/// session; a wrong one is the 401 of no account.
 #[utoipa::path(
     post,
     path = "/login",
@@ -103,7 +108,7 @@ async fn handle_login(
 }
 
 /// Adds the session cookie with the token to a response.
-fn with_session_cookie(app: &App, token: &str, mut response: Response) -> Response {
+pub(super) fn with_session_cookie(app: &App, token: &str, mut response: Response) -> Response {
     let cookie = app.authenticator().session_cookie().set(token);
     response.headers_mut().insert(SET_COOKIE, cookie);
     response
@@ -150,6 +155,14 @@ pub(super) fn address_of(client: Option<Extension<ClientAddress>>) -> Option<std
 /// email address that is taken is 409 with the reason `username_taken` or
 /// `email_taken`. Registering does not sign in.
 ///
+/// On a server that asks for the email address to be confirmed (`emailVerification` of
+/// `getLoginOptions`), registering makes no account: it answers 202 with no body, and
+/// mails a link to the address, in the language of `language` (English or Korean), that
+/// makes the account and the organization and signs in (`completeEmailVerification`).
+/// Until then there is nothing of it but its name and address, which are taken as an
+/// account's are, for seven days; a registration that is not confirmed by then is
+/// removed, and its name and address are free again.
+///
 /// The name and the email address must not be blank, the email address must look like
 /// one, the display name (`displayName`, may be left out) is read as `patchMe` reads it,
 /// the password must have at least 8 characters and at most 1024 bytes, and the organization
@@ -166,6 +179,7 @@ pub(super) fn address_of(client: Option<Extension<ClientAddress>>) -> Option<std
     security(()),
     responses(
         (status = 201, description = "The user that was made.", body = User),
+        (status = 202, description = "The registration waits for its email address to be confirmed by the link mailed to it."),
         (
             status = 429,
             description = "Too many registrations from where this one comes from, or the server has too much password work to do at the moment.",
@@ -189,6 +203,11 @@ async fn handle_register(
     }
     let register = register.tidied();
     register.validate()?;
+    if app.verifies_email() {
+        app.sign_up_to_confirm(&register, address_of(client))
+            .await?;
+        return Ok(StatusCode::ACCEPTED.into_response());
+    }
     let user = app.sign_up(&register, address_of(client)).await?;
     Ok(created(&user))
 }

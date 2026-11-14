@@ -23,6 +23,10 @@
  * workspace) or act as the server's operator (`e2e-live/support.ts`). The
  * socket is in the system's temporary folder: a socket's path is short.
  *
+ * With `--verifying` it runs on SQLite with `email_verification` on, without the
+ * fake provider: a registration waits for the link mailed to it
+ * (`e2e-live/verify-email.spec.ts`), its fake SMTP two and three ports up.
+ *
  * When this process is asked to stop, or ends, the server is stopped too.
  * The data folder stays, with the server's log (`server.log`), for looking
  * into after a failure; each run makes a new one. A server that ends
@@ -39,6 +43,9 @@ const REPO_ROOT = path.resolve(WEB_ROOT, '../..');
 
 const port = Number(process.argv[2] ?? 18510);
 const organizations = process.argv.includes('--organizations');
+const verifying = process.argv.includes('--verifying');
+/** The server of the first tests signs in through the fake provider too. */
+const withProvider = !organizations && !verifying;
 const binary = process.env.FVOCI_SERVER_BIN ?? path.join(REPO_ROOT, 'target/debug/fvoci-server');
 const dist = path.join(WEB_ROOT, 'dist');
 const fakeOidc =
@@ -65,7 +72,7 @@ function stop(message: string): never {
 
 if (!existsSync(binary)) stop(`no server at ${binary}: run \`cargo build -p fvoci-server\``);
 if (!existsSync(path.join(dist, 'index.html'))) stop('no build in dist/: run `pnpm run build`');
-if (!organizations && !existsSync(fakeOidc)) {
+if (withProvider && !existsSync(fakeOidc)) {
   stop(`no fake provider at ${fakeOidc}: run \`cargo build -p fvoci-server --bins --examples\``);
 }
 
@@ -141,6 +148,7 @@ writeFileSync(
       // The operator's commands (`e2e-live/sso-operator.spec.ts`).
       enablelocalmode: true,
       localmodesocketlocation: socket,
+      ...(verifying ? { email_verification: true } : {}),
     },
     null,
     2,
@@ -184,7 +192,7 @@ const providers: ChildProcess[] = [];
 process.on('exit', () => {
   for (const provider of providers) provider.kill('SIGKILL');
 });
-if (!organizations) {
+if (withProvider) {
   const own = [path.join(data, 'fake-oidc-1.pem'), path.join(data, 'fake-oidc-2.pem')] as const;
   providers.push(await startProvider(oidcPort, own[0]));
   providers.push(await startProvider(nextOidcPort, own[1]));
@@ -214,7 +222,7 @@ const server = spawn(binary, ['--config', path.join(data, 'config.json')], {
     ...environment,
     FVOCI_LOG_FORMAT: 'json',
     NO_COLOR: '1',
-    ...(!organizations
+    ...(withProvider
       ? {
           FVOCI_SECRET_KEY: SECRET_KEY,
           FVOCI_OIDC_ALLOW_PRIVATE_ADDRESSES: 'true',

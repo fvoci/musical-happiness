@@ -206,6 +206,7 @@ enum Members {
 const SCHEMAS: &[(&str, Members)] = &[
     // What the server answers with.
     ("AcceptedInvitation", Members::AllBut(&["boardId"])),
+    ("EmailVerified", Members::AllBut(&["boardId"])),
     ("Block", Members::AllBut(&["editedAt"])),
     ("Body", Members::AsWritten),
     ("Board", Members::All),
@@ -302,6 +303,8 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("DeleteBoardsAndBlocks", Members::Only(&["boards"])),
     ("FileForm", Members::AsWritten),
     ("FinishPasswordReset", Members::All),
+    ("CompleteEmailVerification", Members::All),
+    ("RequestEmailVerification", Members::Only(&[])),
     ("RequestPasswordReset", Members::Only(&["email"])),
     ("GuestInvitationsChange", Members::All),
     ("ImportRequest", Members::AsWritten),

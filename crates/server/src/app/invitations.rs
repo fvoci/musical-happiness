@@ -12,13 +12,15 @@ mod mail;
 
 use std::net::IpAddr;
 
+use fvoci_model::User;
 use fvoci_model::{
     AcceptedInvitation, BoardMember, BoardRole, GUEST_INVITATION_USES, GuestInvitationsChange,
     INVITATION_LIFETIME_MILLIS, Invitation, InvitationPreview, NewAccount, Workspace,
     WorkspaceRole,
 };
 use fvoci_store::{
-    Acceptance, Acceptor, Inviter, InviterOfBoard, MailedTo, NewLink, Standing, StoreError,
+    Acceptance, Accepted, Acceptor, Inviter, InviterOfBoard, MailedTo, NewLink, Signup, Standing,
+    StoreError,
 };
 
 use super::auth::account_error;
@@ -31,12 +33,12 @@ use crate::permissions::{self, Actor, BoardScope, WorkspacePermission};
 
 /// How often an acceptance is tried against a maker of the link who is changed
 /// meanwhile.
-const ATTEMPTS: usize = 3;
+pub(super) const ATTEMPTS: usize = 3;
 
 /// What the maker of a link was found to be when their link was found to let somebody
 /// in: what the acceptance holds them to (`fvoci_store::Inviter`).
 #[derive(Debug)]
-struct Maker {
+pub(super) struct Maker {
     workspace_role: Option<WorkspaceRole>,
     /// Their membership of the board of a guest's link.
     member: Option<BoardMember>,
@@ -46,7 +48,7 @@ struct Maker {
 
 impl Maker {
     /// What the acceptance holds the maker `user_id` to.
-    fn inviter<'a>(&'a self, user_id: &'a str) -> Inviter<'a> {
+    pub(super) fn inviter<'a>(&'a self, user_id: &'a str) -> Inviter<'a> {
         Inviter {
             standing: Standing {
                 user_id,
@@ -64,9 +66,14 @@ impl Maker {
 pub enum Accepting<'a> {
     /// The user of the request's session, and the provider it was made through.
     SignedIn(Asker<'a>),
-    /// Somebody without an account, who asks for this one. The caller has checked and
-    /// tidied it.
-    NewAccount(&'a NewAccount),
+    /// Somebody without an account, who asks for this one, from a screen in
+    /// `language`. The caller has checked and tidied it.
+    NewAccount {
+        /// The account asked for.
+        account: &'a NewAccount,
+        /// The language tag of the screen, for the mail that confirms its address.
+        language: &'a str,
+    },
 }
 
 /// What a new link is for.
@@ -410,82 +417,43 @@ impl App {
         token: &str,
         accepting: Accepting<'_>,
         address: Option<IpAddr>,
-    ) -> Result<AcceptedInvitation, AppError> {
+    ) -> Result<Admission, AppError> {
         let _attempt = self.admit_registration(address)?;
         let mut new_user = None;
         let mut settled = None;
         for _ in 0..ATTEMPTS {
-            let Some((app, invitation, maker)) = self.usable_invitation(token).await? else {
-                return Err(AppError::invitation_unavailable());
-            };
-            // Only now, for a link that is there, is a password hashed, and once.
-            let acceptor = match accepting {
-                Accepting::SignedIn(asker) => {
-                    // Who holds the link knows the organization it leads into: a
-                    // session that organization does not take is told so, and let in
-                    // nowhere.
-                    app.require_session_opens_organization(asker).await?;
-                    Acceptor::Account(asker.user_id)
-                }
-                Accepting::NewAccount(account) => match &mut new_user {
-                    Some(user) => Acceptor::NewAccount(user),
-                    empty => Acceptor::NewAccount(empty.insert(app.new_account(account).await?)),
-                },
-            };
-            let inviter = maker.inviter(&invitation.created_by);
-            let acceptance = app
-                .store()
-                .accept_invitation(&token_digest(token), acceptor, now_millis(), inviter)
-                .await
-                .map_err(|error| match error {
-                    error @ StoreError::Conflict(_) => account_error(error),
-                    error => AppError::from(error).context("unable to accept an invitation"),
-                })?;
-            match acceptance {
-                Acceptance::Accepted(accepted) => {
-                    app.collab()
-                        .recheck_access(
-                            &app,
-                            AccessScope::workspace(&accepted.workspace_id)
-                                .of_user(&accepted.user_id),
-                        )
-                        .await;
-                    settled = Some((app, accepted));
+            match self.try_accepting(token, accepting, &mut new_user).await? {
+                Tried::Settled(found) => {
+                    let Settled {
+                        app,
+                        accepted,
+                        waiting,
+                    } = *found;
+                    settled = Some((app, accepted, waiting));
                     break;
                 }
-                // Ended, used up or revoked since it was read.
-                Acceptance::Unavailable => return Err(AppError::invitation_unavailable()),
                 // Whether the maker may still invite is asked again, of what they are now.
-                Acceptance::InviterChanged => {}
+                Tried::Again => {}
             }
         }
         // Its maker was changed every time it was tried: as good as no link.
-        let Some((app, accepted)) = settled else {
+        let Some((app, accepted, waiting)) = settled else {
             return Err(AppError::invitation_unavailable());
         };
+        if let Some(signup) = waiting {
+            tracing::info!(
+                signup_id = %signup.id,
+                workspace_id = %accepted.workspace_id,
+                "an invitation was accepted by a registration that waits for its address"
+            );
+            let app = self.clone();
+            self.spawn_background(async move { app.mail_signup_link(&signup, None).await });
+            return Ok(Admission::Waiting);
+        }
         if new_user.is_some() {
             self.metrics().registered();
         }
-        // Who is on the board of a guest's link sees the newcomer among its members.
-        if let (true, Some(board_id)) = (accepted.used, &accepted.board_id) {
-            match app
-                .store()
-                .get_member_for_board(board_id, &accepted.user_id)
-                .await
-            {
-                Ok(member) => {
-                    app.broadcast_member_change_in_background(
-                        accepted.workspace_id.clone(),
-                        member,
-                    );
-                }
-                Err(error) => tracing::warn!(
-                    %error,
-                    board_id,
-                    "a guest who came in was not announced to the board"
-                ),
-            }
-        }
+        app.announce_admission(&accepted).await;
         tracing::info!(
             user_id = %accepted.user_id,
             workspace_id = %accepted.workspace_id,
@@ -493,11 +461,161 @@ impl App {
             used = accepted.used,
             "an invitation was accepted"
         );
-        Ok(AcceptedInvitation {
+        Ok(Admission::LetIn(AcceptedInvitation {
             workspace_id: accepted.workspace_id,
             board_id: accepted.board_id,
-        })
+        }))
     }
+
+    /// One attempt of [`App::accept_invitation`]: settled, or to be tried again for a
+    /// maker who changed meanwhile. A new account is hashed once, into `new_user`.
+    async fn try_accepting(
+        &self,
+        token: &str,
+        accepting: Accepting<'_>,
+        new_user: &mut Option<User>,
+    ) -> Result<Tried, AppError> {
+        let Some((app, invitation, maker)) = self.usable_invitation(token).await? else {
+            return Err(AppError::invitation_unavailable());
+        };
+        let inviter = maker.inviter(&invitation.created_by);
+        let digest = token_digest(token);
+        let now = now_millis();
+        let mut waiting = None;
+        // Only now, for a link that is there, is a password hashed, and once.
+        let acceptance = match accepting {
+            Accepting::SignedIn(asker) => {
+                // Who holds the link knows the organization it leads into: a session
+                // that organization does not take is told so, and let in nowhere.
+                app.require_session_opens_organization(asker).await?;
+                let acceptor = Acceptor::Account(asker.user_id);
+                app.store()
+                    .accept_invitation(&digest, acceptor, now, inviter)
+                    .await
+            }
+            Accepting::NewAccount { account, language } => {
+                let user = match new_user {
+                    Some(user) => user,
+                    empty => empty.insert(app.new_account(account).await?),
+                };
+                if self.verifies_email() && !mailed_to(&invitation, &user.email) {
+                    let signup = app
+                        .signup_by_link(user, &invitation.id, language, now)
+                        .await?;
+                    let reserved = app
+                        .store()
+                        .reserve_invitation(&digest, &signup, now, inviter)
+                        .await;
+                    waiting = Some(signup);
+                    reserved
+                } else {
+                    let acceptor = Acceptor::NewAccount(user);
+                    app.store()
+                        .accept_invitation(&digest, acceptor, now, inviter)
+                        .await
+                }
+            }
+        }
+        .map_err(|error| match error {
+            error @ StoreError::Conflict(_) => account_error(error),
+            error => AppError::from(error).context("unable to accept an invitation"),
+        })?;
+        match acceptance {
+            Acceptance::Accepted(accepted) => {
+                if waiting.is_none() {
+                    app.collab()
+                        .recheck_access(
+                            &app,
+                            AccessScope::workspace(&accepted.workspace_id)
+                                .of_user(&accepted.user_id),
+                        )
+                        .await;
+                }
+                Ok(Tried::Settled(Box::new(Settled {
+                    app,
+                    accepted,
+                    waiting,
+                })))
+            }
+            // Ended, used up or revoked since it was read.
+            Acceptance::Unavailable => Err(AppError::invitation_unavailable()),
+            Acceptance::InviterChanged => Ok(Tried::Again),
+        }
+    }
+
+    /// Shows who came in by a guest's link to whoever is on its board.
+    pub(super) async fn announce_admission(&self, accepted: &Accepted) {
+        let (true, Some(board_id)) = (accepted.used, &accepted.board_id) else {
+            return;
+        };
+        match self
+            .store()
+            .get_member_for_board(board_id, &accepted.user_id)
+            .await
+        {
+            Ok(member) => {
+                self.broadcast_member_change_in_background(accepted.workspace_id.clone(), member);
+            }
+            Err(error) => tracing::warn!(
+                %error,
+                board_id,
+                "a guest who came in was not announced to the board"
+            ),
+        }
+    }
+
+    /// The maker of the link `invitation_id` of this application's organization, as
+    /// they are now, if the link is there and they may still make it: what a
+    /// registration made by the link is confirmed against.
+    pub(super) async fn maker_of_link(
+        &self,
+        invitation_id: &str,
+    ) -> Result<Option<(Invitation, Maker)>, AppError> {
+        let Some(invitation) = self.store().invitation_by_id(invitation_id).await? else {
+            return Ok(None);
+        };
+        Ok(self
+            .inviter_who_may_still_invite(&invitation)
+            .await?
+            .map(|maker| (invitation, maker)))
+    }
+}
+
+/// Whether `invitation` was mailed to the address `email`, which its mailbox proves: a
+/// link made for one recipient of a mailed guest link.
+fn mailed_to(invitation: &Invitation, email: &str) -> bool {
+    // Addresses are ASCII (`fvoci_model::is_email_valid`), and folded as `lower()` folds.
+    invitation
+        .recipient
+        .as_deref()
+        .is_some_and(|recipient| recipient.eq_ignore_ascii_case(email))
+}
+
+/// Where an acceptance let somebody in, or that it waits for an address.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Admission {
+    /// Somebody was let in, here.
+    LetIn(AcceptedInvitation),
+    /// A registration waits for its address to be confirmed by the link mailed to it:
+    /// nobody is let in until then.
+    Waiting,
+}
+
+/// An acceptance that was written.
+struct Settled {
+    /// The application behind the wall of the link's organization.
+    app: App,
+    accepted: Accepted,
+    /// The registration that waits for its address, where a new account waits.
+    waiting: Option<Signup>,
+}
+
+/// What an attempt to accept came to.
+enum Tried {
+    /// Accepted, by an account or by a registration that waits.
+    Settled(Box<Settled>),
+    /// The maker of the link changed meanwhile.
+    Again,
 }
 
 /// Whether the user sees and revokes every link into a workspace, and not their own

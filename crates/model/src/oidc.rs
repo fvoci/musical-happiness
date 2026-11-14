@@ -317,6 +317,9 @@ pub struct LoginOptions {
     pub registration_open: bool,
     /// Whether this server can deliver password recovery and invitation mail.
     pub mail_enabled: bool,
+    /// Whether a registration opens nothing until the link mailed to its address
+    /// confirms it, which signs it in (`email_verification`).
+    pub email_verification: bool,
 }
 
 #[cfg(test)]
