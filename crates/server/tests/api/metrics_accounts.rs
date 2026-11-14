@@ -49,12 +49,13 @@ async fn logins_registrations_and_live_sessions_are_counted() {
     assert_eq!(logins(&body, "limited"), Some(0.0), "{body}");
     assert_eq!(logins(&body, "failed"), Some(0.0), "{body}");
     assert_eq!(logins(&body, "abandoned"), Some(0.0), "{body}");
+    assert_eq!(logins(&body, "email_unverified"), Some(0.0), "{body}");
     assert_eq!(
         body.lines()
             .filter(|line| line.starts_with("fvoci_logins_total{"))
             .count(),
-        5,
-        "five outcomes, whatever was asked: {body}"
+        6,
+        "six outcomes, whatever was asked: {body}"
     );
     assert_eq!(
         sample(&body, "fvoci_registrations_total", &[]),

@@ -18,6 +18,7 @@ import type {
   User,
 } from '../backend.ts';
 
+import type { KeptOfCard } from './body-versions.ts';
 import type { BoardPlace } from './trash.ts';
 
 /** A view, card, comment or attachment as the world stores it. */
@@ -87,6 +88,8 @@ export class World {
   readonly deletedBoards = new Map<string, DeletedBoard>();
   /** The texts written down of changed comments, by comment, the one it has now last. */
   readonly commentVersions = new Map<string, CommentVersion[]>();
+  /** The versions kept of the bodies of cards, by card (`body-versions.ts`). */
+  readonly bodyVersions = new Map<string, KeptOfCard>();
 
   /**
    * The name of the channel the rooms of the bodies share with the worlds of
@@ -95,6 +98,8 @@ export class World {
   shareRooms: string | undefined;
   /** Before a card's body is written whole: what its room's editors wrote is written into the card (`rooms.ts`). */
   bodyFlushed: ((cardId: string) => void) | undefined;
+  /** Whether a card's room holds what its body does not yet (`rooms.ts`). */
+  bodyUnwritten: ((cardId: string) => boolean) | undefined;
   /** A card's body was written whole: its room, if it has one, makes its document anew (`rooms.ts`). */
   bodyWritten: ((cardId: string) => void) | undefined;
 

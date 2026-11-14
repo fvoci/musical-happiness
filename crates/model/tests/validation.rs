@@ -167,6 +167,7 @@ fn register(username: &str, email: &str, password: &str) -> Result<(), String> {
         password: password.to_owned(),
         display_name: String::new(),
         organization_name: "The Firm".to_owned(),
+        language: String::new(),
     }
     .validate()
     .map_err(|error| error.to_string())
@@ -181,6 +182,7 @@ fn a_registration_names_its_organization() {
             password: "12345678".to_owned(),
             display_name: String::new(),
             organization_name: organization_name.to_owned(),
+            language: String::new(),
         }
         .validate()
         .map_err(|error| error.to_string())

@@ -503,6 +503,7 @@ impl TestServer {
                 password: password.to_owned(),
                 display_name: String::new(),
                 organization_name: ORG_NAME.to_owned(),
+                language: String::new(),
             };
             self.anonymous()
                 .post("/register", &request)

@@ -58,6 +58,8 @@ export function problemOf(error: unknown): string {
   switch (error.reason) {
     case 'invalid_credentials':
       return m.account_invalid_credentials();
+    case 'email_unverified':
+      return m.account_email_unverified();
     case 'session_not_kept':
       return m.account_session_not_kept();
     case 'username_taken':

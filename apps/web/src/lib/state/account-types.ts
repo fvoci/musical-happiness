@@ -44,7 +44,15 @@ export interface LoginOptions {
   registrationOpen: boolean;
   /** Whether the server can deliver recovery and invitation mail. */
   mailEnabled?: boolean;
+  /** Whether a registration waits for the link mailed to its address before there is an account. */
+  emailVerification?: boolean;
 }
+
+/**
+ * What a registration made: the account, or nothing yet, as it waits for the
+ * link mailed to its address (`EmailVerification`).
+ */
+export type Registered = 'made' | 'waiting';
 
 /** What the login page may know of an organization before anybody signs in. */
 export interface LoginOrganization {
@@ -82,8 +90,12 @@ export interface SignInOrganization {
 export interface Account {
   /** `login` is the name to sign in with, or the email address. */
   signIn(login: string, password: string): Promise<void>;
-  /** Makes an account and the organization it starts. It does not sign in. */
-  register(registration: Registration): Promise<void>;
+  /**
+   * Makes an account and the organization it starts. It does not sign in.
+   * Where the server confirms addresses it makes nothing yet (`waiting`): the
+   * link mailed to the address, in `language`, does that and signs in.
+   */
+  register(registration: Registration, language?: string): Promise<Registered>;
   /**
    * What the link of an invitation shows. A link that lets nobody in (there is
    * none, it ended, it was used up or revoked) is refused with 404 and the
@@ -94,7 +106,11 @@ export interface Account {
    * Lets somebody in by the link of an invitation: whoever is signed in, or
    * the `account` it makes for somebody who is not. It does not sign in.
    */
-  acceptInvitation(token: string, account?: NewAccount): Promise<AcceptedInvitation>;
+  acceptInvitation(
+    token: string,
+    account?: NewAccount,
+    language?: string,
+  ): Promise<AcceptedInvitation | 'waiting'>;
   signOut(): Promise<void>;
   /**
    * Changes the reader's password; `oldPassword` proves they know it. Their

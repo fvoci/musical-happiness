@@ -1,7 +1,8 @@
 //! The administration API: setting a user's password without knowing the old one, which
-//! also ends every session of that user, making a user an administrator of the
-//! instance, releasing an organization from taking no password, comparing the file
-//! storage with the records, and making the search index again.
+//! also ends every session of that user, confirming the address of a registration whose
+//! mail does not arrive, making a user an administrator of the instance, releasing an
+//! organization from taking no password, comparing the file storage with the records,
+//! and making the search index again.
 //!
 //! It is served on the local Unix socket only, never on the TCP listener, so that being
 //! able to open the socket file is the credential. There is no session and no cross-site
@@ -34,6 +35,13 @@ pub(super) fn routes() -> Router<App> {
         .route(
             &format!("{}/admin/users/{{username}}/admin", super::PREFIX),
             post(handle_admin_make_admin),
+        )
+        .route(
+            &format!(
+                "{}/admin/users/{{username}}/email-verification",
+                super::PREFIX
+            ),
+            post(handle_verify_email),
         )
         .route(
             &format!("{}/admin/files/reconcile", super::PREFIX),
@@ -100,6 +108,19 @@ async fn handle_admin_set_password(
     }
     .await;
     record_operator(Command::ResetPassword(user_id.as_deref()), result)
+}
+
+/// Confirms the address of the registration with the user name, as its mailed link
+/// would, without signing anybody in: for a person whose mail does not arrive. 204, or
+/// 404 if no registration that waits has the name. Recorded as the operator's in the
+/// organization a registration by a link for members joins, and as every command is in
+/// the log.
+async fn handle_verify_email(State(app): State<App>, Path(username): Path<String>) -> ApiResult {
+    let (user_id, result) = match app.confirm_signup_by_operator(&username).await {
+        Ok(user_id) => (Some(user_id), Ok(no_content())),
+        Err(error) => (None, Err(error)),
+    };
+    record_operator(Command::VerifyEmail(user_id.as_deref()), result)
 }
 
 /// Makes a user an administrator of the instance: the way back in when no
@@ -193,6 +214,8 @@ enum Command<'a> {
     ResetPassword(Option<&'a str>),
     /// Making a user an administrator of the instance: the user, as above.
     MakeAdmin(Option<&'a str>),
+    /// Confirming the address of a registration: the account it became, if it did.
+    VerifyEmail(Option<&'a str>),
     /// Releasing an organization from taking no password: the organization, by
     /// identifier where the path held one.
     ReleaseSso(Option<&'a str>),
@@ -208,6 +231,7 @@ impl<'a> Command<'a> {
         match self {
             Self::ResetPassword(_) => "reset_password",
             Self::MakeAdmin(_) => "make_admin",
+            Self::VerifyEmail(_) => "verify_email",
             Self::ReleaseSso(_) => "release_sso",
             Self::ReconcileFiles => "reconcile_files",
             Self::ReindexSearch => "reindex_search",
@@ -217,9 +241,9 @@ impl<'a> Command<'a> {
     /// The user it was about, and the organization; each empty for none.
     fn target(self) -> (&'a str, &'a str) {
         match self {
-            Self::ResetPassword(user_id) | Self::MakeAdmin(user_id) => {
-                (user_id.unwrap_or_default(), "")
-            }
+            Self::ResetPassword(user_id)
+            | Self::MakeAdmin(user_id)
+            | Self::VerifyEmail(user_id) => (user_id.unwrap_or_default(), ""),
             Self::ReleaseSso(org_id) => ("", org_id.unwrap_or_default()),
             Self::ReconcileFiles | Self::ReindexSearch => ("", ""),
         }

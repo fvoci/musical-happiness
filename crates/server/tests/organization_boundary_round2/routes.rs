@@ -115,6 +115,21 @@ pub(super) const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
     ("POST", "/boards/{boardId}/uploads", "createUpload"),
     ("GET", "/cards/{cardId}", "getCard"),
     ("PATCH", "/cards/{cardId}", "patchCard"),
+    (
+        "GET",
+        "/cards/{cardId}/body-versions",
+        "getCardBodyVersions",
+    ),
+    (
+        "GET",
+        "/cards/{cardId}/body-versions/{version}",
+        "getCardBodyVersion",
+    ),
+    (
+        "POST",
+        "/cards/{cardId}/body-versions/{version}/restore",
+        "restoreCardBodyVersion",
+    ),
     ("POST", "/categories", "createCategory"),
     ("GET", "/categories", "getCategories"),
     ("DELETE", "/categories/{categoryId}", "deleteCategory"),
@@ -232,6 +247,9 @@ const REACHED_BY_ITEM: &[&str] = &[
     "createUpload",
     "getCard",
     "patchCard",
+    "getCardBodyVersions",
+    "getCardBodyVersion",
+    "restoreCardBodyVersion",
     "createSubscription",
     "deleteSubscription",
     "getSubscriptions",
@@ -837,6 +855,7 @@ impl Items<'_> {
             .replace("{teamId}", &pick(self.team, UNKNOWN_ID))
             .replace("{subscriberId}", subscriber)
             .replace("{partNumber}", "1")
+            .replace("{version}", "1")
             .replace("{categoryId}", &pick(self.category, UNKNOWN_ID))
     }
 }
@@ -1369,8 +1388,8 @@ async fn the_paths_from_before_the_workspace_are_not_there() {
     }
     ts.teardown().await;
     assert_eq!(
-        count, 46,
-        "the operations that moved, and the two that went"
+        count, 49,
+        "the operations that moved or came after under the workspace, and the two that went"
     );
     assert!(violations.is_empty(), "{}", violations.join("\n"));
 }

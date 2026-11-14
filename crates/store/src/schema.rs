@@ -37,7 +37,7 @@ struct Step {
 }
 
 /// Every migration, oldest first. Applied ones are never edited: add a new one.
-const STEPS: [Step; 34] = [
+const STEPS: [Step; 36] = [
     Step {
         version: 1,
         description: "baseline",
@@ -226,6 +226,13 @@ const STEPS: [Step; 34] = [
         postgres: include_str!("../schema/postgres/0032_held_sign_ins.sql"),
     },
     Step {
+        version: 33,
+        description: "body versions",
+        sqlite: include_str!("../schema/sqlite/0033_body_versions.sql"),
+        postgres: include_str!("../schema/postgres/0033_body_versions.sql"),
+    },
+    // 34 is other work's.
+    Step {
         version: 35,
         description: "audit identity",
         sqlite: include_str!("../schema/sqlite/0035_audit_identity.sql"),
@@ -243,6 +250,12 @@ const STEPS: [Step; 34] = [
         description: "search outbox",
         sqlite: include_str!("../schema/sqlite/0038_search_outbox.sql"),
         postgres: include_str!("../schema/postgres/0038_search_outbox.sql"),
+    },
+    Step {
+        version: 39,
+        description: "signups",
+        sqlite: include_str!("../schema/sqlite/0039_signups.sql"),
+        postgres: include_str!("../schema/postgres/0039_signups.sql"),
     },
 ];
 
@@ -263,7 +276,7 @@ pub(crate) const ORG_MANAGEMENT_VERSION: i64 = 23;
 /// The tables that are no organization's: the accounts and what is true of the
 /// installation. Every other table of the schema is one of [`ORG_TABLES`].
 #[cfg(any(test, feature = "test-util"))]
-pub(crate) const GLOBAL_TABLES: [&str; 9] = [
+pub(crate) const GLOBAL_TABLES: [&str; 10] = [
     "_sqlx_migrations",
     "data_steps",
     "instance",
@@ -271,6 +284,7 @@ pub(crate) const GLOBAL_TABLES: [&str; 9] = [
     "password_resets",
     "search_index_state",
     "sessions",
+    "signups",
     "user_identities",
     "users",
 ];
@@ -280,7 +294,7 @@ pub(crate) const GLOBAL_TABLES: [&str; 9] = [
 /// policy `org_wall`. A test of the store reads the catalog to see that every table of
 /// the schema is in this list or in [`GLOBAL_TABLES`], and that it is so.
 #[cfg(any(test, feature = "test-util"))]
-pub(crate) const ORG_TABLES: [&str; 32] = [
+pub(crate) const ORG_TABLES: [&str; 34] = [
     "audit_log",
     "blocks",
     "board_members",
@@ -288,6 +302,8 @@ pub(crate) const ORG_TABLES: [&str; 32] = [
     "boards",
     "body_docs",
     "body_updates",
+    "body_version_editors",
+    "body_versions",
     "categories",
     "category_boards",
     "comment_versions",

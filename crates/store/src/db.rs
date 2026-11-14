@@ -269,12 +269,21 @@ pub(crate) struct Scope<'c> {
     /// ([`crate::observe::Watch`]).
     writes: Option<&'c AtomicBool>,
     visibility: Option<&'c crate::visibility::Writing<'c>>,
-    /// How many earlier versions of a comment are kept
-    /// ([`crate::Store::set_comment_versions_kept`]).
-    comment_versions_kept: usize,
+    /// How many versions are kept of a comment and of a card's body.
+    versions_kept: VersionsKept,
     /// Whether the store notes changes for the search server
     /// ([`crate::Store::keep_search_outbox`]); `None` for a scope that notes none.
     search_outbox: Option<&'c AtomicBool>,
+}
+
+/// How many versions the store keeps, as it is set when a scope begins. Two counts in
+/// the room of one `usize`: every call of the store carries a scope.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct VersionsKept {
+    /// Earlier versions of a comment ([`crate::Store::set_comment_versions_kept`]).
+    pub(crate) of_comments: u32,
+    /// Versions of a card's body ([`crate::Store::set_body_versions_kept`]).
+    pub(crate) of_bodies: u32,
 }
 
 /// Binds every parameter of `$sql` to `$query` for one database. `$id` turns an
@@ -309,14 +318,14 @@ fn postgres_id(uuid: Uuid) -> Uuid {
 }
 
 impl<'c> Scope<'c> {
-    pub(crate) fn new(conn: ConnRef<'c>, tenant: Tenant, comment_versions_kept: usize) -> Self {
+    pub(crate) fn new(conn: ConnRef<'c>, tenant: Tenant, versions_kept: VersionsKept) -> Self {
         Self {
             conn,
             tenant,
             wrote: false,
             writes: None,
             visibility: None,
-            comment_versions_kept,
+            versions_kept,
             search_outbox: None,
         }
     }
@@ -416,7 +425,12 @@ impl<'c> Scope<'c> {
 
     /// How many earlier versions of a comment are kept, at least one.
     pub(crate) fn comment_versions_kept(&self) -> usize {
-        self.comment_versions_kept
+        usize::try_from(self.versions_kept.of_comments).unwrap_or(usize::MAX)
+    }
+
+    /// How many versions of a card's body are kept, at least one.
+    pub(crate) fn body_versions_kept(&self) -> i64 {
+        i64::from(self.versions_kept.of_bodies)
     }
 
     /// The dialect of the connected database.

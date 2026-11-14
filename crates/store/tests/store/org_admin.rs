@@ -799,12 +799,18 @@ async fn the_instance_is_administered_through_its_own_organization_only() {
     test.teardown().await;
 }
 
-/// A card of the board with a body edited together: its document and a logged update.
+/// A card of the board with a body edited together: its document, a logged update, and
+/// a version kept of the body.
 async fn card_with_body(store: &Store, board_id: &str, user_id: &str) -> String {
     let mut card = Block {
         id: new_id(),
         board_id: board_id.to_owned(),
         block_type: BlockType::Card,
+        body: fvoci_model::Body::parse(serde_json::json!({
+            "type": "doc",
+            "content": [{"type": "paragraph", "content": [{"type": "text", "text": "kept"}]}],
+        }))
+        .expect("the body may be stored"),
         ..Block::default()
     };
     common::insert_blocks(store, std::slice::from_mut(&mut card), user_id).await;
@@ -813,14 +819,25 @@ async fn card_with_body(store: &Store, board_id: &str, user_id: &str) -> String 
         .await
         .expect("a document is stored");
     store
-        .append_body_updates(&card.id, &[(b"an update", user_id)], &[])
+        .append_body_updates(
+            &card.id,
+            &[(b"an update", user_id)],
+            &[],
+            &[user_id],
+            fvoci_store::BodyBefore::Leave,
+        )
         .await
         .expect("an update is logged");
+    store
+        .keep_body_version(&card.id)
+        .await
+        .expect("a version is kept");
     card.id
 }
 
-/// A workspace removed for good takes the documents of its cards' bodies, and their
-/// logs, with it, as a board removed for good does; another workspace's stay.
+/// A workspace removed for good takes the documents of its cards' bodies, their logs
+/// and the versions kept of the bodies with it, as a board removed for good does;
+/// another workspace's stay.
 #[tokio::test]
 async fn a_workspace_purged_for_good_takes_the_documents_of_its_bodies() {
     let test = common::setup().await;
@@ -850,7 +867,12 @@ async fn a_workspace_purged_for_good_takes_the_documents_of_its_bodies() {
         test.get_body_doc(&stays).await.expect("read").is_some(),
         "the other workspace's stays"
     );
-    for table in ["body_docs", "body_updates"] {
+    for table in [
+        "body_docs",
+        "body_updates",
+        "body_versions",
+        "body_version_editors",
+    ] {
         assert_eq!(
             test.count_rows(table).await.expect("counted"),
             1,

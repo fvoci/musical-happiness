@@ -184,7 +184,9 @@ export class Http {
       throw new BackendError(0, { detail: `${method} ${path}: no answer` });
     }
     if (!response.ok) throw await errorOf(response);
-    if (response.status === 204) return undefined as T;
+    // 204 says nothing, and 202 that the work waits for something (an address to
+    // be confirmed): neither has a body.
+    if (response.status === 204 || response.status === 202) return undefined as T;
     try {
       return (await response.json()) as T;
     } catch {

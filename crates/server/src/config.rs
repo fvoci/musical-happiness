@@ -872,7 +872,7 @@ impl Configuration {
         }
         self.check_upload_limits()?;
         self.smtp.check()?;
-        self.mail.way(&self.smtp)?;
+        self.mail.check(&self.smtp)?;
         self.search.server()?;
         self.metrics_address()?;
         self.check_metrics_token()?;

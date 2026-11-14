@@ -1,0 +1,37 @@
+/** Who a request for a new confirmation link names: the user name or the address. */
+export interface WaitingAccount {
+  username?: string;
+  email?: string;
+}
+
+/** Where a confirmed registration's account was let in. */
+export interface Confirmed {
+  workspaceId: string;
+  /** For a guest's link: the board it was let onto. */
+  boardId?: string;
+  /** Whether it started its organization (its tour starts), or joined one by a link. */
+  organizationStarted: boolean;
+}
+
+/**
+ * Confirming the address of a registration, before there is an account:
+ * where the server asks for it (`emailVerification` of the login options), a
+ * registration makes no account until the link mailed to its address does.
+ */
+export interface EmailVerification {
+  /**
+   * Mails the registration a new link, which ends the one before. Answered
+   * the same whether or not a registration waits under that name.
+   */
+  resend(waiting: WaitingAccount, language: string): Promise<void>;
+  /**
+   * Confirms by the link's token: makes the account, lets it in and signs this
+   * browser in. A token that confirms nothing is refused with 400 naming `/token`.
+   */
+  complete(token: string): Promise<Confirmed>;
+  /**
+   * Starts the tour of the first workspace of an organization the confirmation
+   * started, as a new account's first sign-in does: its welcome board.
+   */
+  welcome(workspaceId: string): Promise<string>;
+}

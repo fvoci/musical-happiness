@@ -30,7 +30,7 @@ function mount(
   render(SignInPage, {
     props: {
       onSignIn: vi.fn(() => Promise.resolve()),
-      onRegister: vi.fn(() => Promise.resolve()),
+      onRegister: vi.fn(() => Promise.resolve('made' as const)),
       optionsOf: organizationOf,
       onOidcStart,
     },
@@ -113,7 +113,7 @@ describe('a sign-in held while the organization moves to another provider', () =
     render(SignInPage, {
       props: {
         onSignIn: vi.fn(() => Promise.resolve()),
-        onRegister: vi.fn(() => Promise.resolve()),
+        onRegister: vi.fn(() => Promise.resolve('made' as const)),
         optionsOf: () => Promise.resolve({ organization: acme, registrationOpen: false }),
         onOidcStart: vi.fn(() => Promise.resolve()),
         onCarryOver,

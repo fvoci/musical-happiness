@@ -248,7 +248,7 @@ describe('the page of an invitation', () => {
 
 describe('the sign-in page and who may make an account', () => {
   function signInPage(registrationOpen: boolean) {
-    const onRegister = vi.fn(() => Promise.resolve());
+    const onRegister = vi.fn(() => Promise.resolve('made' as const));
     const onSignIn = vi.fn(() => Promise.resolve());
     render(SignInPage, {
       props: { onSignIn, onRegister, optionsOf: () => Promise.resolve({ registrationOpen }) },

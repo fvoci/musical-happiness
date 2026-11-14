@@ -82,6 +82,9 @@ const REACHED: &[(&str, Reaches)] = &[
     ("getCards", Reaches::Boards),
     ("getCard", Reaches::Boards),
     ("patchCard", Reaches::Boards),
+    ("getCardBodyVersions", Reaches::Boards),
+    ("getCardBodyVersion", Reaches::Boards),
+    ("restoreCardBodyVersion", Reaches::Boards),
     ("getDeletedCards", Reaches::Boards),
     ("deleteSubscription", Reaches::Boards),
     // What a wiki holds.
@@ -215,8 +218,21 @@ impl World {
                 let pages = format!("{ROOT_WS}/wikis/{container}/pages");
                 let page = client.post(&pages, &json!({"title": "a page"})).await;
                 page.check_done();
+                let page = page.value();
+                // A body written to the page is a version of it, as the card's is: an
+                // operation on a card's versions that reached it would find one.
+                let body = json!({"type": "doc", "content": [{"type": "paragraph", "content": [
+                    {"type": "text", "text": "written"}
+                ]}]});
+                client
+                    .patch(
+                        &format!("{pages}/{}", text(&page, "id")),
+                        &json!({"readAt": page["updateAt"], "body": body}),
+                    )
+                    .await
+                    .check_ok();
                 // A page has no comment yet.
-                (text(&page.value(), "id"), UNKNOWN_ID.to_owned())
+                (text(&page, "id"), UNKNOWN_ID.to_owned())
             }
             Reaches::Boards | Reaches::Both => self.card_with_a_comment(&container).await,
         };
@@ -237,10 +253,19 @@ impl World {
             .post(&format!("{at}/cards"), &json!({"title": "a card"}))
             .await;
         card.check_done();
-        let card = text(&card.value(), "id");
+        let made = card.value();
+        let card = text(&made, "id");
         let text_of = json!({"type": "doc", "content": [{"type": "paragraph", "content": [
             {"type": "text", "text": "said"}
         ]}]});
+        // A body written to the card is the first version of it.
+        client
+            .patch(
+                &format!("{ROOT_WS}/cards/{card}"),
+                &json!({"readAt": made["updateAt"], "body": text_of}),
+            )
+            .await
+            .check_ok();
         let comments = client
             .post(
                 &format!("{at}/blocks"),
@@ -307,7 +332,8 @@ impl World {
             .replace("{teamId}", &self.team)
             .replace("{categoryId}", &self.category)
             .replace("{subscriberId}", &self.me)
-            .replace("{partNumber}", "1");
+            .replace("{partNumber}", "1")
+            .replace("{version}", "1");
         assert!(
             !path.contains('{'),
             "{operation}: a parameter of {path} is not filled in"

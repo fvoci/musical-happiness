@@ -176,6 +176,9 @@ reasons! {
     UsernameTaken => "username_taken", "User name taken";
     /// The email address is taken.
     EmailTaken => "email_taken", "Email address taken";
+    /// The password is right, of a registration whose email address is not confirmed
+    /// yet: there is no account until it is.
+    EmailUnverified => "email_unverified", "Email address not confirmed";
     /// The change would leave the board, the workspace or the instance without an
     /// administrator.
     LastAdmin => "last_admin", "Last administrator";

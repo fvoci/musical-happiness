@@ -97,7 +97,8 @@ fn the_contract_says_when_each_reason_comes() {
 }
 
 /// The operations that need no session at all.
-const NO_SESSION: [&str; 14] = [
+const NO_SESSION: [&str; 16] = [
+    "completeEmailVerification",
     "completePasswordReset",
     "finishHeldOidcLogin",
     "finishOidcLogin",
@@ -109,6 +110,7 @@ const NO_SESSION: [&str; 14] = [
     "previewInvitation",
     "ready",
     "register",
+    "requestEmailVerification",
     "requestPasswordReset",
     "startOidcCarryOver",
     "startOidcLogin",
@@ -507,6 +509,7 @@ const ORDERS: &[(&str, &str)] = &[
         "getBoardTeams",
         "Ordered by team name in any letter case, by code point, then by identifier",
     ),
+    ("getCardBodyVersions", "The newest first"),
     ("getCards", "Oldest first; the pages cut that order"),
     ("getCategories", "by `sortOrder`, lowest first"),
     ("getCommentVersions", "The first one first"),

@@ -245,17 +245,26 @@ impl App {
                 .await?;
         }
         let block = self.store().get_block(block_id).await?;
-        log_notification(notification, ChangeAction::Update, block_id);
+        self.tell_of_update(&board.workspace_id, &block, notification);
+        Ok(block)
+    }
 
-        let app = self.clone();
-        let changed = block.clone();
+    /// Tells the websocket listeners of a workspace and the webhooks, in the
+    /// background, of a block that was changed.
+    pub(super) fn tell_of_update(
+        &self,
+        workspace_id: &str,
+        block: &Block,
+        notification: ChangeNotification,
+    ) {
+        log_notification(notification, ChangeAction::Update, &block.id);
+        let (app, workspace_id, changed) = (self.clone(), workspace_id.to_owned(), block.clone());
         self.spawn_background(async move {
             app.ws()
-                .broadcast_block_change(&board.workspace_id, &changed)
+                .broadcast_block_change(&workspace_id, &changed)
                 .await;
             app.webhook().notify_update(&changed).await;
         });
-        Ok(block)
     }
 
     /// Applies each patch of a batch to the block at the same position, all or none;

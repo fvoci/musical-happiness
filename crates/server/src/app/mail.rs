@@ -77,6 +77,9 @@ pub(super) struct Mailer {
     org_shares: Arc<share::OrgShares>,
     /// Recovery messages per account and hour, up to `mail_reset_per_account_hour`.
     reset_quota: Arc<quota::HourlyQuota>,
+    /// Messages that confirm a registration's address, per address and hour, up to the
+    /// same number; they go in the recovery queue.
+    verification_quota: Arc<quota::HourlyQuota>,
     reset_per_hour: u32,
     pace: Arc<pace::Pace>,
     metrics: Metrics,
@@ -153,6 +156,7 @@ impl Mailer {
                 settings.invitation_mail_recipients,
             )),
             reset_quota: Arc::default(),
+            verification_quota: Arc::default(),
             reset_per_hour: settings.mail_reset_per_account_hour,
             pace: Arc::new(pace::Pace::new(settings.mail_per_second)),
             metrics,
@@ -172,6 +176,29 @@ impl Mailer {
             })
             .map(|place| Queued {
                 kind: MailKind::PasswordReset,
+                place,
+                org: None,
+            })
+            .map_err(|refusal| match refusal {
+                quota::Refusal::Limit(_) => ResetMailDrop::AccountLimit,
+                quota::Refusal::Unplaced(_) => ResetMailDrop::QueueFull,
+            })
+    }
+
+    /// Takes the place of one message that confirms the address `email` of a
+    /// registration, in the recovery queue: it goes before invitations as a reset link
+    /// does. The address's hour is counted as an account's recovery messages are.
+    ///
+    /// # Errors
+    /// Returns why the message is dropped, as [`Mailer::queue_reset`] does.
+    pub(super) fn queue_verification(&self, email: &str) -> Result<Queued, ResetMailDrop> {
+        let key = email.to_lowercase();
+        self.verification_quota
+            .take(&key, 1, self.reset_per_hour, Instant::now(), || {
+                Arc::clone(&self.reset_queue).try_acquire_owned()
+            })
+            .map(|place| Queued {
+                kind: MailKind::EmailVerification,
                 place,
                 org: None,
             })
@@ -300,7 +327,7 @@ impl Queued {
         for attempt in 1.. {
             // A recovery message's quarter of an hour starts when it first waits for a
             // closed way, whether or not an attempt of its own found it so.
-            if kind == MailKind::PasswordReset && mailer.pace.is_closed() {
+            if kind.goes_first() && mailer.pace.is_closed() {
                 tried
                     .closed_since
                     .get_or_insert_with(tokio::time::Instant::now);
@@ -404,7 +431,7 @@ impl Mailer {
     async fn turn(&self, kind: MailKind, closed_since: Option<tokio::time::Instant>) -> bool {
         let turn = self.pace.turn(kind);
         match closed_since {
-            Some(since) if kind == MailKind::PasswordReset => {
+            Some(since) if kind.goes_first() => {
                 tokio::time::timeout_at(since + LONGEST_PATH_WAIT, turn)
                     .await
                     .is_ok()
