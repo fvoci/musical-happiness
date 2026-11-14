@@ -10,8 +10,8 @@
 
 use std::collections::BTreeSet;
 
+use reqwest::Method;
 use reqwest::multipart::{Form, Part};
-use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
 
 use crate::common::{
@@ -369,16 +369,6 @@ fn text(value: &Value, member: &str) -> String {
         .to_owned()
 }
 
-/// An answer without the two members that name the request.
-fn answer(response: &ApiResponse) -> (StatusCode, Value) {
-    let mut body: Value = serde_json::from_slice(&response.body).unwrap_or(Value::Null);
-    if let Some(object) = body.as_object_mut() {
-        object.remove("instance");
-        object.remove("requestId");
-    }
-    (response.status, body)
-}
-
 /// The operations of the contract whose path names a board, a wiki or something of
 /// one: method, path, operation.
 fn operations_that_name_one() -> Vec<(Method, String, String)> {
@@ -441,17 +431,17 @@ async fn every_operation_reaches_the_kinds_of_its_row_and_answers_for_the_other_
         let (of_wiki, of_board) = (ask(&wiki).await, ask(&board).await);
         let right = match reaches {
             Reaches::Boards => {
-                answer(&of_wiki) == answer(&nothing)
+                of_wiki.problem() == nothing.problem()
                     && !of_wiki.status.is_success()
-                    && answer(&of_board) != answer(&nothing)
+                    && of_board.problem() != nothing.problem()
             }
             Reaches::Wikis => {
-                answer(&of_board) == answer(&nothing)
+                of_board.problem() == nothing.problem()
                     && !of_board.status.is_success()
-                    && answer(&of_wiki) != answer(&nothing)
+                    && of_wiki.problem() != nothing.problem()
             }
             Reaches::Both => {
-                of_wiki.status == of_board.status && answer(&of_wiki) != answer(&nothing)
+                of_wiki.status == of_board.status && of_wiki.problem() != nothing.problem()
             }
         };
         // A user has only so many uploads open at once.
@@ -463,9 +453,9 @@ async fn every_operation_reaches_the_kinds_of_its_row_and_answers_for_the_other_
             wrong.push(format!(
                 "{operation} ({method} {template}) reaches {reaches:?}: wiki={:?}, board={:?}, \
                  nothing={:?}",
-                answer(&of_wiki),
-                answer(&of_board),
-                answer(&nothing)
+                of_wiki.problem(),
+                of_board.problem(),
+                nothing.problem()
             ));
         }
     }
@@ -593,7 +583,7 @@ async fn what_names_a_wiki_in_a_body_or_a_query_is_refused_as_what_names_nothing
             Client::send(client.request(method.clone(), path).json(&body(id))).await
         };
         let (of_wiki, nothing) = (send(&wiki.container).await, send(UNKNOWN_ID).await);
-        assert_eq!(answer(&of_wiki), answer(&nothing), "{method} {path}");
+        assert_eq!(of_wiki.problem(), nothing.problem(), "{method} {path}");
         assert!(
             !of_wiki.status.is_success(),
             "{method} {path}: {}",
@@ -631,7 +621,7 @@ async fn what_names_a_wiki_in_a_body_or_a_query_is_refused_as_what_names_nothing
     other.check_done();
     from(&text(&other.value(), "id")).await.check_done();
     let (of_wiki, nothing) = (from(&wiki.container).await, from(UNKNOWN_ID).await);
-    assert_eq!(answer(&of_wiki), answer(&nothing), "sourceBoardId");
+    assert_eq!(of_wiki.problem(), nothing.problem(), "sourceBoardId");
     assert!(!of_wiki.status.is_success(), "{}", of_wiki.text());
     client
         .put(

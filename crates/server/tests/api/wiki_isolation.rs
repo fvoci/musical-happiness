@@ -8,11 +8,14 @@ use fvoci_model::{Board, BoardKind, BoardMember, BoardType, NewPage, WorkspaceRo
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
+use crate::board_broadcasts::WorkspaceSocket;
 use crate::common::{
-    ApiResponse, Client, HIDDEN_WORKSPACE_ID, ROOT_WORKSPACE_ID, ROOT_WS, Setup, TEST_WORKSPACE_ID,
-    TEST_WS, UNKNOWN_ID,
+    Client, HIDDEN_WORKSPACE_ID, ROOT_WORKSPACE_ID, ROOT_WS, Setup, TEST_WORKSPACE_ID, TEST_WS,
+    UNKNOWN_ID,
 };
+use crate::presence::visit;
 use crate::rooms::Peer;
+use crate::websocket::{QUIET, Socket};
 
 /// What the five operations of pages answer, in the order of [`asked`].
 type Answers = [u16; 5];
@@ -24,13 +27,16 @@ const READ_ONLY: Answers = [200, 200, 403, 403, 403];
 /// Everything is done: an editor of the wiki.
 const ALL_DONE: Answers = [200, 200, 201, 200, 204];
 
+/// What every wiki of [`wiki_of`] says of itself: for its readers, not for who only
+/// manages it.
+const DESCRIPTION: &str = "What this wiki is for";
+
 /// A wiki of the test workspace made by `maker`, of the type `wiki_type` (`P` for the
 /// invited only, `O` for everybody in the workspace), with a page: the identifiers of
 /// both.
 async fn wiki_of(maker: &Client, wiki_type: &str) -> (String, String) {
-    let wiki = maker
-        .post(&format!("{TEST_WS}/wikis"), &json!({"type": wiki_type}))
-        .await;
+    let wiki = json!({"type": wiki_type, "description": DESCRIPTION});
+    let wiki = maker.post(&format!("{TEST_WS}/wikis"), &wiki).await;
     wiki.check_created();
     let wiki = wiki.value()["id"].as_str().expect("an id").to_owned();
     let page = maker
@@ -60,16 +66,6 @@ async fn asked(client: &Client, at: &str, wiki_id: &str, page_id: &str) -> Answe
     .map(|response| response.status.as_u16())
 }
 
-/// The problem of an answer without what identifies the request.
-fn answer(response: &ApiResponse) -> (StatusCode, Value) {
-    let mut body = response.value();
-    if let Some(object) = body.as_object_mut() {
-        object.remove("instance");
-        object.remove("requestId");
-    }
-    (response.status, body)
-}
-
 /// The wikis `client` lists under the workspace path `at`, by identifier.
 async fn listed(client: &Client, at: &str) -> Vec<String> {
     let wikis: Vec<Board> = client.get(&format!("{at}/wikis")).await.ok_json();
@@ -97,6 +93,10 @@ async fn at_the_door(client: &Client, workspace_id: &str, page_id: &str) -> Stri
 /// Puts `user_id` on the wiki with `role` (`viewer`, `commenter` or `editor`), as
 /// `admin`, who administers it.
 async fn put_on(admin: &Client, wiki_id: &str, user_id: &str, role: &str) {
+    assert!(
+        ["viewer", "commenter", "editor"].contains(&role),
+        "no such role: {role}"
+    );
     let member = BoardMember {
         board_id: wiki_id.to_owned(),
         user_id: user_id.to_owned(),
@@ -122,6 +122,8 @@ async fn a_wiki_and_its_pages_are_under_their_own_workspace_only() {
     let (wiki, page) = wiki_of(&th.client, "O").await;
     assert!(listed(&th.client, TEST_WS).await.contains(&wiki));
 
+    // Under the root workspace, which the user works in, it is the wiki that is not
+    // there; under the hidden one the workspace is not, before any wiki is asked for.
     let hidden = format!("/w/{HIDDEN_WORKSPACE_ID}");
     for at in [ROOT_WS, hidden.as_str()] {
         assert_eq!(asked(&th.client, at, &wiki, &page).await, NOT_THERE, "{at}");
@@ -132,7 +134,7 @@ async fn a_wiki_and_its_pages_are_under_their_own_workspace_only() {
                 .client
                 .get(&format!("{at}/wikis/{UNKNOWN_ID}{path}"))
                 .await;
-            assert_eq!(answer(&of_wiki), answer(&of_none), "{at}{path}");
+            assert_eq!(of_wiki.problem(), of_none.problem(), "{at}{path}");
         }
         // Nor is it there as a board, for what a wiki and a board share.
         for shared in ["", "/members"] {
@@ -161,7 +163,11 @@ async fn a_wiki_and_its_pages_are_under_their_own_workspace_only() {
 }
 
 /// A wiki of another organization is not there, whatever workspace is named; who is
-/// let into its workspace and onto the wiki reaches it there, and nowhere else.
+/// let into its workspace and onto the wiki reaches it there, and nowhere else, and
+/// reaches nothing of their own organization through it. What is asked here is
+/// answered by the workspace a request names; that the rows of two organizations stay
+/// apart whatever is named is the store's test
+/// (`the_pages_of_two_organizations_are_out_of_each_others_reach`).
 #[tokio::test]
 async fn a_wiki_of_another_organization_is_reached_through_its_workspace_only() {
     // SQLite holds one organization.
@@ -189,6 +195,7 @@ async fn a_wiki_of_another_organization_is_reached_through_its_workspace_only() 
         .await
         .expect("their page is stored");
     let (wiki, page) = (wiki.id, page.id);
+    let (our_wiki, our_page) = wiki_of(&th.client, "O").await;
 
     let there = format!("/w/{their_workspace}");
     for at in [TEST_WS, there.as_str()] {
@@ -198,7 +205,7 @@ async fn a_wiki_of_another_organization_is_reached_through_its_workspace_only() 
             .client
             .get(&format!("{at}/wikis/{UNKNOWN_ID}/pages"))
             .await;
-        assert_eq!(answer(&of_theirs), answer(&of_none), "{at}");
+        assert_eq!(of_theirs.problem(), of_none.problem(), "{at}");
         th.client
             .get(&format!("{at}/boards/{wiki}"))
             .await
@@ -230,6 +237,15 @@ async fn a_wiki_of_another_organization_is_reached_through_its_workspace_only() 
     assert_eq!(asked(&th.client, TEST_WS, &wiki, &page).await, NOT_THERE);
     assert_eq!(
         at_the_door(&th.client, TEST_WORKSPACE_ID, &page).await,
+        "not_found"
+    );
+    // Nor is the user's own wiki, of their own organization, there under theirs.
+    assert_eq!(
+        asked(&th.client, &there, &our_wiki, &our_page).await,
+        NOT_THERE
+    );
+    assert_eq!(
+        at_the_door(&th.client, &their_workspace, &our_page).await,
         "not_found"
     );
     assert_eq!(
@@ -271,7 +287,7 @@ async fn a_guest_has_only_the_wikis_it_was_invited_to() {
             .client2
             .get(&format!("{TEST_WS}/wikis/{wiki}/pages"))
             .await;
-        assert_eq!(answer(&of_wiki), answer(&of_none), "wiki {wiki}");
+        assert_eq!(of_wiki.problem(), of_none.problem(), "wiki {wiki}");
         assert_eq!(
             at_the_door(&th.client2, TEST_WORKSPACE_ID, page).await,
             "not_found"
@@ -320,9 +336,20 @@ async fn who_only_manages_a_wiki_reads_none_of_its_pages() {
         .await
         .ok_json();
     assert_eq!(
-        (seen.kind, seen.id.as_str()),
-        (BoardKind::Wiki, wiki.as_str())
+        (seen.kind, seen.id.as_str(), seen.description.as_str()),
+        (BoardKind::Wiki, wiki.as_str(), ""),
+        "what the wiki says of itself is for its readers"
     );
+    let of_maker: Board = maker
+        .get(&format!("{TEST_WS}/boards/{wiki}"))
+        .await
+        .ok_json();
+    assert_eq!(of_maker.description, DESCRIPTION);
+    // The link that shows the wiki's pages is of its content.
+    admin_client
+        .get(&format!("{TEST_WS}/boards/{wiki}/sharing"))
+        .await
+        .check_not_found();
     admin_client
         .get(&format!("{TEST_WS}/boards/{wiki}/members"))
         .await
@@ -334,7 +361,7 @@ async fn who_only_manages_a_wiki_reads_none_of_its_pages() {
     let of_none = admin_client
         .get(&format!("{TEST_WS}/wikis/{UNKNOWN_ID}/pages"))
         .await;
-    assert_eq!(answer(&of_wiki), answer(&of_none));
+    assert_eq!(of_wiki.problem(), of_none.problem());
     assert_eq!(
         at_the_door(admin_client, TEST_WORKSPACE_ID, &page).await,
         "not_found"
@@ -415,21 +442,27 @@ async fn the_pages_of_a_wiki_are_for_each_role_what_the_role_is_let_do() {
             "{role}"
         );
     }
-    // A refusal names no page: the reader knows the page is there.
-    let refused = th
+    // A change is refused to a reader the same whether there is such a page or not.
+    let pages = format!("{TEST_WS}/wikis/{private}/pages");
+    let change = json!({"title": "changed"});
+    let of_page = th
         .client2
-        .patch(
-            &format!("{TEST_WS}/wikis/{private}/pages/{private_page}"),
-            &json!({"title": "changed"}),
-        )
+        .patch(&format!("{pages}/{private_page}"), &change)
         .await;
-    refused.check_forbidden();
-    // What is not a page of the wiki is not there for a reader either, whatever it is.
-    for no_page in [UNKNOWN_ID, open_page.as_str(), private.as_str()] {
-        th.client2
-            .get(&format!("{TEST_WS}/wikis/{private}/pages/{no_page}"))
-            .await
-            .check_not_found();
+    let of_none = th
+        .client2
+        .patch(&format!("{pages}/{UNKNOWN_ID}"), &change)
+        .await;
+    of_page.check_forbidden();
+    assert_eq!(of_page.problem(), of_none.problem());
+    // A page of a wiki the reader is not on is no page of the wiki they read: asked
+    // for by that wiki's path, it is answered as a page that is nowhere.
+    let (_, hidden_page) = wiki_of(&th.client, "P").await;
+    let of_none = th.client2.get(&format!("{pages}/{UNKNOWN_ID}")).await;
+    of_none.check_not_found();
+    for no_page in [hidden_page.as_str(), private.as_str()] {
+        let read = th.client2.get(&format!("{pages}/{no_page}")).await;
+        assert_eq!(read.problem(), of_none.problem(), "page {no_page}");
     }
 
     put_on(&th.client, &private, &member, "editor").await;
@@ -442,4 +475,103 @@ async fn the_pages_of_a_wiki_are_for_each_role_what_the_role_is_let_do() {
         ALL_DONE
     );
     th.teardown().await;
+}
+
+/// Who may not read a wiki is told nothing of its pages: not what is made, changed
+/// and deleted in it, not who visits it, and not that it went to the trash. A member
+/// of the workspace who is not on it, a guest who was not invited to it, and the
+/// administrator who only manages it, each beside a wiki they do read, of which they
+/// are told.
+#[tokio::test]
+async fn who_may_not_read_a_wiki_is_told_nothing_of_its_pages() {
+    for standing in ["member", "guest", "administrator"] {
+        let th = Setup::native().start().await.init_basic().await;
+        let other = match standing {
+            "member" => th.client2.me().await.id,
+            "guest" => crate::guests::guest_of_the_workspace(&th).await,
+            "administrator" => crate::workspace_admin::workspace_admin(&th).await,
+            unknown => unreachable!("no such standing: {unknown}"),
+        };
+        let (hidden, hidden_page) = wiki_of(&th.client, "P").await;
+        let (shown, shown_page) = wiki_of(&th.client, "P").await;
+        put_on(&th.client, &shown, &other, "viewer").await;
+        let mut listener =
+            WorkspaceSocket::subscribe(&th, &th.client2, TEST_WORKSPACE_ID, &other).await;
+
+        // A page is changed, made and deleted in the wiki they do not read, and then
+        // one changed in the wiki they do: what comes before that is all there is.
+        let pages = format!("{TEST_WS}/wikis/{hidden}/pages");
+        let change = json!({"title": "changed"});
+        th.client
+            .patch(&format!("{pages}/{hidden_page}"), &change)
+            .await
+            .check_ok();
+        let made = th.client.post(&pages, &json!({"title": "made"})).await;
+        made.check_created();
+        let made = made.value()["id"].as_str().expect("an id").to_owned();
+        th.client
+            .delete(&format!("{pages}/{made}"))
+            .await
+            .check_no_content();
+        th.client
+            .patch(
+                &format!("{TEST_WS}/wikis/{shown}/pages/{shown_page}"),
+                &change,
+            )
+            .await
+            .check_ok();
+        let mut heard = Vec::new();
+        for _ in 0..20 {
+            heard.extend(listener.drain().await);
+            if heard
+                .iter()
+                .any(|told| told["block"]["id"] == json!(shown_page))
+            {
+                break;
+            }
+        }
+        let of_pages: Vec<&Value> = heard
+            .iter()
+            .filter(|told| told["action"] == json!("UPDATE_BLOCK"))
+            .collect();
+        assert_eq!(of_pages.len(), 1, "{standing}: {of_pages:?}");
+        assert_eq!(
+            (
+                &of_pages[0]["block"]["id"],
+                &of_pages[0]["block"]["boardId"]
+            ),
+            (&json!(shown_page), &json!(shown)),
+            "{standing}: told of the page they read, and of no other"
+        );
+
+        // A visit to it is refused, and says nothing of who else is there.
+        let mut owner = Socket::connect_as(&th.client).await;
+        let mut visitor = Socket::connect_as(&th.client2).await;
+        visit(&mut owner, &hidden, &hidden_page).await;
+        visit(&mut visitor, &hidden, &hidden_page).await;
+        assert!(
+            visitor.next_json(QUIET).await.is_none(),
+            "{standing}: no roster of a wiki they do not read"
+        );
+
+        // In the trash it is for who administered it, and for who manages the
+        // workspace by its name: not for a member or a guest it was hidden from.
+        th.client
+            .delete(&format!("{TEST_WS}/boards/{hidden}"))
+            .await
+            .check_no_content();
+        let trash = th.client2.get(&format!("{TEST_WS}/trash/boards")).await;
+        let listed = trash.status == StatusCode::OK && trash.text().contains(&hidden);
+        assert_eq!(
+            listed,
+            standing == "administrator",
+            "{standing}: {}",
+            trash.text()
+        );
+        assert!(
+            !trash.text().contains(DESCRIPTION),
+            "{standing}: what the wiki says of itself is for its readers"
+        );
+        th.teardown().await;
+    }
 }

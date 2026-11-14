@@ -402,9 +402,10 @@ async fn the_body_of_a_page_has_a_room_in_its_wiki_as_that_of_a_card_in_its_boar
 }
 
 /// The wikis and pages of two organizations stay apart (PostgreSQL; SQLite holds one
-/// organization): a handle of one finds no tree and no page of the other's, makes no
-/// page in the other's wiki, and takes no page of the other's for a parent or a
-/// sibling of its own.
+/// organization): a handle of one finds no tree and no page of the other's, either
+/// way, and makes no page in the other's wiki; a handle that names no organization
+/// finds none of either. Nor does a page of the other's pass for a parent or a
+/// sibling of one's own, which the wiki a page is asked for in refuses already.
 #[tokio::test]
 async fn the_pages_of_two_organizations_are_out_of_each_others_reach() {
     if common::db_type() != DbType::Postgres {
@@ -433,13 +434,25 @@ async fn the_pages_of_two_organizations_are_out_of_each_others_reach() {
     let our_page = page(ours, &our_wiki, "", None).await;
     let their_page = page(&theirs, &their_wiki, "", None).await;
 
-    // Their wiki has no tree for us and takes no page of ours; their page is no block.
-    for store in [ours, &unset] {
-        let tree = store.get_page_tree(&their_wiki.id).await.expect("a tree");
+    // Their wiki has no tree for us and takes no page of ours, and their page is no
+    // block; nor ours for them. These read the blocks by nothing but their wiki or
+    // their identifier: it is the wall that keeps them apart.
+    for (store, wiki, page_id) in [
+        (ours, &their_wiki, &their_page),
+        (&theirs, &our_wiki, &our_page),
+        (&unset, &their_wiki, &their_page),
+        (&unset, &our_wiki, &our_page),
+    ] {
+        let tree = store.get_page_tree(&wiki.id).await.expect("a tree");
         assert!(tree.is_empty(), "{tree:?}");
-        let found = store.board_of_card(&their_page).await.expect("read");
-        assert_eq!(found, None, "the wiki of their page");
+        let found = store.board_of_card(page_id).await.expect("read");
+        assert_eq!(found, None, "the wiki of the other's page");
     }
+    let read = theirs.get_block(&our_page).await;
+    assert!(
+        matches!(&read, Err(error) if error.is_not_found()),
+        "{read:?}"
+    );
     let made = ours
         .create_page(&their_wiki.id, &NewPage::default(), &user_id)
         .await;
