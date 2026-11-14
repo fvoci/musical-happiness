@@ -7,6 +7,8 @@
 //! size of a request, of one part of an upload, the bytes all open uploads hold back)
 //! is no organization's, and stays the configuration's.
 
+use std::time::Duration;
+
 use super::App;
 
 /// How much an organization may use of the server.
@@ -23,6 +25,9 @@ pub struct OrgLimits {
     /// all of them together: `invitation_mail_per_org_hour`, which the configuration
     /// keeps at least one request's recipients.
     pub invitation_mail_per_hour: u32,
+    /// How long the provider an organization moves away from is kept, for its people
+    /// to carry their accounts over: `oidc_former_provider_days`. No time keeps none.
+    pub former_provider_kept: Duration,
 }
 
 impl OrgLimits {
@@ -47,12 +52,15 @@ impl App {
             largest_file: config.max_file_size,
             largest_import: i64::try_from(config.max_import_bytes).unwrap_or(i64::MAX),
             invitation_mail_per_hour: config.smtp.invitation_mail_per_org_hour,
+            former_provider_kept: config.oidc_former_provider_kept(),
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::OrgLimits;
 
     #[test]
@@ -61,6 +69,7 @@ mod tests {
             largest_file,
             largest_import,
             invitation_mail_per_hour: 1,
+            former_provider_kept: Duration::ZERO,
         };
         assert_eq!(limits(10, 3).open_upload_bytes_of_a_user(), 20);
         assert_eq!(limits(3, 10).open_upload_bytes_of_a_user(), 20);

@@ -10,7 +10,9 @@ use axum::extract::Extension;
 use axum::extract::rejection::RawPathParamsRejection;
 use axum::extract::{FromRequestParts, RawPathParams};
 use axum::http::request::Parts;
-use fvoci_model::{OidcProvider, OidcProviderSettings, OidcStart, Problem, Session};
+use fvoci_model::{
+    OidcFormerProviderEnd, OidcProvider, OidcProviderSettings, OidcStart, Problem, Session,
+};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
@@ -35,6 +37,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
             handle_delete_oidc_provider
         ))
         .routes(routes!(handle_delete_oidc_pending))
+        .routes(routes!(handle_delete_oidc_former))
         .routes(routes!(handle_start_oidc_trial))
 }
 
@@ -217,6 +220,43 @@ async fn handle_delete_oidc_pending(org: OrgAdmin) -> ApiResult {
     Ok(no_content())
 }
 
+/// End the keeping of an organization's former provider
+///
+/// When the provider's issuer changes, the provider before is kept as the `former`
+/// one for `oidc_former_provider_days` (30 by default): nobody signs in through it,
+/// but somebody the new provider vouches for who has no account yet may sign in
+/// through it once to carry their account over. This ends that before its time: from
+/// then on nobody carries an account over from it. The body names the former
+/// provider as it was read (`createAt`): if the organization moved again since, and
+/// another one is kept, the request is 409, to be read and sent again. An organization
+/// that keeps none answers 204 as well. Recorded in the organization's audit log
+/// (`oidc_former_provider_ended`), as its keeping (`oidc_former_provider_kept`) and
+/// its running out (`oidc_former_provider_lapsed`, the server's doing) are.
+#[utoipa::path(
+    delete,
+    path = "/org/{orgId}/oidc/former",
+    operation_id = "deleteOidcFormerProvider",
+    tag = tag::AUTH,
+    params(OrgId),
+    request_body = OidcFormerProviderEnd,
+    responses(
+        (status = 204, description = "The organization keeps no former provider."),
+        (
+            status = 409,
+            description = "Another former provider is kept than the one read.",
+            body = Problem,
+            content_type = "application/problem+json",
+        ),
+    ),
+)]
+async fn handle_delete_oidc_former(org: OrgAdmin, body: Bytes) -> ApiResult {
+    let read: OidcFormerProviderEnd = decode_object(&body)?;
+    org.app
+        .end_oidc_former_provider(&org.session.user_id, read.create_at)
+        .await?;
+    Ok(no_content())
+}
+
 /// Try the pending settings of an organization's provider
 ///
 /// Starts a sign-in through the pending settings (`pending` of the provider), as
@@ -225,17 +265,27 @@ async fn handle_delete_oidc_pending(org: OrgAdmin) -> ApiResult {
 /// (`finishOidcLogin`) and the sign-in ends well, in the account of the administrator
 /// who started it, the pending settings become the provider's, at a new revision that the
 /// new session proves (`canRequireSso`); another issuer ends the sessions of the one
-/// before. A sign-in that fails changes nothing; one that ends in another account (the
-/// provider vouches for an identity that is not tied to this administrator's account,
-/// or they administer the organization no more) is refused with
-/// `oidc_trial_account`, and makes no account and ties no identity. So another issuer
-/// is put in use by a trial only for an administrator whose identity there is tied to
-/// their account already. Without one, the requirement is switched off before the
-/// issuer is changed, which leaves an administrator only the password of their account
-/// to sign in and link with (one made through the provider has none: the operator's
-/// socket sets one). 409 with the reason `oidc_unavailable` if there are no pending
-/// settings, the provider is off, or their issuer cannot be
-/// reached; 429 when this address made too many sign-ins of late.
+/// before, and keeps the provider before as the `former` one. A sign-in that fails
+/// changes nothing, and no trial makes an account.
+///
+/// Whose account it ends in: the identity the pending settings vouch for must be tied
+/// to the account of the administrator who started the trial. One that is another
+/// account's, or that administrator administering the organization no more, is
+/// refused with `oidc_trial_account`. One that is tied to no account, as an
+/// administrator's is at an issuer the organization moves to, is tied to their own
+/// account by the trial, in the transaction that applies the settings and recorded
+/// (`oidc_identity_bound`), only if the trial was started from a session made through
+/// the organization's provider as it is stored, the browser comes back with that
+/// session, and it comes back no more than five minutes after that session was made
+/// (`bindsIdentityUntil` of the pending settings): who only holds a session cannot
+/// sign in through the provider again, and ties nothing. Otherwise it is refused with
+/// `oidc_trial_stale`: sign in through the provider again (`startOidcLogin`) and
+/// finish the trial within five minutes. Pending
+/// settings of the same issuer tie nothing.
+///
+/// 409 with the reason `oidc_unavailable` if there are no pending settings, the
+/// provider is off, or their issuer cannot be reached; 429 when this address made too
+/// many sign-ins of late.
 #[utoipa::path(
     post,
     path = "/org/{orgId}/oidc/pending/sign-in",

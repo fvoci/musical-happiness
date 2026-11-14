@@ -143,6 +143,14 @@ export class OrgAdmin {
     }
   }
 
+  async endOidcFormer(createAt: number): Promise<void> {
+    try {
+      await this.#api.endOidcFormer(this.orgId, createAt);
+    } finally {
+      await this.load();
+    }
+  }
+
   /** The address of the provider for a sign-in through the pending settings. */
   startOidcTrial(): Promise<string> {
     return this.#api.startOidcTrial(this.orgId);

@@ -62,7 +62,7 @@ impl Store {
     }
 
     /// Removes the sign-ins under way, of every organization, that ended before `now`,
-    /// and says how many there were.
+    /// and says how many there were; and with them the sign-ins held that ended.
     ///
     /// # Errors
     ///
@@ -70,6 +70,9 @@ impl Store {
     pub async fn delete_ended_oidc_login_flows(&self, now: i64) -> Result<u64, StoreError> {
         self.system()
             .with_conn(async |scope| {
+                let mut sql = scope.sql("DELETE FROM oidc_held_sign_ins WHERE expires_at <= ");
+                sql.bind(now);
+                scope.execute(sql).await?;
                 let mut sql = scope.sql("DELETE FROM oidc_login_flows WHERE expires_at <= ");
                 sql.bind(now);
                 scope.execute(sql).await

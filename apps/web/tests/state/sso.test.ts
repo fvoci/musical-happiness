@@ -169,6 +169,17 @@ describe('connecting a single sign-on to the account', () => {
     return sent;
   }
 
+  it('carries a held sign-in over, or ends it in a new account, for the organization', async () => {
+    const sent = serve({ authorizationUrl: 'https://old.example.com/authorize' });
+    const backend = new ServerBackend('');
+    expect(await backend.startOidcCarryOver(ORG)).toBe('https://old.example.com/authorize');
+    await backend.finishHeldSignIn(ORG);
+    expect(sent).toEqual([
+      { url: `/api/v1/auth/oidc/held/carry-over?org=${ORG}`, method: 'POST', body: undefined },
+      { url: `/api/v1/auth/oidc/held/sign-in?org=${ORG}`, method: 'POST', body: undefined },
+    ]);
+  });
+
   it('starts a sign-in with no body, and one that connects with the password', async () => {
     const sent = serve({ authorizationUrl: 'https://idp.example.com/authorize' });
     const backend = new ServerBackend('');

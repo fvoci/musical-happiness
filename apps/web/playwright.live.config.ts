@@ -19,7 +19,7 @@ const FIRST_USE = /first-use\.spec\.ts$/;
 const ORGANIZATIONS = /organizations\.spec\.ts$/;
 
 /** The tests that close the server's one organization to passwords. */
-const SSO = /(^|\/)sso(-operator|-pending)?\.spec\.ts$/;
+const SSO = /(^|\/)sso(-operator|-pending|-provider-move)?\.spec\.ts$/;
 
 export default defineConfig({
   testDir: 'e2e-live',

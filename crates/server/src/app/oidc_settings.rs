@@ -1,15 +1,20 @@
 //! An organization's provider as its administrators set it: reading it, saving it
 //! (after reading the discovery document of a new issuer), removing it, and the client
 //! secret, which is sealed for the organization and never answered. Signing in through
-//! it is in `oidc.rs`; its pending settings, in `oidc_pending.rs`.
+//! it is in `oidc.rs`; its pending settings, in `oidc_pending.rs`. The provider it took
+//! the place of is kept beside it for a while (`former`), and ended here before its
+//! time.
 
 use fvoci_model::{
-    OidcPendingProvider, OidcProvider, OidcProviderSettings, RefusalReason, Refusals, Session,
+    OidcFormerProvider, OidcPendingProvider, OidcProvider, OidcProviderSettings, RefusalReason,
+    Refusals, Session,
 };
-use fvoci_store::{PendingProvider, Removal, StoredProvider};
+use fvoci_store::{FormerEnd, FormerProvider, PendingProvider, Removal, StoredProvider};
 
 use super::App;
+use super::oidc_pending::FRESH_SIGN_IN_MILLIS;
 use super::sso;
+use crate::auth::now_millis;
 use crate::auth::oidc::provider;
 use crate::auth::sealed::SecretKey;
 use crate::error::{AppError, Reason};
@@ -24,8 +29,7 @@ impl App {
         let Some(stored) = self.store().oidc_provider().await? else {
             return Ok(None);
         };
-        let pending = self.store().oidc_pending_provider().await?;
-        Ok(Some(self.provider_view(&stored, pending.as_ref(), session)))
+        self.provider_as_read(&stored, session).await.map(Some)
     }
 
     /// Sets the provider of the organization `org_id`, which the handle reaches, after
@@ -69,33 +73,8 @@ impl App {
             .with_reason(Reason::OidcIssuerUnverified)
             .with_field("issuer"));
         }
-        let kept = existing
-            .as_ref()
-            .map(|existing| (existing.auto_join, existing.enabled));
         let sealed_client_secret = sealed_secret(key, org_id, settings, existing.as_ref())?;
-        let next = StoredProvider {
-            id: String::new(),
-            org_id: org_id.to_owned(),
-            issuer: settings.issuer.clone(),
-            client_id: settings.client_id.clone(),
-            sealed_client_secret,
-            // Left out, what is stored stays, as the secret does, also for another
-            // client; on when the organization has none.
-            auto_join: settings
-                .auto_join
-                .or(kept.map(|kept| kept.0))
-                .unwrap_or(true),
-            enabled: settings.enabled.or(kept.map(|kept| kept.1)).unwrap_or(true),
-            create_at: 0,
-            update_at: 0,
-            // Left out, it stays, also for another client, which is then refused: off
-            // when the organization has none.
-            sso_required: settings
-                .sso_required
-                .or(existing.as_ref().map(|existing| existing.sso_required))
-                .unwrap_or(false),
-            revision: 0,
-        };
+        let next = next_provider(org_id, settings, existing.as_ref(), sealed_client_secret);
         // While the organization takes no password and goes on taking none, other
         // settings of signing in are kept aside, to be tried before they are taken.
         if let Some(enforced) = existing
@@ -110,7 +89,12 @@ impl App {
         sso::check_change(session, existing.as_ref(), &next)?;
         let stored = self
             .store()
-            .put_oidc_provider_as_read(&next, existing.as_ref(), &session.user_id)
+            .put_oidc_provider_as_read(
+                &next,
+                existing.as_ref(),
+                &session.user_id,
+                self.limits().former_provider_kept,
+            )
             .await?
             // Changed by another request since it was read here: what was kept from it
             // may be kept no more.
@@ -136,8 +120,7 @@ impl App {
             self.end_subscriptions_shut_out(&stored).await;
         }
         // Pending settings go with a change of what signing in takes.
-        let pending = self.store().oidc_pending_provider().await?;
-        Ok(self.provider_view(&stored, pending.as_ref(), session))
+        self.provider_as_read(&stored, session).await
     }
 
     /// Removes the provider of the handle's organization, and the sign-ins under way
@@ -168,12 +151,60 @@ impl App {
             .close_sessions_of_origin(&provider.org_id, &provider.issuer);
     }
 
+    /// Ends the keeping of the former provider of the handle's organization before
+    /// its time, as the administrator `actor_id`, if it is the one they read: the one
+    /// kept since `kept_since` (its `createAt`). From then on nobody carries an
+    /// account over from it. Ending none changes nothing.
+    ///
+    /// # Errors
+    ///
+    /// Returns 409 if another former provider is kept than the one read (the
+    /// organization moved again since), and the store's error.
+    pub async fn end_oidc_former_provider(
+        &self,
+        actor_id: &str,
+        kept_since: i64,
+    ) -> Result<(), AppError> {
+        match self
+            .store()
+            .end_oidc_former_provider(actor_id, kept_since, now_millis())
+            .await?
+        {
+            FormerEnd::Ended => {
+                tracing::info!("the keeping of a former provider was ended before its time");
+                Ok(())
+            }
+            FormerEnd::NoneKept => Ok(()),
+            FormerEnd::Another => Err(AppError::conflict(
+                "another former provider is kept than the one read; read the provider and try \
+                 again",
+            )),
+        }
+    }
+
+    /// `stored` as the administrators read it, with what is kept beside it now: its
+    /// pending settings, and the provider it took the place of.
+    async fn provider_as_read(
+        &self,
+        stored: &StoredProvider,
+        session: &Session,
+    ) -> Result<OidcProvider, AppError> {
+        let pending = self.store().oidc_pending_provider().await?;
+        let former = self.store().oidc_former_provider(now_millis()).await?;
+        let beside = Beside {
+            pending: pending.as_ref(),
+            former: former.as_ref(),
+        };
+        Ok(self.provider_view(stored, beside, session))
+    }
+
     pub(super) fn provider_view(
         &self,
         stored: &StoredProvider,
-        pending: Option<&PendingProvider>,
+        beside: Beside<'_>,
         session: &Session,
     ) -> OidcProvider {
+        let Beside { pending, former } = beside;
         OidcProvider {
             issuer: stored.issuer.clone(),
             client_id: stored.client_id.clone(),
@@ -192,8 +223,64 @@ impl App {
                     client_id: pending.client_id.clone(),
                     has_client_secret: !pending.sealed_client_secret.is_empty(),
                     create_at: pending.create_at,
+                    // Judged by the server's clock: past it, the page is told none.
+                    binds_identity_until: (pending.issuer != stored.issuer
+                        && sso::proves(session, stored))
+                    .then(|| session.created_at.saturating_add(FRESH_SIGN_IN_MILLIS))
+                    .filter(|until| *until > now_millis()),
                 }),
+            former: former.map(|former| OidcFormerProvider {
+                issuer: former.issuer.clone(),
+                create_at: former.create_at,
+                expires_at: former.expires_at,
+            }),
         }
+    }
+}
+
+/// What is kept beside an organization's provider, as its administrators read it with
+/// the provider.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Beside<'a> {
+    /// The pending settings, if there are.
+    pub(super) pending: Option<&'a PendingProvider>,
+    /// The former provider, if one is kept now.
+    pub(super) former: Option<&'a FormerProvider>,
+}
+
+/// The provider `settings` ask for in the organization `org_id`, in place of
+/// `existing`, with the secret as it is to be stored. What `settings` leave out stays
+/// as it is stored, also for another client: newcomers join and signing in is on
+/// when the organization has no provider, and it takes a password. The identifier,
+/// the times and the revision are the store's.
+fn next_provider(
+    org_id: &str,
+    settings: &OidcProviderSettings,
+    existing: Option<&StoredProvider>,
+    sealed_client_secret: String,
+) -> StoredProvider {
+    StoredProvider {
+        id: String::new(),
+        org_id: org_id.to_owned(),
+        issuer: settings.issuer.clone(),
+        client_id: settings.client_id.clone(),
+        sealed_client_secret,
+        auto_join: settings
+            .auto_join
+            .or(existing.map(|existing| existing.auto_join))
+            .unwrap_or(true),
+        enabled: settings
+            .enabled
+            .or(existing.map(|existing| existing.enabled))
+            .unwrap_or(true),
+        create_at: 0,
+        update_at: 0,
+        // Kept for another client too, which is then refused.
+        sso_required: settings
+            .sso_required
+            .or(existing.map(|existing| existing.sso_required))
+            .unwrap_or(false),
+        revision: 0,
     }
 }
 
