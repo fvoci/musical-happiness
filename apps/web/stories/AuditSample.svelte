@@ -17,15 +17,21 @@
       id: `example-event-${index}`,
       action: AUDIT_ACTIONS[index % AUDIT_ACTIONS.length] ?? 'workspace_created',
       actor:
-        index === AUDIT_ACTIONS.length - 1
+        AUDIT_ACTIONS[index % AUDIT_ACTIONS.length] === 'password_set_by_operator'
           ? { kind: 'server_operator' }
-          : hidden
-            ? { kind: 'person', ...person, username: '', displayName: '' }
-            : { kind: 'person', ...person },
+          : AUDIT_ACTIONS[index % AUDIT_ACTIONS.length] === 'oidc_former_provider_lapsed'
+            ? { kind: 'server' }
+            : hidden
+              ? { kind: 'person', ...person, username: '', displayName: '' }
+              : { kind: 'person', ...person },
       subject: hidden ? null : { ...person, id: 'example-guest', username: 'example-guest' },
       targetId: 'example-workspace',
       targetName: hidden ? null : 'Example workspace with a long name · 이름이 긴 예시 작업 공간',
       createAt: STORY_NOW - index * 60_000,
+      detail: 'https://login.example.com',
+      identity: AUDIT_ACTIONS[index % AUDIT_ACTIONS.length]?.startsWith('oidc_identity_')
+        ? 'example.person.with.a.long.address@login.example.com'
+        : null,
     })),
   );
 </script>

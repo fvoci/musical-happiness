@@ -20,6 +20,7 @@ export function pendingOutcome(
   const said: Record<string, () => string> = {
     'oidc-token-refused': m.org_sso_pending_refused,
     'oidc-trial-account': m.org_sso_pending_other_account,
+    'oidc-trial-stale': m.org_sso_pending_stale,
   };
   const why = (said[name] ?? m.account_oidc_failed)();
   return { applied: false, words: `${m.org_sso_pending_failed()} ${why}` };

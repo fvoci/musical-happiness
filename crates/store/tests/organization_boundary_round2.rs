@@ -651,6 +651,9 @@ async fn every_key_without_the_organization_is_one_of_the_few_that_need_none() {
             // The digest of a secret the server makes; a link is found by it before its
             // organization is known.
             ("invitations", "(token_hash)"),
+            // The digest of a secret the server makes, which only the browser it was
+            // made for holds; a held sign-in is read by it with its organization.
+            ("oidc_held_sign_ins", "(held_hash)"),
             // The digest of a secret the server makes; a sign-in is found by it before
             // its organization is known.
             ("oidc_login_flows", "(state_hash)"),

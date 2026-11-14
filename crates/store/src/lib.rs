@@ -36,6 +36,8 @@ mod members;
 mod memberships_everywhere;
 mod observe;
 mod oidc;
+mod oidc_former;
+mod oidc_held;
 mod oidc_identities;
 mod oidc_pending;
 mod operator_records;
@@ -82,8 +84,10 @@ pub use observe::{Access, Call, Observer, Outcome};
 pub use oidc::{
     FlowPurpose, Identity, LoginFlow, OidcAccount, OidcRefusal, Removal, StoredProvider,
 };
+pub use oidc_former::{FormerEnd, FormerProvider};
+pub use oidc_held::{CarriedOver, CarryOver, CarryOverRefusal, HeldSignIn};
 pub use oidc_identities::{LinkRefusal, Linked, LinkingSession, TiedIdentity, Unlinked};
-pub use oidc_pending::{Applied, PendingProvider, PendingSettings};
+pub use oidc_pending::{Applied, Binding, PendingProvider, PendingSettings, Trial, Tried};
 pub use org_admin::{Joining, OrgRoleChange, WorkspaceTrashing};
 pub use password_reset::PASSWORD_RESET_LIFETIME_MILLIS;
 pub use server_lock::ServerLock;
