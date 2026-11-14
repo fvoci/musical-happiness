@@ -100,8 +100,12 @@ describe('the page of an invitation', () => {
             }),
         });
         const summary = await screen.findByTestId('invite-summary');
-        expect(summary).toHaveTextContent(want);
+        expect(summary.textContent.trim()).toBe(want);
         expect(summary.textContent).not.toMatch(unsaid);
+        // The rest of the page may name the organization, never a workspace.
+        expect(screen.getByTestId('invite-page').textContent).not.toMatch(
+          /workspace|워크스페이스/i,
+        );
         cleanup();
       }
     } finally {

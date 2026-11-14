@@ -85,10 +85,14 @@ impl Content {
             (Language::Korean, fvoci_model::WorkspaceRole::Guest) => {
                 "이 링크는 받는 분만을 위한 것으로, 보드 하나에 한 번 들어올 수 있습니다. 초대가 끝나면 함께 끝납니다."
             }
-            (Language::English, _) => {
-                "With this link you join as a member. It keeps its original expiry."
-            }
-            (Language::Korean, _) => "구성원으로 함께하는 링크입니다. 원래 만료일을 유지합니다.",
+            (
+                Language::English,
+                fvoci_model::WorkspaceRole::Admin | fvoci_model::WorkspaceRole::Member,
+            ) => "You join as a member. The link keeps the expiry it was made with.",
+            (
+                Language::Korean,
+                fvoci_model::WorkspaceRole::Admin | fvoci_model::WorkspaceRole::Member,
+            ) => "구성원으로 참여하는 링크입니다. 원래 만료일을 유지합니다.",
         };
         Self::link(subject, intro, ending, link, language)
     }
