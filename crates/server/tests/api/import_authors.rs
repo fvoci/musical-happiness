@@ -1,7 +1,6 @@
-//! The authors an archive names: whoever is no member of the workspace and the
-//! organization imported into is written as the importer, so an archive cannot make
-//! somebody the importer does not see an author whom the workspace may then name; a
-//! member stays the author.
+//! The authors an archive names: everything imported is written as the importer's, so
+//! an archive can make nobody an author: not somebody the importer does not see, whom
+//! the workspace could then name, and not a colleague, in whose name it could speak.
 
 use std::io::{Cursor, Write as _};
 
@@ -71,7 +70,7 @@ async fn named(th: &TestServer, user: &str) -> Vec<User> {
 }
 
 #[tokio::test]
-async fn an_imported_author_the_importer_does_not_see_is_the_importer() {
+async fn everything_imported_is_the_importers_whoever_the_archive_names() {
     let th = Setup::native().start().await.init_basic().await;
     let importer = th.client.me().await.id;
     let colleague = th.client2.me().await.id;
@@ -121,7 +120,7 @@ async fn an_imported_author_the_importer_does_not_see_is_the_importer() {
         .expect("the imported board");
     assert_eq!(board.created_by, importer, "the board's outside creator");
     assert_eq!(
-        board.modified_by, colleague,
+        board.modified_by, importer,
         "the board's colleague modifier"
     );
     let blocks: Vec<Block> = th
@@ -135,16 +134,10 @@ async fn an_imported_author_the_importer_does_not_see_is_the_importer() {
             .find(|block| block.title == title)
             .unwrap_or_else(|| panic!("the block {title}"))
     };
-    for (title, created_by, modified_by) in [
-        ("theirs", &importer, &importer),
-        ("elsewhere", &importer, &importer),
-        ("ours", &colleague, &colleague),
-        ("mixed", &colleague, &importer),
-        ("nobody", &importer, &importer),
-    ] {
+    for title in ["theirs", "elsewhere", "ours", "mixed", "nobody"] {
         let block = by_title(title);
-        assert_eq!(&block.created_by, created_by, "{title}'s creator");
-        assert_eq!(&block.modified_by, modified_by, "{title}'s modifier");
+        assert_eq!(block.created_by, importer, "{title}'s creator");
+        assert_eq!(block.modified_by, importer, "{title}'s modifier");
     }
     let comment = blocks
         .iter()

@@ -435,11 +435,12 @@ struct ParsedBoard {
 /// together, or a board or block is not one the store takes, with the store's message.
 async fn parse_board_jsonl(jsonl: Bytes, options: &ImportOptions) -> Result<ParsedBoard, AppError> {
     // Parsing tens of megabytes of JSON would hold up a worker of the runtime.
-    let workspace_id = options.workspace_id.clone();
-    let (mut boards_and_blocks, members) =
-        tokio::task::spawn_blocking(move || parse_archive_lines(&jsonl, &workspace_id))
-            .await
-            .map_err(|error| AppError::internal(format_args!("archive task failed: {error}")))??;
+    let (workspace_id, modified_by) = (options.workspace_id.clone(), options.modified_by.clone());
+    let (mut boards_and_blocks, members) = tokio::task::spawn_blocking(move || {
+        parse_archive_lines(&jsonl, &workspace_id, &modified_by)
+    })
+    .await
+    .map_err(|error| AppError::internal(format_args!("archive task failed: {error}")))??;
 
     // An archive exported before a card's content became its body may hold content
     // blocks; none is made again (`docs/contract-pending.md` 1).
@@ -532,9 +533,8 @@ fn drop_orphans(boards_and_blocks: &mut BoardsAndBlocks) -> usize {
     before - blocks.len()
 }
 
-/// Parses a board's `board.jsonl` into its boards, blocks and members, with a fresh
-/// modification time but the identifiers and the authors from the archive (the store
-/// keeps an author only who is a member of the workspace and its organization).
+/// Parses a board's `board.jsonl` into its boards, blocks and members, with fresh
+/// modification metadata but the identifiers from the archive.
 ///
 /// # Errors
 ///
@@ -542,7 +542,9 @@ fn drop_orphans(boards_and_blocks: &mut BoardsAndBlocks) -> usize {
 fn parse_archive_lines(
     jsonl: &[u8],
     workspace_id: &str,
+    modified_by: &str,
 ) -> Result<(BoardsAndBlocks, Vec<BoardMember>), AppError> {
+    let modifier_user = modified_by;
     let now = now_millis();
     let mut boards_and_blocks = BoardsAndBlocks::default();
     let mut board_members: Vec<BoardMember> = Vec::new();
@@ -569,6 +571,7 @@ fn parse_archive_lines(
                         "invalid board in archive line {line_number}: {error}"
                     ))
                 })?;
+                modifier_user.clone_into(&mut board.modified_by);
                 board.update_at = now;
                 // The workspace the archive names is not read: the boards go to the
                 // workspace imported into.
@@ -583,6 +586,7 @@ fn parse_archive_lines(
                             "invalid block in archive line {line_number}: {error}"
                         ))
                     })?;
+                modifier_user.clone_into(&mut block.modified_by);
                 block.update_at = now;
                 block.board_id.clone_from(&board_id);
                 boards_and_blocks.blocks.push(block);

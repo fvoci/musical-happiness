@@ -1,9 +1,7 @@
 //! Subscriptions, templates, and an explicitly authorized archive transfer.
 
 use base64::Engine as _;
-use fvoci_model::{
-    Block, BlockType, Board, BoardMember, Body, SubscriberType, Subscription, User, new_id,
-};
+use fvoci_model::{Board, BoardMember, SubscriberType, Subscription, User, new_id};
 use fvoci_store::{BlockFilter, DbType, DuplicateAs};
 use reqwest::Method;
 use serde_json::json;
@@ -133,23 +131,6 @@ async fn export_with_b_only_member(scene: &Scene) -> (Vec<u8>, User) {
         })
         .await
         .expect("B's invited member");
-    let mut comment = Block {
-        id: new_id(),
-        board_id: scene.b.id.clone(),
-        parent_id: scene.card_b.id.clone(),
-        block_type: BlockType::Comment,
-        body: Body::parse(json!({"type": "doc", "content": [
-            {"type": "paragraph", "content": [{"type": "text", "text": "B only"}]}
-        ]}))
-        .expect("a valid body"),
-        ..Block::default()
-    };
-    scene
-        .b_app
-        .store()
-        .insert_block(&mut comment, &outsider.id)
-        .await
-        .expect("a comment of B's invited member");
     assert!(
         scene
             .ts
@@ -218,29 +199,6 @@ async fn an_authorized_archive_transfer_remaps_ids_files_and_members_into_the_de
         .get_blocks(&BlockFilter::board(&imported.id))
         .await
         .expect("the imported blocks");
-    for block in &blocks {
-        assert!(
-            block.created_by != outsider.id && block.modified_by != outsider.id,
-            "a B-only author is written as the importer: {block:?}"
-        );
-    }
-    let me = scene.ts.client.me().await.id;
-    assert!(
-        blocks
-            .iter()
-            .any(|block| block.block_type == BlockType::Comment && block.created_by == me),
-        "the B-only member's comment is the importer's"
-    );
-    let named: Vec<User> = scene
-        .ts
-        .client
-        .post(&format!("{ROOT_WS}/users"), &[&outsider.id])
-        .await
-        .ok_json();
-    assert!(
-        named.is_empty(),
-        "nobody in A is told the B-only member's name"
-    );
     let imported_name = blocks
         .iter()
         .find_map(|block| block.fields.get("fileId").and_then(|value| value.as_str()))
