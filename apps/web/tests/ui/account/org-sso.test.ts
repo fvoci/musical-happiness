@@ -1,5 +1,5 @@
 /** SSO settings preserve secrets and explain the server's lockout guards. */
-import { cleanup, fireEvent, render, screen } from '@testing-library/svelte';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import OrgSso from '$lib/features/organization/OrgSso.svelte';
 import { BackendError } from '$lib/state/backend.ts';
@@ -18,6 +18,7 @@ const provider: OidcProvider = {
   createAt: 1,
   updateAt: 1,
   pending: null,
+  former: null,
 };
 
 function mount(value: OidcProvider | undefined = provider) {
@@ -29,8 +30,10 @@ function mount(value: OidcProvider | undefined = provider) {
   const onSignIn = vi.fn(() => Promise.resolve());
   const discard = vi.fn(() => Promise.resolve());
   const onTry = vi.fn(() => Promise.resolve());
-  render(OrgSso, { read: async () => value, save, remove, onSignIn, discard, onTry });
-  return { save, remove, onSignIn, discard, onTry };
+  const endFormer = vi.fn((_createAt: number) => Promise.resolve());
+  const read = vi.fn(() => Promise.resolve(value));
+  render(OrgSso, { read, save, remove, onSignIn, discard, onTry, endFormer });
+  return { read, save, remove, onSignIn, discard, onTry, endFormer };
 }
 
 describe('the SSO settings', () => {
@@ -149,6 +152,7 @@ describe('the SSO settings', () => {
       clientId: 'next-client',
       hasClientSecret: true,
       createAt: 2,
+      bindsIdentityUntil: null,
     };
     const { save, onTry } = mount(enforced);
     save.mockResolvedValueOnce({ ...enforced, pending });
@@ -166,13 +170,140 @@ describe('the SSO settings', () => {
   });
 
   it('throws the pending settings away', async () => {
-    const pending = { issuer: provider.issuer, clientId: 'c', hasClientSecret: false, createAt: 2 };
+    const pending = {
+      issuer: provider.issuer,
+      clientId: 'c',
+      hasClientSecret: false,
+      createAt: 2,
+      bindsIdentityUntil: null,
+    };
     const { discard } = mount({ ...provider, ssoRequired: true, pending });
     await fireEvent.click(await screen.findByTestId('sso-pending-discard'));
     await vi.waitFor(() => {
       expect(discard).toHaveBeenCalledOnce();
     });
     await screen.findByText('The pending settings were discarded.');
+  });
+
+  it('shows the previous provider until its day, and ends it early after asking', async () => {
+    const former = {
+      issuer: 'https://before.example.test',
+      createAt: Date.UTC(2026, 10, 1),
+      expiresAt: Date.UTC(2026, 11, 1, 12),
+    };
+    const { read, endFormer } = mount({ ...provider, former });
+    expect(await screen.findByTestId('sso-former-issuer')).toHaveTextContent(former.issuer);
+    // The moment in the reader's zone: the second of December east of UTC+12.
+    const moment = new Intl.DateTimeFormat('en', {
+      dateStyle: 'long',
+      timeStyle: 'short',
+    }).format(former.expiresAt);
+    expect(moment).toMatch(/^December [12], 2026 at \d+:00/);
+    expect(screen.getByTestId('sso-former-until')).toHaveTextContent(moment);
+    await fireEvent.click(screen.getByTestId('sso-former-end'));
+    expect(endFormer).not.toHaveBeenCalled();
+    read.mockResolvedValueOnce(provider);
+    const dialog = await screen.findByTestId('confirm-dialog');
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'End early' }));
+    await screen.findByText("The previous provider's linking period was ended.");
+    expect(endFormer).toHaveBeenCalledExactlyOnceWith(former.createAt);
+    expect(screen.queryByTestId('sso-former')).not.toBeInTheDocument();
+  });
+
+  it('reads the provider again when ending is refused: another one may be kept by now', async () => {
+    const former = { issuer: 'https://before.example.test', createAt: 1, expiresAt: 2 };
+    const next = { issuer: 'https://between.example.test', createAt: 3, expiresAt: 4 };
+    const { read, endFormer } = mount({ ...provider, former });
+    endFormer.mockRejectedValueOnce(new BackendError(409, {}));
+    await fireEvent.click(await screen.findByTestId('sso-former-end'));
+    read.mockResolvedValueOnce({ ...provider, former: next });
+    const dialog = await screen.findByTestId('confirm-dialog');
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'End early' }));
+    await vi.waitFor(() => {
+      expect(screen.getByTestId('sso-former-issuer')).toHaveTextContent(next.issuer);
+    });
+    expect(screen.getByRole('alert')).not.toBeEmptyDOMElement();
+  });
+
+  it('shows no previous provider where none is kept', async () => {
+    mount();
+    await screen.findByTestId('sso-client');
+    expect(screen.queryByTestId('sso-former')).not.toBeInTheDocument();
+  });
+
+  it('asks to sign in again before trying settings of another issuer from an older session', async () => {
+    const enforced = { ...provider, canRequireSso: true, ssoRequired: true };
+    const moving = {
+      issuer: 'https://next.example.test',
+      clientId: 'client',
+      hasClientSecret: true,
+      createAt: 2,
+      // Passed, by the server's clock: it answers none.
+      bindsIdentityUntil: null,
+    };
+    const { onSignIn, onTry } = mount({ ...enforced, pending: moving });
+    expect(await screen.findByTestId('sso-pending-binding')).toHaveTextContent(
+      'sign in through the current provider again first',
+    );
+    await fireEvent.click(screen.getByTestId('sso-pending-sign-in-again'));
+    expect(onSignIn).toHaveBeenCalledOnce();
+    expect(onTry).not.toHaveBeenCalled();
+    // An identity connected already still applies them: trying stays possible.
+    expect(screen.getByTestId('sso-pending-try')).toBeInTheDocument();
+  });
+
+  it('offers no sign-in again to a session that did not come through the provider', async () => {
+    // The requirement released, settings of another issuer still aside, a password session.
+    const moving = {
+      issuer: 'https://next.example.test',
+      clientId: 'client',
+      hasClientSecret: true,
+      createAt: 2,
+      bindsIdentityUntil: null,
+    };
+    mount({ ...provider, pending: moving });
+    await screen.findByTestId('sso-pending-binding');
+    expect(screen.queryByTestId('sso-pending-sign-in-again')).not.toBeInTheDocument();
+    expect(screen.getByTestId('sso-pending-try')).toBeInTheDocument();
+  });
+
+  it('says until when trying settings of another issuer connects the new identity', async () => {
+    const enforced = { ...provider, canRequireSso: true, ssoRequired: true };
+    const until = Date.now() + 4 * 60 * 1000;
+    const moving = {
+      issuer: 'https://next.example.test',
+      clientId: 'client',
+      hasClientSecret: true,
+      createAt: 2,
+      bindsIdentityUntil: until,
+    };
+    const { onTry } = mount({ ...enforced, pending: moving });
+    const time = new Intl.DateTimeFormat('en', { timeStyle: 'short' }).format(until);
+    expect(await screen.findByTestId('sso-pending-binding')).toHaveTextContent(`by ${time}`);
+    expect(screen.queryByTestId('sso-pending-sign-in-again')).not.toBeInTheDocument();
+    await fireEvent.click(screen.getByTestId('sso-pending-try'));
+    expect(onTry).toHaveBeenCalledOnce();
+  });
+
+  it('says nothing of connecting an identity for settings of the same issuer', async () => {
+    const pending = {
+      issuer: provider.issuer,
+      clientId: 'c',
+      hasClientSecret: false,
+      createAt: 2,
+      bindsIdentityUntil: null,
+    };
+    mount({ ...provider, ssoRequired: true, pending });
+    await screen.findByTestId('sso-pending');
+    expect(screen.queryByTestId('sso-pending-binding')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('sso-pending-sign-in-again')).not.toBeInTheDocument();
+  });
+
+  it('says to sign in again when a trial came back too late to connect the identity', async () => {
+    history.replaceState(null, '', '/org/o?oidc_pending_error=oidc-trial-stale');
+    mount();
+    await screen.findByText(/Sign in through the current provider again, then finish/);
+    expect(location.search).toBe('');
   });
 
   it('tells what came of a sign-in through the pending settings, once', async () => {

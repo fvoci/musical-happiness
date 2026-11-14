@@ -28,18 +28,105 @@ export interface paths {
          *     makes them the provider's and sets the session, made through them, and the browser
          *     goes to the organization's page (`/org/{orgId}`) with `oidc_pending=applied`; one
          *     that fails changes nothing, and goes there with `oidc_pending_error` naming the
-         *     reason as `oidc_error` does.
+         *     reason as `oidc_error` does (among them `oidc_trial_account` and
+         *     `oidc_trial_stale`).
          *
          *     Otherwise the browser goes to the login page of the organization (`/login?org=…`),
          *     with the reason of what went wrong in `oidc_error`, by the name of its problem
          *     (`oidc_state_invalid` as `oidc-state-invalid`): `oidc_state_invalid`, `oidc_denied`,
          *     `oidc_token_refused`, `oidc_token_invalid`, `oidc_email_missing`,
          *     `oidc_email_unverified`, `oidc_email_taken`, `oidc_join_closed`,
-         *     `oidc_identity_taken`, `oidc_email_mismatch` or `oidc_unavailable`.
+         *     `oidc_identity_taken`, `oidc_email_mismatch`, `oidc_carry_over_refused` or
+         *     `oidc_unavailable`.
+         *
+         *     While the organization keeps the provider it moved away from (`former` of its
+         *     provider), a sign-in that vouches for somebody who has no account makes none: what
+         *     the provider said is held for this browser for ten minutes, under a cookie of its
+         *     own, and the browser goes to the login page with `oidc_held=1`, which asks whether
+         *     the person had an account: `startOidcCarryOver` if they had, `finishHeldOidcLogin`
+         *     if not. A sign-in through the former provider, which `startOidcCarryOver` starts,
+         *     comes back here too: it sets a session only by carrying the held sign-in over.
+         *     Where nothing is carried over it goes to the login page with
+         *     `oidc_carry_over_refused`, and where the sign-in itself failed (refused by the
+         *     former provider, its token not taken, not this browser's) with that reason, as
+         *     any sign-in does.
          */
         get: operations["finishOidcLogin"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/oidc/held/carry-over": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Carry an account over through the former provider
+         * @description For the login page, after a sign-in through the provider of the organization `org`
+         *     was held for this browser (`finishOidcLogin` sent it to the login page with
+         *     `oidc_held=1`): for somebody who had an account before the organization moved to
+         *     this provider. Starts a sign-in through the organization's former provider and
+         *     answers where the page sends the browser, with the cookie of that sign-in. When
+         *     the browser comes back (`finishOidcLogin`), the former provider must vouch for an
+         *     identity tied to an account in use that has a place in the organization (a member,
+         *     or a guest of one of its workspaces in use, who joins nothing by it): the held
+         *     identity is then tied to that account, which is recorded in the organization's
+         *     audit log (`oidc_identity_carried_over`), and a session made through the
+         *     organization's provider is set. Both identities are shown by signing in, so no
+         *     email address is compared. The former provider signs nobody in otherwise: no
+         *     session is made through it.
+         *
+         *     409 with the reason `oidc_carry_over_refused` if no sign-in of the organization is
+         *     held for this browser (none, ended after ten minutes, taken already, or held for
+         *     another browser), the organization keeps no former provider any more, or `org`
+         *     names no organization that is signed in to; the same
+         *     reason comes back on the login page (`oidc_error`) when the return carried nothing
+         *     over. 409 with `oidc_unavailable` if the former provider cannot be reached; 429
+         *     when this address made too many sign-ins of late.
+         */
+        post: operations["startOidcCarryOver"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/oidc/held/sign-in": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * End a held sign-in in a new account
+         * @description For the login page, after a sign-in through the provider of the organization `org`
+         *     was held for this browser: for somebody who had no account. The held sign-in ends
+         *     as a first sign-in through the provider does: an account is made for who the
+         *     provider vouched for, a member of the organization, if the organization lets
+         *     newcomers in and no account has their email address; the session comes in the
+         *     `Set-Cookie` header. An identity that was tied to an account meanwhile (carried
+         *     over from another browser) signs in to that account, as any sign-in would. The
+         *     held sign-in is taken by this, whatever comes of it, and its cookie cleared.
+         *
+         *     409 with the reason `oidc_carry_over_refused` if no sign-in of the organization is
+         *     held for this browser, or the provider changed since; 409 with the reason a first
+         *     sign-in is refused with otherwise (`oidc_join_closed`, `oidc_email_missing`,
+         *     `oidc_email_unverified`, `oidc_email_taken`, `oidc_unavailable`); 429 when this
+         *     address made too many sign-ins of late.
+         */
+        post: operations["finishHeldOidcLogin"];
         delete?: never;
         options?: never;
         head?: never;
@@ -456,6 +543,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/org/{orgId}/oidc/former": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * End the keeping of an organization's former provider
+         * @description When the provider's issuer changes, the provider before is kept as the `former`
+         *     one for `oidc_former_provider_days` (30 by default): nobody signs in through it,
+         *     but somebody the new provider vouches for who has no account yet may sign in
+         *     through it once to carry their account over. This ends that before its time: from
+         *     then on nobody carries an account over from it. The body names the former
+         *     provider as it was read (`createAt`): if the organization moved again since, and
+         *     another one is kept, the request is 409, to be read and sent again. An organization
+         *     that keeps none answers 204 as well. Recorded in the organization's audit log
+         *     (`oidc_former_provider_ended`), as its keeping (`oidc_former_provider_kept`) and
+         *     its running out (`oidc_former_provider_lapsed`, the server's doing) are.
+         */
+        delete: operations["deleteOidcFormerProvider"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/org/{orgId}/oidc/pending": {
         parameters: {
             query?: never;
@@ -495,17 +611,27 @@ export interface paths {
          *     (`finishOidcLogin`) and the sign-in ends well, in the account of the administrator
          *     who started it, the pending settings become the provider's, at a new revision that the
          *     new session proves (`canRequireSso`); another issuer ends the sessions of the one
-         *     before. A sign-in that fails changes nothing; one that ends in another account (the
-         *     provider vouches for an identity that is not tied to this administrator's account,
-         *     or they administer the organization no more) is refused with
-         *     `oidc_trial_account`, and makes no account and ties no identity. So another issuer
-         *     is put in use by a trial only for an administrator whose identity there is tied to
-         *     their account already. Without one, the requirement is switched off before the
-         *     issuer is changed, which leaves an administrator only the password of their account
-         *     to sign in and link with (one made through the provider has none: the operator's
-         *     socket sets one). 409 with the reason `oidc_unavailable` if there are no pending
-         *     settings, the provider is off, or their issuer cannot be
-         *     reached; 429 when this address made too many sign-ins of late.
+         *     before, and keeps the provider before as the `former` one. A sign-in that fails
+         *     changes nothing, and no trial makes an account.
+         *
+         *     Whose account it ends in: the identity the pending settings vouch for must be tied
+         *     to the account of the administrator who started the trial. One that is another
+         *     account's, or that administrator administering the organization no more, is
+         *     refused with `oidc_trial_account`. One that is tied to no account, as an
+         *     administrator's is at an issuer the organization moves to, is tied to their own
+         *     account by the trial, in the transaction that applies the settings and recorded
+         *     (`oidc_identity_bound`), only if the trial was started from a session made through
+         *     the organization's provider as it is stored, the browser comes back with that
+         *     session, and it comes back no more than five minutes after that session was made
+         *     (`bindsIdentityUntil` of the pending settings): who only holds a session cannot
+         *     sign in through the provider again, and ties nothing. Otherwise it is refused with
+         *     `oidc_trial_stale`: sign in through the provider again (`startOidcLogin`) and
+         *     finish the trial within five minutes. Pending
+         *     settings of the same issuer tie nothing.
+         *
+         *     409 with the reason `oidc_unavailable` if there are no pending settings, the
+         *     provider is off, or their issuer cannot be reached; 429 when this address made too
+         *     many sign-ins of late.
          */
         post: operations["startOidcTrial"];
         delete?: never;
@@ -2903,7 +3029,7 @@ export interface components {
          * @description What a record of the audit log says was done.
          * @enum {string}
          */
-        AuditAction: "self_added_to_board" | "added_to_board" | "org_admin_joined" | "org_admin_left" | "org_admin_revoked" | "org_admin_granted" | "org_admin_removed" | "workspace_created" | "workspace_renamed" | "workspace_deleted" | "workspace_restored" | "public_links_disabled" | "public_links_enabled" | "oidc_provider_configured" | "oidc_provider_removed" | "sso_required" | "sso_released" | "oidc_provider_pending_saved" | "oidc_provider_pending_applied" | "oidc_provider_pending_discarded" | "password_reset_link_made" | "password_set_by_operator";
+        AuditAction: "self_added_to_board" | "added_to_board" | "org_admin_joined" | "org_admin_left" | "org_admin_revoked" | "org_admin_granted" | "org_admin_removed" | "workspace_created" | "workspace_renamed" | "workspace_deleted" | "workspace_restored" | "public_links_disabled" | "public_links_enabled" | "oidc_provider_configured" | "oidc_provider_removed" | "sso_required" | "sso_released" | "oidc_provider_pending_saved" | "oidc_provider_pending_applied" | "oidc_provider_pending_discarded" | "password_reset_link_made" | "password_set_by_operator" | "oidc_former_provider_kept" | "oidc_former_provider_ended" | "oidc_former_provider_lapsed" | "oidc_identity_bound" | "oidc_identity_carried_over";
         /** @description A user as a record of the audit log names them. */
         AuditPerson: {
             /** @description The name the user shows; empty for none. */
@@ -2924,8 +3050,21 @@ export interface components {
              * @description When, in milliseconds since the epoch.
              */
             createAt: number;
+            /**
+             * @description The issuer a record of a provider's move names (`oidc_former_provider_…`,
+             *     `oidc_identity_…`); `null` for the others.
+             */
+            detail: string | null;
             /** @description The record's identifier. */
             id: string;
+            /**
+             * @description Who the identity a record of `oidc_identity_bound` or
+             *     `oidc_identity_carried_over` tied is: the email address its provider gave, or
+             *     its subject where it gave none, as it was then. `null` for the others, and in
+             *     the records of a workspace: the organization's are read by its administrators
+             *     alone.
+             */
+            identity: string | null;
             subject: components["schemas"]["AuditPerson"] | null;
             /** @description What it was done to: a board, a workspace or the organization. */
             targetId: string;
@@ -2937,8 +3076,9 @@ export interface components {
         };
         /**
          * @description Who did what a record of the audit log says: a person by their account, named as it
-         *     is now (an account that is gone by its identifier alone), or the server's operator,
-         *     who acts through the local administration socket without one. `kind` says which.
+         *     is now (an account that is gone by its identifier alone), the server's operator,
+         *     who acts through the local administration socket without one, or the server
+         *     itself, for what its timers do. `kind` says which.
          */
         AuditRecordActor: (components["schemas"]["AuditPerson"] & {
             /** @enum {string} */
@@ -2946,6 +3086,9 @@ export interface components {
         }) | {
             /** @enum {string} */
             kind: "server_operator";
+        } | {
+            /** @enum {string} */
+            kind: "server";
         };
         /** @description The basic data unit of a board. */
         Block: {
@@ -3958,10 +4101,47 @@ export interface components {
             size: number;
         };
         /**
+         * @description The provider an organization moved away from, kept for a while: nobody signs in
+         *     through it, but somebody the new provider vouches for who has no account yet may
+         *     show who they were at it, and so tie the new identity to the account they had.
+         */
+        OidcFormerProvider: {
+            /**
+             * Format: int64
+             * @description When the organization moved away from it, in milliseconds since the Unix epoch.
+             */
+            createAt: number;
+            /**
+             * Format: int64
+             * @description When it is kept no longer, in milliseconds since the Unix epoch.
+             */
+            expiresAt: number;
+            /** @description Its issuer. */
+            issuer: string;
+        };
+        /** @description Which former provider an administrator ends the keeping of: the one they read. */
+        OidcFormerProviderEnd: {
+            /**
+             * Format: int64
+             * @description The `createAt` of the former provider as it was read.
+             */
+            createAt: number;
+        };
+        /**
          * @description The pending settings of an organization's provider, without the client secret:
          *     `hasClientSecret` says whether there is one.
          */
         OidcPendingProvider: {
+            /**
+             * Format: int64
+             * @description Until when a trial from the session that asks, come back by then, ties an
+             *     identity of another issuer that is nobody's yet to the administrator's own
+             *     account, in milliseconds since the Unix epoch: five minutes after the session
+             *     was made through the provider as it is stored. `null` once that has passed,
+             *     for a session that was not made so, and for pending settings of the same
+             *     issuer, which tie nothing.
+             */
+            bindsIdentityUntil: number | null;
             /** @description The client identifier. */
             clientId: string;
             /**
@@ -4000,6 +4180,7 @@ export interface components {
             createAt: number;
             /** @description Whether signing in through the provider is on. */
             enabled: boolean;
+            former: components["schemas"]["OidcFormerProvider"] | null;
             /** @description Whether a client secret is stored. */
             hasClientSecret: boolean;
             /** @description The issuer: an `https` address, exactly as the provider names itself. */
@@ -4699,16 +4880,142 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description To the web app, signed in or (with `oidc_linked=1`) linked, to the login page, or to the organization's page after a trial. */
+            /** @description To the web app, signed in or (with `oidc_linked=1`) linked; to the login page, with `oidc_error` for a sign-in that failed or `oidc_held=1` for one that is held; or to the organization's page after a trial. */
             303: {
                 headers: {
                     /** @description Where the browser goes. */
                     Location?: string;
-                    /** @description The session cookie, unless the sign-in linked or failed, and the cookie of the sign-in cleared. */
+                    /** @description The session cookie, unless the sign-in linked, is held or failed; the cookie of the held sign-in, set where one is held and cleared where one was carried over or left behind; and the cookie of the sign-in cleared. */
                     "Set-Cookie"?: string;
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    startOidcCarryOver: {
+        parameters: {
+            query: {
+                /** @description The identifier of the organization whose provider the person signs in through. */
+                org: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Started: where the browser goes. */
+            200: {
+                headers: {
+                    /** @description The cookie of the sign-in. */
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OidcStart"];
+                };
+            };
+            /** @description No organization named (`org`). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Nothing to carry over, or the former provider cannot be reached. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Too many sign-ins from this address. `retryAfter`, and the `Retry-After` header, say how long to wait. */
+            429: {
+                headers: {
+                    /** @description How many seconds to wait before trying again. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    finishHeldOidcLogin: {
+        parameters: {
+            query: {
+                /** @description The identifier of the organization whose provider the person signs in through. */
+                org: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Signed in: to a new account, or to the account the held identity was tied to meanwhile. */
+            204: {
+                headers: {
+                    /** @description The session cookie, and the cookie of the held sign-in cleared. */
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No organization named (`org`). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Nothing is held, or no account is made for the person. */
+            409: {
+                headers: {
+                    /** @description The cookie of the held sign-in cleared. */
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Too many sign-ins from this address. `retryAfter`, and the `Retry-After` header, say how long to wait. */
+            429: {
+                headers: {
+                    /** @description How many seconds to wait before trying again. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
             default: {
@@ -5304,6 +5611,49 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    deleteOidcFormerProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the organization. 404 unless the user of the session administers it. */
+                orgId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OidcFormerProviderEnd"];
+            };
+        };
+        responses: {
+            /** @description The organization keeps no former provider. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Another former provider is kept than the one read. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
             default: {

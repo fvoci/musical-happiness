@@ -556,7 +556,7 @@ async fn something_in_every_table(store: &Store, username: &str) -> (String, Str
         .delete_board(&gone[0].id, &user_id)
         .await
         .expect("a board goes to the trash");
-    sign_in_under_way(store, username).await;
+    common::sign_in_under_way(store, username).await;
     a_link_for_a_guest(store, &board, &user_id).await;
     (card.id, user_id)
 }
@@ -593,55 +593,6 @@ async fn a_body_edited_together(store: &Store, board_id: &str, user_id: &str) {
     crate::body_versions::keep(store, &edited.id).await;
 }
 
-/// The organization's provider of sign-ins (one, whoever sets it), its pending settings,
-/// and a sign-in through it that has not come back.
-async fn sign_in_under_way(store: &Store, name: &str) {
-    let provider = store
-        .put_oidc_provider(&fvoci_store::StoredProvider {
-            id: String::new(),
-            org_id: String::new(),
-            issuer: "https://idp.example.com".to_owned(),
-            client_id: "fvoci".to_owned(),
-            sealed_client_secret: String::new(),
-            auto_join: true,
-            enabled: true,
-            create_at: 0,
-            update_at: 0,
-            sso_required: true,
-            revision: 0,
-        })
-        .await
-        .expect("a provider is stored");
-    store
-        .put_oidc_pending_provider(
-            &fvoci_store::PendingSettings {
-                issuer: "https://idp.example.com".to_owned(),
-                client_id: format!("fvoci of {name}"),
-                sealed_client_secret: String::new(),
-            },
-            &provider,
-            &provider,
-            &fvoci_model::new_id(),
-        )
-        .await
-        .expect("asked")
-        .expect("pending settings are stored");
-    store
-        .create_oidc_login_flow(&fvoci_store::LoginFlow {
-            state_hash: format!("state of {name}"),
-            browser_hash: format!("browser of {name}"),
-            nonce: String::new(),
-            pkce_verifier: String::new(),
-            org_id: provider.org_id.clone(),
-            provider_id: provider.id,
-            create_at: 0,
-            expires_at: i64::MAX,
-            purpose: fvoci_store::FlowPurpose::SignIn,
-        })
-        .await
-        .expect("a sign-in is stored");
-}
-
 /// What two organizations store stays apart in every table of theirs, whatever the
 /// statement asks for: counted with no condition, each handle reaches its own rows, one
 /// that names no organization reaches none, and the system's reaches all.
@@ -671,9 +622,15 @@ async fn what_two_organizations_store_stays_apart_in_every_table() {
         let count = async |store: &Store| store.count_rows(table).await.expect("counted");
         let (our_rows, their_rows) = (count(ours).await, count(&theirs).await);
         assert!(our_rows > 0, "{table}: the test stores a row of ours");
-        // An organization, its provider of sign-ins and its pending settings are one
-        // of each.
-        if ["organizations", "oidc_providers", "oidc_pending_providers"].contains(&table.as_str()) {
+        // An organization, its provider of sign-ins, the one it moved away from and
+        // its pending settings are one of each.
+        let one_of_each = [
+            "organizations",
+            "oidc_providers",
+            "oidc_former_providers",
+            "oidc_pending_providers",
+        ];
+        if one_of_each.contains(&table.as_str()) {
             assert_eq!((our_rows, their_rows), (1, 1), "each reaches its own alone");
         } else {
             assert!(
