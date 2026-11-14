@@ -2,6 +2,7 @@
   Records of an audit log, the newest first: who did what, to what and whom,
   and when. A person is named "display name (@login)"; one whose account is
   gone as such. A board the reader does not see is "a board", not its title.
+  An identity a provider's move tied is told under its record.
 -->
 <script lang="ts">
   import { m } from '$lib/i18n/paraglide/messages.js';
@@ -26,7 +27,12 @@
 
   function said(record: AuditRecord): string {
     const actor =
-      record.actor.kind === 'server_operator' ? m.audit_server_operator() : named(record.actor);
+      record.actor.kind === 'person'
+        ? named(record.actor)
+        : record.actor.kind === 'server'
+          ? m.audit_server()
+          : m.audit_server_operator();
+    const issuer = record.detail ?? '';
     const subject = named(record.subject);
     const board = record.targetName ?? m.audit_a_board();
     const workspace = record.targetName ?? '';
@@ -75,6 +81,16 @@
         return m.audit_password_reset_link_made({ actor, subject });
       case 'password_set_by_operator':
         return m.audit_password_set_by_operator({ actor, subject });
+      case 'oidc_former_provider_kept':
+        return m.audit_oidc_former_kept({ actor, issuer });
+      case 'oidc_former_provider_ended':
+        return m.audit_oidc_former_ended({ actor, issuer });
+      case 'oidc_former_provider_lapsed':
+        return m.audit_oidc_former_lapsed({ issuer });
+      case 'oidc_identity_bound':
+        return m.audit_oidc_identity_bound({ actor, issuer });
+      case 'oidc_identity_carried_over':
+        return m.audit_oidc_identity_carried_over({ actor, issuer });
     }
   }
 
@@ -90,6 +106,11 @@
     {#each records as record (record.id)}
       <li class="flex flex-col gap-0.5 rounded-md border px-3 py-2" data-action={record.action}>
         <span class="text-sm">{said(record)}</span>
+        {#if record.identity}
+          <span class="text-xs break-all" data-testid="audit-identity"
+            >{m.audit_identity({ identity: record.identity })}</span
+          >
+        {/if}
         <time
           class="text-xs text-muted-foreground"
           datetime={new Date(record.createAt).toISOString()}>{when.format(record.createAt)}</time

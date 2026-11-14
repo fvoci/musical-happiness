@@ -24,6 +24,8 @@ export function oidcProblemOf(name: string): string {
       return m.account_oidc_identity_taken();
     case 'oidc-email-mismatch':
       return m.account_oidc_email_mismatch();
+    case 'oidc-carry-over-refused':
+      return m.account_oidc_carry_over_refused();
     default:
       return m.account_oidc_failed();
   }

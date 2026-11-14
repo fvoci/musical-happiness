@@ -13,6 +13,15 @@ export interface OidcProvider {
   updateAt: number;
   /** Settings saved aside while single sign-on is required, until a sign-in through them. */
   pending: OidcPendingProvider | null;
+  /** The provider moved away from, while members may still carry their accounts over from it. */
+  former: OidcFormerProvider | null;
+}
+
+/** The provider before a move to another issuer: nobody signs in through it. */
+export interface OidcFormerProvider {
+  issuer: string;
+  createAt: number;
+  expiresAt: number;
 }
 
 /** Pending sign-in settings: nobody signs in through them until a trial succeeds. */
@@ -21,6 +30,14 @@ export interface OidcPendingProvider {
   clientId: string;
   hasClientSecret: boolean;
   createAt: number;
+  /**
+   * For settings of another issuer: until when a sign-in through them from this
+   * session, back by then, also connects an identity there that is nobody's yet to
+   * the reader's account (five minutes after the session was made through the
+   * current provider). Null once that has passed by the server's clock, for a
+   * session that was not made so, and for settings of the same issuer.
+   */
+  bindsIdentityUntil: number | null;
 }
 
 export interface OidcSettings {

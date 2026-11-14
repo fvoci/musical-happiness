@@ -23,6 +23,8 @@ mod limits;
 mod loose_objects;
 mod mail;
 mod oidc;
+mod oidc_account;
+mod oidc_carry;
 mod oidc_link;
 mod oidc_pending;
 mod oidc_settings;
@@ -75,6 +77,7 @@ pub use oidc::{
     BackTo, CALLBACK_PATH, Callback, FinishedLogin, LOGIN_FLOW_LIFETIME_MILLIS, LoginFailure,
     Returned, StartedLogin,
 };
+pub use oidc_carry::HELD_SIGN_IN_LIFETIME_MILLIS;
 pub use oidc_settings::secret_context;
 pub use org_admin::{DEFAULT_PER_PAGE, MAX_PER_PAGE, PageAsked};
 pub use readiness::{Readiness, ReadinessCheck};

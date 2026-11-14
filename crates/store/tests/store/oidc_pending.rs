@@ -3,10 +3,12 @@
 //! the provider's, at a new revision, in its own transaction, and one of settings
 //! that were saved anew, thrown away or replaced makes nothing.
 
+use std::time::Duration;
+
 use fvoci_model::{AuditAction, OrgRole, Session, User, new_id};
 use fvoci_store::{
-    AuditPlace, Identity, OidcAccount, OidcRefusal, Paging, PendingProvider, PendingSettings,
-    Store, StoredProvider,
+    AuditPlace, Identity, OidcRefusal, Paging, PendingProvider, PendingSettings, Store,
+    StoredProvider, Trial, Tried,
 };
 
 use crate::common;
@@ -108,16 +110,19 @@ async fn trial(
         expires_at: i64::MAX,
         ..Session::default()
     };
-    let account = OidcAccount::Known {
+    let account = Tried::Known {
         user_id,
         password_hash: HASH,
         identity: identity(),
     };
     store
         .finish_oidc_trial(
-            provider_id,
-            pending_at,
-            user_id,
+            Trial {
+                provider_id,
+                pending_at,
+                trier_id: user_id,
+                keep_former: Duration::ZERO,
+            },
             account,
             &mut session,
             digest,
@@ -151,13 +156,18 @@ async fn a_trial_of_the_last_settings_saved_applies_them() {
     let test = common::setup().await;
     let user = person(&test).await;
     let open = test
-        .put_oidc_provider_as_read(&provider(Passwords::Taken), None, &user)
+        .put_oidc_provider_as_read(&provider(Passwords::Taken), None, &user, Duration::ZERO)
         .await
         .expect("stored")
         .expect("new");
     let not_enforced = set_aside(&test, "another", &open, &user).await;
     let enforced = test
-        .put_oidc_provider_as_read(&provider(Passwords::Refused), Some(&open), &user)
+        .put_oidc_provider_as_read(
+            &provider(Passwords::Refused),
+            Some(&open),
+            &user,
+            Duration::ZERO,
+        )
         .await
         .expect("stored")
         .expect("as read");
@@ -210,7 +220,7 @@ async fn a_trial_of_settings_thrown_away_makes_nothing() {
     let test = common::setup().await;
     let user = person(&test).await;
     let enforced = test
-        .put_oidc_provider_as_read(&provider(Passwords::Refused), None, &user)
+        .put_oidc_provider_as_read(&provider(Passwords::Refused), None, &user, Duration::ZERO)
         .await
         .expect("stored")
         .expect("new");
@@ -231,7 +241,7 @@ async fn a_trial_of_settings_thrown_away_makes_nothing() {
         .expect("set aside");
     let mut released = provider(Passwords::Taken);
     released.sealed_client_secret = "three".to_owned();
-    test.put_oidc_provider_as_read(&released, Some(&enforced), &user)
+    test.put_oidc_provider_as_read(&released, Some(&enforced), &user, Duration::ZERO)
         .await
         .expect("stored")
         .expect("as read");
@@ -263,7 +273,7 @@ async fn a_trial_ends_only_in_its_administrators_account() {
     let test = common::setup().await;
     let user = person(&test).await;
     let enforced = test
-        .put_oidc_provider_as_read(&provider(Passwords::Refused), None, &user)
+        .put_oidc_provider_as_read(&provider(Passwords::Refused), None, &user, Duration::ZERO)
         .await
         .expect("stored")
         .expect("new");
@@ -277,16 +287,19 @@ async fn a_trial_ends_only_in_its_administrators_account() {
         expires_at: i64::MAX,
         ..Session::default()
     };
-    let account = OidcAccount::Known {
+    let account = Tried::Known {
         user_id: &user,
         password_hash: HASH,
         identity: identity(),
     };
     let another = test
         .finish_oidc_trial(
-            &enforced.id,
-            pending.create_at,
-            &started_by_another,
+            Trial {
+                provider_id: &enforced.id,
+                pending_at: pending.create_at,
+                trier_id: &started_by_another,
+                keep_former: Duration::ZERO,
+            },
             account,
             &mut session,
             "another",

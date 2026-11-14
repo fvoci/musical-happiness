@@ -1,4 +1,6 @@
 //! Durable provider changes, operator attribution, and immutable records on both databases.
+use std::time::Duration;
+
 use crate::common;
 use fvoci_model::{AuditAction, AuditRecordActor, new_id};
 use fvoci_store::{AuditPlace, Paging, StoredProvider};
@@ -23,7 +25,7 @@ fn settings() -> StoredProvider {
 async fn operator_records_are_distinct_immutable_and_made_with_the_release() {
     let test = common::setup().await;
     let actor = common::user(&test, "administrator").await;
-    test.put_oidc_provider_as_read(&settings(), None, &actor)
+    test.put_oidc_provider_as_read(&settings(), None, &actor, Duration::ZERO)
         .await
         .expect("stored");
     assert!(
@@ -104,14 +106,14 @@ async fn a_missing_actor_rolls_back_the_provider_change() {
     let test = common::setup().await;
     let actor = common::user(&test, "administrator").await;
     let before = test
-        .put_oidc_provider_as_read(&settings(), None, &actor)
+        .put_oidc_provider_as_read(&settings(), None, &actor, Duration::ZERO)
         .await
         .expect("stored")
         .expect("new");
     let mut changed = before.clone();
     changed.client_id = "replacement".to_owned();
     assert!(
-        test.put_oidc_provider_as_read(&changed, Some(&before), "")
+        test.put_oidc_provider_as_read(&changed, Some(&before), "", Duration::ZERO)
             .await
             .is_err()
     );
@@ -173,7 +175,7 @@ async fn a_release_or_removal_without_its_record_rolls_back() {
         let mut provider = settings();
         provider.sso_required = required;
         let before = test
-            .put_oidc_provider_as_read(&provider, None, &actor)
+            .put_oidc_provider_as_read(&provider, None, &actor, Duration::ZERO)
             .await
             .expect("stored")
             .expect("new");
@@ -244,23 +246,23 @@ async fn a_save_records_only_what_it_changed() {
     let mut provider = settings();
     provider.sso_required = false;
     let first = test
-        .put_oidc_provider_as_read(&provider, None, &actor)
+        .put_oidc_provider_as_read(&provider, None, &actor, Duration::ZERO)
         .await
         .expect("stored")
         .expect("new");
     let unchanged = test
-        .put_oidc_provider_as_read(&provider, Some(&first), &actor)
+        .put_oidc_provider_as_read(&provider, Some(&first), &actor, Duration::ZERO)
         .await
         .expect("stored")
         .expect("as read");
     provider.sso_required = true;
     let enforced = test
-        .put_oidc_provider_as_read(&provider, Some(&unchanged), &actor)
+        .put_oidc_provider_as_read(&provider, Some(&unchanged), &actor, Duration::ZERO)
         .await
         .expect("stored")
         .expect("as read");
     provider.auto_join = false;
-    test.put_oidc_provider_as_read(&provider, Some(&enforced), &actor)
+    test.put_oidc_provider_as_read(&provider, Some(&enforced), &actor, Duration::ZERO)
         .await
         .expect("stored")
         .expect("as read");
@@ -289,4 +291,53 @@ async fn a_save_records_only_what_it_changed() {
         ],
         "the first save, the switch alone, and the change of joining; nothing for the save that changed nothing"
     );
+}
+
+/// Who an identity is is told in the organization's own records only: a record of a
+/// workspace that carries one, whatever wrote it, is read without it.
+#[tokio::test]
+async fn a_workspaces_records_tell_no_identity_whatever_is_stored() {
+    let test = common::setup().await;
+    let actor = common::user(&test, "administrator").await;
+    let (in_workspace, of_organization) = (new_id(), new_id());
+    for (id, workspace) in [
+        (&in_workspace, format!("'{}'", test.workspace_id)),
+        (&of_organization, "NULL".to_owned()),
+    ] {
+        test.execute_unchecked(&format!(
+            "INSERT INTO audit_log (id, org_id, workspace_id, actor_id, action, target_id, \
+             create_at, actor_kind, detail, identity) VALUES ('{id}', '{}', {workspace}, \
+             '{actor}', 'oidc_identity_bound', '{}', 1, 'person', \
+             'https://issuer.example.test', 'someone@example.test')",
+            test.org_id, test.org_id
+        ))
+        .await
+        .expect("written past the store");
+    }
+    let paging = Paging {
+        page: 0,
+        per_page: 100,
+    };
+
+    let of_workspace = test
+        .audit_records(AuditPlace::Workspace(&test.workspace_id), paging)
+        .await
+        .expect("read");
+    let of_org = test
+        .audit_records(AuditPlace::Organization, paging)
+        .await
+        .expect("read");
+
+    let told = |records: &[fvoci_model::AuditRecord]| -> Vec<(String, Option<String>)> {
+        records
+            .iter()
+            .map(|record| (record.id.clone(), record.identity.clone()))
+            .collect()
+    };
+    assert_eq!(told(&of_workspace), [(in_workspace, None)]);
+    assert_eq!(
+        told(&of_org),
+        [(of_organization, Some("someone@example.test".to_owned()))]
+    );
+    test.teardown().await;
 }

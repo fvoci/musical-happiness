@@ -241,6 +241,23 @@ export class ServerRequests implements TrashReads {
     return started.authorizationUrl;
   }
 
+  async startOidcCarryOver(orgId: string): Promise<string> {
+    const started = await this.#http.request<Schemas['OidcStart']>(
+      '/api/v1/auth/oidc/held/carry-over',
+      {},
+      { method: 'POST', query: { org: orgId } },
+    );
+    return started.authorizationUrl;
+  }
+
+  async finishHeldSignIn(orgId: string): Promise<void> {
+    await this.#http.request(
+      '/api/v1/auth/oidc/held/sign-in',
+      {},
+      { method: 'POST', query: { org: orgId } },
+    );
+  }
+
   async identities(): Promise<LinkedIdentity[]> {
     return this.#http.request<Schemas['LinkedIdentity'][]>('/api/v1/users/me/identities');
   }
