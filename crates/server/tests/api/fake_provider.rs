@@ -343,6 +343,10 @@ fn cloudflare_error(status: u16) -> Response {
         400 => (10001, "email.sending.error.invalid_request_schema"),
         401 => (10101, "email.sending.error.authentication.unauthorized"),
         403 => (10102, "email.sending.error.authentication.forbidden"),
+        404 => (
+            7003,
+            "Could not route to /client/v4/accounts/…/email/sending/send, perhaps your object identifier is invalid?",
+        ),
         429 => (10004, "email.sending.error.throttled"),
         _ => (10002, "email.sending.error.internal_server"),
     };

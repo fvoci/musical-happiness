@@ -43,6 +43,7 @@ mod login_limits;
 mod loose_objects;
 mod mail_cloudflare;
 mod mail_limits;
+mod mail_not_found;
 mod mail_oci;
 mod mail_path;
 mod mail_reset;
