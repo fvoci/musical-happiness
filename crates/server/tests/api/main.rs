@@ -99,6 +99,7 @@ mod rooms_snapshots;
 mod rooms_teams;
 mod search;
 mod search_index;
+mod search_pages;
 mod search_real;
 mod server_lock;
 mod shared;

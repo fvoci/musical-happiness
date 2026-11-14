@@ -1,28 +1,30 @@
-//! What the search server is to hold of the blocks: a document for each card that is
-//! on a board, which is no template. One read says so, for the worker that sends the
+//! What the search server is to hold of the blocks: a document for each card and each
+//! page that is on a board or in a wiki, which is no template. One read says so, for the worker that sends the
 //! documents and for the search that checks each of the search server's answers
 //! against it: what is not read here is not found.
 
-use fvoci_model::{BlockType, SearchKind};
+use fvoci_model::{BlockType, BoardKind, SearchKind};
 
 use crate::Store;
-use crate::db::{Id, Row, Scope};
+use crate::db::{Id, Row, Scope, Sql};
 use crate::error::StoreError;
 
 /// Bounded parameters however many identifiers are asked for.
 const BATCH: usize = 300;
 
-/// A card as the search server is to hold it.
+/// A card or a page as the search server is to hold it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchDocument {
-    /// The identifier of the card.
+    /// The identifier of the card or the page.
     pub id: String,
     /// The organization of its workspace.
     pub org_id: String,
-    /// The workspace of its board.
+    /// The workspace of its container.
     pub workspace_id: String,
-    /// The board it is on.
+    /// The board it is on, or the wiki it is in.
     pub container_id: String,
+    /// What its container is. No document says so: the search asks the database.
+    pub container_kind: BoardKind,
     /// What it is.
     pub kind: SearchKind,
     /// Its title.
@@ -33,20 +35,27 @@ pub struct SearchDocument {
 
 /// The columns of a document, of the blocks `b`, their boards `bo` and the boards'
 /// workspaces `w`.
-const DOCUMENT_COLUMNS: &str =
-    "b.id, w.org_id, bo.workspace_id, b.board_id, b.title, COALESCE(b.body_text, '')";
+const DOCUMENT_COLUMNS: &str = "b.id, w.org_id, bo.workspace_id, b.board_id, b.title, COALESCE(b.body_text, ''), b.type, bo.kind";
 
-/// The blocks that have a document, with their boards and workspaces: the cards of
-/// the boards that are no templates. A card in the trash is no block, and has none.
-fn documents_from(scope: &Scope<'_>) -> String {
-    [
-        " FROM blocks AS b JOIN boards AS bo ON bo.id = b.board_id",
-        &scope.same_organization(&[("bo", "b")]),
-        " JOIN workspaces AS w ON w.id = bo.workspace_id",
-        &scope.same_organization(&[("w", "bo")]),
-        " WHERE bo.is_template = false AND bo.is_builtin = false AND b.type = ",
-    ]
-    .concat()
+/// Starts the statement that reads the blocks that have a document, with their
+/// boards and workspaces: the cards and the pages of the boards and wikis that are no
+/// templates. What is in the trash is no block, and has none. More `AND` conditions
+/// on `b` may follow.
+fn select_documents(scope: &Scope<'_>) -> Sql {
+    let mut sql = scope.sql(&format!(
+        "SELECT {DOCUMENT_COLUMNS} FROM blocks AS b JOIN boards AS bo ON bo.id = b.board_id{} \
+         JOIN workspaces AS w ON w.id = bo.workspace_id{} \
+         WHERE bo.is_template = false AND bo.is_builtin = false AND b.type IN (",
+        scope.same_organization(&[("bo", "b")]),
+        scope.same_organization(&[("w", "bo")]),
+    ));
+    sql.bind_list(
+        SearchKind::ALL
+            .iter()
+            .map(|kind| kind.block_type().as_str().to_owned()),
+    )
+    .push(")");
+    sql
 }
 
 impl Store {
@@ -70,10 +79,8 @@ impl Store {
         self.with_conn(async |scope| {
             let mut documents = Vec::with_capacity(ids.len());
             for batch in ids.chunks(BATCH) {
-                let mut sql = scope.sql(&format!("SELECT {DOCUMENT_COLUMNS}"));
-                sql.push(&documents_from(scope))
-                    .bind(BlockType::Card.as_str())
-                    .push(" AND b.id IN (")
+                let mut sql = select_documents(scope);
+                sql.push(" AND b.id IN (")
                     .bind_list(batch.iter().map(|id| Id(id)))
                     .push(") ORDER BY b.id");
                 for row in scope.fetch_all(sql).await? {
@@ -85,7 +92,7 @@ impl Store {
         .await
     }
 
-    /// Up to `limit` documents of the blocks of a board, by identifier, those after
+    /// Up to `limit` documents of the blocks of a board or a wiki, by identifier, those after
     /// the identifier `after` (empty for the first): for sending a board whole, a page
     /// at a time. A board that is a template, or is not there, has none.
     ///
@@ -99,10 +106,8 @@ impl Store {
         limit: i64,
     ) -> Result<Vec<SearchDocument>, StoreError> {
         self.with_conn(async |scope| {
-            let mut sql = scope.sql(&format!("SELECT {DOCUMENT_COLUMNS}"));
-            sql.push(&documents_from(scope))
-                .bind(BlockType::Card.as_str())
-                .push_bind(" AND b.board_id = ", Id(board_id));
+            let mut sql = select_documents(scope);
+            sql.push_bind(" AND b.board_id = ", Id(board_id));
             if !after.is_empty() {
                 sql.push_bind(" AND b.id > ", Id(after));
             }
@@ -119,12 +124,18 @@ impl Store {
 }
 
 fn document_from_row(row: &Row) -> Result<SearchDocument, StoreError> {
+    let block_type = BlockType::from(row.text(6)?.as_str());
+    let kind = SearchKind::of_block(&block_type).ok_or_else(|| StoreError::Corrupt {
+        column: "type",
+        reason: format!("a document of a block of type {block_type}"),
+    })?;
     Ok(SearchDocument {
         id: row.id(0)?,
         org_id: row.id(1)?,
         workspace_id: row.id(2)?,
         container_id: row.id(3)?,
-        kind: SearchKind::Card,
+        container_kind: crate::board_kinds::kind_from_text(&row.text(7)?)?,
+        kind,
         title: row.text(4)?,
         text: row.text(5)?,
     })

@@ -129,6 +129,19 @@ pub(crate) fn document(
     })
 }
 
+/// [`document`], of a page.
+pub(crate) fn page_document(
+    org_id: &str,
+    workspace_id: &str,
+    container_id: &str,
+    title: &str,
+    text: &str,
+) -> Value {
+    let mut document = document(org_id, workspace_id, container_id, title, text);
+    document["kind"] = json!("page");
+    document
+}
+
 impl FakeSearch {
     pub(crate) async fn start() -> Self {
         Self::start_on(0, Flavor::OpenSearch).await

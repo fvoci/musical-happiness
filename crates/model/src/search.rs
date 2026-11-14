@@ -5,7 +5,7 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
-use crate::BlockType;
+use crate::{BlockType, BoardKind};
 
 /// The kind of thing a search finds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema)]
@@ -13,16 +13,31 @@ use crate::BlockType;
 pub enum SearchKind {
     /// A card of a board.
     Card,
+    /// A page of a wiki.
+    Page,
 }
 
 impl SearchKind {
+    /// Every kind there is.
+    pub const ALL: [Self; 2] = [Self::Card, Self::Page];
+
     /// The kind of thing a block of this type is to a search; `None` for a block a
     /// search never finds: a view, a comment, an attachment.
     #[must_use]
     pub fn of_block(block_type: &BlockType) -> Option<Self> {
         match block_type {
             BlockType::Card => Some(Self::Card),
+            BlockType::Page => Some(Self::Page),
             _ => None,
+        }
+    }
+
+    /// The type of the blocks that are of this kind.
+    #[must_use]
+    pub fn block_type(self) -> BlockType {
+        match self {
+            Self::Card => BlockType::Card,
+            Self::Page => BlockType::Page,
         }
     }
 
@@ -31,6 +46,7 @@ impl SearchKind {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Card => "card",
+            Self::Page => "page",
         }
     }
 }
@@ -52,6 +68,7 @@ impl FromStr for SearchKind {
     fn from_str(text: &str) -> Result<Self, Self::Err> {
         match text {
             "card" => Ok(Self::Card),
+            "page" => Ok(Self::Page),
             other => Err(UnknownSearchKind(other.to_owned())),
         }
     }
@@ -71,12 +88,14 @@ pub struct SnippetPart {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct SearchHit {
-    /// The identifier of the card.
+    /// The identifier of the card or the page.
     pub id: String,
     /// What it is.
     pub kind: SearchKind,
-    /// The identifier of the board it is on.
+    /// The identifier of the board the card is on, or of the wiki the page is in.
     pub container_id: String,
+    /// What its container is: a board, or a wiki.
+    pub container_kind: BoardKind,
     /// Its title as it is now.
     pub title: String,
     /// A piece of its body around what matched, in stretches that follow one

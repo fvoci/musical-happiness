@@ -1,5 +1,5 @@
-//! A card as the search server holds it, and what tells whether it holds the card as
-//! it is now.
+//! A card or a page as the search server holds it, and what tells whether it holds it
+//! as it is now.
 
 use std::fmt::Write as _;
 
@@ -28,7 +28,8 @@ pub(crate) fn digest(title: &str, text: &str) -> String {
     digest
 }
 
-/// The document of a card: what the mapping of the index names, and nothing else.
+/// The document of a card or a page: what the mapping of the index names, and
+/// nothing else.
 pub(crate) fn source(document: &SearchDocument) -> Value {
     json!({
         "orgId": document.org_id,
@@ -55,6 +56,7 @@ mod tests {
             org_id: "o".to_owned(),
             workspace_id: "w".to_owned(),
             container_id: "b".to_owned(),
+            container_kind: fvoci_model::BoardKind::Board,
             kind: SearchKind::Card,
             title: "제목".to_owned(),
             text: "본문".to_owned(),

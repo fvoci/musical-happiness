@@ -82,11 +82,13 @@ fn unavailable() -> AppError {
 }
 
 impl App {
-    /// Finds the cards of a workspace whose title or body holds the words asked for,
-    /// among those the user reads, the best match first. For a handle of the
-    /// workspace ([`App::in_workspace`]). The user reads the cards of the boards they
-    /// have a role on, their own or a team's: an open board they have not joined is
-    /// theirs to join, and not searched.
+    /// Finds the cards and the pages of a workspace whose title or body holds the
+    /// words asked for, among those the user reads, the best match first. For a handle
+    /// of the workspace ([`App::in_workspace`]) that reaches the kinds of container
+    /// to search ([`App::reaching`]): one that reaches boards alone finds no page. The
+    /// user reads what is on the boards and in the wikis they have a role on, their
+    /// own or a team's: an open one they have not joined is theirs to join, and not
+    /// searched.
     ///
     /// The search server is asked, and every document it answers with is then asked
     /// of the database (`check_hits`): what the user does not read now is left out.
@@ -185,10 +187,11 @@ impl App {
     /// The search server's index may be behind what is stored, so a hit is no more
     /// than an identifier to ask about. A hit is kept if the database, as this handle
     /// reaches it, has a document of that identifier now ([`SearchDocument`]: a card
-    /// that is no block of the trash, on a board that is no template), in this
-    /// workspace, of the kind asked for, on a board the user has a role on and reads
-    /// ([`App::board_access`], asked once a board). What is answered of it is what the
-    /// database says: the container, the kind and the title. The piece of text alone
+    /// or a page that is no block of the trash, in a container that is no template),
+    /// in this workspace, of the kind asked for, in a container the user has a role
+    /// on and reads ([`App::board_access`], asked once a container). What is answered
+    /// of it is what the database says: the container and its kind, the kind and the
+    /// title. The piece of text alone
     /// is the search server's, and is left out unless the document was indexed from
     /// the title and the text the card has now.
     async fn check_hits(
@@ -240,6 +243,7 @@ impl App {
                 id: document.id.clone(),
                 kind: document.kind,
                 container_id: document.container_id.clone(),
+                container_kind: document.container_kind,
                 title: document.title.clone(),
                 snippet: if current { hit.snippet } else { Vec::new() },
             });

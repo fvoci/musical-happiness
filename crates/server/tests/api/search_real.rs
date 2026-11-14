@@ -8,25 +8,36 @@
 //!
 //! With `FVOCI_SEARCH_TEST_USERNAME` and `FVOCI_SEARCH_TEST_PASSWORD` the server signs
 //! in with them. The test makes an index of its own name and removes it at the end. It
-//! writes cards through the API, waits until the server has sent them, and asks the
-//! questions of [`QUESTIONS`]: the ones marked as required must find their card, and
-//! all of them are written, with what they found, to the file `FVOCI_SEARCH_TEST_REPORT`
-//! names (a table, for the record of what nori finds as it is configured here). Then a
-//! card and the board go to the trash, and their documents with them.
+//! writes cards of a board and pages of a wiki through the API, waits until the server
+//! has sent them, and asks the questions of [`QUESTIONS`]: the ones marked as required
+//! must find their card or page, and all of them are written, with what they found, to
+//! the file `FVOCI_SEARCH_TEST_REPORT` names (a table, for the record of what nori finds
+//! as it is configured here). Then a page, the board and the wiki go to the trash, and
+//! their documents with them.
 
 use std::fmt::Write as _;
 use std::time::Duration;
 
-use fvoci_model::{Board, BoardType, SearchHit, new_id};
+use fvoci_model::{Board, BoardKind, BoardType, SearchHit, SearchKind, new_id};
 use fvoci_server::config::search::SearchSettings;
 use serde_json::Value;
 
 use crate::boards::new_board;
 use crate::common::{Setup, TEST_WORKSPACE_ID, TEST_WS, TestServer};
 use crate::content_search::{new_card, search};
+use crate::search_pages::{new_page, new_wiki};
 
-/// The cards: a title and a body.
-const CARDS: [(&str, &str); 13] = [
+/// The titles of [`WRITTEN`] that are pages of a wiki; the others are cards of a board.
+const PAGES: [&str; 5] = [
+    "고객 응대 안내",
+    "휴가 정책",
+    "장애 보고서",
+    "디자인 시스템",
+    "당근마켓 연동",
+];
+
+/// What is written: a title and a body.
+const WRITTEN: [(&str, &str); 13] = [
     (
         "고객 응대 안내",
         "결제 후 7일이 지나면 환불규정을 따라 처리합니다.",
@@ -307,14 +318,22 @@ async fn korean_questions_find_their_cards_on_a_real_search_server() {
         .create_board(&new_board(TEST_WORKSPACE_ID, BoardType::Private, "한국어"))
         .await
         .created_json();
-    let mut cards = Vec::new();
-    for (title, text) in CARDS {
-        cards.push(new_card(&th.client, &board.id, title, text).await.id);
+    let wiki = new_wiki(&th.client).await;
+    let mut refund_page = String::new();
+    for (title, text) in WRITTEN {
+        if PAGES.contains(&title) {
+            let page = new_page(&th.client, &wiki, "", title, text).await;
+            if refund_page.is_empty() {
+                refund_page = page.id;
+            }
+        } else {
+            new_card(&th.client, &board.id, title, text).await;
+        }
     }
     sent_and_shown(&th, &settings).await;
 
     let mut table = format!(
-        "### {flavor}\n\n| 질문 | 보려는 것 | 찾을 카드 | 바란 대로인가 | 찾은 카드(순서대로) | 조각 |\n|---|---|---|---|---|---|\n"
+        "### {flavor}\n\n| 질문 | 보려는 것 | 찾을 것 | 바란 대로인가 | 찾은 것(순서대로) | 조각 |\n|---|---|---|---|---|---|\n"
     );
     let mut missed = Vec::new();
     for (question, expect, tries) in QUESTIONS {
@@ -336,14 +355,21 @@ async fn korean_questions_find_their_cards_on_a_real_search_server() {
                 continue;
             }
         };
-        let hit = hits.iter().find(|hit| hit.title == wanted);
+        let (kind, word) = if PAGES.contains(&wanted) {
+            (SearchKind::Page, "페이지")
+        } else {
+            (SearchKind::Card, "카드")
+        };
+        let hit = hits
+            .iter()
+            .find(|hit| hit.title == wanted && hit.kind == kind);
         if required && hit.is_none() {
             missed.push(question);
         }
         let _ = writeln!(
             table,
-            "| {question} | {tries} | {wanted}{} | {} | {} | {} |",
-            if required { "" } else { " (바람)" },
+            "| {question} | {tries} | {wanted} ({word}){} | {} | {} | {} |",
+            if required { "" } else { ", 바람" },
             if hit.is_some() { "예" } else { "아니오" },
             titles.join(", "),
             hit.map(shown).unwrap_or_default(),
@@ -351,22 +377,21 @@ async fn korean_questions_find_their_cards_on_a_real_search_server() {
     }
     // The case the search was asked for, with the piece of the body that matched.
     let refund: Vec<SearchHit> = search(&th.client, TEST_WS, "환불 규정").await.ok_json();
-    // Its card goes to the trash, and then the board with the others: the search
-    // server holds neither any more.
+    // Its page goes to the trash, and then the board and the wiki with the others: the
+    // search server holds none of them any more.
     th.client
-        .delete(&format!(
-            "{TEST_WS}/boards/{}/blocks/{}",
-            board.id, cards[0]
-        ))
+        .delete(&format!("{TEST_WS}/wikis/{wiki}/pages/{refund_page}"))
         .await
         .check_no_content();
     sent_and_shown(&th, &settings).await;
     let trashed: Vec<SearchHit> = search(&th.client, TEST_WS, "환불 규정").await.ok_json();
     let others = count(&settings).await;
-    th.client
-        .delete(&format!("{TEST_WS}/boards/{}", board.id))
-        .await
-        .check_no_content();
+    for container in [&board.id, &wiki] {
+        th.client
+            .delete(&format!("{TEST_WS}/boards/{container}"))
+            .await
+            .check_no_content();
+    }
     sent_and_shown(&th, &settings).await;
     let none = count(&settings).await;
     let removed = direct(
@@ -383,19 +408,23 @@ async fn korean_questions_find_their_cards_on_a_real_search_server() {
         std::fs::write(&report, &table).expect("the table is written");
     }
     assert!(removed.status().is_success(), "{}", removed.status());
-    assert_eq!(trashed, [], "a card in the trash is found no more");
+    assert_eq!(trashed, [], "a page in the trash is found no more");
     assert_eq!(
         others,
-        CARDS.len() - 1,
+        WRITTEN.len() - 1,
         "its document was removed, and no other"
     );
     assert_eq!(
         none, 0,
-        "the documents of a board in the trash were removed"
+        "the documents of what is in the trash were removed"
     );
     assert_eq!(missed, Vec::<&str>::new(), "on {flavor}:\n{table}");
-    let refund = refund.first().expect("the card of the refund rules");
+    let refund = refund.first().expect("the page of the refund rules");
     assert_eq!(refund.title, "고객 응대 안내");
+    assert_eq!(
+        (refund.kind, refund.container_kind, &refund.container_id),
+        (SearchKind::Page, BoardKind::Wiki, &wiki)
+    );
     assert!(
         refund
             .snippet

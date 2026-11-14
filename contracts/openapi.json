@@ -3375,11 +3375,15 @@
         "description": "One thing a search found: the user reads it now.",
         "properties": {
           "containerId": {
-            "description": "The identifier of the board it is on.",
+            "description": "The identifier of the board the card is on, or of the wiki the page is in.",
             "type": "string"
           },
+          "containerKind": {
+            "$ref": "#/components/schemas/BoardKind",
+            "description": "What its container is: a board, or a wiki."
+          },
           "id": {
-            "description": "The identifier of the card.",
+            "description": "The identifier of the card or the page.",
             "type": "string"
           },
           "kind": {
@@ -3400,6 +3404,7 @@
         },
         "required": [
           "containerId",
+          "containerKind",
           "id",
           "kind",
           "snippet",
@@ -3410,7 +3415,8 @@
       "SearchKind": {
         "description": "The kind of thing a search finds.",
         "enum": [
-          "card"
+          "card",
+          "page"
         ],
         "type": "string"
       },
@@ -10727,7 +10733,7 @@
     },
     "/api/v1/w/{workspaceId}/search": {
       "get": {
-        "description": "The cards of the boards of the workspace that the user has a role on, their own or\na team's (an open board they have not joined is not searched), whose title and\nbody together hold every word of `q`.\nKorean is matched by its words, whatever particles and endings they carry, and a\ncompound by its parts too: \"환불 규정\" finds \"환불규정을\". Comments, property values\nand attached files are not searched, and neither are templates. Each hit is the\ncard as it is now: its `title`, the board it is on (`containerId`), and `snippet`,\na piece of its body in stretches of plain text, those that matched marked; the\nsnippet is empty for a body that changed a moment ago, or has nothing to show. The\nbest match first. Nothing says how many cards match in all: fewer than `limit`\nmeans that no more of what the user reads matches.\n\nA `q` of more than 200 characters, a `kind` that is none and a `limit` outside 1\nto 50 are 400; a `q` that is empty finds nothing. A user who searches more often\nthan the server lets one is told to wait (429, `Retry-After`). Where the server\nhas no search server (`searchEnabled` of `getClientConfig` is false) the answer is\n404 with the reason `search_not_configured`, and while the search server does not\nanswer, 503 with the reason `search_unavailable`: nothing else of the server waits\nfor it.",
+        "description": "The cards of the boards and the pages of the wikis of the workspace that the user\nhas a role on, their own or a team's (an open board or wiki they have not joined is\nnot searched), whose title and body together hold every word of `q`. Korean is\nmatched by its words, whatever particles and endings they carry, and a compound by\nits parts too: \"환불 규정\" finds \"환불규정을\". Comments, property values and attached\nfiles are not searched, and neither are templates. Each hit is the card or the page\nas it is now: its `kind`, its `title`, the board or the wiki it is in (`containerId`,\nand `containerKind`, by which a client tells a card's address from a page's), and\n`snippet`, a piece of its body in stretches of plain text, those that matched\nmarked; the snippet is empty for a body that changed a moment ago, or has nothing\nto show. The best match first. Nothing says how many match in all: fewer than\n`limit` means that no more of what the user reads matches.\n\nA `q` of more than 200 characters, a `kind` that is none and a `limit` outside 1\nto 50 are 400; a `q` that is empty finds nothing. A user who searches more often\nthan the server lets one is told to wait (429, `Retry-After`). Where the server\nhas no search server (`searchEnabled` of `getClientConfig` is false) the answer is\n404 with the reason `search_not_configured`, and while the search server does not\nanswer, 503 with the reason `search_unavailable`: nothing else of the server waits\nfor it.",
         "operationId": "searchWorkspaceContent",
         "parameters": [
           {
@@ -10749,7 +10755,7 @@
             }
           },
           {
-            "description": "The kind of thing to find: `card`. Left out, every kind. Anything else is 400.",
+            "description": "The kind of thing to find: `card` or `page`. Left out, both. Anything else is 400.",
             "in": "query",
             "name": "kind",
             "required": false,
@@ -10793,7 +10799,7 @@
             "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
           }
         },
-        "summary": "Search what the cards of a workspace say",
+        "summary": "Search what the cards and pages of a workspace say",
         "tags": [
           "workspaces"
         ]
