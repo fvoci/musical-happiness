@@ -3,7 +3,7 @@
 
 use std::sync::atomic::Ordering;
 
-use fvoci_model::{Block, BlockType, Body};
+use fvoci_model::{Block, Body};
 use fvoci_store::{LoggedUpdate, StoreError, StoredDoc};
 use tokio::sync::OwnedSemaphorePermit;
 use tokio::time::Instant;
@@ -327,10 +327,11 @@ impl Collab {
     }
 }
 
-/// The card of that identifier as `app` reaches it.
+/// The card or the page of that identifier as `app` reaches it: the block whose body
+/// has a room.
 async fn card(app: &App, card_id: &str) -> Result<Block, Opening> {
     match app.store().get_block(card_id).await {
-        Ok(block) if block.block_type == BlockType::Card => Ok(block),
+        Ok(block) if block.block_type.has_room() => Ok(block),
         Ok(_) | Err(StoreError::NotFound(_)) => Err(AppError::not_found("card").into()),
         Err(error) => Err(error.into()),
     }

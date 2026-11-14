@@ -118,7 +118,7 @@ impl App {
         notification: ChangeNotification,
     ) -> Result<(), AppError> {
         let board = self.store().get_board(&block.board_id).await?;
-        if block.block_type == BlockType::Card {
+        if block.block_type.has_room() {
             // A card stored again writes its body whole, around its document.
             let (mut stored, modified_by) = (block.clone(), modified_by.to_owned());
             let card_ids = vec![block.id.clone()];
@@ -179,7 +179,7 @@ impl App {
         // error for the third while the first two stay.
         let card_ids: Vec<String> = blocks
             .iter()
-            .filter(|block| block.block_type == BlockType::Card)
+            .filter(|block| block.block_type.has_room())
             .map(|block| block.id.clone())
             .collect();
         if card_ids.is_empty() {
@@ -225,7 +225,7 @@ impl App {
     ) -> Result<Block, AppError> {
         let old_block = self.store().get_block(block_id).await?;
         let board = self.store().get_board(&old_block.board_id).await?;
-        if patch.body.is_keep() || old_block.block_type != BlockType::Card {
+        if patch.body.is_keep() || !old_block.block_type.has_room() {
             let _structure = self.collab().changing_structure(self).await;
             self.store()
                 .patch_block(block_id, patch, modified_by)

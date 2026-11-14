@@ -65,6 +65,14 @@ impl BlockType {
         matches!(self, Self::Card | Self::Comment | Self::Page)
     }
 
+    /// Returns `true` for the types whose body is edited together, in a room of the
+    /// block's own: a card and a page. A comment's body is written whole by its
+    /// author.
+    #[must_use]
+    pub fn has_room(&self) -> bool {
+        matches!(self, Self::Card | Self::Page)
+    }
+
     /// Returns `true` for the types a block may be given by a write of blocks: a card,
     /// a view, a comment and an attachment (`docs/s6-design.md` 5.7). The content
     /// blocks that were stored before a card's content became its body were deleted by

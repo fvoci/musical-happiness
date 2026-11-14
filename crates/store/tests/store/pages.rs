@@ -365,3 +365,36 @@ async fn the_tree_has_every_page_that_is_not_in_the_trash_and_no_body() {
     }
     test.teardown().await;
 }
+
+#[tokio::test]
+async fn the_body_of_a_page_has_a_room_in_its_wiki_as_that_of_a_card_in_its_board() {
+    let test = common::setup().await;
+    let user_id = common::user(&test, "user").await;
+    let workspace_id = common::workspace_of(&test, &[&user_id]).await;
+    let wiki = stored(&test, &workspace_id, &user_id, BoardKind::Wiki).await;
+    let board = stored(&test, &workspace_id, &user_id, BoardKind::Board).await;
+    let page_id = page(&test, &wiki, "", None).await;
+    let mut on_board = [
+        block(&board.id, "", BlockType::Card),
+        block(&board.id, "", BlockType::View),
+    ];
+    common::insert_blocks(&test, &mut on_board, &user_id).await;
+    let [card, view] = &on_board;
+
+    for (block_id, expected) in [
+        (&page_id, Some(&wiki.id)),
+        (&card.id, Some(&board.id)),
+        // A view has no body, and a wiki is no block of itself.
+        (&view.id, None),
+        (&wiki.id, None),
+    ] {
+        let found = test
+            .board_of_card(block_id)
+            .await
+            .expect("the board of the block is read");
+        assert_eq!(found.as_ref(), expected, "{block_id}");
+    }
+    assert!(BlockType::Page.has_room() && BlockType::Card.has_room());
+    assert!(!BlockType::Comment.has_room(), "a comment is written whole");
+    test.teardown().await;
+}

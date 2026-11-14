@@ -1,6 +1,6 @@
 //! The authority behind a board visit, and the people its reader may identify.
 
-use fvoci_model::{BlockType, WorkspaceRole};
+use fvoci_model::WorkspaceRole;
 
 use super::{App, Asker};
 use crate::collab::Wall;
@@ -65,12 +65,13 @@ impl App {
     }
 }
 
-/// Whether `card_id` is a card of the board `board_id`, not deleted.
+/// Whether `card_id` is a card of the board `board_id`, or a page of the wiki of that
+/// identifier, not deleted.
 async fn is_open_card(app: &App, board_id: &str, card_id: &str) -> Result<bool, AppError> {
     let card = match app.block(card_id).await {
         Ok(card) => card,
         Err(error) if error.kind() == crate::error::ErrorKind::NotFound => return Ok(false),
         Err(error) => return Err(error),
     };
-    Ok(card.board_id == board_id && card.block_type == BlockType::Card && card.delete_at == 0)
+    Ok(card.board_id == board_id && card.block_type.has_room() && card.delete_at == 0)
 }
