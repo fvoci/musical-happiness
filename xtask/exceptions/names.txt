@@ -99,3 +99,7 @@ crates/server/tests/regression/golden/templates.json | across teams
 PORTING.md
 crates/*/PORTING.md
 docs/s6-design.md
+
+# The signing string of OCI's published example request, which the signature test
+# verifies byte for byte: its instances are named so in Oracle's documentation.
+crates/server/src/app/mail/provider/http_signature.rs | displayName=TeamXInstances
