@@ -7,9 +7,10 @@
  * What the reader's editor says of its caret is told to the room: at most
  * once every `CARET_WAIT`, and again every fifteen seconds while it stays
  * (the library renews it; who holds a caret lets it go after thirty without
- * a word). Whose a caret is the room says, not the reader
- * (`contracts/websocket.md`, section 6). Out of the room the others' carets
- * are let go at once: the room tells them anew to who comes in.
+ * a word). A page that is hidden shows no caret: nobody is at it, and its
+ * timers are too slow to keep one. Whose a caret is the room says, not the
+ * reader (`contracts/websocket.md`, section 6). Out of the room the others'
+ * carets are let go at once: the room tells them anew to who comes in.
  */
 import {
   applyAwarenessUpdate,
@@ -40,7 +41,13 @@ export class Carets {
     this.awareness = new Awareness(doc);
     this.#tell = tell;
     this.awareness.on('update', this.#changed);
+    document.addEventListener('visibilitychange', this.#seen);
   }
+
+  /** The page was hidden, or is shown again: the caret goes, or is told anew. */
+  readonly #seen = (): void => {
+    this.#soon();
+  };
 
   /** The reader's own state was set (by the editor, or renewed by the library). */
   readonly #changed = (_changes: unknown, origin: unknown): void => {
@@ -60,10 +67,13 @@ export class Carets {
   #say(): void {
     const { awareness } = this;
     const cursor: unknown = awareness.getLocalState()?.cursor;
-    const shows = cursor !== null && cursor !== undefined;
+    const hidden = document.visibilityState === 'hidden';
+    const shows = cursor !== null && cursor !== undefined && !hidden;
     // No caret, and the room knows of none: nothing to tell.
     if (!shows && !this.#shown) return;
-    const told = this.#tell(encodeAwarenessUpdate(awareness, [awareness.clientID]));
+    // A caret that is not shown is told as a state that is gone, whatever the state says.
+    const states = shows ? awareness.getStates() : new Map<number, Record<string, unknown>>();
+    const told = this.#tell(encodeAwarenessUpdate(awareness, [awareness.clientID], states));
     this.#toldAt = Date.now();
     this.#shown = told && shows;
   }
@@ -79,7 +89,7 @@ export class Carets {
     try {
       applyAwarenessUpdate(this.awareness, update, this);
     } catch {
-      // Nothing of it was taken in.
+      // What of it was no state is dropped; the room tells one state at a time.
     }
   }
 
@@ -100,6 +110,7 @@ export class Carets {
     clearTimeout(this.#timer);
     this.#timer = undefined;
     this.awareness.off('update', this.#changed);
+    document.removeEventListener('visibilitychange', this.#seen);
     this.awareness.destroy();
   }
 }

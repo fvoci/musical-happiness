@@ -13,8 +13,10 @@
  * - A document made anew leaves none.
  *
  * The rooms of the other tabs of the browser are told too, and theirs are
- * told here (`shareRooms`). A tab that goes away says nothing: its carets
- * are let go by who holds them, thirty seconds after its last word.
+ * told here (`shareRooms`); a tab whose room comes to be later is told the
+ * carets there are. A tab that goes away says nothing, nor one whose
+ * document was made anew: its carets are let go by who holds them, thirty
+ * seconds after its last word.
  *
  * Unlike the server, nothing is counted against a rate.
  */
@@ -46,8 +48,13 @@ interface Ports<Seat, Room> {
 export class MemoryCarets<Seat, Room extends { seats: Set<Seat> }> {
   readonly #ports: Ports<Seat, Room>;
   readonly #rooms = new WeakMap<Room, { seats: Map<Seat, Caret>; tabs: Map<number, Caret> }>();
-  /** The last number given: from a start of this tab's own, so that no two tabs give one number. */
-  #numbers = Math.floor(Math.random() * 0x3fff_ffff) * 4096;
+  /**
+   * The last number given: past what the client of a Y document has for a
+   * number (32 bits), as the server's are, and from a start of this tab's
+   * own, drawn among 2^36, with 65,536 numbers to each: two tabs give one
+   * number only by that chance.
+   */
+  #numbers = 2 ** 32 + Math.floor(Math.random() * 2 ** 36) * 2 ** 16;
 
   constructor(ports: Ports<Seat, Room>) {
     this.#ports = ports;
@@ -91,6 +98,20 @@ export class MemoryCarets<Seat, Room extends { seats: Set<Seat> }> {
     caret.clock += 1;
     caret.state = null;
     this.#spread(room, seat, caret);
+  }
+
+  /** A seat is no longer in the room: its caret is gone, and nothing is kept of the seat. */
+  left(room: Room, seat: Seat): void {
+    this.gone(room, seat);
+    this.#rooms.get(room)?.seats.delete(seat);
+  }
+
+  /** Another tab's room came to be: it is told the carets of this tab's readers, as who comes in here is. */
+  tellTabs(room: Room): void {
+    const since = Date.now() - TOLD_FOR;
+    for (const { number, clock, state, heard } of this.#rooms.get(room)?.seats.values() ?? []) {
+      if (state !== null && heard >= since) this.#ports.post(room, { number, clock, state });
+    }
   }
 
   /** Tells a caret to the room's seats but the one it is of, and to the other tabs. */

@@ -94,6 +94,23 @@ async function twoTabs(
 
 const caret = (editor: Locator): Locator => editor.locator('.doc-caret');
 const nameOf = (editor: Locator): Locator => editor.locator('.doc-caret-name');
+/** How far the name was moved from its caret to stay in sight, in pixels: less than nothing is leftwards. */
+const moved = (editor: Locator): Promise<number> =>
+  nameOf(editor).evaluate((name) => Number.parseFloat(name.style.getPropertyValue('--moved')) || 0);
+
+/** The name shows, and is within the body: placed a frame after it is drawn. */
+async function inside(editor: Locator): Promise<void> {
+  await expect(caret(editor)).toHaveAttribute('data-named', '');
+  await expect
+    .poll(async () => {
+      const [box, name] = await Promise.all([editor.boundingBox(), nameOf(editor).boundingBox()]);
+      if (!box || !name) return 'not drawn';
+      const fits =
+        name.x >= box.x - 1 && name.x + name.width <= box.x + box.width + 1 && name.y >= box.y - 1;
+      return fits ? 'inside' : `outside: ${JSON.stringify({ box, name })}`;
+    })
+    .toBe('inside');
+}
 
 test("each tab shows where the other is, with the reader's name for a while after they moved", async ({
   page,
@@ -137,42 +154,46 @@ test("each tab shows where the other is, with the reader's name for a while afte
   await other.close();
 });
 
-test('a name is not cut off at the edges: under the first line, and leftwards at the right edge', async ({
+test('a name is not cut off at the edges: under the first line, and moved left at the right edge', async ({
   page,
 }) => {
   // A word too long for a row is cut at the right edge: the end of its first row is at the edge.
   const { mine, theirs, other } = await twoTabs(page, ['W'.repeat(400), 'Below.']);
-  const inside = async (): Promise<void> => {
-    await expect(caret(mine)).toHaveAttribute('data-named', '');
-    // Placed a frame after it is drawn.
-    await expect
-      .poll(async () => {
-        const [box, name] = await Promise.all([mine.boundingBox(), nameOf(mine).boundingBox()]);
-        if (!box || !name) return 'not drawn';
-        const fits =
-          name.x >= box.x - 1 &&
-          name.x + name.width <= box.x + box.width + 1 &&
-          name.y >= box.y - 1;
-        return fits ? 'inside' : `outside: ${JSON.stringify({ box, name })}`;
-      })
-      .toBe('inside');
-  };
-
   // At the very start of the body: nothing above to draw on.
   await theirs.locator('p').first().click();
   await other.keyboard.press('Control+Home');
   await expect(caret(mine)).toHaveAttribute('data-below', '');
-  await inside();
+  await inside(mine);
   // One letter before the end of the first row of the word: at the right edge. (The very end
   // of a row is the start of the next, where a caret is drawn.)
   await other.keyboard.press('End');
   await other.keyboard.press('ArrowLeft');
-  await inside();
-  await expect(caret(mine)).toHaveAttribute('data-leftwards', '');
+  await inside(mine);
+  await expect.poll(() => moved(mine)).toBeLessThan(0);
   // In the line below there is room above.
   await other.keyboard.press('Control+End');
   await expect(caret(mine)).not.toHaveAttribute('data-below', '');
-  await inside();
+  await inside(mine);
+  await other.close();
+});
+
+test('a name finds its place again when the window is another width', async ({ page }) => {
+  const { mine, theirs, other } = await twoTabs(page, ['Short.', 'Below.']);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await theirs.locator('p').first().click();
+  await other.keyboard.press('End');
+  await expect(caret(mine)).toHaveAttribute('data-named', '');
+  // Wide, there is room to the right of a short line; narrow, there is none, and the name
+  // is moved left as far as it takes, never past the left edge.
+  await expect.poll(() => moved(mine)).toBe(0);
+  for (const width of [390, 150]) {
+    await page.setViewportSize({ width, height: 800 });
+    await other.keyboard.press('End');
+    await inside(mine);
+  }
+  await expect.poll(() => moved(mine)).toBeLessThan(0);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await expect.poll(() => moved(mine)).toBe(0);
   await other.close();
 });
 
@@ -206,36 +227,42 @@ test('a syllable being composed is kept while the other moves and writes in the 
       selectionStart: text.length,
       selectionEnd: text.length,
     });
+  const commit = (text: string): Promise<unknown> => ime.send('Input.insertText', { text });
 
-  // The reader composes at the end of the first line: ㅎ, 하, 한.
+  // The reader composes at the end of the first line: ㅎ, 하.
   await mine.locator('p').first().click();
   await page.keyboard.press('End');
   await compose('ㅎ');
   await compose('하');
   await expect(mine.locator('p').first()).toHaveText('가나다 라마바하');
 
-  // Meanwhile the other comes into the same line, moves, and writes at its start.
+  // Meanwhile the other comes into the same line (their caret is told at once; the editor
+  // draws it into the line being composed when it can).
   await theirs.locator('p').first().click();
   await other.keyboard.press('Home');
-  await expect(caret(mine)).toHaveCount(1);
   await other.keyboard.press('ArrowRight');
+  // They write there, and in another line. Neither is in the reader's body while the syllable
+  // is being composed (each stroke says it still is).
   await other.keyboard.type('앞에 ');
-  await expect(theirs.locator('p').first()).toContainText('앞에 ');
-  // And writes in another line.
   await other.keyboard.press('Control+End');
   await other.keyboard.type(' 아래.');
-  await expect(theirs.locator('p').nth(1)).toHaveText('Below. 아래.');
-
-  // The syllable is still being composed, where it was: it goes on, and is committed once.
-  expect(await page.evaluate(() => document.querySelector('.ProseMirror')?.textContent)).toContain(
-    '하',
-  );
+  await expect(theirs.locator('p')).toHaveText(['가앞에 나다 라마바하', 'Below. 아래.']);
   await compose('한');
-  await ime.send('Input.insertText', { text: '한' });
-  await page.keyboard.type('글');
-  await expect(mine.locator('p').first()).toHaveText('가앞에 나다 라마바한글');
-  await expect(theirs.locator('p').first()).toHaveText('가앞에 나다 라마바한글');
-  await expect(mine.locator('p').nth(1)).toHaveText('Below. 아래.');
+  await expect(mine.locator('p')).toHaveText(['가나다 라마바한', 'Below.']);
+
+  // The syllable is committed and the next begins at once, as a keyboard does it: what waited
+  // comes in between the two, and the next syllable is composed on it undisturbed.
+  await commit('한');
+  await compose('ㄱ');
+  await expect(mine.locator('p')).toHaveText(['가앞에 나다 라마바한ㄱ', 'Below. 아래.']);
+  await compose('그');
+  await compose('글');
+  await commit('글');
+  for (const body of [mine, theirs]) {
+    await expect(body.locator('p')).toHaveText(['가앞에 나다 라마바한글', 'Below. 아래.']);
+  }
+  // The other's caret is where they are, in the line below.
+  await expect(mine.locator('p').nth(1).locator('.doc-caret')).toHaveCount(1);
   await other.close();
 });
 
@@ -265,7 +292,7 @@ test('the pictures of the carets', async ({ page }, testInfo) => {
       await other.keyboard.press('Control+Home');
       await other.keyboard.press('End');
       await other.keyboard.press('ArrowLeft');
-      await expect(caret(mine)).toHaveAttribute('data-leftwards', '');
+      await expect.poll(() => moved(mine)).toBeLessThan(0);
       await shot('right-edge');
       await other.keyboard.press('Control+Home');
       await expect(caret(mine)).toHaveAttribute('data-below', '');

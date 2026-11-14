@@ -32,9 +32,10 @@ export interface BodyDocState {
   carets: Awareness | undefined;
   /**
    * Says that the reader composes a syllable with an input method in that
-   * document, or no longer does. What the room sends meanwhile is taken
-   * into the document after it, a few seconds later at most: a change in
-   * the line being composed would end the composition.
+   * document (said again with every stroke of it), or no longer does. The
+   * changes the room sends meanwhile are taken into the document after it,
+   * or once the composition has been quiet for two seconds: a change in the
+   * line being composed would end the composition.
    */
   composing: (composing: boolean) => void;
   /** `write` or `read`: as the server let the reader in. */

@@ -10,6 +10,7 @@ import { describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
 
 import type { BodyDoc, BodyDocHears } from '$lib/state/backend.ts';
+import { HELD_IDLE } from '$lib/state/doc-client.ts';
 import { FIELD } from '$lib/state/memory/rooms.ts';
 
 import { setup } from './support.ts';
@@ -175,7 +176,7 @@ describe('the carets of the rooms in memory', () => {
     third.close();
   });
 
-  it('holds back what the room sends while the reader composes a syllable, for a few seconds at most', async () => {
+  it("holds back the changes the room sends while the reader composes a syllable, and not the others' carets", async () => {
     const { backend, other, boardId, cardId } = world();
     const mine = backend.openDoc('w', boardId, cardId, hears());
     const theirs = other.openDoc('w', boardId, cardId, hears());
@@ -186,36 +187,66 @@ describe('the carets of the rooms in memory', () => {
       paragraph.insert(0, [new Y.XmlText(text)]);
       doc.getXmlFragment(FIELD).insert(lines(doc), [paragraph]);
     };
+    const pause = (wait: number): Promise<void> =>
+      new Promise((resolve) => setTimeout(resolve, wait));
     const before = lines(a.doc);
 
-    // Composing: the other's line and caret wait; the reader's own writing goes out all the same.
+    // Composing: the other's line waits, their caret does not; the reader's own writing goes out.
     mine.state.composing(true);
     write(b.doc, 'theirs');
     show(b);
     write(a.doc, 'mine');
     await vi.waitFor(() => {
       expect(lines(b.doc)).toBe(before + 2);
+      expect(others(a.awareness)).toHaveLength(1);
     });
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    await pause(300);
     expect(lines(a.doc)).toBe(before + 1);
-    expect(others(a.awareness)).toEqual([]);
-    // The syllable is done: what waited is taken in, in its order.
+    // The syllable is done: what waited is taken in.
     mine.state.composing(false);
     expect(lines(a.doc)).toBe(before + 2);
-    expect(others(a.awareness)).toHaveLength(1);
 
-    // A composition that does not end keeps the others' writing away three seconds at most.
+    // A composition left open holds the others' writing back while it is being typed, each
+    // stroke anew, and no longer than two seconds after its last stroke.
     mine.state.composing(true);
     write(b.doc, 'later');
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await pause(HELD_IDLE - 500);
+    mine.state.composing(true);
+    await pause(HELD_IDLE - 500);
     expect(lines(a.doc)).toBe(before + 2);
     await vi.waitFor(
       () => {
         expect(lines(a.doc)).toBe(before + 3);
       },
-      { timeout: 4000 },
+      { timeout: 1500 },
     );
+    // Quiet, nothing is held: the next change comes in as it is sent.
+    write(b.doc, 'at once');
+    await vi.waitFor(() => {
+      expect(lines(a.doc)).toBe(before + 4);
+    });
     mine.close();
     theirs.close();
   }, 15_000);
+
+  it('tells a tab that opens the card later the caret of a tab that has it open', async () => {
+    const first = world();
+    const second = world();
+    const channel = `caret-test-${crypto.randomUUID()}`;
+    first.world.shareRooms = channel;
+    second.world.shareRooms = channel;
+    const { boardId, cardId } = first;
+    const here = first.backend.openDoc('w', boardId, cardId, hears());
+    const a = await caretsOf(here);
+    show(a);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    // The other tab opens the card only now, and the first reader does not move.
+    const there = second.backend.openDoc('w', boardId, cardId, hears());
+    const b = await caretsOf(there);
+    await vi.waitFor(() => {
+      expect(others(b.awareness)).toMatchObject([{ user: { id: first.backend.userId } }]);
+    });
+    here.close();
+    there.close();
+  });
 });

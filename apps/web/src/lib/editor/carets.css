@@ -40,6 +40,8 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   opacity: 0;
+  /* At the right edge the name is moved left from its line (carets.ts). */
+  transform: translateX(var(--moved, 0));
   transition: opacity 0.2s;
 }
 
@@ -56,16 +58,6 @@
 .doc-caret[data-below] .doc-caret-name {
   inset-block: 100% auto;
   border-radius: 0 0.375rem 0.375rem;
-}
-
-/* At the right edge the name runs leftwards from the line. */
-.doc-caret[data-leftwards] .doc-caret-name {
-  inset-inline: auto -2px;
-  border-radius: 0.375rem 0.375rem 0;
-}
-
-.doc-caret[data-below][data-leftwards] .doc-caret-name {
-  border-radius: 0.375rem 0 0.375rem 0.375rem;
 }
 
 .doc-caret-selection {

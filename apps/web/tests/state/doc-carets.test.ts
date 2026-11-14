@@ -86,6 +86,37 @@ describe("the reader's caret", () => {
     held.destroy();
   });
 
+  it('is told gone while the page is hidden, and told anew once it is shown again', () => {
+    const { held, told } = carets();
+    const visibility = vi.spyOn(document, 'visibilityState', 'get');
+    const becomes = (state: DocumentVisibilityState): void => {
+      visibility.mockReturnValue(state);
+      document.dispatchEvent(new Event('visibilitychange'));
+      vi.advanceTimersByTime(CARET_WAIT);
+    };
+    held.awareness.setLocalStateField('cursor', CURSOR);
+    vi.advanceTimersByTime(CARET_WAIT);
+    expect(told).toHaveLength(1);
+    becomes('hidden');
+    expect(told).toHaveLength(2);
+    // Told as a state that is gone, though the state still names where the caret was.
+    expect(new TextDecoder().decode(told[1])).toContain('null');
+    expect(held.awareness.getLocalState()?.cursor).toEqual(CURSOR);
+    // Hidden, a renewal says nothing.
+    held.awareness.setLocalState(held.awareness.getLocalState());
+    vi.advanceTimersByTime(CARET_WAIT);
+    expect(told).toHaveLength(2);
+    becomes('visible');
+    expect(told).toHaveLength(3);
+    expect(new TextDecoder().decode(told[2])).toContain('default');
+    visibility.mockRestore();
+    held.destroy();
+    // Let go, it hears nothing more of the page.
+    document.dispatchEvent(new Event('visibilitychange'));
+    vi.advanceTimersByTime(CARET_WAIT);
+    expect(told).toHaveLength(3);
+  });
+
   it('says nothing more once it is let go, and leaves no timer', () => {
     const { held, told } = carets();
     held.awareness.setLocalStateField('cursor', CURSOR);

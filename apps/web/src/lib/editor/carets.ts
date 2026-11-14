@@ -14,7 +14,7 @@
  * (who else is there is said elsewhere); the name is drawn from an
  * attribute, so that the text of the body is the body's alone. It does not
  * blink. The name sits above the line where there is room, below it on the
- * first line, and turns to the other side at the right edge.
+ * first line, and moves left from its caret at the right edge.
  */
 import { Extension } from '@tiptap/core';
 import { Plugin, PluginKey } from '@tiptap/pm/state';
@@ -45,15 +45,39 @@ const userOf = (user: unknown): string => {
   return typeof id === 'string' ? id : '';
 };
 
-/** Puts a name where it is not cut off: under the first line, and leftwards at the right edge. */
-function place(view: EditorView, caret: HTMLElement): void {
+/**
+ * Puts a name where it is not cut off: under the first line, and moved left
+ * from its caret as far as keeps it within the right edge (the body's, or
+ * the window's where the body runs past it), never past the left one. The
+ * name is looked up again: it may have become known since it was drawn.
+ */
+function place(view: EditorView, caret: HTMLElement, nameOf: (userId: string) => string): void {
   const name = caret.querySelector<HTMLElement>('.doc-caret-name');
   if (!name) return;
+  const shown = nameOf(caret.dataset.user ?? '');
+  if (name.dataset.name !== shown) name.dataset.name = shown;
   const box = view.dom.getBoundingClientRect();
   const at = caret.getBoundingClientRect();
   const size = name.getBoundingClientRect();
+  const right = Math.min(box.right, view.dom.ownerDocument.documentElement.clientWidth);
+  const past = Math.max(0, at.left + size.width - right);
+  const moved = Math.min(past, Math.max(0, at.left - box.left));
   caret.toggleAttribute('data-below', at.top - size.height < box.top);
-  caret.toggleAttribute('data-leftwards', at.left + size.width > box.right);
+  name.style.setProperty('--moved', `${String(-moved)}px`);
+}
+
+/** The line of a caret of `userId`, with their name to be shown beside it. */
+function draw(options: CaretsOptions, userId: string): HTMLElement {
+  const caret = document.createElement('span');
+  caret.className = 'doc-caret';
+  caret.setAttribute('aria-hidden', 'true');
+  caret.dataset.user = userId;
+  caret.style.setProperty('--caret', options.colorOf(userId));
+  const name = document.createElement('span');
+  name.className = 'doc-caret-name';
+  name.dataset.name = options.nameOf(userId);
+  caret.append(name);
+  return caret;
 }
 
 /** The extension that shows the others' carets and tells the reader's own. */
@@ -72,7 +96,7 @@ export function caretsOf(options: CaretsOptions): Extension {
       frame = undefined;
       for (const [client, caret] of drawn) {
         if (!caret.isConnected) drawn.delete(client);
-        else if (view && !view.isDestroyed) place(view, caret);
+        else if (view && !view.isDestroyed) place(view, caret, options.nameOf);
       }
     });
   };
@@ -112,16 +136,7 @@ export function caretsOf(options: CaretsOptions): Extension {
       return [
         yCursorPlugin(awareness, {
           cursorBuilder: (user, client) => {
-            const userId = userOf(user);
-            const caret = document.createElement('span');
-            caret.className = 'doc-caret';
-            caret.setAttribute('aria-hidden', 'true');
-            caret.dataset.user = userId;
-            caret.style.setProperty('--caret', options.colorOf(userId));
-            const name = document.createElement('span');
-            name.className = 'doc-caret-name';
-            name.dataset.name = options.nameOf(userId);
-            caret.append(name);
+            const caret = draw(options, userOf(user));
             if (named.has(client)) caret.setAttribute('data-named', '');
             drawn.set(client, caret);
             placeSoon();
@@ -137,9 +152,14 @@ export function caretsOf(options: CaretsOptions): Extension {
           view: (editorView) => {
             view = editorView;
             awareness.on('change', changed);
+            // The body is another width (the window, the card's frame): the edges are elsewhere.
+            const resized =
+              typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(placeSoon);
+            resized?.observe(editorView.dom);
             return {
               update: placeSoon,
               destroy: () => {
+                resized?.disconnect();
                 awareness.off('change', changed);
                 for (const timer of named.values()) clearTimeout(timer);
                 named.clear();

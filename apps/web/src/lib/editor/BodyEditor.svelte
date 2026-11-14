@@ -235,7 +235,7 @@
       const place = placeOf(created.state);
       const unsent = mathDraftChanged(created.view) || (place !== null && heldWritten(place));
       if (shared && unsent) fromEditor(() => onDraftDropped?.())();
-      cancelMathEditingOf(created.view);
+      leaveFields(created);
       created.destroy();
     };
   });
@@ -272,13 +272,36 @@
     editor?.setOptions({ editorProps: { attributes } });
   });
 
+  /** A syllable is being composed in the body: said to whoever holds what comes from outside. */
+  let composing = false;
+
+  /** The editor goes away: a formula's field with it, and the syllable it was in the middle of. */
+  function leaveFields(leaving: Editor): void {
+    cancelMathEditingOf(leaving.view);
+    if (composing) fromEditor(() => onComposing?.(false))();
+    composing = false;
+  }
+
+  /** A stroke of a syllable in the body's own text (not in a field drawn into it: a formula's). */
+  function composes(event: CompositionEvent): void {
+    if (event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLInputElement) {
+      return;
+    }
+    composing = true;
+    onComposing?.(true);
+  }
+
   /**
    * The composition is over. Said once the editor has read what it left in
    * the page, which it does right after this (in a microtask of its own,
    * queued before this one), and before whatever is typed next.
    */
   function composed(): void {
-    queueMicrotask(() => onComposing?.(false));
+    if (!composing) return;
+    queueMicrotask(() => {
+      composing = false;
+      onComposing?.(false);
+    });
   }
 
   // Names that become known later: a mention shows the name it had when it
@@ -302,17 +325,17 @@
   });
 </script>
 
-<!-- A syllable being composed with an input method: said to whoever holds what comes from outside. -->
-<div
-  class="doc-editor"
-  data-unreadable={unreadable || undefined}
-  oncompositionstart={() => onComposing?.(true)}
-  oncompositionend={composed}
->
+<div class="doc-editor" data-unreadable={unreadable || undefined}>
   {#if toolbar && editor}
     {@render toolbar({ editor, changes })}
   {/if}
-  <div bind:this={host} class="doc-editor-text"></div>
+  <div
+    bind:this={host}
+    class="doc-editor-text"
+    oncompositionstart={composes}
+    oncompositionupdate={composes}
+    oncompositionend={composed}
+  ></div>
   <!-- Said aloud when it changes: an upload under way, an upload that failed, a body that cannot be edited. -->
   <p class="doc-editor-status" role="status" data-shown={status === '' ? undefined : ''}>
     {status}

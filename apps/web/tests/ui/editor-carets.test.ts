@@ -176,4 +176,73 @@ describe("the others' carets in the editor", () => {
     });
     at.held.destroy();
   });
+
+  it('shows a name that became known after its caret was drawn', async () => {
+    const at = shared();
+    const names: Record<string, string> = {};
+    const { container } = render(BodyEditor, {
+      doc: null,
+      collab: at.doc,
+      carets: { awareness: at.held.awareness, colorOf: () => 'red' },
+      resolveUser: (userId: string) => names[userId],
+    });
+    const name = (): string | undefined =>
+      caretsIn(container)[0]?.querySelector<HTMLElement>('.doc-caret-name')?.dataset.name;
+    tell(at, { number: 41, clock: 1, userId: 'ada' }, 5);
+    await vi.waitFor(() => {
+      expect(name()).toBe('ada');
+    });
+    // The names arrive: the caret says the name the next time it is looked at.
+    names.ada = 'Ada Lovelace';
+    tell(at, { number: 41, clock: 2, userId: 'ada' }, 6);
+    await vi.waitFor(() => {
+      expect(name()).toBe('Ada Lovelace');
+    });
+    at.held.destroy();
+  });
+});
+
+describe('a syllable composed in the body', () => {
+  /** The editor of a shared document, and what it said of composing. */
+  function composing(): { said: boolean[]; text: HTMLElement; unmount: () => void } {
+    const at = shared();
+    const said: boolean[] = [];
+    const { container, unmount } = render(BodyEditor, {
+      doc: null,
+      collab: at.doc,
+      onComposing: (on: boolean) => said.push(on),
+    });
+    return { said, text: editorIn(container).view.dom, unmount };
+  }
+  const stroke = (on: Element, type: string): void => {
+    on.dispatchEvent(new CompositionEvent(type, { bubbles: true }));
+  };
+
+  it('is said with each stroke, and its end once the editor has read what it left', async () => {
+    const { said, text } = composing();
+    stroke(text, 'compositionstart');
+    stroke(text, 'compositionupdate');
+    expect(said).toEqual([true, true]);
+    stroke(text, 'compositionend');
+    // Not within the event: the editor reads the page right after it.
+    expect(said).toEqual([true, true]);
+    await Promise.resolve();
+    expect(said).toEqual([true, true, false]);
+    // The end of a composition that never was one of the body says nothing.
+    stroke(text, 'compositionend');
+    await Promise.resolve();
+    expect(said).toHaveLength(3);
+  });
+
+  it('is not one in a field drawn into the body, and ends with the editor that goes away in the middle of it', () => {
+    const { said, text, unmount } = composing();
+    const field = document.createElement('textarea');
+    text.append(field);
+    stroke(field, 'compositionstart');
+    expect(said).toEqual([]);
+    field.remove();
+    stroke(text, 'compositionstart');
+    unmount();
+    expect(said).toEqual([true, false]);
+  });
 });

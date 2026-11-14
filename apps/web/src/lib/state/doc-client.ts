@@ -25,11 +25,12 @@ import type { BodyDoc, BodyDocHears, BodyDocState } from './backend.ts';
 import { Carets } from './doc-carets.ts';
 
 /**
- * How long what the room sent is held back at most while the reader
- * composes a syllable, in milliseconds: a composition that goes on longer
- * (a whole word, on some keyboards) does not keep the others' writing away.
+ * How long after the last sign of a syllable being composed what the room
+ * sent is held back, in milliseconds: a composition left open (a keyboard
+ * that composes whole words, a reader who stopped mid-syllable) does not
+ * keep the others' writing away.
  */
-const HELD_MOST = 3000;
+export const HELD_IDLE = 2000;
 
 /** How long leaving a card waits for the server to take what was written, in milliseconds. */
 const SETTLE_WAIT = 3000;
@@ -48,7 +49,7 @@ class RoomClient implements BodyDoc {
   #tells = false;
   /** The room took the caret it was just told. */
   #told = false;
-  /** What the room sent while the reader composes a syllable, in its order; undefined while they do not. */
+  /** The changes the room sent while the reader composes a syllable, in their order; undefined while they do not. */
   #held: (() => void)[] | undefined;
   #heldTimer: ReturnType<typeof setTimeout> | undefined;
   #closed = false;
@@ -77,7 +78,9 @@ class RoomClient implements BodyDoc {
 
   get state(): BodyDocState {
     const { phase, mode, reason, writable, pending, retrying } = this.#room.status;
-    const [doc, carets, composing] = [this.#doc, this.#carets?.awareness, this.#composing];
+    const doc = this.#doc;
+    const carets = this.#carets?.awareness;
+    const composing = this.#composing;
     return { status: phase, doc, carets, composing, mode, reason, writable, pending, retrying };
   }
 
@@ -107,33 +110,28 @@ class RoomClient implements BodyDoc {
   /** The reader composes a syllable, or no longer does (`BodyDocState.composing`). */
   readonly #composing = (composing: boolean): void => {
     if (this.#closed) return;
-    if (composing) this.#held ??= [];
-    else {
-      this.#release();
-      this.#held = undefined;
-    }
-  };
-
-  /** Takes in something the room sent: now, or after the syllable being composed. */
-  #later(take: () => void): void {
-    if (!this.#held) {
-      take();
-      return;
-    }
-    this.#held.push(take);
-    this.#heldTimer ??= setTimeout(() => {
-      this.#release();
-    }, HELD_MOST);
-  }
-
-  /** Takes in what was held back, in the order it came. */
-  #release(): void {
     clearTimeout(this.#heldTimer);
     this.#heldTimer = undefined;
-    const held = this.#held;
-    if (!held || held.length === 0) return;
-    this.#held = [];
+    if (composing) {
+      this.#held ??= [];
+      // Said again with every stroke of the syllable: quiet for a while, it is held no longer.
+      this.#heldTimer = setTimeout(() => {
+        this.#composing(false);
+      }, HELD_IDLE);
+      return;
+    }
+    const held = this.#held ?? [];
+    this.#held = undefined;
     for (const take of held) take();
+  };
+
+  /**
+   * Takes in a change the room sent: now, or after the syllable being
+   * composed (a change in its line would end the composition).
+   */
+  #later(take: () => void): void {
+    if (this.#held) this.#held.push(take);
+    else take();
   }
 
   #waitsForAnswers(): boolean {
@@ -211,17 +209,14 @@ class RoomClient implements BodyDoc {
         this.#port.send(encodeCaretFrame(effect.carets));
         this.#told = true;
         break;
+      // A caret does not wait for a syllable: it ends no composition, and one whose place is in
+      // a change that waits is drawn once that change is in.
       case 'carets':
-      case 'unseen': {
-        // After the changes that came before it: a caret is a place in them.
-        const carets = this.#carets;
-        this.#later(() => {
-          if (!carets || carets !== this.#carets) return;
-          if (effect.type === 'carets') carets.take(effect.update);
-          else carets.away();
-        });
+        this.#carets?.take(effect.update);
         break;
-      }
+      case 'unseen':
+        this.#carets?.away();
+        break;
       case 'fresh': {
         const doc = new Y.Doc();
         this.#apply(doc, effect.update);
@@ -277,6 +272,10 @@ class RoomClient implements BodyDoc {
     if (before === doc) return;
     before?.off('update', this.#changed);
     this.#carets?.destroy();
+    // What waited for a syllable was the document before's; its editor goes with it.
+    clearTimeout(this.#heldTimer);
+    this.#heldTimer = undefined;
+    this.#held = undefined;
     this.#doc = doc;
     this.#carets = doc ? new Carets(doc, (update) => this.#tellCaret(update)) : undefined;
     // A new document's carets are told once the editor says where the reader is.

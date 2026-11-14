@@ -43,71 +43,23 @@ import {
   SYNC_STEP_2,
   SYNC_UPDATE,
 } from '../../logic/doc-frame.ts';
-import type {
-  DocMode,
-  RoomHears,
-  RoomLine,
-  RoomMessage,
-  RoomPort,
-} from '../../logic/doc-room-types.ts';
+import type { DocMode, RoomLine, RoomMessage, RoomPort } from '../../logic/doc-room-types.ts';
 import { ROOM_LIMITS } from '../../logic/doc-room.ts';
 
 import { roleOn } from './comments.ts';
 import { imageFileIds, LIMITS, wireOf } from './shapes.ts';
-import { MemoryCarets, type ToldCaret } from './room-carets.ts';
+import { MemoryCarets } from './room-carets.ts';
+import type { Room, RoomUser, Seat, TabMessage } from './room-seats.ts';
 import { bodyOf, documentOf, sameBody, tabKey } from './room-docs.ts';
 import type { StoredCard, World } from './world.ts';
 
 /** The shared type the editor binds to (`@tiptap/extension-collaboration`). */
 export const FIELD = BODY_FIELD;
 export { bodyOf } from './room-docs.ts';
+export type { RoomUser } from './room-seats.ts';
 /** When a body is written after a change: after a pause, at most after the first change. */
 const QUIET_WAIT = 2000;
 const LONGEST_WAIT = 10_000;
-
-/** Who goes through a room, as the backend in memory acts for them. */
-export interface RoomUser {
-  readonly userId: string;
-  /** Milliseconds every answer waits. */
-  readonly latency: number;
-}
-
-interface Seat {
-  user: RoomUser;
-  hears: RoomHears;
-  /** The room's number while the seat is in it. */
-  doc: number | undefined;
-  mode: DocMode;
-  /** In the room's view: until what the seat said before leaving has been taken. */
-  up: boolean;
-  /** The seat's client still listens: nothing is said to it once it has closed. */
-  hearing: boolean;
-  /** When the last thing each way arrives, and what is on its way: nothing overtakes what was sent before it. */
-  inAt: number;
-  outAt: number;
-  coming: (() => void)[];
-  going: (() => void)[];
-}
-
-interface Room {
-  boardId: string;
-  cardId: string;
-  doc: Y.Doc;
-  epoch: number;
-  seats: Set<Seat>;
-  /** Who changed it last: the body is written in their name. */
-  lastWriter: string | undefined;
-  quiet: ReturnType<typeof setTimeout> | undefined;
-  longest: ReturnType<typeof setTimeout> | undefined;
-  /** What another tab's room has to be to be this one (`tabKey`). */
-  tab: string;
-}
-
-/** What the worlds of two tabs say of a room; of a room another than this tab's (`tab`) it is not heard. */
-type TabMessage =
-  | { kind: 'update'; cardId: string; tab: string; update: Uint8Array }
-  | { kind: 'ask'; cardId: string; tab: string; vector: Uint8Array }
-  | { kind: 'caret'; cardId: string; tab: string; caret: ToldCaret };
 
 export class MemoryRooms {
   readonly #world: World;
@@ -305,7 +257,7 @@ export class MemoryRooms {
     const room = this.#rooms.get(cardId);
     seat.doc = undefined;
     if (!room?.seats.delete(seat)) return;
-    this.#carets.gone(room, seat);
+    this.#carets.left(room, seat);
     if (room.seats.size === 0) this.#write(room);
   }
 
@@ -456,7 +408,7 @@ export class MemoryRooms {
       if (mode === undefined) {
         room.seats.delete(seat);
         seat.doc = undefined;
-        this.#carets.gone(room, seat);
+        this.#carets.left(room, seat);
         this.#say(seat, { message: { action: 'DOC_LEFT', doc, reason: 'not_found' } });
       } else if (mode !== seat.mode) {
         seat.mode = mode;
@@ -478,6 +430,8 @@ export class MemoryRooms {
     if (message.kind === 'ask') {
       const update = Y.encodeStateAsUpdate(room.doc, message.vector);
       this.#post({ kind: 'update', cardId: room.cardId, tab: room.tab, update });
+      // Who comes in there is told the carets of the readers here, as who comes in here is.
+      this.#carets.tellTabs(room);
       return;
     }
     Y.applyUpdate(room.doc, message.update, this);
