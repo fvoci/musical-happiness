@@ -4,8 +4,6 @@ use std::collections::HashMap;
 
 use fvoci_model::{BoardMember, BoardsAndBlocks, DeleteBoardsAndBlocks, PatchBoardsAndBlocks};
 
-use fvoci_store::NewImages;
-
 use super::App;
 use super::boards::CreatorMembership;
 use crate::collab::{AccessScope, Deletion};
@@ -17,7 +15,9 @@ impl App {
     /// template under the default category of `user_id`. The boards start without
     /// members. The images of the bodies name the archive's files, which the import
     /// stores after them and points them at: the board's files are not asked of them
-    /// ([`fvoci_store::NewImages::Unchecked`]).
+    /// ([`fvoci_store::NewImages::Unchecked`]). An author the archive names who is no
+    /// member of the workspace and its organization, or none, is `user_id`
+    /// ([`fvoci_store::Store::create_imported_boards_and_blocks`]).
     ///
     /// # Errors
     ///
@@ -65,7 +65,7 @@ impl App {
                 }
                 CreatorMembership::None => {
                     self.store()
-                        .create_boards_and_blocks(&mut created, user_id, NewImages::Unchecked)
+                        .create_imported_boards_and_blocks(&mut created, user_id)
                         .await?;
                     Vec::new()
                 }

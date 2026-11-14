@@ -85,12 +85,14 @@ impl Content {
             (Language::Korean, fvoci_model::WorkspaceRole::Guest) => {
                 "이 링크는 받는 분만을 위한 것으로, 보드 하나에 한 번 들어올 수 있습니다. 초대가 끝나면 함께 끝납니다."
             }
-            (Language::English, _) => {
-                "This link invites members to a workspace. It keeps its original expiry."
-            }
-            (Language::Korean, _) => {
-                "이 링크로 워크스페이스에 구성원을 초대합니다. 원래 만료일을 유지합니다."
-            }
+            (
+                Language::English,
+                fvoci_model::WorkspaceRole::Admin | fvoci_model::WorkspaceRole::Member,
+            ) => "You join as a member. The link keeps the expiry it was made with.",
+            (
+                Language::Korean,
+                fvoci_model::WorkspaceRole::Admin | fvoci_model::WorkspaceRole::Member,
+            ) => "구성원으로 참여하는 링크입니다. 원래 만료일을 유지합니다.",
         };
         Self::link(subject, intro, ending, link, language)
     }
@@ -164,6 +166,33 @@ mod tests {
             );
             assert!(content.html.contains("&quot;&lt;&amp;"));
             assert!(!content.html.contains("secret\"<&"));
+        }
+    }
+
+    /// Words an invitation does not use: until someone has signed up and works with
+    /// others, the product does not name the workspace (the organization it may).
+    const UNSAID: [&str; 2] = ["workspace", "워크스페이스"];
+
+    #[test]
+    fn invitations_name_no_workspace_in_either_language() {
+        use fvoci_model::WorkspaceRole;
+        for language in [Language::English, Language::Korean] {
+            for role in [
+                WorkspaceRole::Admin,
+                WorkspaceRole::Member,
+                WorkspaceRole::Guest,
+            ] {
+                let content = Content::invitation("https://example.test/invite/t", language, role);
+                for text in [content.subject, &content.plain, &content.html] {
+                    let text = text.to_lowercase();
+                    for word in UNSAID {
+                        assert!(
+                            !text.contains(word),
+                            "{language:?} {role:?}: {word} in {text}"
+                        );
+                    }
+                }
+            }
         }
     }
 }

@@ -76,7 +76,7 @@ impl FakeSmtp {
             smtp_host: "127.0.0.1".to_owned(),
             smtp_port: self.port,
             smtp_tls: fvoci_server::config::smtp::SmtpTls::Unencrypted,
-            smtp_from: "sender@example.test".to_owned(),
+            mail_from: "sender@example.test".to_owned(),
             // The pace has tests of its own; these send without waiting for it.
             mail_per_second: 1000,
             ..Default::default()

@@ -10,7 +10,7 @@ pub(super) const ENV_KEYS: [(&str, super::EnvKind); 13] = [
     ("smtp_tls", super::EnvKind::Text),
     ("smtp_user", super::EnvKind::Text),
     ("smtp_password", super::EnvKind::Text),
-    ("smtp_from", super::EnvKind::Text),
+    ("mail_from", super::EnvKind::Text),
     ("mail_per_second", super::EnvKind::Number),
     ("mail_reset_queue", super::EnvKind::Number),
     ("mail_reset_per_account_hour", super::EnvKind::Number),
@@ -52,7 +52,7 @@ pub struct SmtpSettings {
     /// SMTP authentication password; omitted from debug output.
     pub smtp_password: String,
     /// The sender's address of all mail, whatever its way, without a display name.
-    pub smtp_from: String,
+    pub mail_from: String,
     /// How many attempts to send all mail makes a second, recovery first; at least one.
     pub mail_per_second: u32,
     /// The most recovery messages waiting or being delivered; more are dropped unseen.
@@ -81,7 +81,7 @@ impl Default for SmtpSettings {
             smtp_tls: SmtpTls::Starttls,
             smtp_user: String::new(),
             smtp_password: String::new(),
-            smtp_from: String::new(),
+            mail_from: String::new(),
             mail_per_second: 1,
             mail_reset_queue: 200,
             mail_reset_per_account_hour: 3,
@@ -99,7 +99,7 @@ impl std::fmt::Debug for SmtpSettings {
             .field("smtp_host", &self.smtp_host)
             .field("smtp_port", &self.smtp_port)
             .field("smtp_tls", &self.smtp_tls)
-            .field("smtp_from", &self.smtp_from)
+            .field("mail_from", &self.mail_from)
             .field("mail_per_second", &self.mail_per_second)
             .field("mail_reset_queue", &self.mail_reset_queue)
             .field(
@@ -217,10 +217,10 @@ mod tests {
             "an unknown TLS mode is never taken for an unencrypted one"
         );
         for (key, value) in [
-            ("smtp_from", "sender@example.test\r\nBcc:other@example.test"),
+            ("mail_from", "sender@example.test\r\nBcc:other@example.test"),
             ("smtp_host", "smtp.example.test\nEHLO evil"),
         ] {
-            let mut json = serde_json::json!({"smtp_host":"smtp.example.test","smtp_from":"sender@example.test"});
+            let mut json = serde_json::json!({"smtp_host":"smtp.example.test","mail_from":"sender@example.test"});
             json[key] = Value::String(value.to_owned());
             assert!(
                 Configuration::parse(&json.to_string(), |_| None)
@@ -247,7 +247,7 @@ mod tests {
             for host in ["", "smtp.example.test"] {
                 let mut json = serde_json::json!({"smtp_host": host});
                 if !host.is_empty() {
-                    json["smtp_from"] = Value::from("sender@example.test");
+                    json["mail_from"] = Value::from("sender@example.test");
                 }
                 json[key] = Value::from(value);
                 let error = Configuration::parse(&json.to_string(), |_| None)
