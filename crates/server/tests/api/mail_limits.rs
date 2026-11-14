@@ -82,8 +82,8 @@ async fn an_organization_alone_takes_the_whole_invitation_queue_and_leaves_recov
         .await;
     refused.check_status(StatusCode::SERVICE_UNAVAILABLE);
     let body: Value = serde_json::from_slice(&refused.body).expect("problem");
-    assert!(
-        !body.to_string().contains("organization"),
+    assert_eq!(
+        body["detail"], QUEUE_FULL,
         "the queue is full, not a share of it: {body}"
     );
 
@@ -428,9 +428,21 @@ async fn an_organization_waits_once_its_workspaces_queued_its_hourly_invitation_
     smtp.stop().await;
 }
 
-/// A founder of an organization of their own on the server, signed in, and a member
-/// link of their workspace: the client, and the path the link is mailed through.
-async fn founder(th: &TestServer, name: &str) -> (crate::common::Client, String, String) {
+/// What the queue's refusal says, and what a share's says.
+const QUEUE_FULL: &str = "too much mail is waiting; try again later";
+const SHARE_FULL: &str = "the organization has too much mail waiting; try again later";
+
+/// Who mails a member link of their workspace.
+struct Founder {
+    client: crate::common::Client,
+    /// The path the link is mailed through.
+    path: String,
+    token: String,
+}
+
+/// A founder of an organization of their own on the server, signed in, with a member
+/// link of their workspace.
+async fn founder(th: &TestServer, name: &str) -> Founder {
     let mut client = th.anonymous();
     client
         .post(
@@ -451,25 +463,28 @@ async fn founder(th: &TestServer, name: &str) -> (crate::common::Client, String,
         .post(&format!("/w/{own}/invitations"), &json!({"role":"member"}))
         .await
         .created_json();
-    let token = link.token.expect("a new link has its token");
-    (client, format!("/w/{own}/invitations/mail"), token)
+    Founder {
+        client,
+        path: format!("/w/{own}/invitations/mail"),
+        token: link.token.expect("a new link has its token"),
+    }
 }
 
-/// Mails `token` through `path` to five addresses of `prefix` at `domain`, until the
-/// organization's share refuses (503, naming the organization); how many requests the
-/// share took.
-async fn fill(client: &crate::common::Client, path: &str, token: &str, prefix: &str) -> usize {
+/// Mails the founder's link to five held addresses of `prefix` at a time, until the
+/// organization's share refuses (503); how many requests the share took.
+async fn fill(founder: &Founder, prefix: &str) -> usize {
     for taken in 0.. {
-        let answer = client
+        let answer = founder
+            .client
             .post(
-                path,
-                &json!({"token":token,"recipients":addresses(&format!("{prefix}{taken}-"), 5, "@held.test")}),
+                &founder.path,
+                &json!({"token":founder.token,"recipients":addresses(&format!("{prefix}{taken}-"), 5, "@held.test")}),
             )
             .await;
         if answer.status == StatusCode::SERVICE_UNAVAILABLE {
             let body: Value = serde_json::from_slice(&answer.body).expect("problem");
-            assert!(
-                body.to_string().contains("organization"),
+            assert_eq!(
+                body["detail"], SHARE_FULL,
                 "its share, not the queue: {body}"
             );
             return taken;
@@ -498,7 +513,11 @@ async fn three_busy_organizations_leave_a_fourth_room_for_its_invitations() {
         .await
         .init_basic()
         .await;
-    let first = (member_link(&th).await, mail_path());
+    let first = Founder {
+        client: th.client.clone(),
+        path: mail_path(),
+        token: member_link(&th).await,
+    };
     let second = founder(&th, "mail-second").await;
     let third = founder(&th, "mail-third").await;
     let fourth = founder(&th, "mail-fourth").await;
@@ -506,16 +525,16 @@ async fn three_busy_organizations_leave_a_fourth_room_for_its_invitations() {
     // Each busy organization takes half of what the others leave: 20, 10, then one
     // request of 5.
     let taken = [
-        fill(&th.client, &first.1, &first.0, "a").await,
-        fill(&second.0, &second.1, &second.2, "b").await,
-        fill(&third.0, &third.1, &third.2, "c").await,
+        fill(&first, "a").await,
+        fill(&second, "b").await,
+        fill(&third, "c").await,
     ];
     assert_eq!(taken, [4, 2, 1], "requests of five of a queue of 40");
     fourth
-        .0
+        .client
         .post(
-            &fourth.1,
-            &json!({"token":fourth.2,"recipients":addresses("d", 5, "@example.test")}),
+            &fourth.path,
+            &json!({"token":fourth.token,"recipients":addresses("d", 5, "@example.test")}),
         )
         .await
         .check_no_content();

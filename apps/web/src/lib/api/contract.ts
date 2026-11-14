@@ -2180,8 +2180,9 @@ export interface paths {
          *     (`invitation_mail_limit`, with `Retry-After`) when the workspace would pass
          *     `invitation_mail_per_hour` messages within an hour or its organization its own
          *     hourly limit (`invitation_mail_per_org_hour`), and 503 (`mail_queue_full`) when the
-         *     organization's half of the server's invitation queue, or the queue, cannot hold them
-         *     all. A refused request sends nothing.
+         *     server's invitation queue cannot hold them all, or, on a server of several
+         *     organizations, the organization's share of it (half of what the others leave, at
+         *     least one request). A refused request sends nothing.
          */
         post: operations["emailInvitation"];
         delete?: never;

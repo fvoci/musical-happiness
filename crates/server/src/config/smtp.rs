@@ -61,7 +61,7 @@ pub struct SmtpSettings {
     /// answered as any other and send nothing.
     pub mail_reset_per_account_hour: u32,
     /// The most invitation messages waiting or being delivered; more are refused (503).
-    /// One organization holds at most half of them.
+    /// Among several organizations, one holds at most half of what the others leave.
     pub mail_invitation_queue: u32,
     /// The most recipients one invitation mail request names (400 beyond).
     pub invitation_mail_recipients: u32,
@@ -163,7 +163,8 @@ impl SmtpSettings {
         if recipients > self.mail_invitation_queue / 2 {
             bail!(
                 "mail_invitation_queue ({}) must be at least twice invitation_mail_recipients \
-                 ({recipients}): one organization holds half of it, and half must hold a request",
+                 ({recipients}): an organization of several holds half of what the others \
+                 leave, and half must hold a request",
                 self.mail_invitation_queue
             );
         }

@@ -16,7 +16,7 @@ pub(super) const SENDING_PER_ORG: usize = super::INVITATION_CONNECTIONS - 1;
 
 /// How many organizations the server holds, which decides what one may hold.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Organizations {
+pub(in crate::app) enum Organizations {
     /// One (SQLite, or a server with one organization in use): it has no share but the
     /// whole queue, which says when it is full, and every sending of invitations.
     One,

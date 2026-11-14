@@ -18,8 +18,9 @@ impl App {
     /// Returns 404 without mail or a usable link in this workspace, 403 when the
     /// sender cannot invite, 400 if any recipient is not a single email address or
     /// there are more than `invitation_mail_recipients`, 429 when the workspace's or the
-    /// organization's hourly limit would be passed, and 503 when the organization's half
-    /// of the invitation queue or the queue cannot hold them all.
+    /// organization's hourly limit would be passed, and 503 when the invitation queue or,
+    /// among several organizations, the organization's share of it cannot hold them
+    /// all.
     /// Any refusal queues none of the messages.
     pub async fn email_invitation(
         &self,
@@ -117,10 +118,10 @@ impl App {
     }
 
     /// Whether the server holds one organization or several, as the invitation queue
-    /// shares itself: one when it takes in no others (`org_creation`, and SQLite), or
-    /// when one only is in use.
+    /// shares itself: one on SQLite, which holds one; on PostgreSQL, one when one only is
+    /// in use, whatever `org_creation` says now (it may have been `open` before).
     async fn organizations(&self) -> Result<Organizations, AppError> {
-        if !self.config().takes_several_organizations() {
+        if self.config().db_type == "sqlite3" {
             return Ok(Organizations::One);
         }
         // What a login page shows without a name: the only organization in use, if
