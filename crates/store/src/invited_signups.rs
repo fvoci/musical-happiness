@@ -64,6 +64,10 @@ impl Store {
         inviter: Inviter<'_>,
     ) -> Result<Acceptance, StoreError> {
         self.transaction(async |scope| {
+            if replacing.is_some() {
+                // The link of what is replaced may be another than this one.
+                signups::hold_several_links(scope).await?;
+            }
             let held = hold_live_link(scope, token_hash, now, inviter.standing, replacing);
             let link = match held.await? {
                 Ok(link) => link,

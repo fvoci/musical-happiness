@@ -19,6 +19,9 @@ pub const SIGNUP_LINK_LIFETIME_MILLIS: i64 = 24 * 60 * 60 * 1_000;
 /// and a registration are two tables, which no unique index holds together.
 const ACCOUNT_NAMES_LOCK: i64 = 0x6676_6f63_6e61_6d65;
 
+/// The key of the lock of the transactions that hold more than one link at once.
+const SEVERAL_LINKS_LOCK: i64 = 0x6676_6f63_6c6e_6b73;
+
 /// A registration whose email address is not confirmed yet.
 #[derive(Clone, PartialEq, Eq)]
 pub struct Signup {
@@ -349,6 +352,19 @@ impl Store {
     }
 }
 
+/// Holds the turn of the transactions that hold more than one link of an invitation
+/// at once, until this one ends: a registration that replaces one made by another
+/// link holds both, and so does the clean-up, in no order they share. Taken before
+/// the first link. SQLite's writers wait for each other already.
+pub(crate) async fn hold_several_links(scope: &mut Scope<'_>) -> Result<(), StoreError> {
+    if scope.dialect() == Dialect::Postgres {
+        let mut sql = scope.sql("SELECT pg_advisory_xact_lock(");
+        sql.bind(SEVERAL_LINKS_LOCK).push(")");
+        scope.fetch_optional(sql).await?;
+    }
+    Ok(())
+}
+
 /// Holds the names of accounts until the transaction ends, against every other
 /// transaction that makes an account or a registration: whether a name is taken is
 /// asked of two tables, and one of them is written. SQLite's writers wait for each
@@ -553,6 +569,7 @@ async fn discard(scope: &mut Scope<'_>, signup: &Signup) -> Result<bool, StoreEr
 }
 
 /// What a transaction's wall was before it was opened for one link.
+#[must_use = "the wall is closed again with `close_wall`"]
 struct Wall(Option<String>);
 
 /// Opens the transaction's wall for a link of the organization `org_id`, to be closed
@@ -609,6 +626,9 @@ async fn remove_ended(scope: &mut Scope<'_>, now: i64) -> Result<u64, StoreError
         .iter()
         .map(signup_from_row)
         .collect::<Result<Vec<_>, _>>()?;
+    if held.len() > 1 {
+        hold_several_links(scope).await?;
+    }
     let mut removed = 0;
     for signup in &held {
         hold_link_of(scope, signup).await?;

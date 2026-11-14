@@ -4938,7 +4938,7 @@
     },
     "/api/v1/invitations/preview": {
       "post": {
-        "description": "What the link of `token` shows to whoever holds it, before they accept it and\nwhether they are signed in or not: the name of the workspace it leads into and the\nname of who made it (the name they are shown by, or their login name), and for a\nguest's link the title of the board (`boardTitle`).\n\nA token that lets nobody in is 404 with the reason `invitation_unavailable`, as\n`acceptInvitation` answers it and whatever is wrong with it. A link for one guest\nthat only the registration of this browser uses up (the cookie of `acceptInvitation`'s\n202) is shown to it still, to register by again. Requests are counted\nby where they come from, and too many are 429.",
+        "description": "What the link of `token` shows to whoever holds it, before they accept it and\nwhether they are signed in or not: the name of the workspace it leads into and the\nname of who made it (the name they are shown by, or their login name), and for a\nguest's link the title of the board (`boardTitle`).\n\nA token that lets nobody in is 404 with the reason `invitation_unavailable`, as\n`acceptInvitation` answers it and whatever is wrong with it. A link for one guest\nthat only the registration of this browser uses up (the cookie of `acceptInvitation`'s\n202) is shown to it still, to register by again, unless it is signed in. Requests are counted\nby where they come from, and too many are 429.",
         "operationId": "previewInvitation",
         "requestBody": {
           "content": {

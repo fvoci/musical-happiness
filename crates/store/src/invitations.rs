@@ -392,7 +392,8 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::Conflict`] if a new account's name or email address is
-    /// taken; [`StoreError::NoOrganization`] if the handle names none; and
+    /// taken, or ([`Taken::LinkUse`]) the link was used as often as it may be after
+    /// all; [`StoreError::NoOrganization`] if the handle names none; and
     /// [`StoreError::Database`] if a statement fails, as it does for an account that
     /// does not exist. Nothing is stored then.
     pub async fn accept_invitation(
@@ -407,6 +408,10 @@ impl Store {
                 Acceptor::Replacing { browser, .. } => Some(*browser),
                 Acceptor::Account(_) | Acceptor::NewAccount(_) => None,
             };
+            if replacing.is_some() {
+                // The link of what is replaced may be another than this one.
+                signups::hold_several_links(scope).await?;
+            }
             let held = hold_live_link(scope, token_hash, now, inviter.standing, replacing);
             let link = match held.await? {
                 Ok(link) => link,
@@ -556,8 +561,9 @@ pub(crate) async fn count_uses(
 }
 
 /// Counts one more use of the held link `link_id` of the scope's organization, if it
-/// may be used once more: what a link was found live by may be a registration that a
-/// replacement removes, and the count as it is then is what decides.
+/// may be used once more. A link is held live before this, which decides for every
+/// link the server makes; this is what stands behind that where a link was found live
+/// only by a registration that the acceptance replaces.
 ///
 /// # Errors
 ///
@@ -769,26 +775,24 @@ fn select_live_by_token(
 /// made from that browser took of the link does not count against it, since what the
 /// browser does next replaces that registration and gives the use back.
 pub(crate) fn push_live_but_for(sql: &mut Sql, now: i64, replacing: Option<&str>) {
-    let Some(browser) = replacing else {
-        return push_live(sql, now);
-    };
     sql.push_bind(" AND i.revoked_at = ", 0_i64)
         .push_bind(" AND i.expires_at > ", now)
-        .push_bind(
-            " AND (i.max_uses IS NULL OR i.uses - (SELECT count(*) FROM signups AS s \
-             WHERE s.invitation_id = i.id AND s.invitation_org_id = i.org_id \
-             AND s.browser_hash = ",
+        .push(" AND (i.max_uses IS NULL OR i.uses");
+    if let Some(browser) = replacing {
+        sql.push_bind(
+            " - (SELECT count(*) FROM signups AS s WHERE s.invitation_id = i.id \
+             AND s.invitation_org_id = i.org_id AND s.browser_hash = ",
             browser,
         )
-        .push(") < i.max_uses)");
+        .push(")");
+    }
+    sql.push(" < i.max_uses)");
 }
 
 /// Pushes the conditions that the link `i` is live at `now`: not revoked, not ended,
 /// and not used as often as it may be.
 pub(crate) fn push_live(sql: &mut Sql, now: i64) {
-    sql.push_bind(" AND i.revoked_at = ", 0_i64)
-        .push_bind(" AND i.expires_at > ", now)
-        .push(" AND (i.max_uses IS NULL OR i.uses < i.max_uses)");
+    push_live_but_for(sql, now, None);
 }
 
 pub(crate) fn invitation_from_row(row: &Row) -> Result<Invitation, StoreError> {

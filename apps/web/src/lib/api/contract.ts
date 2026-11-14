@@ -375,7 +375,7 @@ export interface paths {
          *     A token that lets nobody in is 404 with the reason `invitation_unavailable`, as
          *     `acceptInvitation` answers it and whatever is wrong with it. A link for one guest
          *     that only the registration of this browser uses up (the cookie of `acceptInvitation`'s
-         *     202) is shown to it still, to register by again. Requests are counted
+         *     202) is shown to it still, to register by again, unless it is signed in. Requests are counted
          *     by where they come from, and too many are 429.
          */
         post: operations["previewInvitation"];

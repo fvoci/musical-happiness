@@ -265,7 +265,7 @@ async fn handle_set_guest_invitations(ws: Ws, body: Bytes) -> ApiResult {
 /// A token that lets nobody in is 404 with the reason `invitation_unavailable`, as
 /// `acceptInvitation` answers it and whatever is wrong with it. A link for one guest
 /// that only the registration of this browser uses up (the cookie of `acceptInvitation`'s
-/// 202) is shown to it still, to register by again. Requests are counted
+/// 202) is shown to it still, to register by again, unless it is signed in. Requests are counted
 /// by where they come from, and too many are 429.
 #[utoipa::path(
     post,
@@ -287,12 +287,14 @@ async fn handle_set_guest_invitations(ws: Ws, body: Bytes) -> ApiResult {
 )]
 async fn handle_preview_invitation(
     State(app): State<App>,
+    OptionalSession(session): OptionalSession,
     client: Option<Extension<ClientAddress>>,
     headers: HeaderMap,
     body: Bytes,
 ) -> ApiResult {
     let request: InvitationToken = decode_object(&body)?;
-    let browser = marker_of(&app, &headers);
+    // Who is signed in accepts as their account, which replaces no registration.
+    let browser = marker_of(&app, &headers).filter(|_| session.is_none());
     let preview = app
         .preview_invitation(&request.token, browser.as_deref(), address_of(client))
         .await?;

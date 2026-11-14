@@ -257,6 +257,14 @@ async fn accepting_again_gives_back_the_use_the_first_registration_took() {
     let second = accept(&th, &members, ("nell", "nell@example.test"), Some(&marker)).await;
     second.check_status(StatusCode::ACCEPTED);
     assert_eq!(org.uses(&th, &members).await, 1, "one person, one use");
+    // By another link of the organization: the first link has its use back.
+    let others = org.member_link().await;
+    let marker = marker_of(&second).expect("a marker");
+    let third = accept(&th, &others, ("nell", "nell@example.test"), Some(&marker)).await;
+    third.check_status(StatusCode::ACCEPTED);
+    let nells = marker_of(&third).expect("a marker");
+    assert_eq!(org.uses(&th, &members).await, 0, "given back");
+    assert_eq!(org.uses(&th, &others).await, 1, "taken where it went");
     assert_eq!(
         waiting_at(&th, "nell").await.as_deref(),
         Some("nell@example.test")
@@ -279,6 +287,24 @@ async fn accepting_again_gives_back_the_use_the_first_registration_took() {
     post(&th, "/invitations/preview", &preview, Some(&marker))
         .await
         .check_status(StatusCode::OK);
+    // Who is signed in accepts as their account, which replaces nothing: not shown.
+    let signed_in = org
+        .founder
+        .request(Method::POST, "/invitations/preview")
+        .header("Cookie", format!("{SIGNUP_COOKIE}={marker}"))
+        .json(&preview);
+    Client::send(signed_in)
+        .await
+        .check_status(StatusCode::NOT_FOUND);
+    // Another registration's browser frees nothing of this link, and keeps its own.
+    accept(&th, &guests, ("gary", "gary@example.test"), Some(&nells))
+        .await
+        .check_status(StatusCode::NOT_FOUND);
+    assert_eq!(
+        waiting_at(&th, "nell").await.as_deref(),
+        Some("nell@example.test"),
+        "a replacement that is refused replaces nothing"
+    );
     // Refused for a name that is an account's: the first registration and its use stay.
     accept(&th, &guests, ("ada", "gwen@example.test"), Some(&marker))
         .await
