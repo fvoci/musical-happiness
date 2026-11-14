@@ -937,21 +937,24 @@ impl Collab {
 
     /// Closes a held room that nobody is in: its document is closed, which writes its
     /// body to the card, and whoever comes next makes the room anew. The room is held
-    /// until the document is closed, so that the next opens it after. A room left to
-    /// its readers has what its writers typed kept as a version, once: what fails
-    /// then is kept when the room closes.
+    /// until the document is closed, so that the next opens it after. A room that
+    /// those who typed have left, to its readers and to who writes and typed nothing,
+    /// has what they typed kept as a version, once: what fails then is kept when the
+    /// room closes.
     async fn shut_if_empty(&self, room: &Arc<Room>, turn: &mut Turn) {
         if turn.closed {
             return;
         }
         if !turn.members.is_empty() {
-            let readers_only = turn
-                .members
-                .iter()
-                .all(|member| member.mode == DocMode::Read);
-            if turn.typed && readers_only {
-                turn.typed = false;
-                self.version_without_writers(&room.app, &room.card_id, room.gone.clone())
+            if turn.typed {
+                let writing: Vec<String> = turn
+                    .members
+                    .iter()
+                    .filter(|member| member.mode == DocMode::Write)
+                    .map(|member| member.connection.user_id.clone())
+                    .collect();
+                turn.typed = self
+                    .version_without_writers(&room.app, &room.card_id, room.gone.clone(), writing)
                     .await;
             }
             return;

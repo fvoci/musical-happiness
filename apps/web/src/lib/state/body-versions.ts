@@ -1,8 +1,9 @@
 /**
  * The versions the server keeps of a card's body: when the last of those
- * who wrote it leave, every ten minutes while it is written on, and around
- * a body written whole. The newest are kept (fifty, unless the server is
- * set otherwise): the lowest numbers go as new versions come.
+ * who wrote it leave, at an interval while it is written on (ten minutes,
+ * unless the server is set otherwise), and around a body written whole.
+ * The newest are kept (fifty, unless the server is set otherwise): the
+ * lowest numbers go as new versions come.
  */
 import type { DocNode } from '../editor/schema.ts';
 

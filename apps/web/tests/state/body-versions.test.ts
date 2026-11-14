@@ -101,16 +101,17 @@ describe('the versions of a body, in memory', () => {
     expect((await versions.read(BOARD, cardId, 1)).isCurrent).toBe(false);
     expect(stored.blocks.get(cardId)?.updateAt).toBe(before);
 
-    // The one who wrote leaves; another who may write stays, and wrote nothing.
+    // The one who wrote leaves; another who may write stays, and wrote nothing: kept then.
     mine.close();
-    await vi.waitFor(() => {
-      expect(roomsOf(stored).members(cardId)).toBe(1);
-    });
-    expect(await versions.list(BOARD, cardId)).toHaveLength(1);
-    theirs.close();
     await vi.waitFor(async () => {
       expect(await versions.list(BOARD, cardId)).toHaveLength(2);
     });
+    expect(roomsOf(stored).members(cardId)).toBe(1);
+    theirs.close();
+    await vi.waitFor(() => {
+      expect(roomsOf(stored).members(cardId)).toBe(0);
+    });
+    expect(await versions.list(BOARD, cardId)).toHaveLength(2);
     const [newest, first] = await other.bodyVersions.list(BOARD, cardId);
     expect(newest).toMatchObject({ version: 2, editors: [me], isCurrent: true });
     expect(first).toMatchObject({ version: 1, editors: [], isCurrent: false });
@@ -132,6 +133,29 @@ describe('the versions of a body, in memory', () => {
     expect((await other.bodyVersions.list(BOARD, cardId))[0]).toMatchObject({ editors: [me] });
     expect(roomsOf(stored).members(cardId)).toBe(1);
     theirs.close();
+  });
+
+  it('keeps nothing as one who wrote leaves while another who wrote stays', async () => {
+    const { world: stored, BOARD, backend, other, cardId, me, them } = world();
+    const versions = backend.bodyVersions;
+    const mine = backend.openDoc('w', BOARD, cardId, hears());
+    const theirs = other.openDoc('w', BOARD, cardId, hears());
+    await type(mine, 'one');
+    await type(theirs, 'two', ['one']);
+    mine.close();
+    await vi.waitFor(() => {
+      expect(roomsOf(stored).members(cardId)).toBe(1);
+    });
+    expect(await versions.list(BOARD, cardId)).toHaveLength(1);
+    theirs.close();
+    await vi.waitFor(async () => {
+      expect(await versions.list(BOARD, cardId)).toHaveLength(2);
+    });
+    expect((await versions.list(BOARD, cardId))[0]).toMatchObject({
+      version: 2,
+      editors: [me, them].sort(),
+      isCurrent: true,
+    });
   });
 
   it('keeps a version as the room writes the card once the body has been written on for the period', async () => {

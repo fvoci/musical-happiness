@@ -386,8 +386,8 @@ impl Store {
         .await
     }
 
-    /// The documents whose block does not hold their body yet, or holds a body its
-    /// editors wrote since its newest version, with the organization of each: what a
+    /// The documents whose block does not hold their body yet, or is a card that holds
+    /// a body its editors wrote since its newest version, with the organization of each: what a
     /// server that ended before it wrote and kept them has to. Blocks in the trash
     /// are left out; theirs is written when they are opened again.
     ///
@@ -404,11 +404,13 @@ impl Store {
                 &scope.same_organization(&[("o", "b")]),
                 " JOIN workspaces w ON w.id = o.workspace_id",
                 &scope.same_organization(&[("w", "o")]),
-                " WHERE d.projected_seq < d.log_end OR EXISTS \
+                // Only a card's body is kept: of a block that is one no more, the names
+                // stay put down, and nothing is to see to.
+                " WHERE d.projected_seq < d.log_end OR (b.type = 'card' AND EXISTS \
                  (SELECT 1 FROM body_version_editors e WHERE e.block_id = d.block_id",
                 &format!(" AND e.version = {}", body_versions::PENDING),
                 &scope.same_organization(&[("e", "d")]),
-                ") ORDER BY d.block_id",
+                ")) ORDER BY d.block_id",
             ]
             .concat();
             let sql = scope.sql(&statement);

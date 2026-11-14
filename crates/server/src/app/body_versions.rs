@@ -9,12 +9,13 @@ use crate::error::AppError;
 
 impl App {
     /// The versions kept of a card's body, the newest first, without their bodies.
-    /// The newest whose body is the one the card has says so: the card is read after
-    /// the versions, so that a version kept meanwhile is not taken for an older one.
-    /// None says so while the card's editors have typed what is not written to it yet:
-    /// its body is then no version's, though the card still holds an older one. That
-    /// is asked before the card is read, so that a body written to the card in between
-    /// is the one compared.
+    /// The newest whose body is the one the card has says so. None says so while the
+    /// card's editors have typed what is not written to it yet: its body is then no
+    /// version's, though the card still holds an older one. That is asked before the
+    /// card is read, so that a body written to the card in between is the one
+    /// compared. The three are read one after another and not as one: of a card whose
+    /// version is kept in between, an answer may name an older version with that body,
+    /// or none, and the next names the new one.
     ///
     /// # Errors
     ///

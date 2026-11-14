@@ -201,6 +201,40 @@ async fn a_body_written_whole_keeps_the_body_before_and_the_body_after() {
     test.teardown().await;
 }
 
+/// A card whose editors typed what no version holds is one a server that starts sees
+/// to, until its body is kept; a block that is a card no more is not, though the
+/// names of its editors stay put down.
+#[tokio::test]
+async fn a_card_with_what_no_version_holds_is_seen_to_and_no_other_block() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let author = common::user(store, "erin.hannon").await;
+    let board_id = board_with_files(store, &author, &[]).await;
+    let kept = card_with(store, &board_id, body_showing("one", &[]), &author).await;
+    let changed = card_with(store, &board_id, body_showing("one", &[]), &author).await;
+    let unfinished = async || -> Vec<String> {
+        let docs = store.unfinished_body_docs().await.expect("read");
+        docs.into_iter().map(|(block_id, _)| block_id).collect()
+    };
+    assert_eq!(unfinished().await, Vec::<String>::new());
+
+    for card_id in [&kept, &changed] {
+        type_body(store, card_id, body_showing("two", &[]), &author).await;
+    }
+    let mut both = vec![kept.clone(), changed.clone()];
+    both.sort();
+    assert_eq!(unfinished().await, both);
+
+    assert!(keep(store, &kept).await.is_some());
+    let mut view = store.get_block(&changed).await.expect("the card");
+    view.block_type = BlockType::View;
+    view.body = None;
+    common::insert_blocks(store, std::slice::from_mut(&mut view), &author).await;
+    assert_eq!(keep(store, &changed).await, None, "no card, no version");
+    assert_eq!(unfinished().await, Vec::<String>::new());
+    test.teardown().await;
+}
+
 /// What editors typed is a version when the server keeps it, once: it names the users
 /// whose updates were logged since the version before, and nobody if none is known.
 /// A body written whole over what they typed keeps theirs first.

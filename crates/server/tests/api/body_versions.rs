@@ -209,6 +209,48 @@ async fn a_room_left_to_its_readers_keeps_what_its_writers_typed() {
     th.teardown().await;
 }
 
+/// Those who typed leave a room where another who may write stays and typed nothing:
+/// what was typed is kept then. Of two who typed, the first to leave keeps nothing
+/// while the other stays, and the other's leaving keeps it, by both.
+#[tokio::test]
+async fn a_room_left_by_those_who_typed_keeps_it_whoever_stays() {
+    let th = Setup::native().start().await.init_basic().await;
+    let t = table(&th, &paragraphs(&["first"])).await;
+    let user1 = th.client.me().await.id;
+    let user2 = th.client2.me().await.id;
+    give(&th, &t.board_id, &user2, "editor").await;
+    let mut typist = Peer::connect(&th.client, 101).await;
+    let mut other = Peer::connect(&th.client2, 102).await;
+    typist.joined(TEST_WORKSPACE_ID, &t.card_id).await;
+    other.joined(TEST_WORKSPACE_ID, &t.card_id).await;
+    typist.write_acked("typed").await;
+    typist.leave().await;
+    let kept = kept_after(&th.client, &t.card_id, 2).await;
+    assert_eq!(
+        said(&kept),
+        [(2, vec![user1.as_str()], true), (1, vec![], false)],
+        "kept as its writer left, with another who may write in the room"
+    );
+
+    let mut typist = Peer::connect(&th.client, 103).await;
+    typist.joined(TEST_WORKSPACE_ID, &t.card_id).await;
+    other.write_acked("more").await;
+    typist.write_acked("a third").await;
+    other.settle().await;
+    other.leave().await;
+    other.barrier().await;
+    // The room takes this after the leaving: one who typed is still in it.
+    typist.write_acked("a fourth").await;
+    assert_eq!(versions(&th.client, &t.card_id).await.len(), 2);
+    typist.leave().await;
+    let kept = kept_after(&th.client, &t.card_id, 3).await;
+    let mut both = vec![user1.as_str(), user2.as_str()];
+    both.sort_unstable();
+    assert_eq!(said(&kept)[0], (3, both, true));
+    crate::rooms::no_rooms(&th).await;
+    th.teardown().await;
+}
+
 /// What the versions of a card say besides when they were kept, the newest first:
 /// the number, who wrote, and whether it is the card's body now.
 pub(crate) fn said(kept: &[Value]) -> Vec<(i64, Vec<&str>, bool)> {

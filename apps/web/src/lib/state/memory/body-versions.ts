@@ -5,8 +5,8 @@
  * - the body a card has before somebody writes in its room is kept first
  *   (by nobody, as of the card's last change, when nobody is known to have
  *   written it), and what is written in the room is kept when those who
- *   write have left it, and when the room writes the card after the body
- *   has been written on for ten minutes;
+ *   wrote it have left it (whoever stays and wrote nothing), and when the
+ *   room writes the card after the body has been written on for ten minutes;
  * - a body written whole is kept, by its writer, after the body it was
  *   written over; a version restored is such a write;
  * - a body that is the newest version already is not kept again, no body is
@@ -102,7 +102,13 @@ export function roomWrote(world: World, card: StoredCard): void {
   if (due !== undefined && Date.now() >= due) keep(world, card);
 }
 
-/** Those who write have left a card's room, and its body is written: what they wrote is kept. */
+/** Whether somebody wrote a card's body since its newest version, and none of `staying`, the users still in its room to write. */
+export function leftByWriters(world: World, cardId: string, staying: string[]): boolean {
+  const unkept = keptOf(world, cardId).unkept;
+  return unkept.size > 0 && !staying.some((userId) => unkept.has(userId));
+}
+
+/** Those who wrote have left a card's room, and its body is written: what they wrote is kept. */
 export function writersLeft(world: World, card: StoredCard): void {
   if (keptOf(world, card.id).unkept.size > 0) keep(world, card);
 }

@@ -3,8 +3,9 @@
 //! the body's JSON, so it is taken from the card after the document's body was written
 //! there, by whoever holds the card's place.
 //!
-//! - When the last of a room's writers leaves it, when the room closes, and when the
-//!   server stops ([`Collab::version_as_left`], [`Collab::version_without_writers`]).
+//! - When the last of those who wrote since the newest version leaves the room,
+//!   whoever stays in it and wrote nothing, when the room closes, and when the server
+//!   stops ([`Collab::version_as_left`], [`Collab::version_without_writers`]).
 //! - While a body is edited on: `collab_version_minutes` after the first update no
 //!   version holds, as the body is next written to the card
 //!   ([`Collab::version_if_due`]) or, of a card that holds it already, with the next
@@ -120,7 +121,7 @@ impl Collab {
             .expect("lock poisoned") += by;
     }
 
-    /// As the last of a room's writers leaves, and after the document's body was
+    /// As the last of those who wrote leaves a room, and after the document's body was
     /// written to its card: keeps it as a version if the document took updates no
     /// version holds. What fails is logged: who wrote stays put down, and the version
     /// is kept later.
@@ -134,26 +135,34 @@ impl Collab {
         }
     }
 
-    /// For a room that has readers and no writer any more: writes the body of its
-    /// open document to the card and keeps it as a version, if the document took
-    /// updates no version holds. A document that is not open is left: it has none.
-    /// What fails is logged, and done when the room closes.
+    /// For a room some of whose members left: writes the body of its open document to
+    /// the card and keeps it as a version, if the document took updates no version
+    /// holds and none of them is by one of `writing`, the users still in the room who
+    /// may write. Whether one is: the room asks again as its members leave. A document
+    /// that is not open is left: it has none. What fails is logged, and done when the
+    /// room closes.
     pub(super) async fn version_without_writers(
         &self,
         app: &App,
         card_id: &str,
         gone: CancellationToken,
-    ) {
+        writing: Vec<String>,
+    ) -> bool {
         let left = self
             .on_slot_while(
                 app,
                 card_id,
                 Some(gone),
                 move |collab, app, card_id, mut slot| async move {
-                    let unkept = slot
-                        .open
-                        .as_ref()
-                        .is_some_and(|open| matches!(open.versioned, Versioned::Due(_)));
+                    let (unkept, by_one_here) = slot.open.as_ref().map_or((false, false), |open| {
+                        (
+                            matches!(open.versioned, Versioned::Due(_)),
+                            open.editors.iter().any(|editor| writing.contains(editor)),
+                        )
+                    });
+                    if unkept && by_one_here {
+                        return Ok(true);
+                    }
                     let written = if unkept {
                         collab.write_now(&app, &card_id, &mut slot).await
                     } else {
@@ -163,14 +172,18 @@ impl Collab {
                         collab.version_as_left(&app, &card_id, &mut slot).await;
                     }
                     collab.retire(&mut slot);
-                    written
+                    written.map(|()| false)
                 },
             )
             .await;
-        if let Err(error) = left
-            && !error.is_not_found()
-        {
-            tracing::error!(%error, card_id, "cannot keep a version of a body its writers left");
+        match left {
+            Ok(still_written) => still_written,
+            Err(error) => {
+                if !error.is_not_found() {
+                    tracing::error!(%error, card_id, "cannot keep a version of a body its writers left");
+                }
+                false
+            }
         }
     }
 

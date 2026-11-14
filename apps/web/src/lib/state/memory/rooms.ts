@@ -53,7 +53,7 @@ import type {
 } from '../../logic/doc-room-types.ts';
 import { ROOM_LIMITS } from '../../logic/doc-room.ts';
 
-import { roomWrote, typedBy, writersLeft } from './body-versions.ts';
+import { leftByWriters, roomWrote, typedBy, writersLeft } from './body-versions.ts';
 import { roleOn } from './comments.ts';
 import { imageFileIds, LIMITS, wireOf } from './shapes.ts';
 import { bodyOf, documentOf, sameBody } from './room-docs.ts';
@@ -300,9 +300,11 @@ export class MemoryRooms {
     this.#afterLeft(room);
   }
 
-  /** Nobody who writes is in the room any more: its body is written, and what was written is kept as a version. */
+  /** Nobody who writes is in the room any more, or none who wrote since the newest version: its body is written, and what was written is kept as a version. */
   #afterLeft(room: Room): void {
-    if ([...room.seats].some((seat) => seat.mode === 'write')) return;
+    const staying = [...room.seats].filter((seat) => seat.mode === 'write');
+    const users = staying.map((seat) => seat.user.userId);
+    if (staying.length > 0 && !leftByWriters(this.#world, room.cardId, users)) return;
     this.#write(room);
     const card = this.#card(room.boardId, room.cardId);
     if (card) writersLeft(this.#world, card);

@@ -245,6 +245,57 @@ async fn the_oldest_version_and_one_with_an_image_are_restored() {
     th.teardown().await;
 }
 
+/// A version whose body may not be stored any more, and one that shows an image
+/// whose file the board does not have, are not gone back to (409): the card keeps
+/// its body, and its versions are as they were.
+#[tokio::test]
+async fn a_version_that_cannot_be_stored_is_not_restored() {
+    let th = Setup::native().start().await.init_basic().await;
+    let t = table(&th, &paragraphs(&["first"])).await;
+    let second = paragraphs(&["second"]);
+    write_whole(&th.client, &t.card_id, &second).await;
+    let kept = versions(&th.client, &t.card_id).await;
+    assert_eq!(said(&kept).len(), 2, "{kept:?}");
+    let unknown = json!({"type": "doc", "content": [{"type": "marquee"}]});
+    let pictured = json!({"type": "doc", "content": [
+        {"type": "image", "attrs": {"fileId": "7missing.png"}},
+    ]});
+    for (body, refusal) in [
+        (
+            unknown,
+            "the body of the version may not be stored any more: invalid body node: node type \
+             is not on the allowlist",
+        ),
+        (
+            pictured,
+            "the version shows an image whose file the board does not have any more",
+        ),
+    ] {
+        // As a version kept before the server was told to store less, or whose file
+        // was lost: nothing the server does today writes one.
+        let planted = th
+            .app
+            .store()
+            .execute_unchecked(&format!(
+                "UPDATE body_versions SET body = '{body}' WHERE block_id = '{}' AND version = 1",
+                t.card_id
+            ))
+            .await
+            .expect("the version is written over");
+        assert_eq!(planted, 1);
+        th.client
+            .post_empty(&restore_path(&t.card_id, 1))
+            .await
+            .check_error(StatusCode::CONFLICT, refusal);
+        assert_eq!(
+            body_of(&card(&th.client, &t.card_id).await).as_ref(),
+            Some(&second)
+        );
+        assert_eq!(versions(&th.client, &t.card_id).await.len(), 2);
+    }
+    th.teardown().await;
+}
+
 /// Only who may edit the card restores a version of it: not a viewer or a commenter
 /// of its board (403), not who is no member of it or asks through another workspace
 /// (no such card), and not a number the card has no version of.
