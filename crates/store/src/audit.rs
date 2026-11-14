@@ -5,20 +5,85 @@
 //! good. A record is a workspace's (read by its members) or the organization's (read by
 //! its administrators).
 
-use fvoci_model::{AuditAction, AuditPerson, AuditRecord, new_id};
+use std::str::FromStr;
 
-use crate::db::{Id, OptId, Row, Scope, now_millis};
+use fvoci_model::{AuditAction, AuditPerson, AuditRecord, AuditRecordActor, new_id};
+
+use crate::db::{Bound, Id, OptId, Row, Scope, now_millis};
 use crate::error::StoreError;
 use crate::{Paging, Store};
 
+/// Who did what a record says: a person by their account, or the server's operator
+/// (through the local administration socket), who has none. Chosen by the entry point
+/// of the change, never taken from what a request says.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AuditActor {
+    /// The user with this identifier, kept when the account goes.
+    Person(String),
+    /// Who runs the server.
+    ServerOperator,
+}
+
+impl AuditActor {
+    /// The identifier of the person, or `None` for the server's operator.
+    #[must_use]
+    pub fn person_id(&self) -> Option<&str> {
+        match self {
+            Self::Person(id) => Some(id),
+            Self::ServerOperator => None,
+        }
+    }
+
+    /// Which of the two it is, as the log stores it.
+    const fn kind(&self) -> ActorKind {
+        match self {
+            Self::Person(_) => ActorKind::Person,
+            Self::ServerOperator => ActorKind::ServerOperator,
+        }
+    }
+}
+
+/// Which of the two an actor is, as the column `actor_kind` of the log spells it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ActorKind {
+    Person,
+    ServerOperator,
+}
+
+impl ActorKind {
+    const ALL: [Self; 2] = [Self::Person, Self::ServerOperator];
+
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Person => "person",
+            Self::ServerOperator => "server_operator",
+        }
+    }
+}
+
+impl FromStr for ActorKind {
+    type Err = StoreError;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        Self::ALL
+            .into_iter()
+            .find(|kind| kind.as_str() == text)
+            .ok_or_else(|| StoreError::Corrupt {
+                column: "actor_kind",
+                reason: format!("{text:?} is no audit actor kind"),
+            })
+    }
+}
+
 /// One record of the audit log as it is written: who did what to what (and whom), in
-/// which workspace, and when. The organization is the one of the store's handle.
+/// which workspace, and when. The organization is the one of the store's handle, or
+/// the one named to `record_entry_in`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuditEntry {
     /// The workspace it was done in; empty for what was done to the organization.
     pub workspace_id: String,
-    /// The user who did it.
-    pub actor_id: String,
+    /// Who did it.
+    pub actor: AuditActor,
     /// What was done.
     pub action: AuditAction,
     /// What it was done to: a board, a workspace or the organization.
@@ -33,9 +98,24 @@ impl AuditEntry {
     /// A record of `actor_id` doing `action` to `target_id` in the workspace, to nobody.
     #[must_use]
     pub fn new(workspace_id: &str, actor_id: &str, action: AuditAction, target_id: &str) -> Self {
+        Self::by(
+            &AuditActor::Person(actor_id.to_owned()),
+            workspace_id,
+            action,
+            target_id,
+        )
+    }
+
+    /// A record of `actor` doing `action` to `target_id` in the workspace, to nobody.
+    pub(crate) fn by(
+        actor: &AuditActor,
+        workspace_id: &str,
+        action: AuditAction,
+        target_id: &str,
+    ) -> Self {
         Self {
             workspace_id: workspace_id.to_owned(),
-            actor_id: actor_id.to_owned(),
+            actor: actor.clone(),
             action,
             target_id: target_id.to_owned(),
             subject_id: String::new(),
@@ -71,7 +151,7 @@ impl Store {
     pub async fn get_audit_log(&self, workspace_id: &str) -> Result<Vec<AuditEntry>, StoreError> {
         self.with_conn(async |scope| {
             let mut sql = scope.sql(
-                "SELECT workspace_id, actor_id, action, target_id, subject_id, create_at \
+                "SELECT workspace_id, actor_id, action, target_id, subject_id, create_at, actor_kind \
                  FROM audit_log WHERE workspace_id = ",
             );
             sql.bind(Id(workspace_id)).push(" ORDER BY create_at, id");
@@ -82,7 +162,7 @@ impl Store {
                 .map(|row| {
                     Ok(AuditEntry {
                         workspace_id: row.id(0)?,
-                        actor_id: row.id(1)?,
+                        actor: actor(row, 6, 1)?,
                         action: action(row, 2)?,
                         target_id: row.id(3)?,
                         subject_id: row.id(4)?,
@@ -113,7 +193,7 @@ impl Store {
             let mut sql = scope.sql(
                 "SELECT a.id, a.action, a.actor_id, actor.username, actor.display_name, \
                  a.subject_id, subject.username, subject.display_name, a.target_id, w.name, \
-                 a.create_at FROM audit_log AS a \
+                 a.create_at, a.actor_kind FROM audit_log AS a \
                  LEFT JOIN users AS actor ON actor.id = a.actor_id \
                  LEFT JOIN users AS subject ON subject.id = a.subject_id \
                  LEFT JOIN workspaces AS w ON w.id = a.target_id AND w.org_id = a.org_id \
@@ -151,6 +231,14 @@ fn action(row: &Row, index: usize) -> Result<AuditAction, StoreError> {
     )
 }
 
+/// The actor of a row, from its kind at `kind` and the person's identifier at `id`.
+fn actor(row: &Row, kind: usize, id: usize) -> Result<AuditActor, StoreError> {
+    Ok(match row.text(kind)?.parse()? {
+        ActorKind::Person => AuditActor::Person(row.id(id)?),
+        ActorKind::ServerOperator => AuditActor::ServerOperator,
+    })
+}
+
 fn record(row: &Row) -> Result<AuditRecord, StoreError> {
     let subject_id = row.id(5)?;
     let target_name = row.text(9)?;
@@ -158,10 +246,13 @@ fn record(row: &Row) -> Result<AuditRecord, StoreError> {
     Ok(AuditRecord {
         id: row.id(0)?,
         action,
-        actor: AuditPerson {
-            id: row.id(2)?,
-            username: row.text(3)?,
-            display_name: row.text(4)?,
+        actor: match actor(row, 11, 2)? {
+            AuditActor::Person(id) => AuditRecordActor::Person(AuditPerson {
+                id,
+                username: row.text(3)?,
+                display_name: row.text(4)?,
+            }),
+            AuditActor::ServerOperator => AuditRecordActor::ServerOperator,
         },
         subject: if subject_id.is_empty() {
             None
@@ -184,18 +275,40 @@ pub(crate) async fn record_entry(
     scope: &mut Scope<'_>,
     entry: &AuditEntry,
 ) -> Result<(), StoreError> {
+    let org = scope.org()?;
+    insert_entry(scope, org, entry).await
+}
+
+/// Writes a record in the organization `org_id`, at this moment: for a handle with the
+/// system's reach, which names no organization of its own. Nothing here checks that
+/// the caller may write there (on SQLite no wall would); the caller has chosen
+/// `org_id` by what it read in the same transaction.
+pub(crate) async fn record_entry_in(
+    scope: &mut Scope<'_>,
+    org_id: &str,
+    entry: &AuditEntry,
+) -> Result<(), StoreError> {
+    insert_entry(scope, Id(org_id), entry).await
+}
+
+async fn insert_entry(
+    scope: &mut Scope<'_>,
+    org: impl Into<Bound>,
+    entry: &AuditEntry,
+) -> Result<(), StoreError> {
     let mut sql = scope.sql(
         "INSERT INTO audit_log (id, org_id, workspace_id, actor_id, action, target_id, \
-         subject_id, create_at) VALUES (",
+         subject_id, create_at, actor_kind) VALUES (",
     );
     sql.bind(Id(&new_id()))
-        .push_bind(", ", scope.org()?)
+        .push_bind(", ", org)
         .push_bind(", ", OptId(&entry.workspace_id))
-        .push_bind(", ", Id(&entry.actor_id))
+        .push_bind(", ", OptId(entry.actor.person_id().unwrap_or_default()))
         .push_bind(", ", entry.action.as_str())
         .push_bind(", ", Id(&entry.target_id))
         .push_bind(", ", OptId(&entry.subject_id))
         .push_bind(", ", now_millis())
+        .push_bind(", ", entry.actor.kind().as_str())
         .push(")");
     scope.execute(sql).await?;
     Ok(())

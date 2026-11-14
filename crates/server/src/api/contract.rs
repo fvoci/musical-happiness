@@ -230,6 +230,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("OidcStart", Members::All),
     ("LoginOrganization", Members::All),
     ("OidcProvider", Members::All),
+    ("OidcPendingProvider", Members::All),
     ("OnboardingStart", Members::AsWritten),
     (
         "Problem",
@@ -247,6 +248,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("AuditAction", Members::AsWritten),
     ("AuditPerson", Members::All),
     ("AuditRecord", Members::All),
+    ("AuditRecordActor", Members::AsWritten),
     ("Organization", Members::All),
     ("OrgMember", Members::All),
     ("OrgWorkspace", Members::All),

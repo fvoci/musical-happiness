@@ -143,7 +143,7 @@ impl Hub {
                     Some((
                         *id,
                         listener.user_id.clone(),
-                        listener.login_provider.clone(),
+                        listener.login_provider().map(str::to_owned),
                     ))
                 })
                 .collect()
@@ -386,7 +386,7 @@ fn following_workspace<'a>(
         workspace,
         user: listener.user_id.clone(),
         role: *role,
-        login_provider: listener.login_provider.clone(),
+        login_provider: listener.login_provider().map(str::to_owned),
         board_only,
     })
 }

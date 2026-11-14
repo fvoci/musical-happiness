@@ -244,20 +244,16 @@ async fn an_organization_does_not_lock_itself_out() {
     // Each refusal names what of the request would let nobody in.
     for (held, at) in [
         (settings(&fake, json!({ "enabled": false })), "/enabled"),
-        (settings(&other, json!({})), "/issuer"),
-        (
-            json!({ "issuer": fake.issuer, "clientId": "another-client", "clientSecret": "s" }),
-            "/clientId",
-        ),
         (
             settings(&other, json!({ "ssoRequired": true, "enabled": false })),
-            "/issuer",
+            "/enabled",
         ),
     ] {
         let response = admin.put(&path, &held).await;
         check_refused(&response, "sso_enforced");
         assert_eq!(response.refused_at(), at, "{held}");
     }
+    // Another issuer or client is set aside instead (sso_pending.rs).
     check_refused(&admin.delete(&path).await, "sso_enforced");
     let read: OidcProvider = admin.get(&path).await.ok_json();
     assert!(read.sso_required && read.enabled && read.issuer == fake.issuer);
@@ -290,16 +286,20 @@ async fn an_organization_does_not_lock_itself_out() {
         .await
         .ok_json();
     assert!(!replaced.sso_required && replaced.issuer == other.issuer);
-    admin.delete(&path).await.check_no_content();
+    // The session made through the issuer before ends with it, also the one that
+    // replaced it.
+    admin.get(&path).await.check_unauthorized();
+    ts.client.delete(&path).await.check_no_content();
     ts.teardown().await;
     fake.stop();
     other.stop();
 }
 
-/// After the provider was replaced by another, which then is the one the organization
-/// takes, the session made through the one before opens nothing.
+/// When the provider is replaced by one of another issuer, the sessions made through
+/// the one before end: they open nothing, the organization's notice included, and
+/// prove nothing of the new provider. The new provider's session goes on.
 #[tokio::test]
-async fn the_session_of_the_provider_before_does_not_open_the_organization() {
+async fn a_change_of_issuer_ends_the_sessions_of_the_provider_before() {
     let before = FakeProvider::start().await;
     let now = FakeProvider::start().await;
     let ts = Setup::native()
@@ -318,37 +318,33 @@ async fn the_session_of_the_provider_before_does_not_open_the_organization() {
         .await
         .check_ok();
     old.get(&boards).await.check_ok();
-    let old_provider = ts
-        .app
-        .store()
-        .get_session(&token_digest(&old.token), 0, 0)
-        .await
-        .expect("stored")
-        .login_provider_id;
-
     require_sso(&old, &org_id, &before, Passwords::Taken)
         .await
         .check_ok();
-    set_provider(&ts, &org_id, &now).await;
-    let new = admin_through_provider(&ts, &now, &org_id).await;
-    let new_provider = ts
-        .app
-        .store()
-        .get_session(&token_digest(&new.token), 0, 0)
+    let session_of = |token: String| {
+        let store = ts.app.store().clone();
+        async move { store.get_session(&token_digest(&token), 0, 0).await }
+    };
+    let old_origin = session_of(old.token.clone())
         .await
         .expect("stored")
-        .login_provider_id;
-    assert_ne!(old_provider, new_provider, "another provider");
-    // Not from the session of the provider before, which is no proof of this one.
-    let unproven = require_sso(&old, &org_id, &now, Passwords::Refused).await;
-    unproven.check_status(StatusCode::CONFLICT);
-    assert_eq!(unproven.error_reason(), "sso_unproven");
+        .login
+        .expect("made through the provider");
+    assert_eq!(old_origin.issuer, before.issuer);
+    assert_eq!(old_origin.org_id, org_id);
+
+    set_provider(&ts, &org_id, &now).await;
+    assert!(
+        session_of(old.token.clone()).await.is_err(),
+        "the session of the issuer before is ended"
+    );
+    old.get(&boards).await.check_unauthorized();
+    let ended = require_sso(&old, &org_id, &now, Passwords::Refused).await;
+    ended.check_unauthorized();
+    let new = admin_through_provider(&ts, &now, &org_id).await;
     require_sso(&new, &org_id, &now, Passwords::Refused)
         .await
         .check_ok();
-
-    check_sso_required(&old.get(&boards).await, &org_id);
-    check_sso_required(&old.get(&format!("/org/{org_id}/oidc")).await, &org_id);
     new.get(&boards).await.check_ok();
     ts.teardown().await;
     before.stop();
@@ -411,6 +407,26 @@ async fn the_administration_socket_releases_an_organization() {
     socket_request(&socket, "POST", &release, "")
         .await
         .check_no_content();
+    let records: Vec<Value> = ts
+        .client
+        .get(&format!("/org/{org_id}/audit"))
+        .await
+        .ok_json();
+    let operators: Vec<_> = records
+        .iter()
+        .filter(|record| record["actor"]["kind"] == "server_operator")
+        .collect();
+    assert_eq!(
+        operators.len(),
+        1,
+        "only the effective socket release is recorded"
+    );
+    assert_eq!(
+        operators[0]["actor"],
+        serde_json::json!({ "kind": "server_operator" }),
+        "the operator, with nothing of a person"
+    );
+    assert_eq!(operators[0]["action"], "sso_released");
     for missing in [new_id(), "no-identifier".to_owned()] {
         socket_request(
             &socket,
@@ -858,6 +874,7 @@ pub(crate) async fn two_organizations(fake: &FakeProvider) -> Two {
             create_at: 0,
             update_at: 0,
             sso_required: false,
+            revision: 0,
         })
         .await
         .expect("their provider");

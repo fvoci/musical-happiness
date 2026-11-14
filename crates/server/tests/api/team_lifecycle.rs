@@ -190,7 +190,10 @@ async fn records_of(th: &TestServer, board_id: &str) -> Vec<(&'static str, Strin
                     AuditAction::SelfAddedToBoard | AuditAction::AddedToBoard
                 )
         })
-        .map(|r| (r.action.as_str(), r.actor_id, r.subject_id))
+        .map(|r| {
+            let actor = r.actor.person_id().unwrap_or_default().to_owned();
+            (r.action.as_str(), actor, r.subject_id)
+        })
         .collect()
 }
 

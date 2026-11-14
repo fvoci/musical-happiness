@@ -185,3 +185,132 @@ async fn a_reset_password_does_not_open_an_organization_that_takes_none() {
     smtp.stop().await;
     fake.stop();
 }
+
+/// A link the operator makes through the socket is recorded once in every organization
+/// of the person, as the operator's (on PostgreSQL, user1 is a member of a second
+/// organization too, and a third is nobody's here); a refused command, and a reset the
+/// person asks for by mail, records nothing.
+#[cfg(unix)]
+#[tokio::test]
+async fn the_operators_reset_link_is_recorded_in_each_organization_of_the_person() {
+    use crate::fake_smtp::FakeSmtp;
+    use fvoci_model::new_id;
+    use fvoci_store::DbType;
+
+    let socket = std::env::temp_dir().join(format!("fvoci-reset-{}.socket", new_id()));
+    let smtp = FakeSmtp::start_on(0).await;
+    let th = Setup::native()
+        .admin_socket(&socket)
+        .smtp(smtp.settings())
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let user1 = th.client.me().await.id;
+    let first_id = crate::oidc::org_of(&th).await;
+    let first = th.app.store().for_org(&first_id).expect("organization");
+    let others = if fvoci_store::testing::db_type_of_the_tests() == DbType::Postgres {
+        Some(second_and_third(&th, &user1).await)
+    } else {
+        None
+    };
+    let http = reqwest::Client::builder()
+        .unix_socket(socket.as_path())
+        .build()
+        .expect("socket client");
+    let link = async |username: &str| {
+        http.post(format!(
+            "http://localhost/api/v1/admin/users/{username}/password-reset"
+        ))
+        .send()
+        .await
+        .expect("socket responds")
+        .status()
+    };
+
+    let made = link("user1").await;
+    let unknown = link("nobody-at-all").await;
+    th.anonymous()
+        .post(
+            "/password-reset/request",
+            &json!({"email": "user1@sample.com"}),
+        )
+        .await
+        .check_no_content();
+    smtp.received(1).await;
+
+    assert_eq!((made, unknown), (StatusCode::OK, StatusCode::NOT_FOUND));
+    // One record of a link, the operator's, and none of the mailed one.
+    let once = |org_id: &str| vec![(true, org_id.to_owned(), user1.clone())];
+    assert_eq!(
+        reset_links(&first).await,
+        once(&first_id),
+        "one record, the operator's"
+    );
+    if let Some(made) = others {
+        assert_eq!(
+            reset_links(&made[0].1).await,
+            once(&made[0].0),
+            "also in the second"
+        );
+        assert_eq!(
+            reset_links(&made[1].1).await,
+            [],
+            "none in an organization not theirs"
+        );
+    }
+    th.teardown().await;
+}
+
+/// The records of reset links of the handle's organization, by whomever: whether the
+/// server's operator made it, of which organization, to whom.
+#[cfg(unix)]
+async fn reset_links(store: &fvoci_store::Store) -> Vec<(bool, String, String)> {
+    let paging = fvoci_store::Paging {
+        page: 0,
+        per_page: 100,
+    };
+    store
+        .audit_records(fvoci_store::AuditPlace::Organization, paging)
+        .await
+        .expect("records")
+        .into_iter()
+        .filter(|record| record.action == fvoci_model::AuditAction::PasswordResetLinkMade)
+        .map(|record| {
+            let operator = record.actor == fvoci_model::AuditRecordActor::ServerOperator;
+            let subject = record.subject.map(|subject| subject.id).unwrap_or_default();
+            (operator, record.target_id, subject)
+        })
+        .collect()
+}
+
+/// A second organization, of which `user_id` is made a member, and a third; each with
+/// a handle to it.
+#[cfg(unix)]
+async fn second_and_third(
+    th: &crate::common::TestServer,
+    user_id: &str,
+) -> Vec<(String, fvoci_store::Store)> {
+    let mut made = Vec::new();
+    for name in ["Second", "Third"] {
+        let workspace = fvoci_model::Workspace {
+            id: fvoci_model::new_id(),
+            ..fvoci_model::Workspace::default()
+        };
+        let org_id = th
+            .app
+            .store()
+            .system()
+            .create_organization(name, &workspace)
+            .await
+            .expect("another organization");
+        let store = th.app.store().for_org(&org_id).expect("organization");
+        made.push((org_id, store));
+    }
+    made[0]
+        .1
+        .add_organization_member(user_id, fvoci_model::OrgRole::Member)
+        .await
+        .expect("a member of the second");
+    made
+}

@@ -39,11 +39,10 @@ impl SsoChange {
     }
 }
 
-/// Writes down that an organization began or stopped taking no password: the one
-/// place it is recorded. `user_id` is the administrator who did it, `None` for who
-/// runs the server.
-///
-/// A log line (`audit`), not an `audit_log` record: who runs the server is no user.
+/// Writes a line of the log when an organization began or stopped taking no password.
+/// `user_id` is the administrator who did it, `None` for who runs the server. The
+/// record that stays is the organization's, written by the store in the provider's
+/// transaction; this line is for whoever reads the server's log.
 fn record(provider: &StoredProvider, change: SsoChange, user_id: Option<&str>) {
     tracing::info!(
         target: "audit",
@@ -88,13 +87,12 @@ pub(crate) fn enforced() -> AppError {
 /// Checks a change of an organization's provider, from `existing` (as it was read) to
 /// `next`, against what keeps the organization from locking itself out.
 ///
-/// - Taking no password is switched on by a session that was made through this very
-///   provider, which is on and stays on: who asks has shown that it lets them in. A
-///   provider of another issuer or client is another provider, which nobody has
-///   signed in through yet.
-/// - While it is on and stays on, the provider is not switched off or set to another
-///   issuer or client. Switching it off (`ssoRequired` false) comes first, or with
-///   the change.
+/// - Taking no password is switched on by a session that proves the provider as it
+///   is stored ([`proves`]), with a change that keeps what signing in takes
+///   ([`StoredProvider::signs_in_like`]): who asks has shown that it lets them in. A
+///   provider of another issuer, client or secret has not let anybody in yet.
+/// - While it is on and stays on, the provider is not switched off. Switching it off
+///   (`ssoRequired` false) comes first, or with the change.
 ///
 /// # Errors
 ///
@@ -108,26 +106,18 @@ pub(crate) fn check_change(
     if !next.sso_required {
         return Ok(());
     }
-    let same_provider = existing
-        .filter(|existing| existing.issuer == next.issuer && existing.client_id == next.client_id);
-    if let Some(held) = existing.filter(|existing| existing.sso_required) {
-        // Named: what of the request would let nobody in.
-        let refused = if held.issuer != next.issuer {
-            "issuer"
-        } else if held.client_id != next.client_id {
-            "clientId"
-        } else if !next.enabled {
-            "enabled"
+    // Another issuer, client or secret of a provider that is held went aside as pending
+    // settings before this (`App::put_oidc_provider`): what is left to refuse is
+    // switching it off.
+    if existing.is_some_and(|existing| existing.sso_required) {
+        return if next.enabled {
+            Ok(())
         } else {
-            return Ok(());
+            Err(enforced().with_field("enabled"))
         };
-        return Err(enforced().with_field(refused));
     }
-    let proven = same_provider.is_some_and(|provider| {
-        provider.enabled
-            && next.enabled
-            && session.login_provider_id.as_deref() == Some(provider.id.as_str())
-    });
+    let proven =
+        existing.is_some_and(|existing| existing.signs_in_like(next) && proves(session, existing));
     if proven {
         Ok(())
     } else {
@@ -138,6 +128,17 @@ pub(crate) fn check_change(
         .with_reason(Reason::SsoUnproven)
         .with_field("ssoRequired"))
     }
+}
+
+/// Whether `session` shows that signing in through the provider, as it is stored,
+/// lets people in: it was made through this very provider at its revision, and the
+/// provider is on. A session made before a change of the issuer, the client, the
+/// secret or the switch proves nothing of the provider after it.
+pub(crate) fn proves(session: &Session, provider: &StoredProvider) -> bool {
+    provider.enabled
+        && session.login.as_ref().is_some_and(|login| {
+            login.provider_id == provider.id && login.revision == Some(provider.revision)
+        })
 }
 
 /// Who asks for what is an organization's: the user, and the provider their session
@@ -166,7 +167,7 @@ impl<'a> From<&'a Session> for Asker<'a> {
     fn from(session: &'a Session) -> Self {
         Self {
             user_id: &session.user_id,
-            made_through: session.login_provider_id.as_deref(),
+            made_through: session.login_provider_id(),
         }
     }
 }
@@ -219,7 +220,7 @@ impl App {
             return Err(not_found());
         }
         let org = self.enter_org_for_sign_in(org_id).ok_or_else(not_found)?;
-        if let Some(provider) = org.store().release_sso().await? {
+        if let Some(provider) = org.store().release_sso_by_operator().await? {
             record(&provider, SsoChange::ReleasedByOperator, None);
         }
         Ok(())

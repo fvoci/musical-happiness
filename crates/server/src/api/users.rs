@@ -150,7 +150,8 @@ async fn handle_get_my_memberships(
 ///
 /// Who the user of the session is at the providers they linked to the account, or
 /// first signed in through: an organization's provider with that issuer signs in to
-/// this account. Linked by `startOidcLogin` with `linkPassword`. Oldest first.
+/// this account. Linked by `startOidcLogin` with `linkPassword`. Oldest first, each
+/// saying whether this session was made through a provider of its issuer.
 #[utoipa::path(
     get,
     path = "/users/me/identities",
@@ -162,7 +163,7 @@ async fn handle_get_my_identities(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
 ) -> ApiResult {
-    Ok(json_response(&app.identities(&session.user_id).await?))
+    Ok(json_response(&app.identities(&session).await?))
 }
 
 /// Remove an identity from the account
@@ -173,8 +174,9 @@ async fn handle_get_my_identities(
 /// naming `/password`, and too many are 429. An identity that is not the account's is
 /// 404. An account without a password keeps its last identity, which is all that lets
 /// its owner in: 409 with the reason `last_sign_in`; and has no password to confirm
-/// removing another with: 409 with the reason `password_not_set`. The sessions made
-/// through a provider go on.
+/// removing another with: 409 with the reason `password_not_set`. The account's
+/// sessions made through a provider of that issuer end, and their connections close:
+/// this session too when it was one (`madeThisSession` of the identity).
 #[utoipa::path(
     delete,
     path = "/users/me/identities",

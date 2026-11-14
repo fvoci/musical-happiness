@@ -370,6 +370,11 @@ impl<'c> Scope<'c> {
         }
     }
 
+    /// The identifier of the organization the operation reaches, if it names one.
+    pub(crate) fn org_id(&self) -> Option<String> {
+        self.tenant.org_id()
+    }
+
     /// Whether the store's handle names an organization.
     pub(crate) fn has_org(&self) -> bool {
         matches!(self.tenant, Tenant::Org(_))
@@ -496,6 +501,23 @@ impl Row {
             Self::Postgres(row) => row.try_get(index)?,
         };
         Ok(value.unwrap_or_default())
+    }
+
+    /// Reads a text column that may be `NULL`, as `None`: for where no value and an
+    /// empty one are told apart.
+    pub(crate) fn opt_text(&self, index: usize) -> Result<Option<String>, StoreError> {
+        Ok(match self {
+            Self::Sqlite(row) => row.try_get(index)?,
+            Self::Postgres(row) => row.try_get(index)?,
+        })
+    }
+
+    /// Reads a 64-bit integer column that may be `NULL`, as `None`.
+    pub(crate) fn opt_int(&self, index: usize) -> Result<Option<i64>, StoreError> {
+        Ok(match self {
+            Self::Sqlite(row) => row.try_get(index)?,
+            Self::Postgres(row) => row.try_get(index)?,
+        })
     }
 
     /// Reads an identifier column: `uuid` on PostgreSQL, text on SQLite. `NULL` reads

@@ -15,7 +15,7 @@ use fvoci_store::{Identity, LinkRefusal, LinkingSession, StoredProvider, Unlinke
 
 use super::App;
 use super::auth::WrongPassword;
-use super::oidc::{Callback, LoginFailure, StartedLogin};
+use super::oidc::{Callback, LoginFailure, Start, StartedLogin};
 use crate::auth::now_millis;
 use crate::auth::oidc::provider::IdClaims;
 use crate::auth::secret::token_digest;
@@ -72,8 +72,14 @@ impl App {
         };
         self.confirmed_account(session, password, wrong, address)
             .await?;
-        self.start_oidc_flow(org_id, address, Some(&session.id))
-            .await
+        self.start_oidc_flow(
+            org_id,
+            address,
+            Start::Link {
+                session_id: &session.id,
+            },
+        )
+        .await
     }
 
     /// Ends a sign-in that was started to link, on the handle of its organization:
@@ -150,8 +156,21 @@ impl App {
     /// # Errors
     ///
     /// Returns the store's error.
-    pub async fn identities(&self, user_id: &str) -> Result<Vec<LinkedIdentity>, AppError> {
-        Ok(self.store().identities_of_user(user_id).await?)
+    pub async fn identities(&self, session: &Session) -> Result<Vec<LinkedIdentity>, AppError> {
+        let tied = self.store().identities_of_user(&session.user_id).await?;
+        Ok(tied
+            .into_iter()
+            .map(|tied| LinkedIdentity {
+                made_this_session: session
+                    .login
+                    .as_ref()
+                    .is_some_and(|login| login.is_of_identity(&tied.issuer, &tied.subject)),
+                issuer: tied.issuer,
+                subject: tied.subject,
+                email: tied.email,
+                create_at: tied.create_at,
+            })
+            .collect())
     }
 
     /// Removes an identity from the account of the session, whose holder shows to know
@@ -201,6 +220,10 @@ impl App {
             .await?
         {
             Unlinked::Removed => {
+                // The store ended the sessions made for that identity: what they had
+                // open, their seats in the rooms among it, ends with them.
+                self.ws()
+                    .close_sessions_of_identity(&user.id, &request.issuer, &request.subject);
                 tracing::info!(user_id = %user.id, issuer = %request.issuer, "an account removed an identity from itself");
                 Ok(())
             }

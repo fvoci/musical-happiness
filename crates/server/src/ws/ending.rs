@@ -362,7 +362,7 @@ impl Hub {
     /// identifier, and stay.
     pub fn end_subscriptions_made_otherwise(&self, provider_id: &str) {
         self.end_workspaces_where(Ended::Sso, Revocations::everyone, |listener, _| {
-            listener.login_provider.as_deref() != Some(provider_id)
+            listener.login_provider() != Some(provider_id)
         });
     }
 }
@@ -376,6 +376,5 @@ pub(super) fn shuts_out(
     workspace_ids: &[String],
     provider_id: &str,
 ) -> bool {
-    workspace_ids.iter().any(|id| id == workspace)
-        && listener.login_provider.as_deref() != Some(provider_id)
+    workspace_ids.iter().any(|id| id == workspace) && listener.login_provider() != Some(provider_id)
 }

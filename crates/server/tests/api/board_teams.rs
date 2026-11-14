@@ -198,7 +198,7 @@ async fn a_manager_cannot_gain_reading_through_a_team_without_a_record() {
         1,
         "an idempotent assignment records the new access once"
     );
-    assert_eq!(added[0].actor_id, manager);
+    assert_eq!(added[0].actor.person_id(), Some(manager.as_str()));
     assert_eq!(added[0].subject_id, colleague);
     let team = group(&th, &manager, "Managers").await;
     th.client

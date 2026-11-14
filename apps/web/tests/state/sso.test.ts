@@ -190,6 +190,7 @@ describe('connecting a single sign-on to the account', () => {
       subject: 'there',
       email: 'ada@example.com',
       createAt: 5,
+      madeThisSession: false,
     };
     const read = serve([identity]);
     const backend = new ServerBackend('');

@@ -16,6 +16,15 @@ export const AUDIT_ACTIONS = [
   'workspace_restored',
   'public_links_disabled',
   'public_links_enabled',
+  'oidc_provider_configured',
+  'oidc_provider_removed',
+  'sso_required',
+  'sso_released',
+  'oidc_provider_pending_saved',
+  'oidc_provider_pending_applied',
+  'oidc_provider_pending_discarded',
+  'password_reset_link_made',
+  'password_set_by_operator',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
@@ -27,11 +36,14 @@ export interface AuditPerson {
   displayName: string;
 }
 
+/** Who did it: a person by their account, or the server's operator, who has none. */
+export type AuditActor = (AuditPerson & { kind: 'person' }) | { kind: 'server_operator' };
+
 /** One record: who did what, to what and whom, and when. */
 export interface AuditRecord {
   id: string;
   action: AuditAction;
-  actor: AuditPerson;
+  actor: AuditActor;
   subject: AuditPerson | null;
   targetId: string;
   /** The board's title where the reader sees the board, the workspace's name; null otherwise. */

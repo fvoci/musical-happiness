@@ -273,7 +273,7 @@
   /** The organization the address names; the screen's state is made anew only when it changes. */
   const orgId = $derived(router.route.orgId);
   const orgAdmin = $derived(
-    organizations && orgId ? new OrgAdmin(organizations, orgId) : undefined,
+    organizations && orgId ? new OrgAdmin(organizations, orgId, workspace) : undefined,
   );
   $effect(() => {
     // Once the reader is signed in: before that the organization is not there for them.
@@ -404,13 +404,13 @@
     {@const closedOrgId = orgAdmin.orgId}
     <OrgPage
       admin={orgAdmin}
+      onSsoSignIn={() => toProvider(closedOrgId)}
       locale={workspace.locale}
       meId={workspace.me?.id}
       homeHref={router.href({})}
       workspaceHref={(workspaceId: string) => router.href({ workspaceId })}
     >
       {#snippet closed()}
-        <!-- The settings are the shell's: connecting single sign-on is done from the app's own page. -->
         <SsoRequired
           name=""
           others={openWorkspaces}

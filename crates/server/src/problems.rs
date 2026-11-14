@@ -230,6 +230,7 @@ fn describe_reason(reason: Reason) -> &'static str {
         | Reason::OidcJoinClosed
         | Reason::OidcIdentityTaken
         | Reason::OidcEmailMismatch
+        | Reason::OidcTrialAccount
         | Reason::PasswordNotSet
         | Reason::LastSignIn
         | Reason::SsoRequired
@@ -547,6 +548,15 @@ fn describe_linking_and_enforcing(reason: Reason) -> Option<&'static str> {
              link (`startOidcLogin` with `linkPassword`): who the provider vouches for is \
              another account's already. Nothing is linked, and the two accounts are not \
              joined."
+        }
+        Reason::OidcTrialAccount => {
+            "On the organization's page, after a trial of its provider's pending settings \
+             (`startOidcTrial`): the identity the provider vouched for is not one tied \
+             to the account of the administrator who started it (another account's, or \
+             tied to none, as at another issuer), or that administrator administers the \
+             organization no more. Nothing is changed, no account is made and no \
+             identity is tied: settings no administrator signs in through are not put in \
+             use."
         }
         Reason::OidcEmailMismatch => {
             "On the login page, after a sign-in through a provider that was started to \

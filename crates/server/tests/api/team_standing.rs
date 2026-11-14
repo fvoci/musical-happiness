@@ -104,7 +104,7 @@ async fn a_revoked_team_role_invalidates_direct_grants_and_invitation_acceptance
         "a fresh request records management-only access"
     );
     assert!(records.iter().any(|r| r.target_id == board.id
-        && r.actor_id == manager
+        && r.actor.person_id() == Some(manager.as_str())
         && r.action == AuditAction::SelfAddedToBoard));
     th.teardown().await;
 }
@@ -344,7 +344,7 @@ async fn independently_added(
         .expect("read the independent grant audit");
     assert!(
         records.iter().any(|r| r.target_id == board.id
-            && r.actor_id == other
+            && r.actor.person_id() == Some(other)
             && r.subject_id == manager
             && r.action == AuditAction::AddedToBoard),
         "the other administrator is recorded granting access"

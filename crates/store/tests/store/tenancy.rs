@@ -596,8 +596,8 @@ async fn a_body_edited_together(store: &Store, board_id: &str, user_id: &str) {
         .expect("an update is logged");
 }
 
-/// The organization's provider of sign-ins (one, whoever sets it) and a sign-in through
-/// it that has not come back.
+/// The organization's provider of sign-ins (one, whoever sets it), its pending settings,
+/// and a sign-in through it that has not come back.
 async fn sign_in_under_way(store: &Store, name: &str) {
     let provider = store
         .put_oidc_provider(&fvoci_store::StoredProvider {
@@ -610,10 +610,25 @@ async fn sign_in_under_way(store: &Store, name: &str) {
             enabled: true,
             create_at: 0,
             update_at: 0,
-            sso_required: false,
+            sso_required: true,
+            revision: 0,
         })
         .await
         .expect("a provider is stored");
+    store
+        .put_oidc_pending_provider(
+            &fvoci_store::PendingSettings {
+                issuer: "https://idp.example.com".to_owned(),
+                client_id: format!("fvoci of {name}"),
+                sealed_client_secret: String::new(),
+            },
+            &provider,
+            &provider,
+            &fvoci_model::new_id(),
+        )
+        .await
+        .expect("asked")
+        .expect("pending settings are stored");
     store
         .create_oidc_login_flow(&fvoci_store::LoginFlow {
             state_hash: format!("state of {name}"),
@@ -624,7 +639,7 @@ async fn sign_in_under_way(store: &Store, name: &str) {
             provider_id: provider.id,
             create_at: 0,
             expires_at: i64::MAX,
-            link_session_id: None,
+            purpose: fvoci_store::FlowPurpose::SignIn,
         })
         .await
         .expect("a sign-in is stored");
@@ -659,8 +674,9 @@ async fn what_two_organizations_store_stays_apart_in_every_table() {
         let count = async |store: &Store| store.count_rows(table).await.expect("counted");
         let (our_rows, their_rows) = (count(ours).await, count(&theirs).await);
         assert!(our_rows > 0, "{table}: the test stores a row of ours");
-        // An organization, and its provider of sign-ins, are one of each.
-        if ["organizations", "oidc_providers"].contains(&table.as_str()) {
+        // An organization, its provider of sign-ins and its pending settings are one
+        // of each.
+        if ["organizations", "oidc_providers", "oidc_pending_providers"].contains(&table.as_str()) {
             assert_eq!((our_rows, their_rows), (1, 1), "each reaches its own alone");
         } else {
             assert!(
@@ -896,17 +912,20 @@ fn rust_sources(directory: &Path, found: &mut Vec<std::path::PathBuf>) {
 }
 
 /// The files that may ask for the system's reach, by which a handle reaches the rows of
-/// every organization: the store itself, the directory, the changes of the data after
-/// a migration, and the one function of the server that its housekeeping works
-/// through; and the revisions of the cached checks, which name it to tell what its
-/// writes move. Anywhere else, a request would be let past the wall it is there to be
-/// held by. (The system organization, which holds the built-in templates, is an
+/// every organization: the store itself, the directory, the records of the server's
+/// operator in each organization of a person, the changes of the data after a
+/// migration, and the one function of the server that its housekeeping works through;
+/// and the revisions of the cached checks, which name it to tell what its writes move.
+/// Asked by the handle or by the setting of a transaction alike. Anywhere else, a
+/// request would be let past the wall it is there to be held by. (The system
+/// organization, which holds the built-in templates, is an
 /// organization like another to the wall: `Tenant::org(SYSTEM_ORG_ID)` is not this.)
 #[test]
 fn the_systems_reach_is_asked_for_in_few_places() {
-    const ALLOWED: [&str; 5] = [
+    const ALLOWED: [&str; 6] = [
         "store/src/lib.rs",
         "store/src/directory.rs",
+        "store/src/operator_records.rs",
         "store/src/data_steps.rs",
         "store/src/visibility.rs",
         "server/src/app/housekeeping.rs",
@@ -927,8 +946,11 @@ fn the_systems_reach_is_asked_for_in_few_places() {
             .to_string_lossy()
             .replace('\\', "/");
         let text = std::fs::read_to_string(&file).expect("a source file");
+        // A file's unit tests, in its `mod tests` at the end, are compiled into no
+        // server; an item that is `#[cfg(test)]` alone among the rest is still read.
         let asks = text
             .lines()
+            .take_while(|line| !line.trim_start().starts_with("mod tests"))
             .filter(|line| !line.trim_start().starts_with("//"))
             .any(|line| {
                 // By the variant, also where it is imported by its bare name, and by
@@ -937,6 +959,7 @@ fn the_systems_reach_is_asked_for_in_few_places() {
                     || (line.contains("Tenant::{") && line.contains("System"))
                     || line.contains(".system()")
                     || line.contains("::system(")
+                    || line.contains("fvoci.system")
             });
         // The test support is compiled into no server.
         if asks && name != "store/src/testing.rs" {
@@ -1925,4 +1948,48 @@ async fn a_team_on_board(store: &Store, board: &Board, user_id: &str) {
         "INSERT INTO board_teams (board_id, team_id, workspace_id, role) VALUES ('{}', '{group}', '{}', 'editor')",
         board.id, board.workspace_id
     )).await.expect("the team has a board role");
+}
+
+/// Whether an organization is the instance's own is asked in the transaction of what
+/// depends on it, past the wall on PostgreSQL for that one statement: the oldest
+/// organization is, a later one is not, and afterwards the transaction reaches its own
+/// organization alone again.
+#[tokio::test]
+async fn the_instances_organization_is_asked_behind_a_wall_closed_again() {
+    let test = common::setup().await;
+    let own = test
+        .instances_organization_and_reach()
+        .await
+        .expect("asked");
+    // The system's organization, also on SQLite, which holds one organization besides.
+    let systems = test
+        .for_org(SYSTEM_ORG_ID)
+        .expect("organization")
+        .instances_organization_and_reach()
+        .await
+        .expect("asked");
+    let later = if common::db_type() == DbType::Postgres {
+        let (org, _) = common::organization(&test.system(), "Later").await;
+        let later = test.for_org(&org).expect("organization");
+        Some(
+            later
+                .instances_organization_and_reach()
+                .await
+                .expect("asked"),
+        )
+    } else {
+        None
+    };
+    test.teardown().await;
+
+    assert!(own.0, "the oldest organization is the instance's");
+    assert!(!systems.0, "the system's organization is not");
+    if let Some(later) = later {
+        assert_eq!(
+            later,
+            (false, 1),
+            "a later one is not, and sees itself alone"
+        );
+        assert_eq!(own.1, 1, "nor does the instance's see the others");
+    }
 }

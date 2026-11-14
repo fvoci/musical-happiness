@@ -325,9 +325,9 @@ async fn the_first_sign_in_makes_an_account_and_the_next_finds_it() {
         .await
         .expect("the session is stored");
     let provider_id = session
-        .login_provider_id
-        .clone()
-        .expect("the session names its provider");
+        .login_provider_id()
+        .expect("the session names its provider")
+        .to_owned();
     assert!(fvoci_model::is_id(&provider_id), "{provider_id}");
     assert!(provider.enabled && provider.auto_join, "{provider:?}");
 
@@ -345,7 +345,7 @@ async fn the_first_sign_in_makes_an_account_and_the_next_finds_it() {
         .get_session(&token_digest(&password_session.token), 0, 0)
         .await
         .expect("the session is stored");
-    assert_eq!(session.login_provider_id, None);
+    assert_eq!(session.login, None);
     ts.teardown().await;
     fake.stop();
 }
@@ -758,6 +758,7 @@ async fn a_provider_is_reached_only_where_it_may_be() {
             create_at: 0,
             update_at: 0,
             sso_required: false,
+            revision: 0,
         })
         .await
         .expect("stored");
@@ -884,6 +885,7 @@ async fn a_sign_in_lets_into_the_organization_it_was_started_for() {
             create_at: 0,
             update_at: 0,
             sso_required: false,
+            revision: 0,
         })
         .await
         .expect("their provider");
@@ -908,7 +910,7 @@ async fn a_sign_in_lets_into_the_organization_it_was_started_for() {
         .await
         .expect("stored");
     assert_eq!(
-        session.login_provider_id.as_deref(),
+        session.login_provider_id(),
         Some(their_provider.id.as_str())
     );
 
@@ -986,6 +988,7 @@ async fn the_same_address_from_two_providers_is_two_accounts() {
             create_at: 0,
             update_at: 0,
             sso_required: false,
+            revision: 0,
         })
         .await
         .expect("their provider");

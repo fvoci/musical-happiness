@@ -78,21 +78,24 @@ async fn require_unix_connection(request: Request, next: Next) -> Response {
     }
 }
 
+/// Sets a user's password and ends their sessions; recorded as the operator's in each
+/// organization the user is a member of, and as every command is in the log.
 async fn handle_admin_set_password(
     State(app): State<App>,
     Path(username): Path<String>,
     body: Bytes,
 ) -> ApiResult {
-    // A body of `null` decodes to nothing in the original and so to an empty password.
-    let data: Option<AdminSetPasswordData> = decode_json(&body)?;
-    let password = data.and_then(|data| data.password).unwrap_or_default();
-
-    // The rules for a password are the same whoever sets it.
-    fvoci_model::check_new_password(&password)?;
-
-    app.reset_user_password(&username, &password).await?;
-    tracing::debug!(username, "AdminSetPassword");
-    Ok(no_content())
+    let user_id = app.operator_user_id(&username).await;
+    let result = async {
+        // A body of `null` decodes to nothing, as in the original.
+        let data: Option<AdminSetPasswordData> = decode_json(&body)?;
+        let password = data.and_then(|data| data.password).unwrap_or_default();
+        fvoci_model::check_new_password(&password)?;
+        app.reset_user_password(&username, &password).await?;
+        Ok(no_content())
+    }
+    .await;
+    record_operator(Command::ResetPassword(user_id.as_deref()), result)
 }
 
 /// Makes a user an administrator of the instance: the way back in when no
@@ -101,9 +104,11 @@ async fn handle_admin_make_admin(
     State(app): State<App>,
     Path(username): Path<String>,
 ) -> ApiResult {
-    let user = app.make_admin_by_username(&username).await?;
-    tracing::info!(user_id = %user.id, "made an administrator through the administration socket");
-    Ok(no_content())
+    let (user_id, result) = match app.make_admin_by_username(&username).await {
+        Ok(user) => (Some(user.id), Ok(no_content())),
+        Err(error) => (app.operator_user_id(&username).await, Err(error)),
+    };
+    record_operator(Command::MakeAdmin(user_id.as_deref()), result)
 }
 
 /// Releases an organization from taking no password (`ssoRequired` of its provider):
@@ -112,8 +117,12 @@ async fn handle_admin_make_admin(
 /// otherwise, and the release is recorded. 204 also for an organization that takes a
 /// password already; 404 for an identifier that names no organization in use.
 async fn handle_release_sso(State(app): State<App>, Path(org_id): Path<String>) -> ApiResult {
-    app.release_sso_as_operator(&org_id).await?;
-    Ok(no_content())
+    let result = app
+        .release_sso_as_operator(&org_id)
+        .await
+        .map(|()| no_content());
+    let org_id = fvoci_model::is_id(&org_id).then_some(org_id.as_str());
+    record_operator(Command::ReleaseSso(org_id), result)
 }
 
 /// The body of a request to compare the file storage with the records; none for a
@@ -138,21 +147,84 @@ struct ReconcileFilesData {
 /// to be this database's alone: another server's objects there are named by nothing
 /// here.
 async fn handle_reconcile_files(State(app): State<App>, body: Bytes) -> ApiResult {
-    let data: Option<ReconcileFilesData> = if body.is_empty() {
-        None
-    } else {
-        decode_json(&body)?
+    let result = async {
+        let data: Option<ReconcileFilesData> = if body.is_empty() {
+            None
+        } else {
+            decode_json(&body)?
+        };
+        let unrecorded = if data.is_some_and(|data| data.remove_unrecorded) {
+            Unrecorded::Doom
+        } else {
+            Unrecorded::Report
+        };
+        let report = app
+            .housekeeping()
+            .reconcile_files(unrecorded, now_millis())
+            .await?;
+        Ok(json_response(&report))
+    }
+    .await;
+    record_operator(Command::ReconcileFiles, result)
+}
+
+/// A command of the operator, with what it was about, as its line in the log names
+/// them.
+#[derive(Debug, Clone, Copy)]
+enum Command<'a> {
+    /// Setting a user's password: the user, by identifier where the name was one's.
+    ResetPassword(Option<&'a str>),
+    /// Making a user an administrator of the instance: the user, as above.
+    MakeAdmin(Option<&'a str>),
+    /// Releasing an organization from taking no password: the organization, by
+    /// identifier where the path held one.
+    ReleaseSso(Option<&'a str>),
+    /// Comparing the file storage with the records: the whole server.
+    ReconcileFiles,
+}
+
+impl<'a> Command<'a> {
+    /// The command's name in the log.
+    const fn name(self) -> &'static str {
+        match self {
+            Self::ResetPassword(_) => "reset_password",
+            Self::MakeAdmin(_) => "make_admin",
+            Self::ReleaseSso(_) => "release_sso",
+            Self::ReconcileFiles => "reconcile_files",
+        }
+    }
+
+    /// The user it was about, and the organization; each empty for none.
+    fn target(self) -> (&'a str, &'a str) {
+        match self {
+            Self::ResetPassword(user_id) | Self::MakeAdmin(user_id) => {
+                (user_id.unwrap_or_default(), "")
+            }
+            Self::ReleaseSso(org_id) => ("", org_id.unwrap_or_default()),
+            Self::ReconcileFiles => ("", ""),
+        }
+    }
+}
+
+/// Writes one line of the log for each command the socket carried out, failures of
+/// validation and hashing included: the command, its target, and its outcome. Never
+/// what was sent with it. The changes an organization holds are in its records too.
+fn record_operator(command: Command<'_>, result: ApiResult) -> ApiResult {
+    let status = match &result {
+        Ok(response) => response.status().as_u16(),
+        Err(error) => error.status(),
     };
-    let unrecorded = if data.is_some_and(|data| data.remove_unrecorded) {
-        Unrecorded::Doom
-    } else {
-        Unrecorded::Report
-    };
-    let report = app
-        .housekeeping()
-        .reconcile_files(unrecorded, now_millis())
-        .await?;
-    Ok(json_response(&report))
+    let (user_id, org_id) = command.target();
+    tracing::info!(
+        target: "audit",
+        actor = "operator",
+        command = command.name(),
+        user_id,
+        org_id,
+        result = if result.is_ok() { "succeeded" } else { "failed" },
+        status,
+    );
+    result
 }
 
 #[cfg(test)]

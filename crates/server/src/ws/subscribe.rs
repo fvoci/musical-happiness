@@ -10,6 +10,8 @@
 //! Blocks followed by a read token stay followed: whom the wall shuts out is told them
 //! as a reader by the link alone is (`delivery.rs`).
 
+use fvoci_model::LoginOrigin;
+
 use super::{Identity, Listener};
 use crate::app::Asker;
 use crate::permissions::session_opens;
@@ -20,7 +22,7 @@ use crate::permissions::session_opens;
 pub(super) struct Who {
     pub(super) user_id: String,
     pub(super) session_id: String,
-    pub(super) login_provider: Option<String>,
+    pub(super) login: Option<LoginOrigin>,
     pub(super) token: Option<String>,
 }
 
@@ -29,7 +31,7 @@ impl Who {
     pub(super) fn asker(&self) -> Asker<'_> {
         Asker {
             user_id: &self.user_id,
-            made_through: self.login_provider.as_deref(),
+            made_through: self.login.as_ref().map(|login| login.provider_id.as_str()),
         }
     }
 
@@ -38,7 +40,7 @@ impl Who {
         identity.map_or_else(Self::default, |identity| Self {
             user_id: identity.session.user_id,
             session_id: identity.session.id,
-            login_provider: identity.session.login_provider_id,
+            login: identity.session.login,
             token: Some(identity.token),
         })
     }
@@ -48,6 +50,6 @@ impl Listener {
     /// Whether the connection's session opens an organization that takes only
     /// sessions made through `required`, if any.
     pub(super) fn session_opens(&self, required: Option<&str>) -> bool {
-        session_opens(required, self.login_provider.as_deref())
+        session_opens(required, self.login_provider())
     }
 }

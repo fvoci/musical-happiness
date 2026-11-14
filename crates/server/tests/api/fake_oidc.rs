@@ -37,6 +37,9 @@ use tokio_rustls::server::TlsStream;
 pub(crate) const CLIENT_ID: &str = "fvoci-test-client";
 /// Its secret.
 pub(crate) const CLIENT_SECRET: &str = "fvoci test secret: not one to keep";
+/// Its other secret, taken as well, as a provider that rotates its client's secrets
+/// takes the next one beside the one before.
+pub(crate) const NEXT_CLIENT_SECRET: &str = "fvoci test secret: the next one";
 
 /// The person the provider signs in.
 #[derive(Debug, Clone)]
@@ -433,7 +436,10 @@ async fn token(State(shared): State<Arc<Shared>>, headers: HeaderMap, body: Stri
         .expect("the state is never held across a panic");
     state.token_requests += 1;
     let get = |name: &str| query_value(&body, name).unwrap_or_default();
-    if basic_credentials(&headers) != Some((CLIENT_ID.to_owned(), CLIENT_SECRET.to_owned())) {
+    let taken = basic_credentials(&headers).is_some_and(|(id, secret)| {
+        id == CLIENT_ID && [CLIENT_SECRET, NEXT_CLIENT_SECRET].contains(&secret.as_str())
+    });
+    if !taken {
         return (
             StatusCode::UNAUTHORIZED,
             Json(json!({ "error": "invalid_client" })),

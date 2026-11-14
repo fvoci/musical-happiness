@@ -207,6 +207,26 @@ pub(crate) mod socket {
         );
         assert!(th.client.me().await.is_admin, "and user1 still is");
 
+        let org_id = crate::oidc::org_of(&th).await;
+        let records: Vec<fvoci_model::AuditRecord> = th
+            .client
+            .get(&format!("/org/{org_id}/audit"))
+            .await
+            .ok_json();
+        let promoted: Vec<_> = records
+            .iter()
+            .filter(|record| record.action == fvoci_model::AuditAction::OrgAdminGranted)
+            .collect();
+        assert_eq!(promoted.len(), 1);
+        assert_eq!(
+            promoted[0].actor,
+            fvoci_model::AuditRecordActor::ServerOperator
+        );
+        assert_eq!(
+            promoted[0].subject.as_ref().expect("subject").id,
+            th.client2.me().await.id
+        );
+
         let response =
             socket_request(&socket, "POST", "/api/v1/admin/users/nobody/admin", "").await;
         assert_eq!(response.status, 404, "{}", response.body);

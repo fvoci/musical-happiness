@@ -12,11 +12,11 @@ use fvoci_model::{
     WorkspaceRole,
 };
 
-use crate::audit::{self, AuditEntry};
+use crate::audit::{self, AuditActor, AuditEntry};
 use crate::db::{Dialect, Id, OptId, Row, Scope, now_millis};
 use crate::error::{StoreError, Taken};
 use crate::trash::{self, Purged, Trashed};
-use crate::{Paging, Store, joinings, users, workspaces};
+use crate::{Paging, Store, directory, joinings, users, workspaces};
 
 /// What became of a change of a member's role in the organization.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -160,11 +160,11 @@ impl Store {
         role: OrgRole,
         actor_id: &str,
     ) -> Result<OrgRoleChange, StoreError> {
-        let the_instances = self.is_the_instances_organization().await?;
         self.transaction(async |scope| {
             // The instance's row first, as a change of who administers the instance
             // takes it: the two are one role for now (`members::follow_instance_role`).
             users::lock_instance(scope).await?;
+            let the_instances = directory::is_the_instances_organization(scope).await?;
             let org = held_by_admin(scope, actor_id).await?;
             let Some(current) = org_role_of(scope, user_id).await? else {
                 return Ok(OrgRoleChange::NotAMember);
@@ -183,7 +183,8 @@ impl Store {
             if the_instances && !users::follow_org_role(scope, user_id, role).await? {
                 return Ok(OrgRoleChange::LastAdmin);
             }
-            change_org_role(scope, &org.id, user_id, role, actor_id).await?;
+            let actor = AuditActor::Person(actor_id.to_owned());
+            change_org_role(scope, &org.id, user_id, role, &actor).await?;
             Ok(OrgRoleChange::Done)
         })
         .await
@@ -546,7 +547,7 @@ pub(crate) async fn change_org_role(
     org_id: &str,
     user_id: &str,
     role: OrgRole,
-    actor_id: &str,
+    actor: &AuditActor,
 ) -> Result<(), StoreError> {
     let mut sql = scope.sql("UPDATE organization_members SET role = ");
     sql.bind(role.as_str())
@@ -557,10 +558,10 @@ pub(crate) async fn change_org_role(
         OrgRole::Admin => AuditAction::OrgAdminGranted,
         OrgRole::Member => AuditAction::OrgAdminRemoved,
     };
-    let entry = AuditEntry::new("", actor_id, action, org_id).with_subject(user_id);
+    let entry = AuditEntry::by(actor, "", action, org_id).with_subject(user_id);
     audit::record_entry(scope, &entry).await?;
     if role != OrgRole::Admin {
-        revoke_joinings(scope, user_id, actor_id).await?;
+        revoke_joinings(scope, user_id, actor).await?;
     }
     Ok(())
 }
@@ -701,7 +702,7 @@ pub(crate) async fn membership(
 pub(crate) async fn revoke_joinings(
     scope: &mut Scope<'_>,
     user_id: &str,
-    actor_id: &str,
+    actor: &AuditActor,
 ) -> Result<(), StoreError> {
     let mut sql = scope.sql(
         "SELECT wm.workspace_id, wm.prior_role, wm.prior_board_roles \
@@ -725,9 +726,9 @@ pub(crate) async fn revoke_joinings(
             held: row.text(2)?,
         };
         end_joining(scope, &workspace_id, user_id, joined).await?;
-        let entry = AuditEntry::new(
+        let entry = AuditEntry::by(
+            actor,
             &workspace_id,
-            actor_id,
             AuditAction::OrgAdminRevoked,
             &workspace_id,
         )

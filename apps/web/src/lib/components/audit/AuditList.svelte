@@ -25,7 +25,8 @@
   }
 
   function said(record: AuditRecord): string {
-    const actor = named(record.actor);
+    const actor =
+      record.actor.kind === 'server_operator' ? m.audit_server_operator() : named(record.actor);
     const subject = named(record.subject);
     const board = record.targetName ?? m.audit_a_board();
     const workspace = record.targetName ?? '';
@@ -54,8 +55,26 @@
         return m.audit_workspace_restored({ actor, workspace });
       case 'public_links_disabled':
         return m.audit_public_links_disabled({ actor });
+      case 'oidc_provider_configured':
+        return m.audit_oidc_configured({ actor });
+      case 'oidc_provider_removed':
+        return m.audit_oidc_removed({ actor });
+      case 'sso_required':
+        return m.audit_sso_required({ actor });
+      case 'sso_released':
+        return m.audit_sso_released({ actor });
       case 'public_links_enabled':
         return m.audit_public_links_enabled({ actor });
+      case 'oidc_provider_pending_saved':
+        return m.audit_oidc_pending_saved({ actor });
+      case 'oidc_provider_pending_applied':
+        return m.audit_oidc_pending_applied({ actor });
+      case 'oidc_provider_pending_discarded':
+        return m.audit_oidc_pending_discarded({ actor });
+      case 'password_reset_link_made':
+        return m.audit_password_reset_link_made({ actor, subject });
+      case 'password_set_by_operator':
+        return m.audit_password_set_by_operator({ actor, subject });
     }
   }
 

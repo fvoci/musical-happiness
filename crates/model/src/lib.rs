@@ -93,12 +93,13 @@ pub use invitation::{
 pub use name::{Named, required_name};
 pub use oidc::{
     LinkedIdentity, LoginOptions, LoginOrganization, OIDC_CLIENT_FIELD_MAX_BYTES,
-    OIDC_ISSUER_MAX_BYTES, OidcProvider, OidcProviderSettings, OidcStart, OidcStartRequest,
-    UnlinkRequest,
+    OIDC_ISSUER_MAX_BYTES, OidcPendingProvider, OidcProvider, OidcProviderSettings, OidcStart,
+    OidcStartRequest, UnlinkRequest,
 };
 pub use org_admin::{
-    AuditAction, AuditPerson, AuditRecord, MAX_NAME_CHARS, OrgMember, OrgRoleChange, OrgWorkspace,
-    Organization, OrganizationPatch, UnknownAuditAction, WorkspaceName,
+    AuditAction, AuditPerson, AuditRecord, AuditRecordActor, MAX_NAME_CHARS, OrgMember,
+    OrgRoleChange, OrgWorkspace, Organization, OrganizationPatch, UnknownAuditAction,
+    WorkspaceName,
 };
 pub use organization::{
     OrgRole, UnknownRole, UserWorkspace, WorkspaceMember, WorkspaceRole, WorkspaceRoleChange,
@@ -119,7 +120,7 @@ pub use sharing::Sharing;
 pub use subscription::{Subscriber, SubscriberType, Subscription, SubscriptionError};
 pub use team::{Team, TeamMember, TeamName, team_name, team_name_key};
 pub use upload::{MAX_UPLOAD_PARTS, Upload, UploadPart, UploadPurpose};
-pub use user::{Session, User, UserPreferencesPatch};
+pub use user::{LoginOrigin, Session, User, UserPreferencesPatch};
 pub use workspace::{GuestInvitationsChange, Workspace};
 
 /// A JSON object with free-form keys, as used for block fields and board properties.

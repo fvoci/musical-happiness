@@ -229,7 +229,13 @@ async fn change_member(
 /// organization's administrator whose joining was taken back) gives none, and the board
 /// is not there for them.
 async fn manager_still(scope: &mut Scope<'_>, entry: &AuditEntry) -> Result<(), StoreError> {
-    if org_admin::still_workspace_admin(scope, &entry.workspace_id, &entry.actor_id).await? {
+    if org_admin::still_workspace_admin(
+        scope,
+        &entry.workspace_id,
+        entry.actor.person_id().unwrap_or_default(),
+    )
+    .await?
+    {
         Ok(())
     } else {
         Err(StoreError::not_found("board"))

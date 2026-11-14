@@ -1,34 +1,41 @@
 //! The routes of an organization, under `/org/{orgId}`, for its administrators: the
-//! organization's provider of sign-ins.
+//! organization's provider of sign-ins, and its pending settings.
 //!
 //! A route here takes [`OrgAdmin`]: the session's user as an administrator of the
 //! organization, with the application reaching the rows of that organization. For
 //! anybody else the organization is not there (404), whether it exists or not.
 
 use axum::body::Bytes;
+use axum::extract::Extension;
 use axum::extract::rejection::RawPathParamsRejection;
 use axum::extract::{FromRequestParts, RawPathParams};
 use axum::http::request::Parts;
-use fvoci_model::{OidcProvider, OidcProviderSettings, Session};
+use fvoci_model::{OidcProvider, OidcProviderSettings, OidcStart, Problem, Session};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
+use super::auth::address_of;
 use super::contract::params::OrgId;
 use super::contract::tag;
+use super::oidc::started_response;
 use super::session::session_of;
 use super::{ApiResult, decode_object, json_response, no_content};
 use crate::app::App;
+use crate::client_address::ClientAddress;
 use crate::error::AppError;
 
 /// The path parameter that names the organization of a route.
 const ORG_ID: &str = "orgId";
 
 pub(super) fn routes() -> OpenApiRouter<App> {
-    OpenApiRouter::new().routes(routes!(
-        handle_get_oidc_provider,
-        handle_put_oidc_provider,
-        handle_delete_oidc_provider
-    ))
+    OpenApiRouter::new()
+        .routes(routes!(
+            handle_get_oidc_provider,
+            handle_put_oidc_provider,
+            handle_delete_oidc_provider
+        ))
+        .routes(routes!(handle_delete_oidc_pending))
+        .routes(routes!(handle_start_oidc_trial))
 }
 
 /// The organization a request names in its path, for an administrator of it.
@@ -86,7 +93,9 @@ fn org_not_found() -> AppError {
 ///
 /// The `OpenID Connect` provider people of the organization sign in through, without
 /// its client secret: `hasClientSecret` says whether there is one. 404 if the
-/// organization has none.
+/// organization has none. `canRequireSso` says whether the requesting session was
+/// made through this enabled provider as it is stored now; it is false after its
+/// issuer, client, secret or `enabled` changes, until somebody signs in through it again.
 #[utoipa::path(
     get,
     path = "/org/{orgId}/oidc",
@@ -98,7 +107,7 @@ fn org_not_found() -> AppError {
 async fn handle_get_oidc_provider(org: OrgAdmin) -> ApiResult {
     let provider = org
         .app
-        .oidc_provider()
+        .oidc_provider(&org.session)
         .await?
         .ok_or_else(|| AppError::not_found("oidc provider"))?;
     Ok(json_response(&provider))
@@ -122,6 +131,16 @@ async fn handle_get_oidc_provider(org: OrgAdmin) -> ApiResult {
 /// and `enabled` left out stay as they are, also for another issuer or client, and are
 /// on when the organization has no provider.
 ///
+/// While the organization takes no password and the request keeps it so, another
+/// issuer, client or secret is not taken at once: it is saved aside as the provider's
+/// `pending` settings (in place of pending ones there are), and people go on signing
+/// in through the provider as it is. A sign-in through the pending settings
+/// (`startOidcTrial`) that ends well makes them the provider's; `deleteOidcPending`
+/// throws them away. The secret of the pending settings is never answered either. What
+/// else the request changes (`autoJoin`) is taken at once; `enabled` false is refused
+/// (`sso_enforced`). While the organization takes a password a change is taken at
+/// once, and a change of what signing in takes throws pending settings away.
+///
 /// `ssoRequired` true makes the organization take no password: from the next request
 /// on, what is the organization's (the routes under `/w/{workspaceId}` and
 /// `/org/{orgId}`, and `setUserAdmin` where the organization is the instance's own, the
@@ -129,11 +148,13 @@ async fn handle_get_oidc_provider(org: OrgAdmin) -> ApiResult {
 /// made through this provider, `getMyMemberships` leaves its boards out for one, and
 /// the websocket follows none of its workspaces for one. The sessions stay, and open
 /// what is of other organizations. It is switched on by a
-/// session that was itself made through this provider, switched on, or the request is
-/// 409 with the reason `sso_unproven`: who asks has then shown that it lets them in.
-/// While it is on, the provider is not switched off (`enabled` false), not set to
-/// another issuer or client, and not removed: 409 with the reason `sso_enforced`,
-/// unless the same request switches `ssoRequired` off. Left out it stays as it is,
+/// session that was itself made through this provider, switched on, as it is stored
+/// (`canRequireSso`), by a request that does not change its issuer, client, secret or
+/// `enabled`, or the request is 409 with the reason `sso_unproven`: who asks has then
+/// shown that it lets them in. A `clientSecret` sent as it is stored is no change.
+/// While it is on, the provider is not switched off (`enabled` false) and not removed:
+/// 409 with the reason `sso_enforced`, unless the same request switches `ssoRequired`
+/// off. Left out it stays as it is,
 /// and is off when the organization has no provider. A provider changed by another request
 /// since this one read it is 409, to be read and sent again. The answer's `redirectUri`
 /// is the address to register with the provider, exactly: the organization's own,
@@ -160,8 +181,9 @@ async fn handle_put_oidc_provider(org: OrgAdmin, body: Bytes) -> ApiResult {
 
 /// Remove the provider of an organization
 ///
-/// Removes the organization's provider and the sign-ins under way through it. The
-/// sessions made through it go on. An organization without one answers the same.
+/// Removes the organization's provider and the sign-ins under way through it, and
+/// ends the sessions made through a provider of the organization under its issuer. An
+/// organization without one answers the same.
 /// While the organization takes no password (`ssoRequired`) the provider stays: 409
 /// with the reason `sso_enforced`.
 #[utoipa::path(
@@ -173,6 +195,82 @@ async fn handle_put_oidc_provider(org: OrgAdmin, body: Bytes) -> ApiResult {
     responses((status = 204, description = "The organization has no provider.")),
 )]
 async fn handle_delete_oidc_provider(org: OrgAdmin) -> ApiResult {
-    org.app.delete_oidc_provider().await?;
+    org.app.delete_oidc_provider(&org.session.user_id).await?;
     Ok(no_content())
+}
+
+/// Throw the pending settings of an organization's provider away
+///
+/// Throws away the settings saved aside while the organization takes no password
+/// (`pending` of the provider): the provider stays as it is. An organization without
+/// any answers the same. Recorded in the organization's audit log.
+#[utoipa::path(
+    delete,
+    path = "/org/{orgId}/oidc/pending",
+    operation_id = "deleteOidcPending",
+    tag = tag::AUTH,
+    params(OrgId),
+    responses((status = 204, description = "The provider has no pending settings.")),
+)]
+async fn handle_delete_oidc_pending(org: OrgAdmin) -> ApiResult {
+    org.app.discard_oidc_pending(&org.session.user_id).await?;
+    Ok(no_content())
+}
+
+/// Try the pending settings of an organization's provider
+///
+/// Starts a sign-in through the pending settings (`pending` of the provider), as
+/// `startOidcLogin` starts one through the provider: it answers where the page sends
+/// the browser, with the cookie of the sign-in. When the browser comes back
+/// (`finishOidcLogin`) and the sign-in ends well, in the account of the administrator
+/// who started it, the pending settings become the provider's, at a new revision that the
+/// new session proves (`canRequireSso`); another issuer ends the sessions of the one
+/// before. A sign-in that fails changes nothing; one that ends in another account (the
+/// provider vouches for an identity that is not tied to this administrator's account,
+/// or they administer the organization no more) is refused with
+/// `oidc_trial_account`, and makes no account and ties no identity. So another issuer
+/// is put in use by a trial only for an administrator whose identity there is tied to
+/// their account already. Without one, the requirement is switched off before the
+/// issuer is changed, which leaves an administrator only the password of their account
+/// to sign in and link with (one made through the provider has none: the operator's
+/// socket sets one). 409 with the reason `oidc_unavailable` if there are no pending
+/// settings, the provider is off, or their issuer cannot be
+/// reached; 429 when this address made too many sign-ins of late.
+#[utoipa::path(
+    post,
+    path = "/org/{orgId}/oidc/pending/sign-in",
+    operation_id = "startOidcTrial",
+    tag = tag::AUTH,
+    params(OrgId),
+    responses(
+        (
+            status = 200,
+            description = "Started: where the browser goes.",
+            body = OidcStart,
+            headers(("Set-Cookie" = String, description = "The cookie of the sign-in.")),
+        ),
+        (
+            status = 409,
+            description = "No pending settings, or they cannot be reached.",
+            body = Problem,
+            content_type = "application/problem+json",
+        ),
+        (
+            status = 429,
+            description = "Too many sign-ins from this address. `retryAfter`, and the `Retry-After` header, say how long to wait.",
+            body = Problem,
+            content_type = "application/problem+json",
+            headers(("Retry-After" = u64, description = "How many seconds to wait before trying again.")),
+        ),
+    ),
+)]
+async fn handle_start_oidc_trial(
+    org: OrgAdmin,
+    client: Option<Extension<ClientAddress>>,
+) -> ApiResult {
+    let started = org
+        .app
+        .start_oidc_trial(&org.org_id, &org.session, address_of(client))
+        .await?;
+    Ok(started_response(&org.app, started))
 }

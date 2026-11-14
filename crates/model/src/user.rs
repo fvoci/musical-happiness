@@ -147,8 +147,84 @@ pub struct Session {
     pub expires_at: i64,
     /// The `User-Agent` the session was made by, for telling a user's sessions apart.
     pub user_agent: String,
-    /// The identifier of the `OpenID Connect` provider the session was made through;
-    /// `None` for a session made with a password. A provider that was removed since is
-    /// still named.
-    pub login_provider_id: Option<String>,
+    /// The `OpenID Connect` provider the session was made through; `None` for a session
+    /// made with a password.
+    pub login: Option<LoginOrigin>,
+}
+
+impl Session {
+    /// The identifier of the provider the session was made through, if any.
+    #[must_use]
+    pub fn login_provider_id(&self) -> Option<&str> {
+        self.login.as_ref().map(|login| login.provider_id.as_str())
+    }
+}
+
+/// Where a session made through a provider came from. Kept as it was when the session
+/// was made: removing the provider or changing its issuer ends the sessions of the
+/// organization and issuer, and unlinking an identity those made for it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LoginOrigin {
+    /// The provider row the session was made through; a replaced row gets a new one.
+    pub provider_id: String,
+    /// The organization whose provider it was.
+    pub org_id: String,
+    /// The provider's issuer at the time.
+    pub issuer: String,
+    /// The subject the provider gave: with the issuer, the identity the session was
+    /// made for. `None` for a session made before that was kept, which is taken for
+    /// one of every identity of its issuer.
+    pub subject: Option<String>,
+    /// The revision of the provider's sign-in settings it was made at: it proves that
+    /// revision only. `None` for a session made before that was kept, which proves
+    /// none.
+    pub revision: Option<i64>,
+}
+
+impl LoginOrigin {
+    /// Whether the session was made for the identity `subject` of `issuer`, or may have
+    /// been: one that knows its issuer only answers for every subject of it.
+    #[must_use]
+    pub fn is_of_identity(&self, issuer: &str, subject: &str) -> bool {
+        self.issuer == issuer
+            && self
+                .subject
+                .as_deref()
+                .is_none_or(|made_for| made_for == subject)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn made_for(subject: Option<&str>) -> LoginOrigin {
+        LoginOrigin {
+            provider_id: "provider".to_owned(),
+            org_id: "org".to_owned(),
+            issuer: "https://one.example".to_owned(),
+            subject: subject.map(str::to_owned),
+            revision: Some(1),
+        }
+    }
+
+    /// A session is of the identity it was made for, and of no other; one that knows
+    /// no subject is of every identity of its issuer, and of none of another issuer.
+    #[test]
+    fn a_session_is_of_the_identity_it_was_made_for() {
+        let cases = [
+            (Some("first"), "https://one.example", "first", true),
+            (Some("first"), "https://one.example", "second", false),
+            (None, "https://one.example", "second", true),
+            (Some("first"), "https://two.example", "first", false),
+            (None, "https://two.example", "first", false),
+        ];
+        for (subject, issuer, asked, answer) in cases {
+            assert_eq!(
+                made_for(subject).is_of_identity(issuer, asked),
+                answer,
+                "made for {subject:?}, asked of {asked} at {issuer}"
+            );
+        }
+    }
 }

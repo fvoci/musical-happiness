@@ -36,6 +36,9 @@ mod members;
 mod memberships_everywhere;
 mod observe;
 mod oidc;
+mod oidc_identities;
+mod oidc_pending;
+mod operator_records;
 mod org_admin;
 mod password_reset;
 mod schema;
@@ -77,9 +80,10 @@ pub use invitations::{Acceptance, Accepted, Acceptor, Inviter, InviterOfBoard, N
 pub use loose_objects::{LooseCounts, LooseObject, LooseState};
 pub use observe::{Access, Call, Observer, Outcome};
 pub use oidc::{
-    Identity, LinkRefusal, Linked, LinkingSession, LoginFlow, OidcAccount, OidcRefusal, Removal,
-    StoredProvider, Unlinked,
+    FlowPurpose, Identity, LoginFlow, OidcAccount, OidcRefusal, Removal, StoredProvider,
 };
+pub use oidc_identities::{LinkRefusal, Linked, LinkingSession, TiedIdentity, Unlinked};
+pub use oidc_pending::{Applied, PendingProvider, PendingSettings};
 pub use org_admin::{Joining, OrgRoleChange, WorkspaceTrashing};
 pub use password_reset::PASSWORD_RESET_LIFETIME_MILLIS;
 pub use server_lock::ServerLock;

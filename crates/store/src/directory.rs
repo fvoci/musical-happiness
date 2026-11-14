@@ -27,7 +27,7 @@ use crate::file_info;
 use crate::loose_objects::LooseState;
 use crate::oidc::{FLOW_COLUMNS, LoginFlow, flow_from_row};
 use crate::uploads::{OpenUploads, UploadUsage};
-use crate::{Store, Tenant};
+use crate::Store;
 use crate::{invitations, memberships_everywhere, users, workspaces};
 
 /// The organization that holds what the server ships with and is nobody's: the
@@ -319,17 +319,7 @@ impl Store {
     /// Returns [`StoreError::Database`] if the query fails.
     pub async fn instance_organization(&self) -> Result<Option<String>, StoreError> {
         self.system()
-            .with_conn(async |scope| {
-                let sql = scope.sql(
-                    "SELECT id FROM organizations WHERE is_system = false AND delete_at = 0 \
-                 ORDER BY create_at, id LIMIT 1",
-                );
-                scope
-                    .fetch_optional(sql)
-                    .await?
-                    .map(|row| row.id(0))
-                    .transpose()
-            })
+            .with_conn(async |scope| oldest_organization(scope).await)
             .await
     }
 
@@ -889,25 +879,6 @@ impl Store {
             .await
     }
 
-    /// Whether the handle's organization is the instance's own: the oldest one in use,
-    /// whose administrators are the instance's (`members::follow_instance_role`). Asked
-    /// with the system's reach, as the organization's wall hides the others.
-    pub(crate) async fn is_the_instances_organization(&self) -> Result<bool, StoreError> {
-        let Tenant::Org(org) = self.tenant() else {
-            return Ok(false);
-        };
-        self.system()
-            .with_conn(async |scope| {
-                let mut sql = scope.sql("SELECT id FROM organizations WHERE is_system = ");
-                sql.bind(false)
-                    .push_bind(" AND delete_at = ", 0_i64)
-                    .push(" ORDER BY create_at, id LIMIT 1");
-                let oldest = scope.fetch_optional(sql).await?.map(|row| row.id(0));
-                Ok(oldest.transpose()?.is_some_and(|id| id == org.to_string()))
-            })
-            .await
-    }
-
     /// What a login page may show of an organization: the one with the identifier, or
     /// with none the only organization in use if there is one only. `None` if there is
     /// no such organization, it is not in use, or it is the system's. Its name, and
@@ -969,4 +940,43 @@ fn role<R: std::str::FromStr<Err = fvoci_model::UnknownRole>>(
             column: "role",
             reason: error.to_string(),
         })
+}
+
+/// The instance's own organization as `scope` reaches the organizations: the oldest
+/// non-system one in use ([`Store::instance_organization`]).
+async fn oldest_organization(scope: &mut Scope<'_>) -> Result<Option<String>, StoreError> {
+    let mut sql = scope.sql("SELECT id FROM organizations WHERE is_system = ");
+    sql.bind(false)
+        .push_bind(" AND delete_at = ", 0_i64)
+        .push(" ORDER BY create_at, id LIMIT 1");
+    scope
+        .fetch_optional(sql)
+        .await?
+        .map(|row| row.id(0))
+        .transpose()
+}
+
+/// Whether the organization of `scope` is the instance's own: the oldest one in use,
+/// whose administrators are the instance's (`members::follow_instance_role`). Asked in
+/// the caller's transaction, so that the answer holds for what it does; on PostgreSQL
+/// the wall is opened for this one statement, as the organization's wall hides the
+/// others, and closed again before anything else runs in it.
+pub(crate) async fn is_the_instances_organization(
+    scope: &mut Scope<'_>,
+) -> Result<bool, StoreError> {
+    let Some(org) = scope.org_id() else {
+        return Ok(false);
+    };
+    let reach = |on: &str| format!("SELECT set_config('fvoci.system', '{on}', true)");
+    let postgres = scope.dialect() == Dialect::Postgres;
+    if postgres {
+        let sql = scope.sql(&reach("on"));
+        scope.fetch_optional(sql).await?;
+    }
+    let oldest = oldest_organization(scope).await?;
+    if postgres {
+        let sql = scope.sql(&reach("off"));
+        scope.fetch_optional(sql).await?;
+    }
+    Ok(oldest.is_some_and(|id| id == org))
 }

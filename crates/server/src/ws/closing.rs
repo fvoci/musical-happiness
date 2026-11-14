@@ -24,6 +24,34 @@ impl Hub {
         });
     }
 
+    /// Closes the connections of the sessions made through a provider of the
+    /// organization under `issuer`, and with them their seats in the rooms. For when
+    /// the store ended those sessions: the provider was removed or took another issuer.
+    pub fn close_sessions_of_origin(&self, org_id: &str, issuer: &str) {
+        self.close_where(Disconnect::SessionEnded, |listener| {
+            listener
+                .login
+                .as_ref()
+                .is_some_and(|login| login.org_id == org_id && login.issuer == issuer)
+        });
+    }
+
+    /// Closes the connections of the user's sessions made for the identity `subject` of
+    /// `issuer`, in any organization, and their seats in the rooms: also those of the
+    /// issuer that know no subject ([`LoginOrigin::is_of_identity`]). For when the user
+    /// unlinked that identity and the store ended those sessions.
+    ///
+    /// [`LoginOrigin::is_of_identity`]: fvoci_model::LoginOrigin::is_of_identity
+    pub fn close_sessions_of_identity(&self, user_id: &str, issuer: &str, subject: &str) {
+        self.close_where(Disconnect::SessionEnded, |listener| {
+            listener.user_id == user_id
+                && listener
+                    .login
+                    .as_ref()
+                    .is_some_and(|login| login.is_of_identity(issuer, subject))
+        });
+    }
+
     /// Closes the connections of the user that authenticated with another session than
     /// the given one. For when a user changes their password: the session it was
     /// changed through stays, and so do its connections.

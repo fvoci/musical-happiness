@@ -38,6 +38,10 @@ pub struct OidcProvider {
     /// Whether the organization takes no password: what is the organization's opens
     /// only for a session made through this provider.
     pub sso_required: bool,
+    /// Whether this session was made through this provider, switched on, as it is
+    /// stored now: a change of the issuer, the client, the secret or the switch since
+    /// asks for signing in through it again before `ssoRequired` is switched on.
+    pub can_require_sso: bool,
     /// The address the provider sends people back to, to be registered with it exactly:
     /// the organization's own, which does not change with the provider.
     pub redirect_uri: String,
@@ -45,6 +49,25 @@ pub struct OidcProvider {
     pub create_at: i64,
     /// When the provider was last changed, in milliseconds since the Unix epoch.
     pub update_at: i64,
+    /// The settings saved aside while the organization takes no password, which
+    /// nobody signs in through until a sign-in through them ends well; `null` for
+    /// none.
+    pub pending: Option<OidcPendingProvider>,
+}
+
+/// The pending settings of an organization's provider, without the client secret:
+/// `hasClientSecret` says whether there is one.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct OidcPendingProvider {
+    /// The issuer.
+    pub issuer: String,
+    /// The client identifier.
+    pub client_id: String,
+    /// Whether a client secret is saved with them.
+    pub has_client_secret: bool,
+    /// When they were saved, in milliseconds since the Unix epoch.
+    pub create_at: i64,
 }
 
 /// What an administrator sets of the organization's provider.
@@ -180,6 +203,10 @@ pub struct LinkedIdentity {
     pub email: String,
     /// When it was tied, in milliseconds since the Unix epoch.
     pub create_at: i64,
+    /// Whether the session that asks was made for this identity, or through a provider
+    /// of its issuer before sessions knew their subject: removing the identity ends
+    /// that session too.
+    pub made_this_session: bool,
 }
 
 /// A request to remove an identity from the account of the session.
