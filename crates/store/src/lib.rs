@@ -8,6 +8,7 @@
 
 mod accounts;
 mod audit;
+mod block_derived;
 mod blocks;
 mod board_kinds;
 mod board_membership;
@@ -20,6 +21,7 @@ mod boards;
 mod boards_and_blocks;
 mod body_digest;
 mod body_docs;
+mod body_links;
 mod body_versions;
 mod card_values;
 mod categories;

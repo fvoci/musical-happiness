@@ -11,6 +11,7 @@
 use fvoci_model::{BlockPatch, BlockType, Body, BodyChange};
 
 use crate::Store;
+use crate::block_derived;
 use crate::blocks;
 use crate::body_versions::{self, BodyBefore, BodyWrite};
 use crate::db::{Id, OptId, Param, Row, Scope, now_millis};
@@ -317,7 +318,7 @@ impl Store {
                 // same, in place of the images the log showed meanwhile.
                 None => {
                     let block = blocks::get_block(scope, block_id).await?;
-                    file_refs::refresh(scope, &block, NewImages::Unchecked).await?;
+                    block_derived::refresh(scope, &block, NewImages::Unchecked).await?;
                 }
                 Some(body) => {
                     let patch = BlockPatch {

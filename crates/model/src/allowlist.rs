@@ -33,7 +33,7 @@ const BLOCKS: &[&str] = &[
 ];
 
 /// The nodes that stand inside a line.
-const INLINE: &[&str] = &["text", "hardBreak", "mention", "inlineMath"];
+const INLINE: &[&str] = &["text", "hardBreak", "mention", "reference", "inlineMath"];
 
 /// The longest source of a formula.
 const LATEX_MAX: usize = 4000;
@@ -59,7 +59,8 @@ enum Rule {
     Language,
     /// A link that the rules of 5.7 allow.
     Href,
-    /// An identifier of a user.
+    /// An identifier, of a user or of a block: one in form, whether or not it names
+    /// anything.
     Id,
 }
 
@@ -118,6 +119,7 @@ const IMAGE: &[Attribute] = &[
     optional("alt", Rule::Text(1000)),
 ];
 const MENTION: &[Attribute] = &[required("userId", Rule::Id)];
+const REFERENCE: &[Attribute] = &[required("id", Rule::Id)];
 const MATH: &[Attribute] = &[required("latex", Rule::NonEmptyText(LATEX_MAX))];
 const LINK: &[Attribute] = &[required("href", Rule::Href)];
 
@@ -136,6 +138,7 @@ fn node_spec(name: &str) -> Option<NodeSpec> {
         "horizontalRule" | "hardBreak" | "text" => node(&[], LEAF, 0),
         "image" => node(IMAGE, LEAF, 0),
         "mention" => node(MENTION, LEAF, 0),
+        "reference" => node(REFERENCE, LEAF, 0),
         "inlineMath" | "blockMath" => node(MATH, LEAF, 0),
         _ => return None,
     })
@@ -403,7 +406,8 @@ fn check_text(members: &Map<String, Value>) -> Result<(), &'static str> {
 /// paragraph, heading, code block and formula block, the lines of blocks with no words
 /// left out. A hard break is a line break inside its block's line and is kept. A
 /// formula in a line gives its source there. A mention gives nothing: the name is not
-/// stored.
+/// stored. Nor does a reference: the title of what it names is not the body's, and not
+/// every reader's to see.
 pub(crate) fn plain_text(document: &Value) -> String {
     let mut lines = Vec::new();
     collect_lines(document, &mut lines);

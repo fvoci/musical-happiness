@@ -47,7 +47,7 @@ const fn plain(name: &'static str) -> Attribute {
 }
 
 /// Every kind of node the editor's schema has, with its attributes in the schema's order.
-pub(crate) const NODES: [(&str, &[Attribute]); 17] = [
+pub(crate) const NODES: [(&str, &[Attribute]); 18] = [
     ("blockMath", &[plain("latex")]),
     ("blockquote", &[]),
     ("bulletList", &[]),
@@ -76,6 +76,7 @@ pub(crate) const NODES: [(&str, &[Attribute]); 17] = [
         }],
     ),
     ("paragraph", &[]),
+    ("reference", &[plain("id")]),
     (
         "taskItem",
         &[Attribute {
@@ -137,7 +138,7 @@ pub(crate) enum Place {
 pub(crate) fn place(kind: &str) -> Place {
     match kind {
         "doc" => Place::Document,
-        "text" | "hardBreak" | "mention" | "inlineMath" => Place::Line,
+        "text" | "hardBreak" | "mention" | "reference" | "inlineMath" => Place::Line,
         "listItem" => Place::ListEntry,
         "taskItem" => Place::TaskEntry,
         _ => Place::Block,

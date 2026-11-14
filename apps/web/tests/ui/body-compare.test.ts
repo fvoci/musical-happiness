@@ -148,7 +148,9 @@ function leftOutNode(node: Element): LeftOut | undefined {
     while (isSeparator(before)) before = before?.previousSibling ?? null;
     if (
       isElement(before) &&
-      (before.hasAttribute('data-mention') || before.classList.contains('doc-math'))
+      (before.hasAttribute('data-mention') ||
+        before.hasAttribute('data-reference') ||
+        before.classList.contains('doc-math'))
     )
       return 'break behind a closing mention or formula';
   }
@@ -340,7 +342,7 @@ describe('the view draws what the editor draws', () => {
       types.map((type) => [type, (counts.get(type) ?? 0) > 0]);
     const nodeTypes = Object.keys(NODE_SPECS);
     const markTypes = Object.keys(MARK_SPECS);
-    expect(nodeTypes).toHaveLength(17);
+    expect(nodeTypes).toHaveLength(18);
     expect(markTypes).toHaveLength(5);
     expect(times(compared.nodes, nodeTypes)).toEqual(nodeTypes.map((type) => [type, true]));
     expect(times(compared.marks, markTypes)).toEqual(markTypes.map((type) => [type, true]));

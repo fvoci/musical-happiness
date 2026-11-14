@@ -1,6 +1,6 @@
 {
-  "description": "Shared test vectors for the body of a card or a comment: documents and what the server and the web app's validator must do with them. expect is accept (stored as sent), empty (stored as no body) or reject; a rejection names its kind in reason: notDocument, tooLarge, tooDeep, tooManyNodes, invalidNode. An accepted case may give text, the plain text the server stores for searching : a line per paragraph, heading, code block and formula block, the lines of blocks without words left out; a hard break is a line break kept inside its block's line, a formula inside a line gives its source there, and a mention gives nothing. Whole numbers count however they are written (1, 1.0, 1e0). Lengths are UTF-16 code units. The limits of depth (32), nodes (20,000) and size (1 MiB) are tested with documents each side builds from a case's build, which stands for body: {depth: n} is a document nesting n deep (doc, then n-2 blockquotes, then an empty paragraph); {nodes: n} is a document of n nodes (doc, then one paragraph of n-2 hardBreaks); {bytes: n} is a document of one paragraph of one text of the letter a, as long as makes its JSON without whitespace n bytes of UTF-8. The server's test is crates/model/tests/body_vectors.rs. Either side that finds the two disagree adds a case. The allowlist is docs/s6-design.md 5.7; bodyVersion is the version of it the cases are written for.",
-  "bodyVersion": 2,
+  "description": "Shared test vectors for the body of a card or a comment: documents and what the server and the web app's validator must do with them. expect is accept (stored as sent), empty (stored as no body) or reject; a rejection names its kind in reason: notDocument, tooLarge, tooDeep, tooManyNodes, invalidNode. An accepted case may give text, the plain text the server stores for searching : a line per paragraph, heading, code block and formula block, the lines of blocks without words left out; a hard break is a line break kept inside its block's line, a formula inside a line gives its source there, and a mention and a reference give nothing. Whole numbers count however they are written (1, 1.0, 1e0). Lengths are UTF-16 code units. The limits of depth (32), nodes (20,000) and size (1 MiB) are tested with documents each side builds from a case's build, which stands for body: {depth: n} is a document nesting n deep (doc, then n-2 blockquotes, then an empty paragraph); {nodes: n} is a document of n nodes (doc, then one paragraph of n-2 hardBreaks); {bytes: n} is a document of one paragraph of one text of the letter a, as long as makes its JSON without whitespace n bytes of UTF-8. The server's test is crates/model/tests/body_vectors.rs. Either side that finds the two disagree adds a case. The allowlist is docs/s6-design.md 5.7; bodyVersion is the version of it the cases are written for.",
+  "bodyVersion": 3,
   "cases": [
     {
       "name": "null",
@@ -3226,6 +3226,222 @@
                 "type": "mention",
                 "attrs": {
                   "userId": "u1"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "expect": "reject",
+      "reason": "invalidNode"
+    },
+    {
+      "name": "a reference",
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "see "
+              },
+              {
+                "type": "reference",
+                "attrs": {
+                  "id": "01a1c6f6-4d58-76f3-aca0-fff336f1535d"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "expect": "accept",
+      "text": "see "
+    },
+    {
+      "name": "a reference alone in a heading",
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "reference",
+                "attrs": {
+                  "id": "01a1c6f6-4d58-76f3-aca0-fff336f1535d"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "expect": "accept",
+      "text": ""
+    },
+    {
+      "name": "a reference in the document",
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "reference",
+            "attrs": {
+              "id": "01a1c6f6-4d58-76f3-aca0-fff336f1535d"
+            }
+          }
+        ]
+      },
+      "expect": "reject",
+      "reason": "invalidNode"
+    },
+    {
+      "name": "a reference without an identifier",
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "reference"
+              }
+            ]
+          }
+        ]
+      },
+      "expect": "reject",
+      "reason": "invalidNode"
+    },
+    {
+      "name": "a reference to something that is no identifier",
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "reference",
+                "attrs": {
+                  "id": "c1"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "expect": "reject",
+      "reason": "invalidNode"
+    },
+    {
+      "name": "a reference to the nil identifier",
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "reference",
+                "attrs": {
+                  "id": "00000000-0000-0000-0000-000000000000"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "expect": "reject",
+      "reason": "invalidNode"
+    },
+    {
+      "name": "a reference to an identifier in upper case",
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "reference",
+                "attrs": {
+                  "id": "01A1C6F6-4D58-76F3-ACA0-FFF336F1535D"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "expect": "reject",
+      "reason": "invalidNode"
+    },
+    {
+      "name": "a reference with a title",
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "reference",
+                "attrs": {
+                  "id": "01a1c6f6-4d58-76f3-aca0-fff336f1535d",
+                  "title": "Plan"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "expect": "reject",
+      "reason": "invalidNode"
+    },
+    {
+      "name": "a reference with content",
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "reference",
+                "attrs": {
+                  "id": "01a1c6f6-4d58-76f3-aca0-fff336f1535d"
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "Plan"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "expect": "reject",
+      "reason": "invalidNode"
+    },
+    {
+      "name": "a reference in a code block",
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "codeBlock",
+            "content": [
+              {
+                "type": "reference",
+                "attrs": {
+                  "id": "01a1c6f6-4d58-76f3-aca0-fff336f1535d"
                 }
               }
             ]

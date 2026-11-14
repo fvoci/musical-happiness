@@ -85,6 +85,7 @@ fn unicode_in_every_string_attribute_and_mermaid_is_preserved() {
         {"type": "paragraph", "content": [
             {"type": "inlineMath", "attrs": {"latex": words}},
             {"type": "mention", "attrs": {"userId": "01930000-0000-7000-8000-00000000c002"}},
+            {"type": "reference", "attrs": {"id": "01930000-0000-7000-8000-00000000b002"}},
             {"type": "hardBreak"},
             text(words, &marks(31, "https://example.com/😀e\u{301}")),
         ]},
@@ -144,6 +145,7 @@ fn binding_vectors_exercise_every_allowlisted_node_and_mark() {
             "mention",
             "orderedList",
             "paragraph",
+            "reference",
             "taskItem",
             "taskList",
             "text",

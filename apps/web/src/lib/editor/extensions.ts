@@ -50,6 +50,7 @@ import { EditingPlace } from './editing-place.ts';
 import { findEmojiTrigger } from './emoji-trigger.ts';
 import { fileUrl } from './files.ts';
 import { BlockMath, InlineMath } from './math-nodes.ts';
+import { Reference } from './reference.ts';
 import { isAllowedHref, isUserId } from './schema.ts';
 
 /** A link keeps its target and nothing else; how it opens is the app's business, not the document's. */
@@ -318,6 +319,7 @@ export function bodyExtensions(options: BodyExtensionOptions = {}): AnyExtension
     HardBreak,
     FileImage,
     Mention.configure(options.mention ?? {}),
+    Reference,
     InlineMath,
     BlockMath,
     // Marks

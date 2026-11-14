@@ -12,7 +12,7 @@ use thiserror::Error;
 use crate::allowlist;
 
 /// The version of the set of nodes and marks a stored body is written in.
-pub const BODY_VERSION: i64 = 2;
+pub const BODY_VERSION: i64 = 3;
 
 /// The largest body, as serialized JSON, in bytes.
 pub const BODY_MAX_BYTES: usize = 1024 * 1024;
@@ -105,7 +105,7 @@ impl Body {
     }
 
     /// The words of the body without its structure, for searching: a line per paragraph,
-    /// heading, code block and formula block. A mention gives nothing.
+    /// heading, code block and formula block. A mention and a reference give nothing.
     #[must_use]
     pub fn text(&self) -> String {
         allowlist::plain_text(&self.document)
@@ -155,6 +155,23 @@ impl Body {
         ids
     }
 
+    /// The identifiers of the blocks the references of the body name, each once, in the
+    /// order they come. Whether such a block is there, and for whom, the body does not
+    /// say.
+    #[must_use]
+    pub fn reference_ids(&self) -> Vec<&str> {
+        let mut ids: Vec<&str> = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        visit(&self.document, &mut |node| {
+            if let Some(id) = reference_target(node)
+                && seen.insert(id)
+            {
+                ids.push(id);
+            }
+        });
+        ids
+    }
+
     /// The stored name of the file the body's first image shows, in document order
     /// (also inside lists and tables), if it has one. Stops at that image.
     #[must_use]
@@ -188,6 +205,14 @@ fn image_file(node: &Value) -> Option<&str> {
         return None;
     }
     node.get("attrs")?.get("fileId")?.as_str()
+}
+
+/// The identifier of the block a reference node names.
+fn reference_target(node: &Value) -> Option<&str> {
+    if node.get("type").and_then(Value::as_str) != Some("reference") {
+        return None;
+    }
+    node.get("attrs")?.get("id")?.as_str()
 }
 
 /// Empties the `userId` of every mention below and at `node`.
@@ -486,6 +511,26 @@ mod tests {
         .expect("a body")
         .expect("not empty");
         assert_eq!(body.with_files_renamed(|_| None), None);
+    }
+
+    /// The references of a body are the blocks it names, each once, wherever they stand.
+    #[test]
+    fn the_references_of_a_body_are_named_once_in_order() {
+        let reference = |id: &str| json!({"type": "reference", "attrs": {"id": id}});
+        let first = "01a1c8e0-e250-735f-b851-4aaaa2ad2d83";
+        let second = "01a1c8e0-e250-735f-b851-4aaaa2ad2d84";
+        let body = Body::parse(document(&[
+            json!({"type": "paragraph", "content": [reference(second), {"type": "text", "text": "x"}]}),
+            json!({"type": "bulletList", "content": [{"type": "listItem", "content": [
+                {"type": "paragraph", "content": [reference(first), reference(second)]},
+            ]}]}),
+        ]))
+        .expect("a body")
+        .expect("not empty");
+        assert_eq!(body.reference_ids(), [second, first]);
+        assert_eq!(body.text(), "x", "a reference gives the text nothing");
+        let none = Body::from_stored(document(&[paragraph("x")]));
+        assert!(none.reference_ids().is_empty(), "no reference");
     }
 
     #[test]
