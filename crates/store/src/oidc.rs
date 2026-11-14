@@ -471,10 +471,10 @@ impl Store {
     /// `provider_email`, the address the provider gave, is kept with the identity,
     /// unchecked, and holds no account's place.
     ///
-    /// A registration that waits for the address the provider vouches for to be
-    /// confirmed is removed with the sign-in, new account or known: the provider's
-    /// word stands for the mail's, and no second account comes of the registration.
-    /// The use it took of a link is given back. `user` is updated to what was stored:
+    /// A registration by a link of the organization that waits for the address the
+    /// provider vouches for is removed with the sign-in, new account or known: the
+    /// provider's word stands for the mail's there, and no second account comes of
+    /// the registration. The use it took of the link is given back. `user` is updated to what was stored:
     /// the current time as creation and modification time, not deleted, no
     /// administrator of the instance. It joins the organization and its default
     /// workspace. A known account ([`OidcAccount::Known`]) joins them if it has no
@@ -725,18 +725,16 @@ pub(crate) async fn admit(
             user_id.clone_into(&mut session.user_id);
             // A guest of one of its workspaces is let in as they are, and joins
             // nothing: their board is what they have there.
-            let joined = if has_place(scope, user_id).await? {
-                false
-            } else if auto_join {
-                join_as_member(scope, user_id).await?
-            } else {
+            let has_place = has_place(scope, user_id).await?;
+            if !has_place && !auto_join {
                 return Ok(Err(OidcRefusal::JoinClosed));
-            };
-            // Let in: only now does a registration at the address go.
+            }
+            // Let in: only now does a registration at the address go, its link held
+            // before the account joins anything, as an acceptance holds it.
             if let Some(email) = proved_email {
                 accounts::discard_signup_at(scope, email).await?;
             }
-            joined
+            !has_place && join_as_member(scope, user_id).await?
         }
     }))
 }
@@ -821,8 +819,8 @@ pub enum OidcAccount<'a> {
         /// Who the provider vouches for, which must still be the account's.
         identity: Identity<'a>,
         /// The address the provider vouches for at this sign-in, if it does: a
-        /// registration that waits at it is removed. None for a trial of pending
-        /// settings, which is its administrator's look at them and removes nothing.
+        /// registration by a link of the organization that waits at it is removed.
+        /// None for a trial of pending settings, which removes nothing.
         proved_email: Option<&'a str>,
     },
     /// A new account for the identity, with the address the provider gave.
@@ -831,7 +829,9 @@ pub enum OidcAccount<'a> {
         user: &'a mut User,
         /// Who the provider vouches for.
         identity: Identity<'a>,
-        /// The address the provider gave, unchecked.
+        /// The address the provider vouches for: the caller has seen that it reads as
+        /// one and is not called unverified. Kept with the identity, and a
+        /// registration by a link of the organization that waits at it is removed.
         provider_email: &'a str,
     },
 }

@@ -1,6 +1,7 @@
 //! The account of somebody who signs in through a provider for the first time: made
-//! under a user name of what the provider says, a member of the organization. The
-//! sign-in it ends is in `oidc.rs`.
+//! under a user name of what the provider says, a member of the organization; and
+//! what a sign-in knows of the account it ends in, with the address the provider
+//! vouches for. The sign-in is in `oidc.rs`.
 
 use fvoci_model::{Session, User, display_name, is_email_valid, new_id};
 use fvoci_store::{Applied, Identity, OidcAccount, StoreError, StoredProvider, Taken};
@@ -153,6 +154,29 @@ mod tests {
             name: None,
             preferred_username: preferred.map(str::to_owned),
         }
+    }
+
+    #[test]
+    fn a_provider_vouches_for_an_address_it_gives_and_does_not_call_unverified() {
+        let said = |email: Option<&str>, verified: Option<bool>| IdClaims {
+            email: email.map(str::to_owned),
+            email_verified: verified,
+            ..claims(None)
+        };
+        let vouched = |claims: &IdClaims| proved_address(claims).map(str::to_owned);
+        assert_eq!(
+            vouched(&said(Some(" a@b.test "), Some(true))).as_deref(),
+            Some("a@b.test")
+        );
+        assert_eq!(
+            vouched(&said(Some("a@b.test"), None)).as_deref(),
+            Some("a@b.test"),
+            "said, and not called unverified"
+        );
+        assert_eq!(vouched(&said(Some("a@b.test"), Some(false))), None);
+        assert_eq!(vouched(&said(Some("no address"), Some(true))), None);
+        assert_eq!(vouched(&said(Some(""), Some(true))), None);
+        assert_eq!(vouched(&said(None, Some(true))), None);
     }
 
     #[test]

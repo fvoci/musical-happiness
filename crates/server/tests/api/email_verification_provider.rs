@@ -26,9 +26,13 @@ struct Scene {
 
 impl Scene {
     async fn start() -> Self {
+        Self::start_on(Setup::native()).await
+    }
+
+    async fn start_on(setup: Setup) -> Self {
         let smtp = FakeSmtp::start_on(0).await;
         let fake = FakeProvider::start().await;
-        let th = Setup::native()
+        let th = setup
             .trusting_oidc_provider(&fake.certificate_der)
             .configure(with_key_and_private_addresses)
             .start()
@@ -305,5 +309,67 @@ async fn a_confirmation_and_a_first_sign_in_at_once_make_one_account() {
         );
         assert!(!scene.waits(&name).await, "round {round}: nothing waits");
     }
+    scene.stop().await;
+}
+
+/// A provider's word is worth nothing outside its organization: a registration by a
+/// link of another organization, and one of its own, wait on when somebody signs in
+/// through the provider at their address. On a server of several organizations.
+#[tokio::test]
+async fn a_provider_removes_no_registration_outside_its_organization() {
+    if fvoci_store::testing::db_type_of_the_tests() != fvoci_store::DbType::Postgres {
+        return;
+    }
+    let scene = Scene::start_on(Setup::native().configure(|config| {
+        fvoci_server::config::ORG_CREATION_OPEN.clone_into(&mut config.org_creation);
+    }))
+    .await;
+    // Another organization, and a link of its founder's.
+    let th = &scene.th;
+    th.anonymous()
+        .post(
+            "/register",
+            &crate::email_verification::registration("bea", "en"),
+        )
+        .await
+        .check_status(StatusCode::ACCEPTED);
+    let founded = scene.confirm("bea@example.test").await;
+    founded.check_status(StatusCode::OK);
+    let bea = th.client_with_token(&founded.session_cookie().expect("a session"));
+    let workspace_id = founded.value()["workspaceId"]
+        .as_str()
+        .expect("hers")
+        .to_owned();
+    let theirs: Invitation = bea
+        .post(
+            &format!("/w/{workspace_id}/invitations"),
+            &json!({"role": "member"}),
+        )
+        .await
+        .created_json();
+    scene.register(&theirs, "cross", "cross@example.com").await;
+    let mut own = crate::email_verification::registration("own", "en");
+    own["email"] = json!("own@example.com");
+    th.anonymous()
+        .post("/register", &own)
+        .await
+        .check_status(StatusCode::ACCEPTED);
+
+    for (subject, email) in [
+        ("subject-cross", "cross@example.com"),
+        ("subject-own", "own@example.com"),
+    ] {
+        let signed_in = scene.sign_in(Person::new(subject, email)).await;
+        assert!(
+            matches!(signed_in, Outcome::SignedIn(_)),
+            "not refused: {signed_in:?}"
+        );
+    }
+    assert!(scene.waits("cross").await, "another organization's stays");
+    assert!(scene.waits("own").await, "one of its own stays");
+    scene
+        .confirm("cross@example.com")
+        .await
+        .check_status(StatusCode::OK);
     scene.stop().await;
 }

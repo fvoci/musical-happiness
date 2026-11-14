@@ -536,22 +536,26 @@ pub(crate) async fn discard_of_browser(
 }
 
 /// Removes the registration that waits at the address `email`, in any letter case, if
-/// there is one, ended or not: for the transaction that signs in the person a provider
-/// vouches for at that address, who needs no registration confirmed. Its name is
-/// free again, and the use of a link it was made by is given back, in whatever
-/// organization the link is. Says whether there was one.
+/// it was made by a link of the scope's organization, ended or not: for the
+/// transaction that signs in the person the organization's provider vouches for at
+/// that address, who needs no registration confirmed. Its name is free again, and the
+/// use of the link is given back. A provider's word is worth nothing outside its
+/// organization: a registration of its own, or by a link of another organization,
+/// stays. Returns the identifier of the one that went.
 pub(crate) async fn discard_at_address(
     scope: &mut Scope<'_>,
     email: &str,
-) -> Result<bool, StoreError> {
+) -> Result<Option<String>, StoreError> {
     let mut sql = scope.sql(&format!(
         "SELECT {COLUMNS} FROM signups WHERE lower(email) = lower("
     ));
-    sql.bind(email).push(")");
+    sql.bind(email)
+        .push_bind(") AND invitation_org_id = ", scope.org()?);
     let Some(row) = scope.fetch_optional(sql).await? else {
-        return Ok(false);
+        return Ok(None);
     };
-    discard(scope, &signup_from_row(&row)?).await
+    let signup = signup_from_row(&row)?;
+    Ok(discard(scope, &signup).await?.then_some(signup.id))
 }
 
 /// Removes `signup`, giving back the use of the link it was made by; says whether it

@@ -22,10 +22,12 @@ export interface paths {
          *     checked. The person is known by the issuer and the subject: an account of theirs
          *     signs in, and somebody who has none gets one, if the organization lets newcomers in
          *     and no account has their email address. A registration that waits for that address
-         *     to be confirmed (`register`, `acceptInvitation`) stands in nobody's way: where the
-         *     provider vouches for the address, the registration is removed with the sign-in,
-         *     new account or known, the use it took of a link given back, and the link mailed
-         *     for it confirms nothing any more. The session comes in the `Set-Cookie`
+         *     to be confirmed (`register`, `acceptInvitation`) stands in nobody's way. Where the
+         *     provider vouches for the address, one made by a link of this organization is
+         *     removed with the sign-in, new account or known: the use it took of the link is
+         *     given back, and the link mailed for it confirms nothing any more. A registration
+         *     of its own, or by a link of another organization, stays, and so does any at a
+         *     trial of pending settings and at a sign-in that carries over. The session comes in the `Set-Cookie`
          *     header, and the browser goes to the web app (303). A sign-in that was started to
          *     link sets no session: the browser goes to the web app with `oidc_linked=1` in the
          *     query. A trial of the provider's pending settings (`startOidcTrial`) that ends well
