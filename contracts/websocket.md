@@ -1,8 +1,8 @@
 # WebSocket `/ws`의 메시지
 
-적은 때: 2026-11-11 04:14 KST(본문의 공동 편집, 6절은 2026-11-13 04:41 KST, 보드의 있음 7절은 2026-11-13 19:41 KST. 서버가 구독을 끝낼 때의 알림, 3절은 2026-11-14 01:35 KST. 팀의 조작, 3절과 6절은 2026-11-14 06:55 KST). 서버가 **지금** 주고받는 것을 모양을 바꾸지 않고 적었다(`crates/server/src/ws.rs`, 핸드셰이크는 `crates/server/src/lib.rs`의 `handle_websocket`). OpenAPI는 WebSocket을 적지 못하므로 계약 파일 `contracts/openapi.json` 밖에 둔다.
+적은 때: 2026-11-11 04:14 KST(본문의 공동 편집, 6절은 2026-11-13 04:41 KST, 그 커서는 2026-11-14 22:00 KST, 보드의 있음 7절은 2026-11-13 19:41 KST. 서버가 구독을 끝낼 때의 알림, 3절은 2026-11-14 01:35 KST. 팀의 조작, 3절과 6절은 2026-11-14 06:55 KST). 서버가 **지금** 주고받는 것을 모양을 바꾸지 않고 적었다(`crates/server/src/ws.rs`, 핸드셰이크는 `crates/server/src/lib.rs`의 `handle_websocket`). OpenAPI는 WebSocket을 적지 못하므로 계약 파일 `contracts/openapi.json` 밖에 둔다.
 
-- 메시지마다의 멤버와 타입은 기계가 읽는 `contracts/websocket.json`에 있다. 서버의 테스트(`crates/server/tests/api/websocket.rs`의 `messages_match_the_websocket_contract`, 본문의 공동 편집(6절)의 `DOC_…`은 `rooms_contract.rs`의 `the_messages_of_the_rooms_match_the_websocket_contract`)가 서버가 실제로 보낸 메시지를 그 파일과 견준다: 맨 위 멤버가 정확히 그 이름들이고, 실린 객체(`board`, `block` 등)의 멤버는 계약 파일의 같은 이름의 스키마에 있는 것들이다. 테스트가 보는 것은 **메시지**뿐이다. 명령(2절)과 `session`·`sent` 표시는 이 문서와 코드를 사람이 맞춰 둔다. 실린 객체의 멤버는 이름만 견주고 타입은 계약 파일의 스키마를 따른다. Binary 프레임(6절)의 바이트는 `crates/server/src/collab/frame.rs`의 테스트와 `rooms.rs`의 테스트가 따로 쓴 부호화로 견준다.
+- 메시지마다의 멤버와 타입은 기계가 읽는 `contracts/websocket.json`에 있다. 서버의 테스트(`crates/server/tests/api/websocket.rs`의 `messages_match_the_websocket_contract`, 본문의 공동 편집(6절)의 `DOC_…`은 `rooms_contract.rs`의 `the_messages_of_the_rooms_match_the_websocket_contract`)가 서버가 실제로 보낸 메시지를 그 파일과 견준다: 맨 위 멤버가 정확히 그 이름들이고, 실린 객체(`board`, `block` 등)의 멤버는 계약 파일의 같은 이름의 스키마에 있는 것들이다. 테스트가 보는 것은 **메시지**뿐이다. 명령(2절)과 `session`·`sent` 표시는 이 문서와 코드를 사람이 맞춰 둔다. 실린 객체의 멤버는 이름만 견주고 타입은 계약 파일의 스키마를 따른다. Binary 프레임(6절)의 바이트는 `crates/server/src/collab/frame.rs`의 테스트와 `rooms.rs`의 테스트가 따로 쓴 부호화로 견준다. 커서의 바이트는 편집기의 라이브러리(y-protocols, Yjs)로 찍은 `contracts/caret-vectors.json`에 서버(`collab/caret.rs`)와 웹앱의 테스트가 함께 견준다.
 - 메시지가 싣는 보드, 블록, 멤버, 카테고리는 계약의 `Board`, `Block`, `BoardMember`, `Category`와 같은 모양이다. `Block`은 본문(`body`, `docs/contract-pending.md` 1절)을 싣는다.
 - 이 문서의 모양을 바꾸는 일은 계약을 바꾸는 일이다. 바꿀 때는 이 문서, `websocket.json`, `docs/contract-pending.md`를 같은 커밋에서 고친다.
 
@@ -178,12 +178,12 @@
 | 차례 | 무엇 |
 |---|---|
 | varuint `doc` | 어느 방인가(`DOC_JOINED`의 `doc`) |
-| varuint 종류 | `0`: sync 메시지. 지금은 이것뿐이고 다른 값의 프레임은 버린다 |
-| varuint `epoch` | 이 메시지가 문서의 어느 세대의 것인가 |
-| varuint sync 종류 | `0`: step 1(상태 벡터), `1`: step 2(받는 쪽에 없는 것), `2`: update |
-| varuint 길이, 그만큼의 바이트 | 상태 벡터(step 1)나 업데이트(step 2, update). Yjs의 version 1 부호화. 프레임은 여기서 끝난다 |
+| varuint 종류 | `0`: sync 메시지, `1`: 커서(아래 "커서"). 다른 값의 프레임은 버린다 |
+| varuint `epoch` | 이 프레임이 문서의 어느 세대의 것인가 |
+| varuint sync 종류 | sync 메시지에만 있다. `0`: step 1(상태 벡터), `1`: step 2(받는 쪽에 없는 것), `2`: update |
+| varuint 길이, 그만큼의 바이트 | 상태 벡터(step 1)나 업데이트(step 2, update), Yjs의 version 1 부호화. 커서 프레임에서는 y-protocols의 awareness update. 프레임은 여기서 끝난다 |
 
-sync 종류부터 끝까지는 y-protocols의 sync 메시지 그대로다(`writeSyncStep1`, `writeSyncStep2`, `writeUpdate`). 예: `doc` 3, `epoch` 300, 두 바이트 `aa bb`의 update는 `03 00 ac 02 02 02 aa bb`.
+sync 종류부터 끝까지는 y-protocols의 sync 메시지 그대로다(`writeSyncStep1`, `writeSyncStep2`, `writeUpdate`). 예: `doc` 3, `epoch` 300, 두 바이트 `aa bb`의 update는 `03 00 ac 02 02 02 aa bb`, 같은 두 바이트를 실은 커서 프레임은 `03 01 ac 02 02 aa bb`.
 
 | 누가 | 프레임 | 서버가 하는 일 |
 |---|---|---|
@@ -193,6 +193,22 @@ sync 종류부터 끝까지는 y-protocols의 sync 메시지 그대로다(`write
 | 클라이언트 | update, step 2 | 둘 다 변경으로 받는다(아래). 답은 `DOC_ACK`나 `DOC_NACK` |
 
 서버는 step 1을 보내지 않는다: 클라이언트는 서버에 없는 것을 갖고 들어오지 않는다(오프라인 편집이 없다). 이 모양이 아닌 프레임(끝나지 않는 수, 길이가 남은 바이트와 다름)과 들지 않은 방의 프레임은 답 없이 버린다.
+
+### 커서
+
+`write`로 든 연결은 본문에서 자기 커서(선택 범위의 두 끝)가 어디인지 알리고, 방의 다른 연결들이 그것을 받는다. 커서 프레임이 싣는 것은 y-protocols의 awareness update(`encodeAwarenessUpdate`)다: varuint 개수, 그리고 상태마다 varuint 번호, varuint 시계, varuint 길이와 그만큼의 UTF-8 JSON(사라진 상태는 `null`). 받는 쪽은 그대로 `applyAwarenessUpdate`에 넣는다. 답은 없다.
+
+| 누가 | 싣는 것 | 서버가 하는 일 |
+|---|---|---|
+| 클라이언트 | 자기 상태 하나. 서버가 읽는 것은 `cursor`(`anchor`와 `head`, 각각 Yjs 상대 위치의 JSON: `type`, `tname`, `item`, `assoc`)뿐이다 | 방의 다른 연결들에 아래 모양으로 보낸다. `cursor`가 없거나 `null`이거나 상태가 `null`이면 그 연결의 커서를 거둔다. **번호, 시계, `user`, 그 밖에 상태에 적힌 것은 읽지 않는다** |
+| 서버 | 커서 하나의 상태: `{"user":{"id":…},"cursor":{"anchor":…,"head":…}}`, 거둔 커서는 `null` | `user.id`는 **그 프레임을 보낸 연결의 사용자**다. 번호는 서버가 그 연결의 그 방 자리에 준 수(서버가 띄워져 있는 동안 다른 어느 커서와도 겹치지 않고, 클라이언트의 Yjs 번호와 무관하다), 시계는 그 커서를 알린 횟수다. 이름과 색은 싣지 않는다: 받는 쪽이 사용자 ID로 정한다 |
+
+- **누구의 커서인지는 서버가 적는다.** 클라이언트가 남의 사용자 ID·이름·색이나 남의 번호를 실어 보내도 나가는 것은 보낸 연결의 사용자와 그 연결의 번호다. 한 연결은 방마다 커서 하나를 갖고, 같은 사람의 탭 여럿은 커서도 여럿이다.
+- **누가 받나.** 그 방의 다른 연결(`read`도). 보낸 연결에는 돌아오지 않는다. 다른 방(다른 조직의 방도), 방에 들지 않은 연결(공유 보드의 독자)에는 가지 않는다. 즉시 재확인이 쥔 연결("방에 있는 동안")에는 그동안 가지 않고, 답이 그 연결을 남기면 그때의 커서들과 그사이 거둔 커서를 한 번에 받는다. 방에 드는 연결은 문서 전체 뒤에 그때 보이는 커서들을 받는다(30초 넘게 소식이 없던 커서는 빼고).
+- **버리는 것.** `read`로 든 연결의 커서 프레임, 방의 세대와 다른 `epoch`의 것, 상태가 하나가 아니거나 `cursor`가 두 위치가 아닌 것(모르는 멤버가 있는 위치, 2^53 이상의 수, 64바이트를 넘는 `tname`), awareness update가 1,024바이트를 넘는 것. 버려도 방에 남고 알리지 않는다.
+- **거두는 때.** 커서를 거뒀다고(상태 `null`, 그 커서의 번호와 다음 시계) 남은 연결들에 알리는 때: 그 연결이 거뒀을 때, 방을 나가거나(`LEAVE_DOC`, 다시 듦) 내보내지거나(`DOC_LEFT`) 연결이 끊겼을 때, `DOC_MODE`로 `read`가 됐을 때. 문서가 새 세대로 만들어지면 서버는 그 방의 커서를 모두 잊고 알리지 않는다: 받는 쪽은 버리는 문서와 함께 버린다.
+- **한도.** 커서 프레임도 `collab_frames_per_second`에 하나로 센다. 넘은 커서 프레임은 버릴 뿐 방에서 내보내지 않는다(문서와 어긋나지 않는다). 받는 연결의 줄에는 커서마다 마지막 알림 하나만 기다리고, 줄이 찬 연결에는 넣지 않는다(그 때문에 내보내지 않는다). 클라이언트는 커서가 그대로여도 15초마다 다시 알리고(y-protocols가 그렇게 한다), 30초 동안 소식이 없는 커서는 받는 쪽이 지운다.
+- 커서는 서버의 메모리에만 있다. DB에도 로그에도 쓰지 않는다.
 
 ### 변경의 순서와 답
 
@@ -247,7 +263,7 @@ sync 종류부터 끝까지는 y-protocols의 sync 메시지 그대로다(`write
 | `too_many_documents_joined` | `DOC_REFUSED` | 이 연결이 이미 `collab_documents_per_connection`(기본 8)개의 방에 들어 있다. 이미 든 카드에 다시 드는 것은 세지 않는다 |
 | `too_many_connections_joined` | `DOC_REFUSED` | 그 방에 이 사용자의 연결이 이미 `collab_connections_per_user`(기본 5)개 들어 있다(같은 카드를 연 탭과 기기). 이미 든 연결이 다시 드는 것은 세지 않는다 |
 | `document_full` | `DOC_REFUSED` | 그 방에 이미 `collab_connections_per_document`(기본 50)개의 연결이 들어 있다 |
-| `too_many_frames` | `DOC_REFUSED`, `DOC_LEFT` | 이 연결이 `collab_frames_per_second`(기본 50)보다 빨리 보냈다. 쉬고 난 뒤에는 그만큼을 한꺼번에, 그 뒤로 1초에 그만큼씩 보낼 수 있다. Binary 프레임은 모두 하나로(들지 않은 방의 것도, 프레임이 아닌 것도), 문서 전체로 답하는 `JOIN_DOC`과 step 1은 다섯으로, `LEAVE_DOC`은 하나로 센다(나가기는 넘어도 된다). 서버가 이 연결의 일을 하느라 읽지 못한 시간의 몫은 그대로 받는다. 넘은 `JOIN_DOC`은 거절되고, 넘은 프레임은 그 프레임의 방에서 이 연결을 내보낸다: 그 프레임이 실은 것을 방이 받지 않았으므로 다시 들어 문서를 새로 받는다. |
+| `too_many_frames` | `DOC_REFUSED`, `DOC_LEFT` | 이 연결이 `collab_frames_per_second`(기본 50)보다 빨리 보냈다. 쉬고 난 뒤에는 그만큼을 한꺼번에, 그 뒤로 1초에 그만큼씩 보낼 수 있다. Binary 프레임은 모두 하나로(들지 않은 방의 것도, 프레임이 아닌 것도), 문서 전체로 답하는 `JOIN_DOC`과 step 1은 다섯으로, `LEAVE_DOC`은 하나로 센다(나가기는 넘어도 된다). 서버가 이 연결의 일을 하느라 읽지 못한 시간의 몫은 그대로 받는다. 넘은 `JOIN_DOC`은 거절되고, 넘은 sync 프레임은 그 프레임의 방에서 이 연결을 내보낸다: 그 프레임이 실은 것을 방이 받지 않았으므로 다시 들어 문서를 새로 받는다. 넘은 커서 프레임은 버리기만 한다 |
 | `connection_too_slow` | `DOC_LEFT`, `DOC_REFUSED` | 이 연결에 보낼 방의 메시지가 `collab_queue_messages`(기본 512)개, 또는 `collab_state_bytes`의 두 배(바이트)를 넘게 쌓였다(읽지 않는 연결. step 1을 답을 읽지 않고 거듭 보내도 그렇다). 방의 다른 연결은 그대로 받는다. 다시 들면 문서 전체를 받는다 |
 | `internal` 등 | 모두 | 서버의 오류(저장소 등). 로그에 남는다 |
 

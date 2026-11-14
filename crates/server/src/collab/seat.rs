@@ -9,11 +9,11 @@ use serde::Deserialize;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
-use super::frame::{self, Sync};
+use super::frame::{self, Carried, Received, Sync};
 use super::messages::{self, reason_of};
 use super::queue::Outgoing;
 use super::rooms::Connection;
-use super::{Collab, refusals};
+use super::{Collab, caret, refusals};
 use crate::app::{App, Asker};
 use crate::error::AppError;
 
@@ -245,15 +245,24 @@ impl Seat {
             .await;
     }
 
-    /// Carries out a binary frame: a sync message for one of the connection's rooms.
-    /// A frame for a room the connection is not in (it left, or was put out and told
-    /// so), and one that is no frame of this shape, is dropped.
+    /// Carries out a binary frame: a sync message or a caret for one of the
+    /// connection's rooms. A frame for a room the connection is not in (it left, or
+    /// was put out and told so), and one that is no frame of this shape, is dropped.
     pub async fn frame(&mut self, frame: Bytes) {
         // Counted whatever it is, and whatever it is for: a frame that is none, or
         // for no room of the connection's, costs a count too.
         let read = frame::room_of(frame).map(|(doc, rest)| (doc, frame::received(rest)));
+        let asks_whole = |received: &Received| {
+            matches!(
+                received.carried,
+                Carried::Sync {
+                    sync: Sync::StateVector,
+                    ..
+                }
+            )
+        };
         let cost = match &read {
-            Some((_, Some(received))) if received.sync == Sync::StateVector => WHOLE_DOCUMENT,
+            Some((_, Some(received))) if asks_whole(received) => WHOLE_DOCUMENT,
             _ => 1,
         };
         let admitted = self.rate.admits(cost);
@@ -264,32 +273,47 @@ impl Seat {
             return;
         };
         let (collab, connection) = (self.collab.clone(), Arc::clone(&self.connection));
-        if !admitted {
-            // What the frame carried is lost to the room: the connection is out of
-            // step with it, and comes in anew.
-            let reason = reason_of(&refusals::too_many_frames(self.rate.per_second));
-            self.step(async move { collab.put_out(&room, &connection, doc, &reason).await })
-                .await;
-            return;
-        }
-        let Some(received) = received else {
-            tracing::debug!(doc, "websocket: a binary frame that is no sync message");
-            return;
-        };
-        let (epoch, payload) = (received.epoch, received.payload);
-        self.step(async move {
-            match received.sync {
-                Sync::StateVector => {
-                    collab
-                        .missing(&room, &connection, doc, epoch, payload)
-                        .await;
-                }
-                Sync::Missing | Sync::Update => {
-                    collab.update(&room, &connection, doc, epoch, payload).await;
+        match received {
+            Some(Received {
+                epoch,
+                carried: Carried::Carets(update),
+            }) => {
+                // One past the rate, or larger than a caret is, is dropped: the room
+                // missed nothing of the document, and a caret is said again.
+                if admitted && update.len() <= caret::MOST_BYTES {
+                    self.step(async move {
+                        collab.caret(&room, &connection, doc, epoch, update).await;
+                    })
+                    .await;
                 }
             }
-        })
-        .await;
+            _ if !admitted => {
+                // What the frame carried is lost to the room: the connection is out
+                // of step with it, and comes in anew.
+                let reason = reason_of(&refusals::too_many_frames(self.rate.per_second));
+                self.step(async move { collab.put_out(&room, &connection, doc, &reason).await })
+                    .await;
+            }
+            Some(Received {
+                epoch,
+                carried: Carried::Sync { sync, payload },
+            }) => {
+                self.step(async move {
+                    match sync {
+                        Sync::StateVector => {
+                            collab
+                                .missing(&room, &connection, doc, epoch, payload)
+                                .await;
+                        }
+                        Sync::Missing | Sync::Update => {
+                            collab.update(&room, &connection, doc, epoch, payload).await;
+                        }
+                    }
+                })
+                .await;
+            }
+            None => tracing::debug!(doc, "websocket: a binary frame that is no frame of a room"),
+        }
     }
 
     /// Takes the connection out of every room, for good: it ended. The rooms are

@@ -27,6 +27,13 @@ pub(super) enum What {
     /// A sync message of the document of `epoch`, shared by its receivers
     /// ([`frame::message`]).
     Sync { epoch: i64, message: Bytes },
+    /// What is told of the caret the room knows as `number`, in the document of
+    /// `epoch`: an awareness update, shared by its receivers.
+    Caret {
+        epoch: i64,
+        number: u64,
+        update: Bytes,
+    },
 }
 
 impl Queued {
@@ -35,12 +42,30 @@ impl Queued {
         match &self.what {
             What::Text(text) => text.len(),
             What::Sync { message, .. } => message.len(),
+            What::Caret { update, .. } => update.len(),
         }
     }
 
-    /// Whether it is a sync message of the room `doc`.
+    /// Whether it is a binary frame of the room `doc`: a sync message, or a caret.
     fn in_frames_of(&self, doc: u32) -> bool {
-        self.doc == doc && matches!(self.what, What::Sync { .. })
+        self.doc == doc && !matches!(self.what, What::Text(_))
+    }
+
+    /// Whether the document of `epoch` sent anew to the room `doc` takes its place: a
+    /// sync message of the room, or a caret of another making of the document. A
+    /// caret of this one is a place in what is sent anew, and waits on.
+    fn is_outdated_by(&self, doc: u32, epoch: i64) -> bool {
+        self.doc == doc
+            && match &self.what {
+                What::Text(_) => false,
+                What::Sync { .. } => true,
+                What::Caret { epoch: of, .. } => *of != epoch,
+            }
+    }
+
+    /// Whether it tells of the caret `number` in the room `doc`.
+    fn tells_caret(&self, doc: u32, number: u64) -> bool {
+        self.doc == doc && matches!(self.what, What::Caret { number: of, .. } if of == number)
     }
 
     pub(super) fn text(doc: u32, text: String) -> Self {
@@ -56,6 +81,17 @@ impl Queued {
             what: What::Sync {
                 epoch,
                 message: message.clone(),
+            },
+        }
+    }
+
+    pub(super) fn caret(doc: u32, epoch: i64, number: u64, update: &Bytes) -> Self {
+        Self {
+            doc,
+            what: What::Caret {
+                epoch,
+                number,
+                update: update.clone(),
             },
         }
     }
@@ -168,8 +204,9 @@ impl Queue {
         Ok(())
     }
 
-    /// Queues `messages` in place of the sync messages that wait for the room: what a
-    /// connection that is sent the document anew no longer needs of the one before.
+    /// Queues `messages`, the document of `epoch` anew, in place of the sync messages
+    /// that wait for the room and the carets of another making of the document: what
+    /// a connection that is sent the document anew no longer needs of the one before.
     ///
     /// # Errors
     ///
@@ -179,15 +216,39 @@ impl Queue {
     pub(super) fn push_anew(
         &self,
         doc: u32,
+        epoch: i64,
         messages: impl IntoIterator<Item = Queued, IntoIter: ExactSizeIterator + Clone>,
     ) -> Result<(), NotQueued> {
         {
             let mut waiting = self.waiting();
-            waiting.drop_where(|queued| queued.in_frames_of(doc));
+            waiting.drop_where(|queued| queued.is_outdated_by(doc, epoch));
             waiting.push(self.capacity, messages)?;
         }
         self.wake.notify_one();
         Ok(())
+    }
+
+    /// Queues what is told of a caret, in place of what waits of the same caret: of
+    /// each caret only the last telling waits, however often it moved. Not queued
+    /// for a connection that has no room for it, or ended: a caret is said again,
+    /// and nobody is put out of a room for one. What waited of it is dropped all the
+    /// same: the caret is no longer there.
+    pub(super) fn push_caret(&self, told: Queued) {
+        let What::Caret { number, .. } = told.what else {
+            return;
+        };
+        {
+            let mut waiting = self.waiting();
+            if waiting.closed {
+                return;
+            }
+            let doc = told.doc;
+            waiting.drop_where(|queued| queued.tells_caret(doc, number));
+            if waiting.push(self.capacity, [told]).is_err() {
+                return;
+            }
+        }
+        self.wake.notify_one();
     }
 
     /// Queues an answer to something the connection sent that the room has dealt with
@@ -224,16 +285,16 @@ impl Queue {
         self.waiting().drop_where(|queued| queued.doc == doc);
     }
 
-    /// Drops the sync messages that wait for a room the connection is no longer in.
-    /// The answers it was given there (`DOC_JOINED`, `DOC_ACK`, `DOC_NACK`) wait on:
+    /// Drops the sync messages and carets that wait for a room the connection is no
+    /// longer in. The answers it was given there (`DOC_JOINED`, `DOC_ACK`, `DOC_NACK`) wait on:
     /// each says what became of something the connection sent.
     pub(super) fn forget_frames(&self, doc: u32) {
         self.waiting().drop_where(|queued| queued.in_frames_of(doc));
     }
 
     /// Queues a notice whatever waits: the answer to a connection that is refused or
-    /// put out, be it because its queue is full. With `doc`, the sync messages that
-    /// wait for that room are dropped first; the answers it was given there wait on,
+    /// put out, be it because its queue is full. With `doc`, the sync messages and
+    /// carets that wait for that room are dropped first; the answers it was given there wait on,
     /// before the notice. Messages past twice what may wait end the connection.
     pub(super) fn notice(&self, doc: Option<u32>, text: String) {
         {
@@ -284,6 +345,9 @@ impl Queue {
                         What::Text(text) => Outgoing::Text(text),
                         What::Sync { epoch, message } => {
                             Outgoing::Binary(frame::framed(queued.doc, epoch, &message))
+                        }
+                        What::Caret { epoch, update, .. } => {
+                            Outgoing::Binary(frame::carets(queued.doc, epoch, &update))
                         }
                     });
                 }
@@ -336,7 +400,7 @@ mod tests {
             "no room for a fourth"
         );
         assert_eq!(
-            queue.push_anew(2, [text(2, "anew"), sync(2)]),
+            queue.push_anew(2, 1, [text(2, "anew"), sync(2)]),
             Err(NotQueued::Full),
             "two in place of one do not fit"
         );
@@ -402,7 +466,7 @@ mod tests {
         queue.forget(2);
         queue.push([Queued::sync(1, 1, &large)]).expect("10 of 10");
         queue
-            .push_anew(1, [Queued::sync(1, 2, &large), sync(1)])
+            .push_anew(1, 2, [Queued::sync(1, 2, &large), sync(1)])
             .expect("in place of both");
         assert_eq!(drained(&queue).await.len(), 2);
     }
@@ -414,7 +478,7 @@ mod tests {
             .push([text(1, "ack"), sync(1), sync(2), sync(1)])
             .expect("room");
         queue
-            .push_anew(1, [text(1, "reset"), sync(1)])
+            .push_anew(1, 1, [text(1, "reset"), sync(1)])
             .expect("in place of two");
         let sent = drained(&queue).await;
         let texts: Vec<&str> = sent
@@ -431,6 +495,64 @@ mod tests {
             Outgoing::Binary(frame::framed(2, 1, &Bytes::from_static(&[2, 0]))),
             "the other room's waits on"
         );
+    }
+
+    /// A caret as the room `doc` is told it: the number, and a clock to tell two
+    /// tellings apart.
+    fn caret(doc: u32, epoch: i64, number: u64, clock: u8) -> Queued {
+        Queued::caret(doc, epoch, number, &Bytes::copy_from_slice(&[clock]))
+    }
+
+    fn caret_frame(doc: u32, epoch: i64, clock: u8) -> Outgoing {
+        Outgoing::Binary(frame::carets(doc, epoch, &Bytes::copy_from_slice(&[clock])))
+    }
+
+    #[tokio::test]
+    async fn of_a_caret_only_the_last_telling_waits_and_none_where_there_is_no_room() {
+        let queue = queue_of(4);
+        queue.push([sync(1)]).expect("room");
+        queue.push_caret(caret(1, 1, 7, 1));
+        queue.push_caret(caret(1, 1, 8, 1));
+        queue.push_caret(caret(2, 1, 7, 1));
+        // The caret 7 of the room 1 moved twice more, and there was room for no more.
+        queue.push_caret(caret(1, 1, 7, 2));
+        queue.push_caret(caret(1, 1, 7, 3));
+        queue.push_caret(caret(1, 1, 9, 1));
+        assert!(!queue.overrun().is_cancelled());
+        let sent = drained(&queue).await;
+        assert_eq!(
+            sent[1..],
+            [
+                caret_frame(1, 1, 1),
+                caret_frame(2, 1, 1),
+                caret_frame(1, 1, 3)
+            ],
+            "the caret 8, the other room's 7, and the last of the caret 7; not the caret 9"
+        );
+        // The document anew takes the place of the carets of the one before, not of
+        // those of this one; a room that is left takes all of them.
+        queue.push_caret(caret(1, 1, 7, 4));
+        queue.push_caret(caret(1, 2, 8, 1));
+        queue
+            .push_anew(1, 2, [text(1, "reset"), Queued::sync(1, 2, &Bytes::new())])
+            .expect("room");
+        let sent = drained(&queue).await;
+        assert_eq!(
+            sent[0],
+            caret_frame(1, 2, 1),
+            "the caret of this making waits on"
+        );
+        assert_eq!(sent.len(), 3, "{sent:?}");
+        queue.push_caret(caret(1, 2, 8, 2));
+        queue.push_caret(caret(2, 2, 8, 2));
+        queue.notice(Some(1), "left".to_owned());
+        assert_eq!(
+            drained(&queue).await,
+            [caret_frame(2, 2, 2), Outgoing::Text("left".to_owned())]
+        );
+        queue.close();
+        queue.push_caret(caret(1, 2, 8, 3));
+        assert_eq!(queue.next().await, None);
     }
 
     #[tokio::test]

@@ -162,6 +162,7 @@ impl Holds {
                 if let Some(index) = turn.let_go(member, self.change) {
                     turn.settle(index, answer_of(&room, &member.who));
                     self.collab.send_missed(&room, &mut turn, member).await;
+                    turn.send_carets_missed(member);
                 }
             }
             room.checked.notify_waiters();
@@ -220,6 +221,10 @@ impl Turn {
             Some(Ok(Some(mode))) => {
                 member.mode = *mode;
                 let (doc, connection, mode) = (member.doc, member.connection.id, *mode);
+                if mode == DocMode::Read {
+                    // Who reads shows no caret.
+                    self.withdraw_caret(index);
+                }
                 self.send(
                     |member| member.connection.id == connection && member.doc == doc,
                     |_| [Queued::text(doc, messages::mode(doc, mode))],
@@ -519,6 +524,8 @@ mod tests {
                 mode: DocMode::Write,
                 checking: None,
                 missed: None,
+                caret: None,
+                carets_missed: None,
             }],
             ..Turn::default()
         }

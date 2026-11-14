@@ -22,6 +22,7 @@
 //! logged and sent to the others, never logged and not sent.
 
 mod access;
+mod carets;
 mod held;
 mod index;
 #[cfg(feature = "test-util")]
@@ -92,6 +93,8 @@ pub(super) struct Rooms {
     queue_messages: usize,
     /// The number of the next connection.
     next_connection: AtomicU64,
+    /// The number of the last caret: no two of the server have one number.
+    next_caret: AtomicU64,
     /// When access facts changed: admissions and periodic answers read before a
     /// change of their organization cannot survive its immediate check.
     walls: walls::Walls,
@@ -115,6 +118,7 @@ impl Rooms {
             frames_per_second: settings.collab_frames_per_second,
             queue_messages: as_count(settings.collab_queue_messages),
             next_connection: AtomicU64::new(0),
+            next_caret: AtomicU64::new(0),
             walls: walls::Walls::new(Duration::from_secs(settings.collab_recheck_seconds)),
             #[cfg(feature = "test-util")]
             pauses: pauses::Pauses::default(),
@@ -254,6 +258,10 @@ struct Member {
     checking: Option<u64>,
     /// What the room did not send them while a check held them.
     missed: Option<held::Missed>,
+    /// Where they are in the document, once they said so.
+    caret: Option<carets::Caret>,
+    /// The carets that went while a check held them, if any was told meanwhile.
+    carets_missed: Option<carets::CaretsMissed>,
 }
 
 /// A member as a room asks about it again.
@@ -304,7 +312,7 @@ impl Turn {
             .iter()
             .position(|member| member.connection.id == connection.id);
         if let Some(index) = at {
-            let before = self.members.swap_remove(index);
+            let before = self.take_out(index);
             connection.forget(before.doc);
             connection.queue.forget_frames(before.doc);
         }
@@ -320,7 +328,7 @@ impl Turn {
     /// sync messages that waited for it of the room and after the answers it was
     /// given there.
     fn put_out(&mut self, index: usize, reason: &str) {
-        let member = self.members.swap_remove(index);
+        let member = self.take_out(index);
         member.connection.forget(member.doc);
         member
             .connection
@@ -374,6 +382,9 @@ impl Turn {
     /// waited for them: those were of the document before, or are in this one.
     /// A member a check holds is sent it once the check keeps them.
     fn send_anew(&mut self, loaded: &Loaded) {
+        if self.epoch != loaded.epoch {
+            self.forget_carets();
+        }
         self.epoch = loaded.epoch;
         self.miss(&held::Missed::Whole);
         self.push_anew(loaded, |member| !member.is_held());
@@ -393,7 +404,7 @@ impl Turn {
                 Queued::text(doc, messages::reset(doc, epoch)),
                 Queued::sync(doc, epoch, &whole),
             ];
-            member.connection.queue.push_anew(doc, anew)
+            member.connection.queue.push_anew(doc, epoch, anew)
         });
     }
 }
@@ -692,7 +703,10 @@ impl Collab {
                 mode: admitted.mode,
                 checking: None,
                 missed: None,
+                caret: None,
+                carets_missed: None,
             });
+            turn.send_carets(turn.members.len() - 1);
             return Ok(());
         }
     }
@@ -726,7 +740,7 @@ impl Collab {
     pub(super) async fn leave(&self, room: &Arc<Room>, connection: &Connection, doc: u32) {
         let mut turn = room.turn.lock().await;
         if let Some(index) = turn.index_of(connection, doc) {
-            turn.members.swap_remove(index);
+            turn.take_out(index);
         }
         connection.queue.forget(doc);
         self.shut_if_empty(room, &mut turn).await;

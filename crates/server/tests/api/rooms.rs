@@ -53,7 +53,30 @@ fn take_varuint(bytes: &mut &[u8]) -> u64 {
     }
 }
 
-/// A binary frame as `contracts/websocket.md` has it.
+/// An awareness update of one state, as an editor's library writes it: whose it
+/// says it is, which telling, and the state as JSON.
+pub(crate) fn awareness(client: u64, clock: u64, state: &Value) -> Vec<u8> {
+    let state = state.to_string();
+    let mut out = vec![1];
+    put_varuint(&mut out, client);
+    put_varuint(&mut out, clock);
+    put_varuint(&mut out, u64::try_from(state.len()).expect("a length"));
+    out.extend_from_slice(state.as_bytes());
+    out
+}
+
+/// A binary frame of carets as `contracts/websocket.md` has it.
+pub(crate) fn caret_frame(doc: u32, epoch: i64, update: &[u8]) -> Vec<u8> {
+    let mut out = Vec::new();
+    put_varuint(&mut out, u64::from(doc));
+    put_varuint(&mut out, 1);
+    put_varuint(&mut out, u64::try_from(epoch).expect("an epoch"));
+    put_varuint(&mut out, u64::try_from(update.len()).expect("a length"));
+    out.extend_from_slice(update);
+    out
+}
+
+/// A binary frame of a sync message as `contracts/websocket.md` has it.
 pub(crate) fn frame(doc: u32, epoch: i64, sync: u64, payload: &[u8]) -> Vec<u8> {
     let mut out = Vec::new();
     put_varuint(&mut out, u64::from(doc));
@@ -74,19 +97,49 @@ pub(crate) struct Frame {
     pub(crate) payload: Vec<u8>,
 }
 
-fn read_frame(mut bytes: &[u8]) -> Frame {
+/// What the server told of one caret: a frame of carets with its one state.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Told {
+    pub(crate) doc: u32,
+    pub(crate) epoch: i64,
+    /// The number the server tells the caret under, and which telling this is.
+    pub(crate) number: u64,
+    pub(crate) clock: u64,
+    /// The awareness state; `null` for a caret that is gone.
+    pub(crate) state: Value,
+}
+
+fn read_frame(mut bytes: &[u8]) -> Incoming {
     let doc = u32::try_from(take_varuint(&mut bytes)).expect("a room");
-    assert_eq!(take_varuint(&mut bytes), 0, "the kind of a sync message");
+    let kind = take_varuint(&mut bytes);
     let epoch = i64::try_from(take_varuint(&mut bytes)).expect("an epoch");
-    let sync = take_varuint(&mut bytes);
+    let sync = match kind {
+        0 => take_varuint(&mut bytes),
+        1 => 0,
+        _ => panic!("a frame of no kind there is: {kind}"),
+    };
     let length = usize::try_from(take_varuint(&mut bytes)).expect("a length");
     assert_eq!(bytes.len(), length, "the payload is the rest of the frame");
-    Frame {
+    if kind == 0 {
+        return Incoming::Frame(Frame {
+            doc,
+            epoch,
+            sync,
+            payload: bytes.to_vec(),
+        });
+    }
+    assert_eq!(take_varuint(&mut bytes), 1, "one caret a frame");
+    let number = take_varuint(&mut bytes);
+    let clock = take_varuint(&mut bytes);
+    let length = usize::try_from(take_varuint(&mut bytes)).expect("a length");
+    assert_eq!(bytes.len(), length, "the state is the rest of the update");
+    Incoming::Caret(Told {
         doc,
         epoch,
-        sync,
-        payload: bytes.to_vec(),
-    }
+        number,
+        clock,
+        state: serde_json::from_slice(bytes).expect("a state is JSON"),
+    })
 }
 
 /// What a connection yields next.
@@ -94,6 +147,7 @@ fn read_frame(mut bytes: &[u8]) -> Frame {
 pub(crate) enum Incoming {
     Text(Value),
     Frame(Frame),
+    Caret(Told),
     Closed,
     Nothing,
 }
@@ -114,6 +168,9 @@ pub(crate) struct Peer {
     texts: VecDeque<Value>,
     /// The sync messages it took into its document, in the order they came.
     pub(crate) taken: Vec<Frame>,
+    /// What it was told of the carets of the room it is in that no test asked for
+    /// yet, in the order it came.
+    pub(crate) carets: VecDeque<Told>,
 }
 
 impl Peer {
@@ -156,6 +213,34 @@ impl Peer {
             editor: None,
             texts: VecDeque::new(),
             taken: Vec::new(),
+            carets: VecDeque::new(),
+        }
+    }
+
+    /// The client identifier of its editor.
+    pub(crate) fn client(&self) -> u64 {
+        self.client
+    }
+
+    /// Sends an awareness update as a frame of carets of the room it is in.
+    pub(crate) async fn send_caret(&mut self, update: &[u8]) {
+        self.send_binary(caret_frame(self.doc, self.epoch, update))
+            .await;
+    }
+
+    /// What it is told next of a caret, reading until it comes.
+    pub(crate) async fn caret(&mut self) -> Told {
+        let deadline = tokio::time::Instant::now() + PATIENCE;
+        loop {
+            if let Some(told) = self.carets.pop_front() {
+                return told;
+            }
+            let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+            assert!(
+                !left.is_zero() && self.step(left).await,
+                "no caret came; read: {:?}",
+                self.texts
+            );
         }
     }
 
@@ -188,7 +273,7 @@ impl Peer {
                 Ok(Some(Ok(Message::Text(text)))) => {
                     return Incoming::Text(serde_json::from_str(&text).expect("JSON"));
                 }
-                Ok(Some(Ok(Message::Binary(bytes)))) => return Incoming::Frame(read_frame(&bytes)),
+                Ok(Some(Ok(Message::Binary(bytes)))) => return read_frame(&bytes),
                 Ok(Some(Ok(_))) => {}
             }
         }
@@ -227,6 +312,11 @@ impl Peer {
                     self.editor = Some(Editor::join(self.client, &frame.payload));
                 }
                 self.taken.push(frame);
+            }
+            Incoming::Caret(told) => {
+                if told.doc == self.doc {
+                    self.carets.push_back(told);
+                }
             }
         }
         true

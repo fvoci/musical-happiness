@@ -3,15 +3,27 @@
 //!
 //! ```text
 //! varuint doc      which of the connection's rooms, as `DOC_JOINED` named it
-//! varuint kind     0: a sync message (the only kind there is)
-//! varuint epoch    which making of the document the message is about
+//! varuint kind     0: a sync message, 1: carets
+//! varuint epoch    which making of the document the frame is about
+//! ```
+//!
+//! and then, of a sync message:
+//!
+//! ```text
 //! varuint type     0: sync step 1, 1: sync step 2, 2: update
 //! varuint length   of what follows, which is all that follows
 //! bytes            a state vector (step 1) or an update (step 2, update), version 1
 //! ```
 //!
-//! From `type` on it is a sync message of y-protocols, byte for byte. A varuint is
-//! lib0's: seven bits a byte, the lowest first, the high bit set on all but the last.
+//! which from `type` on is a sync message of y-protocols, byte for byte; of carets:
+//!
+//! ```text
+//! varuint length   of what follows, which is all that follows
+//! bytes            an awareness update of y-protocols (`super::caret`)
+//! ```
+//!
+//! A varuint is lib0's: seven bits a byte, the lowest first, the high bit set on all
+//! but the last.
 //!
 //! Nothing here allocates by a length a frame claims: what a frame carries is a slice
 //! of the frame.
@@ -20,6 +32,9 @@ use bytes::{BufMut as _, Bytes, BytesMut};
 
 /// The kind of a frame that carries a sync message.
 const KIND_SYNC: u64 = 0;
+
+/// The kind of a frame that carries carets.
+const KIND_CARETS: u64 = 1;
 
 /// The most bytes a frame has before what its sync message carries: five varuints,
 /// of which the document and the epoch may be long. What the websocket takes of a
@@ -56,13 +71,20 @@ impl Sync {
     }
 }
 
-/// A frame a client sent, after its room: the sync message of a making of the document.
+/// A frame a client sent, after its room: what it carries of a making of the document.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Received {
     pub(super) epoch: i64,
-    pub(super) sync: Sync,
-    /// A slice of the frame.
-    pub(super) payload: Bytes,
+    pub(super) carried: Carried,
+}
+
+/// What a frame carries; the bytes are a slice of the frame.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum Carried {
+    /// A sync message: a state vector (step 1) or an update (step 2, update).
+    Sync { sync: Sync, payload: Bytes },
+    /// Carets: an awareness update.
+    Carets(Bytes),
 }
 
 /// Reads a varuint from the front of `bytes`: its value and how many bytes it took.
@@ -84,7 +106,7 @@ fn varuint(bytes: &[u8]) -> Option<(u64, usize)> {
 }
 
 /// Takes a varuint from the front of `frame`.
-fn take_varuint(frame: &mut Bytes) -> Option<u64> {
+pub(super) fn take_varuint(frame: &mut Bytes) -> Option<u64> {
     let (value, taken) = varuint(frame)?;
     let _ = frame.split_to(taken);
     Some(value)
@@ -97,24 +119,32 @@ pub(super) fn room_of(mut frame: Bytes) -> Option<(u32, Bytes)> {
     Some((doc, frame))
 }
 
-/// What a frame carries after its room. `None` for what is no sync message of this
-/// shape to its last byte: another kind, a type that is none, a length that is not
-/// that of what follows.
+/// What a frame carries after its room. `None` for what is no frame of this shape to
+/// its last byte: another kind, a type of sync message that is none, a length that is
+/// not that of what follows.
 pub(super) fn received(mut rest: Bytes) -> Option<Received> {
-    if take_varuint(&mut rest)? != KIND_SYNC {
+    let kind = take_varuint(&mut rest)?;
+    let epoch = i64::try_from(take_varuint(&mut rest)?).ok()?;
+    let sync = match kind {
+        KIND_SYNC => Some(Sync::of(take_varuint(&mut rest)?)?),
+        KIND_CARETS => None,
+        _ => return None,
+    };
+    let length = usize::try_from(take_varuint(&mut rest)?).ok()?;
+    if rest.len() != length {
         return None;
     }
-    let epoch = i64::try_from(take_varuint(&mut rest)?).ok()?;
-    let sync = Sync::of(take_varuint(&mut rest)?)?;
-    let length = usize::try_from(take_varuint(&mut rest)?).ok()?;
-    (rest.len() == length).then_some(Received {
-        epoch,
-        sync,
-        payload: rest,
-    })
+    let carried = match sync {
+        Some(sync) => Carried::Sync {
+            sync,
+            payload: rest,
+        },
+        None => Carried::Carets(rest),
+    };
+    Some(Received { epoch, carried })
 }
 
-fn put_varuint(out: &mut BytesMut, mut value: u64) {
+pub(super) fn put_varuint(out: &mut BytesMut, mut value: u64) {
     while value >= 0x80 {
         // The low seven bits, with the mark of a byte that is not the last.
         out.put_u8(u8::try_from(value & 0x7f).unwrap_or(0x7f) | 0x80);
@@ -135,16 +165,31 @@ pub(super) fn message(sync: Sync, payload: &[u8]) -> Bytes {
 
 /// The frame of a sync message for one connection: its room there, and the epoch.
 pub(super) fn framed(doc: u32, epoch: i64, message: &Bytes) -> Bytes {
-    let mut out = BytesMut::with_capacity(message.len() + HEAD_ROOM);
+    let mut out = head(doc, KIND_SYNC, epoch, message.len());
+    out.put_slice(message);
+    out.freeze()
+}
+
+/// The frame of carets for one connection: its room there, the epoch, and the
+/// awareness update that tells them ([`super::caret::told`]).
+pub(super) fn carets(doc: u32, epoch: i64, update: &Bytes) -> Bytes {
+    let mut out = head(doc, KIND_CARETS, epoch, update.len() + 10);
+    put_varuint(&mut out, u64::try_from(update.len()).unwrap_or(u64::MAX));
+    out.put_slice(update);
+    out.freeze()
+}
+
+/// The head of a frame of `kind`, with room for `more` bytes after it.
+fn head(doc: u32, kind: u64, epoch: i64, more: usize) -> BytesMut {
+    let mut out = BytesMut::with_capacity(more + HEAD_ROOM);
     put_varuint(&mut out, u64::from(doc));
-    put_varuint(&mut out, KIND_SYNC);
+    put_varuint(&mut out, kind);
     debug_assert!(
         epoch >= 0,
         "an epoch counts the makings of a document: {epoch}"
     );
     put_varuint(&mut out, u64::try_from(epoch).unwrap_or(0));
-    out.put_slice(message);
-    out.freeze()
+    out
 }
 
 #[cfg(test)]
@@ -163,11 +208,30 @@ mod tests {
             let (room, rest) = room_of(frame).expect("a room");
             assert_eq!(room, doc);
             let read = received(rest).expect("a sync message");
-            assert_eq!(
-                (read.epoch, read.sync, &read.payload[..]),
-                (epoch, sync, payload)
-            );
+            let carried = Carried::Sync {
+                sync,
+                payload: Bytes::copy_from_slice(payload),
+            };
+            assert_eq!(read, Received { epoch, carried });
         }
+    }
+
+    #[test]
+    fn a_frame_of_carets_is_read_back_as_it_was_written() {
+        for (doc, epoch, update) in [
+            (1, 1, &b"\x01\x07\x01\x04null"[..]),
+            (u32::MAX, i64::MAX, &[0x80; 300][..]),
+            (0, 0, &[][..]),
+        ] {
+            let update = Bytes::copy_from_slice(update);
+            let (room, rest) = room_of(carets(doc, epoch, &update)).expect("a room");
+            assert_eq!(room, doc);
+            let carried = Carried::Carets(update);
+            assert_eq!(received(rest), Some(Received { epoch, carried }));
+        }
+        // doc 3, carets, epoch 300, an update of two bytes.
+        let frame = carets(3, 300, &Bytes::from_static(&[0xaa, 0xbb]));
+        assert_eq!(&frame[..], [3, 1, 0xac, 0x02, 2, 0xaa, 0xbb]);
     }
 
     #[test]
@@ -181,12 +245,16 @@ mod tests {
 
     #[test]
     fn what_is_no_frame_is_none() {
-        let no_frames: [&[u8]; 9] = [
+        let no_frames: [&[u8]; 12] = [
             &[],
             // A room and nothing else.
             &[1],
             // Another kind.
-            &[1, 1, 1, 2, 0],
+            &[1, 2, 1, 2, 0],
+            // Carets of a length past the frame, one short of it, and of none.
+            &[1, 1, 1, 5, 1, 2],
+            &[1, 1, 1, 1, 1, 2],
+            &[1, 1, 1],
             // A type that is none.
             &[1, 0, 1, 3, 0],
             // A length past the frame, and one short of it.

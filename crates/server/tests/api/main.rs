@@ -78,6 +78,7 @@ mod relations;
 mod review_o5c;
 mod rooms;
 mod rooms_access;
+mod rooms_carets;
 mod rooms_changes;
 mod rooms_changes_held;
 mod rooms_changes_many;
