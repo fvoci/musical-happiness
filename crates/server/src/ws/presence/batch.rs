@@ -257,7 +257,10 @@ impl Hub {
         let visit = visit.clone();
         let recheck = std::mem::take(&mut state.recheck);
         let revision = state.revision;
-        let (user_id, provider) = (listener.user_id.clone(), listener.login_provider().map(str::to_owned));
+        let (user_id, provider) = (
+            listener.user_id.clone(),
+            listener.login_provider().map(str::to_owned),
+        );
         let raw = snapshot(&visit, listeners);
         Taken::Batch(Box::new(Batch {
             visit,

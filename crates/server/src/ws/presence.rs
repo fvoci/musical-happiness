@@ -314,8 +314,12 @@ impl Hub {
             left: u64::from(per_second) * 1000,
             counted: Instant::now(),
         });
-        rate.admits(per_second)
-            .then(|| (listener.user_id.clone(), listener.login_provider().map(str::to_owned)))
+        rate.admits(per_second).then(|| {
+            (
+                listener.user_id.clone(),
+                listener.login_provider().map(str::to_owned),
+            )
+        })
     }
 
     /// Places a visit read before now: not if the link it came by was taken back since

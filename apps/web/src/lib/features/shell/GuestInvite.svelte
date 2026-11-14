@@ -81,7 +81,9 @@
       await access.people.revokeInvitation(workspaceId, link.id);
     } catch (error) {
       problem =
-        isBackendError(error) && error.status === 403 ? m.people_not_allowed() : m.people_failed();
+        isBackendError(error) && error.status === 403
+          ? m.people_not_allowed({ workspace: workspaceName })
+          : m.people_failed();
     } finally {
       await readLinks();
       working = false;
