@@ -121,7 +121,8 @@ pub(crate) enum IndexFound {
 /// A write of one document.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Operation {
-    /// The document is put, in place of what the search server holds of its card.
+    /// The document is put, in place of what the search server holds of its card or
+    /// page.
     Put(SearchDocument),
     /// The document of the card of this identifier is removed, if there is one.
     Remove(String),
@@ -152,7 +153,7 @@ impl Operation {
 /// What a search found of one document.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Hit {
-    /// The identifier of the document, which is the card's.
+    /// The identifier of the document, which is its card's or page's.
     pub(crate) id: String,
     /// The digest the document was indexed with.
     pub(crate) digest: String,
@@ -161,7 +162,7 @@ pub(crate) struct Hit {
 }
 
 /// The client of the search server: no redirect is followed and no proxy of the
-/// environment is used. A request carries the server's credentials and what cards
+/// environment is used. A request carries the server's credentials and what cards and pages
 /// say, and goes where `search_url` says, nowhere else.
 #[derive(Debug, Clone)]
 pub(crate) struct Client {

@@ -193,7 +193,7 @@ impl App {
     /// of it is what the database says: the container and its kind, the kind and the
     /// title. The piece of text alone
     /// is the search server's, and is left out unless the document was indexed from
-    /// the title and the text the card has now.
+    /// the title and the text it has now.
     async fn check_hits(
         &self,
         check: &mut Check<'_>,

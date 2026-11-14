@@ -1,4 +1,4 @@
-//! The search of what cards say, through a search server that is set up apart
+//! The search of what cards and pages say, through a search server that is set up apart
 //! (`search_url`): Elasticsearch or `OpenSearch`, with the nori analysis plugin.
 //!
 //! The browser never reaches the search server. The server keeps one index there; a

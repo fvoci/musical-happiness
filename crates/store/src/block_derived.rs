@@ -33,8 +33,8 @@ pub(crate) enum Before<'a> {
 /// `new_images` says), and the search server's document of it.
 ///
 /// The search server is told of a block that is searched now if what it holds of it
-/// may have changed (its title, its body, or that it is searched at all), and of one
-/// that was searched and is no more.
+/// may have changed (its title, its body, its kind, or that it is searched at all),
+/// and of one that was searched and is no more.
 pub(crate) async fn refresh(
     scope: &mut Scope<'_>,
     block: &Block,
@@ -46,7 +46,11 @@ pub(crate) async fn refresh(
         Before::Absent | Before::Unknown => is_searched(block),
         Before::Unchanged => false,
         Before::Stored(before) => match (is_searched(before), is_searched(block)) {
-            (true, true) => before.title != block.title || before.body != block.body,
+            (true, true) => {
+                before.block_type != block.block_type
+                    || before.title != block.title
+                    || before.body != block.body
+            }
             (false, false) => false,
             (true, false) | (false, true) => true,
         },

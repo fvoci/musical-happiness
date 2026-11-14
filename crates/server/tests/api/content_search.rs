@@ -259,7 +259,7 @@ async fn a_search_answers_a_card_as_the_database_has_it() {
         definition["settings"]["analysis"]["tokenizer"]["fvoci_nori"]["type"],
         "nori_tokenizer"
     );
-    assert_eq!(definition["mappings"]["_meta"]["fvoci"]["version"], 1);
+    assert_eq!(definition["mappings"]["_meta"]["fvoci"]["version"], 2);
 }
 
 /// The organization a filter names: some identifier, and not none.
@@ -637,7 +637,7 @@ async fn an_index_made_from_another_definition_is_made_again() {
     let fake = FakeSearch::start().await;
     fake.put_index(
         INDEX,
-        json!({"mappings": {"_meta": {"fvoci": {"version": 0}}, "properties": {}}}),
+        json!({"mappings": {"_meta": {"fvoci": {"version": 1}}, "properties": {}}}),
     );
     let th = started(&fake).await;
 
@@ -651,7 +651,7 @@ async fn an_index_made_from_another_definition_is_made_again() {
     th.teardown().await;
 
     assert_eq!(config["searchEnabled"], true, "{config}");
-    assert_eq!(definition["mappings"]["_meta"]["fvoci"]["version"], 1);
+    assert_eq!(definition["mappings"]["_meta"]["fvoci"]["version"], 2);
     let path = format!("/{INDEX}");
     assert_eq!(
         requests,
@@ -835,4 +835,24 @@ async fn an_index_that_went_is_made_again_and_a_partial_answer_is_none() {
     back.check_ok();
     assert!(made.is_some(), "the upkeep made the index again");
     partial.check_status(StatusCode::SERVICE_UNAVAILABLE);
+}
+
+#[tokio::test]
+async fn an_index_a_newer_server_made_is_left_as_it_is() {
+    let fake = FakeSearch::start().await;
+    let theirs = json!({"mappings": {"_meta": {"fvoci": {"version": 99}}, "properties": {}}});
+    fake.put_index(INDEX, theirs.clone());
+    let th = started(&fake).await;
+
+    let config = th.anonymous().get("/client-config").await.value();
+    let left = fake.index_definition(INDEX);
+    let requests = fake.recorded();
+    th.teardown().await;
+
+    assert_eq!(config["searchEnabled"], false, "{config}");
+    assert_eq!(left, Some(theirs), "the index is as it was");
+    assert!(
+        requests.iter().all(|request| request.method == "GET"),
+        "nothing was written or removed: {requests:?}"
+    );
 }

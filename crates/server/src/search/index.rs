@@ -9,9 +9,10 @@
 
 use serde_json::{Value, json};
 
-/// The version of the definition below. An index made from another is made again,
-/// and every document sent again: raise it with every change of [`definition`].
-pub(crate) const VERSION: i64 = 1;
+/// The version of what the index holds. An index made from another is made again,
+/// and every document sent again: raise it with every change of [`definition`], and
+/// of which blocks have a document (2: the pages of wikis beside the cards).
+pub(crate) const VERSION: i64 = 2;
 
 /// The name of the analyser of Korean text.
 const KOREAN: &str = "fvoci_korean";

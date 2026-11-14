@@ -103,3 +103,22 @@ pub struct SearchHit {
     /// to show.
     pub snippet: Vec<SnippetPart>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_kind_is_listed_and_reads_back() {
+        for kind in SearchKind::ALL {
+            // A new kind is added to `ALL` too: the store reads the blocks of its kinds.
+            match kind {
+                SearchKind::Card | SearchKind::Page => {}
+            }
+            assert_eq!(SearchKind::of_block(&kind.block_type()), Some(kind));
+            assert_eq!(kind.as_str().parse(), Ok(kind));
+        }
+        assert_eq!(SearchKind::of_block(&BlockType::Comment), None);
+        assert!("comment".parse::<SearchKind>().is_err());
+    }
+}

@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 
 use crate::boards::new_board;
 use crate::common::{
-    Client, HIDDEN_WORKSPACE_ID, ROOT_WORKSPACE_ID, ROOT_WS, TEST_WORKSPACE_ID, TEST_WS,
+    Client, HIDDEN_WORKSPACE_ID, ROOT_WORKSPACE_ID, ROOT_WS, TEST_WORKSPACE_ID, TEST_WS, TestServer,
 };
 use crate::content_search::{INDEX, new_card, started};
 use crate::fake_search::{FakeSearch, page_document};
@@ -56,12 +56,18 @@ pub(crate) async fn new_page(
 }
 
 /// A wiki stored past the API, with a page of it: in any workspace of the store's
-/// organization, by any user. The identifiers of both.
-async fn stored_wiki(store: &Store, workspace_id: &str, user_id: &str) -> (String, String) {
+/// organization, by any user, for the invited only or open to who works there. The
+/// identifiers of both.
+async fn stored_wiki(
+    store: &Store,
+    workspace_id: &str,
+    wiki_type: BoardType,
+    user_id: &str,
+) -> (String, String) {
     let mut wiki = Board {
         id: new_id(),
         kind: BoardKind::Wiki,
-        ..new_board(workspace_id, BoardType::Private, "Wiki")
+        ..new_board(workspace_id, wiki_type, "Wiki")
     };
     store
         .insert_board_with_admin(&mut wiki, user_id)
@@ -134,9 +140,19 @@ async fn a_page_is_sent_and_found_with_the_cards_while_it_is_there() {
         .check_no_content();
     tend(&th.app).await;
     let after_the_page = held(&fake);
-    // A page of its own, and then the wiki goes to the trash and comes back.
+    // A page of its own, which gets another title; then the wiki goes to the trash
+    // and comes back.
     let kept = new_page(&th.client, &wiki, "", "환불 문의", "환불").await;
     tend(&th.app).await;
+    th.client
+        .patch(
+            &format!("{TEST_WS}/wikis/{wiki}/pages/{}", kept.id),
+            &json!({"title": "환불 문의처"}),
+        )
+        .await
+        .check_ok();
+    tend(&th.app).await;
+    let retitled = fake.documents(INDEX);
     th.client
         .delete(&format!("{TEST_WS}/boards/{wiki}"))
         .await
@@ -179,6 +195,10 @@ async fn a_page_is_sent_and_found_with_the_cards_while_it_is_there() {
         "the page went, and the page below it"
     );
     assert_eq!(
+        retitled[&kept.id]["title"], "환불 문의처",
+        "sent with the title it has now, before its wiki went"
+    );
+    assert_eq!(
         after_the_wiki.into_keys().collect::<Vec<_>>(),
         [card.id],
         "a wiki in the trash"
@@ -188,6 +208,29 @@ async fn a_page_is_sent_and_found_with_the_cards_while_it_is_there() {
         [kept.id],
         "the wiki is back with the page it had"
     );
+}
+
+/// A page of a wiki of another organization on the server of the test.
+async fn page_of_another_organization(th: &TestServer) -> String {
+    let (theirs, their_workspace, _) = another_organization(th).await;
+    let mut their_user = fvoci_model::User {
+        id: new_id(),
+        username: "writer.elsewhere".to_owned(),
+        email: "writer.elsewhere@sample.com".to_owned(),
+        ..fvoci_model::User::default()
+    };
+    theirs
+        .create_user(&mut their_user)
+        .await
+        .expect("their user is stored");
+    let (_, page) = stored_wiki(
+        &theirs,
+        &their_workspace,
+        BoardType::Private,
+        &their_user.id,
+    )
+    .await;
+    page
 }
 
 /// The search server answers every search with pages the searcher does not read: of a
@@ -227,35 +270,31 @@ async fn a_stale_index_shows_nobody_a_page_they_do_not_read() {
     // A private wiki of somebody else in the same workspace, and one of a workspace
     // the searchers are not in.
     let stranger = th.stranger_in(TEST_WORKSPACE_ID).await;
-    let (private, private_page) = stored_wiki(store, TEST_WORKSPACE_ID, &stranger).await;
+    let (private, private_page) =
+        stored_wiki(store, TEST_WORKSPACE_ID, BoardType::Private, &stranger).await;
+    // An open wiki the searchers have not joined: theirs to join, and not to read.
+    let (open, open_page) = stored_wiki(store, TEST_WORKSPACE_ID, BoardType::Open, &stranger).await;
     let hidden_owner = th.stranger_in(HIDDEN_WORKSPACE_ID).await;
-    let (_, hidden_page) = stored_wiki(store, HIDDEN_WORKSPACE_ID, &hidden_owner).await;
+    let (_, hidden_page) = stored_wiki(
+        store,
+        HIDDEN_WORKSPACE_ID,
+        BoardType::Private,
+        &hidden_owner,
+    )
+    .await;
 
     let mut planted = vec![
         (read.id.clone(), mine.clone()),
         (trashed.id.clone(), mine.clone()),
         (below.id.clone(), mine.clone()),
         (gone_page.id.clone(), gone.clone()),
-        (gone_page.id.clone(), mine.clone()),
-        (private_page.clone(), private),
-        (private_page, mine.clone()),
+        (private_page, private),
+        (open_page, open),
         (hidden_page, mine.clone()),
     ];
     // Another organization's page, where the database holds more than one.
     if db_type_of_the_tests() == DbType::Postgres {
-        let (theirs, their_workspace, _) = another_organization(&th).await;
-        let mut their_user = fvoci_model::User {
-            id: new_id(),
-            username: "writer.elsewhere".to_owned(),
-            email: "writer.elsewhere@sample.com".to_owned(),
-            ..fvoci_model::User::default()
-        };
-        theirs
-            .create_user(&mut their_user)
-            .await
-            .expect("their user is stored");
-        let their_user = their_user.id;
-        let (_, their_page) = stored_wiki(&theirs, &their_workspace, &their_user).await;
+        let their_page = page_of_another_organization(&th).await;
         planted.push((their_page, mine.clone()));
     }
     for (id, container) in &planted {
@@ -264,11 +303,17 @@ async fn a_stale_index_shows_nobody_a_page_they_do_not_read() {
             page_document(&org_id, TEST_WORKSPACE_ID, container, "환불 규정", "환불"),
         );
     }
-    // The second user has a board of their own to search, and no wiki.
-    th.client2
+    // The second user has a board of their own to search, with a card, and no wiki.
+    let their_board: Board = th
+        .client2
         .create_board(&new_board(TEST_WORKSPACE_ID, BoardType::Private, "Theirs"))
         .await
-        .check_created();
+        .created_json();
+    let their_card = new_card(&th.client2, &their_board.id, "환불 카드", "환불").await;
+    fake.plant(
+        &their_card.id,
+        crate::fake_search::document(&org_id, TEST_WORKSPACE_ID, &their_board.id, "x", "x"),
+    );
 
     let owner = hits(&th.client, TEST_WS, "").await;
     let other = hits(&th.client2, TEST_WS, "").await;
@@ -282,7 +327,16 @@ async fn a_stale_index_shows_nobody_a_page_they_do_not_read() {
         "the page they read, and no other"
     );
     assert_eq!(owner[0].container_id, mine);
-    assert_eq!(ids(&other), Vec::<String>::new(), "no wiki is theirs");
+    assert_eq!(owner[0].title, "읽는 페이지", "the title is the database's");
+    assert!(
+        owner[0].snippet.is_empty(),
+        "what was indexed from another title and text is not shown: {owner:?}"
+    );
+    assert_eq!(
+        ids(&other),
+        [their_card.id],
+        "their own card, and no page: no wiki is theirs"
+    );
     assert_eq!(ids(&in_root), Vec::<String>::new(), "another workspace");
     assert_eq!(asked, 3, "each of them asked the index");
 }

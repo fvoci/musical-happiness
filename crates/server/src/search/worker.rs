@@ -148,8 +148,9 @@ async fn send_blocks(
 }
 
 /// Sends everything of a board as it is stored now: removes every document the
-/// search server holds of it, those of cards that are gone among them, and puts the
-/// documents its cards have. A board that is gone, or is a template, has none.
+/// search server holds of it, those of cards and pages that are gone among them, and
+/// puts the documents it has now. A board or a wiki that is gone, or is a template,
+/// has none.
 async fn send_board(
     store: &Store,
     client: &Client,
