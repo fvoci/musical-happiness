@@ -11,26 +11,29 @@ import { ADMIN, signInOnPage, type Schemas } from './support.ts';
 
 export const PORT = Number(process.env.FVOCI_LIVE_PORT ?? 18510);
 export const ISSUER = `https://127.0.0.1:${PORT + 1}`;
+/** The second fake provider, which an organization moves to: the same client and secrets. */
+export const NEXT_ISSUER = `https://127.0.0.1:${PORT + 5}`;
 export const CLIENT_ID = 'fvoci-test-client';
 export const SECRET = 'fvoci test secret: not one to keep';
 /** The provider's other secret, which it takes as well (a secret rotated). */
 export const NEXT_SECRET = 'fvoci test secret: the next one';
 
-/** Who the provider signs in from now on. */
-export async function providerSignsIn(who: {
-  subject: string;
-  email: string;
-  preferredUsername?: string;
-  name?: string;
-}): Promise<void> {
+/** Who the provider (the first one, or the one at `issuer`) signs in from now on. */
+export async function providerSignsIn(
+  who: { subject: string; email: string; preferredUsername?: string; name?: string },
+  issuer: string = ISSUER,
+): Promise<void> {
   const provider = await request.newContext({ ignoreHTTPSErrors: true });
-  expect((await provider.post(`${ISSUER}/person`, { data: who })).status()).toBe(204);
+  expect((await provider.post(`${issuer}/person`, { data: who })).status()).toBe(204);
   await provider.dispose();
 }
 
-/** The page at both widths, under `target/screens/sso/`, with nothing wider than the window. */
-export async function pictures(page: Page, name: string): Promise<void> {
-  const directory = path.resolve('../../target/screens/sso');
+/**
+ * The page at both widths, under `target/screens/<folder>/` (`sso` unless named),
+ * with nothing wider than the window.
+ */
+export async function pictures(page: Page, name: string, folder = 'sso'): Promise<void> {
+  const directory = path.resolve('../../target/screens', folder);
   await mkdir(directory, { recursive: true });
   for (const width of [1280, 390]) {
     await page.setViewportSize({ width, height: 900 });

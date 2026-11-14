@@ -396,3 +396,18 @@ export function joinWorkspace(baseURL: string, who: Person, workspaceId: string)
     database.close();
   }
 }
+
+/**
+ * Makes every session of the live server one that was made `minutes` earlier than
+ * it was, in its database: for what the server allows only a session made a moment
+ * ago (an administrator connecting an identity at another provider), which no
+ * request can make old.
+ */
+export function ageSessions(baseURL: string, minutes: number): void {
+  const database = serverDatabase(baseURL);
+  try {
+    database.prepare('UPDATE sessions SET created_at = created_at - ?').run(minutes * 60 * 1000);
+  } finally {
+    database.close();
+  }
+}

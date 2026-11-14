@@ -13,7 +13,9 @@
  * Beside the SQLite server runs the fake OpenID Connect provider of the server's tests
  * (`cargo build -p fvoci-server --bins --examples`), on the next port, and
  * the server is started to reach it: with a key to seal its client secret,
- * private addresses allowed, and its certificate as the one it trusts.
+ * private addresses allowed, and its certificate as the one it trusts. A second
+ * one runs five ports up, for the test that moves the organization from one
+ * provider to another (`e2e-live/sso-provider-move.spec.ts`); the server trusts both.
  *
  * Where the data folder of the server on a port is, and its administration
  * socket, is written to `target/web-live/server-<port>.json` (`{ "data": …,
@@ -26,7 +28,7 @@
  * into after a failure; each run makes a new one. A server that ends
  * without being asked ends this process with a failure.
  */
-import { spawn } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
 import { createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -43,6 +45,9 @@ const fakeOidc =
   process.env.FVOCI_FAKE_OIDC_BIN ?? path.join(REPO_ROOT, 'target/debug/examples/fake_oidc');
 /** The fake provider listens on the port after the server's (`e2e-live/oidc.spec.ts`). */
 const oidcPort = port + 1;
+/** The provider an organization moves to (`e2e-live/sso-provider-move.spec.ts`): the port the
+ * organizations server, four up, would give a provider if it had one. */
+const nextOidcPort = port + 5;
 /** The fake SMTP and its inbox take the next two (`e2e-live/mail.spec.ts` reads the inbox at +3); the
  * organizations server runs four ports up (`playwright.live.config.ts`), clear of these. */
 const smtpPort = port + 2;
@@ -152,14 +157,12 @@ const log = createWriteStream(path.join(data, 'server.log'));
 
 /** Whether this process is stopping, and its server and provider with it. */
 let stopping = false;
-const certificate = path.join(data, 'fake-oidc.pem');
-const provider = organizations
-  ? undefined
-  : spawn(fakeOidc, [String(oidcPort), certificate], {
-      cwd: data,
-      stdio: ['ignore', 'pipe', 'inherit'],
-    });
-if (provider)
+/** Starts a fake provider on `onPort`, which writes its certificate to `certificate`. */
+async function startProvider(onPort: number, certificate: string): Promise<ChildProcess> {
+  const provider = spawn(fakeOidc, [String(onPort), certificate], {
+    cwd: data,
+    stdio: ['ignore', 'pipe', 'inherit'],
+  });
   await new Promise<void>((started) => {
     const said = createInterface({ input: provider.stdout });
     said.on('line', (line) => {
@@ -167,9 +170,21 @@ if (provider)
       if (line.startsWith('fake-oidc:')) started();
     });
     provider.on('exit', (code) => {
-      if (!stopping) stop(`the fake provider ended (${code})`);
+      if (!stopping) stop(`the fake provider on ${onPort} ended (${code})`);
     });
   });
+  return provider;
+}
+
+/** The certificates of both providers in one file: what the server trusts. */
+const certificates = path.join(data, 'fake-oidc.pem');
+const providers: ChildProcess[] = [];
+if (!organizations) {
+  const own = [path.join(data, 'fake-oidc-1.pem'), path.join(data, 'fake-oidc-2.pem')] as const;
+  providers.push(await startProvider(oidcPort, own[0]));
+  providers.push(await startProvider(nextOidcPort, own[1]));
+  writeFileSync(certificates, own.map((file) => readFileSync(file, 'utf8')).join('\n'));
+}
 
 const smtp = spawn(fakeSmtp, [String(smtpPort), String(inboxPort)], {
   cwd: data,
@@ -198,8 +213,8 @@ const server = spawn(binary, ['--config', path.join(data, 'config.json')], {
       ? {
           FVOCI_SECRET_KEY: SECRET_KEY,
           FVOCI_OIDC_ALLOW_PRIVATE_ADDRESSES: 'true',
-          // The fake provider's certificate is the one the server trusts.
-          SSL_CERT_FILE: certificate,
+          // The fake providers' certificates are the ones the server trusts.
+          SSL_CERT_FILE: certificates,
         }
       : {}),
   },
@@ -238,7 +253,7 @@ database?.on('exit', (code) => {
 
 const end = (): void => {
   stopping = true;
-  provider?.kill('SIGTERM');
+  for (const provider of providers) provider.kill('SIGTERM');
   smtp.kill('SIGTERM');
   server.kill('SIGTERM');
   // A server that does not stop within the time it gives its own requests is ended.
@@ -248,6 +263,6 @@ process.on('SIGTERM', end);
 process.on('SIGINT', end);
 process.on('exit', () => {
   server.kill('SIGKILL');
-  provider?.kill('SIGKILL');
+  for (const provider of providers) provider.kill('SIGKILL');
   smtp.kill('SIGKILL');
 });
