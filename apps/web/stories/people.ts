@@ -34,7 +34,13 @@ export class ExamplePeople implements People {
         : [
             this.link('member'),
             guest,
-            { ...this.link('guest'), parentId: guest.id, recipient: 'guest@example.test' },
+            // Its own identifier, so the links the stories make keep their numbers.
+            {
+              ...guest,
+              id: 'example-invitation-mailed',
+              parentId: guest.id,
+              recipient: 'guest@example.test',
+            },
           ];
   }
 
