@@ -11,6 +11,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
 import { primaryName } from './keyboard.support.ts';
+import { scrollTo } from './scroll.support.ts';
 import { ON_A_CARD, placeOf, viewIdOf } from './address.ts';
 import {
   announcer,
@@ -749,6 +750,60 @@ test.describe('a pane that fits one column', () => {
         return resting.filter(Boolean).length;
       })
       .toBe(1);
+  });
+
+  test('a pane that changes width but still fits one column goes on following the reader', async ({
+    page,
+  }, info) => {
+    await openView(page, info, ...TASKS);
+    // From 440 pixels on, the board and its columns keep their inner width of 24rem.
+    await fitPane(page, 480);
+    await fitPane(page, 520);
+    const tabs = page.getByTestId('column-tabs');
+    await expect(tabs.getByRole('tab', { selected: true })).toContainText('Not Started');
+
+    // Scrolled on by a column, as a finger or the wheel does: the tab follows.
+    await kanban(page).evaluate((element) => {
+      element.scrollBy({ left: 384 });
+    });
+    await expect(tabs.getByRole('tab', { selected: true })).toContainText('In Progress');
+    await expect.poll(() => inView(page, 'In Progress')).toBe(true);
+  });
+
+  test('a column picked up by its heading leaves the board on the column looked at', async ({
+    page,
+  }, info) => {
+    test.skip(touch(info), 'a mouse');
+    await openView(page, info, ...TASKS);
+    await fitPane(page, NARROW);
+    const tabs = page.getByTestId('column-tabs');
+    await tabs.getByRole('tab', { name: /Blocked/ }).click();
+    await expect.poll(() => inView(page, 'Blocked')).toBe(true);
+    await expect(tabs.getByRole('tab', { selected: true })).toContainText('Blocked');
+
+    // The column is taken out of the row while it is carried: the board does not go to its start.
+    await grab(page, heading(page, 'Blocked'));
+    await nextFrame(page);
+    await nextFrame(page);
+    expect(await inView(page, 'Not Started')).toBe(false);
+    await page.keyboard.press('Escape');
+    await page.mouse.up();
+    await expectNoDrag(page);
+    await expect.poll(() => inView(page, 'Blocked')).toBe(true);
+    await expect(tabs.getByRole('tab', { selected: true })).toContainText('Blocked');
+  });
+
+  test('where several columns fit, a pane that changes width leaves the board where it was scrolled to', async ({
+    page,
+  }, info) => {
+    await openView(page, info, ...TASKS);
+    await fitPane(page, 700);
+    await expect(page.getByTestId('column-tabs')).toBeHidden();
+    // The first column half out of view at the left: still the one looked at.
+    await scrollTo(kanban(page), 150, 0);
+    await fitPane(page, 740);
+    await nextFrame(page);
+    expect(await kanban(page).evaluate((element) => element.scrollLeft)).toBe(150);
   });
 
   test('wider, the tabs go and the columns stand side by side; narrow again, the column looked at is back', async ({
