@@ -8,7 +8,7 @@ use fvoci_store::{PublicBoards, SearchDocument};
 
 use super::client::{ClientError, Hit};
 use super::query::{Containers, Scope};
-use super::{Engine, IndexState, document};
+use super::{Engine, document};
 use crate::app::App;
 use crate::error::{AppError, Reason};
 use crate::metrics::SearchAsked;
@@ -267,7 +267,7 @@ struct Check<'a> {
 fn search_failed(engine: &Engine, error: &ClientError) -> AppError {
     tracing::warn!(%error, "a search was not answered by the search server");
     if error.is_missing_index() {
-        engine.set_index_state(IndexState::Unknown);
+        engine.lose_index();
     }
     unavailable()
 }

@@ -78,6 +78,10 @@ pub(crate) enum ClientError {
     /// The search server has no analyser of Korean text.
     #[error("the search server has no nori analysis plugin")]
     NoNori,
+    /// The search server holds, under the name of the index, what this server may
+    /// not make its index of: an index it did not make, or one a newer server made.
+    #[error("the search server holds another index under the name")]
+    NoIndex,
     /// The search server refused the request: its status, and the name of its error.
     #[error("the search server answered {status} ({kind})")]
     Refused {
@@ -439,12 +443,13 @@ impl Client {
         if let Some(refusal) = answer.refusal() {
             return Err(refusal);
         }
-        let failed = answer
-            .body
-            .get("failures")
-            .and_then(Value::as_array)
+        // What it did not get to, or left for a conflict, is still there.
+        let count = |member: &str| answer.body[member].as_u64().unwrap_or(0);
+        let failed = answer.body["failures"]
+            .as_array()
             .is_some_and(|failures| !failures.is_empty());
-        if failed {
+        let timed_out = answer.body["timed_out"].as_bool().unwrap_or(false);
+        if failed || timed_out || count("version_conflicts") > 0 {
             return Err(ClientError::Partial);
         }
         Ok(())

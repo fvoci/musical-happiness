@@ -390,6 +390,9 @@ async fn the_operator_has_the_index_made_again() {
 
     let reindexed = socket_request(&socket, "POST", "/api/v1/admin/search/reindex", "").await;
     let listed: Value = serde_json::from_str(&reindexed.body).expect("JSON");
+    let made = index_requests(&fake);
+    let definition = fake.index_definition(INDEX).expect("an index");
+    let nothing_yet = titles(&fake);
     tend(&th.app).await;
     let after = titles(&fake);
     let over_http = th.client.post_empty("/admin/search/reindex").await;
@@ -399,6 +402,13 @@ async fn the_operator_has_the_index_made_again() {
 
     assert_eq!(reindexed.status, 200, "{}", reindexed.body);
     assert_eq!(listed, json!({"boards": 1}));
+    assert_eq!(made, ["PUT", "DELETE", "PUT"], "removed and made again");
+    assert_eq!(definition["mappings"]["dynamic"], "strict", "{definition}");
+    assert_eq!(
+        nothing_yet,
+        BTreeMap::new(),
+        "sent by the upkeep, afterwards"
+    );
     assert_eq!(after.into_keys().collect::<Vec<_>>(), [card.id]);
     over_http.check_not_found();
     assert_eq!(down.status, 503, "{}", down.body);
@@ -467,4 +477,104 @@ async fn the_cards_of_two_organizations_are_sent_apart_and_found_apart() {
         &asked.body["query"]["bool"]["filter"][0],
         &json!({"term": {"orgId": our_org}})
     );
+}
+
+#[tokio::test]
+async fn the_server_sends_what_changed_by_itself() {
+    let fake = FakeSearch::start().await;
+    let mut settings = fake.settings();
+    settings.upkeep_by_hand = false;
+    let th = Setup::native()
+        .search(settings)
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let board = board(&th, BoardType::Private, "Support").await;
+    let card = new_card(&th.client, &board.id, "카드", "환불").await;
+
+    // The task runs every second: the index first, then the card.
+    let mut sent = BTreeMap::new();
+    for _ in 0..100 {
+        sent = titles(&fake);
+        if !sent.is_empty() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    th.teardown().await;
+
+    assert_eq!(sent.into_keys().collect::<Vec<_>>(), [card.id]);
+}
+
+/// Both search servers make an index that is not there when a document is put into
+/// it. The upkeep asks which index is there before it writes.
+#[tokio::test]
+async fn an_index_that_went_is_not_made_by_a_write() {
+    let fake = FakeSearch::start().await;
+    let th = started(&fake).await;
+    let board = board(&th, BoardType::Private, "Support").await;
+    let before = new_card(&th.client, &board.id, "먼저 쓴 카드", "환불").await;
+    tend(&th.app).await;
+
+    fake.remove_index(INDEX);
+    let after = new_card(&th.client, &board.id, "나중에 쓴 카드", "환불").await;
+    tend(&th.app).await;
+    let lost = fake.index_definition(INDEX);
+    tend(&th.app).await;
+    let definition = fake
+        .index_definition(INDEX)
+        .expect("the index is made again");
+    let sent = titles(&fake);
+    th.teardown().await;
+
+    assert_eq!(lost, None, "nothing was written where no index was");
+    assert_eq!(definition["mappings"]["_meta"]["fvoci"]["version"], 1);
+    let mut both = vec![before.id, after.id];
+    both.sort();
+    assert_eq!(
+        sent.into_keys().collect::<Vec<_>>(),
+        both,
+        "everything is sent again"
+    );
+}
+
+#[tokio::test]
+async fn a_board_is_sent_whole_but_for_the_document_that_was_refused() {
+    let fake = FakeSearch::start().await;
+    let th = started(&fake).await;
+    let board = board(&th, BoardType::Private, "Support").await;
+    let mut cards = Vec::new();
+    for number in 0..3 {
+        cards.push(
+            new_card(&th.client, &board.id, &format!("카드 {number}"), "환불")
+                .await
+                .id,
+        );
+    }
+    cards.sort();
+    tend(&th.app).await;
+
+    // The board is listed whole, as for an index made again, and the search server
+    // refuses the first document it is sent.
+    fvoci_server::search::reindex(&th.app)
+        .await
+        .expect("the index is made again");
+    fake.fail_writes(1);
+    tend(&th.app).await;
+    let at_first: Vec<String> = titles(&fake).into_keys().collect();
+    th.app
+        .housekeeping()
+        .store()
+        .execute_unchecked("UPDATE search_outbox SET due_at = 0")
+        .await
+        .expect("the row is due");
+    tend(&th.app).await;
+    let at_last: Vec<String> = titles(&fake).into_keys().collect();
+    let left = waiting(&th).await;
+    th.teardown().await;
+
+    assert_eq!(at_first, cards[1..], "all but the one that was refused");
+    assert_eq!(at_last, cards);
+    assert_eq!(left, 0);
 }

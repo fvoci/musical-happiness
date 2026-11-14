@@ -11,6 +11,7 @@
 
 use std::time::{Duration, Instant};
 
+use anyhow::Context as _;
 use fvoci_store::{SearchIndexMark, Store};
 
 use super::client::{ClientError, IndexFound};
@@ -102,47 +103,34 @@ async fn sync_index(store: &Store, engine: &Engine) -> Result<Synced, Stopped> {
 
 /// One run of the upkeep, for a server that holds the lock: the index first, where it
 /// is not known to be there, and then what the list says is due. `app` reaches every
-/// organization. Returns the boards listed, if the index was made.
-async fn run(app: &App, engine: &Engine, pause: &mut Pause) -> Result<Option<u64>, Stopped> {
-    let mut listed = None;
+/// organization. Returns how many rows of the list it looked at.
+async fn run(app: &App, engine: &Engine) -> Result<usize, Stopped> {
     if engine.index_state() == IndexState::Unknown {
-        match sync_index(app.store(), engine).await? {
-            Synced::Kept => {}
-            Synced::Made { listed: boards } => listed = Some(boards),
-            Synced::Refused => {
-                refuse(app, engine).await;
-                return Ok(None);
-            }
+        if sync_index(app.store(), engine).await? == Synced::Refused {
+            return Err(Stopped::Search(ClientError::NoIndex));
         }
         engine.set_index_state(IndexState::Ready);
     }
-    let looked_at = worker::work_off(app.store(), &engine.client, app.metrics()).await?;
-    pause.idle_runs = if looked_at == 0 {
-        pause.idle_runs.saturating_add(1)
-    } else {
-        0
-    };
-    if pause.idle_runs.is_multiple_of(COUNT_EVERY_IDLE) {
-        let counts = app.store().search_outbox_counts().await?;
-        app.metrics()
-            .search_outbox_counted(counts.waiting, counts.failing);
-    }
-    Ok(listed)
+    worker::work_off(app.store(), &engine.client, app.metrics()).await
 }
 
 /// Turns the search off for as long as the server runs: the search server cannot
 /// hold the index. Nothing is noted for it any more, and what was is forgotten: the
-/// index a later start finds is made again.
-async fn refuse(app: &App, engine: &Engine) {
-    engine.set_index_state(IndexState::Refused);
-    if let Err(error) = app.store().drop_search_outbox().await {
-        tracing::error!(%error, "unable to forget what the search server was to be told");
+/// index a later start finds is made again. If that cannot be forgotten, the search
+/// is not off yet, and the upkeep comes here again.
+async fn refuse(app: &App, engine: &Engine, pause: &mut Pause) {
+    match app.store().drop_search_outbox().await {
+        Ok(()) => engine.set_index_state(IndexState::Refused),
+        Err(error) => {
+            tracing::error!(%error, "unable to forget what the search server was to be told");
+            pause.wait(Instant::now());
+        }
     }
 }
 
-/// What a run that stopped makes of the upkeep: a search server without nori turns
-/// the search off, one that did not take a request is left alone for a while, and an
-/// index that is gone is looked for again.
+/// What a run that stopped makes of the upkeep: a search server that cannot hold the
+/// index turns the search off, one that did not take a request is left alone for a
+/// while, and an index that is gone is looked for again.
 async fn stopped(app: &App, engine: &Engine, pause: &mut Pause, stopped: Stopped) {
     let error = match stopped {
         Stopped::Search(ClientError::NoNori) => {
@@ -150,18 +138,28 @@ async fn stopped(app: &App, engine: &Engine, pause: &mut Pause, stopped: Stopped
                 "the search server has no nori analysis plugin (analysis-nori): bodies \
                  are not searched until it is installed there and this server started again"
             );
-            refuse(app, engine).await;
+            return refuse(app, engine, pause).await;
+        }
+        // Said where it was found.
+        Stopped::Search(ClientError::NoIndex) => return refuse(app, engine, pause).await,
+        Stopped::IndexLost => {
+            tracing::warn!(
+                "the search index is gone, or is not the one this database kept its \
+                 changes for; looking after it again"
+            );
+            engine.lose_index();
             return;
         }
         Stopped::Search(error) => error,
         Stopped::Store(error) => {
             tracing::error!(%error, "the upkeep of the search could not ask the database");
+            pause.wait(Instant::now());
             return;
         }
     };
     app.metrics().search_sent(SearchSent::Unavailable);
     if error.is_missing_index() {
-        engine.set_index_state(IndexState::Unknown);
+        engine.lose_index();
     }
     // Said once for a row of the same failure: the next ones say the same.
     let refused = matches!(error, ClientError::Refused { .. });
@@ -170,6 +168,27 @@ async fn stopped(app: &App, engine: &Engine, pause: &mut Pause, stopped: Stopped
             tracing::error!(%error, "the search server refused the upkeep of the search; trying again");
         } else {
             tracing::warn!(%error, "the search server did not take the upkeep of the search; trying again");
+        }
+    }
+}
+
+/// Counts the list for the metrics: after a run that looked at rows or stopped, and
+/// now and then otherwise. It is counted while the search server is away too, which
+/// is when it grows.
+async fn count(app: &App, pause: &mut Pause, looked_at: Option<usize>) {
+    pause.idle_runs = match looked_at {
+        Some(0) => pause.idle_runs.saturating_add(1),
+        Some(_) | None => 0,
+    };
+    if !pause.idle_runs.is_multiple_of(COUNT_EVERY_IDLE) {
+        return;
+    }
+    match app.store().search_outbox_counts().await {
+        Ok(counts) => app
+            .metrics()
+            .search_outbox_counted(counts.waiting, counts.failing),
+        Err(error) => {
+            tracing::warn!(%error, "what the search server is to be told was not counted");
         }
     }
 }
@@ -191,40 +210,51 @@ pub async fn tend(app: &App) {
         tracing::warn!(%error, "the search is not looked after");
         return;
     }
-    match run(&app, engine, &mut pause).await {
-        Ok(_) => {
+    match run(&app, engine).await {
+        Ok(looked_at) => {
             pause.until = None;
             pause.failures = 0;
             pause.last = None;
+            count(&app, &mut pause, Some(looked_at)).await;
         }
-        Err(error) => stopped(&app, engine, &mut pause, error).await,
+        Err(error) => {
+            stopped(&app, engine, &mut pause, error).await;
+            count(&app, &mut pause, None).await;
+        }
     }
 }
 
 /// Makes the index again and lists every board to be sent to it, now: the command of
-/// the operator, for an index that is thought to be wrong. Until the list is worked
-/// off, searches find what was sent so far. Returns how many boards were listed.
+/// the operator, for an index that is thought to be wrong. The boards are sent by the
+/// upkeep afterwards, and until it has, searches find what was sent so far. Returns
+/// how many boards were listed.
 ///
 /// # Errors
 ///
 /// Returns a 404 with the reason `search_not_configured` where bodies cannot be
-/// searched, a 503 if this process does not hold the lock of the server or the search
-/// server does not take the requests (reason `search_unavailable`), and the store's
-/// error if the database cannot be asked.
+/// searched, or cannot be any more because the search server holds something else
+/// under the name; a 503 if this process does not hold the lock of the server or the
+/// search server does not take the requests (reason `search_unavailable`); and the
+/// store's error if the database cannot be asked.
 pub async fn reindex(app: &App) -> Result<u64, AppError> {
-    let engine = app
-        .search()
-        .engine()
-        .ok_or_else(|| AppError::not_found("search").with_reason(Reason::SearchNotConfigured))?;
+    let not_configured = || AppError::not_found("search").with_reason(Reason::SearchNotConfigured);
+    let engine = app.search().engine().ok_or_else(not_configured)?;
     let mut pause = engine.upkeep.lock().await;
     let app = app.housekeeping();
     app.require_server_lock()?;
     app.store().forget_search_index().await?;
     engine.set_index_state(IndexState::Unknown);
-    match run(&app, engine, &mut pause).await {
-        Ok(listed) => {
+    match sync_index(app.store(), engine).await {
+        Ok(Synced::Made { listed }) => {
+            engine.set_index_state(IndexState::Ready);
             *pause = Pause::default();
-            Ok(listed.unwrap_or(0))
+            Ok(listed)
+        }
+        // The index it was kept for was just forgotten: none is the kept one.
+        Ok(Synced::Kept) => Err(AppError::internal("an index kept for no list")),
+        Ok(Synced::Refused) => {
+            refuse(&app, engine, &mut pause).await;
+            Err(not_configured())
         }
         Err(Stopped::Store(error)) => Err(error),
         Err(error) => {
@@ -237,22 +267,29 @@ pub async fn reindex(app: &App) -> Result<u64, AppError> {
     }
 }
 
-/// What a server does about the search before it serves: one without a search server
-/// forgets what an earlier one noted and which index it kept, so that an index found
-/// later is made again.
-pub async fn settle_at_start(app: &App) {
+/// What a server does about the search before it serves, and before anything is
+/// written: one without a search server forgets what an earlier one noted and which
+/// index it kept, so that an index found later is made again.
+///
+/// # Errors
+///
+/// Returns an error if that cannot be forgotten: what such a server writes is noted
+/// nowhere, and an index kept in the database's memory would be taken for whole.
+pub async fn settle_at_start(app: &App) -> anyhow::Result<()> {
     if app.search().configured() {
-        return;
+        return Ok(());
     }
-    if let Err(error) = app.housekeeping().store().drop_search_outbox().await {
-        tracing::error!(%error, "unable to forget what a search server was to be told");
-    }
+    app.housekeeping()
+        .store()
+        .drop_search_outbox()
+        .await
+        .context("unable to forget what a search server was to be told")
 }
 
 /// Starts the task of the search's upkeep ([`tend`]); `None` where no search server
 /// is configured.
 pub(crate) fn start_upkeep(app: &App) -> Option<RecurringTask> {
-    if !app.search().configured() {
+    if !app.search().configured() || app.config().search.upkeep_by_hand {
         return None;
     }
     let app = app.clone();

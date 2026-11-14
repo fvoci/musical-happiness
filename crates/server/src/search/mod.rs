@@ -88,14 +88,20 @@ impl Pause {
     /// Notes a failure at `now`. Returns whether it is news: the first in a row, or
     /// another failure than the one before.
     fn failed(&mut self, now: Instant, error: ClientError) -> bool {
+        self.wait(now);
+        let news = self.last.as_ref() != Some(&error);
+        self.last = Some(error);
+        news
+    }
+
+    /// Leaves the search alone for a while from `now`, longer each time in a row: for
+    /// what failed otherwise than by the search server.
+    fn wait(&mut self, now: Instant) {
         let pause = FIRST_PAUSE
             .saturating_mul(2_u32.saturating_pow(self.failures))
             .min(LONGEST_PAUSE);
         self.until = Some(now + pause);
         self.failures = self.failures.saturating_add(1);
-        let news = self.last.as_ref() != Some(&error);
-        self.last = Some(error);
-        news
     }
 }
 
@@ -146,6 +152,18 @@ impl Engine {
             .index
             .lock()
             .expect("the lock of the index state is not poisoned")
+    }
+
+    /// Notes that the index turned out not to be there: the upkeep looks for it
+    /// again. A search that was turned off stays off.
+    pub(super) fn lose_index(&self) {
+        let mut state = self
+            .index
+            .lock()
+            .expect("the lock of the index state is not poisoned");
+        if *state == IndexState::Ready {
+            *state = IndexState::Unknown;
+        }
     }
 
     pub(super) fn set_index_state(&self, state: IndexState) {

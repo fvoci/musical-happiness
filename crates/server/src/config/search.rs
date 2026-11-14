@@ -44,6 +44,11 @@ pub struct SearchSettings {
     pub search_index: String,
     /// How many searches a user may make in a second; 0 for no limit.
     pub search_requests_per_second: u32,
+    /// Whether the upkeep of the search runs only when it is called
+    /// (`search::tend`), and no task runs it. Not a configuration file key: the tests
+    /// set it, to say when what changed is sent.
+    #[serde(skip)]
+    pub upkeep_by_hand: bool,
 }
 
 impl Default for SearchSettings {
@@ -55,6 +60,7 @@ impl Default for SearchSettings {
             search_api_key: String::new(),
             search_index: "fvoci".to_owned(),
             search_requests_per_second: 5,
+            upkeep_by_hand: false,
         }
     }
 }

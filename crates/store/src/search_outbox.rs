@@ -257,7 +257,8 @@ impl Store {
     }
 
     /// Lists every board that is no template, of every organization this handle
-    /// reaches, and remembers `mark` as the index the list is kept for from here on,
+    /// reaches (for the handle of the housekeeping, which reaches all: the index is
+    /// every organization's), and remembers `mark` as the index the list is kept for from here on,
     /// in one transaction. Returns how many boards were listed. For an index that was
     /// just made: what it lacks is everything, and the list says so before the
     /// database says the index is the one it keeps.
@@ -282,7 +283,8 @@ impl Store {
                 .push_bind(", ", now)
                 .push(" FROM boards AS bo JOIN workspaces AS w ON w.id = bo.workspace_id")
                 .push(&scope.same_organization(&[("w", "bo")]))
-                .push(" WHERE bo.is_template = false AND bo.is_builtin = false")
+                // In the order every writer of several boards takes them.
+                .push(" WHERE bo.is_template = false AND bo.is_builtin = false ORDER BY bo.id")
                 .push(NOTED_AGAIN);
             let listed = scope.execute(sql).await?;
             let sql = scope.sql("DELETE FROM search_index_state");

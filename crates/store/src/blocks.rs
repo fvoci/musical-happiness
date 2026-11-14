@@ -14,7 +14,7 @@ use fvoci_model::{
 use serde_json::Value;
 
 use crate::Store;
-use crate::block_derived;
+use crate::block_derived::{self, Before};
 use crate::boards;
 use crate::card_values::{self, NamedCards};
 use crate::comment_places;
@@ -391,7 +391,7 @@ impl Store {
                     )));
                 }
                 let block = get_block(scope, &block_id).await?;
-                block_derived::refresh(scope, &block, None, NewImages::Recorded).await?;
+                block_derived::refresh(scope, &block, Before::Unknown, NewImages::Recorded).await?;
             }
             Ok(())
         })
@@ -750,7 +750,7 @@ async fn insert_block_at(
             } else {
                 existing.edited_at
             };
-        block_derived::refresh(scope, block, Some(&existing), new_images).await?;
+        block_derived::refresh(scope, block, Before::Stored(&existing), new_images).await?;
     } else {
         user_id.clone_into(&mut block.created_by);
         block.create_at = now;
@@ -784,7 +784,7 @@ pub(crate) async fn insert_block_row(
     push_body(&mut sql, block.body.as_ref(), BodyColumns::List)?;
     sql.push(")");
     scope.execute(sql).await?;
-    block_derived::refresh(scope, block, None, new_images).await
+    block_derived::refresh(scope, block, Before::Absent, new_images).await
 }
 
 /// How [`push_body`] writes the body's columns.

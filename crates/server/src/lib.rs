@@ -141,11 +141,11 @@ impl Server {
         // The bodies of documents that a run that ended did not write to their cards,
         // in the background: each takes the worker's time, which a start does not wait
         // for.
+        search::settle_at_start(&app).await?;
         let everyone = app.housekeeping();
         app.spawn_background(async move {
             everyone.collab().recover(&everyone).await;
         });
-        search::settle_at_start(&app).await;
         match app.housekeeping().sweep_temporary_files().await {
             Ok(0) => {}
             Ok(removed) => tracing::info!(removed, "removed left-over temporary files"),

@@ -738,7 +738,7 @@ pub(crate) async fn delete_board(
     scope.execute(sql).await?;
 
     crate::board_team_trash::keep(scope, board_id).await?;
-    block_derived::board_moved(scope, board_id).await?;
+    block_derived::board_trashed(scope, board_id).await?;
 
     // The blocks first: a board does not go while it has any. With the board go its
     // memberships, its sharing, its file records and where users filed it (kept above).
@@ -823,7 +823,6 @@ pub(crate) async fn undelete_board(
         file_info::save_file_info(scope, &file).await?;
     }
     take_blocks_out_of_trash(scope, &deletion_id, user_id, now).await?;
-    block_derived::board_moved(scope, board_id).await?;
     // The trash kept no marks: a file that no block of the board shows is counted from
     // now, as at a file's upload, and one that a block shows has none.
     let mut sql = scope.sql("UPDATE file_info SET unreferenced_at = NULL WHERE board_id = ");

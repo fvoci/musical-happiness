@@ -9,9 +9,10 @@
 
 use std::collections::HashMap;
 
-use fvoci_store::{SearchChange, SearchDocument, SearchTarget, Store};
+use fvoci_store::{SearchChange, SearchDocument, SearchIndexMark, SearchTarget, Store};
 
-use super::client::{Client, ClientError, Operation};
+use super::client::{Client, ClientError, IndexFound, Operation};
+use super::index;
 use super::query::Scope;
 use crate::auth::now_millis;
 use crate::error::AppError;
@@ -22,8 +23,10 @@ const ROUND: i64 = 200;
 /// How many rounds one run of the upkeep works off at most: the rest is the next
 /// run's, a second later.
 const ROUNDS_A_RUN: usize = 5;
-/// How many documents of a board are read, and sent, at a time.
-const PAGE: i64 = 500;
+/// How many documents are read, and sent, at a time: a body may be a megabyte.
+const DOCUMENTS_AT_ONCE: usize = 50;
+/// [`DOCUMENTS_AT_ONCE`], as the limit of a query.
+const PAGE: i64 = 50;
 /// How long a row whose document was refused waits for its next try, at first and at
 /// most; doubled with every refusal in a row.
 const FIRST_RETRY_MILLIS: i64 = 5_000;
@@ -35,6 +38,9 @@ const LONGEST_RETRY_MILLIS: i64 = 10 * 60 * 1000;
 pub(super) enum Stopped {
     /// The search server did not take a request: nothing it was asked is done.
     Search(ClientError),
+    /// The index is not there, or is not the one the list is kept for: nothing was
+    /// written to it.
+    IndexLost,
     /// The database could not be read or written.
     Store(AppError),
 }
@@ -60,23 +66,43 @@ fn retry_at(now: i64, attempts: i64) -> i64 {
     now.saturating_add(wait)
 }
 
+/// Whether the index on the search server is the one the list is kept for. Asked
+/// before anything is written: both search servers make an index that is not there
+/// when a document is put into it, with no analyser of ours and under no wall, and
+/// answer as if nothing were amiss.
+async fn index_is_kept(store: &Store, client: &Client) -> Result<bool, Stopped> {
+    let IndexFound::Ours { version, uuid } = client.describe_index().await? else {
+        return Ok(false);
+    };
+    let found = SearchIndexMark {
+        name: client.index().to_owned(),
+        uuid,
+        version,
+    };
+    Ok(version == index::VERSION && store.search_index_mark().await? == Some(found))
+}
+
 /// Works off the rows that are due, a few rounds of them. `store` reaches every
 /// organization. Returns how many rows it looked at.
 ///
 /// # Errors
 ///
-/// Returns why it stopped: the search server did not take a request, or the database
-/// could not be asked. The rows it had not settled are as they were.
+/// Returns why it stopped: the index is not the one the list is kept for, the search
+/// server did not take a request, or the database could not be asked. The rows it
+/// had not settled are as they were.
 pub(super) async fn work_off(
     store: &Store,
     client: &Client,
     metrics: &Metrics,
 ) -> Result<usize, Stopped> {
     let mut looked_at = 0;
-    for _ in 0..ROUNDS_A_RUN {
+    for round in 0..ROUNDS_A_RUN {
         let changes = store.due_search_changes(now_millis(), ROUND).await?;
         if changes.is_empty() {
             break;
+        }
+        if round == 0 && !index_is_kept(store, client).await? {
+            return Err(Stopped::IndexLost);
         }
         looked_at += changes.len();
         let (boards, blocks): (Vec<SearchChange>, Vec<SearchChange>) = changes
@@ -85,7 +111,9 @@ pub(super) async fn work_off(
         for board in &boards {
             send_board(store, client, metrics, board).await?;
         }
-        send_blocks(store, client, metrics, &blocks).await?;
+        for blocks in blocks.chunks(DOCUMENTS_AT_ONCE) {
+            send_blocks(store, client, metrics, blocks).await?;
+        }
     }
     Ok(looked_at)
 }
@@ -98,10 +126,7 @@ async fn send_blocks(
     metrics: &Metrics,
     changes: &[SearchChange],
 ) -> Result<(), Stopped> {
-    if changes.is_empty() {
-        return Ok(());
-    }
-    let ids: Vec<String> = changes.iter().map(|change| change.id.clone()).collect();
+    let ids: Vec<&str> = changes.iter().map(|change| change.id.as_str()).collect();
     let mut documents: HashMap<String, SearchDocument> = store
         .search_documents(&ids)
         .await?
@@ -140,6 +165,8 @@ async fn send_board(
             container_id: &change.id,
         })
         .await?;
+    // Every page is put, also after a document was refused: what is refused is one
+    // document, and the others of the board are not left out for it.
     let mut after = String::new();
     let mut refused = None;
     loop {
@@ -152,9 +179,8 @@ async fn send_board(
         after.clone_from(&last.id);
         let operations: Vec<Operation> = page.into_iter().map(Operation::Put).collect();
         let refusals = client.write(&operations).await?;
-        if let Some(kind) = refusals.into_iter().flatten().next() {
-            refused = Some(kind);
-            break;
+        if refused.is_none() {
+            refused = refusals.into_iter().flatten().next();
         }
     }
     settle(store, metrics, change, refused.as_deref()).await

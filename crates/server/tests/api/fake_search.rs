@@ -63,6 +63,10 @@ struct Index {
     uuid: String,
     /// The documents by identifier.
     documents: BTreeMap<String, Value>,
+    /// The documents put since the index was last refreshed: a removal by query does
+    /// not see them, as on a real search server. (A search here does: a real one
+    /// refreshes by itself within a second.)
+    unrefreshed: std::collections::BTreeSet<String>,
 }
 
 struct State {
@@ -171,6 +175,8 @@ impl FakeSearch {
             search_url: format!("http://{}", self.address),
             // The limit has a test of its own; the others search as often as they like.
             search_requests_per_second: 0,
+            // A test says when what changed is sent (`fvoci_server::search::tend`).
+            upkeep_by_hand: true,
             ..SearchSettings::default()
         }
     }
@@ -243,6 +249,7 @@ impl FakeSearch {
                 definition,
                 uuid,
                 documents: BTreeMap::new(),
+                unrefreshed: std::collections::BTreeSet::new(),
             },
         );
     }
@@ -365,16 +372,14 @@ async fn answer(
         ("POST", [name, "_search"]) => search(&state, name, &recorded_body),
         ("POST", [name, "_bulk"]) => bulk(&state, name, &text),
         ("POST", [name, "_refresh"]) => {
-            if state
-                .indices
-                .lock()
-                .expect("the indices")
-                .contains_key(*name)
-            {
-                axum::Json(json!({"_shards": {"total": 2, "successful": 1, "failed": 0}}))
-                    .into_response()
-            } else {
-                no_such_index(name)
+            let mut indices = state.indices.lock().expect("the indices");
+            match indices.get_mut(*name) {
+                Some(index) => {
+                    index.unrefreshed.clear();
+                    axum::Json(json!({"_shards": {"total": 2, "successful": 1, "failed": 0}}))
+                        .into_response()
+                }
+                None => no_such_index(name),
             }
         }
         ("POST", [name, "_delete_by_query"]) => delete_by_query(&state, name, &recorded_body),
@@ -470,6 +475,7 @@ fn create(state: &State, name: &str, definition: Value) -> Response {
             definition,
             uuid: state.next_uuid(),
             documents: BTreeMap::new(),
+            unrefreshed: std::collections::BTreeSet::new(),
         },
     );
     axum::Json(json!({"acknowledged": true, "shards_acknowledged": true, "index": name}))
@@ -570,6 +576,20 @@ fn search(state: &State, name: &str, request: &Value) -> Response {
 
 fn bulk(state: &State, name: &str, text: &str) -> Response {
     let mut indices = state.indices.lock().expect("the indices");
+    // As both search servers do unless they are told otherwise: an index that is not
+    // there is made by the first document put into it, with whatever mapping the
+    // document suggests, and nothing says so.
+    if !indices.contains_key(name) && text.contains("{\"index\":") {
+        indices.insert(
+            name.to_owned(),
+            Index {
+                definition: json!({"mappings": {"properties": {}}}),
+                uuid: state.next_uuid(),
+                documents: BTreeMap::new(),
+                unrefreshed: std::collections::BTreeSet::new(),
+            },
+        );
+    }
     let Some(index) = indices.get_mut(name) else {
         return no_such_index(name);
     };
@@ -616,6 +636,7 @@ fn bulk(state: &State, name: &str, text: &str) -> Response {
                     "The bulk request must be terminated by a newline [\\n]",
                 );
             };
+            index.unrefreshed.insert(id.clone());
             let created = index.documents.insert(id.clone(), source).is_none();
             let (result, status) = if created {
                 ("created", 201)
@@ -640,9 +661,10 @@ fn delete_by_query(state: &State, name: &str, request: &Value) -> Response {
     };
     let filter = &request["query"]["bool"]["filter"];
     let before = index.documents.len();
+    let unrefreshed = std::mem::take(&mut index.unrefreshed);
     index
         .documents
-        .retain(|_, document| !passes(document, filter));
+        .retain(|id, document| unrefreshed.contains(id) || !passes(document, filter));
     let deleted = before - index.documents.len();
     axum::Json(json!({
         "took": 1, "timed_out": false, "total": deleted, "deleted": deleted,

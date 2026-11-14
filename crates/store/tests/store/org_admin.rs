@@ -995,3 +995,43 @@ async fn a_change_let_in_before_a_joining_was_taken_back_is_not_made() {
     );
     test.teardown().await;
 }
+
+/// A workspace that goes for good takes its boards through the trash: each is noted
+/// for the search server, which is to hold nothing of them.
+#[tokio::test]
+async fn the_boards_of_a_workspace_that_goes_for_good_are_noted_for_the_search() {
+    let test = common::setup().await;
+    test.keep_search_outbox();
+    let admin = org_member(&test, "admin", OrgRole::Admin).await;
+    let doomed = named_workspace(&test, "Doomed", &admin).await;
+    let board = private_board(&test, &doomed, &admin).await;
+    assert_eq!(
+        test.trash_workspace(&doomed, &admin)
+            .await
+            .expect("trashed"),
+        WorkspaceTrashing::Done
+    );
+    let in_the_trash = test
+        .due_search_changes(i64::MAX, 10)
+        .await
+        .expect("the list is read");
+
+    test.purge_workspace(&doomed, i64::MAX)
+        .await
+        .expect("purged");
+    let gone: Vec<(fvoci_store::SearchTarget, String)> = test
+        .due_search_changes(i64::MAX, 10)
+        .await
+        .expect("the list is read")
+        .into_iter()
+        .map(|change| (change.target, change.id))
+        .collect();
+    test.teardown().await;
+
+    assert_eq!(
+        in_the_trash,
+        [],
+        "in the trash it is there for nobody, as it is"
+    );
+    assert_eq!(gone, [(fvoci_store::SearchTarget::Board, board)]);
+}

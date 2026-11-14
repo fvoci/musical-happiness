@@ -11,7 +11,7 @@
 use fvoci_model::{BlockPatch, BlockType, Body, BodyChange};
 
 use crate::Store;
-use crate::block_derived;
+use crate::block_derived::{self, Before};
 use crate::blocks;
 use crate::db::{Id, OptId, Param, Row, Scope, now_millis};
 use crate::error::StoreError;
@@ -303,7 +303,7 @@ impl Store {
                 // that follows from the block changes: it is as it was stored.
                 None => {
                     let block = blocks::get_block(scope, block_id).await?;
-                    block_derived::refresh(scope, &block, Some(&block), NewImages::Unchecked)
+                    block_derived::refresh(scope, &block, Before::Unchanged, NewImages::Unchecked)
                         .await?;
                 }
                 Some(body) => {

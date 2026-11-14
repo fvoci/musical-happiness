@@ -279,16 +279,11 @@ async fn the_trash_and_the_way_back_are_noted() {
         .await
         .expect("restored");
     let mut expected = vec![
-        (SearchTarget::Board, board.id.clone()),
         (SearchTarget::Block, card.id.clone()),
         (SearchTarget::Block, other.id.clone()),
     ];
     expected.sort_by(|a, b| a.1.cmp(&b.1));
-    assert_eq!(
-        listed(store).await,
-        expected,
-        "the board, and what came back"
-    );
+    assert_eq!(listed(store).await, expected, "each card that came back");
     let first = store
         .search_documents_of_container(&board.id, "", 1)
         .await
@@ -409,6 +404,7 @@ async fn a_row_that_could_not_be_sent_waits_and_is_due_at_once_when_noted_again(
 async fn every_board_is_listed_for_an_index_and_the_index_remembered() {
     let test = common::setup().await;
     let store = &test.store;
+    store.keep_search_outbox();
     let (board, user_id) = board(store).await;
     let mut template = Board {
         id: new_id(),
@@ -479,5 +475,105 @@ async fn every_board_is_listed_for_an_index_and_the_index_remembered() {
     }
     assert_eq!(listed(&system).await, [], "dropped, and kept no more");
     assert_eq!(system.search_index_mark().await.expect("read"), None);
+    test.teardown().await;
+}
+
+/// The other ways a card's title or body is written: several patches at once, a copy,
+/// the bodies an import writes after its blocks, and the body a room of editors
+/// writes to its card.
+#[tokio::test]
+async fn every_way_a_card_is_written_notes_it() {
+    let test = common::setup().await;
+    let store = &test.store;
+    store.keep_search_outbox();
+    let (board, user_id) = board(store).await;
+    let first = card(store, &board.id, &user_id).await;
+    let second = card(store, &board.id, &user_id).await;
+    let mut both = vec![
+        (SearchTarget::Block, first.id.clone()),
+        (SearchTarget::Block, second.id.clone()),
+    ];
+    both.sort_by(|a, b| a.1.cmp(&b.1));
+    settle_all(store).await;
+
+    let retitled = |title: &str| BlockPatch {
+        title: Some(title.to_owned()),
+        ..BlockPatch::default()
+    };
+    store
+        .patch_blocks(
+            &fvoci_model::BlockPatchBatch {
+                block_ids: vec![first.id.clone(), second.id.clone()],
+                block_patches: vec![retitled("하나"), retitled("둘")],
+            },
+            &user_id,
+        )
+        .await
+        .expect("patched together");
+    assert_eq!(listed(store).await, both, "patched together");
+    settle_all(store).await;
+
+    store
+        .duplicate_block(
+            &board.id,
+            &first.id,
+            &user_id,
+            fvoci_store::DuplicateAs::Copy,
+        )
+        .await
+        .expect("copied");
+    let copies = listed(store).await;
+    assert_eq!(
+        copies.len(),
+        1,
+        "the copy, and not what it was made of: {copies:?}"
+    );
+    assert_ne!(copies[0].1, first.id);
+    settle_all(store).await;
+
+    store
+        .replace_bodies_as_written(
+            &board.id,
+            vec![(first.id.clone(), Some(body("가져온 본문")))],
+        )
+        .await
+        .expect("the body is written");
+    assert_eq!(
+        listed(store).await,
+        [(SearchTarget::Block, first.id.clone())]
+    );
+    settle_all(store).await;
+
+    store
+        .create_body_doc(&second.id, b"a state", b"a digest")
+        .await
+        .expect("a document is stored");
+    let read_at = store
+        .get_block(&second.id)
+        .await
+        .expect("the card")
+        .update_at;
+    store
+        .project_body(
+            &second.id,
+            Some(Some(body("함께 쓴 본문"))),
+            read_at,
+            1,
+            b"another digest",
+            &user_id,
+        )
+        .await
+        .expect("the room's body is written to the card");
+    assert_eq!(
+        listed(store).await,
+        [(SearchTarget::Block, second.id.clone())]
+    );
+    settle_all(store).await;
+    // Written again as it is, for the files it shows alone: nothing a search reads.
+    store
+        .project_body(&second.id, None, read_at, 2, b"another digest", &user_id)
+        .await
+        .expect("the document is marked as written");
+    assert_eq!(listed(store).await, []);
     test.teardown().await;
 }

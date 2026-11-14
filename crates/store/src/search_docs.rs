@@ -58,11 +58,11 @@ impl Store {
     /// Returns [`StoreError::Database`] if the query fails.
     pub async fn search_documents(
         &self,
-        ids: &[String],
+        ids: &[impl AsRef<str>],
     ) -> Result<Vec<SearchDocument>, StoreError> {
         let mut ids: Vec<&str> = ids
             .iter()
-            .map(String::as_str)
+            .map(AsRef::as_ref)
             .filter(|id| fvoci_model::is_id(id))
             .collect();
         ids.sort_unstable();

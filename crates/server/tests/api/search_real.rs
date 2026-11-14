@@ -11,7 +11,8 @@
 //! writes cards through the API, waits until the server has sent them, and asks the
 //! questions of [`QUESTIONS`]: the ones marked as required must find their card, and
 //! all of them are written, with what they found, to the file `FVOCI_SEARCH_TEST_REPORT`
-//! names (a table, for the record of what nori finds as it is configured here).
+//! names (a table, for the record of what nori finds as it is configured here). Then a
+//! card and the board go to the trash, and their documents with them.
 
 use std::fmt::Write as _;
 use std::time::Duration;
@@ -21,7 +22,7 @@ use fvoci_server::config::search::SearchSettings;
 use serde_json::Value;
 
 use crate::boards::new_board;
-use crate::common::{Setup, TEST_WORKSPACE_ID, TEST_WS};
+use crate::common::{Setup, TEST_WORKSPACE_ID, TEST_WS, TestServer};
 use crate::content_search::{new_card, search};
 
 /// The cards: a title and a body.
@@ -216,6 +217,41 @@ fn direct(
     }
 }
 
+/// Has the upkeep send what changed until nothing is left, and the index show it.
+async fn sent_and_shown(th: &TestServer, settings: &SearchSettings) {
+    let everyone = th.app.housekeeping();
+    for _ in 0..50 {
+        fvoci_server::search::tend(&th.app).await;
+        let counts = everyone.store().search_outbox_counts().await;
+        if counts.expect("counted").waiting == 0 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    let index = &settings.search_index;
+    direct(
+        settings,
+        reqwest::Method::POST,
+        &format!("/{index}/_refresh"),
+    )
+    .send()
+    .await
+    .expect("the index is refreshed");
+}
+
+/// How many documents the index of the test holds.
+async fn count(settings: &SearchSettings) -> usize {
+    let index = &settings.search_index;
+    let counted: Value = direct(settings, reqwest::Method::GET, &format!("/{index}/_count"))
+        .send()
+        .await
+        .expect("the search server counts")
+        .json()
+        .await
+        .expect("a count");
+    usize::try_from(counted["count"].as_u64().expect("a number")).expect("a count")
+}
+
 /// A snippet with what matched between brackets.
 fn shown(hit: &SearchHit) -> String {
     hit.snippet.iter().fold(String::new(), |mut text, part| {
@@ -242,6 +278,7 @@ async fn korean_questions_find_their_cards_on_a_real_search_server() {
         search_password: env("FVOCI_SEARCH_TEST_PASSWORD").unwrap_or_default(),
         search_index: format!("fvoci-test-{}", &new_id()[24..]),
         search_requests_per_second: 0,
+        upkeep_by_hand: true,
         ..SearchSettings::default()
     };
     let version: Value = direct(&settings, reqwest::Method::GET, "/")
@@ -270,32 +307,11 @@ async fn korean_questions_find_their_cards_on_a_real_search_server() {
         .create_board(&new_board(TEST_WORKSPACE_ID, BoardType::Private, "한국어"))
         .await
         .created_json();
+    let mut cards = Vec::new();
     for (title, text) in CARDS {
-        new_card(&th.client, &board.id, title, text).await;
+        cards.push(new_card(&th.client, &board.id, title, text).await.id);
     }
-    // Until the list is worked off, and the index shows what it was sent.
-    let everyone = th.app.housekeeping();
-    for _ in 0..50 {
-        fvoci_server::search::tend(&th.app).await;
-        let waiting = everyone
-            .store()
-            .search_outbox_counts()
-            .await
-            .expect("counted")
-            .waiting;
-        if waiting == 0 {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(200)).await;
-    }
-    direct(
-        &settings,
-        reqwest::Method::POST,
-        &format!("/{}/_refresh", settings.search_index),
-    )
-    .send()
-    .await
-    .expect("the index is refreshed");
+    sent_and_shown(&th, &settings).await;
 
     let mut table = format!(
         "### {flavor}\n\n| 질문 | 보려는 것 | 찾을 카드 | 바란 대로인가 | 찾은 카드(순서대로) | 조각 |\n|---|---|---|---|---|---|\n"
@@ -335,6 +351,24 @@ async fn korean_questions_find_their_cards_on_a_real_search_server() {
     }
     // The case the search was asked for, with the piece of the body that matched.
     let refund: Vec<SearchHit> = search(&th.client, TEST_WS, "환불 규정").await.ok_json();
+    // Its card goes to the trash, and then the board with the others: the search
+    // server holds neither any more.
+    th.client
+        .delete(&format!(
+            "{TEST_WS}/boards/{}/blocks/{}",
+            board.id, cards[0]
+        ))
+        .await
+        .check_no_content();
+    sent_and_shown(&th, &settings).await;
+    let trashed: Vec<SearchHit> = search(&th.client, TEST_WS, "환불 규정").await.ok_json();
+    let others = count(&settings).await;
+    th.client
+        .delete(&format!("{TEST_WS}/boards/{}", board.id))
+        .await
+        .check_no_content();
+    sent_and_shown(&th, &settings).await;
+    let none = count(&settings).await;
     let removed = direct(
         &settings,
         reqwest::Method::DELETE,
@@ -349,6 +383,16 @@ async fn korean_questions_find_their_cards_on_a_real_search_server() {
         std::fs::write(&report, &table).expect("the table is written");
     }
     assert!(removed.status().is_success(), "{}", removed.status());
+    assert_eq!(trashed, [], "a card in the trash is found no more");
+    assert_eq!(
+        others,
+        CARDS.len() - 1,
+        "its document was removed, and no other"
+    );
+    assert_eq!(
+        none, 0,
+        "the documents of a board in the trash were removed"
+    );
     assert_eq!(missed, Vec::<&str>::new(), "on {flavor}:\n{table}");
     let refund = refund.first().expect("the card of the refund rules");
     assert_eq!(refund.title, "고객 응대 안내");
