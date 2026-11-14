@@ -35,6 +35,7 @@ mod email_verification;
 mod email_verification_invited;
 mod email_verification_more;
 mod email_verification_registrant;
+mod email_verification_unseen;
 mod export;
 mod fake_oidc;
 mod fake_provider;
