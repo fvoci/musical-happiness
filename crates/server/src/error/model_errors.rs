@@ -15,15 +15,21 @@ impl From<BlockError> for AppError {
                 Self::bad_request(error).with_field("body")
             }
             BlockError::NulInTitle => Self::bad_request(error).with_field("title"),
-            BlockError::InvalidCardField { .. } => Self::bad_request(error).with_field("fields"),
-            BlockError::InvalidRelation(error) => Self::from(error),
-            BlockError::TypeNotCurrent(_) | BlockError::TypeStrandsComments => {
-                Self::bad_request(error).with_field("type")
+            BlockError::InvalidCardField { .. } | BlockError::InvalidPageField { .. } => {
+                Self::bad_request(error).with_field("fields")
             }
+            BlockError::AfterNotSibling => Self::bad_request(error).with_field("after"),
+            BlockError::InvalidRelation(error) => Self::from(error),
+            BlockError::TypeNotCurrent(_)
+            | BlockError::TypeStrandsComments
+            | BlockError::PageByBlocks
+            | BlockError::PageOffWiki
+            | BlockError::NotPageOnWiki => Self::bad_request(error).with_field("type"),
             BlockError::ParentNotOnBoard
             | BlockError::ParentBelowBlock
             | BlockError::CommentNotOnCard
-            | BlockError::ParentIsComment => Self::bad_request(error).with_field("parentId"),
+            | BlockError::ParentIsComment
+            | BlockError::PageNotBelowPage => Self::bad_request(error).with_field("parentId"),
             BlockError::EmptyBoardId => Self::from(anyhow::Error::from(error)),
         }
     }

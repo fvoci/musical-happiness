@@ -1858,12 +1858,13 @@ async fn an_open_board_is_found_by_who_works_in_its_workspace() {
     let board_id = board(&test, &workspace_id, &member, "open to the workspace").await;
 
     let found_by = async |user_id: &str| {
+        let (open, boards) = (PublicBoards::Include, fvoci_model::BoardKinds::Boards);
         let of_the_workspace = test
-            .get_boards_for_user_and_workspace(user_id, &workspace_id, PublicBoards::Include)
+            .get_boards_for_user_and_workspace(user_id, &workspace_id, open, boards)
             .await
             .expect("the boards of the workspace are read");
         let searched = test
-            .search_boards_for_user("open", Title, user_id, PublicBoards::Include)
+            .search_boards_for_user("open", Title, user_id, open, boards)
             .await
             .expect("the boards are searched");
         (of_the_workspace.len(), searched.len())

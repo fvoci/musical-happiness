@@ -4,7 +4,7 @@
 
 use std::future::Future;
 
-use fvoci_model::{Block, BlockPatch, BlockType};
+use fvoci_model::{Block, BlockPatch};
 
 use super::place::Held;
 use super::upkeep::digest_of;
@@ -12,9 +12,9 @@ use super::{Collab, DocChange, refusals};
 use crate::app::App;
 use crate::error::AppError;
 
-/// The cards whose bodies a batch of patches writes: of `blocks`, those read for
-/// `block_ids`, the cards whose patch (at the same place as their identifier) sets a
-/// body.
+/// The cards and pages whose bodies a batch of patches writes: of `blocks`, those
+/// read for `block_ids`, the ones whose body has a room and whose patch (at the same
+/// place as their identifier) sets a body.
 #[must_use]
 pub fn cards_written_whole(
     blocks: &[Block],
@@ -28,7 +28,7 @@ pub fn cards_written_whole(
             !patch.body.is_keep()
                 && blocks
                     .iter()
-                    .any(|block| &block.id == *block_id && block.block_type == BlockType::Card)
+                    .any(|block| &block.id == *block_id && block.block_type.has_room())
         })
         .map(|(block_id, _)| block_id.clone())
         .collect()
@@ -112,7 +112,7 @@ impl Collab {
             // Not open (its worker ended over it, or it was opened for its log alone),
             // with a room all the same: the room holds the document before the write,
             // and is told to open it anew.
-            if written.is_ok() && self.has_room(app, &card_id) {
+            if written.is_ok() && self.room_is_open(app, &card_id) {
                 self.tell(app, &card_id, DocChange::Closed);
             }
             self.retire(&mut slot);

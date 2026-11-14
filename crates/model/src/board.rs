@@ -38,6 +38,91 @@ impl BoardType {
     }
 }
 
+/// What a container of a workspace is for: a board holds cards and their views, a wiki
+/// holds pages. A container is of one kind from when it is made and never of another.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, utoipa::ToSchema,
+)]
+#[serde(rename_all = "lowercase")]
+pub enum BoardKind {
+    /// A board: cards, their views and their comments.
+    #[default]
+    Board,
+    /// A wiki: a tree of pages.
+    Wiki,
+}
+
+impl BoardKind {
+    /// Every kind there is.
+    pub const ALL: [Self; 2] = [Self::Board, Self::Wiki];
+
+    /// Returns the wire and database form.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Board => "board",
+            Self::Wiki => "wiki",
+        }
+    }
+}
+
+impl std::fmt::Display for BoardKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// Error returned when a string names no kind of board.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[error("{0:?} is no kind of board")]
+pub struct ParseBoardKindError(String);
+
+impl FromStr for BoardKind {
+    type Err = ParseBoardKindError;
+
+    /// Reads the wire and database form ([`BoardKind::as_str`]), exactly.
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        Self::ALL
+            .into_iter()
+            .find(|kind| kind.as_str() == text)
+            .ok_or_else(|| ParseBoardKindError(text.to_owned()))
+    }
+}
+
+/// The kinds of container something reaches: what an operation is for, and what a list
+/// holds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum BoardKinds {
+    /// Boards and no wiki.
+    Boards,
+    /// Wikis and no board.
+    Wikis,
+    /// Boards and wikis alike.
+    Every,
+}
+
+impl BoardKinds {
+    /// Whether a container of `kind` is among them.
+    #[must_use]
+    pub const fn holds(self, kind: BoardKind) -> bool {
+        match (self, kind) {
+            (Self::Every, _)
+            | (Self::Boards, BoardKind::Board)
+            | (Self::Wikis, BoardKind::Wiki) => true,
+            (Self::Boards, BoardKind::Wiki) | (Self::Wikis, BoardKind::Board) => false,
+        }
+    }
+
+    /// The one kind they are, if they are one.
+    #[must_use]
+    pub const fn only(self) -> Option<BoardKind> {
+        match self {
+            Self::Boards => Some(BoardKind::Board),
+            Self::Wikis => Some(BoardKind::Wiki),
+            Self::Every => None,
+        }
+    }
+}
+
 /// A role on a board, from least to most privileged.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum BoardRole {
@@ -159,6 +244,20 @@ pub enum BoardError {
         /// How many the board has.
         total: usize,
     },
+    /// The board is stored as of another kind than it was made as.
+    #[error("a {stored} does not become a {asked}: the kind of a board never changes")]
+    KindChanges {
+        /// The kind it is.
+        stored: BoardKind,
+        /// The kind it was to become.
+        asked: BoardKind,
+    },
+    /// A wiki is stored as a template.
+    #[error("a wiki is no template")]
+    WikiIsTemplate,
+    /// A wiki is stored with card properties.
+    #[error("a wiki has no card properties: it holds pages and no cards")]
+    WikiHasCardProperties,
 }
 
 /// A board: a set of blocks and the property definitions of its cards.
@@ -187,6 +286,13 @@ pub struct Board {
     /// Whether the board is open or private.
     #[serde(rename = "type")]
     pub board_type: BoardType,
+    /// What the board is for: `board` for cards, `wiki` for pages. It is what the board
+    /// was made as and never changes; a board decoded without it is a `board`. A wiki
+    /// is no template and has no card properties, and the operations that are about
+    /// cards answer for a wiki as for a board that is not there.
+    #[serde(default)]
+    #[serde(deserialize_with = "null_as_default")]
+    pub kind: BoardKind,
     /// The role a user gets who joins the board, or is added by somebody who does not
     /// manage its roles. Never empty and never admin.
     #[serde(default)]
@@ -315,15 +421,25 @@ impl Board {
     }
 
     /// Checks what every board that is stored must be, wherever it came from: its card
-    /// property definitions are well-formed, and none of its texts (`title`,
+    /// property definitions are well-formed, none of its texts (`title`,
     /// `description`, `icon`, and the strings and member names of `properties` and
-    /// `cardProperties`) holds U+0000.
+    /// `cardProperties`) holds U+0000, and a wiki is no template and has no card
+    /// properties.
     ///
     /// # Errors
     ///
-    /// Returns [`BoardError::InvalidCardProperty`] or [`BoardError::NulCharacter`].
+    /// Returns [`BoardError::InvalidCardProperty`], [`BoardError::NulCharacter`],
+    /// [`BoardError::WikiIsTemplate`] or [`BoardError::WikiHasCardProperties`].
     pub fn check_storable(&self) -> Result<(), BoardError> {
         self.validate_card_properties()?;
+        if self.kind == BoardKind::Wiki {
+            if self.is_template {
+                return Err(BoardError::WikiIsTemplate);
+            }
+            if !self.card_properties.is_empty() {
+                return Err(BoardError::WikiHasCardProperties);
+            }
+        }
         let texts = [
             ("title", self.title.contains('\0')),
             ("description", self.description.contains('\0')),

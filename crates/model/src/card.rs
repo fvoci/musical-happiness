@@ -451,11 +451,17 @@ impl CardPatch {
 }
 
 /// What an icon of more than one grapheme cluster is refused with.
-const ICON_OF_SEVERAL: &str = "Icon can have only one grapheme";
+pub(crate) const ICON_OF_SEVERAL: &str = "Icon can have only one grapheme";
+
+/// Whether the text may be an icon, of a card or of a page: at most one grapheme
+/// cluster.
+pub(crate) fn is_icon(icon: &str) -> bool {
+    icon.graphemes(true).count() <= 1
+}
 
 /// Rejects an icon of more than one grapheme cluster.
 fn check_icon(icon: &str) -> Result<(), CardError> {
-    if icon.graphemes(true).count() > 1 {
+    if !is_icon(icon) {
         return Err(CardError::Invalid(ICON_OF_SEVERAL));
     }
     Ok(())

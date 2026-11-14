@@ -42,6 +42,7 @@
       "id": "<id:3>",
       "isBuiltin": false,
       "isTemplate": false,
+      "kind": "board",
       "minimumRole": "editor",
       "modifiedBy": "<id:2>",
       "properties": {},
@@ -103,6 +104,7 @@
       "id": "<id:4>",
       "isBuiltin": false,
       "isTemplate": false,
+      "kind": "board",
       "minimumRole": "editor",
       "modifiedBy": "<id:2>",
       "properties": {
@@ -131,6 +133,7 @@
       "id": "<id:5>",
       "isBuiltin": false,
       "isTemplate": false,
+      "kind": "board",
       "minimumRole": "editor",
       "modifiedBy": "<id:2>",
       "properties": {},
@@ -164,6 +167,7 @@
       "id": "<id:4>",
       "isBuiltin": false,
       "isTemplate": false,
+      "kind": "board",
       "minimumRole": "editor",
       "modifiedBy": "<id:2>",
       "properties": {
@@ -206,6 +210,7 @@
       "id": "<id:5>",
       "isBuiltin": false,
       "isTemplate": false,
+      "kind": "board",
       "minimumRole": "editor",
       "modifiedBy": "<id:2>",
       "properties": {},
@@ -261,6 +266,7 @@
         "id": "<id:3>",
         "isBuiltin": false,
         "isTemplate": false,
+        "kind": "board",
         "minimumRole": "editor",
         "modifiedBy": "<id:2>",
         "properties": {},
@@ -288,6 +294,7 @@
         "id": "<id:4>",
         "isBuiltin": false,
         "isTemplate": false,
+        "kind": "board",
         "minimumRole": "editor",
         "modifiedBy": "<id:2>",
         "properties": {
@@ -310,6 +317,7 @@
         "id": "<id:5>",
         "isBuiltin": false,
         "isTemplate": false,
+        "kind": "board",
         "minimumRole": "editor",
         "modifiedBy": "<id:2>",
         "properties": {},
@@ -338,6 +346,7 @@
         "id": "<id:5>",
         "isBuiltin": false,
         "isTemplate": false,
+        "kind": "board",
         "minimumRole": "editor",
         "modifiedBy": "<id:2>",
         "properties": {},
@@ -392,6 +401,7 @@
       "id": "<id:4>",
       "isBuiltin": false,
       "isTemplate": false,
+      "kind": "board",
       "minimumRole": "editor",
       "modifiedBy": "<id:2>",
       "properties": {
@@ -428,6 +438,7 @@
       "id": "<id:4>",
       "isBuiltin": false,
       "isTemplate": false,
+      "kind": "board",
       "minimumRole": "editor",
       "modifiedBy": "<id:2>",
       "properties": {
@@ -491,6 +502,7 @@
       "id": "<id:4>",
       "isBuiltin": false,
       "isTemplate": false,
+      "kind": "board",
       "minimumRole": "editor",
       "modifiedBy": "<id:2>",
       "properties": {
@@ -526,6 +538,7 @@
       "id": "<id:4>",
       "isBuiltin": false,
       "isTemplate": false,
+      "kind": "board",
       "minimumRole": "editor",
       "modifiedBy": "<id:2>",
       "properties": {
@@ -554,6 +567,7 @@
       "id": "<id:5>",
       "isBuiltin": false,
       "isTemplate": false,
+      "kind": "board",
       "minimumRole": "editor",
       "modifiedBy": "<id:2>",
       "properties": {},
@@ -615,6 +629,7 @@
       "id": "<id:4>",
       "isBuiltin": false,
       "isTemplate": false,
+      "kind": "board",
       "minimumRole": "editor",
       "modifiedBy": "<id:2>",
       "properties": {
@@ -696,6 +711,7 @@
           "id": "<id:7>",
           "isBuiltin": false,
           "isTemplate": false,
+          "kind": "board",
           "minimumRole": "editor",
           "modifiedBy": "<id:2>",
           "properties": {
@@ -754,6 +770,7 @@
           "id": "<id:9>",
           "isBuiltin": false,
           "isTemplate": true,
+          "kind": "board",
           "minimumRole": "editor",
           "modifiedBy": "<id:2>",
           "properties": {
@@ -906,6 +923,7 @@
       "id": "<id:4>",
       "isBuiltin": false,
       "isTemplate": false,
+      "kind": "board",
       "minimumRole": "editor",
       "modifiedBy": "<id:2>",
       "properties": {
@@ -941,6 +959,7 @@
       "id": "<id:4>",
       "isBuiltin": false,
       "isTemplate": false,
+      "kind": "board",
       "minimumRole": "editor",
       "modifiedBy": "<id:2>",
       "properties": {
@@ -995,6 +1014,7 @@
         "id": "<id:3>",
         "isBuiltin": false,
         "isTemplate": false,
+        "kind": "board",
         "minimumRole": "editor",
         "modifiedBy": "<id:2>",
         "properties": {},
@@ -1022,6 +1042,7 @@
         "id": "<id:4>",
         "isBuiltin": false,
         "isTemplate": false,
+        "kind": "board",
         "minimumRole": "editor",
         "modifiedBy": "<id:2>",
         "properties": {
@@ -1044,6 +1065,7 @@
         "id": "<id:5>",
         "isBuiltin": false,
         "isTemplate": false,
+        "kind": "board",
         "minimumRole": "editor",
         "modifiedBy": "<id:2>",
         "properties": {},
@@ -1071,6 +1093,7 @@
         "id": "<id:7>",
         "isBuiltin": false,
         "isTemplate": false,
+        "kind": "board",
         "minimumRole": "editor",
         "modifiedBy": "<id:2>",
         "properties": {

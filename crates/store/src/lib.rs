@@ -9,7 +9,9 @@
 mod accounts;
 mod audit;
 mod blocks;
+mod board_kinds;
 mod board_membership;
+mod board_search;
 mod board_team_access;
 mod board_team_membership;
 mod board_team_trash;
@@ -42,6 +44,8 @@ mod oidc_identities;
 mod oidc_pending;
 mod operator_records;
 mod org_admin;
+mod page_places;
+mod pages;
 mod password_reset;
 mod schema;
 mod server_lock;

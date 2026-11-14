@@ -710,7 +710,7 @@ async fn create_board_validates_the_body_like_the_original() {
 /// The wire format of a board, compared with what the original answers. The original
 /// sends `null` for `properties` and `cardProperties` that were never set; the port sends
 /// empty values (a deliberate difference of the model). It has no `channelId`, and says
-/// whether the board is a built-in template.
+/// whether the board is a built-in template and of which kind it is.
 #[tokio::test]
 async fn create_board_wire_format() {
     let th = Setup::native().start().await.init_basic().await;
@@ -733,7 +733,7 @@ async fn create_board_wire_format() {
             "workspaceId": TEST_WORKSPACE_ID,
             "createdBy": me.id,
             "modifiedBy": me.id,
-            "type": "O",
+            "type": "O", "kind": "board",
             "minimumRole": "editor",
             "title": "open one",
             "description": "",
@@ -3228,7 +3228,7 @@ async fn the_deleted_boards_are_listed_for_their_former_admins() {
     assert_eq!(listed[1]["id"], json!(mine.id));
     assert_eq!(listed[1]["deletedBy"], json!(th.client.me().await.id));
     let members: Vec<&String> = listed[1].as_object().expect("an entry").keys().collect();
-    assert_eq!(members, ["deletedAt", "deletedBy", "id", "title"]);
+    assert_eq!(members, ["deletedAt", "deletedBy", "id", "kind", "title"]);
     assert!(
         listed[1]["deletedAt"].as_i64().unwrap_or(0) > 0
             && listed[0]["deletedAt"].as_i64() > listed[1]["deletedAt"].as_i64(),

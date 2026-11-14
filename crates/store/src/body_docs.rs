@@ -53,9 +53,10 @@ pub struct LoggedUpdate {
 }
 
 impl Store {
-    /// The board a card is on; `None` for no block of that identifier, and for a block
-    /// that is no card. Nothing else of the card is read: who asks whether somebody
-    /// may come to the card's body is answered in the same time whatever the body is.
+    /// The board a card is on, or the wiki a page is in; `None` for no block of that
+    /// identifier, and for a block whose body has no room ([`BlockType::has_room`]).
+    /// Nothing else of the block is read: who asks whether somebody may come to its
+    /// body is answered in the same time whatever the body is.
     ///
     /// # Errors
     ///
@@ -67,8 +68,8 @@ impl Store {
             let Some(row) = scope.fetch_optional(sql).await? else {
                 return Ok(None);
             };
-            let is_card = BlockType::from(row.text(0)?) == BlockType::Card;
-            Ok(if is_card { Some(row.id(1)?) } else { None })
+            let has_room = BlockType::from(row.text(0)?).has_room();
+            Ok(if has_room { Some(row.id(1)?) } else { None })
         })
         .await
     }

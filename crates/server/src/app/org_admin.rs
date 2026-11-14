@@ -8,8 +8,8 @@
 use std::collections::HashMap;
 
 use fvoci_model::{
-    AuditAction, AuditRecord, MAX_NAME_CHARS, OrgMember, OrgRole, OrgWorkspace, Organization,
-    OrganizationPatch, Workspace, is_id, new_id,
+    AuditAction, AuditRecord, BoardKinds, MAX_NAME_CHARS, OrgMember, OrgRole, OrgWorkspace,
+    Organization, OrganizationPatch, Workspace, is_id, new_id,
 };
 use fvoci_store::{
     AuditPlace, Joining, OrgRoleChange, Paging, StoreError, Taken, WorkspaceTrashing,
@@ -426,6 +426,8 @@ impl App {
             .audit_records(AuditPlace::Workspace(workspace_id), paging)
             .await?;
         let mut titles: HashMap<String, Option<String>> = HashMap::new();
+        // A user is added to a board or to a wiki alike.
+        let every_kind = self.clone().reaching(BoardKinds::Every);
         for record in &mut records {
             if !matches!(
                 record.action,
@@ -434,7 +436,7 @@ impl App {
                 continue;
             }
             if !titles.contains_key(&record.target_id) {
-                let title = self
+                let title = every_kind
                     .board_access(reader_id, &record.target_id)
                     .await?
                     .filter(|access| {

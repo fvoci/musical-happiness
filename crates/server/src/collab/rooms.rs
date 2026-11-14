@@ -431,8 +431,8 @@ impl Collab {
         self.inner.rooms.stopping.is_cancelled()
     }
 
-    /// Whether a card of `app`'s organization has a room.
-    pub(super) fn has_room(&self, app: &App, card_id: &str) -> bool {
+    /// Whether the room of a card or a page of `app`'s organization is open now.
+    pub(super) fn room_is_open(&self, app: &App, card_id: &str) -> bool {
         self.rooms_index()
             .get(app.store().tenant(), card_id)
             .is_some()

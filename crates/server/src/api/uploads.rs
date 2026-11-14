@@ -21,7 +21,7 @@ use super::contract::params::{BoardId, ContentDigest, PartNumber, UploadId, Work
 use super::contract::tag;
 use super::files::UploadedFile;
 use super::limits::discard;
-use super::workspace::Ws;
+use super::workspace::WsModule;
 use super::{
     ApiResult, RequiredSession, body::decode_object, created, json_response, no_content,
     require_board_permission,
@@ -188,7 +188,7 @@ pub(super) fn part_routes() -> OpenApiRouter<App> {
     responses((status = 201, description = "The upload is open.", body = UploadOpened)),
 )]
 async fn handle_create_upload(
-    ws: Ws,
+    WsModule(ws): WsModule,
     Path((_, board_id)): Path<(String, String)>,
     body: Bytes,
 ) -> ApiResult {
@@ -277,7 +277,10 @@ async fn handle_create_import_upload(
     params(MemberWorkspaceId, UploadId),
     responses((status = 200, description = "The upload.", body = UploadState)),
 )]
-async fn handle_get_upload(ws: Ws, Path((_, upload_id)): Path<(String, String)>) -> ApiResult {
+async fn handle_get_upload(
+    WsModule(ws): WsModule,
+    Path((_, upload_id)): Path<(String, String)>,
+) -> ApiResult {
     let (upload, parts) = ws
         .app
         .workspace_upload(&upload_id, &ws.session.user_id)
@@ -306,7 +309,7 @@ async fn handle_get_upload(ws: Ws, Path((_, upload_id)): Path<(String, String)>)
     responses((status = 204, description = "The part is received.")),
 )]
 async fn handle_put_upload_part(
-    ws: Ws,
+    WsModule(ws): WsModule,
     Path((_, upload_id, number)): Path<(String, String, String)>,
     headers: HeaderMap,
     body: Body,
@@ -353,7 +356,10 @@ async fn handle_put_upload_part(
     params(MemberWorkspaceId, UploadId),
     responses((status = 201, description = "The file is stored.", body = UploadedFile)),
 )]
-async fn handle_complete_upload(ws: Ws, Path((_, upload_id)): Path<(String, String)>) -> ApiResult {
+async fn handle_complete_upload(
+    WsModule(ws): WsModule,
+    Path((_, upload_id)): Path<(String, String)>,
+) -> ApiResult {
     let user_id = ws.session.user_id.as_str();
     let (upload, _) = ws.app.workspace_upload(&upload_id, user_id).await?;
     if upload.purpose != UploadPurpose::File {
@@ -396,7 +402,10 @@ async fn handle_complete_upload(ws: Ws, Path((_, upload_id)): Path<(String, Stri
     params(MemberWorkspaceId, UploadId),
     responses((status = 204, description = "The upload is gone.")),
 )]
-async fn handle_delete_upload(ws: Ws, Path((_, upload_id)): Path<(String, String)>) -> ApiResult {
+async fn handle_delete_upload(
+    WsModule(ws): WsModule,
+    Path((_, upload_id)): Path<(String, String)>,
+) -> ApiResult {
     let (upload, _) = ws
         .app
         .workspace_upload(&upload_id, &ws.session.user_id)

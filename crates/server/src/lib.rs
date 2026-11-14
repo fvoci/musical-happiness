@@ -750,7 +750,8 @@ async fn handle_websocket(
         .max_message_size(limit)
         .max_frame_size(limit)
         .on_upgrade(move |socket| async move {
-            app.ws().serve(&app, socket, identity, address).await;
+            // Boxed: what serves a connection holds its whole state, which is large.
+            Box::pin(app.ws().serve(&app, socket, identity, address)).await;
         })
 }
 
