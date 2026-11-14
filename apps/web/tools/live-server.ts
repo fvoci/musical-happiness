@@ -118,7 +118,7 @@ writeFileSync(
       smtp_host: '127.0.0.1',
       smtp_port: smtpPort,
       smtp_tls: 'none',
-      smtp_from: 'sender@example.test',
+      mail_from: 'sender@example.test',
       port,
       localOnly: true,
       ...storage,

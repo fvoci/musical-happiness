@@ -11,7 +11,7 @@ use serde_json::json;
 use crate::common::{ROOT_WORKSPACE_ID, Setup, TestServer};
 use crate::fake_smtp::FakeSmtp;
 
-fn links_path() -> String {
+pub(crate) fn links_path() -> String {
     format!("/w/{ROOT_WORKSPACE_ID}/invitations")
 }
 
@@ -40,7 +40,7 @@ async fn mail(th: &TestServer, link: &Invitation, recipients: &[&str]) {
 }
 
 /// The live links made like `parent`, by the address they were mailed to.
-async fn children(th: &TestServer, parent: &Invitation) -> Vec<String> {
+pub(crate) async fn children(th: &TestServer, parent: &Invitation) -> Vec<String> {
     let links: Vec<Invitation> = th.client.get(&links_path()).await.ok_json();
     let mut recipients: Vec<String> = links
         .into_iter()

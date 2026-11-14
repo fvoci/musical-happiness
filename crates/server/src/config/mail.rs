@@ -259,7 +259,7 @@ impl MailSettings {
         ]
     }
 
-    /// The way mail leaves, or `None` for no mail, with the sender (`smtp_from`) checked
+    /// The way mail leaves, or `None` for no mail, with the sender (`mail_from`) checked
     /// for every way. Contacts nothing and reads no file.
     ///
     /// # Errors
@@ -271,7 +271,7 @@ impl MailSettings {
             None if smtp.enabled() => MailTransport::Smtp,
             None => {
                 self.refuse_unused(None)?;
-                if !smtp.smtp_from.is_empty() || !smtp.smtp_user.is_empty() {
+                if !smtp.mail_from.is_empty() || !smtp.smtp_user.is_empty() {
                     bail!(
                         "smtp_host or mail_transport is required when mail settings are supplied"
                     );
@@ -280,8 +280,8 @@ impl MailSettings {
             }
         };
         self.refuse_unused(Some(transport))?;
-        if !fvoci_model::is_email_valid(&smtp.smtp_from) {
-            bail!("smtp_from must be a single email address: the sender of all mail");
+        if !fvoci_model::is_email_valid(&smtp.mail_from) {
+            bail!("mail_from must be a single email address: the sender of all mail");
         }
         if transport != MailTransport::Smtp {
             refuse_relay(smtp, transport)?;
@@ -577,21 +577,21 @@ mod tests {
             "mail_transport": "cloudflare",
             "cloudflare_account_id": "0123456789abcdef0123456789abcdef",
             "cloudflare_api_token": TOKEN,
-            "smtp_from": "sender@example.test",
+            "mail_from": "sender@example.test",
         })
     }
 
     #[test]
     fn the_transport_is_smtp_with_a_host_and_nothing_without() {
         assert!(matches!(checked(&json!({})), Ok(None)));
-        let smtp = json!({"smtp_host": "smtp.example.test", "smtp_from": "sender@example.test"});
+        let smtp = json!({"smtp_host": "smtp.example.test", "mail_from": "sender@example.test"});
         assert!(matches!(checked(&smtp), Ok(Some(Way::Smtp))));
         let mut named = smtp;
         named["mail_transport"] = Value::from("smtp");
         assert!(matches!(checked(&named), Ok(Some(Way::Smtp))));
         let empty = json!({"mail_transport": ""});
         assert!(matches!(checked(&empty), Ok(None)), "empty is unset");
-        let error = checked(&json!({"mail_transport": "smtp", "smtp_from": "sender@example.test"}))
+        let error = checked(&json!({"mail_transport": "smtp", "mail_from": "sender@example.test"}))
             .expect_err("no relay");
         assert!(error.contains("smtp_host"), "{error}");
         let error = checked(&json!({"mail_transport": "postmark"})).expect_err("unknown");
@@ -611,7 +611,7 @@ mod tests {
             checked(&cloudflare()),
             Ok(Some(Way::Cloudflare(_)))
         ));
-        for key in ["cloudflare_account_id", "cloudflare_api_token", "smtp_from"] {
+        for key in ["cloudflare_account_id", "cloudflare_api_token", "mail_from"] {
             let mut keys = cloudflare();
             keys.as_object_mut().expect("an object").remove(key);
             let error = checked(&keys).expect_err("a missing key");
@@ -633,7 +633,7 @@ mod tests {
         }
         let smtp = json!({
             "smtp_host": "smtp.example.test",
-            "smtp_from": "sender@example.test",
+            "mail_from": "sender@example.test",
             "cloudflare_api_token": TOKEN,
         });
         let error = checked(&smtp).expect_err("a key of Cloudflare");
@@ -643,7 +643,7 @@ mod tests {
         let error = checked(&off).expect_err("a key without mail");
         assert!(error.contains("cloudflare_account_id"), "{error}");
         let mut endpoint =
-            json!({"smtp_host": "smtp.example.test", "smtp_from": "sender@example.test"});
+            json!({"smtp_host": "smtp.example.test", "mail_from": "sender@example.test"});
         endpoint["mail_api_endpoint"] = Value::from("http://127.0.0.1:9");
         let error = checked(&endpoint).expect_err("SMTP takes no endpoint");
         assert!(error.contains("mail_api_endpoint"), "{error}");
@@ -738,7 +738,7 @@ mod tests {
             "ses_region": "eu-west-2",
             "ses_access_key_id": "AKIDEXAMPLE",
             "ses_secret_access_key": SES_SECRET,
-            "smtp_from": "sender@example.test",
+            "mail_from": "sender@example.test",
         })
     }
 
@@ -795,7 +795,7 @@ mod tests {
             "oci_fingerprint": "73:61:a2:21:67:e0:df:be:7e:4b:93:1e:15:98:a5:b7",
             "oci_private_key_file": "oci_api_key.pem",
             "oci_compartment": "ocid1.compartment.oc1..aaaaaaaam3we6vgnherjq5q2idnccdflvjsnog7mlr6rtdb25gilchfeyjxa",
-            "smtp_from": "sender@example.test",
+            "mail_from": "sender@example.test",
         })
     }
 

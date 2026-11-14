@@ -112,14 +112,17 @@ impl Outbound for Oci {
     }
 }
 
-/// What OCI's answer makes of the attempt: by its status, except its `400` with the
-/// code `LimitExceeded` (the messages a minute or a day), which is worth another
-/// attempt later. OCI answers what it does not let this server do with
-/// `404 NotAuthorizedOrNotFound`: a sender it has not approved, but also a compartment
-/// or a policy that is missing. The approval is the operator's to set up, and the
-/// answer refuses the message as any other `404`, so each message is counted and its
-/// guest link taken back while it lasts.
+/// What OCI's answer makes of the attempt: by its status, except two. Its `400` with
+/// the code `LimitExceeded` (the messages a minute or a day) is worth another attempt
+/// later. Its `404` (`NotAuthorizedOrNotFound`) is what OCI answers for a compartment,
+/// a policy or an approved sender that is not set up: the server's configuration, the
+/// same for every message, so the whole way is closed rather than each message refused.
 fn outcome_of(answer: &Answer) -> Outcome {
+    if answer.status == 404 {
+        return Outcome::PathDown {
+            code: Some(answer.status),
+        };
+    }
     let limited = answer.status == 400
         && serde_json::from_slice::<Value>(&answer.body)
             .is_ok_and(|body| body["code"] == "LimitExceeded");
@@ -157,21 +160,20 @@ mod tests {
                 code: Some(400)
             }
         );
-        for (status, code) in [
-            (400, "InvalidParameter"),
-            (404, "NotAuthorizedOrNotFound"),
-            (413, ""),
-        ] {
+        for (status, code) in [(400, "InvalidParameter"), (413, ""), (422, "")] {
             assert_eq!(
                 outcome_of(&answer(status, code)),
                 Outcome::Refused { code: Some(status) },
                 "{code}"
             );
         }
-        assert_eq!(
-            outcome_of(&answer(401, "NotAuthenticated")),
-            Outcome::PathDown { code: Some(401) }
-        );
+        for (status, code) in [(401, "NotAuthenticated"), (404, "NotAuthorizedOrNotFound")] {
+            assert_eq!(
+                outcome_of(&answer(status, code)),
+                Outcome::PathDown { code: Some(status) },
+                "{code}"
+            );
+        }
         assert_eq!(
             outcome_of(&answer(429, "TooManyRequests")),
             Outcome::Later {
