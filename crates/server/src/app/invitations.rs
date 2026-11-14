@@ -99,21 +99,25 @@ impl App {
         created_by: &str,
         inviting: Inviting<'_>,
     ) -> Result<Invitation, AppError> {
-        let ends = now_millis().saturating_add(INVITATION_LIFETIME_MILLIS);
-        self.store_link(workspace_id, created_by, inviting, ends, None)
+        self.store_link(workspace_id, created_by, inviting, None, None)
             .await
     }
 
-    /// Stores a new link that ends at `expires_at`, `mailed` for one recipient of a link
-    /// if it is, and returns it with its token.
+    /// Stores a new link that ends at `expires_at`, or seven days after it is made for
+    /// `None`, `mailed` for one recipient of a link if it is, and returns it with its
+    /// token. The clock is read once: a link's lifetime is the same to the millisecond
+    /// whenever it is made.
     async fn store_link(
         &self,
         workspace_id: &str,
         created_by: &str,
         inviting: Inviting<'_>,
-        expires_at: i64,
+        expires_at: Option<i64>,
         mailed: Option<MailedTo<'_>>,
     ) -> Result<Invitation, AppError> {
+        let now = now_millis();
+        let expires_at =
+            expires_at.unwrap_or_else(|| now.saturating_add(INVITATION_LIFETIME_MILLIS));
         let token = new_secret();
         let (guest_of, max_uses) = match inviting {
             Inviting::Members => (None, None),
@@ -126,7 +130,7 @@ impl App {
             guest_of,
             token_hash: &token_digest(&token),
             created_by,
-            now: now_millis(),
+            now,
             expires_at,
             max_uses,
             mailed,
