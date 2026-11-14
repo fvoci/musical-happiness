@@ -7,23 +7,11 @@ use std::time::Duration;
 use fvoci_model::Invitation;
 use serde_json::json;
 
-use crate::common::{ROOT_WORKSPACE_ID, Setup, TestServer};
+use crate::common::{ROOT_WORKSPACE_ID, Setup};
 use crate::fake_provider::{FakeProvider, Provider};
-use crate::metrics::{sample, scrape_until};
-
-fn links_path() -> String {
-    format!("/w/{ROOT_WORKSPACE_ID}/invitations")
-}
-
-/// The live links made like `parent`, by the address they were mailed to.
-async fn children(th: &TestServer, parent: &Invitation) -> Vec<String> {
-    let links: Vec<Invitation> = th.client.get(&links_path()).await.ok_json();
-    links
-        .into_iter()
-        .filter(|link| link.parent_id.as_deref() == Some(parent.id.as_str()))
-        .filter_map(|link| link.recipient)
-        .collect()
-}
+use crate::invitation_mail_children::{children, links_path};
+use crate::mail_path::assert_nothing_given_up;
+use crate::metrics::{sample, scrape, scrape_until};
 
 async fn a_not_found_closes_the_way(provider: Provider) {
     let fake = FakeProvider::start().await;
@@ -76,23 +64,24 @@ async fn a_not_found_closes_the_way(provider: Provider) {
         1,
         "{provider:?}: the recovery and the held invitation wait for the minute's attempt"
     );
-    let body = scrape_until(&th, |body| {
-        sample(body, "fvoci_mail_path_down", &[]) == Some(1.0)
-    })
-    .await;
-    for kind in ["password_reset", "invitation"] {
-        for class in ["permanent", "temporary"] {
-            assert_eq!(
-                sample(
-                    &body,
-                    "fvoci_mail_failed_total",
-                    &[("class", class), ("kind", kind)]
-                ),
-                Some(0.0),
-                "{provider:?} {kind} {class}: no message is given up for a closed way"
-            );
-        }
+    let body = scrape(&th).await;
+    assert_eq!(
+        sample(&body, "fvoci_mail_path_down", &[]),
+        Some(1.0),
+        "{provider:?}: still closed: {body}"
+    );
+    for reason in ["queue_full", "account_limit"] {
+        assert_eq!(
+            sample(
+                &body,
+                "fvoci_password_reset_mail_dropped_total",
+                &[("reason", reason)]
+            ),
+            Some(0.0),
+            "{provider:?}: the recovery was queued, and waits: {body}"
+        );
     }
+    assert_nothing_given_up(&body);
     assert_eq!(
         children(&th, &parent).await,
         ["guest@example.test"],

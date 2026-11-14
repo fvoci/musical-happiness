@@ -160,7 +160,7 @@ mod tests {
                 code: Some(400)
             }
         );
-        for (status, code) in [(400, "InvalidParameter"), (413, "")] {
+        for (status, code) in [(400, "InvalidParameter"), (413, ""), (422, "")] {
             assert_eq!(
                 outcome_of(&answer(status, code)),
                 Outcome::Refused { code: Some(status) },

@@ -26,7 +26,8 @@ async fn close_the_way_with_a_reset(th: &TestServer) -> String {
     .await
 }
 
-fn assert_nothing_given_up(body: &str) {
+/// No message of either kind was given up.
+pub(crate) fn assert_nothing_given_up(body: &str) {
     for kind in ["password_reset", "invitation"] {
         for class in ["permanent", "temporary"] {
             assert_eq!(

@@ -90,7 +90,7 @@ async fn oci_answers_sort_the_attempts_by_status_and_code() {
     let fake = FakeProvider::start().await;
     let th = Setup::native()
         .mail(fake.settings(Provider::Oci))
-        .configure(|config| config.smtp.mail_reset_per_account_hour = 4)
+        .configure(|config| config.smtp.mail_reset_per_account_hour = 3)
         .metrics_at("127.0.0.1:0")
         .start()
         .await
