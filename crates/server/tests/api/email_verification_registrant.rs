@@ -297,7 +297,7 @@ async fn a_registration_without_a_marker_is_confirmed_by_its_password_only() {
     };
     th.app
         .store()
-        .create_signup(&old, now)
+        .create_signup(&old, None, now)
         .await
         .expect("stored");
     th.anonymous()

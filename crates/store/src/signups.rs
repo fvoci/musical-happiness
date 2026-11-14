@@ -125,17 +125,29 @@ const COLUMNS: &str = "id, username, email, display_name, password_hash, languag
 
 impl Store {
     /// Stores a registration whose address is to be confirmed, holding its name and
-    /// address. The registrations that ended by `now` go first.
+    /// address. The registrations that ended by `now` go first, and so does the one
+    /// made before from the same browser, whose marker has the digest `replacing`: its
+    /// name and address are free for this one, and the use of a link it was made by is
+    /// given back. All of it happens or none: a registration that is refused replaces
+    /// nothing.
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::Conflict`] if an account, deleted or not, or a registration
-    /// that has not ended has the name or the address, in any letter case; and
-    /// [`StoreError::Database`] if a statement fails.
-    pub async fn create_signup(&self, signup: &Signup, now: i64) -> Result<(), StoreError> {
+    /// Returns [`StoreError::Conflict`] if an account, deleted or not, or another
+    /// registration that has not ended has the name or the address, in any letter
+    /// case; and [`StoreError::Database`] if a statement fails.
+    pub async fn create_signup(
+        &self,
+        signup: &Signup,
+        replacing: Option<&str>,
+        now: i64,
+    ) -> Result<(), StoreError> {
         self.system()
             .transaction(async |scope| {
                 remove_ended(scope, now).await?;
+                if let Some(browser) = replacing {
+                    discard_of_browser(scope, browser).await?;
+                }
                 hold_names(scope, signup).await
             })
             .await
@@ -489,6 +501,76 @@ fn push_proof(sql: &mut Sql, proof: Proof<'_>, now: i64) {
     }
 }
 
+/// Removes the registration made from the browser whose marker has the digest
+/// `browser`, if there is one, ended or not: its name and address are free again, and
+/// the use of a link it was made by is given back, in whatever organization the link
+/// is. For a transaction that stores what replaces it. Says whether there was one.
+pub(crate) async fn discard_of_browser(
+    scope: &mut Scope<'_>,
+    browser: &str,
+) -> Result<bool, StoreError> {
+    let mut sql = scope.sql(&format!(
+        "SELECT {COLUMNS} FROM signups WHERE browser_hash = "
+    ));
+    sql.bind(browser);
+    let Some(row) = scope.fetch_optional(sql).await? else {
+        return Ok(false);
+    };
+    discard(scope, &signup_from_row(&row)?).await
+}
+
+/// Removes `signup`, giving back the use of the link it was made by; says whether it
+/// was there still. The link is held first, as a confirmation holds it: the use goes
+/// back only with the registration that took it, one confirmed meanwhile keeping it.
+async fn discard(scope: &mut Scope<'_>, signup: &Signup) -> Result<bool, StoreError> {
+    hold_link_of(scope, signup).await?;
+    let mut sql = scope.sql("DELETE FROM signups WHERE id = ");
+    sql.bind(Id(&signup.id));
+    if scope.execute(sql).await? == 0 {
+        return Ok(false);
+    }
+    give_back_use(scope, signup).await?;
+    Ok(true)
+}
+
+/// What a transaction's wall was before it was opened for one link.
+struct Wall(Option<String>);
+
+/// Opens the transaction's wall for a link of the organization `org_id`, to be closed
+/// again with [`close_wall`]: a registration is no organization's, and the link one
+/// was made by may be of another organization than the one a transaction that removes
+/// it works in. Nothing but the statement on that one link, which names it and its
+/// organization, runs while it is open. Only inside a transaction, whose setting it
+/// is; nothing to do where the transaction is the link's organization's, or on SQLite,
+/// which has no wall.
+async fn open_wall(scope: &mut Scope<'_>, org_id: &str) -> Result<Wall, StoreError> {
+    if scope.dialect() != Dialect::Postgres || scope.org_id().as_deref() == Some(org_id) {
+        return Ok(Wall(None));
+    }
+    let sql = scope.sql("SELECT COALESCE(current_setting('fvoci.system', true), 'off')");
+    let before = match scope.fetch_optional(sql).await? {
+        Some(row) => row.text(0)?,
+        None => "off".to_owned(),
+    };
+    set_wall(scope, "on").await?;
+    Ok(Wall(Some(before)))
+}
+
+/// Puts the transaction's wall back as it was before [`open_wall`].
+async fn close_wall(scope: &mut Scope<'_>, wall: Wall) -> Result<(), StoreError> {
+    match wall.0 {
+        Some(before) => set_wall(scope, &before).await,
+        None => Ok(()),
+    }
+}
+
+async fn set_wall(scope: &mut Scope<'_>, reach: &str) -> Result<(), StoreError> {
+    let mut sql = scope.sql("SELECT set_config('fvoci.system', ");
+    sql.bind(reach).push(", true)");
+    scope.fetch_optional(sql).await?;
+    Ok(())
+}
+
 /// Removes the registrations that ended by `now`, giving back the uses of the links
 /// they were made by first; returns how many. Needs the system's reach: the links are
 /// of every organization, and a statement the wall hides them from changes nothing.
@@ -525,32 +607,33 @@ async fn remove_ended(scope: &mut Scope<'_>, now: i64) -> Result<u64, StoreError
 }
 
 /// Holds the link a registration was made by, if it is there, against its acceptances
-/// and confirmations; the scope reaches the link's organization.
+/// and confirmations, in whatever organization it is.
 async fn hold_link_of(scope: &mut Scope<'_>, signup: &Signup) -> Result<(), StoreError> {
     if let (SignupStart::Invitation { id, org_id }, Dialect::Postgres) =
         (&signup.start, scope.dialect())
     {
+        let wall = open_wall(scope, org_id).await?;
         let mut sql = scope.sql("SELECT id FROM invitations WHERE id = ");
         sql.bind(Id(id))
             .push_bind(" AND org_id = ", Id(org_id))
             .push(" FOR UPDATE");
         scope.fetch_optional(sql).await?;
+        close_wall(scope, wall).await?;
     }
     Ok(())
 }
 
-/// Gives back the use a registration took of the link it was made by, if it was; the
-/// scope reaches the link's organization.
-pub(crate) async fn give_back_use(
-    scope: &mut Scope<'_>,
-    signup: &Signup,
-) -> Result<(), StoreError> {
+/// Gives back the use a registration took of the link it was made by, if it was, in
+/// whatever organization the link is.
+async fn give_back_use(scope: &mut Scope<'_>, signup: &Signup) -> Result<(), StoreError> {
     if let SignupStart::Invitation { id, org_id } = &signup.start {
+        let wall = open_wall(scope, org_id).await?;
         let mut sql = scope.sql("UPDATE invitations SET uses = uses - 1 WHERE id = ");
         sql.bind(Id(id))
             .push_bind(" AND org_id = ", Id(org_id))
             .push(" AND uses > 0");
         scope.execute(sql).await?;
+        close_wall(scope, wall).await?;
     }
     Ok(())
 }

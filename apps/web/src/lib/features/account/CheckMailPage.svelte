@@ -2,7 +2,8 @@
   After a registration where the server confirms addresses: nothing is made
   yet, and the link mailed to the address makes the account and signs in. The
   page says where the link went, mails it again, and leads back to the form
-  for a registration with another address.
+  to register again with the address put right: from this browser the new
+  registration replaces the one that waits, under the same user name.
 -->
 <script lang="ts">
   import { m } from '$lib/i18n/paraglide/messages.js';
@@ -15,7 +16,7 @@
     email: string;
     /** Mails the registration a new link. */
     onResend: () => Promise<void>;
-    /** Back to the form, to register again with another address. */
+    /** Back to the form, to register again with the address put right. */
     onSignUpAgain?: () => void;
   }
 

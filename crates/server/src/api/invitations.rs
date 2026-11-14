@@ -8,7 +8,7 @@
 
 use axum::body::Bytes;
 use axum::extract::{Extension, Path, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse as _;
 use fvoci_model::{
     AcceptInvitation, AcceptedInvitation, BoardRole, GuestInvitationsChange, Invitation,
@@ -21,7 +21,7 @@ use utoipa_axum::routes;
 use super::auth::address_of;
 use super::contract::params::{InvitationId, WorkerWorkspaceId};
 use super::contract::tag;
-use super::signup_cookie::with_marker;
+use super::signup_cookie::{marker_of, with_marker};
 use super::workspace::Ws;
 use super::{ApiResult, OptionalSession, created, decode_object, json_response, no_content};
 use crate::app::{Accepting, Admission, App, Inviting};
@@ -263,7 +263,9 @@ async fn handle_set_guest_invitations(ws: Ws, body: Bytes) -> ApiResult {
 /// guest's link the title of the board (`boardTitle`).
 ///
 /// A token that lets nobody in is 404 with the reason `invitation_unavailable`, as
-/// `acceptInvitation` answers it and whatever is wrong with it. Requests are counted
+/// `acceptInvitation` answers it and whatever is wrong with it. A link for one guest
+/// that only the registration of this browser uses up (the cookie of `acceptInvitation`'s
+/// 202) is shown to it still, to register by again. Requests are counted
 /// by where they come from, and too many are 429.
 #[utoipa::path(
     post,
@@ -286,11 +288,13 @@ async fn handle_set_guest_invitations(ws: Ws, body: Bytes) -> ApiResult {
 async fn handle_preview_invitation(
     State(app): State<App>,
     client: Option<Extension<ClientAddress>>,
+    headers: HeaderMap,
     body: Bytes,
 ) -> ApiResult {
     let request: InvitationToken = decode_object(&body)?;
+    let browser = marker_of(&app, &headers);
     let preview = app
-        .preview_invitation(&request.token, address_of(client))
+        .preview_invitation(&request.token, browser.as_deref(), address_of(client))
         .await?;
     Ok(json_response(&preview))
 }
@@ -323,7 +327,11 @@ async fn handle_preview_invitation(
 /// the browser the registration was made from, as `register` does. The registration counts as a
 /// use of the link from the start, so a link for one guest lets nobody else in
 /// meanwhile, and it holds its name and address as an account would. Not confirmed in
-/// seven days, it is removed and gives the use back. `language` is the language of the
+/// seven days, it is removed and gives the use back. A new `account` from the browser
+/// of a registration that waits still (by this link, another, or `register`) replaces
+/// that registration: its name and address are free for the account, and the use it
+/// took of a link is given back, so that a link for one guest takes the same person
+/// again with the address put right. `language` is the language of the
 /// mail (English or Korean).
 ///
 /// A session that the link's organization does not take (it takes no password,
@@ -361,10 +369,12 @@ async fn handle_accept_invitation(
     State(app): State<App>,
     OptionalSession(session): OptionalSession,
     client: Option<Extension<ClientAddress>>,
+    headers: HeaderMap,
     body: Bytes,
 ) -> ApiResult {
     let request: AcceptInvitation = decode_object(&body)?;
     let account = request.account.map(fvoci_model::NewAccount::tidied);
+    let browser = marker_of(&app, &headers);
     let accepting = match (&session, &account) {
         (Some(_), Some(_)) => {
             return Err(AppError::bad_request(
@@ -380,6 +390,7 @@ async fn handle_accept_invitation(
             Accepting::NewAccount {
                 account,
                 language: &request.language,
+                browser: browser.as_deref(),
             }
         }
         (None, None) => {

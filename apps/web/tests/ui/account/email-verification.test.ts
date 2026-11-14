@@ -91,12 +91,13 @@ describe('a registration that waits for its address', () => {
   it('waits for the address of a new account made by an invitation', async () => {
     const onResend = vi.fn(() => Promise.resolve());
     const onJoined = vi.fn();
+    const accept = vi.fn(() => Promise.resolve('waiting' as const));
     render(InvitePage, {
       props: {
         token: 'the-token',
         signedInAs: undefined,
         preview: () => Promise.resolve({ workspaceName: 'Acme', inviterName: 'Ada' }),
-        accept: vi.fn(() => Promise.resolve('waiting' as const)),
+        accept,
         onResend,
         onSignIn: vi.fn(() => Promise.resolve()),
         onJoined,
@@ -112,6 +113,19 @@ describe('a registration that waits for its address', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Create account and join' }));
     expect(await screen.findByTestId('check-mail')).toHaveTextContent('grace@example.test');
     expect(onJoined).not.toHaveBeenCalled();
+
+    // The address was mistyped: back to the form, at the address, to accept again.
+    expect(screen.getByTestId('check-mail')).toHaveTextContent('you keep your user name');
+    await fireEvent.click(screen.getByRole('button', { name: 'Sign up again' }));
+    await waitFor(() => {
+      expect(screen.getByLabelText(/email/i)).toHaveFocus();
+    });
+    expect(screen.getByLabelText(/^user name$/i)).toHaveValue('grace');
+    await fill(/email/i, 'grace@example.org');
+    await fill(/^password$/i, 'a long password');
+    await fireEvent.click(screen.getByRole('button', { name: 'Create account and join' }));
+    expect(await screen.findByTestId('check-mail')).toHaveTextContent('grace@example.org');
+    expect(accept).toHaveBeenCalledTimes(2);
   });
 });
 

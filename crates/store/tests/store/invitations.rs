@@ -55,7 +55,7 @@ async fn accept(
     acceptor: Acceptor<'_>,
     now: i64,
 ) -> Result<Option<Accepted>, StoreError> {
-    let link = store.live_invitation(token_hash, now).await?;
+    let link = store.live_invitation(token_hash, now, None).await?;
     let (maker, workspace_id, board_id) = match &link {
         Some(link) => (
             link.created_by.as_str(),
@@ -103,7 +103,7 @@ async fn role_in_the_workspace(test: &TestStore, user_id: &str) -> Option<Worksp
 }
 
 async fn uses_of(test: &TestStore, token_hash: &str) -> Option<i64> {
-    test.live_invitation(token_hash, NOW)
+    test.live_invitation(token_hash, NOW, None)
         .await
         .expect("the link is read")
         .map(|link| link.uses)
@@ -145,7 +145,7 @@ async fn a_link_is_live_until_it_ends_is_used_up_or_is_revoked() {
 
     // The organization of a token is found past the wall, for a live link only.
     let found = async |token_hash: &'static str, now: i64| {
-        test.org_of_live_invitation(token_hash, now)
+        test.org_of_live_invitation(token_hash, now, None)
             .await
             .expect("the organization is asked")
     };
@@ -652,7 +652,9 @@ async fn a_mailed_links_children_name_it_and_go_with_it_while_unused() {
         "the parent, by its maker"
     );
     assert_eq!(
-        test.live_invitation("unused", NOW).await.expect("asked"),
+        test.live_invitation("unused", NOW, None)
+            .await
+            .expect("asked"),
         None,
         "an unused child goes with its parent, whoever made it"
     );
@@ -692,7 +694,9 @@ async fn a_used_link_is_unended_until_it_ends() {
         .is_some()
     );
     assert_eq!(
-        test.live_invitation("used-up", NOW).await.expect("asked"),
+        test.live_invitation("used-up", NOW, None)
+            .await
+            .expect("asked"),
         None
     );
     assert_eq!(

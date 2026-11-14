@@ -40,6 +40,12 @@ impl App {
     /// and checked the request, as for [`App::sign_up`]. Returns the marker of the
     /// browser it was made from, for its cookie.
     ///
+    /// `browser` is the secret of the cookie the browser has already, of a
+    /// registration it made before that waits still: this one replaces it, in one
+    /// transaction, so that whoever mistyped an address registers again at once under
+    /// the same name. Its name and address are free for this one, and the use it took
+    /// of a link is given back. A registration that is refused replaces nothing.
+    ///
     /// # Errors
     ///
     /// As [`App::sign_up`]: a name or an address that an account or another
@@ -47,22 +53,32 @@ impl App {
     pub async fn sign_up_to_confirm(
         &self,
         request: &RegisterRequest,
+        browser: Option<&str>,
         address: Option<IpAddr>,
     ) -> Result<SignupMarker, AppError> {
         let _attempt = self.admit_registration(address)?;
-        let user = self.new_account(&request.account()).await?;
+        let replacing = self.replaced_by(browser);
+        let replacing = replacing.as_deref();
+        let user = self.new_account(&request.account(), replacing).await?;
         let now = now_millis();
         let start = SignupStart::Organization(request.organization_name.clone());
         let marker = SignupMarker::new();
         let signup = waiting(&user, &request.language, start, &marker, now);
         self.store()
-            .create_signup(&signup, now)
+            .create_signup(&signup, replacing, now)
             .await
             .map_err(account_error)?;
         tracing::info!(signup_id = %signup.id, "a registration waits for its address");
         let app = self.clone();
         self.spawn_background(async move { app.mail_signup_link(&signup, None).await });
         Ok(marker)
+    }
+
+    /// The digest of the marker of the registration that a new one from the browser
+    /// of `browser` (the secret of its cookie) replaces; none where the server asks no
+    /// registration to wait, and makes no marker.
+    pub(super) fn replaced_by(&self, browser: Option<&str>) -> Option<String> {
+        browser.filter(|_| self.verifies_email()).map(token_digest)
     }
 
     /// The registration of `user`, an account asked for by the link `invitation_id` from

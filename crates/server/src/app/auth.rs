@@ -329,7 +329,7 @@ impl App {
         // comes from like one. The turn is held until the user is stored.
         let _attempt = self.admit_registration(address)?;
         let name = &request.organization_name;
-        let mut user = self.new_account(&request.account()).await?;
+        let mut user = self.new_account(&request.account(), None).await?;
         let mut stored = if self.store().is_bootstrapped().await? {
             Err(StoreError::NotFirstUser)
         } else {
@@ -407,22 +407,31 @@ impl App {
 
     /// The account `account` asks for, not stored yet: under a new identifier, with
     /// the hash of its password. The caller has checked and tidied the request
-    /// (`NewAccount::validate`, `NewAccount::tidied`).
+    /// (`NewAccount::validate`, `NewAccount::tidied`). `replacing` is the digest of the
+    /// marker of the registration this account replaces, whose name and address are
+    /// its own to take again.
     ///
     /// # Errors
     ///
     /// Returns a conflict error if the name or the email address is taken, in any letter
     /// case, and a 429 if the server has too much password work to do.
-    pub(crate) async fn new_account(&self, account: &NewAccount) -> Result<User, AppError> {
+    pub(crate) async fn new_account(
+        &self,
+        account: &NewAccount,
+        replacing: Option<&str>,
+    ) -> Result<User, AppError> {
         // Asked first so that a taken name costs no hash. Two registrations at once
         // both pass these, and then the unique indexes decide: the same conflict.
         // A registration whose address is not confirmed yet holds its name and address
         // as an account does, and is told as one.
+        let held_by_another = |signup: Option<fvoci_store::Signup>| {
+            signup.is_some_and(|signup| Some(signup.browser_hash.as_str()) != replacing)
+        };
         if self
             .find_user_for_login(Lookup::Username(&account.username))
             .await?
             .is_some()
-            || self.find_signup(&account.username, "").await?.is_some()
+            || held_by_another(self.find_signup(&account.username, "").await?)
         {
             return Err(username_taken());
         }
@@ -430,7 +439,7 @@ impl App {
             .find_user_for_login(Lookup::Email(&account.email))
             .await?
             .is_some()
-            || self.find_signup("", &account.email).await?.is_some()
+            || held_by_another(self.find_signup("", &account.email).await?)
         {
             return Err(email_taken());
         }

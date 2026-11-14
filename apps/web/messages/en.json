@@ -1148,7 +1148,7 @@
   "verify_check_until": "Until then there is no account. A sign-up that is not confirmed in seven days is removed.",
   "verify_resend": "Send the link again",
   "verify_resent": "If a sign-up waits for this address, a new link is on its way. The link before it no longer works.",
-  "verify_wrong_address": "Wrong address? Sign up again with the right one and another user name: this sign-up holds its name for seven days.",
+  "verify_wrong_address": "Wrong address? Sign up again in this browser with the right one: the new sign-up replaces this one, and you keep your user name.",
   "verify_sign_up_again": "Sign up again",
   "verify_title": "Confirm your email address",
   "verify_working": "Confirming your address…",

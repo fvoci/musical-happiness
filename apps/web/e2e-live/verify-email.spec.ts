@@ -134,18 +134,34 @@ test('in another browser the link asks for the password the registration was mad
   const invitation = await memberLink(api, workspace.id);
   await api.dispose();
 
-  // A new account by the link: it waits for its address, as a registration does.
+  // A new account by the link, its address mistyped: it waits, as a registration does.
   const who = person('elsewhere');
+  const mistyped = `x${who.email}`;
   await page.goto(`/invite/${invitation.token ?? ''}`);
   await expect(page.getByTestId('invite-summary')).toBeVisible();
   await page.getByLabel('User name', { exact: true }).fill(who.username);
+  await page.getByLabel('Email address').fill(mistyped);
+  await page.getByLabel('Password', { exact: true }).fill(who.password);
+  await page.getByRole('button', { name: 'Create account and join' }).click();
+  await expect(page.getByTestId('check-mail')).toContainText(mistyped);
+  await expect.poll(async () => (await links(baseURL, mistyped)).length).toBe(1);
+  await verifyShot(page, 'check-mail-invited');
+
+  // Signing up again from this browser replaces it: the same name, at once.
+  await page.getByRole('button', { name: 'Sign up again' }).click();
+  await expect(page.getByLabel('Email address')).toBeFocused();
+  await expect(page.getByLabel('User name', { exact: true })).toHaveValue(who.username);
   await page.getByLabel('Email address').fill(who.email);
   await page.getByLabel('Password', { exact: true }).fill(who.password);
   await page.getByRole('button', { name: 'Create account and join' }).click();
   await expect(page.getByTestId('check-mail')).toContainText(who.email);
   await expect.poll(async () => (await links(baseURL, who.email)).length).toBe(1);
   const [link] = await links(baseURL, who.email);
-  if (!link) throw new Error('a link was mailed');
+  const [replaced] = await links(baseURL, mistyped);
+  if (!link || !replaced) throw new Error('both links were mailed');
+  // The link of the registration that was replaced confirms nothing, even here.
+  await page.goto(replaced);
+  await expect(page.getByTestId('verify-problem')).toContainText('invalid, has expired');
 
   // Whoever reads the mail elsewhere: nothing comes of the link alone, in Korean as in English.
   const korean = await browser.newContext({ baseURL, locale: 'ko-KR' });

@@ -10,7 +10,7 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use super::contract::tag;
-use super::signup_cookie::with_marker;
+use super::signup_cookie::{marker_of, with_marker};
 
 use super::{ApiResult, RequiredSession, created, decode_object, no_content};
 use crate::app::App;
@@ -165,7 +165,11 @@ pub(super) fn address_of(client: Option<Extension<ClientAddress>>) -> Option<std
 /// removed, and its name and address are free again. The 202 sets a cookie that tells
 /// the browser the registration was made from (`fvoci_signup`, `__Host-fvoci_signup`
 /// over HTTPS; `HttpOnly`, for the seven days): no session, it reaches nothing, and
-/// shows `completeEmailVerification` that the browser is the registrant's.
+/// shows `completeEmailVerification` that the browser is the registrant's. A
+/// registration from a browser that has the cookie of one that waits still replaces
+/// that one: whoever mistyped an address registers again at once, under the same user
+/// name, and the link mailed for the first confirms nothing any more. Without the
+/// cookie the name and the address of a registration that waits are taken.
 ///
 /// The name and the email address must not be blank, the email address must look like
 /// one, the display name (`displayName`, may be left out) is read as `patchMe` reads it,
@@ -200,6 +204,7 @@ pub(super) fn address_of(client: Option<Extension<ClientAddress>>) -> Option<std
 async fn handle_register(
     State(app): State<App>,
     client: Option<Extension<ClientAddress>>,
+    headers: HeaderMap,
     body: Bytes,
 ) -> ApiResult {
     let register: RegisterRequest = decode_object(&body)?;
@@ -212,8 +217,9 @@ async fn handle_register(
     let register = register.tidied();
     register.validate()?;
     if app.verifies_email() {
+        let browser = marker_of(&app, &headers);
         let marker = app
-            .sign_up_to_confirm(&register, address_of(client))
+            .sign_up_to_confirm(&register, browser.as_deref(), address_of(client))
             .await?;
         return Ok(with_marker(
             &app,

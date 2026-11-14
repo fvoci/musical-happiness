@@ -329,7 +329,11 @@ export interface paths {
          *     the browser the registration was made from, as `register` does. The registration counts as a
          *     use of the link from the start, so a link for one guest lets nobody else in
          *     meanwhile, and it holds its name and address as an account would. Not confirmed in
-         *     seven days, it is removed and gives the use back. `language` is the language of the
+         *     seven days, it is removed and gives the use back. A new `account` from the browser
+         *     of a registration that waits still (by this link, another, or `register`) replaces
+         *     that registration: its name and address are free for the account, and the use it
+         *     took of a link is given back, so that a link for one guest takes the same person
+         *     again with the address put right. `language` is the language of the
          *     mail (English or Korean).
          *
          *     A session that the link's organization does not take (it takes no password,
@@ -365,7 +369,9 @@ export interface paths {
          *     guest's link the title of the board (`boardTitle`).
          *
          *     A token that lets nobody in is 404 with the reason `invitation_unavailable`, as
-         *     `acceptInvitation` answers it and whatever is wrong with it. Requests are counted
+         *     `acceptInvitation` answers it and whatever is wrong with it. A link for one guest
+         *     that only the registration of this browser uses up (the cookie of `acceptInvitation`'s
+         *     202) is shown to it still, to register by again. Requests are counted
          *     by where they come from, and too many are 429.
          */
         post: operations["previewInvitation"];
@@ -987,7 +993,11 @@ export interface paths {
          *     removed, and its name and address are free again. The 202 sets a cookie that tells
          *     the browser the registration was made from (`fvoci_signup`, `__Host-fvoci_signup`
          *     over HTTPS; `HttpOnly`, for the seven days): no session, it reaches nothing, and
-         *     shows `completeEmailVerification` that the browser is the registrant's.
+         *     shows `completeEmailVerification` that the browser is the registrant's. A
+         *     registration from a browser that has the cookie of one that waits still replaces
+         *     that one: whoever mistyped an address registers again at once, under the same user
+         *     name, and the link mailed for the first confirms nothing any more. Without the
+         *     cookie the name and the address of a registration that waits are taken.
          *
          *     The name and the email address must not be blank, the email address must look like
          *     one, the display name (`displayName`, may be left out) is read as `patchMe` reads it,

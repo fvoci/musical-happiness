@@ -219,7 +219,7 @@ async fn the_hourly_clean_up_removes_the_registrations_that_ended() {
     };
     let store = th.app.store();
     store
-        .create_signup(&ended, long_ago - 1)
+        .create_signup(&ended, None, long_ago - 1)
         .await
         .expect("stored as it was");
     // Not counted here: the clean-up the server runs as it starts may have come first.

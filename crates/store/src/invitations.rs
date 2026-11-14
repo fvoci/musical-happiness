@@ -20,10 +20,10 @@ use crate::accounts::{self, Which};
 use crate::audit::{self, AuditEntry};
 use crate::boards::{find_member, lock_board, save_member};
 use crate::db::{Dialect, Id, OptId, Param, Row, Scope, Sql};
-use crate::error::StoreError;
+use crate::error::{StoreError, Taken};
 use crate::trash::{self, TrashedRoles};
 use crate::users::InstanceRole;
-use crate::{Standing, Store};
+use crate::{Standing, Store, signups};
 
 /// The columns of an invitation, in the order [`invitation_from_row`] reads them.
 const COLUMNS: &str = "id, workspace_id, role, board_id, board_role, created_by, create_at, \
@@ -81,6 +81,16 @@ pub enum Acceptor<'a> {
     Account(&'a str),
     /// A new account, stored with the acceptance and updated to what was stored.
     NewAccount(&'a mut User),
+    /// A new account, made from the browser of a registration that waits for its
+    /// address, which it replaces.
+    Replacing {
+        /// The account, stored with the acceptance and updated to what was stored.
+        user: &'a mut User,
+        /// The digest of the marker of the browser's registration: removed with the
+        /// acceptance, its name and address free for the account and its use of a
+        /// link given back, of this link too.
+        browser: &'a str,
+    },
 }
 
 /// Who made a link, as the server found them when it found that their link lets
@@ -227,7 +237,9 @@ impl Store {
     }
 
     /// The live link of the handle's organization whose token has the digest
-    /// `token_hash`, if there is one at `now`.
+    /// `token_hash`, if there is one at `now`; live also if only the registration made
+    /// from the browser whose marker has the digest `replacing` uses it up: what the
+    /// browser does next replaces that registration.
     ///
     /// # Errors
     ///
@@ -237,9 +249,10 @@ impl Store {
         &self,
         token_hash: &str,
         now: i64,
+        replacing: Option<&str>,
     ) -> Result<Option<Invitation>, StoreError> {
         self.with_conn(async |scope| {
-            let sql = select_live_by_token(scope, token_hash, now)?;
+            let sql = select_live_by_token(scope, token_hash, now, replacing)?;
             scope
                 .fetch_optional(sql)
                 .await?
@@ -390,7 +403,12 @@ impl Store {
         inviter: Inviter<'_>,
     ) -> Result<Acceptance, StoreError> {
         self.transaction(async |scope| {
-            let link = match hold_live_link(scope, token_hash, now, inviter.standing).await? {
+            let replacing = match &acceptor {
+                Acceptor::Replacing { browser, .. } => Some(*browser),
+                Acceptor::Account(_) | Acceptor::NewAccount(_) => None,
+            };
+            let held = hold_live_link(scope, token_hash, now, inviter.standing, replacing);
+            let link = match held.await? {
                 Ok(link) => link,
                 Err(refused) => return Ok(refused),
             };
@@ -400,10 +418,15 @@ impl Store {
                     accounts::insert_account(scope, user, InstanceRole::User).await?;
                     user.id.clone()
                 }
+                Acceptor::Replacing { user, browser } => {
+                    signups::discard_of_browser(scope, browser).await?;
+                    accounts::insert_account(scope, user, InstanceRole::User).await?;
+                    user.id.clone()
+                }
             };
             let used = let_in(scope, &link, &user_id, inviter.of_board).await?;
             if used {
-                count_uses(scope, &link.id, 1).await?;
+                take_use(scope, &link.id).await?;
             }
             Ok(Acceptance::Accepted(Accepted {
                 user_id,
@@ -426,10 +449,11 @@ pub(crate) async fn hold_live_link(
     token_hash: &str,
     now: i64,
     found: Standing<'_>,
+    replacing: Option<&str>,
 ) -> Result<Result<Invitation, Acceptance>, StoreError> {
     // Hold the board before its invitation and membership, as removal does.
     // The acceptor's role then stays what was read until its write.
-    let sql = select_live_by_token(scope, token_hash, now)?;
+    let sql = select_live_by_token(scope, token_hash, now, replacing)?;
     let Some(row) = scope.fetch_optional(sql).await? else {
         return Ok(Err(Acceptance::Unavailable));
     };
@@ -443,7 +467,7 @@ pub(crate) async fn hold_live_link(
     }
     // The link itself, held against the other acceptances of it: read again,
     // it is live still, and its workspace still invites guests if it is for one.
-    let mut sql = select_live_by_token(scope, token_hash, now)?;
+    let mut sql = select_live_by_token(scope, token_hash, now, replacing)?;
     push_invites(&mut sql);
     if scope.dialect() == Dialect::Postgres {
         sql.push(" FOR UPDATE OF i");
@@ -528,6 +552,25 @@ pub(crate) async fn count_uses(
         .push_bind(" AND uses + ", uses)
         .push(" >= 0");
     scope.execute(sql).await?;
+    Ok(())
+}
+
+/// Counts one more use of the held link `link_id` of the scope's organization, if it
+/// may be used once more: what a link was found live by may be a registration that a
+/// replacement removes, and the count as it is then is what decides.
+///
+/// # Errors
+///
+/// Returns [`StoreError::Conflict`] with [`Taken::LinkUse`] if the link was used as
+/// often as it may be.
+pub(crate) async fn take_use(scope: &mut Scope<'_>, link_id: &str) -> Result<(), StoreError> {
+    let mut sql = scope.sql("UPDATE invitations SET uses = uses + 1 WHERE id = ");
+    sql.bind(Id(link_id))
+        .push_bind(" AND org_id = ", scope.org()?)
+        .push(" AND (max_uses IS NULL OR uses < max_uses)");
+    if scope.execute(sql).await? == 0 {
+        return Err(StoreError::Conflict(Taken::LinkUse));
+    }
     Ok(())
 }
 
@@ -681,14 +724,14 @@ async fn forget_board_roles(
     trash::change_member_of_deleted_boards(scope, workspace_id, user_id, TrashedRoles::Forget).await
 }
 
-/// Starts the query for the live links of the scope's organization at `now`;
-/// conditions follow with `AND`.
-fn select_live(scope: &Scope<'_>, now: i64) -> Result<Sql, StoreError> {
+/// Starts the query for the live links of the scope's organization at `now`, as
+/// [`push_live_but_for`] counts them; conditions follow with `AND`.
+fn select_live(scope: &Scope<'_>, now: i64, replacing: Option<&str>) -> Result<Sql, StoreError> {
     let mut sql = scope.sql(&format!(
         "SELECT {COLUMNS_OF_I} FROM invitations AS i WHERE i.org_id = "
     ));
     sql.bind(scope.org()?);
-    push_live(&mut sql, now);
+    push_live_but_for(&mut sql, now, replacing);
     Ok(sql)
 }
 
@@ -710,10 +753,34 @@ fn select_listed(scope: &Scope<'_>, now: i64) -> Result<Sql, StoreError> {
 }
 
 /// The query for the live link of the scope's organization with the token's digest.
-fn select_live_by_token(scope: &Scope<'_>, token_hash: &str, now: i64) -> Result<Sql, StoreError> {
-    let mut sql = select_live(scope, now)?;
+fn select_live_by_token(
+    scope: &Scope<'_>,
+    token_hash: &str,
+    now: i64,
+    replacing: Option<&str>,
+) -> Result<Sql, StoreError> {
+    let mut sql = select_live(scope, now, replacing)?;
     sql.push_bind(" AND i.token_hash = ", token_hash);
     Ok(sql)
+}
+
+/// Pushes the conditions that the link `i` is live at `now`, as [`push_live`] does,
+/// for the browser whose marker has the digest `replacing`: the use a registration
+/// made from that browser took of the link does not count against it, since what the
+/// browser does next replaces that registration and gives the use back.
+pub(crate) fn push_live_but_for(sql: &mut Sql, now: i64, replacing: Option<&str>) {
+    let Some(browser) = replacing else {
+        return push_live(sql, now);
+    };
+    sql.push_bind(" AND i.revoked_at = ", 0_i64)
+        .push_bind(" AND i.expires_at > ", now)
+        .push_bind(
+            " AND (i.max_uses IS NULL OR i.uses - (SELECT count(*) FROM signups AS s \
+             WHERE s.invitation_id = i.id AND s.invitation_org_id = i.org_id \
+             AND s.browser_hash = ",
+            browser,
+        )
+        .push(") < i.max_uses)");
 }
 
 /// Pushes the conditions that the link `i` is live at `now`: not revoked, not ended,
