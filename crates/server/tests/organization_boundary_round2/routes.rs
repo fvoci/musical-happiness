@@ -379,11 +379,9 @@ async fn compare_workspace_routes(client: &Client, user_id: &str, asker: Asker) 
             // names, the operation, or the empty body; nothing is done.
             REFUSED_IN_REACH.contains(&hidden.status) && absent.status == StatusCode::NOT_FOUND
         } else if *operation == "searchWorkspaceContent" && asker == Asker::Guest {
-            // The workspace is there for its guest, and this server has no search
-            // server, which it says.
-            hidden.status == StatusCode::NOT_FOUND
-                && answer(&hidden).1["reason"] == "search_not_configured"
-                && absent.status == StatusCode::NOT_FOUND
+            // There for its guest, on a server without a search server, which it says.
+            answer(&hidden).1["reason"] == "search_not_configured"
+                && answer(&absent).0 == hidden.status
         } else if *operation == "exportWorkspaceArchive" && asker == Asker::Guest {
             // The guest's archive has the boards the guest is on, none here.
             hidden.status == StatusCode::OK

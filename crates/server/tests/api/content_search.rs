@@ -279,6 +279,121 @@ async fn private_board(client: &Client, title: &str) -> Board {
         .created_json()
 }
 
+/// Makes a user that of a role in the test workspace.
+async fn set_role(th: &TestServer, user_id: &str, role: &str) {
+    th.app
+        .store()
+        .execute_unchecked(&format!(
+            "UPDATE workspace_members SET role = '{role}' WHERE user_id = '{user_id}' \
+             AND workspace_id = '{TEST_WORKSPACE_ID}'"
+        ))
+        .await
+        .expect("the user's role in the test workspace is set");
+}
+
+/// A private board that `user_id` reads through a team and is no member of, and a
+/// card of it: the board's and the card's identifiers.
+async fn card_read_through_a_team(th: &TestServer, user_id: &str) -> (String, String) {
+    let board = private_board(&th.client, "Teamed").await;
+    let team: fvoci_model::Team = th
+        .client
+        .post(&format!("{TEST_WS}/teams"), &json!({"name": "Support"}))
+        .await
+        .ok_json();
+    th.client
+        .put(
+            &format!("{TEST_WS}/teams/{}/members/{user_id}", team.id),
+            &json!({}),
+        )
+        .await
+        .check_no_content();
+    th.client
+        .put(
+            &format!("{TEST_WS}/boards/{}/teams/{}", board.id, team.id),
+            &json!({"role": "viewer"}),
+        )
+        .await
+        .check_no_content();
+    let card = new_card(&th.client, &board.id, "팀의 카드", "환불").await;
+    (board.id, card.id)
+}
+
+/// A board that went to the trash whole, and a card of it.
+async fn card_of_a_board_in_the_trash(th: &TestServer) -> (String, String) {
+    let board = private_board(&th.client, "Gone").await;
+    let card = new_card(&th.client, &board.id, "지운 보드의 카드", "환불").await;
+    th.client
+        .delete(&format!("{TEST_WS}/boards/{}", board.id))
+        .await
+        .check_no_content();
+    (board.id, card.id)
+}
+
+/// Two cards of a board that were deleted: one in the trash, and one that went from
+/// there for good.
+async fn cards_that_went(th: &TestServer, board_id: &str) -> (String, String) {
+    let trashed = new_card(&th.client, board_id, "지운 카드", "환불").await;
+    let purged = new_card(&th.client, board_id, "사라진 카드", "환불").await;
+    for card in [&trashed, &purged] {
+        th.client
+            .delete(&format!("{TEST_WS}/boards/{board_id}/blocks/{}", card.id))
+            .await
+            .check_no_content();
+    }
+    // The other card of the trash stays: only the one is removed for good.
+    th.app
+        .store()
+        .execute_unchecked(&format!(
+            "DELETE FROM deleted_blocks WHERE id = '{}'",
+            purged.id
+        ))
+        .await
+        .expect("the card is gone for good");
+    (trashed.id, purged.id)
+}
+
+/// What is stored and has no document for a searcher of the test workspace: a card of
+/// a workspace they are not in, a card of a template, and a comment on `card_id` of the
+/// board `open`.
+async fn blocks_without_a_document(
+    th: &TestServer,
+    open: &Board,
+    card_id: &str,
+    author: &str,
+) -> Vec<String> {
+    let store = th.app.store();
+    let hidden_owner = th.stranger_in(HIDDEN_WORKSPACE_ID).await;
+    let hidden = crate::boards::board_with_admin(
+        th,
+        new_board(HIDDEN_WORKSPACE_ID, BoardType::Open, "Hidden"),
+        &hidden_owner,
+    )
+    .await;
+    let hidden_card = stored_card(store, &hidden.id, "다른 워크스페이스").await;
+    let template: Board = th
+        .client
+        .create_board(&Board {
+            is_template: true,
+            ..new_board(TEST_WORKSPACE_ID, BoardType::Open, "Template")
+        })
+        .await
+        .created_json();
+    let template_card = new_card(&th.client, &template.id, "템플릿 카드", "환불").await;
+    let mut comment = Block {
+        id: new_id(),
+        board_id: open.id.clone(),
+        parent_id: card_id.to_owned(),
+        block_type: BlockType::Comment,
+        title: "환불 댓글".to_owned(),
+        ..Block::default()
+    };
+    store
+        .insert_block(&mut comment, author)
+        .await
+        .expect("the comment is stored");
+    vec![hidden_card, template_card.id, comment.id]
+}
+
 /// What the index holds of each of these, an honest index would not answer the
 /// searcher with: the search server here answers every search with all of them.
 #[tokio::test]
@@ -293,25 +408,12 @@ async fn a_stale_index_shows_nobody_what_they_do_not_read_now() {
     let user2 = th.client2.me().await.id;
     let guest_client = th.add_user("guest").await;
     let guest = guest_client.me().await.id;
-    th.app
-        .store()
-        .execute_unchecked(&format!(
-            "UPDATE workspace_members SET role = 'guest' WHERE user_id = '{guest}' \
-             AND workspace_id = '{TEST_WORKSPACE_ID}'"
-        ))
-        .await
-        .expect("the third user becomes a guest of the test workspace");
+    set_role(&th, &guest, "guest").await;
     let stranger = th.stranger_in(TEST_WORKSPACE_ID).await;
     let store = th.app.store();
     // The first user administers the test workspace: they manage every board of it,
     // and read those they have a role on.
-    store
-        .execute_unchecked(&format!(
-            "UPDATE workspace_members SET role = 'admin' WHERE user_id = '{user1}' \
-             AND workspace_id = '{TEST_WORKSPACE_ID}'"
-        ))
-        .await
-        .expect("the first user becomes an administrator of the test workspace");
+    set_role(&th, &user1, "admin").await;
     // A board of the first user in the root workspace: a search there asks the index.
     th.create_board(crate::common::ROOT_WORKSPACE_ID, BoardType::Private)
         .await;
@@ -365,84 +467,10 @@ async fn a_stale_index_shows_nobody_what_they_do_not_read_now() {
     delete_member(&th.client, &member(&left.id, &user2))
         .await
         .check_no_content();
-    // A private board the second user reads through a team, and is no member of.
-    let teamed = private_board(&th.client, "Teamed").await;
-    let team: fvoci_model::Team = th
-        .client
-        .post(&format!("{TEST_WS}/teams"), &json!({"name": "Support"}))
-        .await
-        .ok_json();
-    th.client
-        .put(
-            &format!("{TEST_WS}/teams/{}/members/{user2}", team.id),
-            &json!({}),
-        )
-        .await
-        .check_no_content();
-    th.client
-        .put(
-            &format!("{TEST_WS}/boards/{}/teams/{}", teamed.id, team.id),
-            &json!({"role": "viewer"}),
-        )
-        .await
-        .check_no_content();
-    let teamed_card = new_card(&th.client, &teamed.id, "팀의 카드", "환불").await;
-    // A card of a board that went to the trash whole.
-    let gone = private_board(&th.client, "Gone").await;
-    let gone_card = new_card(&th.client, &gone.id, "지운 보드의 카드", "환불").await;
-    th.client
-        .delete(&format!("{TEST_WS}/boards/{}", gone.id))
-        .await
-        .check_no_content();
-    // A card in the trash, and one that went from there for good.
-    let trashed = new_card(&th.client, &open.id, "지운 카드", "환불").await;
-    let purged = new_card(&th.client, &open.id, "사라진 카드", "환불").await;
-    for card in [&trashed, &purged] {
-        th.client
-            .delete(&format!("{TEST_WS}/boards/{}/blocks/{}", open.id, card.id))
-            .await
-            .check_no_content();
-    }
-    // The other card of the trash stays: only the one is removed for good.
-    th.app
-        .store()
-        .execute_unchecked(&format!(
-            "DELETE FROM deleted_blocks WHERE id = '{}'",
-            purged.id
-        ))
-        .await
-        .expect("the card is gone for good");
-    // A card of a workspace the searchers are not in, and one of a template.
-    let hidden_owner = th.stranger_in(HIDDEN_WORKSPACE_ID).await;
-    let hidden = crate::boards::board_with_admin(
-        &th,
-        new_board(HIDDEN_WORKSPACE_ID, BoardType::Open, "Hidden"),
-        &hidden_owner,
-    )
-    .await;
-    let hidden_card = stored_card(store, &hidden.id, "다른 워크스페이스").await;
-    let template: Board = th
-        .client
-        .create_board(&Board {
-            is_template: true,
-            ..new_board(TEST_WORKSPACE_ID, BoardType::Open, "Template")
-        })
-        .await
-        .created_json();
-    let template_card = new_card(&th.client, &template.id, "템플릿 카드", "환불").await;
-    // A comment on the open card: a block, and no card.
-    let mut comment = Block {
-        id: new_id(),
-        board_id: open.id.clone(),
-        parent_id: open_card.id.clone(),
-        block_type: BlockType::Comment,
-        title: "환불 댓글".to_owned(),
-        ..Block::default()
-    };
-    store
-        .insert_block(&mut comment, &user1)
-        .await
-        .expect("the comment is stored");
+    let (teamed, teamed_card) = card_read_through_a_team(&th, &user2).await;
+    let (gone, gone_card) = card_of_a_board_in_the_trash(&th).await;
+    let (trashed, purged) = cards_that_went(&th, &open.id).await;
+    let no_documents = blocks_without_a_document(&th, &open, &open_card.id, &user1).await;
 
     let mut planted = vec![
         (open_card.id.clone(), open.id.clone()),
@@ -455,18 +483,16 @@ async fn a_stale_index_shows_nobody_what_they_do_not_read_now() {
         (managed_card.clone(), open.id.clone()),
         (invited_card.id.clone(), invited.id.clone()),
         (left_card.id.clone(), left.id.clone()),
-        (teamed_card.id.clone(), teamed.id.clone()),
-        (gone_card.id.clone(), gone.id.clone()),
-        (gone_card.id.clone(), open.id.clone()),
-        (trashed.id.clone(), open.id.clone()),
-        (purged.id.clone(), open.id.clone()),
-        (hidden_card.clone(), open.id.clone()),
-        (template_card.id.clone(), open.id.clone()),
-        (comment.id.clone(), open.id.clone()),
+        (teamed_card.clone(), teamed),
+        (gone_card.clone(), gone),
+        (gone_card, open.id.clone()),
+        (trashed, open.id.clone()),
+        (purged, open.id.clone()),
         (UNKNOWN_ID.to_owned(), open.id.clone()),
         ("not-an-identifier".to_owned(), open.id.clone()),
         ("' OR 1=1 --".to_owned(), open.id.clone()),
     ];
+    planted.extend(no_documents.into_iter().map(|id| (id, open.id.clone())));
     // Another organization's card, where the database holds more than one.
     if db_type_of_the_tests() == DbType::Postgres {
         let (theirs, _, their_board) = another_organization(&th).await;
@@ -492,13 +518,13 @@ async fn a_stale_index_shows_nobody_what_they_do_not_read_now() {
             &private_card.id,
             &invited_card.id,
             &left_card.id,
-            &teamed_card.id
+            &teamed_card
         ]),
         "the first user reads their boards, and no board they only manage"
     );
     assert_eq!(
         found(&member_found),
-        sorted(&[&open_card.id, &teamed_card.id]),
+        sorted(&[&open_card.id, &teamed_card]),
         "the second user reads the open board they joined and a team's board, and no board \
          they left"
     );

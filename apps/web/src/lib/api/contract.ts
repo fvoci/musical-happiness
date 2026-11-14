@@ -2595,7 +2595,8 @@ export interface paths {
          *     card as it is now: its `title`, the board it is on (`containerId`), and `snippet`,
          *     a piece of its body in stretches of plain text, those that matched marked; the
          *     snippet is empty for a body that changed a moment ago, or has nothing to show. The
-         *     best match first. Nothing says how many cards match in all.
+         *     best match first. Nothing says how many cards match in all: fewer than `limit`
+         *     means that no more of what the user reads matches.
          *
          *     A `q` of more than 200 characters, a `kind` that is none and a `limit` outside 1
          *     to 50 are 400; a `q` that is empty finds nothing. A user who searches more often
