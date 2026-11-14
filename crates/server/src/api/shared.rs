@@ -16,7 +16,7 @@ use axum::extract::rejection::RawPathParamsRejection;
 use axum::extract::{FromRequestParts, Path, RawPathParams, RawQuery};
 use axum::http::HeaderMap;
 use axum::http::request::Parts;
-use fvoci_model::{Block, Board, Card, FileInfo};
+use fvoci_model::{Block, Board, Body, Card, FileInfo};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
@@ -137,7 +137,10 @@ async fn handle_get_shared_board(shared: SharedBoard) -> ApiResult {
 /// a list keeps its length, so how many people a card has still shows. A card's values
 /// of properties the board does not define are left out, and a view grouped by a person
 /// property keeps of `visibleOptionIds`, `hiddenOptionIds`, `collapsedOptionIds` and
-/// `kanbanCalculations` only the group of the cards without a value (`""`). Oldest
+/// `kanbanCalculations` only the group of the cards without a value (`""`). A reference
+/// in a body keeps its `id` if it names a card of this board, and has an empty one for
+/// anything else: of what is elsewhere in the workspace nothing is told, nor whether
+/// there is anything. Oldest
 /// first; the blocks that one request made come in the order that request had them in.
 #[utoipa::path(
     get,
@@ -152,8 +155,14 @@ async fn handle_get_shared_blocks(shared: SharedBoard, RawQuery(query): RawQuery
     let board = shared.board().await?;
     let mut blocks = asked_blocks(&shared.app, &shared.board_id, query.as_deref()).await?;
     let people = board.person_properties();
+    let bodies: Vec<&Body> = blocks
+        .iter()
+        .filter_map(|block| block.body.as_ref())
+        .collect();
+    let shown = shared.app.cards_named_on(&shared.board_id, &bodies).await?;
     for block in &mut blocks {
         block.hide_people(&people);
+        block.keep_references_to(&shown);
     }
     Ok(json_response(&blocks))
 }
@@ -164,7 +173,8 @@ async fn handle_get_shared_blocks(shared: SharedBoard, RawQuery(query): RawQuery
 /// No card names a user: `createdBy` and `modifiedBy` are empty, the values of person
 /// properties are emptied, and values of properties the board does not define are left
 /// out. The preview's text has no mentions in it, and its image `getSharedFile` gives.
-/// Oldest first; the pages cut that order.
+/// A reference in a body names a card of this board or nothing, as in
+/// `getSharedBlocks`. Oldest first; the pages cut that order.
 #[utoipa::path(
     get,
     path = "/shared/{boardId}/cards",
@@ -178,8 +188,11 @@ async fn handle_get_shared_cards(shared: SharedBoard, RawQuery(query): RawQuery)
     let board = shared.board().await?;
     let mut cards = cards_page(&shared.app, &shared.board_id, query.as_deref()).await?;
     let people = board.person_properties();
+    let bodies: Vec<&Body> = cards.iter().filter_map(|card| card.body.as_ref()).collect();
+    let shown = shared.app.cards_named_on(&shared.board_id, &bodies).await?;
     for card in &mut cards {
         card.hide_people(&people);
+        card.keep_references_to(&shown);
     }
     Ok(json_response(&cards))
 }

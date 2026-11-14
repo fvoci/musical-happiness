@@ -1029,7 +1029,10 @@ export interface paths {
          *     a list keeps its length, so how many people a card has still shows. A card's values
          *     of properties the board does not define are left out, and a view grouped by a person
          *     property keeps of `visibleOptionIds`, `hiddenOptionIds`, `collapsedOptionIds` and
-         *     `kanbanCalculations` only the group of the cards without a value (`""`). Oldest
+         *     `kanbanCalculations` only the group of the cards without a value (`""`). A reference
+         *     in a body keeps its `id` if it names a card of this board, and has an empty one for
+         *     anything else: of what is elsewhere in the workspace nothing is told, nor whether
+         *     there is anything. Oldest
          *     first; the blocks that one request made come in the order that request had them in.
          */
         get: operations["getSharedBlocks"];
@@ -1054,7 +1057,8 @@ export interface paths {
          *     No card names a user: `createdBy` and `modifiedBy` are empty, the values of person
          *     properties are emptied, and values of properties the board does not define are left
          *     out. The preview's text has no mentions in it, and its image `getSharedFile` gives.
-         *     Oldest first; the pages cut that order.
+         *     A reference in a body names a card of this board or nothing, as in
+         *     `getSharedBlocks`. Oldest first; the pages cut that order.
          */
         get: operations["getSharedCards"];
         put?: never;

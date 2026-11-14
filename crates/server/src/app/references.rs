@@ -8,9 +8,9 @@
 //! request. To anybody else it is what an identifier of nothing is: left out, with the
 //! same reads made on the way.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
-use fvoci_model::{Block, Board, LinkedBlock, is_id};
+use fvoci_model::{Block, Board, Body, LinkedBlock, is_id};
 use fvoci_store::PublicBoards;
 
 use super::App;
@@ -150,6 +150,30 @@ impl App {
             .titled_blocks(&board_ids, term, FOUND_AT_MOST)
             .await?;
         Ok(linked(&found, &read))
+    }
+
+    /// The cards of the board among what the bodies name: all that whoever reads the
+    /// board by its link is shown of the references of its bodies
+    /// ([`Block::keep_references_to`]). That reader is told what is on the board and
+    /// nothing else of the workspace: a reference to a page, to a card of another
+    /// board, to what is in the trash or to nothing goes out without its identifier,
+    /// each like the others.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if the cards cannot be read; nothing is sent then.
+    pub async fn cards_named_on(
+        &self,
+        board_id: &str,
+        bodies: &[&Body],
+    ) -> Result<HashSet<String>, AppError> {
+        let mut named: Vec<&str> = bodies
+            .iter()
+            .flat_map(|body| body.reference_ids())
+            .collect();
+        named.sort_unstable();
+        named.dedup();
+        Ok(self.store().cards_on_board_among(board_id, &named).await?)
     }
 
     /// The boards and wikis of the workspace the user holds a role on, templates left

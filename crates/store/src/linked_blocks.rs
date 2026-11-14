@@ -5,6 +5,8 @@
 //! of each block's board what it is given: the rows of [`crate::body_links`] say what
 //! a body says, of blocks its writer was never asked about.
 
+use std::collections::HashSet;
+
 use fvoci_model::{Block, BlockType};
 
 use crate::Store;
@@ -18,7 +20,8 @@ const SHOWN_COLUMNS: &str = "id, board_id, parent_id, type, title, fields, updat
 /// The member of a card's fields that says it is a template of its board's cards.
 const IS_TEMPLATE_FIELD: &str = "isTemplate";
 
-/// How many blocks a search reads at a time while it looks for titles.
+/// How many blocks a search reads at a time while it looks for titles, and how many
+/// identifiers one statement is asked about.
 const SEARCHED_AT_ONCE: u16 = 500;
 
 /// The block of a row read with [`SHOWN_COLUMNS`]: what it is, where it is and what it
@@ -82,6 +85,39 @@ impl Store {
                 .iter()
                 .map(shown_block)
                 .collect()
+        })
+        .await
+    }
+
+    /// Which of the identifiers name a card that is on the board now: what a body of
+    /// the board may name to whoever reads the board alone, by its link. Asked some at
+    /// a time, as a board's bodies may name more than one statement binds.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if a query fails.
+    pub async fn cards_on_board_among(
+        &self,
+        board_id: &str,
+        ids: &[&str],
+    ) -> Result<HashSet<String>, StoreError> {
+        if ids.is_empty() {
+            return Ok(HashSet::new());
+        }
+        self.with_conn(async |scope| {
+            let mut cards = HashSet::new();
+            for some in ids.chunks(usize::from(SEARCHED_AT_ONCE)) {
+                let mut sql = scope.sql("SELECT id FROM blocks WHERE board_id = ");
+                sql.bind(Id(board_id))
+                    .push_bind(" AND type = ", BlockType::Card.as_str())
+                    .push(" AND id IN (")
+                    .bind_list(some.iter().map(|id| Id(id)))
+                    .push(")");
+                for row in scope.fetch_all(sql).await? {
+                    cards.insert(row.id(0)?);
+                }
+            }
+            Ok(cards)
         })
         .await
     }

@@ -189,6 +189,24 @@ impl Body {
         clear_mentions_in(&mut self.document);
     }
 
+    /// Empties the `id` of every reference that names none of `shown`: the body as it
+    /// goes to whoever reads a board by its link, who is told of the cards of that board
+    /// and of nothing else of the workspace, not even that something is there. Like a
+    /// mention without its user, that is a shape that is sent, never one that is stored
+    /// or received: the allowlist refuses a reference that names nothing.
+    pub fn clear_references_but(&mut self, shown: &HashSet<String>) {
+        rename_references_in(&mut self.document, &|id| {
+            (!shown.contains(id)).then(String::new)
+        });
+    }
+
+    /// Puts in every reference what `rename` gives for the identifier it holds, and
+    /// leaves a reference it gives nothing for as it is: a copy of a body names the
+    /// copies of what was copied with it, and whatever else it named.
+    pub fn rename_references(&mut self, rename: impl Fn(&str) -> Option<String>) {
+        rename_references_in(&mut self.document, &rename);
+    }
+
     /// The body with its images pointed at other files: `rename` gives the new name of
     /// a file, or `None` for a file that has none, whose image becomes an empty
     /// paragraph (a body has no image without its file, and the place of a block
@@ -228,6 +246,22 @@ fn clear_mentions_in(node: &mut Value) {
     if let Some(children) = node.get_mut("content").and_then(Value::as_array_mut) {
         for child in children {
             clear_mentions_in(child);
+        }
+    }
+}
+
+/// Puts in every reference below and at `node` what `rename` gives for its identifier,
+/// if it gives any.
+fn rename_references_in(node: &mut Value, rename: &impl Fn(&str) -> Option<String>) {
+    if let Some(new_id) = reference_target(node).and_then(rename) {
+        if let Some(attrs) = node.get_mut("attrs").and_then(Value::as_object_mut) {
+            attrs.insert("id".to_owned(), Value::String(new_id));
+        }
+        return;
+    }
+    if let Some(children) = node.get_mut("content").and_then(Value::as_array_mut) {
+        for child in children {
+            rename_references_in(child, rename);
         }
     }
 }
@@ -502,6 +536,44 @@ mod tests {
             value["content"][1]["content"][0]["content"][0]["content"][0],
             mention("")
         );
+    }
+
+    /// Every reference that names none of what is shown loses its identifier, also deep
+    /// in a list; one that names what is shown stays, and nothing else changes. And a
+    /// reference is renamed where there is a new name for what it names.
+    #[test]
+    fn references_are_emptied_but_for_what_is_shown_and_renamed_where_there_is_a_name() {
+        let reference = |id: &str| json!({"type": "reference", "attrs": {"id": id}});
+        let shown = "01a1c8e0-e250-735f-b851-4aaaa2ad2d83";
+        let outside = "01a1c8e0-e250-735f-b851-4aaaa2ad2d84";
+        let copy = "01a1c8e0-e250-735f-b851-4aaaa2ad2d85";
+        let parsed = Body::parse(document(&[
+            json!({"type": "paragraph", "content": [
+                reference(shown), {"type": "text", "text": "x"}, reference(outside),
+            ]}),
+            json!({"type": "bulletList", "content": [{"type": "listItem", "content": [
+                {"type": "paragraph", "content": [reference(outside), reference(shown)]},
+            ]}]}),
+        ]))
+        .expect("a body")
+        .expect("not empty");
+
+        let mut body = parsed.clone();
+        body.clear_references_but(&HashSet::from([shown.to_owned()]));
+        let value = serde_json::to_value(&body).expect("JSON");
+        let line = &value["content"][0]["content"];
+        assert_eq!(line[0], reference(shown));
+        assert_eq!(line[1]["text"], json!("x"));
+        assert_eq!(line[2], reference(""));
+        let item = &value["content"][1]["content"][0]["content"][0]["content"];
+        assert_eq!((&item[0], &item[1]), (&reference(""), &reference(shown)));
+        assert!(!value.to_string().contains(outside));
+
+        let mut body = parsed;
+        body.rename_references(|id| (id == shown).then(|| copy.to_owned()));
+        assert_eq!(body.reference_ids(), [copy, outside]);
+        let value = serde_json::to_value(&body).expect("JSON");
+        assert_eq!(value["content"][0]["content"][1]["text"], json!("x"));
     }
 
     /// A body that was an image without its file and nothing else is no body.

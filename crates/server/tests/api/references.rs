@@ -491,7 +491,7 @@ async fn what_is_on_a_built_in_template_is_resolved_as_nothing() {
 /// operation takes no read token, and there is none like it for a shared board.
 #[tokio::test]
 async fn a_reader_by_a_link_does_not_ask_what_references_name() {
-    let th = Setup::native().start().await.init_basic().await;
+    let th = Setup::local_mode().start().await.init_basic().await;
     let shared = made(&th.client, TEST_WS, "O", HIDDEN).await;
     let token = th.share(&shared.board).await;
     let ids = [shared.card.as_str()];

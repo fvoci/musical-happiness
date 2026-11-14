@@ -453,3 +453,50 @@ async fn a_title_is_found_past_the_blocks_read_at_once() {
     }
     test.teardown().await;
 }
+
+/// Of many identifiers, those that name a card of the board are told: not a card of
+/// another board, a block that is no card, one in the trash, or nothing.
+#[tokio::test]
+async fn the_cards_of_a_board_are_told_among_many_identifiers() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let user = common::user(store, "oscar.martinez").await;
+    let workspace_id = common::workspace_of(store, &[&user]).await;
+    let board = container(store, &workspace_id, &user, BoardKind::Board).await;
+    let other = container(store, &workspace_id, &user, BoardKind::Board).await;
+    let block = |board: &Board, block_type: BlockType| Block {
+        id: new_id(),
+        board_id: board.id.clone(),
+        block_type,
+        ..Block::default()
+    };
+    let mut cards: Vec<Block> = (0..600).map(|_| block(&board, BlockType::Card)).collect();
+    common::insert_blocks(store, &mut cards, &user).await;
+    let mut others = vec![
+        block(&other, BlockType::Card),
+        block(&board, BlockType::View),
+        block(&board, BlockType::Card),
+    ];
+    common::insert_blocks(store, &mut others, &user).await;
+    store
+        .delete_block(&others[2].id, &user)
+        .await
+        .expect("the card goes to the trash");
+
+    let unknown = new_id();
+    let mut asked: Vec<&str> = others.iter().map(|block| block.id.as_str()).collect();
+    asked.push(&unknown);
+    asked.extend(cards.iter().map(|card| card.id.as_str()));
+    let told = store
+        .cards_on_board_among(&board.id, &asked)
+        .await
+        .expect("asked");
+    assert_eq!(told.len(), 600);
+    assert!(cards.iter().all(|card| told.contains(&card.id)));
+    let none = store
+        .cards_on_board_among(&board.id, &[])
+        .await
+        .expect("asked");
+    assert_eq!(none.len(), 0);
+    test.teardown().await;
+}

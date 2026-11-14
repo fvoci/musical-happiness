@@ -44,7 +44,7 @@ pub(crate) async fn page_names(client: &Client, at: &str, made: &Made, targets: 
 }
 
 /// A card of the board called `title`, made by `client`: its identifier.
-async fn card_of(client: &Client, at: &str, board_id: &str, title: &str) -> String {
+pub(crate) async fn card_of(client: &Client, at: &str, board_id: &str, title: &str) -> String {
     let card = client
         .post(
             &format!("{at}/boards/{board_id}/cards"),
@@ -56,7 +56,7 @@ async fn card_of(client: &Client, at: &str, board_id: &str, title: &str) -> Stri
 }
 
 /// A comment on the card whose body names the blocks: its identifier.
-async fn comment_naming(
+pub(crate) async fn comment_naming(
     client: &Client,
     board_id: &str,
     card_id: &str,

@@ -91,10 +91,11 @@ impl Hub {
             let hidden = if readers.is_empty() {
                 None
             } else {
-                match self.audience.person_properties(&block.board_id).await {
-                    Ok(people) => {
+                match self.audience.unsaid_by_link(block).await {
+                    Ok((people, shown)) => {
                         let mut public = block.clone();
                         public.hide_people(&people);
+                        public.keep_references_to(&shown);
                         text_of(&UpdateBlockMessage {
                             action: "UPDATE_BLOCK",
                             workspace_id,
