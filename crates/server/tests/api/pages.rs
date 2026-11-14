@@ -349,6 +349,25 @@ async fn the_operations_of_blocks_and_cards_neither_make_nor_reach_a_page() {
         .get(&format!("{TEST_WS}/cards/{card}"))
         .await
         .check_ok();
+    ts.teardown().await;
+}
+
+/// What is about a block by its identifier alone takes no page: nobody subscribes to
+/// one, and one in the trash is not brought back as a block.
+#[tokio::test]
+async fn a_page_is_no_block_to_subscribe_to_or_to_bring_back() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let client = &ts.client;
+    let (wiki_id, pages) = wiki(&ts).await;
+    let page = make(client, &pages, json!({"title": "kept"})).await;
+    let board = ts
+        .create_board(
+            crate::common::TEST_WORKSPACE_ID,
+            fvoci_model::BoardType::Private,
+        )
+        .await;
+    let blocks = format!("{TEST_WS}/boards/{}/blocks", board.id);
+    let of_wiki = format!("{TEST_WS}/boards/{wiki_id}/blocks");
 
     // Nobody subscribes to a page: it is no block to subscribe to.
     let me = client.me().await.id;
