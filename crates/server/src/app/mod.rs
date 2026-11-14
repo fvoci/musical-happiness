@@ -29,6 +29,7 @@ mod oidc_settings;
 mod onboarding;
 mod org_admin;
 mod password_reset;
+mod presence;
 mod readiness;
 mod reconcile;
 mod search;
@@ -37,6 +38,7 @@ mod slots;
 mod snapshots;
 
 pub(crate) use download::download;
+pub(crate) use presence::PresenceAccess;
 pub(crate) use server_lock::HeldLock;
 pub(crate) use server_lock::take_server_lock;
 use slots::Busy;

@@ -29,6 +29,7 @@
 import { isBackendError, type Change, type ChangeListener } from '../state/backend.ts';
 
 import { attachmentOf, boardOf, cardOfBlock, commentOf, viewOf, type Schemas } from './convert.ts';
+import { LivePresence } from './live-presence.ts';
 import { LiveRooms } from './live-rooms.ts';
 
 type Members = Extract<Change, { kind: 'members' }>['members'];
@@ -87,6 +88,7 @@ export class LiveChanges {
   #readCount = 0;
   /** The rooms of the bodies open on this connection. */
   readonly rooms: LiveRooms;
+  readonly presence: LivePresence;
 
   /** `url` is the address of `/ws`, with `ws:` or `wss:`. */
   constructor(url: string, reads: LiveReads) {
@@ -96,6 +98,15 @@ export class LiveChanges {
       {
         text: (command) => this.#send(JSON.stringify(command)),
         bytes: (frame) => this.#send(frame),
+      },
+      () => {
+        if (!this.#wanted()) this.#stop();
+        else if (!this.#socket && this.#timer === undefined) this.#open();
+      },
+    );
+    this.presence = new LivePresence(
+      (command) => {
+        this.#send(JSON.stringify(command));
       },
       () => {
         if (!this.#wanted()) this.#stop();
@@ -121,6 +132,7 @@ export class LiveChanges {
     this.#subscribed = false;
     socket?.close();
     this.rooms.down();
+    this.presence.down();
     if (!this.#wanted()) return;
     this.#wasOpen = true;
     this.#openNow();
@@ -164,7 +176,7 @@ export class LiveChanges {
 
   /** Somebody listens, or a room is open: the connection is kept. */
   #wanted(): boolean {
-    return this.#listening.size > 0 || this.rooms.size > 0;
+    return this.#listening.size > 0 || this.rooms.size > 0 || this.presence.wanted;
   }
 
   /** Sends on the connection if it is open and subscribed; false when it is not. */
@@ -188,6 +200,7 @@ export class LiveChanges {
     this.#failures = 0;
     socket?.close();
     this.rooms.down();
+    this.presence.down();
   }
 
   #open(): void {
@@ -213,6 +226,7 @@ export class LiveChanges {
       if (this.#wasOpen) this.#tellAll({ kind: 'resync' });
       this.#wasOpen = true;
       this.rooms.up();
+      this.presence.up();
     });
     socket.addEventListener('message', (event: MessageEvent<unknown>) => {
       if (this.#socket !== socket) return;
@@ -226,6 +240,7 @@ export class LiveChanges {
       this.#subscribed = false;
       this.#failures += 1;
       this.rooms.down();
+      this.presence.down();
       this.#again(event.code === TRY_AGAIN);
     });
   }
@@ -267,6 +282,7 @@ export class LiveChanges {
     }
     if (typeof parsed !== 'object' || parsed === null) return;
     if (this.rooms.text(parsed as Record<string, unknown>)) return;
+    if (this.presence.text(parsed as Record<string, unknown>)) return;
     const message = parsed as Message;
     // Still on its way from a workspace that was left.
     if (message.workspaceId !== undefined && message.workspaceId !== this.#workspaceId) return;

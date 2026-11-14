@@ -7,7 +7,7 @@
   `view-header`, the views (`kanban`, `table`, `gallery`, `calendar`, `gantt`), and `card`.
 -->
 <script lang="ts">
-  import { tick } from 'svelte';
+  import { tick, untrack } from 'svelte';
 
   import CardDialog from '$lib/features/card/CardDialog.svelte';
   import ViewHeader from '$lib/features/view-header/ViewHeader.svelte';
@@ -18,7 +18,7 @@
   import Table from '$lib/features/views/table/Table.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { propertiesThatMeetFilterGroup } from '$lib/logic/filter.ts';
-  import { newCardMaker, whileHere, type Workspace } from '$lib/state/index.ts';
+  import { boardPresence, newCardMaker, whileHere, type Workspace } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
   import ManagedBoard from './ManagedBoard.svelte';
@@ -36,6 +36,17 @@
     workspace.board?.boardId === router.route.boardId ? workspace.board : undefined,
   );
   const view = $derived(board?.view(router.route.viewId));
+
+  $effect(() => {
+    const shown = board;
+    if (shown?.status === 'ready' && !shown.missing && !shown.joinable) {
+      return untrack(() => boardPresence(shown).start());
+    }
+    return undefined;
+  });
+  $effect(() => {
+    if (board) boardPresence(board).setCard(router.route.cardId);
+  });
 
   let page = $state<HTMLElement>();
 

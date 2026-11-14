@@ -4,9 +4,10 @@
   motion) while one asked for waits for a write.
 
   What it shows follows the width of the pane it is in, not of the window:
-  the faces of the members from where two kanban columns fit, the
-  description of the board from where the whole header of a view fits. A
-  narrow pane keeps the title and the two arrows.
+  five faces of who is here from where two kanban columns fit (two below),
+  the description of the board from where the whole header of a view fits.
+  The number of the board's members, there at every width, opens its members
+  in the sharing dialog, which shows them alone to a reader who is no admin.
 
   Its editors find the board's deleted cards here ("Deleted cards").
 
@@ -22,7 +23,7 @@
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
   import Undo2Icon from '@lucide/svelte/icons/undo-2';
 
-  import Avatar from '$lib/components/avatar/Avatar.svelte';
+  import PresenceRoster from './PresenceRoster.svelte';
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { cardTrash, type Trash, type Workspace } from '$lib/state/index.ts';
@@ -48,12 +49,11 @@
   let { workspace, boardId, sharedHref, menuButton, onOpenSidebar }: Props = $props();
 
   let sharing = $state(false);
+  /** The sharing dialog was opened from the number of members: it begins at them. */
+  let sharingMembers = $state(false);
   let trashOpen = $state(false);
   /** The deleted cards of the board, read anew each time they are shown. */
   let trash = $state.raw<Trash | undefined>(undefined);
-
-  /** How many faces are shown before the rest become a number. */
-  const FACES = 4;
 
   /** The board as the list of boards has it: known before the board itself is read. */
   const listed = $derived(workspace.boards.find((candidate) => candidate.id === boardId));
@@ -64,7 +64,6 @@
       : undefined,
   );
   const board = $derived(store?.board ?? listed);
-  const members = $derived(store?.orderedMembers ?? []);
   /** Sharing is for the board's admins; a template is shared as it is made, never joined. */
   const canShare = $derived(store?.canShare === true && store.board?.isTemplate !== true);
   /** The trash of cards is for the board's editors, as the server has it. */
@@ -135,29 +134,14 @@
 
   <div class="min-w-0 flex-1"></div>
 
-  {#if members.length > 0}
-    <ul
-      data-testid="board-members"
-      aria-label={m.shell_members()}
-      class="hidden shrink-0 items-center @columns/pane:flex"
-    >
-      {#each members.slice(0, FACES) as member (member.userId)}
-        <li class="-ml-1.5 flex first:ml-0">
-          <Avatar
-            name={workspace.userName(member.userId) ?? m['centerPanel.unknown-user']()}
-            colorKey={member.userId}
-            locale={workspace.locale}
-            class="size-7 ring-2 ring-background"
-          />
-        </li>
-      {/each}
-      {#if members.length > FACES}
-        <li class="pl-1.5 text-xs text-muted-foreground">
-          <span aria-hidden="true">+{members.length - FACES}</span>
-          <span class="sr-only">{m.shell_members_more({ count: members.length - FACES })}</span>
-        </li>
-      {/if}
-    </ul>
+  {#if store && !store.missing && !store.joinable}
+    <PresenceRoster
+      board={store}
+      onMembers={() => {
+        sharingMembers = true;
+        sharing = true;
+      }}
+    />
   {/if}
 
   {#if canShare}
@@ -168,11 +152,12 @@
       aria-haspopup="dialog"
       class="shrink-0 roomy:min-h-touch"
       onclick={() => {
+        sharingMembers = false;
         sharing = true;
       }}
     >
       <Share2Icon aria-hidden="true" />
-      {m.shell_share()}
+      <span class="sr-only @header/pane:not-sr-only">{m.shell_share()}</span>
     </Button>
   {/if}
 
@@ -222,11 +207,15 @@
   />
 {/if}
 
-{#if store?.board && canShare}
+<!-- Whoever reads the board may see its members; only its admins change them or share it. -->
+{#if store?.board}
   <ShareDialog
     bind:open={sharing}
     {workspace}
     board={store}
+    membersOnly={!canShare}
+    readOnly={!canShare}
+    at={sharingMembers ? 'members' : undefined}
     linkOf={(readToken: string) =>
       new URL(sharedHref(store.boardId, readToken), location.href).href}
   />

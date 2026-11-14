@@ -9,6 +9,10 @@
   finds by name (D2); members are left out. The public link is read when the
   dialog opens. The reader's own role is not changed here: that is another
   admin's to do, so that nobody locks themselves out by a slip.
+
+  A reader who is no admin of the board sees its members alone, with their roles,
+  and changes nothing (`readOnly`). Opened at the members (`at`, from the number
+  of members at the head of the board), the dialog begins at that section.
 -->
 <script lang="ts">
   import { untrack } from 'svelte';
@@ -56,9 +60,21 @@
      * openness and public link are not theirs to change or read.
      */
     membersOnly?: boolean;
+    /** The members are shown, not changed: for a reader who is no admin of the board. */
+    readOnly?: boolean;
+    /** The section the dialog begins at, if not the top. */
+    at?: 'members';
   }
 
-  let { open = $bindable(), workspace, board, linkOf, membersOnly = false }: Props = $props();
+  let {
+    open = $bindable(),
+    workspace,
+    board,
+    linkOf,
+    membersOnly = false,
+    readOnly = false,
+    at,
+  }: Props = $props();
 
   const workspaceName = $derived(workspace.info?.title || m.shell_workspace_unnamed());
 
@@ -161,6 +177,16 @@
     }
   }
 
+  let membersHeading = $state<HTMLElement | null>(null);
+
+  /** Opened at the members: the focus goes to their heading, which is scrolled to. */
+  function focusAt(event: Event): void {
+    if (at !== 'members' || !membersHeading) return;
+    event.preventDefault();
+    membersHeading.focus();
+    membersHeading.scrollIntoView({ block: 'start' });
+  }
+
   /** Each time the dialog opens (its content is made): a fresh search, the link read anew. */
   function opened(): void {
     untrack(() => {
@@ -195,6 +221,7 @@
 <Dialog.Root bind:open>
   <Dialog.Content
     {@attach opened}
+    onOpenAutoFocus={focusAt}
     data-testid="share-dialog"
     showCloseButton={false}
     class={[
@@ -206,7 +233,7 @@
   >
     <Dialog.Header class="shrink-0 flex-row items-center gap-2 border-b py-2 pr-2 pl-4">
       <Dialog.Title class="min-w-0 flex-1 text-base font-semibold">
-        {m['ShareBoard.Title']()}
+        {readOnly ? m.share_members_title() : m['ShareBoard.Title']()}
       </Dialog.Title>
       <Dialog.Close>
         {#snippet child({ props }: { props: Record<string, unknown> })}
@@ -257,17 +284,26 @@
         </section>
       {/if}
 
-      {#if access && !isGuest(workspace) && !board.board?.isTemplate}
+      {#if access && !readOnly && !isGuest(workspace) && !board.board?.isTemplate}
         <GuestInvite {workspace} {access} boardId={board.boardId} />
       {/if}
 
       <!-- The members. -->
       <section class="grid grid-cols-1 gap-2" aria-labelledby="{uid}-members">
-        <h3 id="{uid}-members" class="font-medium">{m.share_members_title()}</h3>
+        <h3
+          bind:this={membersHeading}
+          id="{uid}-members"
+          tabindex="-1"
+          class="scroll-mt-4 font-medium outline-none"
+          data-testid="share-members-title"
+        >
+          {m.share_members_title()}
+        </h3>
         <ul class="grid grid-cols-1 gap-1" data-testid="share-members">
           {#each board.orderedMembers.filter((member) => !member.synthetic) as member (member.userId)}
             {@const name = nameOf(member.userId)}
             {@const mine = member.userId === workspace.me?.id}
+            {@const memberRole = roleOfMember(member)}
             <li class="flex min-h-8 items-center gap-2 roomy:min-h-touch" data-member={name}>
               <Avatar {name} colorKey={member.userId} locale={workspace.locale} decorative />
               <span class="min-w-0 flex-1 truncate">
@@ -276,73 +312,81 @@
                     {m['ShareBoard.userPermissionsYouText']()}</span
                   >{/if}
               </span>
-              <!-- The reader's own role is another admin's to change: no locking oneself out. -->
-              <select
-                class="h-8 rounded-md border border-input-border bg-background px-2 disabled:opacity-60 roomy:h-touch"
-                aria-label={m.share_role_of({ name })}
-                title={mine ? m.share_you_note() : undefined}
-                disabled={mine}
-                value={roleOfMember(member)}
-                onchange={(event) =>
-                  void board.setMemberRole(member.userId, event.currentTarget.value as BoardRole)}
-              >
-                {#if roleOfMember(member) === 'none'}
-                  <option value="none" disabled>{m.share_role_none()}</option>
-                {/if}
-                {#each ROLE_ORDER as role (role)}
-                  <option value={role}>{ROLE_LABELS[role]()}</option>
-                {/each}
-              </select>
-              <IconButton
-                label={m.share_remove({ name })}
-                class="text-muted-foreground"
-                disabled={mine}
-                onclick={() => void removeMember(member.userId)}
-              >
-                <XIcon />
-              </IconButton>
+              {#if readOnly}
+                <span class="shrink-0 text-muted-foreground" data-testid="share-member-role">
+                  {memberRole === 'none' ? m.share_role_none() : ROLE_LABELS[memberRole]()}
+                </span>
+              {:else}
+                <!-- The reader's own role is another admin's to change: no locking oneself out. -->
+                <select
+                  class="h-8 rounded-md border border-input-border bg-background px-2 disabled:opacity-60 roomy:h-touch"
+                  aria-label={m.share_role_of({ name })}
+                  title={mine ? m.share_you_note() : undefined}
+                  disabled={mine}
+                  value={memberRole}
+                  onchange={(event) =>
+                    void board.setMemberRole(member.userId, event.currentTarget.value as BoardRole)}
+                >
+                  {#if memberRole === 'none'}
+                    <option value="none" disabled>{m.share_role_none()}</option>
+                  {/if}
+                  {#each ROLE_ORDER as role (role)}
+                    <option value={role}>{ROLE_LABELS[role]()}</option>
+                  {/each}
+                </select>
+                <IconButton
+                  label={m.share_remove({ name })}
+                  class="text-muted-foreground"
+                  disabled={mine}
+                  onclick={() => void removeMember(member.userId)}
+                >
+                  <XIcon />
+                </IconButton>
+              {/if}
             </li>
           {/each}
         </ul>
 
-        <Input
-          bind:ref={searchField}
-          type="search"
-          bind:value={query}
-          oninput={() => void search(query)}
-          autocomplete="off"
-          aria-label={m['ShareBoard.searchPlaceholder']()}
-          placeholder={m['ShareBoard.searchPlaceholder']()}
-          data-testid="share-search"
-          class="roomy:h-touch roomy:text-base"
-        />
-        {#if candidates.length > 0}
-          <ul class="grid grid-cols-1 gap-1" data-testid="share-candidates">
-            {#each candidates as user (user.id)}
-              {@const name = userDisplayName(user)}
-              <li class="flex min-h-8 items-center gap-2 roomy:min-h-touch">
-                <Avatar {name} colorKey={user.id} locale={workspace.locale} decorative />
-                <span class="min-w-0 flex-1 truncate">{name}</span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  class="roomy:min-h-touch"
-                  aria-label={m.share_add({ name })}
-                  onclick={() => void addMember(user)}
-                >
-                  <UserPlusIcon aria-hidden="true" />
-                  {m.share_add_short()}
-                </Button>
-              </li>
-            {/each}
-          </ul>
+        {#if !readOnly}
+          <Input
+            bind:ref={searchField}
+            type="search"
+            bind:value={query}
+            oninput={() => void search(query)}
+            autocomplete="off"
+            aria-label={m['ShareBoard.searchPlaceholder']()}
+            placeholder={m['ShareBoard.searchPlaceholder']()}
+            data-testid="share-search"
+            class="roomy:h-touch roomy:text-base"
+          />
+          {#if candidates.length > 0}
+            <ul class="grid grid-cols-1 gap-1" data-testid="share-candidates">
+              {#each candidates as user (user.id)}
+                {@const name = userDisplayName(user)}
+                <li class="flex min-h-8 items-center gap-2 roomy:min-h-touch">
+                  <Avatar {name} colorKey={user.id} locale={workspace.locale} decorative />
+                  <span class="min-w-0 flex-1 truncate">{name}</span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    class="roomy:min-h-touch"
+                    aria-label={m.share_add({ name })}
+                    onclick={() => void addMember(user)}
+                  >
+                    <UserPlusIcon aria-hidden="true" />
+                    {m.share_add_short()}
+                  </Button>
+                </li>
+              {/each}
+            </ul>
+          {/if}
+          <!-- In the page from the start: a live region that appears with its words is often not read. -->
+          <p class="text-muted-foreground empty:hidden" role="status">
+            {candidates.length === 0 && query.trim() !== ''
+              ? m.share_nobody_found({ workspace: workspaceName })
+              : ''}
+          </p>
         {/if}
-        <!-- In the page from the start: a live region that appears with its words is often not read. -->
-        <p class="text-muted-foreground empty:hidden" role="status">
-          {candidates.length === 0 && query.trim() !== ''
-            ? m.share_nobody_found({ workspace: workspaceName })
-            : ''}
-        </p>
       </section>
 
       {#if access?.people.teams && !isGuest(workspace)}

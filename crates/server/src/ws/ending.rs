@@ -26,6 +26,9 @@ pub(super) enum Ended {
     /// The workspace's organization takes only sessions made through its provider,
     /// and the connection's session was not.
     Sso,
+    /// The board has as many readers by its public link as it may (`readers.rs`): the
+    /// subscription was not taken.
+    Full,
 }
 
 /// Which subscription an ending is of: the one the connection follows now, whatever
@@ -47,6 +50,7 @@ impl Ended {
             Self::Access => "workspace access ended",
             Self::Share => "public link access ended",
             Self::Sso => "sso required",
+            Self::Full => "public link connections full",
         }
     }
 }
@@ -101,6 +105,25 @@ impl Listeners {
                 workspace_id,
                 block_ids,
                 reason: Ended::Share.reason(),
+            },
+        )
+    }
+
+    /// Tells the connection that the blocks it asked to follow, of the workspace, by a
+    /// public link were not taken: the board has as many readers by its link as it may.
+    pub(super) fn refuse_blocks(
+        &mut self,
+        id: ListenerId,
+        workspace_id: &str,
+        block_ids: &[String],
+    ) -> bool {
+        self.tell(
+            id,
+            &UnsubscribedBlocksMessage {
+                action: "UNSUBSCRIBED_BLOCKS",
+                workspace_id,
+                block_ids,
+                reason: Ended::Full.reason(),
             },
         )
     }
@@ -242,7 +265,7 @@ impl Hub {
         self.count_told("UNSUBSCRIBED_WORKSPACE", told);
     }
 
-    fn count_told(&self, action: &'static str, told: usize) {
+    pub(super) fn count_told(&self, action: &'static str, told: usize) {
         if told > 0 {
             self.inner.metrics.websocket_queued(action, told);
         }
@@ -255,6 +278,7 @@ impl Hub {
     pub fn end_readers_of_board(&self, board_id: &str) {
         let mut listeners = self.listeners();
         listeners.revoked.board(board_id);
+        listeners.end_shared_visits(board_id);
         let ids: Vec<ListenerId> = listeners
             .by_id
             .iter()

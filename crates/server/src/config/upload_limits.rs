@@ -61,6 +61,13 @@ impl Configuration {
         if self.max_concurrent_imports == 0 {
             bail!("max_concurrent_imports must be at least 1");
         }
+        // Zero would take no reader of a public link at all: sharing is turned off for that.
+        if self.public_link_connections_per_board == 0 {
+            bail!("public_link_connections_per_board must be at least 1");
+        }
+        if self.public_link_connections_per_address == 0 {
+            bail!("public_link_connections_per_address must be at least 1");
+        }
         // Zero would give up every download before its first piece.
         if self.export_stall_seconds == 0 {
             bail!("export_stall_seconds must be at least 1");

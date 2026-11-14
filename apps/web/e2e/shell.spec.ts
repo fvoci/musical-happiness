@@ -99,17 +99,12 @@ test.describe('the top bar', () => {
     expect((board?.y ?? 0) + (board?.height ?? 0)).toBe(page.viewportSize()?.height);
     expect(board?.width).toBe(bar?.width);
 
-    // The faces from where two kanban columns fit (544px), the description
-    // from where the whole header of a view fits (992px): widths of the pane.
+    // Presence remains available on every width; the description needs the full header.
     const width = (await pane(page).boundingBox())?.width ?? 0;
-    const members = topBar(page).getByTestId('board-members');
+    const presence = topBar(page).getByTestId('board-presence');
     const description = topBar(page).getByText('Use this template to stay on top');
-    if (width >= 544) {
-      await expect(members).toBeVisible();
-      await expect(members.getByRole('img')).not.toHaveCount(0);
-    } else {
-      await expect(members).toBeHidden();
-    }
+    await expect(presence).toBeVisible();
+    await expect(presence).toHaveAccessibleName('People viewing this board: 0');
     if (width >= 992) await expect(description).toBeVisible();
     else await expect(description).toBeHidden();
   });

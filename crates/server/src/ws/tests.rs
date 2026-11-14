@@ -4,6 +4,21 @@ fn add_listener(listeners: &mut Listeners, user_id: &str) -> ListenerId {
     add_listener_reading(listeners, user_id).0
 }
 
+/// A listener whose connection comes from `address`.
+pub(super) fn add_listener_from(
+    listeners: &mut Listeners,
+    user_id: &str,
+    address: Option<AddressKey>,
+) -> ListenerId {
+    let (id, _) = add_listener_reading(listeners, user_id);
+    listeners
+        .by_id
+        .get_mut(&id)
+        .expect("the listener was just added")
+        .address = address;
+    id
+}
+
 /// A listener, and what it is sent.
 fn add_listener_reading(
     listeners: &mut Listeners,
@@ -18,6 +33,7 @@ fn add_listener_reading(
             user_id: user_id.to_owned(),
             session_id: String::new(),
             login: None,
+            address: None,
             outbox,
             closed: CancellationToken::new(),
             closed_because: Arc::default(),
@@ -25,6 +41,7 @@ fn add_listener_reading(
             workspace_roles: HashMap::new(),
             blocks: Vec::new(),
             shared_boards: Vec::new(),
+            presence: presence::State::default(),
         },
     );
     (id, inbox)

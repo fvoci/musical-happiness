@@ -40,6 +40,8 @@
 | `webpath` | `FVOCI_WEBPATH` | 문자열 | `"./pack"` | 웹앱의 빌드 산출물이 든 디렉터리(`index.html`과 `static/`) |
 | `allowed_origins` | `FVOCI_ALLOWED_ORIGINS` | 문자열 목록 | `[]` | `serverRoot`의 출처 말고도 바꾸는 요청과 WebSocket을 받아들일 출처. 개발할 때 웹앱을 다른 포트에서 띄우는 경우에 쓴다. 출처로 읽을 수 없는 값이 있으면 시작하지 않는다 |
 | `websocket_ping_seconds` | `FVOCI_WEBSOCKET_PING_SECONDS` | 정수(0 이상) | `30` | WebSocket마다 Ping을 보내는 간격(초). 0이면 보내지 않는다. 한가한 연결을 프록시가 끊지 않게 한다. Ping마다 연결의 세션도 다시 보고 끝났으면 닫는다(0이면 1분마다) |
+| `public_link_connections_per_board` | `FVOCI_PUBLIC_LINK_CONNECTIONS_PER_BOARD` | 정수(1 이상) | `200` | 공개 링크로 한 보드를 함께 읽는 연결의 수. 링크의 읽기 토큰으로 블록을 따라가거나(`SUBSCRIBE_BLOCKS`) 그 토큰으로 방문을 알리는(`SET_PRESENCE`) 연결을 하나로 센다(로그인한 사람의 연결도 링크로 읽으면 센다). 다 찼으면 새 연결의 구독은 받지 않고 `UNSUBSCRIBED_BLOCKS`(`reason` `public link connections full`)로 알리며, 방문은 받지 않아 보드의 "익명 n명"에 세지 않는다. 이미 읽는 연결과 보드의 구성원이 보통으로 여는 연결에는 닿지 않는다. 0은 시작 오류다 |
+| `public_link_connections_per_address` | `FVOCI_PUBLIC_LINK_CONNECTIONS_PER_ADDRESS` | 정수(1 이상) | `10` | 위의 연결 가운데 한 주소에서 오는 것의 수. IPv6 주소는 /64로 센다. 주소는 요청 로그와 로그인 제한이 쓰는 것이다(`trusted_proxies` 뒤면 `X-Forwarded-For`). 넘으면 위와 같다. 0은 시작 오류다 |
 | `compress_responses` | `FVOCI_COMPRESS_RESPONSES` | 참·거짓 | `true` | 참이면 API의 JSON 응답을 클라이언트의 `Accept-Encoding`에 따라 zstd, brotli, gzip으로 압축한다(32바이트 미만과 오류 응답은 그대로). 압축하는 프록시나 CDN 뒤라면 거짓으로 둔다. 내보내는 아카이브와 파일은 이것과 관계없이 압축하지 않는다(길이를 그대로 보낸다). 웹앱의 정적 파일은 빌드가 만든 `.zst`, `.br`, `.gz`를 고르므로 이것과 관계없다 |
 
 ## 키: 데이터베이스
@@ -131,7 +133,7 @@ Cloudflare R2는 같은 규칙이 기본으로 7일이다. 다른 S3 호환 저�
 
 | 키 | 환경 변수 | 타입 | 기본값 | 뜻과 범위 |
 |---|---|---|---|---|
-| `trusted_proxies` | `FVOCI_TRUSTED_PROXIES` | 문자열 목록 | `[]` | 서버 앞의 역방향 프록시의 주소나 주소 범위(`10.0.0.0/8` 꼴). 이 주소에서 온 요청만 `X-Forwarded-For`가 말하는 주소에서 온 것으로 본다. 비우면 클라이언트가 서버에 바로 닿는다고 본다. 읽을 수 없는 값이 있으면 시작하지 않는다. `serverRoot`가 https이고 `useSSL`이 거짓인데 이 목록이 비면 시작할 때 경고한다(모든 클라이언트가 프록시 하나로 보여 로그인 제한이 모두에게 한꺼번에 걸린다) |
+| `trusted_proxies` | `FVOCI_TRUSTED_PROXIES` | 문자열 목록 | `[]` | 서버 앞의 역방향 프록시의 주소나 주소 범위(`10.0.0.0/8` 꼴). 이 주소에서 온 요청만 `X-Forwarded-For`가 말하는 주소에서 온 것으로 본다. 비우면 클라이언트가 서버에 바로 닿는다고 본다. 읽을 수 없는 값이 있으면 시작하지 않는다. `serverRoot`가 https이고 `useSSL`이 거짓인데 이 목록이 비면 시작할 때 경고한다(모든 클라이언트가 프록시 하나로 보여 로그인 제한이 모두에게 한꺼번에 걸리고, 공개 링크로 한 보드를 읽는 연결도 `public_link_connections_per_address`개까지만 받는다) |
 
 ## 키: 한도와 휴지통, 임시 파일
 

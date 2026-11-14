@@ -45,7 +45,7 @@ pub use queue::Outgoing;
 pub(crate) use removal::Deletion;
 #[cfg(feature = "test-util")]
 pub use removal::DeletionStage;
-pub(crate) use rooms::AccessScope;
+pub(crate) use rooms::{AccessChange, AccessScope, Wall};
 pub use seat::{Outbox, Seat};
 pub use whole::cards_written_whole;
 
@@ -332,9 +332,19 @@ impl Collab {
     ///
     /// As [`Collab::open`].
     pub async fn state_vector(&self, app: &App, card_id: &str) -> Result<Vec<u8>, AppError> {
-        self.on_slot(
+        self.state_vector_while(app, card_id, None).await
+    }
+
+    async fn state_vector_while(
+        &self,
+        app: &App,
+        card_id: &str,
+        gone: Option<CancellationToken>,
+    ) -> Result<Vec<u8>, AppError> {
+        self.on_slot_while(
             app,
             card_id,
+            gone,
             move |collab, app, card_id, mut slot| async move {
                 let (collab, app, card_id, slot) = (&collab, &app, card_id.as_str(), &mut slot);
                 bytes(collab.ask(app, card_id, slot, Request::StateVector).await?)
@@ -751,4 +761,11 @@ fn taken_from(load: &AtomicUsize) {
     let _ = load.try_update(Ordering::Relaxed, Ordering::Relaxed, |count| {
         count.checked_sub(1)
     });
+}
+
+/// Another organization's wall than [`Wall::for_tests`]: an organization is named here
+/// rather than beside the walls, among the few places that name one for a handle.
+#[cfg(test)]
+pub(crate) fn another_wall_for_tests() -> Wall {
+    Wall::of_tenant(Tenant::org("01930000-0000-7000-8000-0000000000aa").expect("an identifier"))
 }

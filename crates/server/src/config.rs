@@ -197,6 +197,13 @@ pub struct Configuration {
     /// How often the server pings each websocket, in seconds; zero to never ping. Keeps
     /// proxies and CDNs from closing idle connections.
     pub websocket_ping_seconds: u64,
+    /// How many connections may read one shared board by its public link at once:
+    /// following its blocks by the link's read token, or visiting it with that token.
+    /// One more is not taken, and is not counted among the board's anonymous readers.
+    pub public_link_connections_per_board: u32,
+    /// How many of a board's connections by its public link may come from one address
+    /// (an IPv6 address counted by its /64), within `public_link_connections_per_board`.
+    pub public_link_connections_per_address: u32,
     /// Whether the JSON answers of the API are compressed (gzip, brotli or zstd, as the
     /// client's `Accept-Encoding` asks). On unless set: a proxy in front that compresses
     /// itself can have it off.
@@ -315,6 +322,8 @@ impl Default for Configuration {
             oidc_extra_root_certificates: Vec::new(),
             org_creation: ORG_CREATION_FIRST_USER_ONLY.to_owned(),
             websocket_ping_seconds: 30,
+            public_link_connections_per_board: 200,
+            public_link_connections_per_address: 10,
             compress_responses: true,
             max_request_bytes: DEFAULT_MAX_REQUEST_BYTES,
             trash_retention_days: 30,
@@ -384,6 +393,14 @@ impl std::fmt::Debug for Configuration {
             .field("org_creation", &self.org_creation)
             .field("server_lock_wait_seconds", &self.server_lock_wait_seconds)
             .field("websocket_ping_seconds", &self.websocket_ping_seconds)
+            .field(
+                "public_link_connections_per_board",
+                &self.public_link_connections_per_board,
+            )
+            .field(
+                "public_link_connections_per_address",
+                &self.public_link_connections_per_address,
+            )
             .field("compress_responses", &self.compress_responses)
             .field("max_request_bytes", &self.max_request_bytes)
             .field("trash_retention_days", &self.trash_retention_days)
@@ -443,7 +460,7 @@ enum EnvKind {
 /// example `FVOCI_SESSION_IDLE_DAYS` and `FVOCI_FILESS3CONFIG_BUCKET`. The S3 credentials
 /// have none: the S3 client reads them from the `AWS_*` variables when `accesskeyid` is
 /// empty.
-const ENV_KEYS: [(&str, EnvKind); 57] = [
+const ENV_KEYS: [(&str, EnvKind); 59] = [
     ("serverroot", EnvKind::Text),
     ("port", EnvKind::Number),
     ("dbtype", EnvKind::Text),
@@ -480,6 +497,8 @@ const ENV_KEYS: [(&str, EnvKind); 57] = [
     ("oidc_allow_private_addresses", EnvKind::Flag),
     ("org_creation", EnvKind::Text),
     ("websocket_ping_seconds", EnvKind::Number),
+    ("public_link_connections_per_board", EnvKind::Number),
+    ("public_link_connections_per_address", EnvKind::Number),
     ("compress_responses", EnvKind::Flag),
     ("max_request_bytes", EnvKind::Number),
     ("trash_retention_days", EnvKind::Number),
@@ -826,8 +845,9 @@ impl Configuration {
         let mut warnings = Vec::new();
         // Reached over HTTPS without ending TLS itself: something in front of the server
         // does, and every request arrives from its address. Unless the server is told
-        // which address that is, all clients are one client to the login limits: one
-        // that guesses holds everybody up.
+        // which address that is, all clients are one client to the login limits (one
+        // that guesses holds everybody up) and to the readers of a public link (one
+        // address's share of a board is all a board takes).
         if self.server_root.starts_with("https://")
             && !self.use_ssl
             && self.trusted_proxies.is_empty()
@@ -835,7 +855,8 @@ impl Configuration {
             warnings.push(
                 "serverRoot is https but the server does not end TLS itself (usessl is off) and \
                  trusted_proxies is empty: behind a reverse proxy every client is seen at the \
-                 proxy's address, and the login limits then count all clients as one; set \
+                 proxy's address, and the login limits and the readers of a public link \
+                 (public_link_connections_per_address) then count all clients as one; set \
                  trusted_proxies to the proxy's addresses"
                     .to_owned(),
             );

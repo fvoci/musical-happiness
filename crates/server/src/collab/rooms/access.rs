@@ -99,7 +99,7 @@ impl AccessScope {
 
     /// Whether the change reached the card `card_id` of the board `board_id` of the
     /// workspace `workspace_id`.
-    fn reaches(&self, card_id: &str, board_id: &str, workspace_id: &str) -> bool {
+    pub(super) fn reaches(&self, card_id: &str, board_id: &str, workspace_id: &str) -> bool {
         match &self.place {
             Place::Boards(ids) => ids.iter().any(|id| id == board_id),
             Place::Cards(ids) => ids.iter().any(|id| id == card_id),
@@ -147,7 +147,8 @@ struct Holds {
 
 impl Holds {
     /// Lets go of every member held, each with what `answer_of` says of them (`None`:
-    /// not answered of), and closes a room that nobody is left in.
+    /// not answered of), sends who stays what the room held from them meanwhile, and
+    /// closes a room that nobody is left in.
     async fn let_go<'answers>(
         mut self,
         answer_of: impl Fn(&Room, &Who) -> Option<&'answers Answer>,
@@ -160,6 +161,7 @@ impl Holds {
             for member in members {
                 if let Some(index) = turn.let_go(member, self.change) {
                     turn.settle(index, answer_of(&room, &member.who));
+                    self.collab.send_missed(&room, &mut turn, member).await;
                 }
             }
             room.checked.notify_waiters();
@@ -202,7 +204,7 @@ impl Asked {
         }
     }
 
-    fn is(&self, member: &Member) -> bool {
+    pub(super) fn is(&self, member: &Member) -> bool {
         member.connection.id == self.connection && member.doc == self.doc
     }
 }
@@ -516,6 +518,7 @@ mod tests {
                 workspace_id: "workspace".to_owned(),
                 mode: DocMode::Write,
                 checking: None,
+                missed: None,
             }],
             ..Turn::default()
         }
