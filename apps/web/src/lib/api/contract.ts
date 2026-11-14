@@ -3195,7 +3195,8 @@ export interface components {
             editors: string[];
             /**
              * @description Whether the body of this version is the one the card has now. Of versions
-             *     with the same body, the newest.
+             *     with the same body, the newest; of none while the card's editors have typed
+             *     what is not written to the card yet.
              */
             isCurrent: boolean;
             /**
@@ -3222,7 +3223,8 @@ export interface components {
             editors: string[];
             /**
              * @description Whether the body of this version is the one the card has now. Of versions
-             *     with the same body, the newest.
+             *     with the same body, the newest; of none while the card's editors have typed
+             *     what is not written to the card yet.
              */
             isCurrent: boolean;
             /**

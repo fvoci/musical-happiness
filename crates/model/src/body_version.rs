@@ -21,7 +21,8 @@ pub struct BodyVersion {
     /// a body nobody is known to have written.
     pub editors: Vec<String>,
     /// Whether the body of this version is the one the card has now. Of versions
-    /// with the same body, the newest.
+    /// with the same body, the newest; of none while the card's editors have typed
+    /// what is not written to the card yet.
     pub is_current: bool,
 }
 
@@ -37,7 +38,8 @@ pub struct BodyVersionContent {
     /// their identifiers. Empty for a body nobody is known to have written.
     pub editors: Vec<String>,
     /// Whether the body of this version is the one the card has now. Of versions
-    /// with the same body, the newest.
+    /// with the same body, the newest; of none while the card's editors have typed
+    /// what is not written to the card yet.
     pub is_current: bool,
     /// The body of the card then; `null` if it had none.
     pub body: Option<Body>,

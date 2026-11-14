@@ -12,10 +12,13 @@
  *   too large, not a body, resting on what the document lacks) and refused
  *   with its reason; one taken is answered and sent to the room's others.
  * - The card's body is written from the document 2 seconds after the last
- *   change, 10 at most after the first, and when the last reader leaves:
+ *   change, 10 at most after the first, and when the last who writes leaves:
  *   the board's listeners are told the card, as `UPDATE_BLOCK` tells them.
- * - A body written whole (`MemoryBackend.writeCardBody`) is written after
- *   the room's changes, and makes the document anew (`DOC_RESET`).
+ * - A body written whole (`MemoryBackend.writeCardBody`, a version
+ *   restored) is written after the room's changes, and makes the document
+ *   anew (`DOC_RESET`).
+ * - Versions of the body are kept as the room is written in and left
+ *   (`body-versions.ts`).
  *
  * The tabs of one browser that each run a world in memory can be joined
  * (`shareRooms`): their documents are made alike from the seed, so that the
@@ -50,6 +53,7 @@ import type {
 } from '../../logic/doc-room-types.ts';
 import { ROOM_LIMITS } from '../../logic/doc-room.ts';
 
+import { roomWrote, typedBy, writersLeft } from './body-versions.ts';
 import { roleOn } from './comments.ts';
 import { imageFileIds, LIMITS, wireOf } from './shapes.ts';
 import { bodyOf, documentOf, sameBody } from './room-docs.ts';
@@ -287,7 +291,15 @@ export class MemoryRooms {
     const room = this.#rooms.get(cardId);
     seat.doc = undefined;
     if (!room?.seats.delete(seat)) return;
-    if (room.seats.size === 0) this.#write(room);
+    this.#afterLeft(room);
+  }
+
+  /** Nobody who writes is in the room any more: its body is written, and what was written is kept as a version. */
+  #afterLeft(room: Room): void {
+    if ([...room.seats].some((seat) => seat.mode === 'write')) return;
+    this.#write(room);
+    const card = this.#card(room.boardId, room.cardId);
+    if (card) writersLeft(this.#world, card);
   }
 
   #take(seat: Seat, cardId: string, bytes: Uint8Array): void {
@@ -311,6 +323,8 @@ export class MemoryRooms {
       });
       return;
     }
+    const card = this.#card(room.boardId, room.cardId);
+    if (card) typedBy(this.#world, card, seat.user.userId);
     Y.applyUpdate(room.doc, frame.payload, seat);
     room.lastWriter = seat.user.userId;
     this.#say(seat, { message: { action: 'DOC_ACK', doc, epoch: frame.epoch } });
@@ -396,6 +410,7 @@ export class MemoryRooms {
       boardId: room.boardId,
       blocks: [wireOf(card)],
     });
+    roomWrote(this.#world, card);
   }
 
   /** The card's body was written whole: the room's document is made anew from it, of the next epoch. */
@@ -436,7 +451,7 @@ export class MemoryRooms {
         this.#say(seat, { message: { action: 'DOC_MODE', doc, mode } });
       }
     }
-    if (room.seats.size === 0) this.#write(room);
+    this.#afterLeft(room);
   }
 
   /** What another tab's world said. */

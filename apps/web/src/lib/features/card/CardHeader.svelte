@@ -13,6 +13,7 @@
   import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
   import CopyIcon from '@lucide/svelte/icons/copy';
   import EllipsisIcon from '@lucide/svelte/icons/ellipsis';
+  import HistoryIcon from '@lucide/svelte/icons/history';
   import LinkIcon from '@lucide/svelte/icons/link';
   import Redo2Icon from '@lucide/svelte/icons/redo-2';
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
@@ -40,11 +41,23 @@
     cardHref: (cardId: string) => string;
     onClose: () => void;
     onDuplicate: () => void;
+    /** Opens the versions kept of the body. */
+    onVersions: () => void;
     onDelete: () => void;
   }
 
-  let { board, view, card, frame, saveState, cardHref, onClose, onDuplicate, onDelete }: Props =
-    $props();
+  let {
+    board,
+    view,
+    card,
+    frame,
+    saveState,
+    cardHref,
+    onClose,
+    onDuplicate,
+    onVersions,
+    onDelete,
+  }: Props = $props();
 
   let menuOpen = $state(false);
   /** Said once in place of the saving state: the link was copied. */
@@ -111,6 +124,15 @@
         icon: LinkIcon,
         separated: list.length > 0 && !board.canEdit,
         run: () => void copyLink(),
+      });
+    }
+    // The versions of the body are for the board's members: not for a reader by its public link.
+    if (there && board.role !== '') {
+      list.push({
+        id: 'versions',
+        label: m.card_versions(),
+        icon: HistoryIcon,
+        run: onVersions,
       });
     }
     if (there && board.canEdit) {

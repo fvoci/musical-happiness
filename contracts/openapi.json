@@ -721,7 +721,7 @@
             "type": "array"
           },
           "isCurrent": {
-            "description": "Whether the body of this version is the one the card has now. Of versions\nwith the same body, the newest.",
+            "description": "Whether the body of this version is the one the card has now. Of versions\nwith the same body, the newest; of none while the card's editors have typed\nwhat is not written to the card yet.",
             "type": "boolean"
           },
           "keptAt": {
@@ -765,7 +765,7 @@
             "type": "array"
           },
           "isCurrent": {
-            "description": "Whether the body of this version is the one the card has now. Of versions\nwith the same body, the newest.",
+            "description": "Whether the body of this version is the one the card has now. Of versions\nwith the same body, the newest; of none while the card's editors have typed\nwhat is not written to the card yet.",
             "type": "boolean"
           },
           "keptAt": {

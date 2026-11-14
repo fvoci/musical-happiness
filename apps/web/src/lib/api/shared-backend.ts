@@ -74,6 +74,12 @@ type SharedPath = ApiPath extends infer P
 
 export class SharedBackend implements Backend {
   readonly presence: Backend['presence'];
+  /** No versions through a public link: they are for the board's members. */
+  readonly bodyVersions: Backend['bodyVersions'] = {
+    list: nothing,
+    read: refused,
+    restore: refused,
+  };
   readonly #http: Http;
   readonly #boardId: string;
   readonly #readToken: string;

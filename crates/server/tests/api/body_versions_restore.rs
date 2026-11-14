@@ -39,7 +39,11 @@ async fn a_version_restored_is_sent_to_the_room_and_keeps_what_was_typed() {
     one.write_acked("typed").await;
     two.settle().await;
     let kept = versions(&th.client, &t.card_id).await;
-    assert_eq!(kept.len(), 1, "the body before the editors came: {kept:?}");
+    assert_eq!(
+        said(&kept),
+        [(1, Vec::new(), false)],
+        "the body before the editors came, which is the card's no more: what they typed is"
+    );
 
     assert_eq!(restore(&th.client2, &t.card_id, 1).await, ["first"]);
     for peer in [&mut one, &mut two] {

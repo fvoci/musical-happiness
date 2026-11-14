@@ -11,6 +11,8 @@ impl App {
     /// The versions kept of a card's body, the newest first, without their bodies.
     /// The newest whose body is the one the card has says so: the card is read after
     /// the versions, so that a version kept meanwhile is not taken for an older one.
+    /// None says so while the card's editors have typed what is not written to it yet:
+    /// its body is then no version's, though the card still holds an older one.
     ///
     /// # Errors
     ///
@@ -19,10 +21,13 @@ impl App {
         let kept = self.store().body_versions(card_id).await?;
         let card = self.block(card_id).await?;
         let digest = body_digest(card.body.as_ref());
-        let current = kept
-            .iter()
-            .find(|kept| kept.body_digest == digest)
-            .map(|kept| kept.version);
+        let current = if self.store().has_unwritten_body(card_id).await? {
+            None
+        } else {
+            kept.iter()
+                .find(|kept| kept.body_digest == digest)
+                .map(|kept| kept.version)
+        };
         Ok(kept
             .into_iter()
             .map(|kept| described(kept, current))
