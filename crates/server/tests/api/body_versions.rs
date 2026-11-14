@@ -53,8 +53,8 @@ pub(crate) async fn edit_and_leave(e: &Editing, app: &App, user_id: &str, line: 
 }
 
 /// A body its editors changed is kept as a version when they leave it, with who wrote
-/// it; the body it had before they came is kept first, by who changed the card last.
-/// Leaving a body that did not change keeps nothing.
+/// it; the body it had before they came is kept first, by nobody that is known. Leaving
+/// a body that did not change keeps nothing, and neither does an update that is refused.
 #[tokio::test]
 async fn a_body_is_kept_as_a_version_when_its_editors_leave() {
     let th = Setup::native().start().await.init_basic().await;
@@ -64,7 +64,12 @@ async fn a_body_is_kept_as_a_version_when_its_editors_leave() {
 
     // Read together and left: nothing changed, nothing is kept.
     let collab = e.app.collab();
-    joined(collab, &e.app, &e.card_id, 100).await;
+    let (_, epoch) = joined(collab, &e.app, &e.card_id, 100).await;
+    let no_file = crate::collab_images::showing("7nothing.png");
+    collab
+        .take(&e.app, &e.card_id, epoch, &e.user2, &no_file)
+        .await
+        .expect_err("no file of the board");
     collab.close(&e.app, &e.card_id).await.expect("closed");
     assert_eq!(versions(&th.client, &e.card_id).await, Vec::<Value>::new());
 
@@ -73,7 +78,7 @@ async fn a_body_is_kept_as_a_version_when_its_editors_leave() {
     assert_eq!(kept.len(), 2, "{kept:?}");
     assert_eq!(
         kept[1],
-        json!({"version": 1, "keptAt": made.update_at, "editors": [e.user1], "isCurrent": false}),
+        json!({"version": 1, "keptAt": made.update_at, "editors": [], "isCurrent": false}),
         "the body before the editors came, as of the card's last change"
     );
     assert_eq!(lines(&th.client, &e.card_id, &kept[1]).await, ["first"]);
@@ -115,7 +120,7 @@ async fn a_body_is_kept_as_a_version_when_its_editors_leave() {
         [
             (&json!(3), &json!([e.user2]), &json!(true)),
             (&json!(2), &json!([e.user1]), &json!(false)),
-            (&json!(1), &json!([e.user1]), &json!(false)),
+            (&json!(1), &json!([]), &json!(false)),
         ]
     );
     th.teardown().await;
@@ -226,12 +231,15 @@ fn said(kept: &[Value]) -> Vec<(i64, Vec<&str>, bool)> {
 
 /// A body written whole over HTTP is a version, by its writer, and the body it wrote
 /// over is kept before it if it was none yet. A body written again as it is, and a
-/// patch that leaves the body, keep nothing; no body is a version too.
+/// patch that leaves the body, keep nothing; no body is a version too. Of versions
+/// with the card's body, the newest is the current one, and a copy of the card has
+/// none of its versions.
 #[tokio::test]
 async fn a_body_written_whole_is_a_version_and_so_is_the_one_before() {
     let th = Setup::native().start().await.init_basic().await;
     let t = table(&th, &paragraphs(&["first"])).await;
     let (user1, user2) = (th.client.me().await.id, th.client2.me().await.id);
+    let nobody: Vec<&str> = Vec::new();
     give(&th, &t.board_id, &user2, "editor").await;
     let made = card(&th.client, &t.card_id).await;
     assert_eq!(
@@ -244,10 +252,7 @@ async fn a_body_written_whole_is_a_version_and_so_is_the_one_before() {
     let kept = versions(&th.client, &t.card_id).await;
     assert_eq!(
         said(&kept),
-        [
-            (2, vec![user2.as_str()], true),
-            (1, vec![user1.as_str()], false)
-        ]
+        [(2, vec![user2.as_str()], true), (1, nobody.clone(), false)]
     );
     assert_eq!(
         kept[1]["keptAt"], made.update_at,
@@ -279,6 +284,36 @@ async fn a_body_written_whole_is_a_version_and_so_is_the_one_before() {
     assert_eq!(
         lines(&th.client, &t.card_id, &kept[0]).await,
         Vec::<String>::new()
+    );
+
+    write_whole(&th.client2, &t.card_id, &paragraphs(&["second"])).await;
+    assert_eq!(
+        said(&versions(&th.client, &t.card_id).await),
+        [
+            (4, vec![user2.as_str()], true),
+            (3, vec![user1.as_str()], false),
+            (2, vec![user2.as_str()], false),
+            (1, nobody, false)
+        ],
+        "the second has the card's body too, and is not the current one"
+    );
+    let copies: Vec<Value> = th
+        .client
+        .post_empty(&format!(
+            "{TEST_WS}/boards/{}/blocks/{}/duplicate",
+            t.board_id, t.card_id
+        ))
+        .await
+        .created_json();
+    let copy = copies
+        .iter()
+        .find(|block| block["type"] == json!("card"))
+        .and_then(|block| block["id"].as_str())
+        .expect("the copy of the card");
+    assert_eq!(
+        versions(&th.client, copy).await,
+        Vec::<Value>::new(),
+        "a copy begins without versions"
     );
     th.teardown().await;
 }
@@ -316,7 +351,7 @@ async fn a_body_written_whole_over_what_editors_typed_keeps_both() {
         .check_status(StatusCode::CONFLICT);
     assert_eq!(
         said(&versions(&th.client, &t.card_id).await),
-        [(1, vec![user1.as_str()], false)],
+        [(1, Vec::<&str>::new(), false)],
         "the body before the typist came, and nothing of the write that was refused"
     );
 
@@ -327,7 +362,7 @@ async fn a_body_written_whole_over_what_editors_typed_keeps_both() {
         [
             (3, vec![user1.as_str()], true),
             (2, vec![user2.as_str()], false),
-            (1, vec![user1.as_str()], false)
+            (1, Vec::new(), false)
         ]
     );
     assert_eq!(
@@ -406,10 +441,7 @@ async fn a_document_opened_again_keeps_what_was_typed_before() {
     let kept = versions(&th.client, &e.card_id).await;
     let mut both = vec![e.user1.as_str(), e.user2.as_str()];
     both.sort_unstable();
-    assert_eq!(
-        said(&kept),
-        [(2, both, true), (1, vec![e.user1.as_str()], false)]
-    );
+    assert_eq!(said(&kept), [(2, both, true), (1, Vec::new(), false)]);
     assert_eq!(
         lines(&th.client, &e.card_id, &kept[0]).await,
         ["first", "typed", "more"]

@@ -2,7 +2,7 @@
 //! stay, what they hold of the files, and when they go.
 
 use fvoci_model::{Block, BlockPatch, BlockType, Body, BodyChange, FileInfo, new_id};
-use fvoci_store::{BodyToKeep, DEFAULT_BODY_VERSIONS_KEPT, Store};
+use fvoci_store::{BodyBefore, DEFAULT_BODY_VERSIONS_KEPT, Store};
 use serde_json::json;
 
 use crate::common;
@@ -67,23 +67,15 @@ async fn write_body(store: &Store, card_id: &str, body: Option<Body>, user_id: &
         .expect("the body is written");
 }
 
-/// Keeps the card's body as a version, written whole by `written_by` if that names
-/// anybody.
-pub(crate) async fn keep(store: &Store, card_id: &str, written_by: &str) -> Option<i64> {
-    let block = store.get_block(card_id).await.expect("the card");
-    let kept = store
-        .keep_body_versions(&[BodyToKeep {
-            block: &block,
-            written_by: (!written_by.is_empty()).then_some(written_by),
-        }])
-        .await
-        .expect("kept");
-    kept[0]
+/// Keeps the body the card holds as a version, as the server does with what editors
+/// typed.
+pub(crate) async fn keep(store: &Store, card_id: &str) -> Option<i64> {
+    store.keep_body_version(card_id).await.expect("kept")
 }
 
 /// Has the card's document hold `body` and writes it to the card, as the server does
 /// with what editors typed: by `user_id`, and no version of its own.
-async fn type_body(store: &Store, card_id: &str, body: Option<Body>, user_id: &str) {
+pub(crate) async fn type_body(store: &Store, card_id: &str, body: Option<Body>, user_id: &str) {
     if store.get_body_doc(card_id).await.expect("read").is_none() {
         store
             .create_body_doc(card_id, b"a state", b"a digest")
@@ -91,7 +83,13 @@ async fn type_body(store: &Store, card_id: &str, body: Option<Body>, user_id: &s
             .expect("a document");
     }
     let seqs = store
-        .append_body_updates(card_id, &[(b"an update", user_id)], &[], &[user_id])
+        .append_body_updates(
+            card_id,
+            &[(b"an update", user_id)],
+            &[],
+            &[user_id],
+            BodyBefore::Leave,
+        )
         .await
         .expect("logged");
     let read_at = store.get_block(card_id).await.expect("the card").update_at;
@@ -120,7 +118,7 @@ async fn texts(store: &Store, card_id: &str) -> Vec<(i64, String)> {
 }
 
 /// A body written whole is kept within its write: the body before, if it was no version
-/// yet, by who changed the card last when they did, and the body after, by its writer.
+/// yet, by nobody and as of the card's last change, and the body after, by its writer.
 /// The same body again and a change of something else keep nothing, and only the
 /// newest version is compared.
 #[tokio::test]
@@ -131,8 +129,17 @@ async fn a_body_written_whole_keeps_the_body_before_and_the_body_after() {
     let editor = common::user(store, "kelly.kapoor").await;
     let board_id = board_with_files(store, &author, &[]).await;
     let card_id = card_with(store, &board_id, body_showing("one", &[]), &author).await;
-    let made = store.get_block(&card_id).await.expect("the card");
     assert_eq!(texts(store, &card_id).await, [], "a card as it was made");
+    // Renamed by another: who wrote the body the card was made with is not known.
+    let renamed = BlockPatch {
+        title: Some("named".to_owned()),
+        ..BlockPatch::default()
+    };
+    store
+        .patch_block(&card_id, &renamed, &editor)
+        .await
+        .expect("renamed");
+    let made = store.get_block(&card_id).await.expect("the card");
 
     write_body(store, &card_id, body_showing("two", &[]), &editor).await;
     assert_eq!(
@@ -140,7 +147,7 @@ async fn a_body_written_whole_keeps_the_body_before_and_the_body_after() {
         [(2, "two".to_owned()), (1, "one".to_owned())]
     );
     let versions = store.body_versions(&card_id).await.expect("the versions");
-    assert_eq!(versions[1].editors, std::slice::from_ref(&author));
+    assert_eq!(versions[1].editors, Vec::<String>::new(), "nobody known");
     assert_eq!(
         versions[1].kept_at, made.update_at,
         "as of the card's change"
@@ -187,15 +194,16 @@ async fn a_body_written_whole_keeps_the_body_before_and_the_body_after() {
 
     // No body is no first version: there is nothing in it to go back to.
     let empty = card_with(store, &board_id, None, &author).await;
-    assert_eq!(keep(store, &empty, "").await, None);
+    assert_eq!(keep(store, &empty).await, None);
+    assert_eq!(keep(store, &new_id()).await, None, "no such card");
     write_body(store, &empty, body_showing("first", &[]), &editor).await;
     assert_eq!(texts(store, &empty).await, [(1, "first".to_owned())]);
     test.teardown().await;
 }
 
 /// What editors typed is a version when the server keeps it, once: it names the users
-/// whose updates were logged since the version before, and nobody known, who changed
-/// the card last. A body written whole over what they typed keeps theirs first.
+/// whose updates were logged since the version before, and nobody if none is known.
+/// A body written whole over what they typed keeps theirs first.
 #[tokio::test]
 async fn a_version_names_who_wrote_the_body_since_the_one_before() {
     let test = common::setup().await;
@@ -207,11 +215,11 @@ async fn a_version_names_who_wrote_the_body_since_the_one_before() {
     let card_id = card_with(store, &board_id, body_showing("one", &[]), &author).await;
     let made = store.get_block(&card_id).await.expect("the card");
 
-    // Nobody known: who changed the card last, when they did.
-    assert_eq!(keep(store, &card_id, "").await, Some(1));
-    assert_eq!(keep(store, &card_id, "").await, None, "kept already");
+    // Nobody known: as of the card's last change.
+    assert_eq!(keep(store, &card_id).await, Some(1));
+    assert_eq!(keep(store, &card_id).await, None, "kept already");
     let versions = store.body_versions(&card_id).await.expect("the versions");
-    assert_eq!(versions[0].editors, std::slice::from_ref(&author));
+    assert_eq!(versions[0].editors, Vec::<String>::new());
     assert_eq!(versions[0].kept_at, made.update_at);
 
     // The editors whose updates were logged since, each once; no version until kept.
@@ -228,7 +236,7 @@ async fn a_version_names_who_wrote_the_body_since_the_one_before() {
         "put down with the log"
     );
     let before = crate::blocks::now_millis();
-    assert_eq!(keep(store, &card_id, "").await, Some(2));
+    assert_eq!(keep(store, &card_id).await, Some(2));
     let versions = store.body_versions(&card_id).await.expect("the versions");
     assert_eq!(
         versions[0].editors, typists,
@@ -256,6 +264,56 @@ async fn a_version_names_who_wrote_the_body_since_the_one_before() {
         ]
     );
     assert_eq!(texts(store, &card_id).await[1], (3, "three".to_owned()));
+    test.teardown().await;
+}
+
+/// The body a card holds before updates of its document are logged is kept within
+/// that write when asked: by nobody, with the sender put down as writing since, and
+/// not at all when the updates are refused.
+#[tokio::test]
+async fn the_body_before_an_update_is_kept_with_its_log() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let author = common::user(store, "meredith.palmer").await;
+    let editor = common::user(store, "kelly.kapoor").await;
+    let board_id = board_with_files(store, &author, &[]).await;
+    let card_id = card_with(store, &board_id, body_showing("one", &[]), &author).await;
+    store
+        .create_body_doc(&card_id, b"a state", b"a digest")
+        .await
+        .expect("a document");
+    let update: &[(&[u8], &str)] = &[(b"an update", &editor)];
+
+    let no_file = ["7nothing.png".to_owned()];
+    store
+        .append_body_updates(&card_id, update, &no_file, &[&editor], BodyBefore::Keep)
+        .await
+        .expect_err("the board has no such file");
+    assert_eq!(
+        texts(store, &card_id).await,
+        [],
+        "nothing logged, nothing kept"
+    );
+
+    for _ in 0..2 {
+        store
+            .append_body_updates(&card_id, update, &[], &[&editor], BodyBefore::Keep)
+            .await
+            .expect("logged");
+    }
+    assert_eq!(
+        texts(store, &card_id).await,
+        [(1, "one".to_owned())],
+        "once"
+    );
+    let versions = store.body_versions(&card_id).await.expect("the versions");
+    assert_eq!(versions[0].editors, Vec::<String>::new());
+    let stored = store.get_body_doc(&card_id).await.expect("read");
+    assert_eq!(
+        stored.expect("a document").unkept_editors,
+        std::slice::from_ref(&editor),
+        "the sender wrote since"
+    );
     test.teardown().await;
 }
 
@@ -307,7 +365,7 @@ async fn the_oldest_versions_go_and_their_files_with_them() {
 
     // The same when the server keeps what editors typed.
     type_body(store, &card_id, body_showing("v5", &[]), &author).await;
-    assert_eq!(keep(store, &card_id, "").await, Some(5));
+    assert_eq!(keep(store, &card_id).await, Some(5));
     assert_eq!(texts(store, &card_id).await.len(), 3);
     assert_eq!(collected().await, ["7second.png"]);
     store.set_body_versions_kept(DEFAULT_BODY_VERSIONS_KEPT);
@@ -324,14 +382,17 @@ async fn versions_stay_in_the_trash_and_go_with_the_card() {
     let board_id = board_with_files(store, &author, &[]).await;
     let card_id = card_with(store, &board_id, body_showing("one", &[]), &author).await;
     let stays = card_with(store, &board_id, body_showing("other", &[]), &author).await;
-    for id in [&card_id, &stays] {
-        assert_eq!(keep(store, id, "").await, Some(1));
+    for (id, text) in [(&card_id, "one"), (&stays, "other")] {
+        type_body(store, id, body_showing(text, &[]), &author).await;
+        assert_eq!(keep(store, id).await, Some(1));
         store
-            .create_body_doc(id, b"a state", b"a digest")
-            .await
-            .expect("a document");
-        store
-            .append_body_updates(id, &[(b"an update", &author)], &[], &[&author])
+            .append_body_updates(
+                id,
+                &[(b"an update", &author)],
+                &[],
+                &[&author],
+                BodyBefore::Leave,
+            )
             .await
             .expect("logged");
     }

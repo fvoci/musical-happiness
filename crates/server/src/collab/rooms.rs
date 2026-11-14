@@ -239,6 +239,9 @@ struct Turn {
     members: Vec<Member>,
     /// The room is no longer among the rooms: who waited for it looks again.
     closed: bool,
+    /// The room took an update since it last kept what its writers typed as a version
+    /// of the card's body.
+    typed: bool,
 }
 
 #[derive(Debug)]
@@ -824,6 +827,7 @@ impl Collab {
                 // Told whatever waits for the sender: the update is logged, and is
                 // sent on to the others also if the sender is put out for its queue.
                 turn.answer(connection, doc, messages::ack(doc, epoch, taken.seq));
+                turn.typed = true;
                 if taken.remade {
                     // The update is in the body the document was made again from.
                     // If it cannot be opened for now, the room's task hears of the
@@ -934,17 +938,19 @@ impl Collab {
     /// Closes a held room that nobody is in: its document is closed, which writes its
     /// body to the card, and whoever comes next makes the room anew. The room is held
     /// until the document is closed, so that the next opens it after. A room left to
-    /// its readers has what its writers typed kept as a version.
+    /// its readers has what its writers typed kept as a version, once: what fails
+    /// then is kept when the room closes.
     async fn shut_if_empty(&self, room: &Arc<Room>, turn: &mut Turn) {
         if turn.closed {
             return;
         }
         if !turn.members.is_empty() {
-            if turn
+            let readers_only = turn
                 .members
                 .iter()
-                .all(|member| member.mode == DocMode::Read)
-            {
+                .all(|member| member.mode == DocMode::Read);
+            if turn.typed && readers_only {
+                turn.typed = false;
                 self.version_without_writers(&room.app, &room.card_id, room.gone.clone())
                     .await;
             }

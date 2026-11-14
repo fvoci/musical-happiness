@@ -12,7 +12,7 @@ use fvoci_model::{BlockPatch, BlockType, Body, BodyChange};
 
 use crate::Store;
 use crate::blocks;
-use crate::body_versions::{self, BodyWrite};
+use crate::body_versions::{self, BodyBefore, BodyWrite};
 use crate::db::{Id, OptId, Param, Row, Scope, now_millis};
 use crate::error::StoreError;
 use crate::file_refs::{self, NewImages};
@@ -165,8 +165,9 @@ impl Store {
     /// shows them from now on, so that the files are not collected before the body is
     /// written to it. `new_editors` are those of the senders who are not yet put down
     /// as having written the body since its newest version
-    /// ([`Store::keep_body_versions`]), as far as the caller knows: putting one down
-    /// again changes nothing.
+    /// ([`Store::keep_body_version`]), as far as the caller knows: putting one down
+    /// again changes nothing. With [`BodyBefore::Keep`] the body the block holds is
+    /// kept as a version first, by those put down before.
     ///
     /// # Errors
     ///
@@ -178,8 +179,12 @@ impl Store {
         updates: &[(&[u8], &str)],
         images: &[String],
         new_editors: &[&str],
+        body_before: BodyBefore,
     ) -> Result<Vec<i64>, StoreError> {
         self.transaction(async |scope| {
+            if body_before == BodyBefore::Keep {
+                body_versions::keep_held(scope, block_id).await?;
+            }
             if !images.is_empty() {
                 file_refs::show_images(scope, block_id, images).await?;
             }

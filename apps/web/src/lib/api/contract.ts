@@ -3159,11 +3159,14 @@ export interface components {
         BodyVersion: {
             /**
              * @description Who wrote the body up to this version since the one before, in the order of
-             *     their identifiers: those who edited it and those who wrote it whole. For a body
-             *     nobody is known to have written, who changed the card last.
+             *     their identifiers: those who edited it and those who wrote it whole. Empty for
+             *     a body nobody is known to have written.
              */
             editors: string[];
-            /** @description Whether the body of this version is the one the card has now. */
+            /**
+             * @description Whether the body of this version is the one the card has now. Of versions
+             *     with the same body, the newest.
+             */
             isCurrent: boolean;
             /**
              * Format: int64
@@ -3184,10 +3187,13 @@ export interface components {
             body: components["schemas"]["Body"] | null;
             /**
              * @description Who wrote the body up to this version since the one before, in the order of
-             *     their identifiers.
+             *     their identifiers. Empty for a body nobody is known to have written.
              */
             editors: string[];
-            /** @description Whether the body of this version is the one the card has now. */
+            /**
+             * @description Whether the body of this version is the one the card has now. Of versions
+             *     with the same body, the newest.
+             */
             isCurrent: boolean;
             /**
              * Format: int64

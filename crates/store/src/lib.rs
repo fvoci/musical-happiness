@@ -72,7 +72,7 @@ pub use board_membership::Standing;
 pub use boards::{Joined, MemberChange, PublicBoards};
 pub use body_digest::body_digest;
 pub use body_docs::{LoggedUpdate, StoredDoc};
-pub use body_versions::{BodyToKeep, DEFAULT_BODY_VERSIONS_KEPT, KeptVersion};
+pub use body_versions::{BodyBefore, DEFAULT_BODY_VERSIONS_KEPT, KeptVersion};
 pub use category_boards::{BoardPlace, BoardVisibility};
 pub use comment_versions::DEFAULT_COMMENT_VERSIONS_KEPT;
 pub use connect::DbType;

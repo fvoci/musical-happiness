@@ -4,14 +4,14 @@
 use std::sync::atomic::Ordering;
 
 use fvoci_model::{Block, BlockType, Body};
-use fvoci_store::{LoggedUpdate, StoreError, StoredDoc};
+use fvoci_store::{LoggedUpdate, StoreError, StoredDoc, body_digest};
 use tokio::sync::OwnedSemaphorePermit;
 use tokio::time::Instant;
 
 use super::place::{OpenDoc, Opening};
 use super::versions::Versioned;
 use super::worker::CallError;
-use super::{Collab, DocChange, given, refusals, upkeep};
+use super::{Collab, DocChange, given, refusals};
 use crate::app::App;
 use crate::collab_worker::wire::{Answer, DocNumber, Request, Share, Source};
 use crate::error::{AppError, Reason};
@@ -63,7 +63,7 @@ impl Collab {
         let (generation, state, state_bytes) = self
             .open_from_body(worker, number, block.body.as_ref(), Share::Kept)
             .await?;
-        let digest = upkeep::digest_of(block.body.as_ref());
+        let digest = body_digest(block.body.as_ref());
         if let Err(error) = app
             .store()
             .create_body_doc(&block.id, &state, &digest)
@@ -170,7 +170,7 @@ impl Collab {
             }
             return self.made_from_card(app, block, open).await;
         }
-        let written_elsewhere = upkeep::digest_of(block.body.as_ref()) != open.body_digest;
+        let written_elsewhere = body_digest(block.body.as_ref()) != open.body_digest;
         if !unwritten && written_elsewhere {
             return self.made_from_card(app, block, open).await;
         }

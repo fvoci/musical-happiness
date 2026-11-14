@@ -2,7 +2,7 @@
 //! up to each (`body_version_editors`).
 //!
 //! The server keeps a card's body as a version when it changed since the newest one
-//! ([`Store::keep_body_versions`]): which body that is, and when, is the server's to
+//! ([`Store::keep_body_version`]): which body that is, and when, is the server's to
 //! say (`crates/server/src/collab`); the store tells a body that is kept already by its
 //! digest, numbers the versions, and keeps the newest
 //! ([`Store::set_body_versions_kept`]). A card in the trash keeps its rows; they go when
@@ -16,11 +16,11 @@ use fvoci_model::{Block, BlockType, Body};
 use serde_json::Value;
 
 use crate::Store;
-use crate::blocks;
 use crate::body_digest::body_digest;
 use crate::db::{Id, Param, Row, Scope, VersionsKept, now_millis, to_json_text};
 use crate::error::StoreError;
 use crate::file_refs::{self, NewImages};
+use crate::{blocks, boards};
 
 /// How many versions of a card's body the store keeps unless told otherwise.
 pub const DEFAULT_BODY_VERSIONS_KEPT: u32 = 50;
@@ -45,12 +45,12 @@ pub struct KeptVersion {
 
 /// A card's body to keep as a version, if it is not the card's newest one.
 #[derive(Debug, Clone, Copy)]
-pub struct BodyToKeep<'a> {
-    /// The card as it is stored now: its body is the version.
-    pub block: &'a Block,
+struct BodyToKeep<'a> {
+    /// The card as it is stored: its body is the version.
+    block: &'a Block,
     /// Who wrote it whole; `None` for a body its editors typed, who are known already
     /// ([`Store::append_body_updates`]).
-    pub written_by: Option<&'a str>,
+    written_by: Option<&'a str>,
 }
 
 impl Store {
@@ -62,41 +62,26 @@ impl Store {
             .store(kept.max(1), Ordering::Relaxed);
     }
 
-    /// Keeps the body of each card as a version, all or none, and gives the number of
-    /// each new version; `None` for a body that is the card's newest version already,
-    /// and for no body of a card that has no version.
+    /// Keeps the body a card holds as a version, and gives the number of the new
+    /// version; `None` for a body that is the card's newest version already, for no
+    /// body of a card that has no version, and for a card that is not there.
     ///
-    /// A new version names who wrote the body since the one before: the users whose
-    /// editors sent updates, and `written_by`. If nobody is known (a body written
-    /// before versions were kept, or by an import), it names who changed the card
-    /// last, when they did. Either way nobody is left as having written since.
-    /// Versions past those kept go, the oldest first, and the files only they showed
-    /// are shown no more.
+    /// The new version names who wrote the body since the one before: the users whose
+    /// editors sent updates ([`Store::append_body_updates`]), and nobody is left as
+    /// having written since. If nobody is known to have (a body from before versions
+    /// were kept, or of an import), it names nobody and is as of the card's last
+    /// change. Versions past those kept go, the oldest first, and the files only they
+    /// showed are shown no more.
     ///
-    /// The caller holds each card against other writes of its body.
+    /// The card is read with its board held, as a write of the card holds it: the
+    /// body kept is one the card had, whatever is written meanwhile.
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if a statement fails.
-    pub async fn keep_body_versions(
-        &self,
-        bodies: &[BodyToKeep<'_>],
-    ) -> Result<Vec<Option<i64>>, StoreError> {
-        self.transaction(async |scope| {
-            let mut versions = Vec::with_capacity(bodies.len());
-            for body in bodies {
-                let kept = keep(scope, body).await?;
-                if kept.forgot_some {
-                    // The card as it is stored: the files it shows are put down again
-                    // with those of the versions that are left.
-                    let block = blocks::get_block(scope, &body.block.id).await?;
-                    file_refs::refresh(scope, &block, NewImages::Unchecked).await?;
-                }
-                versions.push(kept.version);
-            }
-            Ok(versions)
-        })
-        .await
+    pub async fn keep_body_version(&self, card_id: &str) -> Result<Option<i64>, StoreError> {
+        self.transaction(async |scope| keep_held(scope, card_id).await)
+            .await
     }
 
     /// How many versions are kept, for a scope that begins.
@@ -185,6 +170,49 @@ fn kept_version(row: &Row) -> Result<KeptVersion, StoreError> {
     })
 }
 
+/// What becomes of the body a card holds before updates of its document are logged
+/// ([`Store::append_body_updates`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BodyBefore {
+    /// Kept as a version first, if it is not the card's newest, within the write of
+    /// the log: updates that are not logged keep nothing. For a card that holds all
+    /// its document took before.
+    Keep,
+    /// Left as it is: a version already, or less than the document took.
+    Leave,
+}
+
+/// Keeps the body a card holds ([`Store::keep_body_version`]), read with its board
+/// held.
+pub(crate) async fn keep_held(
+    scope: &mut Scope<'_>,
+    card_id: &str,
+) -> Result<Option<i64>, StoreError> {
+    let Some(found) = blocks::find_block(scope, card_id).await? else {
+        return Ok(None);
+    };
+    // Read again once its board is held: what puts down the files a card shows holds
+    // the board, and so does what writes its body.
+    if !boards::lock_board(scope, &found.board_id).await? {
+        return Ok(None);
+    }
+    let card = match blocks::find_block(scope, card_id).await? {
+        Some(block) if block.block_type == BlockType::Card => block,
+        _ => return Ok(None),
+    };
+    let body = BodyToKeep {
+        block: &card,
+        written_by: None,
+    };
+    let kept = keep(scope, &body).await?;
+    if kept.forgot_some {
+        // The files the card shows are put down again with those of the versions
+        // that are left.
+        file_refs::refresh(scope, &card, NewImages::Unchecked).await?;
+    }
+    Ok(kept.version)
+}
+
 /// What a write that changes the body of a card is, for the versions kept of that body.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BodyWrite {
@@ -193,7 +221,7 @@ pub(crate) enum BodyWrite {
     Whole,
     /// The body of the card's document as its editors typed it so far
     /// ([`Store::project_body`]): no version of its own; the server keeps one when it
-    /// is due ([`Store::keep_body_versions`]).
+    /// is due ([`Store::keep_body_version`]).
     Projected,
 }
 
@@ -208,8 +236,8 @@ struct Kept {
 }
 
 /// Keeps the versions a write of a card's body whole brings, within that write: the
-/// body before, if it is not the card's newest version yet (by its editors, or who
-/// changed the card last), and the body after, by `user_id`. Nothing for a write that
+/// body before, if it is not the card's newest version yet (by its editors, if any
+/// typed it), and the body after, by `user_id`. Nothing for a write that
 /// leaves the body as it was, and for a block that is no card. The caller puts down
 /// the files the card shows after.
 pub(crate) async fn record_change(
@@ -238,7 +266,7 @@ pub(crate) async fn record_change(
     Ok(())
 }
 
-/// Keeps one body ([`Store::keep_body_versions`]) and forgets the versions past those
+/// Keeps one body ([`Store::keep_body_version`]) and forgets the versions past those
 /// kept.
 async fn keep(scope: &mut Scope<'_>, body: &BodyToKeep<'_>) -> Result<Kept, StoreError> {
     let block = body.block;
@@ -275,11 +303,13 @@ async fn keep(scope: &mut Scope<'_>, body: &BodyToKeep<'_>) -> Result<Kept, Stor
     if let Some(written_by) = body.written_by.filter(|by| !by.is_empty()) {
         editors.insert(written_by.to_owned());
     }
-    let mut kept_at = now_millis();
-    if editors.is_empty() && !block.modified_by.is_empty() {
-        editors.insert(block.modified_by.clone());
-        kept_at = block.update_at;
-    }
+    // Nobody is known to have written it: the body is as old as the card's last
+    // change at the latest, and who made that change may have changed something else.
+    let kept_at = if editors.is_empty() {
+        block.update_at
+    } else {
+        now_millis()
+    };
     let version = newest.map_or(1, |(version, _)| version + 1);
     let files: Vec<&str> = block.body.as_ref().map(Body::file_ids).unwrap_or_default();
     let mut sql = scope.sql(

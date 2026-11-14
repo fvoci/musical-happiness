@@ -714,14 +714,14 @@
         "description": "A version kept of a card's body: the body as it was at a time, and who wrote it up\nto then.",
         "properties": {
           "editors": {
-            "description": "Who wrote the body up to this version since the one before, in the order of\ntheir identifiers: those who edited it and those who wrote it whole. For a body\nnobody is known to have written, who changed the card last.",
+            "description": "Who wrote the body up to this version since the one before, in the order of\ntheir identifiers: those who edited it and those who wrote it whole. Empty for\na body nobody is known to have written.",
             "items": {
               "type": "string"
             },
             "type": "array"
           },
           "isCurrent": {
-            "description": "Whether the body of this version is the one the card has now.",
+            "description": "Whether the body of this version is the one the card has now. Of versions\nwith the same body, the newest.",
             "type": "boolean"
           },
           "keptAt": {
@@ -758,14 +758,14 @@
             ]
           },
           "editors": {
-            "description": "Who wrote the body up to this version since the one before, in the order of\ntheir identifiers.",
+            "description": "Who wrote the body up to this version since the one before, in the order of\ntheir identifiers. Empty for a body nobody is known to have written.",
             "items": {
               "type": "string"
             },
             "type": "array"
           },
           "isCurrent": {
-            "description": "Whether the body of this version is the one the card has now.",
+            "description": "Whether the body of this version is the one the card has now. Of versions\nwith the same body, the newest.",
             "type": "boolean"
           },
           "keptAt": {

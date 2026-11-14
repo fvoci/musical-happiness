@@ -48,7 +48,6 @@ pub(crate) use removal::Deletion;
 pub use removal::DeletionStage;
 pub(crate) use rooms::{AccessChange, AccessScope, Wall};
 pub use seat::{Outbox, Seat};
-pub(crate) use upkeep::digest_of as body_digest;
 pub use whole::cards_written_whole;
 
 use std::collections::HashMap;

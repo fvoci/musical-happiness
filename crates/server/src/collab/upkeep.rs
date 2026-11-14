@@ -3,8 +3,7 @@
 //! grew too large again from its body.
 
 use fvoci_model::Body;
-use fvoci_store::StoreError;
-pub(crate) use fvoci_store::body_digest as digest_of;
+use fvoci_store::{BodyBefore, StoreError, body_digest};
 use serde_json::Value;
 use tokio::time::{Instant, sleep_until};
 
@@ -38,7 +37,6 @@ impl Collab {
             update: update.to_vec(),
         };
         self.at_epoch(app, card_id, slot, epoch).await?;
-        self.version_before_update(app, card_id, slot).await;
         let answer = match self.ask(app, card_id, slot, request).await {
             Ok(answer) => answer,
             Err(refused) => {
@@ -65,16 +63,21 @@ impl Collab {
         if let Some(repair) = &repair {
             entries.push((repair, ""));
         }
-        // Put down as having written since the newest version, unless they are.
-        let known = slot.open.as_ref().is_some_and(|open| {
-            user_id.is_empty() || open.editors.iter().any(|editor| editor == user_id)
-        });
+        // Put down as having written since the newest version, unless they are: a
+        // body kept first is by those put down before.
+        let body_before = Self::body_before_update(slot);
+        let known = user_id.is_empty()
+            || body_before == BodyBefore::Leave
+                && slot
+                    .open
+                    .as_ref()
+                    .is_some_and(|open| open.editors.iter().any(|editor| editor == user_id));
         let new_editors: &[&str] = if known { &[] } else { &[user_id] };
         #[cfg(feature = "test-util")]
         self.paused_before_log().await;
         let logged = app
             .store()
-            .append_body_updates(card_id, &entries, &images, new_editors)
+            .append_body_updates(card_id, &entries, &images, new_editors, body_before)
             .await;
         let seqs = match logged {
             Ok(seqs) => seqs,
@@ -218,10 +221,13 @@ impl Collab {
         body: Option<&Body>,
     ) -> Result<(), AppError> {
         self.remake_held(app, card_id, slot, body).await?;
-        // The body the card was written is no version until it is kept as one.
+        // The body the card was written is no version until it is kept as one, and
+        // who is put down as having written since the newest may be so no more: a
+        // version kept with the write names them.
         let due = Versioned::Due(Instant::now());
         if let Some(open) = slot.open.as_mut() {
             open.versioned = due;
+            open.editors.clear();
         }
         self.tell(app, card_id, DocChange::Replaced);
         Ok(())
@@ -273,7 +279,7 @@ impl Collab {
             .await?;
         open.generation = generation;
         open.number = number;
-        let digest = digest_of(body);
+        let digest = body_digest(body);
         open.epoch = app
             .store()
             .remake_body_doc(card_id, &state, &digest)
@@ -320,7 +326,7 @@ impl Collab {
             return Ok(false);
         }
         let held = app.store().get_block(card_id).await?;
-        if digest_of(held.body.as_ref()) != open.body_digest {
+        if body_digest(held.body.as_ref()) != open.body_digest {
             self.replaced(app, card_id, slot, held.body.as_ref())
                 .await?;
             return Ok(true);
@@ -337,7 +343,7 @@ impl Collab {
                 Body::parse(value).map_err(AppError::internal)?
             }
         };
-        let digest = digest_of(body.as_ref());
+        let digest = body_digest(body.as_ref());
         let open = slot.open.as_ref().expect("the document is open");
         let through = open.log_end;
         let changed = digest != open.body_digest;
@@ -367,7 +373,7 @@ impl Collab {
             // again with the card as it is now.
             let held = app.store().get_block(card_id).await?;
             let open = slot.open.as_ref().expect("the document is open");
-            if digest_of(held.body.as_ref()) != open.body_digest {
+            if body_digest(held.body.as_ref()) != open.body_digest {
                 self.replaced(app, card_id, slot, held.body.as_ref())
                     .await?;
                 return Ok(true);

@@ -819,14 +819,17 @@ async fn card_with_body(store: &Store, board_id: &str, user_id: &str) -> String 
         .await
         .expect("a document is stored");
     store
-        .append_body_updates(&card.id, &[(b"an update", user_id)], &[], &[])
+        .append_body_updates(
+            &card.id,
+            &[(b"an update", user_id)],
+            &[],
+            &[user_id],
+            fvoci_store::BodyBefore::Leave,
+        )
         .await
         .expect("an update is logged");
     store
-        .keep_body_versions(&[fvoci_store::BodyToKeep {
-            block: &card,
-            written_by: Some(user_id),
-        }])
+        .keep_body_version(&card.id)
         .await
         .expect("a version is kept");
     card.id

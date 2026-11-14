@@ -588,15 +588,9 @@ async fn a_body_edited_together(store: &Store, board_id: &str, user_id: &str) {
         ..fvoci_model::Block::default()
     };
     common::insert_blocks(store, std::slice::from_mut(&mut edited), user_id).await;
-    store
-        .create_body_doc(&edited.id, b"a state", b"a digest")
-        .await
-        .expect("a document is stored");
-    store
-        .append_body_updates(&edited.id, &[(b"an update", user_id)], &[], &[user_id])
-        .await
-        .expect("an update is logged");
-    crate::body_versions::keep(store, &edited.id, "").await;
+    let body = edited.body.clone();
+    crate::body_versions::type_body(store, &edited.id, body, user_id).await;
+    crate::body_versions::keep(store, &edited.id).await;
 }
 
 /// The organization's provider of sign-ins (one, whoever sets it), its pending settings,

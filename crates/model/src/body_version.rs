@@ -17,10 +17,11 @@ pub struct BodyVersion {
     /// import), when the card was last changed.
     pub kept_at: i64,
     /// Who wrote the body up to this version since the one before, in the order of
-    /// their identifiers: those who edited it and those who wrote it whole. For a body
-    /// nobody is known to have written, who changed the card last.
+    /// their identifiers: those who edited it and those who wrote it whole. Empty for
+    /// a body nobody is known to have written.
     pub editors: Vec<String>,
-    /// Whether the body of this version is the one the card has now.
+    /// Whether the body of this version is the one the card has now. Of versions
+    /// with the same body, the newest.
     pub is_current: bool,
 }
 
@@ -33,9 +34,10 @@ pub struct BodyVersionContent {
     /// When the version was kept, in milliseconds since the Unix epoch.
     pub kept_at: i64,
     /// Who wrote the body up to this version since the one before, in the order of
-    /// their identifiers.
+    /// their identifiers. Empty for a body nobody is known to have written.
     pub editors: Vec<String>,
-    /// Whether the body of this version is the one the card has now.
+    /// Whether the body of this version is the one the card has now. Of versions
+    /// with the same body, the newest.
     pub is_current: bool,
     /// The body of the card then; `null` if it had none.
     pub body: Option<Body>,
