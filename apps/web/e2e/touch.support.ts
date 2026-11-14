@@ -7,8 +7,10 @@
  */
 import { test, type CDPSession, type Page } from '@playwright/test';
 
+import { engineOf } from './keyboard.support.ts';
+
 export async function touchScreen(page: Page): Promise<CDPSession> {
-  const engine = page.context().browser()?.browserType().name();
+  const engine = engineOf(page);
   test.skip(
     engine !== 'chromium',
     `a finger that holds and moves needs Chromium's touch events; ${engine ?? 'this browser'} can only tap`,

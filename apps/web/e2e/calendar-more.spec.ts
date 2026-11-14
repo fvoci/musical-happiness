@@ -11,6 +11,7 @@ import { expect, test } from '@playwright/test';
 
 import {
   CALENDAR_PAGE,
+  CROWD,
   crowdable,
   dayButton,
   dueOf,
@@ -67,15 +68,8 @@ test('"+N" opens every card of its day, each with its "…", reached by the keys
   await openCalendar(page, info);
   await crowdable(page, info);
   const lanes = Number(await grid(page).getAttribute('data-lanes'));
-  const crowd = [
-    'Manage tasks with cards',
-    'Create your own board',
-    'Share cards on Channels',
-    'Create a new view',
-    'Add new properties',
-    '@mention teammates',
-  ].slice(0, lanes);
-  // The crowd has six cards: a cell of more rows would not overflow.
+  const crowd = CROWD.slice(0, lanes);
+  // A cell of more rows than the crowd has cards would not overflow.
   expect(crowd).toHaveLength(lanes);
   await setDates(page, Object.fromEntries(crowd.map((title) => [title, { from: '2026-11-12' }])));
   const more = grid(page).locator('[data-more="2026-11-12"]');

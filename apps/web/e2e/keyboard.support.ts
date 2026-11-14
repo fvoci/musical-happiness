@@ -20,10 +20,14 @@ export async function documentBoundary(page: Page, edge: 'start' | 'end'): Promi
   await page.keyboard.press(key);
 }
 
+/** The engine that draws the page: the one place the tests ask for it. */
+export function engineOf(page: Page): string | undefined {
+  return page.context().browser()?.browserType().name();
+}
+
 /** Safari on macOS uses Option+Tab to include buttons regardless of host preferences. */
 export async function tabKey(page: Page, backwards = false): Promise<string> {
-  const safariOnMac =
-    process.platform === 'darwin' && page.context().browser()?.browserType().name() === 'webkit';
+  const safariOnMac = process.platform === 'darwin' && engineOf(page) === 'webkit';
   return `${safariOnMac ? 'Alt+' : ''}${backwards ? 'Shift+' : ''}Tab`;
 }
 

@@ -19,6 +19,7 @@ import {
   bars,
   calendar,
   CALENDAR_PAGE,
+  CROWD,
   crowdable,
   day,
   dayList,
@@ -127,14 +128,7 @@ test('a day with more cards than rows says "+N", and the day lists them all', as
   await crowdable(page, info);
   // As many more cards as the cells have rows: two cards on the day are already there.
   const lanes = Number(await grid(page).getAttribute('data-lanes'));
-  const crowd = [
-    'Manage tasks with cards',
-    'Create your own board',
-    'Share cards on Channels',
-    'Create a new view',
-    'Add new properties',
-    '@mention teammates',
-  ].slice(0, lanes);
+  const crowd = CROWD.slice(0, lanes);
   expect(crowd).toHaveLength(lanes);
   await setDates(page, Object.fromEntries(crowd.map((title) => [title, { from: '2026-11-12' }])));
   const more = grid(page).locator('[data-more="2026-11-12"]');
