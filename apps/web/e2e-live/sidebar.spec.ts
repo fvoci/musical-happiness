@@ -83,6 +83,8 @@ test('categories and the boards under them are kept on the server and show in th
   const [defaults] = await stored(api, workspaceId);
   expect(defaults?.type).toBe('system');
   const home = defaults?.name ?? '';
+  // The sidebar names it in the reader's language, whatever the server stored.
+  const general = 'General';
   expect(defaults?.boardMetadata.map((entry) => entry.boardId).sort()).toEqual(
     [alpha.boardId, beta.boardId].sort(),
   );
@@ -101,18 +103,18 @@ test('categories and the boards under them are kept on the server and show in th
   await sidebar(first).getByTestId('new-category').click();
   await nameCategory(first, 'Work', 'Create');
   // First in this tab at once, before the server's message is read.
-  expect(await categories(first)).toEqual(['Work', home]);
-  await expect.poll(() => categories(second)).toEqual(['Work', home]);
+  expect(await categories(first)).toEqual(['Work', general]);
+  await expect.poll(() => categories(second)).toEqual(['Work', general]);
   expect(await storedNames(api, workspaceId)).toEqual(['Work', home]);
 
   // Renamed.
   await chooseFromMenu(first, categoryMenu(first, 'Work'), 'rename');
   await nameCategory(first, 'Projects', 'Update');
-  await expect.poll(() => categories(second)).toEqual(['Projects', home]);
+  await expect.poll(() => categories(second)).toEqual(['Projects', general]);
   expect(await storedNames(api, workspaceId)).toEqual(['Projects', home]);
 
   // The default category keeps its name: its menu has no renaming.
-  await categoryMenu(first, home).click();
+  await categoryMenu(first, general).click();
   await expect(first.locator('[data-action="move-up"]')).toBeVisible();
   await expect(first.locator('[data-action="rename"]')).toHaveCount(0);
   await first.keyboard.press('Escape');
@@ -146,8 +148,8 @@ test('categories and the boards under them are kept on the server and show in th
     .toEqual([alpha.boardId, beta.boardId]);
 
   // The categories in another order.
-  await chooseFromMenu(first, categoryMenu(first, home), 'move-up');
-  await expect.poll(() => categories(second)).toEqual([home, 'Projects']);
+  await chooseFromMenu(first, categoryMenu(first, general), 'move-up');
+  await expect.poll(() => categories(second)).toEqual([general, 'Projects']);
   expect(await storedNames(api, workspaceId)).toEqual([home, 'Projects']);
 
   // Folded.
@@ -187,10 +189,10 @@ test('categories and the boards under them are kept on the server and show in th
   await chooseFromMenu(first, categoryMenu(first, 'Projects'), 'delete');
   await first.getByRole('alertdialog').getByRole('button', { name: 'Delete', exact: true }).click();
   // Alpha stays hidden there, in this tab too.
-  expect(await categories(first)).toEqual([home]);
-  expect(await mine(first, home)).toEqual(['Beta']);
-  await expect.poll(() => categories(second)).toEqual([home]);
-  await expect.poll(() => mine(second, home)).toEqual(['Beta']);
+  expect(await categories(first)).toEqual([general]);
+  expect(await mine(first, general)).toEqual(['Beta']);
+  await expect.poll(() => categories(second)).toEqual([general]);
+  await expect.poll(() => mine(second, general)).toEqual(['Beta']);
   expect(await storedNames(api, workspaceId)).toEqual([home]);
 
   // The hidden boards are listed at the foot of the sidebar; one is shown again from there.
@@ -198,7 +200,7 @@ test('categories and the boards under them are kept on the server and show in th
   await hiddenList.getByRole('button', { name: 'Hidden boards and wikis (1)' }).click();
   await hiddenList.getByRole('button', { name: 'Show Alpha in the sidebar' }).click();
   await expect(hiddenList).toHaveCount(0);
-  await expect.poll(() => mine(second, home)).toContain('Alpha');
+  await expect.poll(() => mine(second, general)).toContain('Alpha');
   await expect
     .poll(async () =>
       (await storedCategory(api, workspaceId, home))?.boardMetadata.find(
@@ -210,7 +212,7 @@ test('categories and the boards under them are kept on the server and show in th
 
   // As it was left, after a reload.
   await second.reload();
-  await expect.poll(() => mine(second, home)).toEqual(['Beta']);
+  await expect.poll(() => mine(second, general)).toEqual(['Beta']);
   await expect(category(second, 'Projects')).toHaveCount(0);
   await expect(first.locator('[data-problem]')).toHaveCount(0);
 
