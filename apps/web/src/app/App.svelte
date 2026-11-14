@@ -45,7 +45,7 @@
   import type { Organizations } from '$lib/state/organization.ts';
   import { Button } from '$lib/ui/button/index.js';
 
-  import { startBackend } from './backend.ts';
+  import { resendLink, startBackend } from './backend.ts';
   import { lastWorkspace, rememberWorkspace } from './last-workspace.ts';
   import {
     browserLocale,
@@ -56,8 +56,8 @@
   } from './locale.ts';
   import NotFound from './NotFound.svelte';
   import Problems from './Problems.svelte';
-  import { keepReturn, takeReturn } from './return-to.ts';
-  import { parseRoute, placeRoute, type Router } from './router.svelte.ts';
+  import { keepReturn, resume, takeReturn } from './return-to.ts';
+  import { placeRoute, type Router } from './router.svelte.ts';
   import { signInOrganizations, signInWays } from './sign-in-organizations.ts';
   import WorkspacePane from './WorkspacePane.svelte';
 
@@ -93,20 +93,6 @@
     settingsOpen = true;
   }
 
-  /**
-   * Back from a provider, the browser is at the root: the reader goes on to
-   * where they were when they left for it, if that is a page of the app.
-   */
-  function resume(): void {
-    const kept = takeReturn();
-    if (cameBack.has('oidc_linked')) history.replaceState(null, '', location.pathname);
-    const { unknown, workspaceId, orgId: organization } = router.route;
-    if (kept === undefined || unknown || workspaceId || organization) return;
-    const route = parseRoute(kept, router.basePath);
-    if (route.invitation !== undefined) location.replace(router.inviteHref(route.invitation));
-    else if (!route.unknown) router.go(route, { replace: true });
-  }
-
   /** A session that is over is signing out, whatever was being asked: told, and passed on. */
   async function signedIn<T>(doing: () => Promise<T>): Promise<T> {
     try {
@@ -130,7 +116,7 @@
     signedIn(() => account?.unlinkIdentity(identity, password) ?? Promise.resolve());
 
   onMount(() => {
-    resume();
+    resume(router, cameBack);
     void startBackend().then(async (started) => {
       const { backend } = started;
       account = started.account;
@@ -307,7 +293,9 @@
     token={invitation}
     signedInAs={signedInAs && userDisplayName(signedInAs)}
     preview={(token: string) => accounts.previewInvitation(token)}
-    accept={(token: string, made?: NewAccount) => accounts.acceptInvitation(token, made)}
+    accept={(token: string, made?: NewAccount) =>
+      accounts.acceptInvitation(token, made, currentLocale())}
+    onResend={resendLink}
     onSignIn={(login: string, password: string) => accounts.signIn(login, password)}
     onSso={(orgId: string) => toProvider(orgId)}
     onJoined={(accepted: AcceptedInvitation) => {
@@ -368,9 +356,12 @@
       if (workspace) followLanguage(workspace);
     }}
     onRegister={async (registration: Registration) => {
-      await account?.register(registration);
-      registered = { username: registration.username, email: registration.email };
+      const made = (await account?.register(registration, currentLocale())) ?? 'made';
+      if (made === 'made')
+        registered = { username: registration.username, email: registration.email };
+      return made;
     }}
+    onResend={resendLink}
     forgotHref={`${router.href({}).replace(/\/$/, '')}/forgot-password`}
     {...signInWays(account, (orgId: string) => toProvider(orgId), router.href({}))}
   />

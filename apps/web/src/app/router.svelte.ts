@@ -27,6 +27,8 @@ export interface Route {
   /** The standalone password reset page; its token is in the URL fragment. */
   passwordReset?: true;
   passwordForgot?: true;
+  /** The page the link that confirms a registration's address opens; its token is in the fragment. */
+  emailVerify?: true;
   /** The organization whose screen is shown; then nothing else is. */
   orgId?: string | undefined;
   workspaceId: string | undefined;
@@ -93,6 +95,9 @@ export function parseRoute(pathname: string, basePath: string, search = ''): Rou
   }
   if (segments[0] === 'reset-password' && segments.length === 1) {
     return { ...NOWHERE, passwordReset: true };
+  }
+  if (segments[0] === 'verify-email' && segments.length === 1) {
+    return { ...NOWHERE, emailVerify: true };
   }
   if (segments[0] === 'invite' && segments.length === 2) {
     return { ...NOWHERE, invitation: segments[1] };
@@ -211,6 +216,7 @@ export class Router {
       if (
         next.passwordReset === now.passwordReset &&
         next.passwordForgot === now.passwordForgot &&
+        next.emailVerify === now.emailVerify &&
         next.orgId === now.orgId &&
         next.workspaceId === now.workspaceId &&
         next.boardId === now.boardId &&

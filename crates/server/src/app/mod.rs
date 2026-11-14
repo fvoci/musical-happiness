@@ -9,6 +9,7 @@ mod auth;
 mod blocks;
 mod boards;
 mod boards_and_blocks;
+mod body_versions;
 mod cards;
 mod category;
 mod category_boards;
@@ -49,6 +50,7 @@ pub use slots::Slot;
 pub(crate) use startup::{open_store, prepare_store};
 mod shared_reads;
 mod sharing;
+mod signups;
 mod sso;
 mod startup;
 mod store_metrics;
@@ -70,7 +72,7 @@ pub use export::ExportedArchive;
 pub(crate) use files::FILE;
 pub use housekeeping::WorkspacesPurged;
 pub use import::Imported;
-pub use invitations::{Accepting, Inviting};
+pub use invitations::{Accepting, Admission, Inviting};
 pub use limits::OrgLimits;
 pub use loose_objects::{RemovedObjects, WRITING_GRACE_MILLIS};
 pub use oidc::{
@@ -227,6 +229,7 @@ impl App {
             }
         }
         store.set_comment_versions_kept(config.max_comment_versions);
+        store.set_body_versions_kept(config.collab.collab_body_versions);
         // The authenticator reads what is no organization's (sessions), and asks the
         // directory whose a shared board is: it is given no organization to reach.
         let auth = Authenticator::new(store.scoped(Tenant::Unset), &config)?;

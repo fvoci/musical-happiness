@@ -309,6 +309,7 @@ async fn an_address_makes_only_so_many_attempts_a_minute() {
         password: PASSWORD.to_owned(),
         display_name: String::new(),
         organization_name: "The Firm".to_owned(),
+        language: String::new(),
     };
 
     // A registration, a success, and two failures at accounts that do not exist.

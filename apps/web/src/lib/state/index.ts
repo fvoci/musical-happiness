@@ -42,8 +42,10 @@ export {
   type User,
   type ViewDraft,
 } from './backend.ts';
+export type { Registered } from './account-types.ts';
 export { BoardStore, type CardDrop } from './board.svelte.ts';
 export { boardPresence } from './board-presence.svelte.ts';
+export type { BodyVersion, BodyVersionContent } from './body-versions.ts';
 export { CardPreviews } from './card-previews.svelte.ts';
 export { type CommentEdit, type Upload } from './card-parts.ts';
 export { CardStore } from './card.svelte.ts';

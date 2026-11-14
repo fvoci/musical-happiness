@@ -394,7 +394,7 @@ async fn files_and_cleanup(configure: Option<fn(&mut Configuration)>) {
 
 #[tokio::test]
 async fn local_files_tokens_uploads_and_housekeeping_stay_in_their_organizations() {
-    files_and_cleanup(None).await;
+    Box::pin(files_and_cleanup(None)).await;
 }
 
 fn s3(config: &mut Configuration) {
@@ -414,7 +414,7 @@ fn s3(config: &mut Configuration) {
 #[tokio::test]
 #[ignore = "needs the isolated S3 test service and PostgreSQL"]
 async fn s3_files_tokens_uploads_and_housekeeping_stay_in_their_organizations() {
-    files_and_cleanup(Some(s3)).await;
+    Box::pin(files_and_cleanup(Some(s3))).await;
 }
 
 /// The upload-parent exception must not turn a mistaken tenant row into an object

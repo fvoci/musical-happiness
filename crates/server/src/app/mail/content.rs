@@ -66,6 +66,24 @@ impl Content {
         Self::link(subject, intro, ending, link, language)
     }
 
+    /// The link that confirms the address of a registration, which signs its person in
+    /// as `username`: named, so that who did not sign up sees whose registration it is.
+    pub(crate) fn verification(link: &str, username: &str, language: Language) -> Self {
+        let (subject, intro, ending) = match language {
+            Language::English => (
+                "Confirm your email address for fvoci",
+                format!("Use this link to confirm your email address and sign in as {username}:"),
+                "This link expires in 24 hours and can be used once. If you did not sign up, ignore this message: the sign-up is removed after seven days.",
+            ),
+            Language::Korean => (
+                "fvoci 이메일 주소 확인",
+                format!("다음 링크로 이메일 주소를 확인하고 {username}(으)로 로그인하세요:"),
+                "이 링크는 24시간 동안 한 번만 쓸 수 있습니다. 가입하지 않았다면 이 메일을 무시하세요. 확인하지 않은 가입은 7일 뒤 지워집니다.",
+            ),
+        };
+        Self::link(subject, &intro, ending, link, language)
+    }
+
     pub(crate) fn invitation(
         link: &str,
         language: Language,
@@ -166,6 +184,41 @@ mod tests {
             );
             assert!(content.html.contains("&quot;&lt;&amp;"));
             assert!(!content.html.contains("secret\"<&"));
+        }
+    }
+
+    #[test]
+    fn verification_messages_have_both_languages_and_name_no_workspace() {
+        for (language, subject) in [
+            (Language::English, "Confirm your email address for fvoci"),
+            (Language::Korean, "fvoci 이메일 주소 확인"),
+        ] {
+            let content =
+                Content::verification("https://example.test/verify-email#t<", "a<b", language);
+            assert_eq!(content.subject, subject);
+            assert!(
+                content
+                    .plain
+                    .contains("https://example.test/verify-email#t<")
+            );
+            assert!(content.html.contains("#t&lt;"), "{}", content.html);
+            assert!(
+                content.plain.contains("a<b"),
+                "the user name: {}",
+                content.plain
+            );
+            assert!(content.html.contains("a&lt;b"), "escaped: {}", content.html);
+            assert!(
+                content
+                    .html
+                    .contains(&format!("lang=\"{}\"", language.tag()))
+            );
+            for text in [content.subject, &content.plain, &content.html] {
+                let text = text.to_lowercase();
+                for word in UNSAID {
+                    assert!(!text.contains(word), "{language:?}: {word} in {text}");
+                }
+            }
         }
     }
 

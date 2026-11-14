@@ -134,6 +134,11 @@ pub struct AcceptInvitation {
     /// The account to make and let in, for a request without a session. A request with
     /// a session lets in the account of the session, and names none.
     pub account: Option<NewAccount>,
+    /// The language tag of the screen the request comes from (`ko`, `en-GB`): the
+    /// language of the mail that confirms a new account's address, where the server asks
+    /// for that (English, Korean); English for any other.
+    #[serde(deserialize_with = "null_as_default")]
+    pub language: String,
 }
 
 impl fmt::Debug for AcceptInvitation {

@@ -170,11 +170,15 @@ pub enum AuditAction {
     /// their account over: who the new issuer (`detail`) vouches for (`identity`) is
     /// tied to the account the former provider vouched for.
     OidcIdentityCarriedOver,
+    /// The server operator confirmed the email address of a registration made by a
+    /// link for members, which made its account (the subject) a member. The target is
+    /// the organization it joined.
+    EmailVerifiedByOperator,
 }
 
 impl AuditAction {
     /// Every action, in the order of the declaration.
-    pub const ALL: [Self; 27] = [
+    pub const ALL: [Self; 28] = [
         Self::SelfAddedToBoard,
         Self::AddedToBoard,
         Self::OrgAdminJoined,
@@ -202,6 +206,7 @@ impl AuditAction {
         Self::OidcFormerProviderLapsed,
         Self::OidcIdentityBound,
         Self::OidcIdentityCarriedOver,
+        Self::EmailVerifiedByOperator,
     ];
 
     /// The wire and database form.
@@ -235,6 +240,7 @@ impl AuditAction {
             Self::OidcFormerProviderLapsed => "oidc_former_provider_lapsed",
             Self::OidcIdentityBound => "oidc_identity_bound",
             Self::OidcIdentityCarriedOver => "oidc_identity_carried_over",
+            Self::EmailVerifiedByOperator => "email_verified_by_operator",
         }
     }
 }

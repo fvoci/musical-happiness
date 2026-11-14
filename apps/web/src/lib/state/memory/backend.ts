@@ -72,6 +72,8 @@ import {
   roleOn,
   type Role,
 } from './comments.ts';
+import { MemoryBodyVersions, writtenWhole } from './body-versions.ts';
+import { pause } from './pause.ts';
 import { MemoryPresence } from './presence.ts';
 import { MemoryWikis } from './wikis.ts';
 import { memberRole, memberFileUrl } from './board-access.ts';
@@ -116,6 +118,7 @@ export class MemoryBackend implements Backend {
   readonly userId: string;
   readonly presence: MemoryPresence;
   readonly wiki = new MemoryWikis(this);
+  readonly bodyVersions: MemoryBodyVersions;
   /** Milliseconds every call waits before it answers. */
   latency = 0;
   readonly #failures = new Map<MethodName, BackendError>();
@@ -124,6 +127,7 @@ export class MemoryBackend implements Backend {
     this.world = world;
     this.userId = userId;
     this.presence = new MemoryPresence(world, userId);
+    this.bodyVersions = new MemoryBodyVersions(world, userId, () => this.#enter('bodyVersions'));
   }
 
   /** The same world, seen and changed by another user. */
@@ -149,13 +153,7 @@ export class MemoryBackend implements Backend {
    * does not take the failure meant for the next call.
    */
   async #enter(method: MethodName, signal?: AbortSignal): Promise<void> {
-    if (this.latency > 0) {
-      await new Promise((resolve) => {
-        setTimeout(resolve, this.latency);
-      });
-    } else {
-      await Promise.resolve();
-    }
+    await pause(this.latency);
     if (signal?.aborted) throw new BackendError(0, { detail: 'the call was given up' });
     const failure = this.#failures.get(method);
     if (failure) {
@@ -920,8 +918,10 @@ export class MemoryBackend implements Backend {
     const card = this.#block(boardId, cardId, 'card') as StoredCard;
     const body = checkedWhole(this.world, boardId, cardId, write.body);
     if (card.updateAt !== write.readAt) fail(409, 'the card changed since it was read');
-    card.body = body;
-    this.#touch(card);
+    writtenWhole(this.world, card, body, this.userId, () => {
+      card.body = body;
+      this.#touch(card);
+    });
     this.world.bodyWritten?.(cardId);
     this.#tellBlocks(boardId, [card]);
     return this.#commented(detailOf(card));

@@ -91,6 +91,8 @@
         return m.audit_oidc_identity_bound({ actor, issuer });
       case 'oidc_identity_carried_over':
         return m.audit_oidc_identity_carried_over({ actor, issuer });
+      case 'email_verified_by_operator':
+        return m.audit_email_verified_by_operator({ actor, subject });
     }
   }
 

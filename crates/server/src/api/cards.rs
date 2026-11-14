@@ -4,14 +4,19 @@ use std::num::IntErrorKind;
 
 use axum::body::Bytes;
 use axum::extract::{Path, RawQuery};
-use fvoci_model::{Block, BlockType, Card, CardError, CardPatch, RefusalReason, Refusals};
+use fvoci_model::{
+    Block, BlockType, BodyVersion, BodyVersionContent, Card, CardError, CardPatch, RefusalReason,
+    Refusals,
+};
 
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use super::contract::bodies::NewCard;
 use super::contract::params::MemberWorkspaceId;
-use super::contract::params::{BoardId, CardId, DisableNotify, Page, PerPage, Preview};
+use super::contract::params::{
+    BoardId, BodyVersionNumber, CardId, DisableNotify, Page, PerPage, Preview,
+};
 use super::contract::tag;
 use super::workspace::Ws;
 
@@ -33,6 +38,9 @@ pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new()
         .routes(routes!(handle_create_card, handle_get_cards))
         .routes(routes!(handle_get_card, handle_patch_card))
+        .routes(routes!(handle_get_card_body_versions))
+        .routes(routes!(handle_get_card_body_version))
+        .routes(routes!(handle_restore_card_body_version))
 }
 
 /// Reads the `page` and `perPage` of a list that is answered in pages. Both are read,
@@ -283,4 +291,122 @@ async fn handle_get_card(ws: Ws, Path((_, card_id)): Path<(String, String)>) -> 
     let card = ws.app.card_of_block(&block).await?;
     tracing::debug!(board_id = %card.board_id, card_id = %card.id, user_id, "GetCard");
     Ok(json_response(&card))
+}
+
+/// The versions kept of a card's body
+///
+/// The server keeps the body of a card as a version each time it changed: when the
+/// last of those who wrote it since the newest version leaves it, at an interval
+/// while it is edited on (its setting `collab_version_minutes`, ten minutes unless
+/// set otherwise), and before and after a write of the whole body (`patchCard` and the
+/// block routes). The newest first, each with when it was kept and who wrote the body
+/// up to it, without the bodies (`getCardBodyVersion`). The server keeps the newest
+/// of them (its setting `collab_body_versions`, fifty unless set otherwise), so the
+/// numbers may leave the lowest out. Empty for a card whose body never changed since
+/// versions were kept. For the members of the card's board, whatever
+/// their role; to a user who is no member of it there is no such card, and a reader by
+/// the board's read token has no session to ask with. A card in the trash is not
+/// there (404); its versions come back with it, and go when it is gone for good.
+#[utoipa::path(
+    get,
+    path = "/w/{workspaceId}/cards/{cardId}/body-versions",
+    operation_id = "getCardBodyVersions",
+    tag = tag::CARDS,
+    params(MemberWorkspaceId, CardId),
+    responses((status = 200, description = "The versions, the newest first.", body = Vec<BodyVersion>)),
+)]
+async fn handle_get_card_body_versions(
+    ws: Ws,
+    Path((_, card_id)): Path<(String, String)>,
+) -> ApiResult {
+    let user_id = ws.session.user_id.as_str();
+    let card = card_with_permission(
+        &ws.app,
+        user_id,
+        &card_id,
+        BoardPermission::ViewBoard,
+        "access denied to fetch card",
+    )
+    .await?;
+    let versions = ws.app.body_versions(&card.id).await?;
+    Ok(json_response(&versions))
+}
+
+/// A version kept of a card's body
+///
+/// The version with its body, as `getCard` gives a body. For whom
+/// `getCardBodyVersions` is for. A number the card has no version of, or has none of
+/// any more, is 404.
+#[utoipa::path(
+    get,
+    path = "/w/{workspaceId}/cards/{cardId}/body-versions/{version}",
+    operation_id = "getCardBodyVersion",
+    tag = tag::CARDS,
+    params(MemberWorkspaceId, CardId, BodyVersionNumber),
+    responses((status = 200, description = "The version.", body = BodyVersionContent)),
+)]
+async fn handle_get_card_body_version(
+    ws: Ws,
+    Path((_, card_id, version)): Path<(String, String, String)>,
+) -> ApiResult {
+    let user_id = ws.session.user_id.as_str();
+    let card = card_with_permission(
+        &ws.app,
+        user_id,
+        &card_id,
+        BoardPermission::ViewBoard,
+        "access denied to fetch card",
+    )
+    .await?;
+    let version = ws
+        .app
+        .body_version(&card.id, version_number(&version)?)
+        .await?;
+    Ok(json_response(&version))
+}
+
+/// Go back to a version of a card's body
+///
+/// Writes the body of the version to the card again, as a write of the whole body by
+/// the caller: those who edit the card together are sent the body as a new document
+/// (`contracts/websocket.md`), the body it replaces is kept as a version first, with
+/// what they typed, and the body written is the card's newest version, by the
+/// caller. The versions before stay as they are. A card that has that body already is
+/// left as it is. For editors of the card's board (403 for its other members); to a
+/// user who is no member of it there is no such card. A number the card has no
+/// version of, or has none of any more, is 404. A version whose body may not be
+/// stored any more, or shows an image whose file the board no longer has, is 409.
+#[utoipa::path(
+    post,
+    path = "/w/{workspaceId}/cards/{cardId}/body-versions/{version}/restore",
+    operation_id = "restoreCardBodyVersion",
+    tag = tag::CARDS,
+    params(MemberWorkspaceId, CardId, BodyVersionNumber),
+    responses((status = 200, description = "The card as it is now.", body = Card)),
+)]
+async fn handle_restore_card_body_version(
+    ws: Ws,
+    Path((_, card_id, version)): Path<(String, String, String)>,
+) -> ApiResult {
+    let user_id = ws.session.user_id.as_str();
+    let card = card_with_permission(
+        &ws.app,
+        user_id,
+        &card_id,
+        BoardPermission::ManageBoardCards,
+        "access denied to restore a version of the card's body",
+    )
+    .await?;
+    let block = ws
+        .app
+        .restore_body_version(&card, version_number(&version)?, user_id)
+        .await?;
+    let restored = ws.app.card_of_block(&block).await?;
+    tracing::debug!(board_id = %restored.board_id, card_id = %restored.id, user_id, "RestoreCardBodyVersion");
+    Ok(json_response(&restored))
+}
+
+/// The number of a version, as a path names it: what is no number names no version.
+fn version_number(text: &str) -> Result<i64, AppError> {
+    text.parse().map_err(|_| AppError::not_found("version"))
 }

@@ -34,6 +34,7 @@ import type {
 
 import type { PresenceOfBoards } from './presence.ts';
 import type { DocRooms } from './body-doc.ts';
+import type { VersionsOfBodies } from './body-versions.ts';
 import type { WorkspaceRole } from './people-types.ts';
 import type { TrashReads } from './trash-reads.ts';
 import type { ChangeListener } from './changes.ts';
@@ -185,10 +186,7 @@ export interface CardDetail extends CardSummary {
 export interface Comment extends Block {
   type: 'comment';
   body: DocNode | null;
-  /**
-   * When its text was last changed; absent while it never was. Who changed
-   * it is `modifiedBy`.
-   */
+  /** When its text was last changed; absent while it never was. Who changed it is `modifiedBy`. */
   editedAt?: number;
 }
 
@@ -280,7 +278,8 @@ export interface UploadedFile {
 
 // ---------------------------------------------------------------- backend
 
-export interface Backend extends DocRooms, TrashReads, PresenceOfBoards, WikisOfBackend {
+export interface Backend
+  extends DocRooms, TrashReads, PresenceOfBoards, VersionsOfBodies, WikisOfBackend {
   // The reader and the people around them.
   me(): Promise<User>;
   /** Changes the reader's display name, as the server reads it (`patchMe`); `null` is none. */

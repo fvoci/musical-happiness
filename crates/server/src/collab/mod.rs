@@ -20,10 +20,10 @@
 //! not have. The body of the document is written to the card (`blocks.body`, which
 //! everything else reads) two seconds after the last update, ten seconds after the
 //! first one that is not written at the latest, and when the document is closed or the
-//! server stops. The log is folded into the stored state every [`FOLD_AFTER`] updates;
-//! a document whose state comes near its limit is made again from its body. A server
-//! that ended before it wrote a body writes it when it starts again
-//! ([`Collab::recover`]).
+//! server stops. Versions of the body are kept as `versions` says. The log is folded
+//! into the stored state every [`FOLD_AFTER`] updates; a document whose state comes
+//! near its limit is made again from its body. A server that ended before it wrote a
+//! body writes it when it starts again ([`Collab::recover`]).
 
 mod admission;
 #[cfg(unix)]
@@ -38,6 +38,7 @@ mod removal;
 mod rooms;
 mod seat;
 mod upkeep;
+mod versions;
 mod whole;
 pub mod worker;
 
@@ -118,6 +119,13 @@ struct Inner {
     /// The next number a document is opened under in a worker.
     numbers: AtomicU64,
     limits: Limits,
+    /// How long after the first update no version of the body holds the next version
+    /// is due (`collab_version_minutes`).
+    version_interval: Duration,
+    /// How much later than it is the versions take it to be: for the tests of what is
+    /// kept as time passes.
+    #[cfg(feature = "test-util")]
+    version_time_passed: Mutex<Duration>,
     events: broadcast::Sender<DocEvent>,
     /// The connections that hold the documents together.
     rooms: rooms::Rooms,
@@ -230,6 +238,9 @@ impl Collab {
                 slots: Mutex::new(HashMap::new()),
                 numbers: AtomicU64::new(1),
                 limits,
+                version_interval: settings.version_interval(),
+                #[cfg(feature = "test-util")]
+                version_time_passed: Mutex::new(Duration::ZERO),
                 events: broadcast::channel(EVENTS).0,
                 rooms: rooms::Rooms::new(settings),
                 #[cfg(feature = "test-util")]
@@ -470,8 +481,9 @@ impl Collab {
         .await
     }
 
-    /// Writes the body of a card's document to the card and closes the document. The
-    /// next request opens it again from what is stored. A body that cannot be written
+    /// Writes the body of a card's document to the card, keeps it as a version if the
+    /// document took updates no version holds, and closes the document. The next
+    /// request opens it again from what is stored. A body that cannot be written
     /// now stays in the log and is written when the document is opened again, or when
     /// the server starts: the document is closed all the same.
     ///
@@ -485,6 +497,9 @@ impl Collab {
             move |collab, app, card_id, mut slot| async move {
                 let (collab, app, card_id, slot) = (&collab, &app, card_id.as_str(), &mut slot);
                 let written = collab.write_now(app, card_id, slot).await;
+                if written.is_ok() {
+                    collab.version_as_left(app, card_id, slot).await;
+                }
                 collab.forget(slot).await;
                 collab.retire(slot);
                 written
@@ -493,8 +508,9 @@ impl Collab {
         .await
     }
 
-    /// Lets nobody into a room any more, writes the body of every open document and
-    /// closes them, and ends the workers: for a server that stops. `app` is any handle of the server: each document is
+    /// Lets nobody into a room any more, writes the body of every open document, keeps
+    /// it as a version if its editors changed it since the newest, closes the
+    /// documents, and ends the workers: for a server that stops. `app` is any handle of the server: each document is
     /// written as its card's organization. What is not done within five seconds (a
     /// write of a whole body that holds a card, a database that does not answer) is
     /// left: the log holds it, and the next start writes it.
@@ -510,8 +526,11 @@ impl Collab {
                 let mut slot = slot.lock_owned().await;
                 let app = app.scoped(slot.tenant);
                 if let Some(card_id) = slot.open.is_some().then(|| slot.card_id.clone()) {
-                    if let Err(error) = self.write_now(&app, &card_id, &mut slot).await {
-                        tracing::error!(%error, card_id, "cannot write a card's body as the server stops");
+                    match self.write_now(&app, &card_id, &mut slot).await {
+                        Ok(()) => self.version_as_left(&app, &card_id, &mut slot).await,
+                        Err(error) => {
+                            tracing::error!(%error, card_id, "cannot write a card's body as the server stops");
+                        }
                     }
                     self.forget(&mut slot).await;
                 }
@@ -535,23 +554,24 @@ impl Collab {
         }
     }
 
-    /// Writes the bodies of the documents that a server that ended did not write, each
-    /// as its organization: for a server that starts. `app` reaches every organization.
-    /// What cannot be written is logged and left for when the document is opened.
+    /// Writes the bodies of the documents that a server that ended did not write, and
+    /// keeps as versions those it did not keep, each as its organization: for a server
+    /// that starts. `app` reaches every organization. What cannot be written is logged
+    /// and left for when the document is opened.
     pub async fn recover(&self, app: &App) {
         // Writes to cards: only the server of the database does.
         if let Err(error) = app.require_server_lock() {
             tracing::warn!(%error, "the bodies a run that ended did not write are not written");
             return;
         }
-        let unwritten = match app.store().unwritten_body_docs().await {
-            Ok(unwritten) => unwritten,
+        let unfinished = match app.store().unfinished_body_docs().await {
+            Ok(unfinished) => unfinished,
             Err(error) => {
-                tracing::error!(%error, "cannot read which bodies are not written");
+                tracing::error!(%error, "cannot read which bodies are not written or not kept");
                 return;
             }
         };
-        for (card_id, org_id) in unwritten {
+        for (card_id, org_id) in unfinished {
             let tenant = match Tenant::org(&org_id) {
                 Ok(tenant) => tenant,
                 Err(error) => {
@@ -560,15 +580,16 @@ impl Collab {
                 }
             };
             match self.close_after_open(&app.scoped(tenant), &card_id).await {
-                Ok(()) => tracing::info!(card_id, "wrote a body the server had not written"),
+                Ok(()) => tracing::info!(card_id, "saw to a body a server that ended had left"),
                 Err(error) => {
-                    tracing::error!(%error, card_id, "cannot write a body the server had not written");
+                    tracing::error!(%error, card_id, "cannot write a body a server that ended had left");
                 }
             }
         }
     }
 
-    /// Opens a card's document, writes its body and closes it.
+    /// Opens a card's document, writes its body, which keeps it as a version if one
+    /// is due (a document opened with what no version holds is), and closes it.
     async fn close_after_open(&self, app: &App, card_id: &str) -> Result<(), AppError> {
         self.on_slot(
             app,

@@ -12,7 +12,7 @@ use crate::Store;
 use crate::db::{Id, Scope, Sql, now_millis};
 use crate::error::StoreError;
 use crate::users::{self, InstanceRole};
-use crate::workspaces;
+use crate::{signups, workspaces};
 
 /// The organization somebody who signs up with the name of an organization starts in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -67,36 +67,11 @@ impl Store {
             Founding::First => self.instance_organization().await?,
             Founding::New => None,
         };
-        let adopting = existing.is_some();
+        let place = OrgPlace::of(existing.as_deref());
         let org_id = existing.unwrap_or_else(new_id);
         let store = self.for_org(&org_id)?;
         store
-            .transaction(async |scope| {
-                let role = become_first(scope).await?;
-                let workspace_id = match founding {
-                    Founding::First if role == InstanceRole::User => {
-                        return Err(StoreError::NotFirstUser);
-                    }
-                    Founding::First if adopting => {
-                        name_organization(scope, organization_name).await?
-                    }
-                    Founding::First | Founding::New => {
-                        let workspace_id = new_id();
-                        found_organization(scope, organization_name, &workspace_id).await?;
-                        workspace_id
-                    }
-                };
-                insert_account(scope, user, role).await?;
-                join_organization(scope, &user.id, OrgRole::Admin).await?;
-                join_workspace(
-                    scope,
-                    Which::Workspace(&workspace_id),
-                    &user.id,
-                    WorkspaceRole::Admin,
-                )
-                .await?;
-                Ok(workspace_id)
-            })
+            .transaction(async |scope| found(scope, user, organization_name, founding, place).await)
             .await
     }
 
@@ -142,6 +117,63 @@ impl Store {
     }
 }
 
+/// Whether the organization the scope names is there already, for the first user to
+/// take, or is to be made.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum OrgPlace {
+    /// A migrated database's organization, which has no account yet.
+    Existing,
+    /// None yet: it is made under the scope's identifier.
+    ToMake,
+}
+
+impl OrgPlace {
+    /// The place of `existing`, the organization of the instance if it has one.
+    pub(crate) fn of(existing: Option<&str>) -> Self {
+        if existing.is_some() {
+            Self::Existing
+        } else {
+            Self::ToMake
+        }
+    }
+}
+
+/// Stores `user` and the scope's organization `founding` says, as [`Store::sign_up`]
+/// does, taking the organization the scope names if it is `place`d there already.
+/// Returns the identifier of the organization's first workspace.
+pub(crate) async fn found(
+    scope: &mut Scope<'_>,
+    user: &mut User,
+    organization_name: &str,
+    founding: Founding,
+    place: OrgPlace,
+) -> Result<String, StoreError> {
+    let role = become_first(scope).await?;
+    let workspace_id = match founding {
+        Founding::First if role == InstanceRole::User => {
+            return Err(StoreError::NotFirstUser);
+        }
+        Founding::First if place == OrgPlace::Existing => {
+            name_organization(scope, organization_name).await?
+        }
+        Founding::First | Founding::New => {
+            let workspace_id = new_id();
+            found_organization(scope, organization_name, &workspace_id).await?;
+            workspace_id
+        }
+    };
+    insert_account(scope, user, role).await?;
+    join_organization(scope, &user.id, OrgRole::Admin).await?;
+    join_workspace(
+        scope,
+        Which::Workspace(&workspace_id),
+        &user.id,
+        WorkspaceRole::Admin,
+    )
+    .await?;
+    Ok(workspace_id)
+}
+
 /// Turns on the flag that the instance has had its first user, and says what whoever
 /// this transaction stores is to the instance: who turns the flag on is the first
 /// user, its administrator. A second transaction that tries at the same moment waits
@@ -164,15 +196,20 @@ async fn become_first(scope: &mut Scope<'_>) -> Result<InstanceRole, StoreError>
 ///
 /// # Errors
 ///
-/// Returns [`StoreError::Conflict`] if another user, deleted or not, has the name or
-/// the email address in any letter case, and [`StoreError::InvalidId`] if the
-/// identifier is not one.
+/// Returns [`StoreError::Conflict`] if another user, deleted or not, or a registration
+/// whose address is not confirmed yet and that has not ended, has the name or the email
+/// address in any letter case, and [`StoreError::InvalidId`] if the identifier is not
+/// one.
 pub(crate) async fn insert_account(
     scope: &mut Scope<'_>,
     user: &mut User,
     role: InstanceRole,
 ) -> Result<(), StoreError> {
     let now = now_millis();
+    signups::claim_account_names(scope).await?;
+    if let Some(taken) = signups::signup_has_names(scope, &user.username, &user.email, now).await? {
+        return Err(StoreError::Conflict(taken));
+    }
     user.create_at = now;
     user.update_at = now;
     user.delete_at = 0;
