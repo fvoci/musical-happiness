@@ -34,6 +34,7 @@ mod fake_provider;
 mod fake_smtp;
 mod files;
 mod guests;
+mod import_authors;
 mod imports;
 mod invitation_mail;
 mod invitation_mail_children;

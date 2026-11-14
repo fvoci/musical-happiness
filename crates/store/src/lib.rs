@@ -29,6 +29,7 @@ mod directory;
 mod error;
 mod file_info;
 mod file_refs;
+mod imported_authors;
 mod invitations;
 mod joinings;
 mod loose_objects;
