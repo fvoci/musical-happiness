@@ -247,8 +247,10 @@ export class MemoryRooms {
     seat.mode = mode;
     room.seats.add(seat);
     this.#say(seat, { message: { action: 'DOC_JOINED', doc, epoch: room.epoch, mode } });
-    // Who holds this document already is sent the room's state vector and what they lack of it.
-    const lacked = held?.epoch === room.epoch ? lackedBy(room.doc, held.stateVector) : undefined;
+    // Who holds this document already, and writes, is sent the room's state vector and what
+    // they lack of it; who reads has nothing to send, and is sent the whole.
+    const named = mode === 'write' && held?.epoch === room.epoch ? held.stateVector : undefined;
+    const lacked = named && lackedBy(room.doc, named);
     if (lacked) {
       const vector = Y.encodeStateVector(room.doc);
       const asked = { doc, epoch: room.epoch, sync: SYNC_STEP_1, payload: vector };

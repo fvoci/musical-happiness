@@ -197,8 +197,10 @@ class RoomClient implements BodyDoc {
         break;
       }
       case 'answer': {
+        // A state vector that cannot be read says nothing of what the server holds: all of it goes.
         const doc = this.#doc;
-        if (doc) this.#take({ type: 'missing', update: lackedBy(doc, effect.theirs) });
+        const update = doc && (lackedBy(doc, effect.theirs) ?? Y.encodeStateAsUpdate(doc));
+        if (update) this.#take({ type: 'missing', update });
         break;
       }
       case 'send':

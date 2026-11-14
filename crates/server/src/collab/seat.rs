@@ -12,7 +12,7 @@ use tokio_util::sync::CancellationToken;
 use super::frame::{self, Carried, Received, Sync};
 use super::messages::{self, reason_of};
 use super::queue::Outgoing;
-use super::rooms::{Connection, Held};
+use super::rooms::{Connection, Entering, Holding};
 use super::{Collab, caret, refusals};
 use crate::app::{App, Asker};
 use crate::error::AppError;
@@ -29,9 +29,11 @@ struct Command {
     workspace_id: String,
     card_id: String,
     doc: u32,
-    /// Of a `JOIN_DOC`: the making of the document the connection holds, if it holds
-    /// one, and its state vector in base64.
+    /// Of a `JOIN_DOC`: the making of the document the connection holds, if it names
+    /// one (`state_vector`).
     epoch: i64,
+    /// Of a `JOIN_DOC`: the state vector of the document the connection holds, in
+    /// base64; empty for a connection that holds none.
     state_vector: String,
 }
 
@@ -219,13 +221,16 @@ impl Seat {
             let (collab, home) = (self.collab.clone(), self.home.clone());
             let connection = Arc::clone(&self.connection);
             let (workspace, card) = (workspace_id.clone(), card_id.clone());
-            let held = Held::of(epoch, &state_vector);
+            let holding = Holding::of(epoch, &state_vector);
             // Boxed: what letting a connection in holds is large, and is no part of
             // what serving the connection holds.
             self.step(Box::pin(async move {
-                collab
-                    .enter(&connection, &home, doc, (&workspace, &card), held)
-                    .await
+                let entering = Entering {
+                    workspace_id: &workspace,
+                    card_id: &card,
+                    holding,
+                };
+                collab.enter(&connection, &home, doc, entering).await
             }))
             .await
         } else {

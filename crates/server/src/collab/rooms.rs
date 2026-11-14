@@ -32,7 +32,7 @@ mod removal;
 mod walls;
 
 pub(crate) use access::AccessScope;
-pub(super) use joining::Held;
+pub(super) use joining::{Entering, Holding};
 pub(crate) use walls::{AccessChange, Wall};
 
 use std::collections::HashMap;
@@ -605,7 +605,7 @@ impl Collab {
 
     /// Lets a connection into the room of a card of a board of `workspace_id`, to be
     /// known there as `doc`, and sends it `DOC_JOINED` and the document: the whole of
-    /// it, or what the connection lacks of the document it `held`
+    /// it, or what the connection lacks of the document it says it holds
     /// ([`Self::first_of`]). A connection that is in the room already is in it anew:
     /// what it knew the room as before is no room of its any more. `home` is the
     /// application as the connection's handshake reached it.
@@ -622,9 +622,9 @@ impl Collab {
         connection: &Arc<Connection>,
         home: &App,
         doc: u32,
-        (workspace_id, card_id): (&str, &str),
-        held: Option<Held>,
+        entering: Entering<'_>,
     ) -> Result<(), AppError> {
+        let (workspace_id, card_id) = (entering.workspace_id, entering.card_id);
         let limits = &self.inner.rooms;
         // Before anything is asked of the store: a connection that is in as many
         // rooms as it may be has nothing asked for it.
@@ -681,13 +681,9 @@ impl Collab {
                 return Err(AppError::not_found("card"));
             }
             let epoch = loaded.epoch;
-            let joined = messages::joined(workspace_id, card_id, doc, epoch, admitted.mode);
-            let first = self.first_of(&room, &loaded, held.as_ref()).await;
-            let first = first.iter().map(|sync| Queued::sync(doc, epoch, sync));
-            let first: Vec<Queued> = std::iter::once(Queued::text(doc, joined))
-                .chain(first)
-                .collect();
-            let queued = connection.queue.push(first);
+            let queued = self
+                .welcome(&room, connection, doc, &loaded, admitted.mode, &entering)
+                .await;
             // Counted among the connection's rooms before it is a member: a connection
             // that ended meanwhile is no member of a room nobody would take it out of.
             if queued.is_err() || !connection.join(doc, &room) {

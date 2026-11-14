@@ -133,7 +133,7 @@ describe('the rooms of the backend in memory', () => {
   });
 
   it('sends who comes in again with the document of this making its state vector and what they lack', async () => {
-    const { world: stored, backend, boardId, cardId } = world();
+    const { world: stored, backend, other, boardId, cardId } = world();
     const frames: { sync: number; payload: Uint8Array }[] = [];
     const joins: number[] = [];
     const port = roomsOf(stored).line(
@@ -180,6 +180,26 @@ describe('the rooms of the backend in memory', () => {
     expect(carries(frames[3]?.payload)).toBe(false);
     Y.applyUpdate(held, frames[3]?.payload ?? new Uint8Array());
     expect(texts(held)).toEqual(texts(theirs.state.doc));
+    // Who only reads is sent the whole, whatever they name.
+    await backend.setMemberRole(boardId, other.userId, 'viewer');
+    const read: { sync: number; payload: Uint8Array }[] = [];
+    const reader = roomsOf(stored).line(
+      other,
+      boardId,
+      cardId,
+    )({
+      up: () => undefined,
+      down: () => undefined,
+      message: () => undefined,
+      frame: (frame) => read.push(frame),
+      carets: () => undefined,
+    });
+    reader.join({ epoch: joins[0] ?? 0, stateVector: Y.encodeStateVector(held) });
+    await vi.waitFor(() => {
+      expect(read).toHaveLength(1);
+    });
+    expect([read[0]?.sync, carries(read[0]?.payload)]).toEqual([SYNC_STEP_2, true]);
+    reader.close();
     // Of another epoch, or with what is no state vector: the whole.
     port.join({ epoch: 99, stateVector: Y.encodeStateVector(held) });
     port.join({ epoch: joins[0] ?? 0, stateVector: new Uint8Array([5]) });
@@ -486,6 +506,48 @@ describe('a room on the page connection', () => {
       .filter((frame) => frame !== undefined);
     expect(again).toHaveLength(1);
     expect(again[0]).toMatchObject({ doc: 2, epoch: 2 });
+    body.close();
+  });
+
+  it('sends all it holds when the state vector of the server cannot be read', () => {
+    const { live, socket } = server();
+    const body = openRoom(live.rooms.line('w1', 'c1'), listener());
+    const joined = (doc: number): void => {
+      socket().message({
+        action: 'DOC_JOINED',
+        workspaceId: 'w1',
+        cardId: 'c1',
+        doc,
+        epoch: 2,
+        mode: 'write',
+      });
+    };
+    socket().open();
+    joined(1);
+    socket().binary(encodeDocFrame({ doc: 1, epoch: 2, sync: SYNC_STEP_2, payload: whole() }));
+    const doc = body.state.doc;
+    if (!doc) throw new Error('no document');
+    socket().drop();
+    append(doc, 'mine meanwhile');
+    vi.advanceTimersByTime(600);
+    socket().open();
+    joined(2);
+    // Five clients, the state vector says, and names none.
+    const unreadable = new Uint8Array([5]);
+    socket().binary(encodeDocFrame({ doc: 2, epoch: 2, sync: SYNC_STEP_1, payload: unreadable }));
+    socket().binary(
+      encodeDocFrame({ doc: 2, epoch: 2, sync: SYNC_STEP_2, payload: new Uint8Array([0, 0]) }),
+    );
+    vi.advanceTimersByTime(50);
+    const sent = socket()
+      .frames.map((frame) => decodeDocFrame(frame))
+      .filter((frame) => frame !== undefined);
+    expect(sent).toHaveLength(1);
+    const theirs = new Y.Doc();
+    Y.applyUpdate(theirs, sent[0]?.payload ?? new Uint8Array());
+    expect(texts(theirs)).toEqual(texts(doc));
+    // Not taken as known to the server until it says so.
+    expect(body.state.pending).toBe(true);
     body.close();
   });
 

@@ -397,6 +397,85 @@ describe('receiving the document again', () => {
     expect(room.room.status).toMatchObject({ phase: 'joined', writable: true, pending: false });
   });
 
+  it('forgets the state vector of the server when the connection drops, or the document is sent anew, before what follows it', () => {
+    const STEP_1 = 0;
+    const theirs = new Uint8Array([1, 9, 3]);
+    const back = (room: Harness, doc: number): void => {
+      room.take({ type: 'down' });
+      room.take({ type: 'up' });
+      room.take({
+        type: 'message',
+        message: { action: 'DOC_JOINED', doc, epoch: 7, mode: 'write' },
+      });
+    };
+    // Dropped between the two: the next room's whole is answered by the whole, not by a
+    // state vector of the room before.
+    const room = new Harness();
+    room.joined(1, 7);
+    room.take({ type: 'down' });
+    room.write();
+    room.take({ type: 'up' });
+    room.take({
+      type: 'message',
+      message: { action: 'DOC_JOINED', doc: 2, epoch: 7, mode: 'write' },
+    });
+    room.take({ type: 'frame', frame: { doc: 2, epoch: 7, sync: STEP_1, payload: theirs } });
+    back(room, 3);
+    room.take({ type: 'frame', frame: { doc: 3, epoch: 7, sync: STEP_2, payload: WHOLE } });
+    expect(room.of('answer')).toEqual([]);
+    expect(room.of('offer')).toEqual([{ type: 'offer', have: WHOLE }]);
+
+    // The document made anew between the two: the whole of the new one, and the loss said.
+    const reset = new Harness();
+    reset.joined(1, 7);
+    reset.take({ type: 'down' });
+    reset.write();
+    reset.take({ type: 'up' });
+    reset.take({
+      type: 'message',
+      message: { action: 'DOC_JOINED', doc: 2, epoch: 7, mode: 'write' },
+    });
+    reset.take({ type: 'frame', frame: { doc: 2, epoch: 7, sync: STEP_1, payload: theirs } });
+    reset.take({ type: 'message', message: { action: 'DOC_RESET', doc: 2, epoch: 8 } });
+    reset.take({ type: 'frame', frame: { doc: 2, epoch: 8, sync: STEP_2, payload: WHOLE } });
+    expect(reset.of('fresh')).toHaveLength(1);
+    expect(reset.of('answer')).toEqual([]);
+    expect(reset.of('discarded')).toEqual([{ type: 'discarded', why: 'document_reset' }]);
+  });
+
+  it('let in to read after being away with changes: the whole says whether the server lacks them', () => {
+    // The server sends who reads the whole, though they named their document.
+    const room = new Harness();
+    room.joined(1, 7);
+    room.take({ type: 'down' });
+    room.write();
+    room.take({ type: 'up' });
+    room.take({
+      type: 'message',
+      message: { action: 'DOC_JOINED', doc: 2, epoch: 7, mode: 'read' },
+    });
+    room.take({ type: 'frame', frame: { doc: 2, epoch: 7, sync: STEP_2, payload: WHOLE } });
+    expect(room.of('offer')).toEqual([{ type: 'offer', have: WHOLE }]);
+    // The server had them all (only its answer was lost): nothing is said lost.
+    const had = room.take({ type: 'missing', update: undefined });
+    expect(had.some((effect) => effect.type === 'discarded')).toBe(false);
+    expect(room.room.status).toMatchObject({ phase: 'joined', mode: 'read', pending: false });
+
+    // The server lacks some: they cannot go any more, and that is said.
+    const lacks = new Harness();
+    lacks.joined(1, 7);
+    lacks.take({ type: 'down' });
+    lacks.write();
+    lacks.take({ type: 'up' });
+    lacks.take({
+      type: 'message',
+      message: { action: 'DOC_JOINED', doc: 2, epoch: 7, mode: 'read' },
+    });
+    lacks.take({ type: 'frame', frame: { doc: 2, epoch: 7, sync: STEP_2, payload: WHOLE } });
+    lacks.take({ type: 'missing', update: update() });
+    expect(lacks.of('join')).toEqual([{ type: 'join', held: undefined }]);
+  });
+
   it('names no document when the one held is to be dropped, and takes a state vector of another epoch for nothing', () => {
     const STEP_1 = 0;
     const room = new Harness();

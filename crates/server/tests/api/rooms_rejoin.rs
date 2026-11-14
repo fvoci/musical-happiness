@@ -186,3 +186,70 @@ async fn who_comes_back_to_what_it_holds_is_sent_no_document() {
     assert_eq!(two.lines().len(), 40);
     th.teardown().await;
 }
+
+/// What the other deleted while the connection was away is gone for who comes back:
+/// the difference carries the deletion, which no state vector shows.
+#[tokio::test]
+async fn what_was_deleted_meanwhile_is_gone_for_who_comes_back() {
+    let th = Setup::native().start().await.init_basic().await;
+    let (t, mut one, two) = two_in_a_room(&th, &paragraphs(&["kept", "deleted meanwhile"])).await;
+    let mut two = away(&th, two).await;
+    let deleted = one.editor().delete_last();
+    one.send_update(&deleted).await;
+    one.text("DOC_ACK").await;
+    assert_eq!(one.lines(), ["kept"]);
+
+    let before = two.taken.len();
+    two.join_holding(TEST_WORKSPACE_ID, &t.card_id).await;
+    assert_eq!(kinds(&two, before), [STEP_1, STEP_2]);
+    assert_eq!(two.lines(), ["kept"]);
+    th.teardown().await;
+}
+
+/// Who is let in to read is sent the whole though they name the document they hold:
+/// they have nothing to send, and what they hold that the server lacks (written
+/// before they were made a reader) shows against the whole alone.
+#[tokio::test]
+async fn a_reader_who_comes_back_is_sent_the_whole() {
+    let th = Setup::native().start().await.init_basic().await;
+    let (t, mut one, two) = two_in_a_room(&th, &paragraphs(&["first"])).await;
+    let user2 = th.client2.me().await.id;
+    let mut two = away(&th, two).await;
+    crate::rooms::give(&th, &t.board_id, &user2, "viewer").await;
+    one.write_acked("written meanwhile").await;
+
+    let before = two.taken.len();
+    let joined = two.join_holding(TEST_WORKSPACE_ID, &t.card_id).await;
+    assert_eq!(joined["mode"], json!("read"), "{joined}");
+    assert_eq!(
+        kinds(&two, before),
+        [STEP_2],
+        "the whole, and no state vector"
+    );
+    assert_eq!(two.asked, None);
+    assert_eq!(two.lines(), ["first", "written meanwhile"]);
+    th.teardown().await;
+}
+
+/// A join that names the document held counts among the frames a connection may send
+/// as any join does: as five.
+#[tokio::test]
+async fn a_join_that_names_its_document_counts_as_any_join() {
+    let th = Setup::native()
+        .configure(|config| config.collab.collab_frames_per_second = 10)
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let (t, _one, mut two) = two_in_a_room(&th, &paragraphs(&["first"])).await;
+    // Its first join was five of the ten; this is the other five.
+    two.join_holding(TEST_WORKSPACE_ID, &t.card_id).await;
+    two.send_json(json!({
+        "action": "JOIN_DOC", "workspaceId": TEST_WORKSPACE_ID, "cardId": t.card_id,
+        "epoch": two.epoch, "stateVector": "AA==",
+    }))
+    .await;
+    let refused = two.text("DOC_REFUSED").await;
+    assert_eq!(refused["reason"], json!("too_many_frames"), "{refused}");
+    th.teardown().await;
+}

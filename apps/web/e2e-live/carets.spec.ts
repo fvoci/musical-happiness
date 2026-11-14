@@ -58,6 +58,25 @@ async function userId(api: APIRequestContext): Promise<string> {
   return ((await (await api.get('/api/v1/users/me')).json()) as Schemas['User']).id;
 }
 
+interface Node {
+  text?: string;
+  content?: Node[];
+}
+
+/** The lines of a card's body as the server holds it. */
+async function stored(
+  api: APIRequestContext,
+  workspaceId: string,
+  cardId: string,
+): Promise<string[]> {
+  const card = (await (
+    await api.get(`/api/v1/w/${workspaceId}/cards/${cardId}`)
+  ).json()) as Schemas['Card'];
+  const words = (node: Node): string =>
+    node.text ?? (node.content ?? []).map((child) => words(child)).join('');
+  return ((card.body as Node | null)?.content ?? []).map((block) => words(block));
+}
+
 /** The lines of the body as an editor shows them. */
 const lines = (page: Page): Promise<string[]> => editor(page).locator('p').allTextContents();
 
@@ -175,6 +194,7 @@ test('a connection cut for five seconds: the body is read-only meanwhile, and bo
   });
   const cardId = board.cards['Travel notes'] ?? '';
   const address = boardPath(board, board.viewId, cardId);
+  const [adaId, boraId] = [await userId(api), await userId(await signedIn(base, bora))];
   const first = await pageOf(browser, address, ada);
   const second = await (await browser.newContext({ locale: 'en-US' })).newPage();
   const watched = [first, second].map((page) => watchErrors(page));
@@ -235,8 +255,10 @@ test('a connection cut for five seconds: the body is read-only meanwhile, and bo
   await expect(body).toHaveAttribute('data-room', 'offline');
   await expect(second.getByTestId('body-room-note')).toContainText('The connection is lost');
   await expect(body.locator('[contenteditable="true"]')).toHaveCount(0);
-  // Bora's caret is gone for Ada, who goes on writing.
+  // Bora's caret is gone for Ada, who goes on writing; Ada's is let go on Bora's page,
+  // which is told nothing now.
   await expect(carets(first)).toHaveCount(0);
+  await expect(carets(second)).toHaveCount(0);
   await editor(first).locator('p').first().click();
   await first.keyboard.press('End');
   await first.keyboard.type(' Ada meanwhile.');
@@ -268,8 +290,14 @@ test('a connection cut for five seconds: the body is read-only meanwhile, and bo
   expect(again?.frames.slice(0, 2).map((frame) => frame[3])).toEqual([0, 1]);
   // Each sees the other again: Ada's caret is told to who came in, Bora's once she is in the body.
   await expect(carets(second)).toHaveCount(1);
+  await expect(carets(second)).toHaveAttribute('data-user', adaId);
   await editor(second).locator('p').nth(1).click();
   await expect(carets(first)).toHaveCount(1);
+  await expect(carets(first)).toHaveAttribute('data-user', boraId);
+  await expect(carets(first).locator('.doc-caret-name')).toHaveAttribute(
+    'data-name',
+    new RegExp(bora.username),
+  );
   await second.keyboard.press('End');
   await second.keyboard.type(' Out again.');
   together = [together[0] ?? '', `${together[1] ?? ''} Out again.`];
@@ -278,16 +306,8 @@ test('a connection cut for five seconds: the body is read-only meanwhile, and bo
 
   // The card holds it, and both read it again after a reload.
   await expect
-    .poll(
-      async () => {
-        const card = (await (
-          await api.get(`/api/v1/w/${board.workspaceId}/cards/${cardId}`)
-        ).json()) as Schemas['Card'];
-        return JSON.stringify(card.body);
-      },
-      { timeout: 15_000 },
-    )
-    .toContain('Out again.');
+    .poll(() => stored(api, board.workspaceId, cardId), { timeout: 15_000 })
+    .toEqual(together);
   for (const page of [first, second]) {
     await page.reload();
     await ready(page);
@@ -298,4 +318,46 @@ test('a connection cut for five seconds: the body is read-only meanwhile, and bo
   await second.context().close();
   await api.dispose();
   expect(watched.flat()).toEqual([]);
+});
+
+test('the browser going offline leaves the body read-only at once, and what was written is there once it is back', async ({
+  page,
+  baseURL,
+}) => {
+  const base = baseURL ?? '';
+  const owner = person('offline');
+  const errors = watchErrors(page);
+  await register(base, owner);
+  const api = await signedIn(base, owner);
+  const board = await makeBoard(api, {
+    title: 'Offline',
+    cards: [{ title: 'On the train', status: 'To do' }],
+  });
+  const cardId = board.cards['On the train'] ?? '';
+  await page.goto(boardPath(board, board.viewId, cardId));
+  await signInOnPage(page, owner);
+  await ready(page);
+  await editor(page).click();
+  await page.keyboard.type('Before the tunnel.');
+  await expect
+    .poll(() => stored(api, board.workspaceId, cardId), { timeout: 15_000 })
+    .toEqual(['Before the tunnel.']);
+
+  // The browser says so before the connection does: the page does not wait for it.
+  await page.context().setOffline(true);
+  const body = page.getByTestId('card-body');
+  await expect(body).toHaveAttribute('data-room', 'offline');
+  await expect(page.getByTestId('body-room-note')).toContainText('The connection is lost');
+  await expect(body.locator('[contenteditable="true"]')).toHaveCount(0);
+  await page.context().setOffline(false);
+  await expect(body).toHaveAttribute('data-editor', 'ready', { timeout: 30_000 });
+  await editor(page).click();
+  await page.keyboard.press('Control+End');
+  await page.keyboard.type(' After it.');
+  await expect
+    .poll(() => stored(api, board.workspaceId, cardId), { timeout: 15_000 })
+    .toEqual(['Before the tunnel. After it.']);
+  await expect(page.getByTestId('body-lost')).toHaveCount(0);
+  await api.dispose();
+  expect(errors).toEqual([]);
 });

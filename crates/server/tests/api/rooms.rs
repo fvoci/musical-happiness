@@ -173,6 +173,8 @@ pub(crate) struct Peer {
     pub(crate) carets: VecDeque<Told>,
     /// The state vector the server last sent it (a sync step 1), if it sent one.
     pub(crate) asked: Option<Vec<u8>>,
+    /// Its last join named the document it holds: the server may send a step 1.
+    named: bool,
 }
 
 impl Peer {
@@ -217,6 +219,7 @@ impl Peer {
             taken: Vec::new(),
             carets: VecDeque::new(),
             asked: None,
+            named: false,
         }
     }
 
@@ -309,7 +312,9 @@ impl Peer {
                 }
                 if frame.sync == STEP_1 {
                     // The server's state vector: what it holds, for the peer to send
-                    // what it lacks. The document follows.
+                    // what it lacks. The document follows. Only who named the
+                    // document it holds is sent one.
+                    assert!(self.named, "a state vector nobody asked for: {frame:?}");
                     self.asked = Some(frame.payload.clone());
                     self.taken.push(frame);
                     return true;
@@ -377,6 +382,7 @@ impl Peer {
             "action": "JOIN_DOC", "workspaceId": workspace_id, "cardId": card_id,
         }))
         .await;
+        self.named = false;
         let deadline = tokio::time::Instant::now() + PATIENCE;
         loop {
             let answer = self.texts.iter().position(|message| {
@@ -430,6 +436,7 @@ impl Peer {
         }))
         .await;
         self.asked = None;
+        self.named = true;
         let joined = self.text("DOC_JOINED").await;
         self.doc = u32::try_from(joined["doc"].as_u64().expect("a room")).expect("32 bits");
         let epoch = joined["epoch"].as_i64().expect("an epoch");
