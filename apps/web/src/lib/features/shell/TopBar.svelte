@@ -96,7 +96,12 @@
         title={board.title}
         locale={workspace.locale}
       />
-      <h1 class="flex min-w-0 shrink text-base font-semibold @columns/pane:text-lg">
+      <h1
+        class="flex min-w-0 shrink text-base font-semibold @columns/pane:text-lg"
+        aria-label={board.kind === 'wiki'
+          ? m.shell_wiki_named({ title: shownTitle(board) })
+          : undefined}
+      >
         {#if store?.canEdit}
           {#key board.id}
             <BoardTitle

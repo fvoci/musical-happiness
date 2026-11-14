@@ -16,7 +16,7 @@
   import WikiScreen from '$lib/features/wiki/WikiScreen.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { firstPage } from '$lib/logic/page-tree.ts';
-  import { WikiStore, type Workspace } from '$lib/state/index.ts';
+  import { shownWiki, WikiStore, type Workspace } from '$lib/state/index.ts';
 
   import NotFound from './NotFound.svelte';
   import type { Router } from './router.svelte.ts';
@@ -28,13 +28,19 @@
 
   /** The wiki of the address, made anew for another one. */
   const wiki = $derived(wikiId ? new WikiStore(workspace, wikiId) : undefined);
-  // Read while it is shown, and closed when it goes.
+  // Read while it is shown, and closed when it goes. The board shown before lets go.
   $effect(() => {
     const store = wiki;
     if (!store) return;
-    untrack(() => void store.load());
+    const holder = shownWiki(workspace);
+    untrack(() => {
+      workspace.closeBoard();
+      holder.current = store;
+      void store.load();
+    });
     return () => {
       store.close();
+      if (holder.current === store) holder.current = undefined;
     };
   });
 
@@ -43,6 +49,22 @@
     if (wiki?.status !== 'ready' || pageId) return;
     const first = firstPage(wiki.pages);
     if (first) router.openPage(first.id, { replace: true });
+  });
+
+  /** The reader joined the wiki here: the wiki's screen takes the focus, where the button was. */
+  let joined = $state(false);
+
+  /** What the head of the page tells: a page shown that somebody else deleted. */
+  let notice = $state<string | undefined>(undefined);
+
+  // The page shown is gone: to the first page that is left (none: the empty wiki), told if not the reader's doing.
+  $effect(() => {
+    const removed = wiki?.openPage?.removed;
+    if (!wiki || !removed) return;
+    if (removed.by === 'others') {
+      notice = m.wiki_page_gone({ title: removed.title || m.wiki_page_untitled() });
+    }
+    router.openPage(firstPage(wiki.pages)?.id, { replace: true });
   });
 
   // The page of the address is the one open; none without one.
@@ -58,7 +80,16 @@
     <p class="text-muted-foreground" role="status">{m.app_loading()}</p>
   </div>
 {:else if wiki.joinable && wiki.wiki}
-  <WikiJoin wiki={wiki.wiki} joining={wiki.joining} onJoin={() => wiki.join()} />
+  {@const store = wiki}
+  <WikiJoin
+    wiki={wiki.wiki}
+    joining={wiki.joining}
+    onJoin={() => {
+      void store.join().then((done) => {
+        joined = done;
+      });
+    }}
+  />
 {:else if wiki.missing}
   <NotFound {router} />
 {:else if wiki.status === 'failed'}
@@ -69,6 +100,11 @@
   <WikiScreen
     {wiki}
     page={wiki.openPage}
+    {notice}
+    takeFocus={joined}
+    onDismissNotice={() => {
+      notice = undefined;
+    }}
     onOpenPage={(id: string) => {
       router.openPage(id);
     }}

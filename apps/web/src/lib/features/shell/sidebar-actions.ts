@@ -149,7 +149,7 @@ export function boardActions(menus: SidebarMenus, board: Board, home: Category):
         ]),
     {
       id: 'hide',
-      label: m['HideBoard.MenuOption'](),
+      label: wiki ? m.shell_hide_wiki() : m['HideBoard.MenuOption'](),
       icon: EyeOffIcon,
       separated: wiki && moves.length > 0,
       run: () => void workspace.hideBoard(board.id),
@@ -160,8 +160,8 @@ export function boardActions(menus: SidebarMenus, board: Board, home: Category):
       icon: Trash2Icon,
       destructive: true,
       separated: true,
-      // A wiki the reader may not delete is refused by the server, as the other boards are.
-      disabled: !wiki && board.id === menus.boardId && !menus.canDeleteOpenBoard,
+      // Of the board or wiki on the page the sidebar knows; of the others the server has the say.
+      disabled: board.id === menus.boardId && !menus.canDeleteOpenBoard,
       run: () => {
         menus.onDeleteBoard(board);
       },

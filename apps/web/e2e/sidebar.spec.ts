@@ -297,7 +297,7 @@ test.describe('boards in the sidebar', () => {
 
     await search.fill('no such board');
     await expect(sidebar(page).getByRole('link')).toHaveCount(0);
-    await expect(sidebar(page).getByText('No board has that in its title.')).toBeVisible();
+    await expect(sidebar(page).getByText('No board or wiki has that in its title.')).toBeVisible();
 
     // The first Escape empties the field and leaves the drawer, if it is one, open.
     await search.press('Escape');
@@ -600,7 +600,7 @@ test.describe('categories', () => {
     await expect
       .poll(() => categories(page))
       .toEqual(['Ideas', 'Team', 'Research', 'Personal', 'General']);
-    await expect(category(page, 'Ideas').getByText('No boards inside')).toBeVisible();
+    await expect(category(page, 'Ideas').getByText('No boards or wikis inside')).toBeVisible();
 
     // Renamed: the field starts with the name as it is.
     await chooseFromMenu(page, categoryMenu(page, 'Ideas'), 'rename');

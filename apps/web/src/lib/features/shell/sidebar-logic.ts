@@ -12,6 +12,11 @@ import type { Category, SidebarCategory } from '$lib/state/index.ts';
  * the case. A category that is left without a board is left out. An empty
  * query (or one of spaces) changes nothing.
  */
+/** Whether a title has what was typed into the search of the sidebar, whatever the case. */
+export function titleHas(title: string, query: string): boolean {
+  return foldCase(title).includes(foldCase(query.trim()));
+}
+
 export function filterSidebar(
   sidebar: readonly SidebarCategory[],
   query: string,
@@ -21,7 +26,7 @@ export function filterSidebar(
   return sidebar
     .map((entry) => ({
       category: entry.category,
-      boards: entry.boards.filter((board) => foldCase(board.title).includes(wanted)),
+      boards: entry.boards.filter((board) => titleHas(board.title, query)),
     }))
     .filter((entry) => entry.boards.length > 0);
 }

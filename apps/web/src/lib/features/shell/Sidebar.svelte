@@ -34,6 +34,7 @@
     boardTrash,
     isGuest,
     peopleOf,
+    shownWiki,
     whileHere,
     type Category,
     type Trash,
@@ -112,7 +113,9 @@
    * the sidebar does not know; there the server has the say.
    */
   const canDeleteOpenBoard = $derived(
-    workspace.board?.boardId === boardId && workspace.board?.canEdit === true,
+    (workspace.board?.boardId === boardId && workspace.board?.canEdit === true) ||
+      (shownWiki(workspace).current?.wikiId === boardId &&
+        shownWiki(workspace).current?.canManage === true),
   );
 
   // ------------------------------------------------- names of categories

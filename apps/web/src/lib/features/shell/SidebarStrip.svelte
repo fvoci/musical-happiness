@@ -86,7 +86,7 @@
       <li class="shrink-0">
         <a
           href={boardHref(board)}
-          aria-label={board.kind === 'wiki' ? `${title}, ${m.shell_wiki_kind()}` : title}
+          aria-label={board.kind === 'wiki' ? m.shell_wiki_named({ title }) : title}
           {title}
           aria-current={board.id === boardId ? 'page' : undefined}
           class="grid size-8 place-items-center rounded-lg hover:bg-sidebar-accent aria-[current=page]:bg-sidebar-accent aria-[current=page]:ring-1 aria-[current=page]:ring-input-border roomy:size-touch"

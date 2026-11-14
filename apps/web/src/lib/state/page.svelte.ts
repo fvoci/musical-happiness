@@ -31,6 +31,11 @@ export class PageStore {
   status = $state<LoadStatus>('idle');
   /** The page is gone (deleted here or by somebody else), or never was. */
   missing = $state(false);
+  /**
+   * The page was shown and is gone since: by somebody else (`others`, to be
+   * told), or by the reader (deleted, or its making undone). Its title as it was.
+   */
+  removed = $state.raw<{ by: 'others' | 'reader'; title: string } | undefined>(undefined);
   /** The body as it is stored, as far as this store knows. */
   body = $state.raw<DocNode | null>(null);
   /** The body in its room, while it is open there (`openBody`). */
@@ -104,8 +109,12 @@ export class PageStore {
     this.closeBody();
   }
 
-  /** The page was deleted (with one above it, perhaps): nothing more is read or written of it. */
-  gone(): void {
+  /**
+   * The page was deleted (with one above it, perhaps): nothing more is read or
+   * written of it. `by` says who, when it was shown; `title` is its title then.
+   */
+  gone(by?: 'others' | 'reader', title = ''): void {
+    if (by && this.status === 'ready' && !this.missing) this.removed = { by, title };
     this.missing = true;
     this.status = 'failed';
     this.closeBody();

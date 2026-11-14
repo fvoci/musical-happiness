@@ -128,10 +128,11 @@ export class WikiStore {
       this.status = 'ready';
     } catch (error) {
       if (this.#closed || reading !== this.#readings) return;
-      this.status = 'failed';
-      if (isBackendError(error) && error.status === 404) this.missing = true;
-      else if (isBackendError(error) && error.status === 403) await this.#explainRefusal();
+      // An open wiki to join is told before the reading ends: no failure shows in between.
+      if (isBackendError(error) && error.status === 403) await this.#explainRefusal();
+      else if (isBackendError(error) && error.status === 404) this.missing = true;
       else this.workspace.report('load', error);
+      if (!this.#isClosed() && reading === this.#readings) this.status = 'failed';
     }
   }
 
@@ -222,7 +223,7 @@ export class WikiStore {
         for (const page of change.pages) this.#takePage(page);
         break;
       case 'blocksDeleted':
-        this.#forget(change.blockIds);
+        this.#forget(change.blockIds, 'others');
         break;
       case 'members':
         if (change.boardId !== this.wikiId) break;
@@ -244,11 +245,39 @@ export class WikiStore {
     if (this.openPage?.pageId === page.id) this.openPage.pageChanged(page);
   }
 
-  /** Pages deleted, with every page below them. */
-  #forget(pageIds: readonly string[]): void {
+  /**
+   * Pages deleted, with every page below them. The page shown among them is
+   * told so, unless the deletion is the reader's and not answered yet (`held`).
+   */
+  #forget(pageIds: readonly string[], by: 'others' | 'reader' | 'held'): void {
     const gone = pageIds.flatMap((pageId) => [...withDescendants(this.pages, pageId)]);
+    const shown = this.openPage;
+    // The reader's own deletion, heard back before its answer: the reader's still.
+    const own = pageIds.find((pageId) => this.#deleting.has(pageId));
+    const title = own === undefined ? this.page(shown?.pageId)?.title : this.#deleting.get(own);
     this.pages = this.pages.filter((page) => !gone.includes(page.id));
-    if (this.openPage && gone.includes(this.openPage.pageId)) this.openPage.gone();
+    if (by === 'held' || !shown || !gone.includes(shown.pageId)) return;
+    shown.gone(own === undefined ? by : 'reader', title ?? '');
+  }
+
+  /** The pages the reader is deleting, each with the title of the page shown when it began. */
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity -- consulted, never shown
+  readonly #deleting = new Map<string, string>();
+
+  /** Deletes a page as the reader, its echo known for theirs (`#forget`). */
+  async #deletePage(
+    pageId: string,
+    title = this.page(this.openPage?.pageId)?.title ?? '',
+  ): Promise<void> {
+    this.#deleting.set(pageId, title);
+    try {
+      await this.#wikis.deletePage(this.wikiId, pageId);
+    } finally {
+      // After the echo, which comes before the answer or not at all.
+      setTimeout(() => {
+        this.#deleting.delete(pageId);
+      }, 0);
+    }
   }
 
   /**
@@ -268,9 +297,10 @@ export class WikiStore {
       ]);
       if (this.#isClosed() || reading !== this.#readings) return;
       [this.wiki, this.members] = [wiki, members];
-      this.pages = reread(this.pages, pages, before);
       const shown = this.openPage;
-      if (shown && !this.page(shown.pageId)) shown.gone();
+      const title = (shown && this.page(shown.pageId)?.title) ?? '';
+      this.pages = reread(this.pages, pages, before);
+      if (shown && !this.page(shown.pageId)) shown.gone('others', title);
       else if (shown) void shown.refresh();
     } catch (error) {
       if (this.#isClosed() || reading !== this.#readings) return;
@@ -297,8 +327,8 @@ export class WikiStore {
           return made;
         },
         async (made) => {
-          await this.#wikis.deletePage(this.wikiId, made.id);
-          this.#forget([made.id]);
+          await this.#deletePage(made.id);
+          this.#forget([made.id], 'reader');
         },
         'createPage',
       );
@@ -351,17 +381,21 @@ export class WikiStore {
    */
   async deletePage(pageId: string): Promise<boolean> {
     const before = this.pages;
-    this.#forget([pageId]);
+    const gone = withDescendants(before, pageId);
+    const title = this.page(this.openPage?.pageId)?.title ?? '';
+    this.#forget([pageId], 'held');
     try {
-      await this.#wikis.deletePage(this.wikiId, pageId);
-      return true;
+      await this.#deletePage(pageId, title);
     } catch (error) {
-      // Gone already (somebody else deleted it): it stays gone.
-      if (isBackendError(error) && error.status === 404) return true;
-      this.pages = before;
-      this.workspace.report('save', error);
-      return false;
+      // Not gone already (somebody else deleted it): it comes back as it was.
+      if (!isBackendError(error) || error.status !== 404) {
+        this.pages = before;
+        this.workspace.report('save', error);
+        return false;
+      }
     }
+    if (this.openPage && gone.has(this.openPage.pageId)) this.openPage.gone('reader', title);
+    return true;
   }
 
   /** Changes the wiki's title, description or icon: shown at once, undone as one step. */

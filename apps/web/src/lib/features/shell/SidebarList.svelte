@@ -38,7 +38,7 @@
     categoryLabel,
     type SidebarMenus,
   } from './sidebar-actions.ts';
-  import { boardMoveOf, dragOrder, dragZones, filterSidebar } from './sidebar-logic.ts';
+  import { boardMoveOf, dragOrder, dragZones, filterSidebar, titleHas } from './sidebar-logic.ts';
   import SidebarBoard from './SidebarBoard.svelte';
 
   interface Props {
@@ -91,12 +91,18 @@
    */
   const more = $derived(
     filtering
-      ? found.flatMap((board) => {
-          if (board.workspaceId !== workspace.info?.id) return [board];
-          const known = workspace.boards.find((one) => one.id === board.id);
-          const listed = shown.some((entry) => entry.boards.some((one) => one.id === board.id));
-          return known && !listed ? [known] : [];
-        })
+      ? [
+          ...found.flatMap((board) => {
+            if (board.workspaceId !== workspace.info?.id) return [board];
+            const known = workspace.boards.find((one) => one.id === board.id);
+            const listed = shown.some((entry) => entry.boards.some((one) => one.id === board.id));
+            return known && !listed ? [known] : [];
+          }),
+          // The backend searches boards only: a hidden wiki is found here.
+          ...workspace.hiddenBoards.filter(
+            (board) => board.kind === 'wiki' && titleHas(board.title, query),
+          ),
+        ]
       : [],
   );
   const isHidden = (boardId: string): boolean =>
@@ -287,6 +293,9 @@
             <a
               href={boardHref(board)}
               aria-current={board.id === boardId ? 'page' : undefined}
+              aria-label={board.kind === 'wiki'
+                ? m.shell_wiki_named({ title: titleOf(board) })
+                : undefined}
               class="flex min-h-8 min-w-0 flex-1 items-center gap-2 rounded-md py-1 pl-2 hover:bg-sidebar-accent roomy:min-h-touch"
               onclick={(event: MouseEvent) => {
                 if (
@@ -359,6 +368,9 @@
               <a
                 href={boardHref(board)}
                 aria-current={board.id === boardId ? 'page' : undefined}
+                aria-label={board.kind === 'wiki'
+                  ? m.shell_wiki_named({ title: titleOf(board) })
+                  : undefined}
                 class="flex min-h-8 min-w-0 flex-1 items-center gap-2 rounded-md py-1 pl-2 text-muted-foreground hover:bg-sidebar-accent roomy:min-h-touch"
                 onclick={(event: MouseEvent) => {
                   if (

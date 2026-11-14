@@ -195,7 +195,7 @@ test('categories and the boards under them are kept on the server and show in th
 
   // The hidden boards are listed at the foot of the sidebar; one is shown again from there.
   const hiddenList = sidebar(first).getByTestId('hidden-boards');
-  await hiddenList.getByRole('button', { name: 'Hidden boards (1)' }).click();
+  await hiddenList.getByRole('button', { name: 'Hidden boards and wikis (1)' }).click();
   await hiddenList.getByRole('button', { name: 'Show Alpha in the sidebar' }).click();
   await expect(hiddenList).toHaveCount(0);
   await expect.poll(() => mine(second, home)).toContain('Alpha');

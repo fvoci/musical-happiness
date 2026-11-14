@@ -39,8 +39,8 @@ export interface WikiHost {
   readonly latency: number;
 }
 
-/** The most characters of a page's title, as the server takes it. */
-export const PAGE_TITLE_MAX = 255;
+/** The most characters of a page's title, as the server takes a block's (`BLOCK_TITLE_MAX_CHARS`). */
+export const PAGE_TITLE_MAX = 16_383;
 
 const isWiki = (board: Board | undefined): board is Board => board?.kind === 'wiki';
 
@@ -215,6 +215,9 @@ export class MemoryWikis implements Wikis {
   async createPage(wikiId: string, draft: PageDraft): Promise<WikiPageDetail> {
     await this.#enter('createPage');
     this.#mayWrite(wikiId);
+    // The title and the icon first, as the server checks them.
+    const title = checkedTitle(draft.title ?? '');
+    const icon = checkedIcon(draft.icon ?? '');
     const parentId = draft.parentId === wikiId ? '' : (draft.parentId ?? '');
     if (parentId !== '') {
       const parent = this.#world.blocks.get(parentId);
@@ -233,8 +236,8 @@ export class MemoryWikis implements Wikis {
       modifiedBy: userId,
       schema: 1,
       type: 'page',
-      title: checkedTitle(draft.title ?? ''),
-      fields: { icon: checkedIcon(draft.icon ?? ''), order },
+      title,
+      fields: { icon, order },
       body: null,
       createAt: now,
       updateAt: now,
@@ -249,6 +252,9 @@ export class MemoryWikis implements Wikis {
     await this.#enter('patchPage');
     this.#mayWrite(wikiId);
     const page = this.#page(wikiId, pageId);
+    // The whole request is checked before anything changes, as the server does.
+    const title = patch.title === undefined ? undefined : checkedTitle(patch.title);
+    const icon = patch.icon === undefined ? undefined : checkedIcon(patch.icon);
     if (patch.body !== undefined && patch.readAt === undefined) {
       fail(400, 'a body is written with the time it was read', { field: 'readAt' });
     }
@@ -258,8 +264,8 @@ export class MemoryWikis implements Wikis {
     if (patch.readAt !== undefined && patch.readAt !== page.updateAt) {
       throw new BackendError(409, { detail: 'the page changed since it was read' });
     }
-    if (patch.title !== undefined) page.title = checkedTitle(patch.title);
-    if (patch.icon !== undefined) page.fields = { ...page.fields, icon: checkedIcon(patch.icon) };
+    if (title !== undefined) page.title = title;
+    if (icon !== undefined) page.fields = { ...page.fields, icon };
     if (body !== undefined) page.body = body;
     page.updateAt = this.#world.now();
     page.modifiedBy = this.#host.userId;
