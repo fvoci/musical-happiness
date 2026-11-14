@@ -158,6 +158,19 @@ describe('the page of the confirmation link', () => {
     expect(screen.getByRole('link', { name: 'Back to sign in' })).toHaveAttribute('href', '/');
   });
 
+  it('tells a request that got no answer from a link that confirms nothing', async () => {
+    const failed = Promise.reject(new BackendError(0, { detail: 'no answer' }));
+    render(VerifyEmailPage, { confirming: failed, homeHref: '/', resend: vi.fn() });
+    expect(await screen.findByTestId('verify-problem')).not.toHaveTextContent('invalid');
+    expect(screen.queryByTestId('verify-request-form')).toBeNull();
+  });
+
+  it('says a link without a token confirms nothing', async () => {
+    render(VerifyEmailPage, { confirming: undefined, homeHref: '/', resend: vi.fn() });
+    expect(await screen.findByTestId('verify-problem')).toHaveTextContent('invalid');
+    expect(screen.getByTestId('verify-request-form')).toBeInTheDocument();
+  });
+
   it('says an invitation that lets nobody in any more is so, without a form', async () => {
     const complete = vi.fn(() =>
       Promise.reject(new BackendError(404, { reason: 'invitation_unavailable', detail: 'x' })),

@@ -28,17 +28,25 @@
 
   let { confirming, homeHref, resend }: Props = $props();
 
-  /** What the page waits for: a link without a token confirms nothing. */
-  const shown = $derived(confirming ?? Promise.reject(new Error('the link has no token')));
+  /** The refusal of a link without a token, which confirms nothing. */
+  const NO_TOKEN = new Error('the link has no token');
+  /** What the page waits for. */
+  const shown = $derived(confirming ?? Promise.reject(NO_TOKEN));
 
   let email = $state('');
   let working = $state(false);
   let resent = $state(false);
   let problem = $state<string | undefined>(undefined);
 
-  /** Whether the link itself confirms nothing (none, ended, used, replaced). */
+  /**
+   * Whether the link itself confirms nothing (none, ended, used, replaced),
+   * and not the request that failed: a new link would end one that still works.
+   */
   function linkRefused(error: unknown): boolean {
-    return !isBackendError(error) || error.errors.some((entry) => entry.pointer === '/token');
+    return (
+      error === NO_TOKEN ||
+      (isBackendError(error) && error.errors.some((entry) => entry.pointer === '/token'))
+    );
   }
 
   async function submit(event: SubmitEvent): Promise<void> {

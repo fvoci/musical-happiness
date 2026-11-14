@@ -14,13 +14,13 @@ import type {
   LoginOptions,
   NewAccount,
   Paging,
-  Registered,
   Registration,
   WorkspaceInfo,
   TrashReads,
   User,
 } from '../state/backend.ts';
 
+import type { Registered } from '../state/account-types.ts';
 import { BackendError } from '../state/backend.ts';
 import type { People } from '../state/people-types.ts';
 

@@ -34,7 +34,6 @@ export {
   type LoginOptions,
   type LoginOrganization,
   type NewAccount,
-  type Registered,
   type Registration,
   type SignInOrganization,
   type Sharing,
@@ -43,6 +42,7 @@ export {
   type User,
   type ViewDraft,
 } from './backend.ts';
+export type { Registered } from './account-types.ts';
 export { BoardStore, type CardDrop } from './board.svelte.ts';
 export { boardPresence } from './board-presence.svelte.ts';
 export { CardPreviews } from './card-previews.svelte.ts';

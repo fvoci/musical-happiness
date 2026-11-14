@@ -45,7 +45,6 @@ export type {
   LoginOptions,
   LoginOrganization,
   NewAccount,
-  Registered,
   Registration,
   SignInOrganization,
 } from './account-types.ts';
