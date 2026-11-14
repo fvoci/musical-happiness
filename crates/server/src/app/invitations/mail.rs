@@ -10,7 +10,7 @@ use super::super::mail::{
 use super::{App, Inviting};
 use crate::auth::{now_millis, secret::token_digest};
 use crate::error::{AppError, Reason};
-use fvoci_store::Mailed;
+use fvoci_store::MailedTo;
 
 impl App {
     /// Queues individual messages carrying this workspace's existing invitation.
@@ -276,7 +276,7 @@ impl App {
             sender,
             Inviting::Guest { board_id, role },
             invitation.expires_at,
-            Some(Mailed {
+            Some(MailedTo {
                 parent_id: &invitation.id,
                 recipient,
             }),

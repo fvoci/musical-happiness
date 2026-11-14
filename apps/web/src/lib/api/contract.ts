@@ -3235,9 +3235,9 @@ export interface components {
              * @description For a guest link made for one recipient of a mailed guest link: the link it was
              *     made like. Revoking that one revokes this one while nobody used it.
              */
-            parentId: string | null;
+            parentId?: string | null;
             /** @description For such a link: the address it was mailed to. */
-            recipient: string | null;
+            recipient?: string | null;
             /** @description What whoever accepts becomes in the workspace: `member`, or `guest`. */
             role: components["schemas"]["WorkspaceRole"];
             /** @description The token of the link: in the answer that makes the link, and in no other. */

@@ -218,7 +218,14 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("LinkedIdentity", Members::All),
     (
         "Invitation",
-        Members::AllBut(&["boardId", "boardRole", "maxUses", "token"]),
+        Members::AllBut(&[
+            "boardId",
+            "boardRole",
+            "maxUses",
+            "parentId",
+            "recipient",
+            "token",
+        ]),
     ),
     ("InvitationPreview", Members::AllBut(&["boardTitle"])),
     ("LoginOptions", Members::All),

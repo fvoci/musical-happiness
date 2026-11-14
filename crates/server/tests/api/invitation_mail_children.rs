@@ -147,6 +147,23 @@ async fn a_used_guest_link_is_still_mailed_as_what_its_recipients_links_are_made
     smtp.received(1).await;
     assert!(th.app.finish_background(Duration::from_secs(10)).await);
     assert_eq!(children(&th, &parent).await, ["late@example.test"]);
+    // The used link is listed while a child of it is out, and revoked with it.
+    let links: Vec<Invitation> = th.client.get(&links_path()).await.ok_json();
+    assert!(links.iter().any(|link| link.id == parent.id), "{links:?}");
+    th.client
+        .delete(&format!("{}/{}", links_path(), parent.id))
+        .await
+        .check_no_content();
+    assert_eq!(children(&th, &parent).await, Vec::<String>::new());
+    let links: Vec<Invitation> = th.client.get(&links_path()).await.ok_json();
+    assert!(links.iter().all(|link| link.id != parent.id), "{links:?}");
+    th.client
+        .post(
+            &format!("{}/mail", links_path()),
+            &json!({"token":parent.token,"recipients":["after@example.test"]}),
+        )
+        .await
+        .check_status(StatusCode::NOT_FOUND);
     th.teardown().await;
     smtp.stop().await;
 }

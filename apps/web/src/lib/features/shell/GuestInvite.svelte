@@ -51,15 +51,21 @@
     hourCycle: workspace.regional.hourCycle,
   });
 
+  /** Counts the readings: only the latest one's answer is shown. */
+  let reading = 0;
+
   async function readLinks(): Promise<void> {
     const workspaceId = workspace.info?.id;
     if (!workspaceId) return;
+    const mine = ++reading;
+    let read: Invitation[];
     try {
-      links = await access.people.invitations(workspaceId);
+      read = await access.people.invitations(workspaceId);
     } catch {
       // Making a link does not need the list: without it, the section is as before.
-      links = [];
+      read = [];
     }
+    if (mine === reading) links = read;
   }
 
   void readLinks();

@@ -18,7 +18,7 @@ use fvoci_model::{
     WorkspaceRole,
 };
 use fvoci_store::{
-    Acceptance, Acceptor, Inviter, InviterOfBoard, Mailed, NewLink, Standing, StoreError,
+    Acceptance, Acceptor, Inviter, InviterOfBoard, MailedTo, NewLink, Standing, StoreError,
 };
 
 use super::auth::account_error;
@@ -96,7 +96,7 @@ impl App {
         created_by: &str,
         inviting: Inviting<'_>,
         expires_at: i64,
-        mailed: Option<Mailed<'_>>,
+        mailed: Option<MailedTo<'_>>,
     ) -> Result<Invitation, AppError> {
         let token = new_secret();
         let (guest_of, max_uses) = match inviting {

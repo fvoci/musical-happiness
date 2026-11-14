@@ -53,16 +53,25 @@ pub struct NewLink<'a> {
     pub max_uses: Option<i64>,
     /// For a link made for one recipient of a mailed link: the link it is made like,
     /// of the same workspace, and the address it is mailed to.
-    pub mailed: Option<Mailed<'a>>,
+    pub mailed: Option<MailedTo<'a>>,
 }
 
 /// Where a link made for one recipient of a mailed link comes from.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Mailed<'a> {
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct MailedTo<'a> {
     /// The link it is made like.
     pub parent_id: &'a str,
     /// The address it is mailed to.
     pub recipient: &'a str,
+}
+
+impl std::fmt::Debug for MailedTo<'_> {
+    /// Leaves out the address.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MailedTo")
+            .field("parent_id", &self.parent_id)
+            .finish_non_exhaustive()
+    }
 }
 
 /// Who accepts a link.
@@ -185,12 +194,28 @@ impl Store {
                     )
                     .push_bind(" AND b.workspace_id = t.id AND b.is_template = ", false)
                     .push(")");
-                // Whoever turns the invitations of guests off holds the workspace
-                // first and revokes its links then: a link is made before that, and
-                // revoked with the others, or after it, and then not at all.
+            }
+            // A child is made while its parent is neither revoked nor ended, and holds it
+            // as it is made: who revokes the parent waits for it, and revokes it then
+            // with the parent's other children.
+            if let Some(mailed) = link.mailed {
+                sql.push_bind(
+                    " AND EXISTS (SELECT 1 FROM invitations AS p WHERE p.id = ",
+                    Id(mailed.parent_id),
+                )
+                .push(" AND p.org_id = t.org_id")
+                .push_bind(" AND p.revoked_at = ", 0_i64)
+                .push_bind(" AND p.expires_at > ", link.now);
                 if scope.dialect() == Dialect::Postgres {
-                    sql.push(" FOR SHARE OF t");
+                    sql.push(" FOR SHARE");
                 }
+                sql.push(")");
+            }
+            // Whoever turns the invitations of guests off holds the workspace first and
+            // revokes its links then: a link is made before that, and revoked with the
+            // others, or after it, and then not at all.
+            if link.guest_of.is_some() && scope.dialect() == Dialect::Postgres {
+                sql.push(" FOR SHARE OF t");
             }
             sql.push(&format!(" RETURNING {COLUMNS}"));
             match scope.fetch_optional(sql).await? {
@@ -239,7 +264,7 @@ impl Store {
         now: i64,
     ) -> Result<Vec<Invitation>, StoreError> {
         self.with_conn(async |scope| {
-            let mut sql = select_live(scope, now)?;
+            let mut sql = select_listed(scope, now)?;
             sql.push_bind(" AND i.workspace_id = ", Id(workspace_id));
             if let Some(user_id) = created_by {
                 sql.push_bind(" AND i.created_by = ", Id(user_id));
@@ -276,8 +301,10 @@ impl Store {
             sql.bind(now.max(1))
                 .push_bind(" WHERE i.id = ", Id(invitation_id))
                 .push_bind(" AND i.workspace_id = ", Id(workspace_id))
-                .push_bind(" AND i.org_id = ", scope.org()?);
-            push_live(&mut sql, now);
+                .push_bind(" AND i.org_id = ", scope.org()?)
+                // A used link may still have children to go with it.
+                .push_bind(" AND i.revoked_at = ", 0_i64)
+                .push_bind(" AND i.expires_at > ", now);
             if let Some(user_id) = created_by {
                 sql.push_bind(" AND i.created_by = ", Id(user_id));
             }
@@ -605,6 +632,23 @@ fn select_live(scope: &Scope<'_>, now: i64) -> Result<Sql, StoreError> {
     ));
     sql.bind(scope.org()?);
     push_live(&mut sql, now);
+    Ok(sql)
+}
+
+/// The query for the links of the scope's organization that are listed at `now`: the
+/// live ones, and a used one while a child of it nobody used is live, so that it can
+/// be revoked with its children.
+fn select_listed(scope: &Scope<'_>, now: i64) -> Result<Sql, StoreError> {
+    let mut sql = scope.sql(&format!(
+        "SELECT {COLUMNS_OF_I} FROM invitations AS i WHERE i.org_id = "
+    ));
+    sql.bind(scope.org()?)
+        .push_bind(" AND i.revoked_at = ", 0_i64)
+        .push_bind(" AND i.expires_at > ", now)
+        .push(" AND (i.max_uses IS NULL OR i.uses < i.max_uses OR EXISTS (SELECT 1 FROM invitations AS c WHERE c.parent_id = i.id AND c.org_id = i.org_id")
+        .push_bind(" AND c.revoked_at = ", 0_i64)
+        .push_bind(" AND c.expires_at > ", now)
+        .push(" AND c.uses = 0))");
     Ok(sql)
 }
 

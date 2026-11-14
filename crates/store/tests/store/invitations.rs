@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use fvoci_model::{BoardMember, BoardRole, Invitation, User, WorkspaceRole, new_id};
 use fvoci_store::{
-    Accepted, Acceptor, Inviter, InviterOfBoard, Mailed, NewLink, Standing, Store, StoreError,
+    Accepted, Acceptor, Inviter, InviterOfBoard, MailedTo, NewLink, Standing, Store, StoreError,
 };
 use tokio::sync::Barrier;
 use tokio::task::JoinSet;
@@ -594,7 +594,7 @@ async fn a_mailed_links_children_name_it_and_go_with_it_while_unused() {
             now: NOW,
             expires_at: LATER,
             max_uses: Some(1),
-            mailed: Some(Mailed {
+            mailed: Some(MailedTo {
                 parent_id: &parent.id,
                 recipient,
             }),
@@ -657,7 +657,15 @@ async fn a_mailed_links_children_name_it_and_go_with_it_while_unused() {
         None,
         "a revoked link is nothing to make links like"
     );
-    let _ = used;
+    assert_eq!(
+        test.unended_invitation("used", NOW)
+            .await
+            .expect("asked")
+            .map(|link| link.id),
+        Some(used.id),
+        "who used theirs keeps it: it is not revoked"
+    );
+    test.teardown().await;
 }
 
 /// A used link is still what its recipients' links are made like, until it ends.
@@ -697,4 +705,5 @@ async fn a_used_link_is_unended_until_it_ends() {
         None,
         "not once it ended"
     );
+    test.teardown().await;
 }
