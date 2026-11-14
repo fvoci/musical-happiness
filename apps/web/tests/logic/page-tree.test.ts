@@ -77,6 +77,11 @@ describe('the tree of a wiki', () => {
       ['b', 0, false, false],
     ]);
     expect(rows[1]?.parentId).toBe('a');
+    expect(rows.map((row) => [row.position, row.siblings])).toEqual([
+      [1, 2],
+      [1, 1],
+      [2, 2],
+    ]);
   });
 
   it('finds the pages above a page, nearest first', () => {

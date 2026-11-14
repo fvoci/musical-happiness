@@ -1182,5 +1182,18 @@
   "shell_wiki_menu": "Menu of the wiki {name}",
   "shell_hide_wiki": "Hide wiki",
   "shell_wiki_named": "{title}, wiki",
-  "wiki_page_gone": "The page you were on, “{title}”, was deleted."
+  "wiki_page_gone": "The page you were on, “{title}”, was deleted.",
+  "wiki_pages": "Pages",
+  "wiki_new_page": "New page",
+  "wiki_page_menu": "Menu of the page {title}",
+  "wiki_add_child": "Add a page inside",
+  "wiki_add_after": "Add a page below",
+  "wiki_delete_page": "Delete page",
+  "wiki_fold": "Fold {title}",
+  "wiki_unfold": "Unfold {title}",
+  "wiki_close_tree": "Close the pages",
+  "wiki_page_title": "Page title",
+  "wiki_icon_change": "Change the page’s icon",
+  "wiki_page_body": "Body",
+  "wiki_page_body_empty": "There is nothing on this page yet."
 }

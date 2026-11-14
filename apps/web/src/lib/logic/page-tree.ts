@@ -33,6 +33,9 @@ export interface PageRow<P extends PlacedPage> {
   open: boolean;
   /** The page whose children it is among; undefined at the top. */
   parentId: string | undefined;
+  /** Its place among its siblings, from 1, and how many they are. */
+  position: number;
+  siblings: number;
 }
 
 /** Code units, not a locale: `<` on strings. */
@@ -83,10 +86,11 @@ export function pageRows<P extends PlacedPage>(
 ): PageRow<P>[] {
   const rows: PageRow<P>[] = [];
   const walk = (nodes: readonly PageTreeNode<P>[], depth: number, parentId?: string): void => {
-    for (const node of nodes) {
+    for (const [at, node] of nodes.entries()) {
       const hasChildren = node.children.length > 0;
       const open = hasChildren && isOpen(node.page.id);
-      rows.push({ page: node.page, depth, hasChildren, open, parentId });
+      const place = { position: at + 1, siblings: nodes.length };
+      rows.push({ page: node.page, depth, hasChildren, open, parentId, ...place });
       if (open) walk(node.children, depth + 1, node.page.id);
     }
   };

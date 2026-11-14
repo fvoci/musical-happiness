@@ -12,11 +12,12 @@
 <script lang="ts">
   import { untrack } from 'svelte';
 
+  import BodyView from '$lib/editor/BodyView.svelte';
   import WikiJoin from '$lib/features/wiki/WikiJoin.svelte';
   import WikiScreen from '$lib/features/wiki/WikiScreen.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { firstPage } from '$lib/logic/page-tree.ts';
-  import { shownWiki, WikiStore, type Workspace } from '$lib/state/index.ts';
+  import { shownWiki, WikiStore, type PageStore, type Workspace } from '$lib/state/index.ts';
 
   import NotFound from './NotFound.svelte';
   import type { Router } from './router.svelte.ts';
@@ -24,6 +25,9 @@
   let { workspace, router }: { workspace: Workspace; router: Router } = $props();
 
   const wikiId = $derived(router.route.wikiId);
+  /** Somebody not known (gone, or a mention that names nobody). */
+  const nameOf = (userId: string): string =>
+    workspace.userName(userId) ?? m['centerPanel.unknown-user']();
   const pageId = $derived(router.route.pageId);
 
   /** The wiki of the address, made anew for another one. */
@@ -105,12 +109,25 @@
     onDismissNotice={() => {
       notice = undefined;
     }}
+    pageHref={(id: string) => router.href({ ...router.route, pageId: id })}
     onOpenPage={(id: string) => {
       router.openPage(id);
     }}
   >
     {#snippet missingPage()}
       <NotFound {router} />
+    {/snippet}
+    {#snippet body(page: PageStore)}
+      <section aria-label={m.wiki_page_body()} data-testid="page-body">
+        <BodyView doc={page.body} resolveUser={nameOf} class="text-base">
+          {#snippet empty()}
+            <p class="text-base text-muted-foreground">{m.wiki_page_body_empty()}</p>
+          {/snippet}
+          {#snippet invalid()}
+            <p class="text-muted-foreground" role="alert">{m.card_body_invalid()}</p>
+          {/snippet}
+        </BodyView>
+      </section>
     {/snippet}
   </WikiScreen>
 {/if}

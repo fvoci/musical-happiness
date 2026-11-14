@@ -1182,5 +1182,18 @@
   "shell_wiki_menu": "{name} 위키 메뉴",
   "shell_hide_wiki": "위키 숨기기",
   "shell_wiki_named": "{title}, 위키",
-  "wiki_page_gone": "보고 있던 페이지를 다른 사람이 지웠습니다: “{title}”"
+  "wiki_page_gone": "보고 있던 페이지를 다른 사람이 지웠습니다: “{title}”",
+  "wiki_pages": "페이지",
+  "wiki_new_page": "새 페이지",
+  "wiki_page_menu": "{title} 페이지 메뉴",
+  "wiki_add_child": "하위 페이지 추가",
+  "wiki_add_after": "아래에 페이지 추가",
+  "wiki_delete_page": "페이지 삭제",
+  "wiki_fold": "{title} 접기",
+  "wiki_unfold": "{title} 펼치기",
+  "wiki_close_tree": "페이지 목록 닫기",
+  "wiki_page_title": "페이지 제목",
+  "wiki_icon_change": "페이지 아이콘 바꾸기",
+  "wiki_page_body": "본문",
+  "wiki_page_body_empty": "본문이 없습니다."
 }

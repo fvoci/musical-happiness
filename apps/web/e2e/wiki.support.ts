@@ -51,3 +51,55 @@ export async function goInside(page: Page, path: string): Promise<void> {
     window.dispatchEvent(new PopStateEvent('popstate'));
   }, path);
 }
+
+/** The tree of pages: its items as drawn, each with its level and name. */
+export const pageTree = (page: Page): Locator => page.getByTestId('page-tree');
+
+export async function treeShape(page: Page): Promise<string[]> {
+  return pageTree(page)
+    .getByRole('treeitem')
+    .evaluateAll((items) =>
+      items.map(
+        (item) =>
+          `${'  '.repeat(Number(item.getAttribute('aria-level')) - 1)}${item.getAttribute('aria-label') ?? ''}`,
+      ),
+    );
+}
+
+/** A page of the tree by its name. */
+export const treeItem = (page: Page, name: string): Locator =>
+  pageTree(page).getByRole('treeitem', { name, exact: true });
+
+/** Gives the page shown its title, as typed, and leaves the field. */
+export async function nameThePage(page: Page, title: string): Promise<void> {
+  const field = page.getByTestId('page-title');
+  await expect(field).toBeFocused();
+  await page.keyboard.type(title);
+  await page.keyboard.press('Enter');
+  // In the tree, which may be a drawer that is away (inert, so out of the roles' reach).
+  await expect(pageTree(page).locator(`[role="treeitem"][aria-label="${title}"]`)).toBeAttached();
+}
+
+/** Brings the tree into view: nothing to do in a wide pane, the drawer in a narrow one. */
+export async function showTree(page: Page): Promise<void> {
+  const opener = page.getByTestId('open-page-tree');
+  if (await opener.isVisible()) await opener.click();
+  await expect(pageTree(page)).toBeVisible();
+}
+
+/** Puts the tree's drawer away, where it is one: Escape, as a keyboard would. */
+export async function hideTree(page: Page): Promise<void> {
+  const drawer = page.getByRole('dialog', { name: 'Pages' });
+  if (!(await drawer.isVisible())) return;
+  await page.keyboard.press('Escape');
+  await expect(drawer).toBeHidden();
+}
+
+/** Opens a page's menu in the tree and presses one of its lines. */
+export async function pageAction(page: Page, name: string, action: string): Promise<void> {
+  await showTree(page);
+  await pageTree(page)
+    .getByRole('button', { name: `Menu of the page ${name}` })
+    .click();
+  await page.locator(`[data-action="${action}"]`).click();
+}

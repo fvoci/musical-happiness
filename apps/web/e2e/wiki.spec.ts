@@ -17,7 +17,20 @@ import {
   strip,
   topBar,
 } from './shell.support.ts';
-import { goInside, newWiki, wikiPath, wikiScreen } from './wiki.support.ts';
+import {
+  goInside,
+  newWiki,
+  nameThePage,
+  ON_A_PAGE,
+  pageAction,
+  hideTree,
+  showTree,
+  treeItem,
+  treeShape,
+  wikiPath,
+  wikiPlaceOf,
+  wikiScreen,
+} from './wiki.support.ts';
 
 test.describe('a new wiki', () => {
   test('is made from "New", shown empty at its address, and filed among the boards', async ({
@@ -92,6 +105,76 @@ test.describe('a new wiki', () => {
     await goInside(page, `/w/${WORKSPACE}`);
     await expect(page).toHaveURL(wikiPath(wikiId));
     await goInside(page, wikiPath('01930000-0000-7000-8000-00000000ffff'));
+    await expect(page.getByTestId('not-found')).toBeVisible();
+  });
+});
+
+test.describe('the pages of a wiki', () => {
+  test('are made at the top, inside a page and below one, and kept in a tree', async ({ page }) => {
+    await openApp(page);
+    const wikiId = await newWiki(page, 'Handbook');
+    await page.getByTestId('wiki-first-page').click();
+    await expect(page).toHaveURL(ON_A_PAGE);
+    await nameThePage(page, 'Welcome');
+    const welcome = wikiPlaceOf(page.url()).pageId;
+
+    await pageAction(page, 'Welcome', 'add-child');
+    await nameThePage(page, 'Getting started');
+    await pageAction(page, 'Getting started', 'add-child');
+    await nameThePage(page, 'Accounts');
+    await pageAction(page, 'Welcome', 'add-after');
+    await nameThePage(page, 'Policies');
+    await showTree(page);
+    await page.getByTestId('new-page').click();
+    await nameThePage(page, 'Archive');
+
+    await showTree(page);
+    expect(await treeShape(page)).toEqual([
+      'Welcome',
+      '  Getting started',
+      '    Accounts',
+      'Policies',
+      'Archive',
+    ]);
+    await expect(treeItem(page, 'Archive')).toHaveAttribute('aria-selected', 'true');
+
+    // The wiki's address alone shows its first page, in place of that address.
+    await goInside(page, wikiPath(wikiId));
+    await expect(page).toHaveURL(wikiPath(wikiId, welcome));
+    await expect(page.getByTestId('page-title')).toHaveValue('Welcome');
+  });
+
+  test('take an icon and a new title, which the tree follows, and undo puts them back', async ({
+    page,
+  }) => {
+    await openApp(page);
+    await newWiki(page, 'Handbook');
+    await page.getByTestId('wiki-first-page').click();
+    await nameThePage(page, 'Welcome');
+    await page.getByTestId('page-add-icon').click();
+    await expect(page.getByTestId('page-icon')).toBeVisible();
+    await showTree(page);
+    await expect(treeItem(page, 'Welcome').getByTestId('tree-icon')).not.toBeEmpty();
+    await hideTree(page);
+
+    const title = page.getByTestId('page-title');
+    await title.fill('Hello');
+    await title.press('Enter');
+    await showTree(page);
+    await expect(treeItem(page, 'Hello')).toBeVisible();
+    await hideTree(page);
+    await page.getByTestId('undo').click();
+    await expect(title).toHaveValue('Welcome');
+    await showTree(page);
+    await expect(treeItem(page, 'Welcome')).toBeVisible();
+  });
+
+  test('a page that is not there is not found', async ({ page }) => {
+    await openApp(page);
+    const wikiId = await newWiki(page, 'Handbook');
+    await page.getByTestId('wiki-first-page').click();
+    await nameThePage(page, 'Welcome');
+    await goInside(page, wikiPath(wikiId, '01930000-0000-7000-8000-00000000ffff'));
     await expect(page.getByTestId('not-found')).toBeVisible();
   });
 });
