@@ -33,6 +33,9 @@ pub(in crate::app::mail) struct Oci {
 }
 
 impl Oci {
+    /// OCI at the endpoint of `keys`, signing with the key its file holds, whose
+    /// requests `client` makes.
+    ///
     /// # Errors
     /// Returns an error naming `oci_private_key_file` if the key cannot be read or used,
     /// without its contents.
@@ -112,12 +115,16 @@ impl Outbound for Oci {
 
 /// What OCI's answer makes of the attempt: by its status, except its `400` with the
 /// code `LimitExceeded` (the messages a minute or a day), which is worth another
-/// attempt later. A sender that is not approved (`404 NotAuthorizedOrNotFound`) is the
-/// operator's to set up, and refuses the message as any other `404`.
+/// attempt later. OCI answers what it does not let this server do with
+/// `404 NotAuthorizedOrNotFound`: a sender it has not approved, but also a compartment
+/// or a policy that is missing. The approval is the operator's to set up, and the
+/// answer refuses the message as any other `404`, so each message is counted and its
+/// guest link taken back while it lasts.
 fn outcome_of(answer: &Answer) -> Outcome {
-    let limited = serde_json::from_slice::<Value>(&answer.body)
-        .is_ok_and(|body| body["code"] == "LimitExceeded");
-    if answer.status == 400 && limited {
+    let limited = answer.status == 400
+        && serde_json::from_slice::<Value>(&answer.body)
+            .is_ok_and(|body| body["code"] == "LimitExceeded");
+    if limited {
         return Outcome::Later {
             after: answer.retry_after,
             code: Some(answer.status),

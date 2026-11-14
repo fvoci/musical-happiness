@@ -140,6 +140,11 @@ async fn oci_answers_sort_the_attempts_by_status_and_code() {
         "{body}"
     );
     assert_eq!(failed(&body, "temporary"), Some(0.0), "{body}");
+    assert_eq!(
+        failed(&body, "permanent"),
+        Some(2.0),
+        "a closed way fails no message: {body}"
+    );
     th.teardown().await;
     fake.stop();
 }

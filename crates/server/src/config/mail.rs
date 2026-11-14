@@ -376,9 +376,18 @@ impl MailSettings {
         ] {
             shaped(key, value, is_ocid_char)?;
         }
-        shaped("oci_fingerprint", fingerprint, |c| {
-            c.is_ascii_hexdigit() || c == ':'
-        })?;
+        // The console's form: the 16 bytes of the key's MD5, `xx:` in lower case.
+        let pairs: Vec<&str> = fingerprint.split(':').collect();
+        if pairs.len() != 16
+            || !pairs.iter().all(|pair| {
+                pair.len() == 2
+                    && pair
+                        .chars()
+                        .all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c))
+            })
+        {
+            bail!("oci_fingerprint must be 16 lower-case hexadecimal pairs joined by `:`");
+        }
         Ok(Way::Oci(OciKeys {
             endpoint: self.endpoint(format!(
                 "https://cell0.submit.email.{region}.oci.oraclecloud.com"
@@ -819,6 +828,12 @@ mod tests {
             ("oci_user", "OCID1.USER"),
             ("oci_compartment", "ocid1.compartment oc1"),
             ("oci_fingerprint", "73:61:zz"),
+            (
+                "oci_fingerprint",
+                "73:61:A2:21:67:E0:DF:BE:7E:4B:93:1E:15:98:A5:B7",
+            ),
+            ("oci_fingerprint", "73:61:a2"),
+            ("oci_fingerprint", ":::::::::::::::"),
         ] {
             let mut keys = oci();
             keys[key] = Value::from(value);

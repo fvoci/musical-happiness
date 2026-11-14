@@ -50,7 +50,8 @@ pub(crate) const SES_SECRET: &str = "fake/ses+secret-0123456789";
 /// The region of the fake OCI.
 pub(crate) const OCI_REGION: &str = "ap-seoul-1";
 /// The tenancy, user and fingerprint of the fake OCI's API key: its `keyId`.
-pub(crate) const OCI_KEY_ID: &str = "ocid1.tenancy.oc1..fake/ocid1.user.oc1..fake/12:34:56:78";
+pub(crate) const OCI_KEY_ID: &str =
+    "ocid1.tenancy.oc1..fake/ocid1.user.oc1..fake/12:34:56:78:9a:bc:de:f0:12:34:56:78:9a:bc:de:f0";
 /// The compartment of its approved sender.
 pub(crate) const OCI_COMPARTMENT: &str = "ocid1.compartment.oc1..fake";
 
