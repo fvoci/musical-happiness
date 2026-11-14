@@ -13,6 +13,12 @@
  * element. A position that the layout cut is not taken for the reader's, and
  * whenever the box changes size the remembered place is put back as far as
  * it goes.
+ *
+ * A scroll event comes a frame after the scroll, when the box may have yet
+ * another size (a window widened and narrowed again at once): there, a cut
+ * position would no longer look like one. So the observer of the box, which
+ * runs in the layout that cut, is the one to judge it, and a scroll event
+ * that only tells of where the observer left the box is passed over.
  */
 
 /** One direction of scrolling. */
@@ -44,6 +50,8 @@ export class ScrollKeeper {
   #x: Kept = { intended: 0, box: 0 };
   #y: Kept = { intended: 0, box: 0 };
   #sideways = false;
+  /** Where the element stood when it was last looked at: an event at the same place is no news. */
+  #at = { left: 0, top: 0 };
   readonly #options: ScrollKeeperOptions;
 
   constructor(options: ScrollKeeperOptions = {}) {
@@ -55,6 +63,7 @@ export class ScrollKeeper {
     this.#element = element;
     this.#x = { intended: element.scrollLeft, box: element.clientWidth };
     this.#y = { intended: element.scrollTop, box: element.clientHeight };
+    this.#at = { left: element.scrollLeft, top: element.scrollTop };
     element.addEventListener('scroll', this.#onScroll, { passive: true });
     // Without the observer (a unit test) positions are only remembered.
     const observer =
@@ -80,6 +89,7 @@ export class ScrollKeeper {
     element.scrollTop = 0;
     this.#x = { intended: 0, box: element.clientWidth };
     this.#y = { intended: 0, box: element.clientHeight };
+    this.#at = { left: 0, top: 0 };
     this.#tell(false);
   }
 
@@ -89,21 +99,32 @@ export class ScrollKeeper {
     this.#options.onSideways?.(sideways);
   }
 
-  readonly #onScroll = (): void => {
-    const element = this.#element;
-    if (!element) return;
+  /**
+   * Takes in where the element stands, if it moved since it was last looked at: the reader's
+   * scroll, unless the layout cut it.
+   */
+  #read(element: HTMLElement): void {
+    const at = { left: element.scrollLeft, top: element.scrollTop };
+    if (at.left === this.#at.left && at.top === this.#at.top) return;
+    this.#at = at;
     this.#x = afterScroll(
       this.#x,
-      element.scrollLeft,
+      at.left,
       element.scrollWidth - element.clientWidth,
       element.clientWidth,
     );
     this.#y = afterScroll(
       this.#y,
-      element.scrollTop,
+      at.top,
       element.scrollHeight - element.clientHeight,
       element.clientHeight,
     );
+  }
+
+  readonly #onScroll = (): void => {
+    const element = this.#element;
+    if (!element) return;
+    this.#read(element);
     this.#tell(element.scrollLeft > 0);
   };
 
@@ -111,6 +132,8 @@ export class ScrollKeeper {
   readonly #restore = (): void => {
     const element = this.#element;
     if (!element) return;
+    // First what this layout or the reader did to the place, of which no event has told yet.
+    this.#read(element);
     const left = Math.min(this.#x.intended, element.scrollWidth - element.clientWidth);
     const top = Math.min(this.#y.intended, element.scrollHeight - element.clientHeight);
     if (left > element.scrollLeft) element.scrollLeft = left;
@@ -118,6 +141,7 @@ export class ScrollKeeper {
     // Where the place holds in the new box, the new box is the one it is true of.
     if (element.scrollLeft === this.#x.intended) this.#x.box = element.clientWidth;
     if (element.scrollTop === this.#y.intended) this.#y.box = element.clientHeight;
+    this.#at = { left: element.scrollLeft, top: element.scrollTop };
     this.#tell(element.scrollLeft > 0);
   };
 }

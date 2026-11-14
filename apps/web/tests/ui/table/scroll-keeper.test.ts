@@ -151,6 +151,73 @@ describe('the keeper on an element', () => {
     vi.unstubAllGlobals();
   });
 
+  it('does not take a cut for the reader when its event comes after the box is narrow again', () => {
+    let observed: (() => void) | undefined;
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(callback: () => void) {
+          observed = callback;
+        }
+        observe(): void {
+          // As above.
+        }
+        disconnect(): void {
+          observed = undefined;
+        }
+      },
+    );
+    const keeper = new ScrollKeeper();
+    const element = scroller();
+    const detach = keeper.attach(element);
+    element.scrollLeft = 100;
+    element.dispatchEvent(new Event('scroll'));
+
+    // Widened and narrowed again within a frame: the event of the cut is delivered in the old box.
+    element.resize(770);
+    observed?.();
+    element.resize(570);
+    expect(element.scrollLeft).toBe(15);
+    element.dispatchEvent(new Event('scroll'));
+    expect(keeper.place.x).toBe(100);
+    observed?.();
+    expect(element.scrollLeft).toBe(100);
+    detach();
+    vi.unstubAllGlobals();
+  });
+
+  it('does not pull the table on when the reader scrolled back and the event has not arrived yet', () => {
+    let observed: (() => void) | undefined;
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(callback: () => void) {
+          observed = callback;
+        }
+        observe(): void {
+          // As above.
+        }
+        disconnect(): void {
+          observed = undefined;
+        }
+      },
+    );
+    const keeper = new ScrollKeeper();
+    const element = scroller();
+    const detach = keeper.attach(element);
+    element.scrollLeft = 100;
+    element.dispatchEvent(new Event('scroll'));
+    // Scrolled back to 40, and the box changes before the scroll event is delivered.
+    element.scrollLeft = 40;
+    element.resize(560);
+    observed?.();
+    expect(element.scrollLeft).toBe(40);
+    element.dispatchEvent(new Event('scroll'));
+    expect(keeper.place.x).toBe(40);
+    detach();
+    vi.unstubAllGlobals();
+  });
+
   it('starts another view at its top left corner', () => {
     const keeper = new ScrollKeeper();
     const element = scroller();

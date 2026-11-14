@@ -12,6 +12,12 @@
  * does not replace it, and whenever the box changes size the card is put
  * back as near to the remembered place as it can go.
  *
+ * A scroll event comes a frame after the scroll, when the box may have yet
+ * another size, in which a cut no longer looks like one. So the observer of
+ * the box, which runs in the layout that cut, judges the position first, and
+ * a scroll event that only tells of where the observer left the box is
+ * passed over.
+ *
  * The same watcher keeps a focused field in sight when only the height
  * shrinks, which is what the on-screen keyboard does.
  */
@@ -88,24 +94,36 @@ function revealFocus(scroller: HTMLElement): void {
 export function keepScroll(scroller: HTMLElement): () => void {
   let kept: Kept = boxOf(scroller);
   let last = { width: scroller.clientWidth, height: scroller.clientHeight };
+  /** Where the box stood when it was last looked at: an event at the same place is no news. */
+  let at = scroller.scrollTop;
 
-  const onScroll = (): void => {
-    kept = afterScroll(kept, boxOf(scroller));
+  /** Takes in where the box stands, if it moved since: the reader's scroll, unless the layout cut it. */
+  const read = (): Box => {
+    const now = boxOf(scroller);
+    if (now.top !== at) kept = afterScroll(kept, now);
+    at = now.top;
+    return now;
   };
-  scroller.addEventListener('scroll', onScroll, { passive: true });
+  scroller.addEventListener('scroll', read, { passive: true });
 
   const observer = new ResizeObserver(() => {
-    const now = boxOf(scroller);
+    // First what this layout or the reader did to the place, of which no event has told yet.
+    const now = read();
     const back = afterResize(kept, now);
     if (back !== undefined) scroller.scrollTop = back;
+    at = scroller.scrollTop;
     // Only lower, as wide as before: the keyboard came up over the page.
-    if (now.width === last.width && now.height < last.height) revealFocus(scroller);
+    if (now.width === last.width && now.height < last.height) {
+      revealFocus(scroller);
+      // Where the reader writes is where they are.
+      read();
+    }
     last = { width: now.width, height: now.height };
   });
   observer.observe(scroller);
 
   return () => {
-    scroller.removeEventListener('scroll', onScroll);
+    scroller.removeEventListener('scroll', read);
     observer.disconnect();
   };
 }

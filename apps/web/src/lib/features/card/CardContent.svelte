@@ -117,7 +117,7 @@
 {:else}
   <div
     bind:this={scroller}
-    class="min-h-0 flex-1 overflow-y-auto overscroll-contain [overflow-anchor:none]"
+    class="min-h-0 flex-1 overflow-y-auto overscroll-contain webkit:[overflow-anchor:none]"
     data-testid="card-scroll"
     {@attach keepScroll}
   >
