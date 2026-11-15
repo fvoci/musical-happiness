@@ -19,8 +19,8 @@ export class ServerEmailVerification implements EmailVerification {
     await this.#http.request('/api/v1/email-verification/request', {}, { method: 'POST', json });
   }
 
-  async complete(token: string): Promise<Confirmed> {
-    const json: Schemas['CompleteEmailVerification'] = { token };
+  async complete(token: string, password?: string): Promise<Confirmed> {
+    const json: Schemas['CompleteEmailVerification'] = { token, ...(password ? { password } : {}) };
     const confirmed = await this.#http.request<Schemas['EmailVerified']>(
       '/api/v1/email-verification/complete',
       {},

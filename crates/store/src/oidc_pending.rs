@@ -304,6 +304,7 @@ impl Store {
                         user_id,
                         password_hash,
                         identity,
+                        proved_email: None,
                     };
                     let newcomers = Newcomers::from(&before);
                     match oidc::admit(scope, account, newcomers, session).await? {
