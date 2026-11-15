@@ -51,7 +51,8 @@ it('a shared visit sends only its board and token, renews after reconnect, and s
   );
   expect(hear).not.toHaveBeenCalled();
   vi.advanceTimersByTime(30_000);
-  expect(first.sent).toHaveLength(2);
+  // Renewed once, and asked once whether the connection carries (`live-heartbeat.ts`).
+  expect(first.sent.map((sent) => sent.action)).toEqual(['SET_PRESENCE', 'PING', 'SET_PRESENCE']);
   first.close();
   vi.advanceTimersByTime(500);
   const second = Socket.made[1];
