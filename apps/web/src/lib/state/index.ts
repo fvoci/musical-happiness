@@ -69,7 +69,7 @@ export { newCardMaker, registerNewCard, type NewCardMaker } from './new-card.ts'
 export { byCreation, byTitle, type SidebarCategory } from './order.ts';
 export { type Transfer } from './transfers.svelte.ts';
 export { type EnterStatus } from './workspace-entry.ts';
-export { boardTrash, cardTrash, Trash, type TrashStatus } from './trash.svelte.ts';
+export { boardTrash, cardTrash, pageTrash, Trash, type TrashStatus } from './trash.svelte.ts';
 export {
   Workspace,
   type LoadStatus,

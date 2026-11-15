@@ -1,0 +1,152 @@
+/**
+ * The trash of a wiki's pages: the backend in memory keeps the server's rules
+ * (`crates/store/src/page_trash.rs`: the top of each deletion listed with how
+ * many went with it, brought back with them, last at the top where its
+ * parent is gone, held to the limits), and an open wiki undoes a deletion by
+ * bringing the page back, lists its trash and follows a page brought back.
+ */
+import { describe, expect, it } from 'vitest';
+
+import { pageRows, pageTree } from '$lib/logic/page-tree.ts';
+import { BackendError, pageTrash, WikiStore, type WikiPage } from '$lib/state/index.ts';
+
+import { settle, setup } from './support.ts';
+
+const rejection = async (promise: Promise<unknown>): Promise<BackendError> => {
+  try {
+    await promise;
+  } catch (error) {
+    if (error instanceof BackendError) return error;
+    throw error;
+  }
+  throw new Error('the call did not reject');
+};
+
+async function openWiki() {
+  const made = setup();
+  await made.workspace.load();
+  const workspaceId = made.world.workspace.id;
+  const wiki = await made.backend.wiki.createWiki(workspaceId, { title: 'Handbook', type: 'P' });
+  const page = async (title: string, parentId = '') =>
+    (await made.backend.wiki.createPage(wiki.id, { title, parentId })).id;
+  const store = new WikiStore(made.workspace, wiki.id);
+  return { ...made, wikiId: wiki.id, page, store };
+}
+
+const titles = (pages: readonly WikiPage[]): string[] =>
+  pageRows<WikiPage>(pageTree(pages), () => true).map(
+    (row) => `${'  '.repeat(row.depth)}${row.page.title}`,
+  );
+
+describe('the trash of pages in memory', () => {
+  it('lists the top of each deletion and brings it back with the pages below it', async () => {
+    const made = await openWiki();
+    const wikis = made.backend.wiki;
+    const a = await made.page('A');
+    const b = await made.page('B', a);
+    await made.page('C', b);
+    const d = await made.page('D');
+    await wikis.deletePage(made.wikiId, d);
+    await wikis.deletePage(made.wikiId, a);
+    const listed = await wikis.deletedPages(made.wikiId);
+    expect(listed.map((item) => [item.title, item.below])).toEqual([
+      ['A', 2],
+      ['D', 0],
+    ]);
+    expect(listed[0]?.deletedBy).toBe(made.workspace.me?.id);
+    expect((await wikis.deletedPages(made.wikiId, { page: 1, perPage: 1 })).length).toBe(1);
+    // One that went with the page it was below comes back with that page only.
+    expect((await rejection(wikis.undeletePage(made.wikiId, b))).status).toBe(404);
+    const back = await wikis.undeletePage(made.wikiId, a);
+    expect(back.id).toBe(a);
+    expect(titles(await wikis.pages(made.wikiId))).toEqual(['A', '  B', '    C']);
+    expect((await rejection(wikis.undeletePage(made.wikiId, a))).status).toBe(404);
+  });
+
+  it('brings a page whose parent is gone back last at the top, held to the limits', async () => {
+    const made = await openWiki();
+    const wikis = made.backend.wiki;
+    const a = await made.page('A');
+    const b = await made.page('B', a);
+    await made.page('C', b);
+    await made.page('D');
+    await wikis.deletePage(made.wikiId, b);
+    await wikis.deletePage(made.wikiId, a);
+    wikis.limits = { depth: 10, pages: 2 };
+    const full = await rejection(wikis.undeletePage(made.wikiId, b));
+    expect([full.reason, full.limit]).toEqual(['too_many_pages', 2]);
+    wikis.limits = { depth: 1, pages: 100 };
+    const deep = await rejection(wikis.undeletePage(made.wikiId, b));
+    expect([deep.reason, deep.limit]).toEqual(['page_too_deep', 1]);
+    wikis.limits = { depth: 10, pages: 100 };
+    await wikis.undeletePage(made.wikiId, b);
+    expect(titles(await wikis.pages(made.wikiId))).toEqual(['D', 'B', '  C']);
+  });
+
+  it('gives a page whose place was taken meanwhile a place of its own', async () => {
+    const made = await openWiki();
+    const wikis = made.backend.wiki;
+    await made.page('A');
+    const b = await made.page('B');
+    await wikis.deletePage(made.wikiId, b);
+    await made.page('C');
+    await wikis.undeletePage(made.wikiId, b);
+    const top = await wikis.pages(made.wikiId);
+    expect(new Set(top.map((page) => page.order)).size).toBe(3);
+    expect(titles(top)[0]).toBe('A');
+  });
+});
+
+describe('the trash of pages in an open wiki', () => {
+  it('undoes a deletion by bringing the page back with the pages below it', async () => {
+    const made = await openWiki();
+    const a = await made.page('A');
+    await made.page('B', a);
+    await made.page('C');
+    await made.store.load();
+    expect(await made.store.deletePage(a)).toBe(true);
+    expect(titles(made.store.pages)).toEqual(['C']);
+    await made.workspace.undoLast();
+    await settle();
+    expect(titles(made.store.pages)).toEqual(['A', '  B', 'C']);
+    expect(await made.backend.wiki.deletedPages(made.wikiId)).toEqual([]);
+    await made.workspace.redoLast();
+    expect(titles(made.store.pages)).toEqual(['C']);
+    expect(titles(await made.backend.wiki.pages(made.wikiId))).toEqual(['C']);
+  });
+
+  it('lists the trash and shows a page brought back from it', async () => {
+    const made = await openWiki();
+    const a = await made.page('A');
+    await made.page('B', a);
+    await made.store.load();
+    await made.store.deletePage(a);
+    const trash = pageTrash(made.store);
+    await trash.read();
+    expect(trash.items.map((item) => [item.title, item.below])).toEqual([['A', 1]]);
+    expect(await trash.restore(a)).toBe(true);
+    expect(trash.items).toEqual([]);
+    await settle();
+    expect(titles(made.store.pages)).toEqual(['A', '  B']);
+  });
+
+  it('follows a page somebody else brings back, and tells a refusal', async () => {
+    const made = await openWiki();
+    const a = await made.page('A');
+    await made.page('B', a);
+    await made.store.load();
+    await made.backend.wiki.deletePage(made.wikiId, a);
+    await settle();
+    expect(made.store.pages).toEqual([]);
+    await made.backend.wiki.undeletePage(made.wikiId, a);
+    await settle();
+    expect(titles(made.store.pages)).toEqual(['A', '  B']);
+
+    await made.backend.wiki.deletePage(made.wikiId, a);
+    made.backend.wiki.limits = { depth: 10, pages: 0 };
+    const trash = pageTrash(made.store);
+    await trash.read();
+    expect(await trash.restore(a)).toBe(false);
+    expect(trash.items.map((item) => item.id)).toEqual([a]);
+  });
+});

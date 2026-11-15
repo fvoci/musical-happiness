@@ -55,6 +55,8 @@
     onEditWiki: () => void;
     /** Asks to delete the wiki (its managers'). */
     onDeleteWiki: () => void;
+    /** Asks to show the wiki's deleted pages (its editors'). */
+    onOpenTrash: () => void;
     /** Something to tell at the head of the page (a page shown was deleted). */
     notice?: string | undefined;
     onDismissNotice?: (() => void) | undefined;
@@ -72,6 +74,7 @@
     onDelete,
     onEditWiki,
     onDeleteWiki,
+    onOpenTrash,
     notice,
     onDismissNotice,
     takeFocus = false,
@@ -239,7 +242,7 @@
         </IconButton>
       </div>
     {/if}
-    <WikiHeader {wiki} onEdit={onEditWiki} onDelete={onDeleteWiki} />
+    <WikiHeader {wiki} onEdit={onEditWiki} onDelete={onDeleteWiki} onTrash={onOpenTrash} />
     <PageTree
       {wiki}
       currentId={page?.pageId}

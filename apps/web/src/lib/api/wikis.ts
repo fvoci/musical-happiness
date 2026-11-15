@@ -1,11 +1,13 @@
 /**
  * The wikis and their pages on the server (`Backend.wiki`): the operations
  * under `/w/{workspaceId}/wikis` (`getWikis`, `createWiki`, `getPageTree`,
- * `createPage`, `getPage`, `patchPage`, `deletePage`, `movePage`). What a wiki shares
+ * `createPage`, `getPage`, `patchPage`, `deletePage`, `movePage`, `getDeletedPages`,
+ * `undeletePage`). What a wiki shares
  * with a board (reading it, changing, deleting and bringing it back, its
  * members, joining it, the sidebar) goes by the board's operations.
  */
 import type { Board } from '../logic/wire.ts';
+import type { DeletedItem, Paging } from '../state/trash-reads.ts';
 import type {
   PageDraft,
   PageMove,
@@ -73,6 +75,17 @@ export function pageOfBlock(block: Schemas['Block']): WikiPage {
     },
     block.boardId,
   );
+}
+
+/** A page in the trash as the screens list it: its title, who deleted it and when, and how many went with it. */
+function deletedPageOf(page: Schemas['DeletedPage']): DeletedItem {
+  return {
+    id: page.id,
+    title: page.title,
+    deletedAt: page.deletedAt,
+    deletedBy: page.deletedBy,
+    below: page.below,
+  };
 }
 
 function newWikiOf(draft: WikiDraft): Schemas['NewWiki'] {
@@ -173,6 +186,25 @@ export class ServerWikis implements Wikis {
         '/wikis/{wikiId}/pages/{pageId}/move',
         { wikiId, pageId },
         { method: 'POST', json: request },
+      ),
+    );
+  }
+
+  async deletedPages(wikiId: string, paging?: Paging): Promise<DeletedItem[]> {
+    const pages = await this.#request<Schemas['DeletedPage'][]>(
+      '/wikis/{wikiId}/trash/pages',
+      { wikiId },
+      { query: { ...paging } },
+    );
+    return pages.map(deletedPageOf);
+  }
+
+  async undeletePage(wikiId: string, pageId: string): Promise<WikiPageDetail> {
+    return pageDetailOf(
+      await this.#request<Schemas['Page']>(
+        '/wikis/{wikiId}/pages/{pageId}/undelete',
+        { wikiId, pageId },
+        { method: 'POST' },
       ),
     );
   }

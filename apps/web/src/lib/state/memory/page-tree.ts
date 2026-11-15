@@ -99,6 +99,10 @@ export class PageTree {
     return this.#pages.size;
   }
 
+  has(pageId: string): boolean {
+    return this.#pages.has(pageId);
+  }
+
   /** How many pages lead from the top to the page, itself counted: 0 for the top (''). */
   depth(pageId: string): number {
     let depth = 0;

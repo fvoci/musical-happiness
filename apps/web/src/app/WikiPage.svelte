@@ -18,16 +18,19 @@
 
   import ConfirmDialog from '$lib/components/confirm/ConfirmDialog.svelte';
   import CardBody from '$lib/features/card/CardBody.svelte';
+  import TrashDialog from '$lib/features/shell/TrashDialog.svelte';
   import WikiSettingsDialog from '$lib/features/wiki/WikiSettingsDialog.svelte';
   import WikiJoin from '$lib/features/wiki/WikiJoin.svelte';
   import WikiScreen from '$lib/features/wiki/WikiScreen.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { firstPage, withDescendants } from '$lib/logic/page-tree.ts';
   import {
+    pageTrash,
     shownWiki,
     whileHere,
     WikiStore,
     type PageStore,
+    type Trash,
     type WikiLooks,
     type WikiPage,
     type Workspace,
@@ -104,6 +107,9 @@
   const below = $derived(deleting && wiki ? withDescendants(wiki.pages, deleting.id).size - 1 : 0);
   let settingsOpen = $state(false);
   let deleteWikiOpen = $state(false);
+  /** The wiki's deleted pages, read anew each time they are opened. */
+  let trash = $state.raw<Trash | undefined>(undefined);
+  let trashOpen = $state(false);
 
   /** Deletes the wiki; the page goes on to the first board or wiki of the sidebar. */
   async function deleteWiki(store: WikiStore): Promise<void> {
@@ -167,6 +173,11 @@
     onDeleteWiki={() => {
       deleteWikiOpen = true;
     }}
+    onOpenTrash={() => {
+      trash = pageTrash(wiki);
+      trashOpen = true;
+      void trash.read();
+    }}
     onOpenPage={(id: string) => {
       router.openPage(id);
     }}
@@ -198,6 +209,17 @@
         '[data-testid="page-tree"] [role="treeitem"][tabindex="0"]',
       )}
   />
+  {#if store.canEdit}
+    <TrashDialog
+      bind:open={trashOpen}
+      {trash}
+      {workspace}
+      title={m.wiki_trash()}
+      description={m.wiki_trash_description()}
+      untitled={m.wiki_page_untitled()}
+      testId="page-trash"
+    />
+  {/if}
   {#if store.wiki}
     <WikiSettingsDialog
       bind:open={settingsOpen}

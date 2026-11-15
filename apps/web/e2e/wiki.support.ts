@@ -140,6 +140,7 @@ interface WikiDev {
       createWiki(workspaceId: string, draft: object): Promise<{ id: string }>;
       createPage(wikiId: string, draft: object): Promise<{ id: string }>;
       deletePage(wikiId: string, pageId: string): Promise<void>;
+      undeletePage(wikiId: string, pageId: string): Promise<unknown>;
     };
     presence: { setPresence(visit: object | null): void };
     openDoc(
@@ -220,6 +221,16 @@ export async function deleteBySomebodyElse(page: Page, wikiId: string, pageId: s
       await (window as unknown as DevWindow).fvociDev.someoneElse().wiki.deletePage(id, gone);
     },
     { id: wikiId, gone: pageId },
+  );
+}
+
+/** Somebody else brings a page of the wiki back from the trash, with those below it. */
+export async function restoreBySomebodyElse(page: Page, wikiId: string, pageId: string) {
+  await page.evaluate(
+    async ({ id, back }) => {
+      await (window as unknown as DevWindow).fvociDev.someoneElse().wiki.undeletePage(id, back);
+    },
+    { id: wikiId, back: pageId },
   );
 }
 

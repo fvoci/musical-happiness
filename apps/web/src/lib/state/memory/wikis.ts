@@ -9,11 +9,13 @@
  * says (`orderBetween`); its pages are for the wiki's members, written by its
  * editors; a body is written with the `updateAt` it was read at (409 when the
  * page changed since, what its room took counted first); deleting a page
- * takes every page below it along, and tells of the page alone.
+ * takes every page below it along, and tells of the page alone; bringing it
+ * back brings them, below the page it was below or, that one gone, last at
+ * the top (`crates/store/src/page_trash.rs`).
  */
 import type { DocNode } from '../../editor/schema.ts';
 import { createBoard, type Board, type BoardKind } from '../../logic/wire.ts';
-import { BackendError } from '../backend.ts';
+import { BackendError, type DeletedItem, type Paging } from '../backend.ts';
 import type {
   PageDraft,
   PageMove,
@@ -29,7 +31,7 @@ import { checkedWhole } from './bodies.ts';
 import { DEFAULT_LIMITS, PageTree, type PageLimits, type Place } from './page-tree.ts';
 import { fail } from './refuse.ts';
 import { copy, memberOf, orderOf, pageOf, scramble } from './shapes.ts';
-import { deletion } from './trash.ts';
+import { deletedPagesOf, deletion } from './trash.ts';
 import type { StoredBlock, World } from './world.ts';
 
 /** What the wikis share with the backend they are of. */
@@ -315,5 +317,56 @@ export class MemoryWikis implements Wikis {
     });
     for (const block of gone) this.#world.blocks.delete(block.id);
     this.#world.tellBoard(wikiId, { kind: 'blocksDeleted', boardId: wikiId, blockIds: [pageId] });
+  }
+
+  async deletedPages(wikiId: string, paging?: Paging): Promise<DeletedItem[]> {
+    await this.#enter('deletedPages');
+    this.#mayWrite(wikiId);
+    return deletedPagesOf(this.#world, wikiId, paging);
+  }
+
+  /**
+   * As the server: the page at the top of a deletion comes back with all that
+   * went with it, held to the limits; at its place, unless a page made since
+   * has it (then right after the pages before it), or, its parent gone, last
+   * at the top.
+   */
+  async undeletePage(wikiId: string, pageId: string): Promise<WikiPageDetail> {
+    await this.#enter('undeletePage');
+    this.#mayWrite(wikiId);
+    const world = this.#world;
+    const deleted = world.deletedBlocks.get(pageId);
+    const [top] = deleted?.blocks ?? [];
+    if (deleted?.boardId !== wikiId || top?.id !== pageId || top.type !== 'page') {
+      fail(404, 'no such page in the trash');
+    }
+    const { blocks } = deleted;
+    const tree = this.#tree(wikiId);
+    const coming = new PageTree(
+      blocks.map((block) => ({ id: block.id, parentId: block.parentId, order: orderOf(block) })),
+    );
+    const parentId = top.parentId !== '' && !tree.has(top.parentId) ? '' : top.parentId;
+    tree.checkRoom(parentId, coming.height(pageId), blocks.length, this.limits);
+    const order = orderOf(top);
+    const siblings = tree.siblings(parentId);
+    let renumbered: StoredBlock[] = [];
+    if (parentId !== top.parentId) {
+      // Last at the top of the wiki.
+      renumbered = this.#writePlace(top, tree.place('', undefined));
+    } else if (siblings.some((sibling) => sibling.order === order)) {
+      const before = siblings.filter(
+        (sibling) => sibling.order < order || (sibling.order === order && sibling.id < pageId),
+      );
+      renumbered = this.#writePlace(top, tree.place(parentId, before.at(-1)?.id ?? ''));
+    }
+    top.parentId = parentId;
+    world.deletedBlocks.delete(pageId);
+    const now = world.now();
+    for (const block of blocks) {
+      [block.updateAt, block.modifiedBy] = [now, this.#host.userId];
+      world.blocks.set(block.id, block);
+    }
+    this.#tellPages(wikiId, [...renumbered, ...blocks]);
+    return detailOf(top);
   }
 }

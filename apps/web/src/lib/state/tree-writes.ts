@@ -1,8 +1,10 @@
 /**
  * The writes of an open wiki's tree (`wiki.svelte.ts`): making a page,
- * moving one with the pages below it, and deleting one with them. Each shows
- * at once and goes back when the backend refuses it, told
- * (`workspace.report`); making and moving are undone as one step each.
+ * moving one with the pages below it, deleting one with them and bringing
+ * one back from the trash. Each shows at once (bringing back, once it is
+ * back) and goes back when the backend refuses it, told
+ * (`workspace.report`); making, moving and deleting are undone as one step
+ * each, a deletion by bringing the page back.
  *
  * A page deleted takes the pages below it along, and only it is told: the
  * pages below it are taken off here (`forget`), as of a deletion heard.
@@ -134,10 +136,25 @@ export class TreeWrites {
 
   /**
    * Deletes a page and every page below it: they are taken off the tree at
-   * once and come back if the backend refuses. Not undone: nothing brings a
-   * page back yet.
+   * once and come back if the backend refuses. Undone, they come back from
+   * the trash. False when it was refused (told).
    */
   async deletePage(pageId: string): Promise<boolean> {
+    try {
+      await this.#host.workspace.undo.perform(
+        () => this.#deleteShown(pageId),
+        () => this.restorePage(pageId),
+        'deletePage',
+      );
+      return true;
+    } catch (error) {
+      this.#host.workspace.report('save', error);
+      return false;
+    }
+  }
+
+  /** Takes the page off the tree and deletes it; refused, it is put back, and the refusal thrown. */
+  async #deleteShown(pageId: string): Promise<void> {
     const before = this.#host.pages();
     const gone = withDescendants(before, pageId);
     const title = this.#page(this.#host.openPage()?.pageId)?.title ?? '';
@@ -148,13 +165,22 @@ export class TreeWrites {
       // Not gone already (somebody else deleted it): it comes back as it was.
       if (!isBackendError(error) || error.status !== 404) {
         this.#host.setPages(before);
-        this.#host.workspace.report('save', error);
-        return false;
+        throw error;
       }
     }
     const shown = this.#host.openPage();
     if (shown && gone.has(shown.pageId)) shown.gone('reader', title);
-    return true;
+  }
+
+  /**
+   * Brings a page back from the trash with the pages that went with it, and
+   * shows them: the page at once, those below it as the tree is read again.
+   * A refusal is thrown.
+   */
+  async restorePage(pageId: string): Promise<void> {
+    const back = await this.#host.wikis().undeletePage(this.#host.wikiId, pageId);
+    this.#host.takePage(back);
+    this.#host.reread();
   }
 
   /**

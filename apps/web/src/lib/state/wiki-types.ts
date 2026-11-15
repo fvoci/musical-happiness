@@ -12,6 +12,8 @@
 import type { DocNode } from '../editor/schema.ts';
 import type { Board, BoardType, MemberRole } from '../logic/wire.ts';
 
+import type { DeletedItem, Paging } from './trash-reads.ts';
+
 /** A page as the tree of its wiki lists it: without its body. */
 export interface WikiPage {
   id: string;
@@ -97,6 +99,21 @@ export interface Wikis {
    * editors. The wiki's listeners are told of the page alone (`blocksDeleted`).
    */
   deletePage(wikiId: string, pageId: string): Promise<void>;
+  /**
+   * The wiki's pages in the trash, for its editors: a page, the last deleted
+   * first, each with how many pages below it went with it (`below`). A page
+   * that went with the page it was below comes back with that page, and is
+   * not listed.
+   */
+  deletedPages(wikiId: string, paging?: Paging): Promise<DeletedItem[]>;
+  /**
+   * Brings a page back from the trash with the pages that went with it, for
+   * the wiki's editors: below the page it was below, or, that one gone, last
+   * at the top. Past the wiki's limits it is 400 (`page_too_deep`,
+   * `too_many_pages`); one the trash does not have, 404. Each page that came
+   * back is told (`pages`); the answer is the page asked for.
+   */
+  undeletePage(wikiId: string, pageId: string): Promise<WikiPageDetail>;
   /**
    * Moves the page with every page below it, for the wiki's editors: below
    * itself, below a page below it or deeper than the limit (`page_too_deep`)

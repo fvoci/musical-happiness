@@ -1,7 +1,8 @@
 <!--
   What is in a trash, and bringing one back: the boards and wikis the reader
-  was an admin of (from the sidebar; a wiki says so), or the cards of the open board (from its top
-  bar, for its editors). Each row says what it was, who deleted it and when,
+  was an admin of (from the sidebar; a wiki says so), the cards of the open board (from its top
+  bar, for its editors), or the pages of the open wiki (from its head, for its editors: each
+  says how many pages below it come back with it). Each row says what it was, who deleted it and when,
   and has its "Restore" button; one that is back leaves the list and shows
   where it was. Nothing is deleted for good here: the server empties its
   trash after a while.
@@ -92,6 +93,11 @@
                     {/if}
                   </span>
                   <span class="truncate text-xs text-muted-foreground">
+                    {#if item.below}
+                      <span data-testid="trash-below"
+                        >{m.shell_trash_below({ count: item.below })}</span
+                      > ·
+                    {/if}
                     {m.shell_trash_deleted_by({ name: nameOf(item.deletedBy) })} ·
                     <time
                       datetime={new Date(item.deletedAt).toISOString()}

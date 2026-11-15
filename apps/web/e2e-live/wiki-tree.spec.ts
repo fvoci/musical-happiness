@@ -97,3 +97,57 @@ test('pages moved with the keys, from "Move…" and dragged are where they were 
   expect(errors).toEqual([]);
   await api.dispose();
 });
+
+test('a page deleted and brought back, from the trash and by undo, is there after a reload', async ({
+  page,
+  baseURL,
+}) => {
+  const base = baseURL ?? '';
+  const owner = person('wiki-trash');
+  await register(base, owner);
+  const api = await signedIn(base, owner);
+  await makeBoard(api, { title: 'Roadmap' });
+
+  const errors = watchErrors(page);
+  await page.goto('/');
+  await signInOnPage(page, owner);
+  await newWiki(page, 'Handbook');
+  await page.getByTestId('wiki-first-page').click();
+  await nameThePage(page, 'Welcome');
+  await pageAction(page, 'Welcome', 'add-child');
+  await nameThePage(page, 'Getting started');
+  await pageAction(page, 'Welcome', 'add-after');
+  await nameThePage(page, 'Policies');
+  const whole = ['Welcome', '  Getting started', 'Policies'];
+  const remove = async (): Promise<void> => {
+    await pageAction(page, 'Welcome', 'delete');
+    await page.getByTestId('confirm-dialog').getByRole('button', { name: 'Delete' }).click();
+    await showTree(page);
+    await expect.poll(() => treeShape(page)).toEqual(['Policies']);
+  };
+
+  // From the trash of the wiki, which says one went with it.
+  await remove();
+  await page.getByTestId('open-page-trash').click();
+  const trash = page.getByTestId('page-trash');
+  const item = trash.getByTestId('trash-items').locator('li', { hasText: 'Welcome' });
+  await expect(item.getByTestId('trash-below')).toHaveText('Pages below: 1');
+  await item.getByRole('button', { name: 'Restore Welcome' }).click();
+  await expect(trash.getByTestId('trash-empty')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(trash).toBeHidden();
+  await expect.poll(() => treeShape(page)).toEqual(whole);
+  await page.reload();
+  await showTree(page);
+  await expect.poll(() => treeShape(page)).toEqual(whole);
+
+  // By undo.
+  await remove();
+  await page.getByTestId('undo').click();
+  await expect.poll(() => treeShape(page)).toEqual(whole);
+  await page.reload();
+  await showTree(page);
+  await expect.poll(() => treeShape(page)).toEqual(whole);
+  expect(errors).toEqual([]);
+  await api.dispose();
+});

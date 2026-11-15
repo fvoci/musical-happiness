@@ -12,8 +12,8 @@
  *
  * Writes show at once and go back when the backend refuses them, told
  * (`workspace.report`). Renaming a page, changing its icon, making one,
- * moving one and changing the wiki can be undone; deleting a page cannot
- * (nothing brings one back yet).
+ * moving one, deleting one (brought back from the trash) and changing the
+ * wiki can be undone.
  */
 import type { PagePlace } from '../logic/page-moves.ts';
 import { pageTree } from '../logic/page-tree.ts';
@@ -22,7 +22,9 @@ import type { Board, BoardMember, MemberRole } from '../logic/wire.ts';
 import {
   isBackendError,
   type Change,
+  type DeletedItem,
   type PageDraft,
+  type Paging,
   type WikiPage,
   type WikiPageDetail,
   type Wikis,
@@ -326,6 +328,16 @@ export class WikiStore {
   /** Deletes a page and every page below it; false when it was refused (told). */
   deletePage(pageId: string): Promise<boolean> {
     return this.#writes.deletePage(pageId);
+  }
+
+  /** The wiki's pages in the trash, for its editors: a page of them, the last deleted first. */
+  deletedPages(paging?: Paging): Promise<DeletedItem[]> {
+    return this.#wikis.deletedPages(this.wikiId, paging);
+  }
+
+  /** Brings a page back from the trash with those that went with it; a refusal is thrown. */
+  restorePage(pageId: string): Promise<void> {
+    return this.#writes.restorePage(pageId);
   }
 
   /** Changes the title or the icon of a page: shown at once, undone as one step. */
