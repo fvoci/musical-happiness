@@ -6,7 +6,7 @@
 //! SQLite, whose writers take turns, the two run one after the other.
 
 use fvoci_model::{BoardRole, DeleteBoardsAndBlocks, GuestInvitationsChange, Invitation};
-use fvoci_store::{DbType, MailedTo, NewLink};
+use fvoci_store::{DbType, MailedTo, NewLink, StoreError};
 
 use crate::common::{self, TestStore};
 use crate::invitations::{LATER, NOW, link};
@@ -175,5 +175,110 @@ async fn turning_guest_links_off_and_deleting_their_boards_wait_for_each_other()
     assert!(!workspace.guest_invitations);
     ended(delete).await.expect("the boards are deleted");
     assert_eq!(unrevoked(&test).await, Vec::<String>::new());
+    test.teardown().await;
+}
+
+/// A link made for one recipient of a mailed link holds the link it is made like;
+/// turning the workspace's guest links off holds the workspace and then its links. The
+/// new link holds the workspace first: asked for while the links are turned off, it
+/// waits, and is not made.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_link_mailed_while_guest_links_are_turned_off_waits_and_is_not_made() {
+    let test = common::setup().await;
+    let admin = common::user(&test, "admin").await;
+    let boards = common::create_test_boards(&test, &test.workspace_id, &admin, 1).await;
+    let guest_of = Some((boards[0].id.as_str(), BoardRole::Viewer));
+    let parent = link(&test, &admin, "parent", guest_of, None).await;
+    if common::db_type() != DbType::Postgres {
+        let turned = test.set_guest_invitations(&test.workspace_id, OFF, &admin);
+        turned.await.expect("turned off");
+        let made = test
+            .create_invitation(&mailed_like(&test.workspace_id, &parent, "child"))
+            .await;
+        assert!(
+            made.as_ref().is_err_and(StoreError::is_not_found),
+            "{made:?}"
+        );
+        test.teardown().await;
+        return;
+    }
+
+    let mut gate = Gate::before(
+        &test,
+        "UPDATE",
+        "workspaces",
+        "OLD.guest_invitations AND NOT NEW.guest_invitations",
+    )
+    .await;
+    let maker = gate.second_store(&test).await;
+    let turner = test.store.clone();
+    let (workspace_id, by) = (test.workspace_id.clone(), admin.clone());
+    let turn_off =
+        tokio::spawn(async move { turner.set_guest_invitations(&workspace_id, OFF, &by).await });
+    let turning = gate.stopped(&turn_off).await;
+    let workspace_id = test.workspace_id.clone();
+    let making = tokio::spawn(async move {
+        let child = mailed_like(&workspace_id, &parent, "child");
+        maker.create_invitation(&child).await
+    });
+    gate.waits_for(turning, &making).await;
+    gate.open().await;
+
+    ended(turn_off).await.expect("turned off");
+    let made = ended(making).await;
+    assert!(
+        made.as_ref().is_err_and(StoreError::is_not_found),
+        "{made:?}"
+    );
+    assert_eq!(unrevoked(&test).await, Vec::<String>::new());
+    test.teardown().await;
+}
+
+/// A link made for one recipient of a mailed link names the board of the link it is
+/// made like; deleting the board holds it, and then deletes that link. The new link
+/// holds the board before the link it is made like: asked for while the board is
+/// being deleted, it waits, and is not made.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_link_mailed_while_its_board_is_deleted_waits_and_is_not_made() {
+    let test = common::setup().await;
+    let admin = common::user(&test, "admin").await;
+    let boards = common::create_test_boards(&test, &test.workspace_id, &admin, 1).await;
+    let board_id = boards[0].id.clone();
+    let guest_of = Some((board_id.as_str(), BoardRole::Viewer));
+    let parent = link(&test, &admin, "parent", guest_of, None).await;
+    if common::db_type() != DbType::Postgres {
+        test.delete_board(&board_id, &admin).await.expect("deleted");
+        let made = test
+            .create_invitation(&mailed_like(&test.workspace_id, &parent, "child"))
+            .await;
+        assert!(
+            made.as_ref().is_err_and(StoreError::is_not_found),
+            "{made:?}"
+        );
+        test.teardown().await;
+        return;
+    }
+
+    // The deletion stops once it holds the board, as it puts the board in the trash.
+    let mut gate = Gate::before(&test, "INSERT", "deleted_boards", "true").await;
+    let maker = gate.second_store(&test).await;
+    let deleter = test.store.clone();
+    let by = admin.clone();
+    let delete = tokio::spawn(async move { deleter.delete_board(&board_id, &by).await });
+    let deleting = gate.stopped(&delete).await;
+    let workspace_id = test.workspace_id.clone();
+    let making = tokio::spawn(async move {
+        let child = mailed_like(&workspace_id, &parent, "child");
+        maker.create_invitation(&child).await
+    });
+    gate.waits_for(deleting, &making).await;
+    gate.open().await;
+
+    ended(delete).await.expect("the board is deleted");
+    let made = ended(making).await;
+    assert!(
+        made.as_ref().is_err_and(StoreError::is_not_found),
+        "{made:?}"
+    );
     test.teardown().await;
 }

@@ -15,7 +15,8 @@
 //! 4. The board.
 //! 5. The links, a link before the links made like it for the recipients of its mail.
 //!
-//! A step may be left out, never taken after a later one. Deleting a board or a
+//! A step may be left out, never taken after a later one: a new link holds its
+//! workspace, its board and the link it is made like ([`hold_for_new_link`]). Deleting a board or a
 //! workspace holds the organization's row and then the board or the workspace, and the
 //! schema's cascades then delete the links and the registrations made by them in an
 //! order of the database's own: whoever holds more than one link, or a link and then
@@ -25,6 +26,7 @@
 //!
 //! SQLite's writers wait for each other already: nothing here holds anything there.
 
+use crate::NewLink;
 use crate::db::{Dialect, Id, Scope};
 use crate::error::StoreError;
 use crate::org_admin;
@@ -73,4 +75,61 @@ pub(crate) async fn hold_organization(
         scope.fetch_optional(sql).await?;
     }
     Ok(())
+}
+
+/// Holds what a new link hangs from, in the order above, and says whether it lets the
+/// link be made: its workspace of the handle's organization in use, and for a guest's
+/// link the workspace inviting guests and its board there that is no template; for a
+/// link made like another, that link while it is neither revoked nor ended at `now`.
+///
+/// No organization's row: a link being made is nothing a deletion waits for. A guest's
+/// link holds the workspace against turning its guest links off, which then waits and
+/// revokes the new link with the others, or comes first and is found; the board, as
+/// its reference does, against its deletion, which comes first and is found, or
+/// waits; and the link it is made like against its revocation, likewise.
+pub(crate) async fn hold_for_new_link(
+    scope: &mut Scope<'_>,
+    link: &NewLink<'_>,
+) -> Result<bool, StoreError> {
+    let postgres = scope.dialect() == Dialect::Postgres;
+    let mut sql = scope.sql("SELECT id FROM workspaces WHERE id = ");
+    sql.bind(Id(link.workspace_id))
+        .push_bind(" AND org_id = ", scope.org()?)
+        .push_bind(" AND delete_at = ", 0_i64);
+    if link.guest_of.is_some() {
+        sql.push_bind(" AND guest_invitations = ", true);
+        if postgres {
+            sql.push(" FOR SHARE");
+        }
+    }
+    if scope.fetch_optional(sql).await?.is_none() {
+        return Ok(false);
+    }
+    if let Some((board_id, _)) = link.guest_of {
+        let mut sql = scope.sql("SELECT id FROM boards WHERE id = ");
+        sql.bind(Id(board_id))
+            .push_bind(" AND workspace_id = ", Id(link.workspace_id))
+            .push_bind(" AND is_template = ", false);
+        // What the new link's reference takes anyway: only a deletion waits for it.
+        if postgres {
+            sql.push(" FOR KEY SHARE");
+        }
+        if scope.fetch_optional(sql).await?.is_none() {
+            return Ok(false);
+        }
+    }
+    if let Some(mailed) = link.mailed {
+        let mut sql = scope.sql("SELECT id FROM invitations WHERE id = ");
+        sql.bind(Id(mailed.parent_id))
+            .push_bind(" AND org_id = ", scope.org()?)
+            .push_bind(" AND revoked_at = ", 0_i64)
+            .push_bind(" AND expires_at > ", link.now);
+        if postgres {
+            sql.push(" FOR SHARE");
+        }
+        if scope.fetch_optional(sql).await?.is_none() {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }

@@ -161,10 +161,15 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::NotFound`] if the organization has no such workspace in
-    /// use, or the workspace no such board; [`StoreError::NoOrganization`] if the
-    /// handle names none; and [`StoreError::Database`] if the statement fails.
+    /// use, or the workspace no such board or invites no guests to it for a guest's
+    /// link, or the link it is made like is revoked or ended;
+    /// [`StoreError::NoOrganization`] if the handle names none; and
+    /// [`StoreError::Database`] if a statement fails.
     pub async fn create_invitation(&self, link: &NewLink<'_>) -> Result<Invitation, StoreError> {
-        self.with_conn(async |scope| {
+        self.transaction(async |scope| {
+            if !link_locks::hold_for_new_link(scope, link).await? {
+                return Err(StoreError::not_found("workspace or board"));
+            }
             let (role, board_id, board_role) = match link.guest_of {
                 Some((board_id, board_role)) => {
                     (WorkspaceRole::Guest, board_id, Some(board_role.as_str()))
@@ -174,10 +179,11 @@ impl Store {
             let mut sql = scope.sql(
                 "INSERT INTO invitations (id, org_id, workspace_id, role, board_id, board_role, \
                  token_hash, created_by, create_at, expires_at, max_uses, parent_id, \
-                 recipient) SELECT ",
+                 recipient) VALUES (",
             );
             sql.bind(Id(&new_id()))
-                .push(", t.org_id, t.id")
+                .push_bind(", ", scope.org()?)
+                .push_bind(", ", Id(link.workspace_id))
                 .push_bind(", ", role.as_str())
                 .push_bind(", ", OptId(board_id))
                 .push_bind(", ", Param::OptText(board_role.map(str::to_owned)))
@@ -194,41 +200,7 @@ impl Store {
                     ", ",
                     Param::OptText(link.mailed.map(|mailed| mailed.recipient.to_owned())),
                 )
-                .push_bind(" FROM workspaces AS t WHERE t.id = ", Id(link.workspace_id))
-                .push_bind(" AND t.org_id = ", scope.org()?)
-                .push_bind(" AND t.delete_at = ", 0_i64);
-            if link.guest_of.is_some() {
-                sql.push_bind(" AND t.guest_invitations = ", true)
-                    .push_bind(
-                        " AND EXISTS (SELECT 1 FROM boards AS b WHERE b.id = ",
-                        Id(board_id),
-                    )
-                    .push_bind(" AND b.workspace_id = t.id AND b.is_template = ", false)
-                    .push(")");
-            }
-            // A child is made while its parent is neither revoked nor ended, and holds it
-            // as it is made: who revokes the parent waits for it, and revokes it then
-            // with the parent's other children.
-            if let Some(mailed) = link.mailed {
-                sql.push_bind(
-                    " AND EXISTS (SELECT 1 FROM invitations AS p WHERE p.id = ",
-                    Id(mailed.parent_id),
-                )
-                .push(" AND p.org_id = t.org_id")
-                .push_bind(" AND p.revoked_at = ", 0_i64)
-                .push_bind(" AND p.expires_at > ", link.now);
-                if scope.dialect() == Dialect::Postgres {
-                    sql.push(" FOR SHARE");
-                }
-                sql.push(")");
-            }
-            // Whoever turns the invitations of guests off holds the workspace first and
-            // revokes its links then: a link is made before that, and revoked with the
-            // others, or after it, and then not at all.
-            if link.guest_of.is_some() && scope.dialect() == Dialect::Postgres {
-                sql.push(" FOR SHARE OF t");
-            }
-            sql.push(&format!(" RETURNING {COLUMNS}"));
+                .push(&format!(") RETURNING {COLUMNS}"));
             match scope.fetch_optional(sql).await? {
                 Some(row) => invitation_from_row(&row),
                 None => Err(StoreError::not_found("workspace or board")),
