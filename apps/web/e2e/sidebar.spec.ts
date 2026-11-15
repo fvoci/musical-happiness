@@ -26,6 +26,7 @@ import {
   openApp,
   pane,
   pointOn,
+  pressInBar,
   scrim,
   shell,
   showSidebar,
@@ -520,8 +521,7 @@ test.describe('boards in the sidebar', () => {
     await expect(sidebar(page).getByRole('link')).toHaveCount(12);
 
     await hideSidebar(page);
-    await expect(topBar(page).getByTestId('undo')).toBeEnabled();
-    await topBar(page).getByTestId('undo').click();
+    await pressInBar(page, 'undo');
     await showSidebar(page);
     await expect(boardLink(page, 'Meeting Agenda')).toBeVisible();
     await expect(sidebar(page).getByRole('link')).toHaveCount(13);

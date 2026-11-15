@@ -6,6 +6,7 @@
  */
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
+import { pressInBar } from './shell.support.ts';
 import { boardPath } from './address.ts';
 
 interface StoredCard {
@@ -192,6 +193,6 @@ test('a named card that is deleted is not shown, and is shown again when it is b
   // The value still names it.
   expect(await storedValue(page, place, own.id)).toEqual([named.id]);
 
-  await page.getByRole('button', { name: 'Undo' }).click();
+  await pressInBar(page, 'undo');
   await expect(chips(cell)).toHaveText([named.title]);
 });

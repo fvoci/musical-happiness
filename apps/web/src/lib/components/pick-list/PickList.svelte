@@ -16,7 +16,7 @@
   import PlusIcon from '@lucide/svelte/icons/plus';
   import type { Snippet } from 'svelte';
 
-  import { isComposing } from '$lib/components/keys.ts';
+  import { isComposing } from '$lib/keys.ts';
   import { foldCase } from '$lib/logic/text.ts';
   import { Input } from '$lib/ui/input/index.js';
   import { cn } from '$lib/utils.js';

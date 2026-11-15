@@ -9,22 +9,19 @@
 import { expect, type CDPSession, type Locator, type Page, type TestInfo } from '@playwright/test';
 
 import { boardPath } from './address.ts';
+import { touchScreen } from './touch.support.ts';
 
 export interface Point {
   x: number;
   y: number;
 }
 
-/**
- * The width the board has in each project once the shell is the real one:
- * the whole phone, the unfolded device less the strip of the sidebar, the
- * desktop less the fixed sidebar. The tests give the board this width
- * whatever shell is around it (`fitPane`), so that they see the same board
- * while the shell is still a stand-in that always shows its sidebar.
- */
-const PANE: Record<string, number> = { mobile: 412, middle: 570, desktop: 1024 };
-
-export const paneOf = (info: TestInfo): number => PANE[info.project.name] ?? 1024;
+/** The configured device's viewport, less the sidebar used by its layout stage. */
+export function paneOf(info: TestInfo): number {
+  const width = info.project.use.viewport?.width ?? 1280;
+  const sidebar = info.project.name === 'desktop' ? 256 : info.project.name === 'middle' ? 56 : 0;
+  return width - sidebar;
+}
 /** The pane of this project fits one column at a time (34rem is the boundary). */
 export const oneColumn = (info: TestInfo): boolean => paneOf(info) < 544;
 export const touch = (info: TestInfo): boolean => info.project.name !== 'desktop';
@@ -54,6 +51,28 @@ function escape(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+/**
+ * Comes back once the window is `width` wide and the page's own observers of size have been
+ * told of it: an observer is told after those made before it, and the state they changed is
+ * applied by then, so the next reading lays the page out as the new stage has it. WebKit on
+ * Linux takes the new size some time after it was asked for (Playwright waits for it on some
+ * Linux images, not on all), so a report of the old width is no answer.
+ */
+async function observersTold(page: Page, width: number): Promise<void> {
+  await page.evaluate(
+    (wanted) =>
+      new Promise<void>((resolve) => {
+        const observer = new ResizeObserver(() => {
+          if (window.innerWidth !== wanted) return;
+          observer.disconnect();
+          resolve();
+        });
+        observer.observe(document.documentElement);
+      }),
+    width,
+  );
+}
+
 /** Changes the width of the window until the board has the width asked for. */
 export async function fitPane(page: Page, width: number): Promise<void> {
   for (let pass = 0; pass < 5; pass += 1) {
@@ -61,11 +80,9 @@ export async function fitPane(page: Page, width: number): Promise<void> {
     if (Math.abs(got - width) < 1) return;
     const size = page.viewportSize();
     if (!size) throw new Error('the page has no viewport');
-    await page.setViewportSize({
-      width: Math.round(size.width + width - got),
-      height: size.height,
-    });
-    await nextFrame(page);
+    const wide = Math.round(size.width + width - got);
+    await page.setViewportSize({ width: wide, height: size.height });
+    await observersTold(page, wide);
   }
   throw new Error(`the board could not be made ${width} pixels wide`);
 }
@@ -148,6 +165,30 @@ export async function pointOn(locator: Locator, down = 0.5): Promise<Point> {
   return { x: box.x + box.width / 2, y: box.y + box.height * down };
 }
 
+/**
+ * Runs `change`, and comes back once an observer made now has been told of another width of
+ * `target`: the page's own observers, made before it, have been told by then.
+ */
+export async function seenResized(target: Locator, change: () => Promise<void>): Promise<void> {
+  await target.evaluate((element: HTMLElement) => {
+    const was = element.offsetWidth;
+    Reflect.set(
+      element,
+      'seenResized',
+      new Promise<void>((resolve) => {
+        const observer = new ResizeObserver(() => {
+          if (element.offsetWidth === was) return;
+          observer.disconnect();
+          resolve();
+        });
+        observer.observe(element);
+      }),
+    );
+  });
+  await change();
+  await target.evaluate((element) => Reflect.get(element, 'seenResized') as Promise<void>);
+}
+
 export async function nextFrame(page: Page): Promise<void> {
   await page.evaluate(
     () =>
@@ -204,7 +245,7 @@ export class Finger {
   }
 
   static async on(page: Page): Promise<Finger> {
-    return new Finger(await page.context().newCDPSession(page), page);
+    return new Finger(await touchScreen(page), page);
   }
 
   async #send(type: 'touchStart' | 'touchMove', at: Point): Promise<void> {

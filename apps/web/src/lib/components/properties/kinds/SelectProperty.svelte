@@ -23,7 +23,7 @@
     optionFill,
   } from '$lib/components/option-chip/colors.ts';
   import { arrowChoice } from '$lib/components/arrow-choice.ts';
-  import { isComposing } from '$lib/components/keys.ts';
+  import { isComposing } from '$lib/keys.ts';
   import OptionChip from '$lib/components/option-chip/OptionChip.svelte';
   import PickList from '$lib/components/pick-list/PickList.svelte';
   import PickerSurface from '$lib/components/picker-surface/PickerSurface.svelte';

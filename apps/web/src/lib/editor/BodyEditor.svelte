@@ -282,7 +282,12 @@
       const fresh = loadable(doc);
       unreadable = fresh === undefined;
       cancelMathEditingOf(current.view);
-      current.commands.setContent(fresh ?? emptyDoc(), { emitUpdate: false });
+      // A received revision is not the reader's edit to undo with their next word.
+      current
+        .chain()
+        .setContent(fresh ?? emptyDoc(), { emitUpdate: false })
+        .setMeta('addToHistory', false)
+        .run();
       current.setEditable(editable && fresh !== undefined, false);
       onLoad?.(fresh === undefined ? undefined : storedOf(current));
     });

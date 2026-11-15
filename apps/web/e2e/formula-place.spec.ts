@@ -6,6 +6,7 @@
  */
 import { expect, test, type Locator } from '@playwright/test';
 
+import { primaryKey } from './keyboard.support.ts';
 import { focusAtEnd, openCardWithBody } from './embeds.support.ts';
 
 const formulaBody = (latex: string): object => ({
@@ -38,9 +39,14 @@ test('a press opens the source under the drawing, typing draws it again, Escape 
   await closedAndDrawn(body);
   await drawingOf(body).click();
   await expect(fieldOf(body)).toBeFocused();
-  const drawing = await drawingOf(body).boundingBox();
-  const field = await fieldOf(body).boundingBox();
-  expect(drawing && field && field.y >= drawing.y + drawing.height - 1).toBe(true);
+  // Both are there once the place is open: the drawing is put anew as it opens.
+  await expect
+    .poll(async () => {
+      const drawing = await drawingOf(body).boundingBox();
+      const field = await fieldOf(body).boundingBox();
+      return Boolean(drawing && field && field.y >= drawing.y + drawing.height - 1);
+    })
+    .toBe(true);
 
   await page.keyboard.press('End');
   await page.keyboard.type(' + \\sqrt{y}');
@@ -80,7 +86,7 @@ test('with the keys alone: an arrow selects it, Enter opens, Ctrl+Enter closes',
   await expect(fieldOf(body)).toBeFocused();
   await page.keyboard.press('End');
   await page.keyboard.type('+c');
-  await page.keyboard.press('Control+Enter');
+  await page.keyboard.press(await primaryKey(page, 'Enter'));
   await expect(fieldOf(body)).toHaveCount(0);
   await expect(blockOf(body)).toHaveClass(/ProseMirror-selectednode/);
   await expect(drawingOf(body)).toHaveAttribute('aria-label', 'a+b+c');

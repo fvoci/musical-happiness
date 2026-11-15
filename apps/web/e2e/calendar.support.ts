@@ -6,7 +6,8 @@
  */
 import { expect, type Locator, type Page, type TestInfo } from '@playwright/test';
 
-import { openView } from './kanban.support.ts';
+import { fitPane, openView } from './kanban.support.ts';
+import { tabKey } from './keyboard.support.ts';
 
 /** The page's time zone and language: Seoul, and English, whose weeks start on Sunday. */
 export const CALENDAR_PAGE = { timezoneId: 'Asia/Seoul', locale: 'en-US' } as const;
@@ -23,6 +24,26 @@ export const bars = (page: Page, title: string): Locator =>
   grid(page).locator('[data-bar]').filter({ hasText: title });
 export const dayList = (page: Page): Locator => page.getByTestId('day-list');
 export const wide = (info: TestInfo): boolean => info.project.name !== 'mobile';
+
+/** The calendar the tests of "+N" are written for: a phone's is made 700 wide, so that it has the month's grid. */
+export async function crowdable(page: Page, info: TestInfo): Promise<void> {
+  if (!wide(info)) await fitPane(page, 700);
+}
+
+/**
+ * Cards to put on one day until it overflows, more of them than the tallest
+ * project's cells have rows (a tablet held upright has seven).
+ */
+export const CROWD = [
+  'Manage tasks with cards',
+  'Create your own board',
+  'Share cards on Channels',
+  'Create a new view',
+  'Add new properties',
+  '@mention teammates',
+  'Filter and sort cards',
+  'Create a new card',
+] as const;
 
 /** A date value as the wire has it: a day as text, a moment as milliseconds. */
 export type Stored = { from: string | number; to?: string | number } | undefined;
@@ -89,7 +110,7 @@ export async function dueOf(page: Page, title: string): Promise<unknown> {
 export async function tabTo(page: Page, target: Locator, most = 12): Promise<void> {
   for (let press = 0; press < most; press += 1) {
     if (await target.evaluate((element) => element === document.activeElement)) return;
-    await page.keyboard.press('Tab');
+    await page.keyboard.press(await tabKey(page));
   }
   await expect(target).toBeFocused();
 }

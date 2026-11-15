@@ -14,7 +14,7 @@
  *
  * - Opens: a press on the picture (the node views), Enter while the block is
  *   selected, and a new diagram (an empty one just made) opens by itself.
- * - Closes: Escape, Ctrl+Enter or Cmd+Enter, a press anywhere else, the
+ * - Closes: Escape, ⌘Enter on Apple devices and Ctrl+Enter elsewhere, a press anywhere else, the
  *   focus going elsewhere, or the cursor leaving the block. Closed by a key,
  *   the block is selected again and the editor has the focus.
  */
@@ -28,6 +28,7 @@ import {
 } from '@tiptap/pm/state';
 import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view';
 
+import { shortcutLabel } from '$lib/keys.ts';
 import { m } from '$lib/i18n/paraglide/messages.js';
 
 import { diagramKind } from './diagram-kind.ts';
@@ -319,7 +320,7 @@ export const EditingPlace = Extension.create({
 export function placeFooter(
   page: Document,
   done: () => void,
-  hint = m.editor_place_hint(),
+  hint = m.editor_place_hint({ shortcut: shortcutLabel('Enter') }),
 ): HTMLElement {
   const footer = page.createElement('div');
   footer.setAttribute('class', 'doc-place-footer');

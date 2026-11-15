@@ -6,6 +6,7 @@
  */
 import { expect, request, test, type APIRequestContext, type Page } from '@playwright/test';
 
+import { primaryKey, primaryName } from '../e2e/keyboard.support.ts';
 import {
   boardPath,
   makeBoard,
@@ -85,7 +86,17 @@ test('a comment is written, changed and deleted on the server, its text a docume
   const field = comments.getByTestId('comment-edit').locator('textarea');
   await expect(field).toHaveValue('How about Friday?\nOr Monday');
   await field.fill('Friday it is');
-  await comments.getByRole('button', { name: 'Save' }).click();
+  const modifier = await primaryName(page);
+  await expect(field).toHaveAttribute('aria-keyshortcuts', `${modifier}+Enter`);
+  await field.press(`${modifier === 'Meta' ? 'Control' : 'Meta'}+Enter`);
+  // Saving disables this button synchronously; a forbidden key cannot start a write.
+  await expect(comments.getByRole('button', { name: 'Save' })).toBeEnabled();
+  await expect(field).toBeVisible();
+  expect((await stored()).map((one) => lines(one.body))).toEqual([
+    ['How about Friday?', 'Or Monday'],
+  ]);
+  await field.fill('Friday it is');
+  await field.press(await primaryKey(page, 'Enter'));
   await expect(comments.getByTestId('comment-edit')).toHaveCount(0);
   await expect(comments.locator('[data-comment]')).toHaveText(/Friday it is/);
   await expect

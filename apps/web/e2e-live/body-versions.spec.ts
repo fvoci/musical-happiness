@@ -8,6 +8,7 @@
 import { expect, test, type APIRequestContext, type Browser, type Page } from '@playwright/test';
 
 import { focusAtEnd } from '../e2e/embeds.support.ts';
+import { primaryKey } from '../e2e/keyboard.support.ts';
 
 import {
   boardPath,
@@ -158,7 +159,7 @@ test('a version restored is the body of everyone in the room, and what was typed
   // undoing brings back nothing either of them typed.
   for (const page of [first, second]) {
     await editor(page).click();
-    await page.keyboard.press('Control+z');
+    await page.keyboard.press(await primaryKey(page, 'z'));
     await expect(editor(page).locator('p')).toHaveText(['The first plan']);
   }
 

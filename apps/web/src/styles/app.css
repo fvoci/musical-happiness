@@ -26,6 +26,15 @@
 @custom-variant can-hover (@media (hover: hover));
 
 /*
+ * WebKit alone (no other engine knows `hanging-punctuation`). Its scroll
+ * anchoring moves a box a pixel and back, frame after frame, when the box is
+ * scrolled after it changed size: a box whose place is kept to the pixel
+ * (the table, the body of a card) tells WebKit to leave it. The other
+ * engines go on keeping what is read in place when something above it grows.
+ */
+@custom-variant webkit (@supports (hanging-punctuation: first));
+
+/*
  * Things a finger has to hit get room: the reader chose "comfortable", or
  * left the choice to the device and its main pointer is a finger. The root
  * element carries the settled choice in `data-density` (lib/display.svelte.ts

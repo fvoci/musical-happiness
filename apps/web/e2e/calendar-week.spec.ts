@@ -20,6 +20,7 @@ import {
   wide,
 } from './calendar.support.ts';
 import { dialog } from './kanban.support.ts';
+import { tabKey } from './keyboard.support.ts';
 
 test.use(CALENDAR_PAGE);
 
@@ -58,7 +59,7 @@ test('a week with the keys alone: its days, the arrows a week on, and back to th
 
   // The arrow keys walk the days into the next week, and the week follows.
   await page.getByTestId('calendar-undated').focus();
-  await page.keyboard.press('Tab');
+  await page.keyboard.press(await tabKey(page));
   await expect(focused(page)).toHaveAccessibleName(/^Tuesday, November 10/);
   await page.keyboard.press('ArrowDown');
   await expect(focused(page)).toHaveAccessibleName(/^Tuesday, November 17/);

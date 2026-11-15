@@ -8,6 +8,8 @@
  */
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 
+import { primaryKey } from '../e2e/keyboard.support.ts';
+
 import {
   makeBoard,
   person,
@@ -95,7 +97,7 @@ test('a card is found by a word of its body and opened; what the reader cannot r
   await signInOnPage(page, owner);
   // The keys open the search once the server is known to have one: the button says so.
   await expect(page.getByTestId('open-search')).toBeVisible();
-  await page.keyboard.press('Control+k');
+  await page.keyboard.press(await primaryKey(page, 'k'));
   await page.getByTestId('search-field').fill(word);
   await expect(dialog(page)).toHaveAttribute('data-status', 'found');
   const hits = dialog(page).getByRole('option');
@@ -148,7 +150,7 @@ test('a page of a wiki is found by a word of its body and opened over its wiki',
   await page.goto(`/w/${workspaceId}/boards/${board.boardId}`);
   await expect(page).toHaveURL(new RegExp(`/boards/${board.boardId}/${board.viewId}$`));
   await expect(page.getByTestId('open-search')).toBeVisible();
-  await page.keyboard.press('Control+k');
+  await page.keyboard.press(await primaryKey(page, 'k'));
   await page.getByTestId('search-field').fill(word);
   await expect(dialog(page)).toHaveAttribute('data-status', 'found');
   const hits = dialog(page).getByRole('option');

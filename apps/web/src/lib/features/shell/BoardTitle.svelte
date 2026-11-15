@@ -10,7 +10,7 @@
   (`field-sizing`), and about as wide where it cannot (`size`).
 -->
 <script lang="ts">
-  import { isComposing } from '$lib/components/keys.ts';
+  import { isComposing } from '$lib/keys.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
 
   interface Props {
@@ -52,7 +52,7 @@
   maxlength={200}
   autocomplete="off"
   enterkeyhint="done"
-  class="field-sizing-content max-w-full min-w-24 truncate rounded-md border border-transparent bg-transparent px-1.5 py-0.5 font-semibold outline-none placeholder:font-normal placeholder:text-muted-foreground hover:border-input-border focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+  class="field-sizing-content max-w-full min-w-0 truncate rounded-md border border-transparent bg-transparent px-1.5 py-0.5 font-semibold outline-none placeholder:font-normal placeholder:text-muted-foreground hover:border-input-border focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 @columns/pane:min-w-24 roomy:min-h-touch"
   oninput={(event) => {
     draft = event.currentTarget.value;
   }}

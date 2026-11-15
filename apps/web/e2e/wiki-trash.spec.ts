@@ -7,7 +7,7 @@
  */
 import { expect, test, type Page } from '@playwright/test';
 
-import { openApp } from './shell.support.ts';
+import { openApp, pressInBar } from './shell.support.ts';
 import {
   deleteBySomebodyElse,
   hideTree,
@@ -48,11 +48,11 @@ test.describe('the trash of a wiki’s pages', () => {
     await wikiWithPages(page);
     await deleteWelcome(page);
     await hideTree(page);
-    await page.getByTestId('undo').click();
+    await pressInBar(page, 'undo');
     await showTree(page);
     await expect.poll(() => treeShape(page)).toEqual(['Welcome', '  Getting started', 'Policies']);
     await hideTree(page);
-    await page.getByTestId('redo').click();
+    await pressInBar(page, 'redo');
     await showTree(page);
     await expect.poll(() => treeShape(page)).toEqual(['Policies']);
   });
@@ -141,7 +141,7 @@ test.describe('a page copied', () => {
       .poll(() => treeShape(page))
       .toEqual(['Welcome', '  Getting started', 'Welcome (copy)', '  Getting started', 'Policies']);
     await hideTree(page);
-    await page.getByTestId('undo').click();
+    await pressInBar(page, 'undo');
     await showTree(page);
     await expect.poll(() => treeShape(page)).toEqual(['Welcome', '  Getting started', 'Policies']);
   });

@@ -10,6 +10,8 @@
  */
 import { expect, test, type Page } from '@playwright/test';
 
+import { primaryName } from './keyboard.support.ts';
+import { scrollTo } from './scroll.support.ts';
 import { ON_A_CARD, placeOf, viewIdOf } from './address.ts';
 import {
   announcer,
@@ -33,6 +35,7 @@ import {
   openView,
   overlay,
   pointOn,
+  seenResized,
   titlesIn,
   touch,
   undo,
@@ -194,7 +197,17 @@ test.describe('dragging cards with a mouse', () => {
     page,
   }, info) => {
     await openView(page, info, ...TASKS);
-    const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
+    const modifier = await primaryName(page);
+    // The other platform's modifier neither opens nor selects: pressed before the right one,
+    // the card is selected once and nothing opened.
+    await card(page, 'Requirements sign-off').focus();
+    await page.keyboard.press(`${modifier === 'Meta' ? 'Control' : 'Meta'}+Enter`);
+    await page.keyboard.press(`${modifier}+Enter`);
+    await expect(page.getByTestId('selection-bar')).toContainText('1 selected');
+    await expect(dialog(page)).toBeHidden();
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('selection-bar')).toHaveCount(0);
+
     await card(page, 'Project budget approval').click({ modifiers: [modifier] });
     await card(page, 'Identify dependencies').click({ modifiers: ['Shift'] });
     await expect(page.getByTestId('selection-bar')).toContainText('3 selected');
@@ -750,6 +763,46 @@ test.describe('a pane that fits one column', () => {
       .toBe(1);
   });
 
+  test('a pane that changes width but still fits one column goes on following the reader', async ({
+    page,
+  }, info) => {
+    await openView(page, info, ...TASKS);
+    // From 440 pixels on, the board and its columns keep their inner width of 24rem.
+    await fitPane(page, 480);
+    await fitPane(page, 520);
+    const tabs = page.getByTestId('column-tabs');
+    await expect(tabs.getByRole('tab', { selected: true })).toContainText('Not Started');
+
+    // Scrolled on by a column, as a finger or the wheel does: the tab follows.
+    await kanban(page).evaluate((element) => {
+      element.scrollBy({ left: 384 });
+    });
+    await expect(tabs.getByRole('tab', { selected: true })).toContainText('In Progress');
+    await expect.poll(() => inView(page, 'In Progress')).toBe(true);
+  });
+
+  test('a column picked up by its heading leaves the board on the column looked at', async ({
+    page,
+  }, info) => {
+    test.skip(touch(info), 'a mouse');
+    await openView(page, info, ...TASKS);
+    await fitPane(page, NARROW);
+    const tabs = page.getByTestId('column-tabs');
+    await tabs.getByRole('tab', { name: /Blocked/ }).click();
+    await expect.poll(() => inView(page, 'Blocked')).toBe(true);
+    await expect(tabs.getByRole('tab', { selected: true })).toContainText('Blocked');
+
+    // The column is taken out of the row while it is carried, and put back where it was: the
+    // board has not gone to its start meanwhile, nor does the tab name a neighbour.
+    await grab(page, heading(page, 'Blocked'));
+    await expect(page.locator('[data-column-gap]')).toHaveCount(1);
+    await page.keyboard.press('Escape');
+    await page.mouse.up();
+    await expectNoDrag(page);
+    await expect.poll(() => inView(page, 'Blocked')).toBe(true);
+    await expect(tabs.getByRole('tab', { selected: true })).toContainText('Blocked');
+  });
+
   test('wider, the tabs go and the columns stand side by side; narrow again, the column looked at is back', async ({
     page,
   }, info) => {
@@ -820,6 +873,24 @@ test.describe('a pane that fits one column', () => {
     expect(await list.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
     expect(await stillThere()).toBe(true);
     await expect(looked).toBeFocused();
+  });
+});
+
+test.describe('a pane that fits several columns', () => {
+  test('a pane that changes width leaves the board where it was scrolled to', async ({
+    page,
+  }, info) => {
+    await openView(page, info, ...TASKS);
+    await fitPane(page, 700);
+    await expect(page.getByTestId('column-tabs')).toBeHidden();
+    // The first column half out of view at the left: still the one looked at.
+    await scrollTo(kanban(page), 150, 0);
+    const size = page.viewportSize();
+    if (!size) throw new Error('the page has no viewport');
+    await seenResized(kanban(page), () =>
+      page.setViewportSize({ width: size.width + 40, height: size.height }),
+    );
+    expect(await kanban(page).evaluate((element) => element.scrollLeft)).toBe(150);
   });
 });
 
@@ -915,7 +986,7 @@ test.describe('a board the reader may only look at', () => {
       await expect(overlay(page)).toHaveCount(0);
       await page.mouse.up();
     }
-    await first.click({ modifiers: ['Control'] });
+    await first.click({ modifiers: [await primaryName(page)] });
     await expect(dialog(page)).toBeVisible();
     await expect(page.getByTestId('selection-bar')).toHaveCount(0);
   });

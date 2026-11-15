@@ -9,6 +9,7 @@
 import path from 'node:path';
 
 import { expect, test, type Page, type WebSocketRoute } from '@playwright/test';
+import { documentBoundary } from '../e2e/keyboard.support.ts';
 
 import { screensDir } from '../e2e/screens.ts';
 
@@ -164,7 +165,7 @@ test('the body in its room, in each state the reader can see', async ({ browser,
       await expect(page.getByTestId('card-body')).toHaveAttribute('data-editor', 'ready');
       socket.mode = 'hold-frames';
       await page.getByTestId('card-body').locator('[contenteditable]').first().click();
-      await page.keyboard.press('Control+End');
+      await documentBoundary(page, 'end');
       await page.keyboard.type(' And the slides.');
       // Another client writes the body whole, something else than the server has.
       const other = {

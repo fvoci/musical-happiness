@@ -44,6 +44,8 @@ function scroller(): HTMLElement & { resize(width: number, scrollWidth?: number)
   let scrollLeft = 0;
   Object.defineProperties(element, {
     clientWidth: { get: () => clientWidth },
+    offsetWidth: { get: () => clientWidth },
+    offsetHeight: { get: () => 400 },
     scrollWidth: { get: () => scrollWidth },
     clientHeight: { get: () => 400 },
     scrollHeight: { get: () => 400 },
@@ -147,6 +149,110 @@ describe('the keeper on an element', () => {
     element.resize(560);
     observed?.();
     expect(element.scrollLeft).toBe(200);
+    detach();
+    vi.unstubAllGlobals();
+  });
+
+  it('does not take a cut for the reader when its event comes after the box is narrow again', () => {
+    let observed: (() => void) | undefined;
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(callback: () => void) {
+          observed = callback;
+        }
+        observe(): void {
+          // As above.
+        }
+        disconnect(): void {
+          observed = undefined;
+        }
+      },
+    );
+    const keeper = new ScrollKeeper();
+    const element = scroller();
+    const detach = keeper.attach(element);
+    element.scrollLeft = 100;
+    element.dispatchEvent(new Event('scroll'));
+
+    // Widened and narrowed again within a frame: the event of the cut is delivered in the old box.
+    element.resize(770);
+    observed?.();
+    element.resize(570);
+    expect(element.scrollLeft).toBe(15);
+    element.dispatchEvent(new Event('scroll'));
+    expect(keeper.place.x).toBe(100);
+    observed?.();
+    expect(element.scrollLeft).toBe(100);
+    detach();
+    vi.unstubAllGlobals();
+  });
+
+  it('does not pull the table on when the reader scrolled back and the event has not arrived yet', () => {
+    let observed: (() => void) | undefined;
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(callback: () => void) {
+          observed = callback;
+        }
+        observe(): void {
+          // As above.
+        }
+        disconnect(): void {
+          observed = undefined;
+        }
+      },
+    );
+    const keeper = new ScrollKeeper();
+    const element = scroller();
+    const detach = keeper.attach(element);
+    element.scrollLeft = 100;
+    element.dispatchEvent(new Event('scroll'));
+    // Scrolled back to 40, and the box changes before the scroll event is delivered.
+    element.scrollLeft = 40;
+    element.resize(560);
+    observed?.();
+    expect(element.scrollLeft).toBe(40);
+    element.dispatchEvent(new Event('scroll'));
+    expect(keeper.place.x).toBe(40);
+    detach();
+    vi.unstubAllGlobals();
+  });
+
+  it('does not take a cut for the reader when the page changed its stage before the observer ran', () => {
+    let observed: ((entries: ResizeObserverEntry[]) => void) | undefined;
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(callback: (entries: ResizeObserverEntry[]) => void) {
+          observed = callback;
+        }
+        observe(): void {
+          // As above.
+        }
+        disconnect(): void {
+          observed = undefined;
+        }
+      },
+    );
+    const keeper = new ScrollKeeper();
+    const element = scroller();
+    const detach = keeper.attach(element);
+    element.scrollLeft = 100;
+    element.dispatchEvent(new Event('scroll'));
+
+    // docs/mobile-proposal.md, "잃는 경우": laid out 770 wide once, which cut the place; the
+    // page's observer answered with the sidebar, and this one is told of 770 at 634.
+    element.resize(770);
+    element.resize(634);
+    expect(element.scrollLeft).toBe(15);
+    observed?.([
+      { borderBoxSize: [{ inlineSize: 770, blockSize: 400 }] } as unknown as ResizeObserverEntry,
+    ]);
+    expect(element.scrollLeft).toBe(100);
+    element.dispatchEvent(new Event('scroll'));
+    expect(keeper.place.x).toBe(100);
     detach();
     vi.unstubAllGlobals();
   });

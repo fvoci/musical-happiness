@@ -7,6 +7,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { boardPath } from './address.ts';
+import { documentBoundary } from './keyboard.support.ts';
 
 interface StoredCard {
   id: string;
@@ -138,7 +139,7 @@ test('`[[` offers cards by title; the one taken is a chip that opens it, and the
   await openCard(page, place, place.source.id);
   const editor = await bodyEditor(page);
   await editor.click();
-  await page.keyboard.press('ControlOrMeta+End');
+  await documentBoundary(page, 'end');
   await page.keyboard.type(' [[');
   // Before anything is typed: the cards of the board.
   await expect(offered(page).getByRole('option').first()).toBeVisible();
@@ -245,7 +246,7 @@ test('the pasted address of a card the reader may see becomes a reference; any o
   await openCard(page, place, place.source.id);
   const editor = await bodyEditor(page);
   await editor.click();
-  await page.keyboard.press('ControlOrMeta+End');
+  await documentBoundary(page, 'end');
   await page.keyboard.type(' ');
   await paste(page, `${baseURL ?? ''}${boardPath(place.boardId, place.viewId, place.target.id)}`);
   await expect(chips(page)).toHaveCount(1);
@@ -282,7 +283,7 @@ test('at 390 pixels a long title and the list of `[[` stay inside the screen', a
   }
   // The chip fills the line and is a link: the caret is put without a click.
   await editor.focus();
-  await page.keyboard.press('ControlOrMeta+End');
+  await documentBoundary(page, 'end');
   await page.keyboard.type(' [[a title that');
   await expect(offered(page).getByRole('option').first()).toBeVisible();
   const list = await offered(page).boundingBox();

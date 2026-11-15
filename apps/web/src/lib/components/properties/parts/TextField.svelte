@@ -12,7 +12,7 @@
   import { onDestroy, onMount, untrack } from 'svelte';
   import type { HTMLInputAttributes } from 'svelte/elements';
 
-  import { isComposing } from '$lib/components/keys.ts';
+  import { isComposing } from '$lib/keys.ts';
   import { cn } from '$lib/utils.js';
 
   interface Props {

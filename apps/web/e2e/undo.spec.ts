@@ -12,6 +12,7 @@
  */
 import { expect, test, type Page } from '@playwright/test';
 
+import { primaryKey } from './keyboard.support.ts';
 import { FIRST_BOARD, openApp, topBar } from './shell.support.ts';
 
 interface Dev {
@@ -53,7 +54,7 @@ async function recordPresses(page: Page): Promise<() => Promise<Pressed[]>> {
     const presses: Pressed[] = [];
     (window as unknown as { presses: Pressed[] }).presses = presses;
     window.addEventListener('keydown', (event) => {
-      if (event.key.toLowerCase() !== 'z' || !event.ctrlKey) return;
+      if (event.key.toLowerCase() !== 'z' || !(event.ctrlKey || event.metaKey)) return;
       const board = fvociDev.backend.world.boards.get(fvociDev.workspace.board.boardId);
       const press = { stored: board?.title ?? '', busy: false };
       presses.push(press);
@@ -121,7 +122,7 @@ test('Ctrl+Z right after a change takes back that change, and Ctrl+Shift+Z does 
   let write = await holdNextWrite(page);
   await title.fill('Two');
   await title.press('Enter');
-  await undo.press('Control+z');
+  await undo.press(await primaryKey(page, 'z'));
   // Pressed while "Two" was still being written; undo said it was waiting.
   expect(await presses()).toEqual([{ stored: 'One', busy: true }]);
   await write.release();
@@ -134,8 +135,8 @@ test('Ctrl+Z right after a change takes back that change, and Ctrl+Shift+Z does 
 
   // Undo "One", and redo it while the undo is still being written: it waits its turn.
   write = await holdNextWrite(page);
-  await undo.press('Control+z');
-  await undo.press('Control+Shift+z');
+  await undo.press(await primaryKey(page, 'z'));
+  await undo.press(await primaryKey(page, 'Shift+z'));
   expect((await presses())[2]).toEqual({ stored: 'One', busy: true });
   await write.release();
   await expect(undo).not.toHaveAttribute('aria-busy', 'true');
@@ -145,7 +146,7 @@ test('Ctrl+Z right after a change takes back that change, and Ctrl+Shift+Z does 
   await expect(redo).toBeEnabled();
 
   // Undo "One": the first title of the board comes back, and nothing is left to undo.
-  await undo.press('Control+z');
+  await undo.press(await primaryKey(page, 'z'));
   await expect(undo).toBeDisabled();
   await expect(title).toHaveValue(FIRST_BOARD);
   await expect.poll(() => stored(page)).toBe(FIRST_BOARD);
@@ -164,7 +165,7 @@ test('an undo that waited for a refused change does not touch the change before 
   const write = await holdNextWrite(page);
   await title.fill('Two');
   await title.press('Enter');
-  await undo.press('Control+z');
+  await undo.press(await primaryKey(page, 'z'));
   expect(await presses()).toEqual([{ stored: 'One', busy: true }]);
   await write.release();
   await expect(undo).not.toHaveAttribute('aria-busy', 'true');
@@ -186,8 +187,8 @@ test('a redo that waited for a refused undo is dropped, and the change stays in 
 
   await refuseNextWrite(page);
   const write = await holdNextWrite(page);
-  await undo.press('Control+z');
-  await undo.press('Control+Shift+z');
+  await undo.press(await primaryKey(page, 'z'));
+  await undo.press(await primaryKey(page, 'Shift+z'));
   // The redo was pressed while the undo still waited for its write.
   expect(await presses()).toEqual([
     { stored: 'One', busy: true },

@@ -1,3 +1,4 @@
+import { inField, isComposing, primaryModifier } from "$lib/keys.ts";
 import { getContext, setContext } from "svelte";
 import { IsMobile } from "$lib/hooks/is-mobile.svelte.js";
 import { SIDEBAR_KEYBOARD_SHORTCUT } from "./constants.js";
@@ -42,7 +43,8 @@ class SidebarState {
 
 	// Event handler to apply to the `<svelte:window>`
 	handleShortcutKeydown = (e: KeyboardEvent) => {
-		if (e.key === SIDEBAR_KEYBOARD_SHORTCUT && (e.metaKey || e.ctrlKey)) {
+		if (e.defaultPrevented || e.repeat || e.altKey || e.shiftKey || isComposing(e) || inField(e.target)) return;
+		if (e.key.toLowerCase() === SIDEBAR_KEYBOARD_SHORTCUT && primaryModifier(e)) {
 			e.preventDefault();
 			this.toggle();
 		}

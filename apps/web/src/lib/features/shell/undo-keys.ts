@@ -1,5 +1,10 @@
+import { inField, isComposing, primaryModifier } from '$lib/keys.ts';
+
+export { inField } from '$lib/keys.ts';
+
 /**
- * The keys for undo and redo: Ctrl+Z or ⌘Z, and with Shift for redo.
+ * The keys for undo and redo: ⌘Z on Apple devices and Ctrl+Z elsewhere (the
+ * other modifier is no alias), and with Shift for redo.
  *
  * Inside a field they are left alone: a field has an undo of its own for
  * what was typed, and taking the keys there would undo a change of the board
@@ -11,28 +16,17 @@
 
 export type UndoKey = 'undo' | 'redo';
 
-/**
- * An editor of a body counts as a field even while it is read-only for now
- * (the connection away): the reader who presses the keys there means its text.
- */
-const FIELDS =
-  'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [data-body-editor]';
-
-/** Whether an event started in something the reader types into. */
-export function inField(target: EventTarget | null): boolean {
-  return target instanceof Element && target.closest(FIELDS) !== null;
-}
-
 type KeyPress = Pick<
   KeyboardEvent,
   'key' | 'ctrlKey' | 'metaKey' | 'shiftKey' | 'altKey' | 'target' | 'defaultPrevented'
 > &
-  Partial<Pick<KeyboardEvent, 'repeat'>>;
+  Partial<Pick<KeyboardEvent, 'repeat' | 'isComposing' | 'keyCode'>>;
 
 /** What a key press asks for, if it is one of the two. */
-export function undoKey(event: KeyPress): UndoKey | undefined {
-  if (event.defaultPrevented || event.altKey || event.repeat) return undefined;
-  if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'z') return undefined;
+export function undoKey(event: KeyPress, platform?: string): UndoKey | undefined {
+  if (event.defaultPrevented || event.altKey || event.repeat || isComposing(event))
+    return undefined;
+  if (!primaryModifier(event, platform) || event.key.toLowerCase() !== 'z') return undefined;
   if (inField(event.target)) return undefined;
   return event.shiftKey ? 'redo' : 'undo';
 }

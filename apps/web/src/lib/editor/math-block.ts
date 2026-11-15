@@ -8,7 +8,7 @@
  * under the field. What the field holds goes into the document when the
  * place is closed on purpose (a key, its button, a press or the focus
  * elsewhere), as one step of the body's undo; a formula closed empty is
- * removed (editing-place.ts). Until then Ctrl+Z is the field's own.
+ * removed (editing-place.ts). Until then the platform's undo key is the field's own.
  *
  * A new formula (`$$` and a space on an empty line) has no node yet: a
  * formula without a source is none. Its place is drawn on that empty line,
@@ -19,9 +19,10 @@ import type { Editor } from '@tiptap/core';
 import type { Node as DocumentNode } from '@tiptap/pm/model';
 import type { Decoration, NodeView } from '@tiptap/pm/view';
 
+import { shortcutLabel } from '$lib/keys.ts';
 import { m } from '$lib/i18n/paraglide/messages.js';
 
-import { mathSlotAttributes } from './drawing.ts';
+import { MATH_SOURCE_ATTRIBUTE, mathSlotAttributes } from './drawing.ts';
 import {
   closePlace,
   closesPlace,
@@ -103,7 +104,7 @@ function placeBox(page: Document, editor: Editor, field: HTMLTextAreaElement) {
       () => {
         closePlace(editor.view, true);
       },
-      m.editor_math_hint_block(),
+      m.editor_math_hint_block({ shortcut: shortcutLabel('Enter') }),
     ),
   );
   // The keys that close the place work anywhere in it: the editor does not hear them here.
@@ -175,6 +176,16 @@ class FormulaView implements NodeView {
     this.#slot = slot;
   }
 
+  /** Whether the drawing shown is of `latex`, finished and not dimmed. */
+  #shows(latex: string): boolean {
+    const slot = this.#slot;
+    return (
+      slot.getAttribute(MATH_SOURCE_ATTRIBUTE) === latex &&
+      slot.getAttribute('data-state') === 'drawn' &&
+      !slot.hasAttribute('data-stale')
+    );
+  }
+
   /** Draws the stored source the way a closed formula shows it: a failure shows the source. */
   #show(): void {
     this.#drawn += 1;
@@ -221,7 +232,11 @@ class FormulaView implements NodeView {
       this.#panel.box.remove();
       this.#panel = undefined;
       this.dom.removeAttribute('data-open');
-      this.#show();
+      // The last drawing of the place is often the stored source already: it stays. Drawn
+      // again, the block would change under a selection that has just come back to it, and
+      // WebKit then moves that selection to the next line.
+      if (!this.#shows(this.#latex)) this.#show();
+      else this.#drawn += 1;
     }
     if (place?.draft && this.#panel) {
       const { field, written } = this.#panel;

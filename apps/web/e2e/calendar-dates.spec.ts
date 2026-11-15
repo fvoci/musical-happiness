@@ -6,6 +6,7 @@
  *
  * The same welcome board, moment and projects as e2e/calendar.spec.ts.
  */
+import { primaryKey, menuTo, tabKey } from './keyboard.support.ts';
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
 
 import {
@@ -26,7 +27,7 @@ test.use(CALENDAR_PAGE);
 /** With the keys alone: the 12th's list, the card's "…", "Change date". */
 async function changeDateByKeys(page: Page, info: TestInfo, title: string): Promise<void> {
   await page.getByTestId('calendar-undated').focus();
-  await page.keyboard.press('Tab');
+  await page.keyboard.press(await tabKey(page));
   // The picked day takes the focus: today, the 10th, two days before the 12th, at first.
   if ((await calendar(page).getAttribute('data-selected')) === '2026-11-10') {
     await expect(focused(page)).toHaveAccessibleName(/Tuesday, November 10/);
@@ -42,7 +43,7 @@ async function changeDateByKeys(page: Page, info: TestInfo, title: string): Prom
   const change = page.locator('[data-action="change-date"]');
   await expect(change).toHaveText('Change date');
   // A dropdown puts the focus on its first line; a sheet on itself.
-  await tabTo(page, change);
+  await menuTo(page, change);
   await page.keyboard.press('Enter');
 }
 
@@ -73,7 +74,7 @@ test('a card moves to another day with the keys alone, and one undo brings it ba
   await expect(focused(page)).toHaveAccessibleName(/^Thursday, November 19, 2 cards/);
   await expect(dayButton(page, '2026-11-12')).toHaveAccessibleName(/November 12, 1 card$/);
 
-  await page.keyboard.press('Control+z');
+  await page.keyboard.press(await primaryKey(page, 'z'));
   await expect.poll(() => dueOf(page, 'Drag cards')).toEqual({ from: '2026-11-12' });
   await expect(dayButton(page, '2026-11-12')).toHaveAccessibleName(/November 12, 2 cards/);
   await expect(dayButton(page, '2026-11-19')).toHaveAccessibleName(/November 19, 1 card$/);

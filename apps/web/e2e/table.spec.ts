@@ -7,9 +7,12 @@
  * read what was stored through the development handle (`window.fvociDev`),
  * so they do not depend on how the sidebar or the header of a view is drawn.
  */
+import { scrollTo } from './scroll.support.ts';
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { clipboardPermissions, primaryKey, primaryName, tabKey } from './keyboard.support.ts';
 import { boardPath } from './address.ts';
 import { screensDir } from './screens.ts';
+import { touchScreen } from './touch.support.ts';
 
 interface StoredView {
   id: string;
@@ -50,7 +53,11 @@ interface Opened {
 const TITLE = '__title';
 const STAGES: Record<string, string> = { desktop: 'expanded', middle: 'medium', mobile: 'compact' };
 
-test.use({ permissions: ['clipboard-read', 'clipboard-write'] });
+test.use({
+  permissions: async ({ browserName }, use) => {
+    await use(clipboardPermissions(browserName));
+  },
+});
 
 /** Opens a view of a seeded board by the titles of both. */
 async function openView(page: Page, boardTitle: string, viewTitle: string): Promise<Opened> {
@@ -213,7 +220,7 @@ async function undo(page: Page): Promise<void> {
   // A change can be undone once the backend has answered it; the in-memory one takes 40 ms.
   await page.waitForTimeout(150);
   await table(page).locator('[data-cell][tabindex="0"]').first().focus();
-  await page.keyboard.press('Control+z');
+  await page.keyboard.press(await primaryKey(page, 'z'));
 }
 
 async function scrollPlace(page: Page): Promise<{ x: number; y: number }> {
@@ -403,7 +410,7 @@ test.describe('editing a cell', () => {
       .poll(async () => (await storedCards(page, opened)).find((card) => card.id === id)?.fields)
       .toMatchObject({ properties: { [await columnId(page, 'Company')]: 'Northwind' } });
 
-    await page.keyboard.press('Control+z');
+    await page.keyboard.press(await primaryKey(page, 'z'));
     await expect(company).toHaveText('Afformance Ltd.');
   });
 
@@ -473,7 +480,7 @@ test.describe('editing a cell', () => {
     await expect
       .poll(async () => (await storedCards(page, opened)).find((card) => card.id === id)?.title)
       .toBe('Define the scope');
-    await page.keyboard.press('Control+z');
+    await page.keyboard.press(await primaryKey(page, 'z'));
     await expect(titleCell(page, id).locator('[data-slot="row-title"]')).toHaveText(
       'Define project scope',
     );
@@ -1002,7 +1009,7 @@ test.describe('moving rows', () => {
     if (!first || !third || !fourth) throw new Error('the board has fewer rows than expected');
 
     // Touch events as a touch screen sends them: the mouse of the test runner is not a finger.
-    const client = await page.context().newCDPSession(page);
+    const client = await touchScreen(page);
     const touch = (type: 'touchStart' | 'touchMove' | 'touchEnd', at?: { x: number; y: number }) =>
       client.send('Input.dispatchTouchEvent', {
         type,
@@ -1203,9 +1210,7 @@ test.describe('when the window changes size', () => {
     const start = page.viewportSize() ?? { width: 1280, height: 720 };
     const scroller = await table(page).elementHandle();
 
-    await table(page).evaluate((element) => {
-      element.scrollTo(180, 420);
-    });
+    await scrollTo(table(page), 180, 420);
     await expect.poll(() => scrollPlace(page)).toEqual({ x: 180, y: 420 });
 
     // Compact, medium, expanded, turned on its side, and back to where it began.
@@ -1245,9 +1250,7 @@ test.describe('when the window changes size', () => {
     expect(room.x).toBeGreaterThan(150);
     expect(room.y).toBeGreaterThan(200);
     const place = { x: Math.min(300, room.x), y: 200 };
-    await table(page).evaluate((element, to) => {
-      element.scrollTo(to.x, to.y);
-    }, place);
+    await scrollTo(table(page), place.x, place.y);
     await expect.poll(() => scrollPlace(page)).toEqual(place);
 
     // In a window this large the whole table fits: there is nothing to scroll.
@@ -1258,12 +1261,42 @@ test.describe('when the window changes size', () => {
 
     // What the reader scrolls to in the large window is theirs: it is not undone later.
     await page.setViewportSize({ width: 1400, height: 500 });
-    await table(page).evaluate((element) => {
-      element.scrollTo(0, 40);
-    });
+    await scrollTo(table(page), 0, 40);
     await expect.poll(() => scrollPlace(page)).toEqual({ x: 0, y: 40 });
     await page.setViewportSize({ width: 900, height: 500 });
     await expect.poll(() => scrollPlace(page)).toEqual({ x: 0, y: 40 });
+  });
+
+  test('a window turned on its side and back keeps the sideways place', async ({ page }) => {
+    // The sizes of docs/mobile-proposal.md, "잃는 경우", with the page's own observers in their
+    // own order: the stage changes with the turn, and the table's pane with it.
+    const opened = await openView(page, 'Project Tasks', 'Task Overview');
+    await addCards(page, opened, 5);
+    await page.setViewportSize({ width: 626, height: 890 });
+    await expect(page.locator('[data-stage]').first()).toHaveAttribute('data-stage', 'medium');
+    await scrollTo(table(page), 100, 0);
+    await expect.poll(() => scrollPlace(page)).toMatchObject({ x: 100 });
+
+    await page.setViewportSize({ width: 890, height: 626 });
+    await expect(page.locator('[data-stage]').first()).toHaveAttribute('data-stage', 'expanded');
+    const room = await table(page).evaluate((element) => element.scrollWidth - element.clientWidth);
+    expect(room).toBeGreaterThanOrEqual(100);
+    await expect.poll(() => scrollPlace(page)).toMatchObject({ x: 100 });
+    await page.setViewportSize({ width: 626, height: 890 });
+    await expect(page.locator('[data-stage]').first()).toHaveAttribute('data-stage', 'medium');
+    await expect.poll(() => scrollPlace(page)).toMatchObject({ x: 100 });
+  });
+
+  test('only WebKit is told to leave the table where it is when something above grows', async ({
+    page,
+    browserName,
+  }) => {
+    await openView(page, 'Project Tasks', 'Task Overview');
+    // Its scroll anchoring moves the table a pixel and back after a resize (styles/app.css,
+    // `webkit:`); the other engines keep theirs, and with it what is read in place.
+    expect(await table(page).evaluate((element) => getComputedStyle(element).overflowAnchor)).toBe(
+      browserName === 'webkit' ? 'none' : 'auto',
+    );
   });
 
   test('a layout that is one beat late does not cost the sideways place', async ({ page }) => {
@@ -1275,9 +1308,7 @@ test.describe('when the window changes size', () => {
     await page.setViewportSize({ width: 900, height: 600 });
     const room = await table(page).evaluate((element) => element.scrollWidth - element.clientWidth);
     expect(room).toBeGreaterThan(150);
-    await table(page).evaluate((element) => {
-      element.scrollLeft = 120;
-    });
+    await scrollTo(table(page), 120, 0);
     await expect.poll(() => scrollPlace(page)).toMatchObject({ x: 120 });
 
     const cut = await table(page).evaluate(
@@ -1371,7 +1402,7 @@ test.describe('with the keyboard alone', () => {
     expect(before).not.toContain('(typed)');
 
     await page.keyboard.press('Enter');
-    await page.keyboard.press('ControlOrMeta+a');
+    await page.keyboard.press(await primaryKey(page, 'a'));
     await page.keyboard.type('Keyboard Co.');
     await page.keyboard.press('Enter');
     await expect(cell).toHaveText('Keyboard Co.');
@@ -1387,10 +1418,16 @@ test.describe('with the keyboard alone', () => {
     await expect(titleCell(page, ids[1] ?? '').locator('input')).toBeFocused();
     await page.keyboard.press('Escape');
     await expect(titleCell(page, ids[1] ?? '')).toBeFocused();
+    // The other platform's modifier cannot move the grid focus to its ends.
+    const other = (await primaryName(page)) === 'Meta' ? 'Control' : 'Meta';
+    await page.keyboard.press(`${other}+End`);
+    await expect(titleCell(page, ids[1] ?? '')).toBeFocused();
+    await page.keyboard.press(`${other}+Home`);
+    await expect(titleCell(page, ids[1] ?? '')).toBeFocused();
     // The column is remembered across the rows.
-    await page.keyboard.press('Control+End');
+    await page.keyboard.press(await primaryKey(page, 'End'));
     await expect(table(page).locator('[data-row="calculations"] [data-cell]').last()).toBeFocused();
-    await page.keyboard.press('Control+Home');
+    await page.keyboard.press(await primaryKey(page, 'Home'));
     await expect(header(page, 'Name')).toBeFocused();
     // Enter on a heading opens its menu; Escape closes it and the focus is back.
     await page.keyboard.press('Enter');
@@ -1422,7 +1459,7 @@ test.describe('with the keyboard alone', () => {
     const id = await rowId(page, 'Identify dependencies');
     await titleCell(page, id).focus();
     if (testInfo.project.name === 'desktop') {
-      await page.keyboard.press('Tab');
+      await page.keyboard.press(await tabKey(page));
       await expect(rowOf(page, id).locator('a[data-open-card]')).toBeFocused();
       // Focus shows what hover shows.
       await expect(rowOf(page, id).locator('a[data-open-card]').locator('xpath=..')).toHaveCSS(
@@ -1430,7 +1467,7 @@ test.describe('with the keyboard alone', () => {
         '1',
       );
     }
-    await page.keyboard.press('Tab');
+    await page.keyboard.press(await tabKey(page));
     await expect(rowOf(page, id).locator('[data-more]')).toBeFocused();
     await page.keyboard.press('Enter');
     await expect(menuItem(page, 'delete')).toBeVisible();

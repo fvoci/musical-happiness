@@ -21,9 +21,10 @@ pub const ENV_PREFIX: &str = "FVOCI_";
 pub const DEFAULT_MAX_REQUEST_BYTES: u64 = 4 * 1024 * 1024;
 
 pub mod collab;
-mod env;
+mod environment;
 mod keys;
 pub mod mail;
+mod oidc_trust;
 mod scrapes;
 pub mod search;
 mod secret_key;
@@ -31,6 +32,7 @@ pub mod smtp;
 mod upload_limits;
 pub mod wiki;
 
+use environment::{ENV_KEYS, EnvKind, env_value};
 pub use scrapes::{MetricsAddress, MetricsToken};
 pub use secret_key::{ENV_ONLY, SECRET_KEY_ENV};
 
@@ -184,6 +186,9 @@ pub struct Configuration {
     /// on its own network. Off, such a provider is neither stored nor signed in
     /// through.
     pub oidc_allow_private_addresses: bool,
+    /// A PEM file of additional certificate authorities trusted by the OIDC client.
+    /// Empty to use only the system roots. Loaded when the client starts.
+    pub oidc_extra_ca_file: String,
     /// How many days the provider an organization moves away from (another issuer) is
     /// kept, for its people to carry their accounts over to the new one. Zero keeps
     /// none. An organization's limit: read through `App::limits`.
@@ -336,6 +341,7 @@ impl Default for Configuration {
             show_full_name: false,
             auth_mode: "native".to_owned(),
             oidc_allow_private_addresses: false,
+            oidc_extra_ca_file: String::new(),
             oidc_former_provider_days: 30,
             secret_key: None,
             oidc_extra_root_certificates: Vec::new(),
@@ -414,6 +420,7 @@ impl std::fmt::Debug for Configuration {
                 "oidc_allow_private_addresses",
                 &self.oidc_allow_private_addresses,
             )
+            .field("oidc_extra_ca_file", &self.oidc_extra_ca_file)
             .field("oidc_former_provider_days", &self.oidc_former_provider_days)
             .field("secret_key", &self.secret_key)
             .field("org_creation", &self.org_creation)
@@ -470,84 +477,6 @@ impl std::fmt::Debug for Configuration {
             .finish_non_exhaustive()
     }
 }
-
-/// How the text of an environment variable becomes a configuration value.
-#[derive(Debug, Clone, Copy)]
-enum EnvKind {
-    Text,
-    Number,
-    Flag,
-    /// A comma-separated list.
-    List,
-}
-
-/// The configuration keys that an environment variable can override, a key of
-/// `filess3config` as `filess3config.<key>`. The variable is [`env_name`] of the key, for
-/// example `FVOCI_SESSION_IDLE_DAYS` and `FVOCI_FILESS3CONFIG_BUCKET`. The S3 credentials
-/// have none: the S3 client reads them from the `AWS_*` variables when `accesskeyid` is
-/// empty.
-const ENV_KEYS: [(&str, EnvKind); 60] = [
-    ("serverroot", EnvKind::Text),
-    ("port", EnvKind::Number),
-    ("dbtype", EnvKind::Text),
-    ("dbconfig", EnvKind::Text),
-    ("dbpingattempts", EnvKind::Number),
-    ("server_lock_wait_seconds", EnvKind::Number),
-    ("usessl", EnvKind::Flag),
-    ("webpath", EnvKind::Text),
-    ("filesdriver", EnvKind::Text),
-    ("filespath", EnvKind::Text),
-    ("filess3config.bucket", EnvKind::Text),
-    ("filess3config.pathprefix", EnvKind::Text),
-    ("filess3config.region", EnvKind::Text),
-    ("filess3config.endpoint", EnvKind::Text),
-    ("filess3config.ssl", EnvKind::Flag),
-    ("filess3config.signv2", EnvKind::Flag),
-    ("filess3config.sse", EnvKind::Flag),
-    ("filess3config.timeout", EnvKind::Number),
-    ("maxfilesize", EnvKind::Number),
-    ("prometheusaddress", EnvKind::Text),
-    ("prometheustoken", EnvKind::Text),
-    ("webhook_update", EnvKind::List),
-    ("allowed_origins", EnvKind::List),
-    ("session_idle_days", EnvKind::Number),
-    ("session_max_days", EnvKind::Number),
-    ("localonly", EnvKind::Flag),
-    ("enablelocalmode", EnvKind::Flag),
-    ("localmodesocketlocation", EnvKind::Text),
-    ("enablepublicsharedboards", EnvKind::Flag),
-    ("teammatenamedisplay", EnvKind::Text),
-    ("showemailaddress", EnvKind::Flag),
-    ("showfullname", EnvKind::Flag),
-    ("authmode", EnvKind::Text),
-    ("oidc_allow_private_addresses", EnvKind::Flag),
-    ("oidc_former_provider_days", EnvKind::Number),
-    ("org_creation", EnvKind::Text),
-    ("websocket_ping_seconds", EnvKind::Number),
-    ("public_link_connections_per_board", EnvKind::Number),
-    ("public_link_connections_per_address", EnvKind::Number),
-    ("compress_responses", EnvKind::Flag),
-    ("max_request_bytes", EnvKind::Number),
-    ("trash_retention_days", EnvKind::Number),
-    ("upload_part_bytes", EnvKind::Number),
-    ("tmp_path", EnvKind::Text),
-    ("max_pending_upload_bytes", EnvKind::Number),
-    ("max_import_bytes", EnvKind::Number),
-    ("max_comment_versions", EnvKind::Number),
-    ("max_concurrent_exports", EnvKind::Number),
-    ("export_stall_seconds", EnvKind::Number),
-    ("max_concurrent_imports", EnvKind::Number),
-    ("trusted_proxies", EnvKind::List),
-    ("login_pair_free_failures", EnvKind::Number),
-    ("login_pair_base_delay_seconds", EnvKind::Number),
-    ("login_pair_max_delay_seconds", EnvKind::Number),
-    ("login_account_max_failures", EnvKind::Number),
-    ("login_account_lock_seconds", EnvKind::Number),
-    ("login_address_attempts_per_minute", EnvKind::Number),
-    ("password_hash_concurrency", EnvKind::Number),
-    ("password_hash_queue", EnvKind::Number),
-    ("password_hash_queue_seconds", EnvKind::Number),
-];
 
 const MILLIS_PER_DAY: i64 = 24 * 60 * 60 * 1000;
 
@@ -743,7 +672,7 @@ impl Configuration {
             if let Some(text) = env(&name)
                 && !scrapes::is_unset_token(key, &text)
             {
-                set_value(&mut keys, key, env::env_value(&name, &text, kind)?);
+                set_value(&mut keys, key, env_value(&name, &text, kind)?);
             }
         }
 

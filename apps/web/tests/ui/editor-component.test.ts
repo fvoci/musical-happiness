@@ -147,6 +147,22 @@ describe('BodyEditor', () => {
     expect(onChange).toHaveBeenCalledTimes(1);
   });
 
+  it('undoes local typing after a revision without undoing the received document', async () => {
+    const { container, rerender } = render(BodyEditor, {
+      doc: doc(paragraph(text('before'))),
+      revision: 1,
+    });
+    await rerender({ doc: doc(paragraph(text('received'))), revision: 2 });
+    const editor = editorIn(container);
+    typeAtEnd(editor, ' typed');
+    expect(editor.getText()).toBe('received typed');
+    editor.commands.undo();
+    expect(editor.getText()).toBe('received');
+    expect(editor.commands.undo()).toBe(false);
+    editor.commands.redo();
+    expect(editor.getText()).toBe('received typed');
+  });
+
   it('loads every document the comparison with the view is run on', () => {
     for (const [name, body] of Object.entries({ ...HAND_MADE, ...WITH_DIAGRAMS })) {
       const onLoad = vi.fn<(stored: DocNode | null | undefined) => void>();

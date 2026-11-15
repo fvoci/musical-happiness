@@ -153,8 +153,12 @@
     };
   });
 
-  function openDrawer(): void {
-    opener = document.activeElement;
+  /**
+   * The button pressed is what the focus goes back to: Safari does not focus a
+   * button that is clicked, so the focused element may be the page itself.
+   */
+  function openDrawer(event: Event): void {
+    opener = event.currentTarget instanceof Element ? event.currentTarget : document.activeElement;
     sidebar.drawerOpen = true;
   }
 
@@ -164,9 +168,9 @@
   }
 
   /** The strip's first button: the whole list, as a drawer or, on an expanded page, back in its column. */
-  function expand(): void {
+  function expand(event: Event): void {
     if (layout.drawer) {
-      openDrawer();
+      openDrawer(event);
     } else {
       sidebar.setCollapsed(false);
       void focusOn('close-sidebar');
