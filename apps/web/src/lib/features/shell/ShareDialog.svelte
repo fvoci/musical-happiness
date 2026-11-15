@@ -154,8 +154,6 @@
   /** Asking before a new link stops the old one. */
   let confirmOpen = $state(false);
 
-  /** The public link, for its admins: a board's reads its cards, a wiki's its pages. */
-  const publicLink = $derived(!membersOnly);
   const link = $derived(sharing?.enabled && sharing.token ? linkOf(sharing.token) : '');
 
   async function readSharing(): Promise<void> {
@@ -198,7 +196,7 @@
     untrack(() => {
       query = '';
       found = [];
-      if (publicLink) void readSharing();
+      if (!membersOnly) void readSharing();
     });
   }
 
@@ -400,7 +398,7 @@
       {/if}
 
       <!-- The public link. -->
-      {#if publicLink}
+      {#if !membersOnly}
         <section class="grid gap-2 border-t pt-4" aria-labelledby="{uid}-public">
           <h3 id="{uid}-public" class="font-medium">{m['ShareBoard.PublishTitle']()}</h3>
           <label class="flex min-h-8 items-center gap-3 roomy:min-h-touch">

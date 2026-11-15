@@ -121,6 +121,29 @@ describe('a wiki shared by its admins', () => {
     store.close();
   });
 
+  it('keeps a change told while it was read over the older reading', async () => {
+    const made = await wikiOf('O');
+    const read = made.other.board.bind(made.other);
+    let release = (): void => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    made.other.board = async (boardId) => {
+      const board = await read(boardId);
+      await held;
+      return board;
+    };
+    const store = new WikiStore(made.theirs, made.wikiId);
+    const loading = store.load();
+    await settle();
+    await made.backend.patchBoard(made.wikiId, { minimumRole: 'viewer' });
+    await settle();
+    release();
+    await loading;
+    expect([store.status, store.wiki?.minimumRole]).toEqual(['ready', 'viewer']);
+    store.close();
+  });
+
   it('adds, changes and takes off its members, a refused change put back and told', async () => {
     const made = await wikiOf('P');
     const store = new WikiStore(made.workspace, made.wikiId);

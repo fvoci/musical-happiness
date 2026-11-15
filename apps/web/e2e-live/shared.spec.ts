@@ -4,7 +4,8 @@
  * a card and reads its body and comments, and announces an anonymous visit.
  * Somebody signed in reads it the same way. A wrong token, and the link
  * turned off, show "not found". A wiki is read by its link the same way: its
- * tree and its pages, naming nobody. Pictures, wide and at 390 pixels, go to
+ * tree and its pages, naming nobody; the organization's public links turned
+ * off, or its own, it is not found. Pictures, wide and at 390 pixels, go to
  * `target/screens/shared/` (a wiki's, in Korean, to `target/screens/wiki-people/`)
  * when `FVOCI_SCREENS` is set.
  */
@@ -13,6 +14,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { screensDir } from '../e2e/screens.ts';
 
 import {
+  ADMIN,
   boardPath,
   makeBoard,
   person,
@@ -342,6 +344,27 @@ test('a wiki is read by its public link without signing in: its tree and pages, 
     }
     await korean.context().close();
   }
+
+  // The organization's public links turned off, and on again: not found, then read.
+  const mine = (await (
+    await api.get('/api/v1/users/me/workspaces')
+  ).json()) as Schemas['UserWorkspace'][];
+  const orgId = mine.find((one) => one.id === workspaceId)?.orgId ?? '';
+  const admin = await signedIn(base, ADMIN);
+  const links = async (publicLinks: boolean) => {
+    const changed = await admin.patch(`/api/v1/org/${orgId}`, { data: { publicLinks } });
+    expect(changed.ok()).toBe(true);
+  };
+  try {
+    await links(false);
+    await page.reload();
+    await expect(page.getByTestId('not-found')).toBeVisible();
+  } finally {
+    await links(true);
+  }
+  await page.reload();
+  await expect(reader.getByTestId('page-title')).toHaveText('Planting');
+  await admin.dispose();
 
   // The link turned off: the same "not found" as any other.
   expect(

@@ -172,7 +172,8 @@ export class WikiStore {
       ]);
       if (this.#closed || reading !== this.#readings) return;
       void this.workspace.learnUsers(members.map(memberId), { members: true });
-      [this.wiki, this.pages] = [wiki, pages];
+      this.#takeWiki(wiki);
+      this.pages = pages;
       // Members told meanwhile are newer than this reading.
       if (membersTold === this.#people.told) this.members = members;
       this.status = 'ready';
@@ -231,15 +232,18 @@ export class WikiStore {
 
   // ------------------------------------------------------------ changes
 
+  /** Shows `wiki` unless a newer one is shown: a reading may land after a change told meanwhile. */
+  #takeWiki(wiki: Board): void {
+    if (!this.wiki || this.wiki.updateAt <= wiki.updateAt) this.wiki = wiki;
+  }
+
   #apply(change: Change): void {
     switch (change.kind) {
       case 'board':
         if (change.board.id !== this.wikiId) break;
         // Deleted and brought back, or joined: everything of it is read again.
         if (this.missing) void this.load();
-        else if (!this.wiki || this.wiki.updateAt <= change.board.updateAt) {
-          this.wiki = change.board;
-        }
+        else this.#takeWiki(change.board);
         break;
       case 'boardDeleted':
         if (change.boardId !== this.wikiId) break;
@@ -301,7 +305,7 @@ export class WikiStore {
         this.workspace.backend.members(this.wikiId),
       ]);
       if (this.#isClosed() || reading !== this.#readings) return;
-      this.wiki = wiki;
+      this.#takeWiki(wiki);
       // Members told meanwhile are newer than this reading.
       if (membersTold === this.#people.told) this.members = members;
       const shown = this.openPage;
@@ -415,7 +419,7 @@ export class WikiStore {
       if (this.wiki) this.wiki = { ...this.wiki, ...to };
       try {
         const changed = await this.workspace.backend.patchBoard(this.wikiId, to);
-        if (!this.wiki || this.wiki.updateAt <= changed.updateAt) this.wiki = changed;
+        this.#takeWiki(changed);
         this.workspace.receiveBoard(changed);
       } catch (error) {
         if (this.wiki) this.wiki = { ...this.wiki, ...from };
