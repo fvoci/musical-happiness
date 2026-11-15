@@ -129,6 +129,8 @@ mod tests {
             mode: DocMode::Write,
             checking,
             missed: None,
+            caret: None,
+            carets_missed: None,
         }
     }
 

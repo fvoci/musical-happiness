@@ -8,7 +8,8 @@
 
   Bound to a shared document (`collab`, a card's body in its room), the
   editor shows what the document holds and writes into it: `doc`,
-  `revision`, `onLoad` and `onChange` are not read. What the editor cannot
+  `revision`, `onLoad` and `onChange` are not read. With `carets` it shows
+  where the others who edit it are (carets.ts). What the editor cannot
   draw is kept, the editor says so and stops editing until it fits again.
 
   Without one (the stories, and the editor's own tests), the document is
@@ -32,12 +33,15 @@
   import { BODY_FIELD, type BodyEditorProps, type BodyReferences } from './body-editor.ts';
   import { drawReferences } from './reference-chip.ts';
   import { fromShared, setMayWrite, type DroppedWhy } from './shared-place.ts';
+  import { caretsOf } from './carets.ts';
+  import './carets.css';
   import './editor.css';
   import './editing-place.css';
   import { loadEmoji, searchEmoji } from './emoji.ts';
   import { bodyExtensions, type MentionOptions } from './extensions.ts';
   import { heldWritten, placeOf } from './editing-place.ts';
   import { cancelMathEditingOf, mathDraftChanged } from './math-editing.ts';
+  import { MovesKept } from './moves-kept.ts';
   import type { ReferenceOptions } from './reference.ts';
   import { emptyDoc, isEmptyDoc, toStoredDoc, validateDoc, type DocNode } from './schema.ts';
   import { suggestionList } from './suggestion-list.ts';
@@ -61,6 +65,9 @@
     toolbar,
     onLoad,
     collab,
+    carets,
+    onComposing,
+    readsFirst,
     onEditor,
     canWrite = false,
     onImageDropped,
@@ -159,6 +166,13 @@
     render: suggestionList({ kind: 'reference', label: m.editor_suggest_references }),
   };
 
+  /** What binds the editor to a shared document, keeps the reader's moves through what the others do, and shows their carets. */
+  const sharing = (shared: NonNullable<BodyEditorProps['collab']>) => [
+    Collaboration.configure({ document: shared, field: BODY_FIELD }),
+    MovesKept.configure({ readsFirst }),
+    ...(carets ? [caretsOf({ ...carets, nameOf })] : []),
+  ];
+
   onMount(() => {
     // Bound to a shared document, the editor takes what is in it; `doc` is not read.
     const shared = collab;
@@ -181,7 +195,7 @@
           }
         : { content: first ?? emptyDoc() }),
       extensions: [
-        ...(shared ? [Collaboration.configure({ document: shared, field: BODY_FIELD })] : []),
+        ...(shared ? sharing(shared) : []),
         ...bodyExtensions({
           history: !shared,
           placeholder,
@@ -246,7 +260,7 @@
       const place = placeOf(created.state);
       const unsent = mathDraftChanged(created.view) || (place !== null && heldWritten(place));
       if (shared && unsent) fromEditor(() => onDraftDropped?.())();
-      cancelMathEditingOf(created.view);
+      leaveFields(created);
       created.destroy();
     };
   });
@@ -282,6 +296,38 @@
     const attributes = rootAttributes();
     editor?.setOptions({ editorProps: { attributes } });
   });
+
+  /** A syllable is being composed in the body: said to whoever holds what comes from outside. */
+  let composing = false;
+
+  /** The editor goes away: a formula's field with it, and the syllable it was in the middle of. */
+  function leaveFields(leaving: Editor): void {
+    cancelMathEditingOf(leaving.view);
+    if (composing) fromEditor(() => onComposing?.(false))();
+    composing = false;
+  }
+
+  /** A stroke of a syllable in the body's own text (not in a field drawn into it: a formula's). */
+  function composes(event: CompositionEvent): void {
+    if (event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLInputElement) {
+      return;
+    }
+    composing = true;
+    onComposing?.(true);
+  }
+
+  /**
+   * The composition is over. Said once the editor has read what it left in
+   * the page, which it does right after this (in a microtask of its own,
+   * queued before this one), and before whatever is typed next.
+   */
+  function composed(): void {
+    if (!composing) return;
+    queueMicrotask(() => {
+      composing = false;
+      onComposing?.(false);
+    });
+  }
 
   // Names that become known later: a mention shows the name it had when it
   // was drawn, so the ones in the page are brought up to date.
@@ -321,7 +367,13 @@
   {#if toolbar && editor}
     {@render toolbar({ editor, changes })}
   {/if}
-  <div bind:this={host} class="doc-editor-text"></div>
+  <div
+    bind:this={host}
+    class="doc-editor-text"
+    oncompositionstart={composes}
+    oncompositionupdate={composes}
+    oncompositionend={composed}
+  ></div>
   <!-- Said aloud when it changes: an upload under way, an upload that failed, a body that cannot be edited. -->
   <p class="doc-editor-status" role="status" data-shown={status === '' ? undefined : ''}>
     {status}

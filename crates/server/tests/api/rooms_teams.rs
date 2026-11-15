@@ -283,3 +283,52 @@ async fn a_board_is_told_to_whoever_joins_a_team_on_it_from_then_on() {
     assert_eq!(told["block"]["title"], json!("Told"), "{told}");
     th.teardown().await;
 }
+
+/// A caret names its user to everybody in its room. Whoever may be in a room sees who
+/// writes there by the rule of who sees whom, so the name can be looked up: also a
+/// guest who reads the board, of somebody who writes on it through a team alone.
+#[tokio::test]
+async fn a_guest_in_a_room_names_who_writes_there_through_a_team() {
+    use fvoci_model::{User, WorkspaceRole};
+
+    use crate::rooms::awareness;
+
+    let th = seldom().start().await.init_basic().await;
+    let (table, _team_id, mut writer) = in_a_room_through_a_team(&th, "editor").await;
+    let writer_id = th.client2.me().await.id;
+    let guest_client = th.add_user("guest").await;
+    let guest_id = guest_client.me().await.id;
+    th.app
+        .store()
+        .execute_unchecked(&format!(
+            "UPDATE workspace_members SET role = '{}' WHERE user_id = '{guest_id}' \
+             AND workspace_id = '{TEST_WORKSPACE_ID}'",
+            WorkspaceRole::Guest.as_str()
+        ))
+        .await
+        .expect("made a guest of the workspace");
+    give(&th, &table.board_id, &guest_id, "viewer").await;
+    let mut guest = Peer::connect(&guest_client, 302).await;
+    let joined = guest.joined(TEST_WORKSPACE_ID, &table.card_id).await;
+    assert_eq!(joined["mode"], json!("read"), "{joined}");
+
+    let place = json!({"item": {"client": 7, "clock": 1}, "assoc": 0});
+    let state = json!({"cursor": {"anchor": place, "head": place}});
+    writer
+        .send_caret(&awareness(writer.client(), 1, &state))
+        .await;
+    assert_eq!(guest.caret().await.state["user"], json!({"id": writer_id}));
+    let seen: Vec<User> = guest_client
+        .post(
+            &format!("/w/{TEST_WORKSPACE_ID}/users"),
+            &json!([writer_id]),
+        )
+        .await
+        .ok_json();
+    assert_eq!(
+        seen.iter().map(|user| &user.id).collect::<Vec<_>>(),
+        [&writer_id],
+        "the guest sees who writes on the board they share"
+    );
+    th.teardown().await;
+}

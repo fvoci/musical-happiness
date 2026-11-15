@@ -12,8 +12,8 @@
  * (`already_open`, tried again by the room as any refusal for now) while the
  * first is open.
  */
-import { decodeDocFrame } from '../logic/doc-frame.ts';
-import type { RoomHears, RoomLine } from '../logic/doc-room-types.ts';
+import { decodeCaretFrame, decodeDocFrame } from '../logic/doc-frame.ts';
+import type { RoomHeld, RoomHears, RoomLine } from '../logic/doc-room-types.ts';
 
 interface Seat {
   key: string;
@@ -36,6 +36,21 @@ export interface RoomSends {
 }
 
 const isMode = (value: unknown): value is 'write' | 'read' => value === 'write' || value === 'read';
+
+/**
+ * The most bytes of a state vector a join names: in base64 it stays well
+ * under what the server takes of a command (64 KiB). A document so many
+ * have written in that its state vector is larger is asked for whole.
+ */
+const NAMED_MOST = 32 * 1024;
+
+/** What a `JOIN_DOC` says of the document held: its epoch, and its state vector in base64. */
+function saidOf(held: RoomHeld | undefined): { epoch?: number; stateVector?: string } {
+  if (!held || held.stateVector.length > NAMED_MOST) return {};
+  let binary = '';
+  for (const byte of held.stateVector) binary += String.fromCharCode(byte);
+  return { epoch: held.epoch, stateVector: btoa(binary) };
+}
 
 export class LiveRooms {
   readonly #sends: RoomSends;
@@ -75,7 +90,7 @@ export class LiveRooms {
         get connected() {
           return up();
         },
-        join: () => {
+        join: (held) => {
           if (!this.#up || seat.closed) return;
           if (this.#another(seat)) {
             queueMicrotask(() => {
@@ -87,7 +102,7 @@ export class LiveRooms {
           const waiting = this.#joins.get(seat.key) ?? [];
           waiting.push(seat);
           this.#joins.set(seat.key, waiting);
-          this.#sends.text({ action: 'JOIN_DOC', workspaceId, cardId });
+          this.#sends.text({ action: 'JOIN_DOC', workspaceId, cardId, ...saidOf(held) });
         },
         send: (frame) => {
           if (this.#up && !seat.closed) this.#sends.bytes(frame);
@@ -192,10 +207,14 @@ export class LiveRooms {
     return true;
   }
 
-  /** A binary frame. One that is no sync message, or of no room of this connection, is dropped. */
+  /** A binary frame. One that is no sync message and no carets, or of no room of this connection, is dropped. */
   bytes(data: Uint8Array): void {
     const frame = decodeDocFrame(data);
-    if (!frame) return;
-    this.#byDoc.get(frame.doc)?.hears.frame(frame);
+    if (frame) {
+      this.#byDoc.get(frame.doc)?.hears.frame(frame);
+      return;
+    }
+    const carets = decodeCaretFrame(data);
+    if (carets) this.#byDoc.get(carets.doc)?.hears.carets(carets);
   }
 }

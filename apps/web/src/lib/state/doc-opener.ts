@@ -11,6 +11,9 @@ import type { BodyDoc, BodyDocHears, BodyDocState } from './backend.ts';
 const WAITING: BodyDocState = {
   status: 'joining',
   doc: undefined,
+  carets: undefined,
+  composing: () => undefined,
+  readsFirst: () => () => undefined,
   mode: 'read',
   reason: undefined,
   writable: false,

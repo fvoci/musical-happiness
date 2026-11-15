@@ -11,7 +11,7 @@
  */
 import * as Y from 'yjs';
 
-import { encodeDocFrame } from '../logic/doc-frame.ts';
+import { encodeCaretFrame, encodeDocFrame } from '../logic/doc-frame.ts';
 import {
   DocRoom,
   type RoomEffect,
@@ -22,6 +22,15 @@ import {
 } from '../logic/doc-room.ts';
 
 import type { BodyDoc, BodyDocHears, BodyDocState } from './backend.ts';
+import { Carets } from './doc-carets.ts';
+
+/**
+ * How long after the last sign of a syllable being composed what the room
+ * sent is held back, in milliseconds: a composition left open (a keyboard
+ * that composes whole words, a reader who stopped mid-syllable) does not
+ * keep the others' writing away.
+ */
+export const HELD_IDLE = 2000;
 
 /** How long leaving a card waits for the server to take what was written, in milliseconds. */
 const SETTLE_WAIT = 3000;
@@ -34,6 +43,17 @@ class RoomClient implements BodyDoc {
   /** Whoever waits for the server to have everything (`settle`). */
   #settling: (() => void)[] = [];
   #doc: Y.Doc | undefined;
+  /** The carets of the document held. */
+  #carets: Carets | undefined;
+  /** The reader's caret could be told to the room when it was last looked at. */
+  #tells = false;
+  /** The room took the caret it was just told. */
+  #told = false;
+  /** The changes the room sent while the reader composes a syllable, in their order; undefined while they do not. */
+  #held: (() => void)[] | undefined;
+  #heldTimer: ReturnType<typeof setTimeout> | undefined;
+  /** What has the editor read the selection of the page (`BodyDocState.readsFirst`). */
+  #read: (() => void) | undefined;
   #closed = false;
 
   constructor(line: RoomLine, hears: BodyDocHears) {
@@ -51,13 +71,20 @@ class RoomClient implements BodyDoc {
       frame: (frame) => {
         this.#take({ type: 'frame', frame });
       },
+      carets: (carets) => {
+        this.#take({ type: 'carets', carets });
+      },
     });
     if (this.#port.connected) this.#take({ type: 'up' });
   }
 
   get state(): BodyDocState {
     const { phase, mode, reason, writable, pending, retrying } = this.#room.status;
-    return { status: phase, doc: this.#doc, mode, reason, writable, pending, retrying };
+    const doc = this.#doc;
+    const carets = this.#carets?.awareness;
+    const [composing, readsFirst] = [this.#composing, this.#readsFirst];
+    const told = { status: phase, doc, carets, composing, readsFirst, mode, reason };
+    return { ...told, writable, pending, retrying };
   }
 
   retry(): void {
@@ -83,6 +110,41 @@ class RoomClient implements BodyDoc {
     });
   }
 
+  /** The editor's reading of the page, until it is taken back (`BodyDocState.readsFirst`). */
+  readonly #readsFirst = (read: () => void): (() => void) => {
+    this.#read = read;
+    return () => {
+      if (this.#read === read) this.#read = undefined;
+    };
+  };
+
+  /** The reader composes a syllable, or no longer does (`BodyDocState.composing`). */
+  readonly #composing = (composing: boolean): void => {
+    if (this.#closed) return;
+    clearTimeout(this.#heldTimer);
+    this.#heldTimer = undefined;
+    if (composing) {
+      this.#held ??= [];
+      // Said again with every stroke of the syllable: quiet for a while, it is held no longer.
+      this.#heldTimer = setTimeout(() => {
+        this.#composing(false);
+      }, HELD_IDLE);
+      return;
+    }
+    const held = this.#held ?? [];
+    this.#held = undefined;
+    for (const take of held) take();
+  };
+
+  /**
+   * Takes in a change the room sent: now, or after the syllable being
+   * composed (a change in its line would end the composition).
+   */
+  #later(take: () => void): void {
+    if (this.#held) this.#held.push(take);
+    else take();
+  }
+
   #waitsForAnswers(): boolean {
     const { phase, pending } = this.#room.status;
     return !this.#closed && pending && phase === 'joined';
@@ -96,6 +158,8 @@ class RoomClient implements BodyDoc {
     this.#port.close();
     for (const timer of this.#timers.values()) clearTimeout(timer);
     this.#timers.clear();
+    clearTimeout(this.#heldTimer);
+    this.#held = undefined;
     this.#hold(undefined);
     for (const done of [...this.#settling]) done();
   }
@@ -114,22 +178,67 @@ class RoomClient implements BodyDoc {
       if (effect.type === 'changed') changed = true;
       else this.#run(effect);
     }
+    this.#tellAgain();
     if (changed || held !== this.#doc) {
       this.#hears.state(this.state);
       if (!this.#waitsForAnswers()) for (const done of [...this.#settling]) done();
     }
   }
 
+  /** In the room to write, where it was not before: the room is told where the reader's caret is. */
+  #tellAgain(): void {
+    const { phase, mode } = this.#room.status;
+    const tells = phase === 'joined' && mode === 'write';
+    if (tells && !this.#tells) this.#carets?.again();
+    this.#tells = tells;
+  }
+
+  /** Tells the room the reader's caret; whether it could be told now. */
+  #tellCaret(update: Uint8Array): boolean {
+    this.#told = false;
+    this.#take({ type: 'caret', update });
+    return this.#told;
+  }
+
   #run(effect: Exclude<RoomEffect, { type: 'changed' }>): void {
     switch (effect.type) {
-      case 'join':
-        this.#port.join();
+      case 'join': {
+        const doc = effect.held === undefined ? undefined : this.#doc;
+        this.#port.join(doc && { epoch: effect.held ?? 0, stateVector: Y.encodeStateVector(doc) });
         break;
+      }
+      case 'answer': {
+        // A state vector that cannot be read says nothing of what the server holds: all of it goes.
+        const doc = this.#doc;
+        const update = doc && (lackedBy(doc, effect.theirs) ?? Y.encodeStateAsUpdate(doc));
+        if (update) this.#take({ type: 'missing', update });
+        break;
+      }
       case 'send':
         this.#port.send(encodeDocFrame(effect.frame));
         break;
-      case 'apply':
-        if (this.#doc) this.#apply(this.#doc, effect.update);
+      case 'apply': {
+        // Into the document it was sent for: one let go meanwhile takes nothing.
+        const doc = this.#doc;
+        this.#later(() => {
+          if (!doc || doc !== this.#doc) return;
+          // Where the reader's caret went is read first: the change would take an unread move back.
+          this.#read?.();
+          this.#apply(doc, effect.update);
+        });
+        break;
+      }
+      case 'tell':
+        this.#port.send(encodeCaretFrame(effect.carets));
+        this.#told = true;
+        break;
+      // A caret does not wait for a syllable: it ends no composition, and one whose place is in
+      // a change that waits is drawn once that change is in.
+      case 'carets':
+        this.#carets?.take(effect.update);
+        break;
+      case 'unseen':
+        this.#carets?.away();
         break;
       case 'fresh': {
         const doc = new Y.Doc();
@@ -185,7 +294,15 @@ class RoomClient implements BodyDoc {
     const before = this.#doc;
     if (before === doc) return;
     before?.off('update', this.#changed);
+    this.#carets?.destroy();
+    // What waited for a syllable was the document before's; its editor goes with it.
+    clearTimeout(this.#heldTimer);
+    this.#heldTimer = undefined;
+    this.#held = undefined;
     this.#doc = doc;
+    this.#carets = doc ? new Carets(doc, (update) => this.#tellCaret(update)) : undefined;
+    // A new document's carets are told once the editor says where the reader is.
+    this.#tells = false;
     doc?.on('update', this.#changed);
     before?.destroy();
   }
@@ -208,6 +325,18 @@ export function missingFrom(doc: Y.Doc, whole: Uint8Array): Uint8Array | undefin
     return undefined;
   } finally {
     theirs.destroy();
+  }
+}
+
+/**
+ * What `doc` has that a holder of the state vector `theirs` lacks, with
+ * every deletion `doc` knows of; undefined when `theirs` is no state vector.
+ */
+function lackedBy(doc: Y.Doc, theirs: Uint8Array): Uint8Array | undefined {
+  try {
+    return Y.encodeStateAsUpdate(doc, theirs);
+  } catch {
+    return undefined;
   }
 }
 

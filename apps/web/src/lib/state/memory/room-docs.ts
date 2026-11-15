@@ -16,6 +16,8 @@ import {
   type DocNode,
 } from '../../editor/schema.ts';
 
+import type { StoredCard } from './world.ts';
+
 /** The client of a document made from a body: the same in every tab, so that two makings are one. */
 const MAKER = 1;
 
@@ -49,4 +51,19 @@ export function sameBody(read: DocNode | null, stored: DocNode | null): boolean 
   const same = JSON.stringify(read) === JSON.stringify(bodyOf(made));
   made.destroy();
   return same;
+}
+
+/** A short sum of a text (FNV-1a), to tell apart bodies a document was made from. */
+function sum(text: string): string {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < text.length; index += 1) {
+    hash = Math.imul(hash ^ text.charCodeAt(index), 0x01000193) >>> 0;
+  }
+  return hash.toString(36);
+}
+
+/** What makes two tabs' rooms one: the card, its making, the epoch and the body the document came from. */
+export function tabKey(card: StoredCard | undefined, cardId: string, epoch: number): string {
+  const made = sum(JSON.stringify(card?.body ?? null));
+  return `${card?.boardId ?? ''} ${cardId} ${String(card?.createAt ?? 0)} ${String(epoch)} ${made}`;
 }

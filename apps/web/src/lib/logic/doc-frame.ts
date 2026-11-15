@@ -8,7 +8,7 @@
  * Nothing here knows Yjs: a payload is bytes.
  */
 
-import type { RoomFrame as DocFrame } from './doc-room-types.ts';
+import type { RoomCarets, RoomFrame as DocFrame } from './doc-room-types.ts';
 
 export type { DocFrame };
 
@@ -17,8 +17,9 @@ export const SYNC_STEP_1 = 0;
 export const SYNC_STEP_2 = 1;
 export const SYNC_UPDATE = 2;
 
-/** The one kind of frame there is: a sync message. Awareness (1) is not read yet. */
+/** The kinds of frame: a sync message, and carets (an awareness update). */
 const KIND_SYNC = 0;
+const KIND_CARETS = 1;
 
 function writeVaruint(out: number[], value: number): void {
   let rest = value;
@@ -42,12 +43,21 @@ export function encodeDocFrame(frame: DocFrame): Uint8Array<ArrayBuffer> {
   return bytes;
 }
 
-/**
- * Reads a frame. Undefined for what is to be dropped: a frame of another
- * kind, a sync message of no known kind, a number that does not end or is
- * too large to count with, a length that is not the bytes that are left.
- */
-export function decodeDocFrame(bytes: Uint8Array): DocFrame | undefined {
+/** A frame of carets: the room, the epoch, and the awareness update as it is. */
+export function encodeCaretFrame(carets: RoomCarets): Uint8Array<ArrayBuffer> {
+  const head: number[] = [];
+  writeVaruint(head, carets.doc);
+  writeVaruint(head, KIND_CARETS);
+  writeVaruint(head, carets.epoch);
+  writeVaruint(head, carets.update.length);
+  const bytes = new Uint8Array(head.length + carets.update.length);
+  bytes.set(head);
+  bytes.set(carets.update, head.length);
+  return bytes;
+}
+
+/** Reads varuints from the front of `bytes`: each call the next, undefined for one that does not end or is too large to count with. */
+function reader(bytes: Uint8Array): { read: () => number | undefined; rest: () => Uint8Array } {
   let at = 0;
   const read = (): number | undefined => {
     let value = 0;
@@ -62,6 +72,17 @@ export function decodeDocFrame(bytes: Uint8Array): DocFrame | undefined {
       if (scale > Number.MAX_SAFE_INTEGER) return undefined;
     }
   };
+  return { read, rest: () => bytes.subarray(at) };
+}
+
+/**
+ * Reads a frame of a sync message. Undefined for what is to be dropped (or
+ * is a frame of carets): a frame of another kind, a sync message of no
+ * known kind, a number that does not end or is too large to count with, a
+ * length that is not the bytes that are left.
+ */
+export function decodeDocFrame(bytes: Uint8Array): DocFrame | undefined {
+  const { read, rest } = reader(bytes);
   const doc = read();
   const kind = read();
   const epoch = read();
@@ -71,8 +92,21 @@ export function decodeDocFrame(bytes: Uint8Array): DocFrame | undefined {
     return undefined;
   }
   if (kind !== KIND_SYNC || sync > SYNC_UPDATE) return undefined;
-  if (length !== bytes.length - at) return undefined;
-  return { doc, epoch, sync, payload: bytes.subarray(at) };
+  const payload = rest();
+  return length === payload.length ? { doc, epoch, sync, payload } : undefined;
+}
+
+/** Reads a frame of carets; undefined for any other frame, and for one whose length is not the bytes that are left. */
+export function decodeCaretFrame(bytes: Uint8Array): RoomCarets | undefined {
+  const { read, rest } = reader(bytes);
+  const doc = read();
+  const kind = read();
+  const epoch = read();
+  const length = read();
+  if (doc === undefined || epoch === undefined || length === undefined) return undefined;
+  if (kind !== KIND_CARETS) return undefined;
+  const update = rest();
+  return length === update.length ? { doc, epoch, update } : undefined;
 }
 
 /**
@@ -113,4 +147,18 @@ export function packUpdates(
   }
   close();
   return payloads;
+}
+
+/**
+ * The updates before the first that alone is over `limit`, as payloads
+ * (`packUpdates`), and whether there was such a one.
+ */
+export function packFitting(
+  updates: readonly Uint8Array[],
+  limit: number,
+  merge: (updates: Uint8Array[]) => Uint8Array,
+): { payloads: Uint8Array[]; tooLarge: boolean } {
+  const over = updates.findIndex((update) => update.length > limit);
+  const fits = over === -1 ? updates : updates.slice(0, over);
+  return { payloads: packUpdates(fits, limit, merge) ?? [], tooLarge: over !== -1 };
 }
