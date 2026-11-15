@@ -51,6 +51,28 @@ function escape(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+/**
+ * Comes back once the window is `width` wide and the page's own observers of size have been
+ * told of it: an observer is told after those made before it, and the state they changed is
+ * applied by then, so the next reading lays the page out as the new stage has it. WebKit on
+ * Linux takes the new size some time after it was asked for (Playwright waits for it on some
+ * Linux images, not on all), so a report of the old width is no answer.
+ */
+async function observersTold(page: Page, width: number): Promise<void> {
+  await page.evaluate(
+    (wanted) =>
+      new Promise<void>((resolve) => {
+        const observer = new ResizeObserver(() => {
+          if (window.innerWidth !== wanted) return;
+          observer.disconnect();
+          resolve();
+        });
+        observer.observe(document.documentElement);
+      }),
+    width,
+  );
+}
+
 /** Changes the width of the window until the board has the width asked for. */
 export async function fitPane(page: Page, width: number): Promise<void> {
   for (let pass = 0; pass < 5; pass += 1) {
@@ -58,11 +80,9 @@ export async function fitPane(page: Page, width: number): Promise<void> {
     if (Math.abs(got - width) < 1) return;
     const size = page.viewportSize();
     if (!size) throw new Error('the page has no viewport');
-    await page.setViewportSize({
-      width: Math.round(size.width + width - got),
-      height: size.height,
-    });
-    await nextFrame(page);
+    const wide = Math.round(size.width + width - got);
+    await page.setViewportSize({ width: wide, height: size.height });
+    await observersTold(page, wide);
   }
   throw new Error(`the board could not be made ${width} pixels wide`);
 }

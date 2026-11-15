@@ -32,6 +32,10 @@ import { screensDir } from './screens.ts';
 test('the app starts and requests only hashed, compressed files', async ({ page }) => {
   const errors: string[] = [];
   page.on('console', (message) => {
+    // WebKit, where it reads the viewport tag (iOS, and Linux's WebKit always), calls a key it
+    // does not know an error: `interactive-widget` is for Chromium's on-screen keyboard.
+    if (message.text().startsWith('Viewport argument key "interactive-widget" not recognized'))
+      return;
     if (message.type() === 'error') errors.push(message.text());
   });
   page.on('pageerror', (error) => errors.push(error.message));

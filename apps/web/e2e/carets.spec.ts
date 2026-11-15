@@ -16,7 +16,7 @@ import path from 'node:path';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { boardPath } from './address.ts';
-import { documentBoundary, engineOf, lineBoundary, primaryKey } from './keyboard.support.ts';
+import { documentBoundary, engineOf, lineBoundary } from './keyboard.support.ts';
 import { scrollTo, uncovered } from './carets.support.ts';
 import { screensDir } from './screens.ts';
 
@@ -78,8 +78,10 @@ async function twoTabs(
   await other.goto(boardPath(place.boardId, place.viewId, place.cardId));
   const theirs = await bodyEditor(other);
   if (body) {
-    await mine.click();
-    await page.keyboard.press(await primaryKey(page, 'a'));
+    // Chosen whole by the page, not by a key: with an iPhone's or iPad's identity on Linux's
+    // WebKit the editor reads Apple from the User-Agent and touch, and takes Ctrl+A for the
+    // start of the line, while the platform (and so the key pressed) says Linux.
+    await mine.selectText();
     await page.keyboard.press('Delete');
     for (const [index, line] of body.entries()) {
       if (index > 0) {
