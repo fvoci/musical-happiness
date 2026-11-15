@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/svelte';
 
 import BodyEditorSample from './BodyEditorSample.svelte';
-import { DIAGRAMS, FORMULAS, INVALID, MIXED } from './body-samples.ts';
+import { DIAGRAMS, FORMULAS, INVALID, MIXED, REFERENCES } from './body-samples.ts';
 
 /** The editor of a document body (src/lib/editor/BodyEditor.svelte), with the view of what it would store. */
 const meta = {
@@ -34,3 +34,5 @@ export const DiagramsReadOnly: Story = { args: { doc: DIAGRAMS, editable: false 
 export const ReadOnly: Story = { args: { doc: FORMULAS, editable: false } };
 /** A body the validator refuses is not loaded: the editor stays empty and read-only, and says so. */
 export const Unreadable: Story = { args: { doc: INVALID } };
+/** References: type `[[` for the cards and pages there are to name; each shows what it names as it is now. */
+export const References: Story = { args: { doc: REFERENCES } };

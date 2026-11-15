@@ -5,7 +5,9 @@
 //! client's address: a session that comes along is not read, so who is signed in reads
 //! a shared board as anybody else with the link does. What they answer names no user:
 //! who made or changed the board, a block or a card, the values of person properties,
-//! the people of a view's filter, and the mentions of a body are emptied.
+//! the people of a view's filter, and the mentions of a body are emptied. Nor does it
+//! name anything that is not of the board: a reference in a body keeps its identifier
+//! for a card of the board and goes out with an empty one for anything else.
 //!
 //! A token that opens nothing, a board that is not shared and a board in the trash
 //! answer alike, 404. Each such answer, and a read that fails before its token is
@@ -137,7 +139,10 @@ async fn handle_get_shared_board(shared: SharedBoard) -> ApiResult {
 /// a list keeps its length, so how many people a card has still shows. A card's values
 /// of properties the board does not define are left out, and a view grouped by a person
 /// property keeps of `visibleOptionIds`, `hiddenOptionIds`, `collapsedOptionIds` and
-/// `kanbanCalculations` only the group of the cards without a value (`""`). Oldest
+/// `kanbanCalculations` only the group of the cards without a value (`""`). A reference
+/// in a body keeps its `id` if it names a card of this board, and has an empty one for
+/// anything else: of what is elsewhere in the workspace nothing is told, nor whether
+/// there is anything. Oldest
 /// first; the blocks that one request made come in the order that request had them in.
 #[utoipa::path(
     get,
@@ -152,8 +157,11 @@ async fn handle_get_shared_blocks(shared: SharedBoard, RawQuery(query): RawQuery
     let board = shared.board().await?;
     let mut blocks = asked_blocks(&shared.app, &shared.board_id, query.as_deref()).await?;
     let people = board.person_properties();
+    let bodies = blocks.iter().filter_map(|block| block.body.as_ref());
+    let shown = shared.app.cards_named_on(&shared.board_id, bodies).await?;
     for block in &mut blocks {
         block.hide_people(&people);
+        block.clear_references_but(&shown);
     }
     Ok(json_response(&blocks))
 }
@@ -164,7 +172,8 @@ async fn handle_get_shared_blocks(shared: SharedBoard, RawQuery(query): RawQuery
 /// No card names a user: `createdBy` and `modifiedBy` are empty, the values of person
 /// properties are emptied, and values of properties the board does not define are left
 /// out. The preview's text has no mentions in it, and its image `getSharedFile` gives.
-/// Oldest first; the pages cut that order.
+/// A card comes without its body, so with nothing a body names. Oldest first; the
+/// pages cut that order.
 #[utoipa::path(
     get,
     path = "/shared/{boardId}/cards",

@@ -35,6 +35,7 @@ pub(crate) mod tag {
     pub(crate) const SHARING: &str = "sharing";
     pub(crate) const BLOCKS: &str = "blocks";
     pub(crate) const CARDS: &str = "cards";
+    pub(crate) const REFERENCES: &str = "references";
     pub(crate) const SIDEBAR: &str = "sidebar";
     pub(crate) const FILES: &str = "files";
     pub(crate) const ARCHIVES: &str = "archives";
@@ -43,7 +44,7 @@ pub(crate) mod tag {
 }
 
 /// The tags in the order the document lists them, each with what it is about.
-const TAGS: [(&str, &str); 15] = [
+const TAGS: [(&str, &str); 16] = [
     (
         tag::SYSTEM,
         "Whether the server is there, and what a client must know before it signs in.",
@@ -74,6 +75,12 @@ const TAGS: [(&str, &str); 15] = [
         "The blocks of a board: cards, views, comments, and what a card is made of.",
     ),
     (tag::CARDS, "The blocks of type `card`, as cards."),
+    (
+        tag::REFERENCES,
+        "What the bodies of a workspace name: a body holds the identifier of a card or a \
+         page (the node `reference`), and what that is called is told here, to each \
+         user what they read.",
+    ),
     (
         tag::SIDEBAR,
         "A user's categories and the boards filed under them.",
@@ -286,6 +293,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("OrgRole", Members::AsWritten),
     ("Page", Members::All),
     ("PageNode", Members::All),
+    ("LinkedBlock", Members::All),
     ("WorkspaceRoleChange", Members::All),
     // What a request carries.
     ("AcceptInvitation", Members::Only(&["token"])),
@@ -325,6 +333,9 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("NewWiki", Members::AsWritten),
     ("NewPage", Members::Only(&[])),
     ("PagePatch", Members::Only(&[])),
+    ("PageMove", Members::Only(&[])),
+    ("PageDuplicate", Members::Only(&[])),
+    ("DeletedPage", Members::All),
     ("NewCard", Members::AsWritten),
     ("NewCategory", Members::AsWritten),
     ("NewInvitation", Members::Only(&["role"])),
@@ -353,6 +364,7 @@ const SCHEMAS: &[(&str, Members)] = &[
         "UnlinkRequest",
         Members::Only(&["issuer", "subject", "password"]),
     ),
+    ("ReferenceIds", Members::AsWritten),
     ("UserIds", Members::AsWritten),
     ("UserPreferencesPatch", Members::Only(&[])),
     // Closed sets of words.
@@ -362,6 +374,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("CategoryType", Members::AsWritten),
     ("Density", Members::AsWritten),
     ("HourCycle", Members::AsWritten),
+    ("LinkedKind", Members::AsWritten),
     ("MinimumRole", Members::AsWritten),
     ("SubscriberType", Members::AsWritten),
     ("Theme", Members::AsWritten),

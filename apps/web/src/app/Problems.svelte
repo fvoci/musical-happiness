@@ -25,6 +25,13 @@
       return m.app_problem_import_forbidden({ workspace: workspaceName });
     }
     if (error?.status === 403) return m.app_problem_forbidden();
+    // The limits of a wiki's tree, which nothing in the request could have helped.
+    if (error?.reason === 'page_too_deep' && error.limit) {
+      return m.app_problem_page_too_deep({ limit: error.limit });
+    }
+    if (error?.reason === 'too_many_pages' && error.limit) {
+      return m.app_problem_too_many_pages({ limit: error.limit });
+    }
     if (problem.action === 'upload' && error?.status === 429) {
       return m.app_problem_upload_busy();
     }

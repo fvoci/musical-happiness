@@ -23,6 +23,7 @@ use crate::block_derived;
 use crate::blocks::{self, Paging, parents_first};
 use crate::boards;
 use crate::body_docs;
+use crate::body_links;
 use crate::body_versions;
 use crate::category_boards::{self, BoardPlace};
 use crate::comment_places;
@@ -404,6 +405,7 @@ pub(crate) async fn remove_what_they_left(scope: &mut Scope<'_>) -> Result<u64, 
     comment_versions::forget_gone_comments(scope).await?;
     body_docs::forget_gone_blocks(scope).await?;
     body_versions::forget_gone_blocks(scope).await?;
+    body_links::forget_gone_blocks(scope).await?;
     file_refs::forget_gone_blocks(scope).await?;
     file_refs::mark(scope, None).await?;
     Ok(records)
@@ -418,7 +420,7 @@ pub struct Purged {
     pub files: Vec<FileInfo>,
 }
 
-fn block_not_in_trash() -> StoreError {
+pub(crate) fn block_not_in_trash() -> StoreError {
     StoreError::not_found("deleted block")
 }
 
@@ -427,7 +429,7 @@ fn board_not_in_trash() -> StoreError {
 }
 
 /// Limits a list of the trash to one page, if `paging` has a page size.
-fn push_paging(sql: &mut Sql, paging: Option<Paging>) {
+pub(crate) fn push_paging(sql: &mut Sql, paging: Option<Paging>) {
     if let Some(paging) = paging.filter(|paging| paging.per_page > 0) {
         let offset = i64::from(paging.page) * i64::from(paging.per_page);
         sql.push_bind(" LIMIT ", i64::from(paging.per_page))
@@ -438,7 +440,7 @@ fn push_paging(sql: &mut Sql, paging: Option<Paging>) {
 /// Reads a block of the trash. Its body is taken as it was stored: it was checked when
 /// it was written, against the allowlist of that time, which a later one may not
 /// accept.
-fn block_from_json(row: &Row, index: usize) -> Result<Block, StoreError> {
+pub(crate) fn block_from_json(row: &Row, index: usize) -> Result<Block, StoreError> {
     let corrupt = |error: serde_json::Error| StoreError::Corrupt {
         column: "block",
         reason: error.to_string(),
@@ -607,12 +609,14 @@ async fn put_blocks_in_trash(
 }
 
 /// Takes the blocks of one deletion out of the trash and puts them back among the
-/// blocks, marked as modified by `user_id` at `now`. Returns them.
-async fn take_blocks_out_of_trash(
+/// blocks, marked as modified by `user_id` at `now`, each as `adjust` leaves it.
+/// Returns them.
+pub(crate) async fn take_blocks_out_of_trash(
     scope: &mut Scope<'_>,
     deletion_id: &str,
     user_id: &str,
     now: i64,
+    mut adjust: impl FnMut(&mut Block),
 ) -> Result<Vec<Block>, StoreError> {
     let mut sql = scope.sql("SELECT block FROM deleted_blocks WHERE deletion_id = ");
     sql.bind(Id(deletion_id));
@@ -624,6 +628,7 @@ async fn take_blocks_out_of_trash(
         .collect::<Result<_, _>>()?;
     let mut known_users = KnownUsers::default();
     for block in &mut restored {
+        adjust(block);
         block.delete_at = 0;
         block.update_at = now;
         user_id.clone_into(&mut block.modified_by);
@@ -698,7 +703,8 @@ pub(crate) async fn undelete_block(
         }
     }
 
-    let restored = take_blocks_out_of_trash(scope, &deletion_id, user_id, now_millis()).await?;
+    let restored =
+        take_blocks_out_of_trash(scope, &deletion_id, user_id, now_millis(), |_| {}).await?;
     restored
         .into_iter()
         .find(|block| block.id == block_id)
@@ -833,7 +839,7 @@ pub(crate) async fn undelete_board(
     for file in Vec::<FileInfo>::from(files) {
         file_info::save_file_info(scope, &file).await?;
     }
-    take_blocks_out_of_trash(scope, &deletion_id, user_id, now).await?;
+    take_blocks_out_of_trash(scope, &deletion_id, user_id, now, |_| {}).await?;
     // The trash kept no marks: a file that no block of the board shows is counted from
     // now, as at a file's upload, and one that a block shows has none.
     let mut sql = scope.sql("UPDATE file_info SET unreferenced_at = NULL WHERE board_id = ");

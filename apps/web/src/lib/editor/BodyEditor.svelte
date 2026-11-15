@@ -29,14 +29,16 @@
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { getLocale } from '$lib/i18n/paraglide/runtime.js';
 
-  import { BODY_FIELD, type BodyEditorProps } from './body-editor.ts';
+  import { BODY_FIELD, type BodyEditorProps, type BodyReferences } from './body-editor.ts';
+  import { drawReferences } from './reference-chip.ts';
   import { fromShared, setMayWrite, type DroppedWhy } from './shared-place.ts';
   import './editor.css';
   import './editing-place.css';
   import { loadEmoji, searchEmoji } from './emoji.ts';
-  import { bodyExtensions } from './extensions.ts';
+  import { bodyExtensions, type MentionOptions } from './extensions.ts';
   import { heldWritten, placeOf } from './editing-place.ts';
   import { cancelMathEditingOf, mathDraftChanged } from './math-editing.ts';
+  import type { ReferenceOptions } from './reference.ts';
   import { emptyDoc, isEmptyDoc, toStoredDoc, validateDoc, type DocNode } from './schema.ts';
   import { suggestionList } from './suggestion-list.ts';
   import { fromUpload, ImageUpload } from './uploads.ts';
@@ -47,6 +49,7 @@
     editable = true,
     users = [],
     resolveUser,
+    references,
     onChange,
     onFocus,
     onBlur,
@@ -135,6 +138,27 @@
       });
     };
 
+  const mention: MentionOptions = {
+    search: (query) => {
+      const wanted = query.toLowerCase();
+      return users
+        .filter((user) => user.name.toLowerCase().includes(wanted))
+        .slice(0, 8)
+        .map((user) => ({ value: user.id, label: user.name }));
+    },
+    labelOf: nameOf,
+    render: suggestionList({ kind: 'mention', label: m.editor_suggest_people }),
+  };
+
+  /** Each asks `references` as it is when asked: the editor outlives a change of it. */
+  const reference: ReferenceOptions = {
+    drawing: () => references,
+    search: (query) => references?.search(query) ?? [],
+    named: (address) => references?.named(address),
+    seen: (id) => references?.seen(id) ?? Promise.resolve(false),
+    render: suggestionList({ kind: 'reference', label: m.editor_suggest_references }),
+  };
+
   onMount(() => {
     // Bound to a shared document, the editor takes what is in it; `doc` is not read.
     const shared = collab;
@@ -162,17 +186,8 @@
           history: !shared,
           placeholder,
           readPlaceholder,
-          mention: {
-            search: (query) => {
-              const wanted = query.toLowerCase();
-              return users
-                .filter((user) => user.name.toLowerCase().includes(wanted))
-                .slice(0, 8)
-                .map((user) => ({ value: user.id, label: user.name }));
-            },
-            labelOf: nameOf,
-            render: suggestionList({ kind: 'mention', label: m.editor_suggest_people }),
-          },
+          mention,
+          reference,
           emoji: {
             search: async (query) => {
               const found = searchEmoji(await loadEmoji(getLocale()), query);
@@ -286,6 +301,19 @@
   $effect(() => {
     // Handing both over is what makes this run again when either changes.
     renameMentions(editor, nameOf, users, resolveUser);
+  });
+
+  // What a reference names is drawn into it, and again whenever what is known
+  // of it changes; `changes` brings the references a change of the document put.
+  function drawReferencesOf(
+    current: Editor | undefined,
+    drawing: BodyReferences | undefined,
+    ..._changed: unknown[]
+  ): void {
+    if (current) drawReferences(current.view.dom, drawing);
+  }
+  $effect(() => {
+    drawReferencesOf(editor, references, changes);
   });
 </script>
 

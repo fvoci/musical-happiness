@@ -3,7 +3,7 @@
 
 use fvoci_model::{
     Block, BlockError, BlockPatch, BlockType, Board, BoardKind, BoardKinds, BoardType, NewPage,
-    PageNode, new_id,
+    PageLimits, PageNode, new_id,
 };
 use fvoci_store::{DbType, Store, StoreError, Tenant};
 
@@ -11,7 +11,12 @@ use crate::boards::new_board;
 use crate::common;
 
 /// A board of `kind` with `user_id` as its administrator.
-async fn stored(store: &Store, workspace_id: &str, user_id: &str, kind: BoardKind) -> Board {
+pub(crate) async fn stored(
+    store: &Store,
+    workspace_id: &str,
+    user_id: &str,
+    kind: BoardKind,
+) -> Board {
     let mut board = Board {
         kind,
         ..new_board(&new_id(), workspace_id, BoardType::Private)
@@ -33,7 +38,7 @@ fn block(board_id: &str, parent_id: &str, block_type: BlockType) -> Block {
     }
 }
 
-fn refusal(result: Result<impl std::fmt::Debug, StoreError>) -> BlockError {
+pub(crate) fn refusal(result: Result<impl std::fmt::Debug, StoreError>) -> BlockError {
     match result {
         Err(StoreError::InvalidBlock { source, .. }) => source,
         other => panic!("the block is refused: {other:?}"),
@@ -41,21 +46,27 @@ fn refusal(result: Result<impl std::fmt::Debug, StoreError>) -> BlockError {
 }
 
 /// A page made below `parent_id` at the place `after` asks for; its identifier.
-async fn page(store: &Store, wiki: &Board, parent_id: &str, after: Option<&str>) -> String {
+pub(crate) async fn page(
+    store: &Store,
+    wiki: &Board,
+    parent_id: &str,
+    after: Option<&str>,
+) -> String {
     let new = NewPage {
         parent_id: parent_id.to_owned(),
         after: after.map(str::to_owned),
         ..NewPage::default()
     };
     store
-        .create_page(&wiki.id, &new, &wiki.created_by)
+        .create_page(&wiki.id, &new, PageLimits::default(), &wiki.created_by)
         .await
         .expect("the page is made")
+        .page
         .id
 }
 
 /// The pages of the wiki below `parent_id`, as the tree has them.
-async fn below(store: &Store, wiki: &Board, parent_id: &str) -> Vec<String> {
+pub(crate) async fn below(store: &Store, wiki: &Board, parent_id: &str) -> Vec<String> {
     let tree = store.get_page_tree(&wiki.id).await.expect("the tree");
     tree.into_iter()
         .filter(|page| page.parent_id == parent_id)
@@ -91,8 +102,13 @@ async fn a_page_is_a_block_of_a_wiki_and_a_wiki_has_no_other() {
     }
     assert_eq!(
         refusal(
-            test.create_page(&board.id, &NewPage::default(), &user_id)
-                .await
+            test.create_page(
+                &board.id,
+                &NewPage::default(),
+                PageLimits::default(),
+                &user_id
+            )
+            .await
         ),
         BlockError::PageOffWiki
     );
@@ -189,7 +205,10 @@ async fn the_parent_of_a_page_is_a_page_of_its_wiki() {
             ..NewPage::default()
         };
         assert_eq!(
-            refusal(test.create_page(&wiki.id, &new, &user_id).await),
+            refusal(
+                test.create_page(&wiki.id, &new, PageLimits::default(), &user_id)
+                    .await
+            ),
             BlockError::ParentNotOnBoard,
             "below {parent}"
         );
@@ -209,19 +228,30 @@ async fn the_parent_of_a_page_is_a_page_of_its_wiki() {
         ..NewPage::default()
     };
     assert_eq!(
-        refusal(test.create_page(&wiki.id, &new, &user_id).await),
+        refusal(
+            test.create_page(&wiki.id, &new, PageLimits::default(), &user_id)
+                .await
+        ),
         BlockError::ParentNotOnBoard
     );
     new.title = "a\0b".to_owned();
     assert_eq!(
-        refusal(test.create_page(&wiki.id, &new, &user_id).await),
+        refusal(
+            test.create_page(&wiki.id, &new, PageLimits::default(), &user_id)
+                .await
+        ),
         BlockError::NulInTitle
     );
     assert_eq!(below(&test, &wiki, &top).await, [child]);
     assert_eq!(below(&test, &other, "").await, [elsewhere]);
     // A wiki that is not there has no pages to make.
     let nowhere = test
-        .create_page(&new_id(), &NewPage::default(), &user_id)
+        .create_page(
+            &new_id(),
+            &NewPage::default(),
+            PageLimits::default(),
+            &user_id,
+        )
         .await;
     assert!(
         matches!(&nowhere, Err(error) if error.is_not_found()),
@@ -261,7 +291,10 @@ async fn a_new_page_goes_where_it_is_asked_among_the_pages_of_its_parent() {
             ..NewPage::default()
         };
         assert_eq!(
-            refusal(test.create_page(&wiki.id, &new, &user_id).await),
+            refusal(
+                test.create_page(&wiki.id, &new, PageLimits::default(), &user_id)
+                    .await
+            ),
             BlockError::AfterNotSibling,
             "below {parent:?} after {after}"
         );
@@ -271,7 +304,10 @@ async fn a_new_page_goes_where_it_is_asked_among_the_pages_of_its_parent() {
         ..NewPage::default()
     };
     assert_eq!(
-        refusal(test.create_page(&wiki.id, &unknown, &user_id).await),
+        refusal(
+            test.create_page(&wiki.id, &unknown, PageLimits::default(), &user_id)
+                .await
+        ),
         BlockError::AfterNotSibling
     );
     assert_eq!(below(&test, &wiki, "").await.len(), 5);
@@ -319,9 +355,10 @@ async fn the_tree_has_every_page_that_is_not_in_the_trash_and_no_body() {
         ..NewPage::default()
     };
     let made = test
-        .create_page(&wiki.id, &new, &user_id)
+        .create_page(&wiki.id, &new, PageLimits::default(), &user_id)
         .await
-        .expect("the page is made");
+        .expect("the page is made")
+        .page;
     let child = page(&test, &wiki, &made.id, None).await;
     let grandchild = page(&test, &wiki, &child, None).await;
     let kept = page(&test, &wiki, "", None).await;
@@ -454,7 +491,12 @@ async fn the_pages_of_two_organizations_are_out_of_each_others_reach() {
         "{read:?}"
     );
     let made = ours
-        .create_page(&their_wiki.id, &NewPage::default(), &user_id)
+        .create_page(
+            &their_wiki.id,
+            &NewPage::default(),
+            PageLimits::default(),
+            &user_id,
+        )
         .await;
     assert!(
         matches!(&made, Err(error) if error.is_not_found()),
@@ -478,7 +520,7 @@ async fn the_pages_of_two_organizations_are_out_of_each_others_reach() {
     };
     assert_eq!(
         refusal(
-            ours.create_page(&our_wiki.id, &below_theirs, &user_id)
+            ours.create_page(&our_wiki.id, &below_theirs, PageLimits::default(), &user_id)
                 .await
         ),
         BlockError::ParentNotOnBoard
@@ -489,7 +531,7 @@ async fn the_pages_of_two_organizations_are_out_of_each_others_reach() {
     };
     assert_eq!(
         refusal(
-            ours.create_page(&our_wiki.id, &after_theirs, &user_id)
+            ours.create_page(&our_wiki.id, &after_theirs, PageLimits::default(), &user_id)
                 .await
         ),
         BlockError::AfterNotSibling

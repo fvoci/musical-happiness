@@ -130,3 +130,6 @@ export function withDescendants(pages: readonly PlacedPage[], pageId: string): S
 export function firstPage<P extends PlacedPage>(pages: readonly P[]): P | undefined {
   return pageTree(pages)[0]?.page;
 }
+
+/** The most characters of a page's title, as the server takes a block's (`BLOCK_TITLE_MAX_CHARS`). */
+export const PAGE_TITLE_MAX = 16_383;

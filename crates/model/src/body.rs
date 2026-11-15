@@ -5,6 +5,8 @@
 //! size, how deep it nests and how many nodes it has. A document that is no more than an
 //! empty paragraph is no body at all, and is stored as none.
 
+use std::collections::HashSet;
+
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use thiserror::Error;
@@ -12,7 +14,7 @@ use thiserror::Error;
 use crate::allowlist;
 
 /// The version of the set of nodes and marks a stored body is written in.
-pub const BODY_VERSION: i64 = 2;
+pub const BODY_VERSION: i64 = 3;
 
 /// The largest body, as serialized JSON, in bytes.
 pub const BODY_MAX_BYTES: usize = 1024 * 1024;
@@ -105,7 +107,7 @@ impl Body {
     }
 
     /// The words of the body without its structure, for searching: a line per paragraph,
-    /// heading, code block and formula block. A mention gives nothing.
+    /// heading, code block and formula block. A mention and a reference give nothing.
     #[must_use]
     pub fn text(&self) -> String {
         allowlist::plain_text(&self.document)
@@ -144,9 +146,26 @@ impl Body {
     #[must_use]
     pub fn file_ids(&self) -> Vec<&str> {
         let mut ids: Vec<&str> = Vec::new();
-        let mut seen = std::collections::HashSet::new();
+        let mut seen = HashSet::new();
         visit(&self.document, &mut |node| {
             if let Some(id) = image_file(node)
+                && seen.insert(id)
+            {
+                ids.push(id);
+            }
+        });
+        ids
+    }
+
+    /// The identifiers of the blocks the references of the body name, each once, in the
+    /// order they come. Whether such a block is there, and for whom, the body does not
+    /// say.
+    #[must_use]
+    pub fn reference_ids(&self) -> Vec<&str> {
+        let mut ids: Vec<&str> = Vec::new();
+        let mut seen = HashSet::new();
+        visit(&self.document, &mut |node| {
+            if let Some(id) = reference_target(node)
                 && seen.insert(id)
             {
                 ids.push(id);
@@ -170,6 +189,24 @@ impl Body {
         clear_mentions_in(&mut self.document);
     }
 
+    /// Empties the `id` of every reference that names none of `shown`: the body as it
+    /// goes to whoever reads a board by its link, who is told of the cards of that board
+    /// and of nothing else of the workspace, not even that something is there. Like a
+    /// mention without its user, that is a shape that is sent, never one that is stored
+    /// or received: the allowlist refuses a reference that names nothing.
+    pub fn clear_references_but(&mut self, shown: &HashSet<String>) {
+        rename_references_in(&mut self.document, &|id| {
+            (!shown.contains(id)).then(String::new)
+        });
+    }
+
+    /// Puts in every reference what `rename` gives for the identifier it holds, and
+    /// leaves a reference it gives nothing for as it is: a copy of a body names the
+    /// copies of what was copied with it, and whatever else it named.
+    pub fn rename_references(&mut self, rename: impl Fn(&str) -> Option<String>) {
+        rename_references_in(&mut self.document, &rename);
+    }
+
     /// The body with its images pointed at other files: `rename` gives the new name of
     /// a file, or `None` for a file that has none, whose image becomes an empty
     /// paragraph (a body has no image without its file, and the place of a block
@@ -190,6 +227,14 @@ fn image_file(node: &Value) -> Option<&str> {
     node.get("attrs")?.get("fileId")?.as_str()
 }
 
+/// The identifier of the block a reference node names.
+fn reference_target(node: &Value) -> Option<&str> {
+    if node.get("type").and_then(Value::as_str) != Some("reference") {
+        return None;
+    }
+    node.get("attrs")?.get("id")?.as_str()
+}
+
 /// Empties the `userId` of every mention below and at `node`.
 fn clear_mentions_in(node: &mut Value) {
     if node.get("type").and_then(Value::as_str) == Some("mention") {
@@ -201,6 +246,22 @@ fn clear_mentions_in(node: &mut Value) {
     if let Some(children) = node.get_mut("content").and_then(Value::as_array_mut) {
         for child in children {
             clear_mentions_in(child);
+        }
+    }
+}
+
+/// Puts in every reference below and at `node` what `rename` gives for its identifier,
+/// if it gives any.
+fn rename_references_in(node: &mut Value, rename: &impl Fn(&str) -> Option<String>) {
+    if let Some(new_id) = reference_target(node).and_then(rename) {
+        if let Some(attrs) = node.get_mut("attrs").and_then(Value::as_object_mut) {
+            attrs.insert("id".to_owned(), Value::String(new_id));
+        }
+        return;
+    }
+    if let Some(children) = node.get_mut("content").and_then(Value::as_array_mut) {
+        for child in children {
+            rename_references_in(child, rename);
         }
     }
 }
@@ -477,6 +538,44 @@ mod tests {
         );
     }
 
+    /// Every reference that names none of what is shown loses its identifier, also deep
+    /// in a list; one that names what is shown stays, and nothing else changes. And a
+    /// reference is renamed where there is a new name for what it names.
+    #[test]
+    fn references_are_emptied_but_for_what_is_shown_and_renamed_where_there_is_a_name() {
+        let reference = |id: &str| json!({"type": "reference", "attrs": {"id": id}});
+        let shown = "01a1c8e0-e250-735f-b851-4aaaa2ad2d83";
+        let outside = "01a1c8e0-e250-735f-b851-4aaaa2ad2d84";
+        let copy = "01a1c8e0-e250-735f-b851-4aaaa2ad2d85";
+        let parsed = Body::parse(document(&[
+            json!({"type": "paragraph", "content": [
+                reference(shown), {"type": "text", "text": "x"}, reference(outside),
+            ]}),
+            json!({"type": "bulletList", "content": [{"type": "listItem", "content": [
+                {"type": "paragraph", "content": [reference(outside), reference(shown)]},
+            ]}]}),
+        ]))
+        .expect("a body")
+        .expect("not empty");
+
+        let mut body = parsed.clone();
+        body.clear_references_but(&HashSet::from([shown.to_owned()]));
+        let value = serde_json::to_value(&body).expect("JSON");
+        let line = &value["content"][0]["content"];
+        assert_eq!(line[0], reference(shown));
+        assert_eq!(line[1]["text"], json!("x"));
+        assert_eq!(line[2], reference(""));
+        let item = &value["content"][1]["content"][0]["content"][0]["content"];
+        assert_eq!((&item[0], &item[1]), (&reference(""), &reference(shown)));
+        assert!(!value.to_string().contains(outside));
+
+        let mut body = parsed;
+        body.rename_references(|id| (id == shown).then(|| copy.to_owned()));
+        assert_eq!(body.reference_ids(), [copy, outside]);
+        let value = serde_json::to_value(&body).expect("JSON");
+        assert_eq!(value["content"][0]["content"][1]["text"], json!("x"));
+    }
+
     /// A body that was an image without its file and nothing else is no body.
     #[test]
     fn a_body_of_a_lost_image_alone_is_no_body() {
@@ -486,6 +585,26 @@ mod tests {
         .expect("a body")
         .expect("not empty");
         assert_eq!(body.with_files_renamed(|_| None), None);
+    }
+
+    /// The references of a body are the blocks it names, each once, wherever they stand.
+    #[test]
+    fn the_references_of_a_body_are_named_once_in_order() {
+        let reference = |id: &str| json!({"type": "reference", "attrs": {"id": id}});
+        let first = "01a1c8e0-e250-735f-b851-4aaaa2ad2d83";
+        let second = "01a1c8e0-e250-735f-b851-4aaaa2ad2d84";
+        let body = Body::parse(document(&[
+            json!({"type": "paragraph", "content": [reference(second), {"type": "text", "text": "x"}]}),
+            json!({"type": "bulletList", "content": [{"type": "listItem", "content": [
+                {"type": "paragraph", "content": [reference(first), reference(second)]},
+            ]}]}),
+        ]))
+        .expect("a body")
+        .expect("not empty");
+        assert_eq!(body.reference_ids(), [second, first]);
+        assert_eq!(body.text(), "x", "a reference gives the text nothing");
+        let none = Body::from_stored(document(&[paragraph("x")]));
+        assert!(none.reference_ids().is_empty(), "no reference");
     }
 
     #[test]

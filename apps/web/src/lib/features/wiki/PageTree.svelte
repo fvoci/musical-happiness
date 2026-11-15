@@ -9,13 +9,22 @@
   show the page. The menu of a page opens from its button, or from the
   keyboard with Shift+F10 or the menu key. A page's children show while it is
   open; what is open is the reader's (`tree-open.svelte.ts`).
+
+  An editor moves a page with the pages below it: dragged (`tree-drag.svelte.ts`),
+  with Alt (⌥ on a Mac) and the arrows (up and down among its siblings, right
+  into the page above it, left out to its parent's level), or from its menu
+  (up, down, and "Move…", which opens the choice of a place).
 -->
 <script lang="ts">
   import { tick } from 'svelte';
 
+  import ArrowDownIcon from '@lucide/svelte/icons/arrow-down';
+  import ArrowUpIcon from '@lucide/svelte/icons/arrow-up';
   import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
+  import CopyIcon from '@lucide/svelte/icons/copy';
   import EllipsisIcon from '@lucide/svelte/icons/ellipsis';
   import FilePlusIcon from '@lucide/svelte/icons/file-plus';
+  import FolderInputIcon from '@lucide/svelte/icons/folder-input';
   import ListPlusIcon from '@lucide/svelte/icons/list-plus';
   import PlusIcon from '@lucide/svelte/icons/plus';
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
@@ -24,11 +33,14 @@
   import ActionMenu from '$lib/components/menu/ActionMenu.svelte';
   import type { MenuAction } from '$lib/components/menu/actions.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
+  import { fingerPointer } from '$lib/layout/room.svelte.ts';
+  import { stepped, type MoveStep, type PagePlace } from '$lib/logic/page-moves.ts';
   import { pageRows, type PageRow } from '$lib/logic/page-tree.ts';
   import type { PageDraft, WikiPage, WikiStore } from '$lib/state/index.ts';
 
   import { viewersOf } from './page-viewers.ts';
   import PageViewers from './PageViewers.svelte';
+  import { TreeDrag } from './tree-drag.svelte.ts';
   import type { TreeOpen } from './tree-open.svelte.ts';
 
   interface Props {
@@ -42,6 +54,12 @@
     onCreate: (draft: PageDraft) => void;
     /** Asks to delete a page; left out where pages are not deleted here. */
     onDelete?: ((page: WikiPage) => void) | undefined;
+    /** Moves a page with the pages below it; left out where pages are not moved here. */
+    onMove?: ((pageId: string, to: PagePlace) => Promise<unknown>) | undefined;
+    /** Asks where to move a page ("Move…"). */
+    onMoveTo?: ((page: WikiPage) => void) | undefined;
+    /** Copies a page with the pages below it, giving the copy's title (none: refused); left out where pages are not copied here. */
+    onDuplicate?: ((page: WikiPage) => Promise<string | undefined>) | undefined;
     /** A page is being made: no other is asked for meanwhile. */
     busy?: boolean;
   }
@@ -54,8 +72,25 @@
     onOpenPage,
     onCreate,
     onDelete,
+    onMove,
+    onMoveTo,
+    onDuplicate,
     busy = false,
   }: Props = $props();
+
+  /** The steps of Alt (⌥) and an arrow. */
+  const ALT_STEPS: Partial<Record<string, MoveStep>> = {
+    ArrowUp: 'up',
+    ArrowDown: 'down',
+    ArrowRight: 'in',
+    ArrowLeft: 'out',
+  };
+  /** How the menu writes the key held with an arrow: ⌥ on Apple's systems. */
+  const alt = /Mac|iPhone|iPad/u.test(navigator.userAgent) ? '⌥' : 'Alt+';
+  /** The keys are shown where there is likely a keyboard: not with a finger for a pointer. */
+  const keys = $derived(!fingerPointer.current);
+  /** Said after a page is moved with the keys. */
+  let said = $state('');
 
   const uid = $props.id();
   const rows = $derived(pageRows(wiki.tree, (pageId) => open.has(pageId)));
@@ -71,6 +106,46 @@
   );
   /** The page whose menu is open. */
   let menuOf = $state<string | undefined>(undefined);
+  const mayMove = $derived(wiki.canEdit && onMove !== undefined);
+  const drag = new TreeDrag({
+    rows: () => rows,
+    pages: () => wiki.pages,
+    enabled: () => mayMove,
+    unfold: (pageId) => {
+      open.set([pageId]);
+    },
+    ondrop: (pageId, to) => {
+      void onMove?.(pageId, to);
+    },
+  });
+  const draggedTitle = $derived.by(() => {
+    const page = wiki.page(drag.dragged);
+    return page ? titleOf(page) : '';
+  });
+
+  /** Moves the page a step (Alt and an arrow, or its menu); false where the step goes nowhere. */
+  function moveBy(pageId: string, step: MoveStep): boolean {
+    const to = stepped(wiki.pages, pageId, step);
+    if (!onMove || !to) return false;
+    // Into the page above: its pages show, the page moved among them.
+    if (to.parentId !== '') open.set([to.parentId]);
+    const moving = onMove(pageId, to);
+    void focusOn(pageId);
+    // The answer may move its row again, which drops the focus; where the reader took it is theirs.
+    void moving.then(() => {
+      if (document.activeElement === document.body) void focusOn(pageId);
+      const row = rows.find((one) => one.page.id === pageId);
+      if (row) {
+        said = m.wiki_moved_to({
+          title: titleOf(row.page),
+          position: row.position,
+          count: row.siblings,
+          level: row.depth + 1,
+        });
+      }
+    });
+    return true;
+  }
 
   const titleOf = (page: WikiPage): string => page.title || m.wiki_page_untitled();
   const rowId = (pageId: string): string => `${uid}-${pageId}`;
@@ -88,7 +163,14 @@
     if (event.target.getAttribute('role') !== 'treeitem') return;
     const at = rows.findIndex((row) => row.page.id === active);
     const row = rows[at];
-    if (!row || event.altKey || event.ctrlKey || event.metaKey) return;
+    if (!row) return;
+    const altStep = ALT_STEPS[event.key];
+    if (mayMove && altStep && event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
+      event.preventDefault();
+      moveBy(row.page.id, altStep);
+      return;
+    }
+    if (event.altKey || event.ctrlKey || event.metaKey) return;
     const step = (to: PageRow<WikiPage> | undefined): void => {
       event.preventDefault();
       void focusOn(to?.page.id);
@@ -164,6 +246,52 @@
         },
       },
     ];
+    if (mayMove) {
+      const pageId = row.page.id;
+      actions.push(
+        {
+          id: 'move-up',
+          label: m.wiki_move_up(),
+          icon: ArrowUpIcon,
+          ...(keys ? { hint: `${alt}↑` } : {}),
+          separated: true,
+          disabled: row.position === 1,
+          run: () => moveBy(pageId, 'up'),
+        },
+        {
+          id: 'move-down',
+          label: m.wiki_move_down(),
+          icon: ArrowDownIcon,
+          ...(keys ? { hint: `${alt}↓` } : {}),
+          disabled: row.position === row.siblings,
+          run: () => moveBy(pageId, 'down'),
+        },
+      );
+    }
+    if (mayMove && onMoveTo) {
+      const ask = onMoveTo;
+      actions.push({
+        id: 'move',
+        label: m.wiki_move_page(),
+        icon: FolderInputIcon,
+        run: () => {
+          ask(row.page);
+        },
+      });
+    }
+    if (wiki.canEdit && onDuplicate) {
+      const copy = onDuplicate;
+      actions.push({
+        id: 'duplicate',
+        label: m.wiki_duplicate_page(),
+        icon: CopyIcon,
+        run: () => {
+          void copy(row.page).then((title) => {
+            if (title !== undefined) said = m.wiki_page_copied({ title });
+          });
+        },
+      });
+    }
     if (onDelete) {
       const remove = onDelete;
       actions.push({
@@ -204,12 +332,17 @@
     <ul
       role="tree"
       aria-labelledby="{uid}-title"
-      class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-3"
+      class={[
+        'min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-3',
+        drag.dragged && 'select-none',
+      ]}
       {onkeydown}
+      {@attach drag.attach}
     >
       {#each rows as row (row.page.id)}
         {@const page = row.page}
         {@const title = titleOf(page)}
+        {@const mark = drag.mark?.pageId === page.id ? drag.mark : undefined}
         <li
           id={rowId(page.id)}
           role="treeitem"
@@ -224,7 +357,16 @@
           aria-selected={page.id === currentId}
           tabindex={page.id === active ? 0 : -1}
           data-page={page.id}
-          class="group/page relative rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          data-drop={mark?.zone}
+          aria-keyshortcuts={mayMove
+            ? 'Alt+ArrowUp Alt+ArrowDown Alt+ArrowLeft Alt+ArrowRight'
+            : undefined}
+          class={[
+            'group/page relative rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            // A finger rests on a row to drag it: no callout of the link, and no selection.
+            mayMove && 'select-none [-webkit-touch-callout:none]',
+            drag.dragged === page.id && 'opacity-50',
+          ]}
           onfocus={(event: FocusEvent) => {
             if (event.target === event.currentTarget) moved = page.id;
           }}
@@ -233,6 +375,7 @@
             class={[
               'flex min-h-8 items-center gap-1 rounded-md pr-9 hover:bg-muted roomy:min-h-touch roomy:pr-12',
               page.id === currentId && 'bg-muted font-medium',
+              mark?.zone === 'inside' && 'bg-primary/10 ring-2 ring-primary ring-inset',
             ]}
             style:padding-left="{0.25 + row.depth * 1}rem"
           >
@@ -273,6 +416,18 @@
             <!-- Said with the row (its description): the row's name hides what is inside it. -->
             <PageViewers {wiki} pageId={page.id} id="{rowId(page.id)}-viewers" />
           </div>
+          {#if mark && mark.zone !== 'inside'}
+            <!-- Where the page goes: a line between two rows, as deep as it would be. -->
+            <div
+              class={[
+                'pointer-events-none absolute right-1 h-0.5 rounded-full bg-primary',
+                mark.zone === 'before' ? '-top-px' : '-bottom-px',
+              ]}
+              style:left="{0.25 + mark.depth * 1}rem"
+              data-testid="drop-line"
+              aria-hidden="true"
+            ></div>
+          {/if}
           {#if wiki.canEdit}
             <ActionMenu
               bind:open={
@@ -301,5 +456,18 @@
         </li>
       {/each}
     </ul>
+  {/if}
+  <p class="sr-only" aria-live="polite">{said}</p>
+  {#if drag.dragged && drag.at}
+    <!-- The page dragged, with the pointer. -->
+    <div
+      class="pointer-events-none fixed z-50 max-w-64 truncate rounded-md border bg-popover px-2 py-1 text-sm shadow-md"
+      style:left="{drag.at.x + 12}px"
+      style:top="{drag.at.y + 8}px"
+      data-testid="drag-chip"
+      aria-hidden="true"
+    >
+      {draggedTitle}
+    </div>
   {/if}
 </div>

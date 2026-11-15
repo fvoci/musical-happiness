@@ -29,6 +29,7 @@ pub mod search;
 mod secret_key;
 pub mod smtp;
 mod upload_limits;
+pub mod wiki;
 
 pub use scrapes::{MetricsAddress, MetricsToken};
 pub use secret_key::{ENV_ONLY, SECRET_KEY_ENV};
@@ -294,6 +295,9 @@ pub struct Configuration {
     /// The keys `search_*` (the search server of the bodies).
     #[serde(flatten)]
     pub search: search::SearchSettings,
+    /// The keys `wiki_*` (the limits of a wiki's tree).
+    #[serde(flatten)]
+    pub wiki: wiki::WikiSettings,
     /// Whether to skip importing the built-in templates at startup. Not a configuration
     /// file key; the test harness sets it so a server that does not need templates
     /// starts quickly, as the original's `SkipTemplateInit` does.
@@ -364,6 +368,7 @@ impl Default for Configuration {
             smtp: smtp::SmtpSettings::default(),
             mail: mail::MailSettings::default(),
             search: search::SearchSettings::default(),
+            wiki: wiki::WikiSettings::default(),
             skip_template_init: false,
         }
     }
@@ -376,6 +381,7 @@ impl std::fmt::Debug for Configuration {
             .field("smtp", &self.smtp)
             .field("mail", &self.mail)
             .field("search", &self.search)
+            .field("wiki", &self.wiki)
             .field("server_root", &self.server_root)
             .field("port", &self.port)
             .field("db_type", &self.db_type)
@@ -731,6 +737,7 @@ impl Configuration {
             .chain(smtp::ENV_KEYS)
             .chain(mail::ENV_KEYS)
             .chain(search::ENV_KEYS)
+            .chain(wiki::ENV_KEYS)
         {
             let name = env_name(key);
             if let Some(text) = env(&name)
@@ -874,6 +881,7 @@ impl Configuration {
         self.smtp.check()?;
         self.mail.check(&self.smtp)?;
         self.search.server()?;
+        self.wiki.check()?;
         self.metrics_address()?;
         self.check_metrics_token()?;
         match self.files_driver.as_str() {

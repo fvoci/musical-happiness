@@ -55,6 +55,34 @@ export function deletedCardsOf(
   return pageOf(items.sort(latestFirst), paging);
 }
 
+/**
+ * The pages of a wiki in the trash at the top of what went with them, each
+ * with how many pages below it went along. A page that went with the page it
+ * was below comes back with that page, and is not listed. The last deleted
+ * first, then by identifier, as the server lists them.
+ */
+export function deletedPagesOf(
+  world: World,
+  wikiId: string,
+  paging: Paging | undefined,
+): DeletedItem[] {
+  const items: DeletedItem[] = [];
+  for (const [id, deleted] of world.deletedBlocks) {
+    const [first] = deleted.blocks;
+    if (deleted.boardId !== wikiId || first?.id !== id || first.type !== 'page') continue;
+    items.push({
+      id,
+      title: first.title,
+      deletedAt: deleted.deletedAt,
+      deletedBy: deleted.deletedBy,
+      below: deleted.blocks.length - 1,
+    });
+  }
+  const order = (one: DeletedItem, other: DeletedItem): number =>
+    latestFirst(one, other) || (one.id < other.id ? -1 : one.id > other.id ? 1 : 0);
+  return pageOf(items.sort(order), paging);
+}
+
 /** Whether a member was an admin of the board, which bringing it back takes. */
 export const wasAdmin = (members: readonly BoardMember[], userId: string): boolean =>
   members.some((member) => member.userId === userId && member.schemeAdmin);

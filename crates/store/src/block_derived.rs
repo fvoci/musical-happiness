@@ -1,11 +1,13 @@
-//! What is kept beside a block and follows from it: the files it shows, and that the
-//! search server is to be told of it. Every write of a block, and every way a block
-//! or a board goes and comes back, passes through here in its own transaction, so
-//! that nothing that follows from a block is left as it was when the block changes.
+//! What is kept beside a block and follows from it: the files it shows, the blocks its
+//! body names, and that the search server is to be told of it. Every write of a block,
+//! and every way a block or a board goes and comes back, passes through here in its own
+//! transaction, so that nothing that follows from a block is left as it was when the
+//! block changes.
 
 use fvoci_model::{Block, SearchKind};
 use serde_json::Value;
 
+use crate::body_links;
 use crate::db::Scope;
 use crate::error::StoreError;
 use crate::file_refs::{self, NewImages};
@@ -19,6 +21,12 @@ fn is_searched(block: &Block) -> bool {
     SearchKind::of_block(&block.block_type).is_some()
         && block.fields.get("isTemplate") != Some(&Value::Bool(true))
 }
+
+/// What only this module makes: what [`file_refs::refresh`] and [`body_links::refresh`]
+/// take, so that no other way of writing a block can put down one of the things that
+/// follow from it and leave the others as they were. Its field is this module's alone.
+#[derive(Debug)]
+pub(crate) struct Refreshing(());
 
 /// What is known of a block as it was stored before a write of it.
 #[derive(Debug, Clone, Copy)]
@@ -35,7 +43,8 @@ pub(crate) enum Before<'a> {
 
 /// Brings what follows from `block` up to it, as it was just written: the files it
 /// shows ([`file_refs::refresh`], which asks about the images of its body as
-/// `new_images` says), and the search server's document of it.
+/// `new_images` says), the blocks its body names ([`body_links::refresh`]), and the
+/// search server's document of it.
 ///
 /// The search server is told of a block that is searched now if what it holds of it
 /// may have changed (its title, its body, its kind, or that it is searched at all),
@@ -46,7 +55,8 @@ pub(crate) async fn refresh(
     before: Before<'_>,
     new_images: NewImages,
 ) -> Result<(), StoreError> {
-    file_refs::refresh(scope, block, new_images).await?;
+    file_refs::refresh(scope, block, new_images, Refreshing(())).await?;
+    body_links::refresh(scope, block, Refreshing(())).await?;
     let told = match before {
         Before::Absent | Before::Unknown => is_searched(block),
         Before::Unchanged => false,

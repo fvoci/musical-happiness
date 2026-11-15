@@ -175,9 +175,15 @@ async fn versioned_card(th: &TestServer, board_id: &str, owner: &str, leaver: &s
 async fn versioned_page(th: &TestServer, wiki_id: &str, owner: &str, leaver: &str) {
     let store = th.app.store();
     let page = store
-        .create_page(wiki_id, &NewPage::default(), owner)
+        .create_page(
+            wiki_id,
+            &NewPage::default(),
+            fvoci_model::PageLimits::default(),
+            owner,
+        )
         .await
-        .expect("a page");
+        .expect("a page")
+        .page;
     for (writer, text) in [(leaver, "An earlier version"), (owner, "Current")] {
         let patch = BlockPatch {
             body: BodyChange::Set(body(text)),

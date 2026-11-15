@@ -5,7 +5,7 @@
 use fvoci_model::{
     Block, BlockPatch, BlockType, Board, BoardPatch, BoardType, BoardsAndBlocks,
     BoardsAndBlocksError, DeleteBoardsAndBlocks, PatchBoardsAndBlocks,
-    generate_boards_and_blocks_ids, renew_boards_and_blocks_ids,
+    generate_boards_and_blocks_ids, renew_boards_and_blocks_ids, renew_boards_and_blocks_ids_told,
 };
 
 fn board(id: &str, board_type: BoardType, title: &str) -> Board {
@@ -139,6 +139,28 @@ fn renew_boards_and_blocks_ids_takes_boards_without_blocks() {
     });
     assert_eq!(renewed.blocks.len(), 1, "the block of no board is left out");
     assert_eq!(renewed.blocks[0].board_id, renewed.boards[0].id, "attached");
+}
+
+/// A block that was asked for is told by its old identifier, whether or not anything
+/// among the blocks names it; a block that was not asked for is not told, nor is what
+/// is no block of the boards.
+#[test]
+fn renew_boards_and_blocks_ids_told_tells_the_new_identifiers_asked_for() {
+    let told = ["block-id-1", "block-id-3"];
+    let renewed = renew_boards_and_blocks_ids_told(
+        BoardsAndBlocks {
+            boards: vec![board("board-id-1", BoardType::Open, "title")],
+            blocks: vec![
+                block("block-id-1", "board-id-1", BlockType::Card),
+                block("block-id-2", "board-id-1", BlockType::Card),
+            ],
+        },
+        |id| told.contains(&id),
+    );
+    let blocks = &renewed.boards_and_blocks.blocks;
+    assert_eq!(renewed.renamed.len(), 1, "{:?}", renewed.renamed);
+    assert_eq!(renewed.renamed["block-id-1"], blocks[0].id);
+    assert_ne!(blocks[0].id, "block-id-1", "under a new identifier");
 }
 
 /// `TestGenerateBoardsAndBlocksIDs` / "correctly generates IDs for all the boards and

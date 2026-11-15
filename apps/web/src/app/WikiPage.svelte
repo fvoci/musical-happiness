@@ -17,26 +17,39 @@
   import { untrack } from 'svelte';
 
   import ConfirmDialog from '$lib/components/confirm/ConfirmDialog.svelte';
+  import { bodyReferences } from '$lib/features/card/body-references.ts';
+  import CardBacklinks from '$lib/features/card/CardBacklinks.svelte';
   import CardBody from '$lib/features/card/CardBody.svelte';
+  import TrashDialog from '$lib/features/shell/TrashDialog.svelte';
   import WikiSettingsDialog from '$lib/features/wiki/WikiSettingsDialog.svelte';
   import WikiJoin from '$lib/features/wiki/WikiJoin.svelte';
   import WikiScreen from '$lib/features/wiki/WikiScreen.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { firstPage, withDescendants } from '$lib/logic/page-tree.ts';
   import {
+    pageTrash,
+    referenceTitles,
     shownWiki,
     whileHere,
     WikiStore,
     type PageStore,
+    type Trash,
     type WikiLooks,
     type WikiPage,
     type Workspace,
   } from '$lib/state/index.ts';
 
   import NotFound from './NotFound.svelte';
+  import { referencePlaces } from './reference-places.ts';
   import type { Router } from './router.svelte.ts';
 
   let { workspace, router }: { workspace: Workspace; router: Router } = $props();
+
+  // Where the references in the bodies of this workspace lead, by the app's one router:
+  // the board page and the wiki page each say so, and neither takes it back.
+  $effect.pre(() => {
+    referenceTitles(workspace).places = referencePlaces(router);
+  });
 
   const wikiId = $derived(router.route.wikiId);
   const pageId = $derived(router.route.pageId);
@@ -54,6 +67,8 @@
       // What the head of the page told, and the focus of a join, were the wiki's before.
       notice = undefined;
       joined = false;
+      // And so were its deleted pages.
+      [trash, trashOpen] = [undefined, false];
       void store.load();
     });
     return () => {
@@ -104,6 +119,9 @@
   const below = $derived(deleting && wiki ? withDescendants(wiki.pages, deleting.id).size - 1 : 0);
   let settingsOpen = $state(false);
   let deleteWikiOpen = $state(false);
+  /** The wiki's deleted pages, read anew each time they are opened. */
+  let trash = $state.raw<Trash | undefined>(undefined);
+  let trashOpen = $state(false);
 
   /** Deletes the wiki; the page goes on to the first board or wiki of the sidebar. */
   async function deleteWiki(store: WikiStore): Promise<void> {
@@ -167,6 +185,11 @@
     onDeleteWiki={() => {
       deleteWikiOpen = true;
     }}
+    onOpenTrash={() => {
+      trash = pageTrash(wiki);
+      trashOpen = true;
+      void trash.read();
+    }}
     onOpenPage={(id: string) => {
       router.openPage(id);
     }}
@@ -176,7 +199,15 @@
     {/snippet}
     {#snippet body(page: PageStore)}
       <!-- The page's body is edited together as a card's is, in the page's own room. -->
-      <CardBody board={wiki} card={page} of="page" testId="page-body" />
+      <CardBody
+        board={wiki}
+        card={page}
+        of="page"
+        testId="page-body"
+        references={bodyReferences(wiki, page.pageId)}
+      />
+      <!-- WikiScreen draws each page anew: the list is read for the page it is drawn for. -->
+      <CardBacklinks {workspace} blockId={page.pageId} of="page" />
     {/snippet}
   </WikiScreen>
   {@const store = wiki}
@@ -198,6 +229,17 @@
         '[data-testid="page-tree"] [role="treeitem"][tabindex="0"]',
       )}
   />
+  {#if store.canEdit}
+    <TrashDialog
+      bind:open={trashOpen}
+      {trash}
+      {workspace}
+      title={m.wiki_trash()}
+      description={m.wiki_trash_description()}
+      untitled={m.wiki_page_untitled()}
+      testId="page-trash"
+    />
+  {/if}
   {#if store.wiki}
     <WikiSettingsDialog
       bind:open={settingsOpen}

@@ -60,7 +60,6 @@ import {
   type User,
   type ViewDraft,
 } from '../backend.ts';
-
 import { applyBoardPatch, applyCardPatch, applyViewPatch } from '../patches.ts';
 
 import {
@@ -81,7 +80,7 @@ import { usersAmong, usersNamed } from './users.ts';
 import { changeDisplayName } from './account.ts';
 import { archiveLines, archiveOf } from './archive.ts';
 import { checkedBody, checkedWhole, flushBoards, flushCard, openMemoryRoom } from './bodies.ts';
-import { checkRelations, renameCopied } from './references.ts';
+import { checkRelations, MemoryReferences, renameCopied } from './references.ts';
 import { MemoryContentSearch } from './content-search.ts';
 import { searchBoardsOf } from './search.ts';
 import { fail } from './refuse.ts';
@@ -121,6 +120,7 @@ export class MemoryBackend implements Backend {
   readonly wiki = new MemoryWikis(this);
   readonly bodyVersions: MemoryBodyVersions;
   readonly search: MemoryContentSearch;
+  readonly references = new MemoryReferences(this, () => this.#enter('references'));
   /** Milliseconds every call waits before it answers. */
   latency = 0;
   readonly #failures = new Map<MethodName, BackendError>();

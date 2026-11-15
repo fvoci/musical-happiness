@@ -296,6 +296,8 @@ test.describe('screens', () => {
       await page.getByTestId('new-wiki-create').click();
       await expect(page).toHaveURL(ON_A_WIKI);
       await expect(page.getByTestId('wiki-empty')).toBeVisible();
+      // The sidebar's drawer, which made the wiki, has slid all the way out.
+      if (size === '390') await expect(sidebar(page)).toBeHidden();
       await shot('empty-wiki');
 
       // Pages three deep, a body, a viewer.

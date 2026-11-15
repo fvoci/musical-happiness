@@ -9,6 +9,8 @@
 
 use std::time::Duration;
 
+use fvoci_model::PageLimits;
+
 use super::App;
 
 /// How much an organization may use of the server.
@@ -28,6 +30,9 @@ pub struct OrgLimits {
     /// How long the provider an organization moves away from is kept, for its people
     /// to carry their accounts over: `oidc_former_provider_days`. No time keeps none.
     pub former_provider_kept: Duration,
+    /// How deep the pages of a wiki go and how many a wiki has: `wiki_page_depth` and
+    /// `wiki_pages`, each at least one.
+    pub pages: PageLimits,
 }
 
 impl OrgLimits {
@@ -53,6 +58,7 @@ impl App {
             largest_import: i64::try_from(config.max_import_bytes).unwrap_or(i64::MAX),
             invitation_mail_per_hour: config.smtp.invitation_mail_per_org_hour,
             former_provider_kept: config.oidc_former_provider_kept(),
+            pages: config.wiki.page_limits(),
         }
     }
 }
@@ -60,6 +66,8 @@ impl App {
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
+
+    use fvoci_model::PageLimits;
 
     use super::OrgLimits;
 
@@ -70,6 +78,7 @@ mod tests {
             largest_import,
             invitation_mail_per_hour: 1,
             former_provider_kept: Duration::ZERO,
+            pages: PageLimits::default(),
         };
         assert_eq!(limits(10, 3).open_upload_bytes_of_a_user(), 20);
         assert_eq!(limits(3, 10).open_upload_bytes_of_a_user(), 20);

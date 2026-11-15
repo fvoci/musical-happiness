@@ -51,6 +51,13 @@
  *     is changed and how to change it; only the formula in it is compared,
  *     without the description that points to that.
  *
+ * 13. What a reference shows of what it names: the editor draws it into the
+ *     reference as it makes it (its state, and a title or the words for what
+ *     the reader may not see); the view makes the place alone, and the same
+ *     module draws into it once the body is in the page (reference-chip.ts,
+ *     tested on its own). The place is compared: the element, its class and
+ *     the identifier.
+ *
  * On both sides:
  *
  *  9. The wording of the `aria-label` of a task's checkbox. That it is there
@@ -120,6 +127,7 @@ const LEFT_OUT = {
   'attribute aria-readonly': 0, // 10
   'diagram around its source': 0, // 11
   'block formula around its drawing': 0, // 12
+  'what a reference shows': 0, // 13
 };
 type LeftOut = keyof typeof LEFT_OUT;
 const leaveOut = (entry: LeftOut): void => {
@@ -148,7 +156,9 @@ function leftOutNode(node: Element): LeftOut | undefined {
     while (isSeparator(before)) before = before?.previousSibling ?? null;
     if (
       isElement(before) &&
-      (before.hasAttribute('data-mention') || before.classList.contains('doc-math'))
+      (before.hasAttribute('data-mention') ||
+        before.hasAttribute('data-reference') ||
+        before.classList.contains('doc-math'))
     )
       return 'break behind a closing mention or formula';
   }
@@ -189,6 +199,14 @@ function shapeOf(node: Node, side: 'editor' | 'view'): Shape | undefined {
     // Its description (how to edit it) points into the holder.
     formula.removeAttribute('aria-describedby');
     return shapeOf(formula, side);
+  }
+  if (ofEditor && node.hasAttribute('data-reference') && node.hasAttribute('data-drawn')) {
+    leaveOut('what a reference shows');
+    const place = node.cloneNode(false) as Element;
+    for (const name of ['data-drawn', 'data-state', 'data-kind', 'aria-busy']) {
+      place.removeAttribute(name);
+    }
+    return shapeOf(place, side);
   }
   const without = ofEditor ? leftOutNode(node) : undefined;
   if (without) {
@@ -340,7 +358,7 @@ describe('the view draws what the editor draws', () => {
       types.map((type) => [type, (counts.get(type) ?? 0) > 0]);
     const nodeTypes = Object.keys(NODE_SPECS);
     const markTypes = Object.keys(MARK_SPECS);
-    expect(nodeTypes).toHaveLength(17);
+    expect(nodeTypes).toHaveLength(18);
     expect(markTypes).toHaveLength(5);
     expect(times(compared.nodes, nodeTypes)).toEqual(nodeTypes.map((type) => [type, true]));
     expect(times(compared.marks, markTypes)).toEqual(markTypes.map((type) => [type, true]));

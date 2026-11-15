@@ -13,7 +13,10 @@
 import { RELATION_LIMIT, type Board } from '../../logic/wire.ts';
 import { BackendError } from '../backend.ts';
 
+import { renameNamed } from './linked.ts';
 import type { StoredBlock, World } from './world.ts';
+
+export { MemoryReferences } from './linked.ts';
 
 type RelationReason =
   | 'relation_not_a_list'
@@ -130,7 +133,8 @@ export function checkRelations(
  * Renames, in a block copied from the board `source`, what it names of the
  * blocks copied with it (`renamed`, old identifier to new): a view's
  * `cardOrder` and `contentOrder` and `defaultTemplateId`, as the server does
- * (anything else keeps naming the source), and what a card's relations name.
+ * (anything else keeps naming the source), what a body names (what was not
+ * copied it names as before), and what a card's relations name.
  * A relation names the copies of the copied cards (`cardIds`) and nothing
  * else: what is not a copied card, the card itself and a repeat go, a value
  * that is no list becomes null, and at most RELATION_LIMIT stay.
@@ -154,6 +158,7 @@ export function renameCopied(
   if (typeof fields.defaultTemplateId === 'string') {
     fields.defaultTemplateId = rename(fields.defaultTemplateId);
   }
+  if (block.body) block.body = renameNamed(block.body, rename);
   if (block.type !== 'card') return;
   const values = propertiesOf(block);
   for (const property of relationIds(source)) {
