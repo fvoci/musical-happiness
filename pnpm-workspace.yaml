@@ -17,3 +17,11 @@ minimumReleaseAge: 1440
 # the optional dependency @esbuild/<platform>.
 allowBuilds:
   esbuild: false
+
+# openapi-typescript 7.13.0 names TypeScript ^5 only, and makes the client's types
+# from the contract under TypeScript 6 as it did under 5 (web `check` compares them).
+# Upstream the gap is only that range (openapi-ts/openapi-typescript#2550): remove
+# this once a release names 6.
+peerDependencyRules:
+  allowedVersions:
+    openapi-typescript>typescript: '6'
