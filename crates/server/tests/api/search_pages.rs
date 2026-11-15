@@ -80,10 +80,12 @@ async fn stored_wiki(
                 title: "환불 규정".to_owned(),
                 ..NewPage::default()
             },
+            fvoci_model::PageLimits::default(),
             user_id,
         )
         .await
-        .expect("the page is stored");
+        .expect("the page is stored")
+        .page;
     (wiki.id, page.id)
 }
 

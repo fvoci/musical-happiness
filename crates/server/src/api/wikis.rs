@@ -7,7 +7,8 @@
 use axum::body::Bytes;
 use axum::extract::Path;
 use fvoci_model::{
-    Block, BlockType, Board, BoardKind, BoardType, MinimumRole, NewPage, Page, PageNode, PagePatch,
+    Block, BlockType, Board, BoardKind, BoardType, MinimumRole, NewPage, Page, PageMove, PageNode,
+    PagePatch,
 };
 use serde::Deserialize;
 use utoipa::ToSchema;
@@ -34,6 +35,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
             handle_patch_page,
             handle_delete_page
         ))
+        .routes(routes!(handle_move_page))
 }
 
 /// A wiki to make.
@@ -181,8 +183,15 @@ async fn handle_get_page_tree(
 /// parent), first if `after` is empty, and last if it is left out. Its body is written
 /// by `patchPage`, or together in its room (`JOIN_DOC`).
 ///
+/// The tree is held to the organization's limits: a page deeper than its depth is 400
+/// at `/parentId` with the reason `page_too_deep`, and one more page than a wiki may
+/// have (those in the trash not counted) is 400 with the reason `too_many_pages`, each
+/// with the `limit`.
+///
 /// The wiki's members are told with `UPDATE_BLOCK`, whose block of the `type` `page`
-/// has the icon and the order among its `fields`.
+/// has the icon and the order among its `fields`. Where the pages of the parent had no
+/// room left between them (two of one order, or orders grown long), they are numbered
+/// anew, and each that changed is told of too.
 #[utoipa::path(
     post,
     path = "/w/{workspaceId}/wikis/{wikiId}/pages",
@@ -286,6 +295,49 @@ async fn handle_patch_page(
         .await?;
     tracing::debug!(wiki_id, page_id, user_id, "PatchPage");
     Ok(json_response(&Page::from(patched)))
+}
+
+/// Move a page
+///
+/// The page goes, with every page below it, below `parentId` (a page of the same wiki;
+/// left out or empty, the top of the wiki), right after the page `after` among the
+/// pages there, first if `after` is empty, and last if it is left out, as for
+/// `createPage`. For editors of the wiki. A page moves within its wiki only. 400 at
+/// `/parentId` if the parent is no page of the wiki or is the page itself or a page
+/// below it, and with the reason `page_too_deep` (and the `limit`) if a page would be
+/// deeper than the organization's limit; 400 at `/after` if that is no other page of
+/// the parent. Nothing is changed then.
+///
+/// The wiki's members are told with `UPDATE_BLOCK` of the page, and of every page of
+/// the parent numbered anew to leave it room; the pages below it keep their parents
+/// and are not told of.
+#[utoipa::path(
+    post,
+    path = "/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/move",
+    operation_id = "movePage",
+    tag = tag::WIKIS,
+    params(MemberWorkspaceId, WikiId, PageId),
+    request_body = PageMove,
+    responses((status = 200, description = "The page where it is now.", body = Page)),
+)]
+async fn handle_move_page(
+    WsWiki(ws): WsWiki,
+    Path((_, wiki_id, page_id)): Path<(String, String, String)>,
+    body: Bytes,
+) -> ApiResult {
+    let user_id = ws.session.user_id.as_str();
+    let page = page_with_permission(
+        &ws,
+        &wiki_id,
+        &page_id,
+        BoardPermission::ManageBoardCards,
+        "access denied to move page",
+    )
+    .await?;
+    let to: PageMove = decode_object(&body)?;
+    let moved = ws.app.move_page(&wiki_id, &page.id, &to, user_id).await?;
+    tracing::debug!(wiki_id, page_id, user_id, "MovePage");
+    Ok(json_response(&moved))
 }
 
 /// Delete a page

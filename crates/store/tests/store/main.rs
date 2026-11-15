@@ -32,6 +32,7 @@ mod oidc_trial_binding;
 mod operator_password;
 mod order;
 mod org_admin;
+mod page_moves;
 mod pages;
 mod password_reset;
 mod registration;

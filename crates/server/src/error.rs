@@ -311,6 +311,10 @@ reasons! {
     SearchNotConfigured => "search_not_configured", "Search not configured";
     /// The search server did not answer a search.
     SearchUnavailable => "search_unavailable", "Search unavailable";
+    /// A page would be deeper in its wiki than the organization's limit.
+    PageTooDeep => "page_too_deep", "Page too deep";
+    /// The wiki would have more pages than the organization's limit.
+    TooManyPages => "too_many_pages", "Too many pages in the wiki";
 }
 
 impl Reason {

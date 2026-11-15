@@ -129,6 +129,11 @@ pub(crate) fn is_order_value(value: &Value) -> bool {
     value.as_str().is_some_and(|order| digits_of(order).is_ok())
 }
 
+/// Whether `order` is an order [`order_between`] takes as a bound.
+pub(crate) fn is_order(order: &str) -> bool {
+    digits_of(order).is_ok()
+}
+
 /// The digits of an order as their indices in [`DIGITS`].
 fn digits_of(order: &str) -> Result<Vec<usize>, OrderError> {
     let digits: Vec<usize> = order
@@ -272,6 +277,19 @@ impl NewPage {
         refuse_icon(&mut refused, Some(&self.icon));
         refused.into_result()
     }
+}
+
+/// Where a page moves to, with every page below it: within its wiki.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize, utoipa::ToSchema)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+pub struct PageMove {
+    /// The identifier of the page it goes below: a page of the same wiki, neither the
+    /// page itself nor one below it. Left out or empty, the page goes to the top of the
+    /// wiki.
+    pub parent_id: String,
+    /// The identifier of the page it goes right after: another page of that parent.
+    /// Empty for the first place; left out or `null`, the last place.
+    pub after: Option<String>,
 }
 
 /// What a title that is too long is refused with.

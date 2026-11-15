@@ -32,6 +32,7 @@ mod oidc;
 mod org_admin;
 mod organization;
 mod page;
+mod page_tree;
 mod problem;
 mod refusal;
 mod relation;
@@ -109,8 +110,12 @@ pub use organization::{
     OrgRole, UnknownRole, UserWorkspace, WorkspaceMember, WorkspaceRole, WorkspaceRoleChange,
 };
 pub use page::{
-    NewPage, OrderError, PAGE_ICON_FIELD, PAGE_ORDER_FIELD, Page, PageNode, PagePatch,
+    NewPage, OrderError, PAGE_ICON_FIELD, PAGE_ORDER_FIELD, Page, PageMove, PageNode, PagePatch,
     order_between, sort_pages,
+};
+pub use page_tree::{
+    DEFAULT_PAGE_DEPTH, DEFAULT_WIKI_PAGES, ORDER_MAX_CHARS, PageLimits, PageTree, Place,
+    spread_orders,
 };
 pub use problem::{InvalidInput, PROBLEM_MEDIA_TYPE, Problem, json_pointer, pointer_token};
 pub use refusal::{NAME_SHOWN_CHARS, Refusal, RefusalReason, Refusals, shown_name};

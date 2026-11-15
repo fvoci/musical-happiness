@@ -191,6 +191,7 @@ pub(super) const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
     ("GET", "/wikis/{wikiId}/pages/{pageId}", "getPage"),
     ("PATCH", "/wikis/{wikiId}/pages/{pageId}", "patchPage"),
     ("DELETE", "/wikis/{wikiId}/pages/{pageId}", "deletePage"),
+    ("POST", "/wikis/{wikiId}/pages/{pageId}/move", "movePage"),
 ];
 
 /// What a guest of the workspace is told by an operation of `REACHED_BY_ITEM` about
@@ -212,6 +213,7 @@ const REACHED_BY_ITEM: &[&str] = &[
     "getPage",
     "patchPage",
     "deletePage",
+    "movePage",
     "createBoardsAndBlocks",
     "deleteBoardsAndBlocks",
     "patchBoardsAndBlocks",
@@ -1051,9 +1053,10 @@ async fn a_page_in(ts: &super::common::TestServer, workspace_id: &str, owner: &s
         ..fvoci_model::NewPage::default()
     };
     store
-        .create_page(&wiki.id, &new, owner)
+        .create_page(&wiki.id, &new, fvoci_model::PageLimits::default(), owner)
         .await
         .expect("its page")
+        .page
 }
 
 #[tokio::test]

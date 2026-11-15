@@ -325,6 +325,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("NewWiki", Members::AsWritten),
     ("NewPage", Members::Only(&[])),
     ("PagePatch", Members::Only(&[])),
+    ("PageMove", Members::Only(&[])),
     ("NewCard", Members::AsWritten),
     ("NewCategory", Members::AsWritten),
     ("NewInvitation", Members::Only(&["role"])),

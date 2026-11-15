@@ -2807,6 +2807,24 @@
         ],
         "type": "object"
       },
+      "PageMove": {
+        "additionalProperties": false,
+        "description": "Where a page moves to, with every page below it: within its wiki.",
+        "properties": {
+          "after": {
+            "description": "The identifier of the page it goes right after: another page of that parent.\nEmpty for the first place; left out or `null`, the last place.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "parentId": {
+            "description": "The identifier of the page it goes below: a page of the same wiki, neither the\npage itself nor one below it. Left out or empty, the page goes to the top of the\nwiki.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "PageNode": {
         "description": "A page as the tree of its wiki lists it: without its body.",
         "properties": {
@@ -3404,6 +3422,16 @@
             "reason": "search_unavailable",
             "title": "Search unavailable",
             "type": "/problems/search-unavailable"
+          },
+          {
+            "reason": "page_too_deep",
+            "title": "Page too deep",
+            "type": "/problems/page-too-deep"
+          },
+          {
+            "reason": "too_many_pages",
+            "title": "Too many pages in the wiki",
+            "type": "/problems/too-many-pages"
           }
         ]
       },
@@ -12420,7 +12448,7 @@
         ]
       },
       "post": {
-        "description": "The server chooses the identifier, the creator, the times and the `order`. For\neditors of the wiki. The page goes below `parentId`, a page of the same wiki (400 at\n`/parentId` otherwise), or at the top of the wiki; among the pages of that parent it\ngoes right after the page `after` (400 at `/after` if that is no page of the same\nparent), first if `after` is empty, and last if it is left out. Its body is written\nby `patchPage`, or together in its room (`JOIN_DOC`).\n\nThe wiki's members are told with `UPDATE_BLOCK`, whose block of the `type` `page`\nhas the icon and the order among its `fields`.",
+        "description": "The server chooses the identifier, the creator, the times and the `order`. For\neditors of the wiki. The page goes below `parentId`, a page of the same wiki (400 at\n`/parentId` otherwise), or at the top of the wiki; among the pages of that parent it\ngoes right after the page `after` (400 at `/after` if that is no page of the same\nparent), first if `after` is empty, and last if it is left out. Its body is written\nby `patchPage`, or together in its room (`JOIN_DOC`).\n\nThe tree is held to the organization's limits: a page deeper than its depth is 400\nat `/parentId` with the reason `page_too_deep`, and one more page than a wiki may\nhave (those in the trash not counted) is 400 with the reason `too_many_pages`, each\nwith the `limit`.\n\nThe wiki's members are told with `UPDATE_BLOCK`, whose block of the `type` `page`\nhas the icon and the order among its `fields`. Where the pages of the parent had no\nroom left between them (two of one order, or orders grown long), they are numbered\nanew, and each that changed is told of too.",
         "operationId": "createPage",
         "parameters": [
           {
@@ -12657,6 +12685,77 @@
           }
         },
         "summary": "Change a page",
+        "tags": [
+          "wikis"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/move": {
+      "post": {
+        "description": "The page goes, with every page below it, below `parentId` (a page of the same wiki;\nleft out or empty, the top of the wiki), right after the page `after` among the\npages there, first if `after` is empty, and last if it is left out, as for\n`createPage`. For editors of the wiki. A page moves within its wiki only. 400 at\n`/parentId` if the parent is no page of the wiki or is the page itself or a page\nbelow it, and with the reason `page_too_deep` (and the `limit`) if a page would be\ndeeper than the organization's limit; 400 at `/after` if that is no other page of\nthe parent. Nothing is changed then.\n\nThe wiki's members are told with `UPDATE_BLOCK` of the page, and of every page of\nthe parent numbered anew to leave it room; the pages below it keep their parents\nand are not told of.",
+        "operationId": "movePage",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the wiki: a board of the `kind` `wiki`. A board of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "wikiId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the page: a page of the wiki of the path. 404 for a page of another wiki.",
+            "in": "path",
+            "name": "pageId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PageMove"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page"
+                }
+              }
+            },
+            "description": "The page where it is now."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Move a page",
         "tags": [
           "wikis"
         ]
