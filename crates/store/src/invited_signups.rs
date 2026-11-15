@@ -1,13 +1,12 @@
 //! Registrations made by the link of an invitation, on a server that confirms addresses:
 //! the link counts one as a use when it is made, as it counts an account it lets in,
 //! and lets its account in once it is confirmed; one that ends unconfirmed gives the
-//! use back. Their links are held in the order acceptances hold them: the
-//! organization's row and the board of a guest's link, the link, then the registration.
+//! use back. Their links are held in the order acceptances hold them: what the link
+//! hangs from (`link_locks::hold_for_letting_in`), the link, then the registration.
 
 use fvoci_model::{AuditAction, Invitation, WorkspaceRole};
 
 use crate::audit::{self, AuditActor, AuditEntry};
-use crate::boards::lock_board;
 use crate::db::{Dialect, Id, Scope};
 use crate::error::StoreError;
 use crate::invitations::{
@@ -202,9 +201,8 @@ async fn link_by_id(
         .transpose()
 }
 
-/// Holds the link with the identifier against its acceptances, after the
-/// organization's row and the board of a guest's link, as an acceptance holds them;
-/// the link, if it is there.
+/// Holds the link with the identifier against its acceptances, after what it hangs
+/// from, as an acceptance holds them; the link, if it is there.
 async fn hold_link(
     scope: &mut Scope<'_>,
     invitation_id: &str,
@@ -212,12 +210,9 @@ async fn hold_link(
     let Some(link) = link_by_id(scope, invitation_id).await? else {
         return Ok(None);
     };
-    crate::org_admin::hold_organization_row(scope).await?;
-    if let Some(board_id) = &link.board_id {
-        // A board that is gone took its links along.
-        if !lock_board(scope, board_id).await? {
-            return Ok(None);
-        }
+    // A board that is gone took its links along.
+    if !link_locks::hold_for_letting_in(scope, &link).await? {
+        return Ok(None);
     }
     let mut sql = scope.sql("SELECT i.id FROM invitations AS i WHERE i.id = ");
     sql.bind(Id(invitation_id))

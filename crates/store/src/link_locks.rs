@@ -11,7 +11,8 @@
 //!    [`hold_organization`] of another), before any link of it that is held with
 //!    another, or with anything a deletion holds or deletes. Two transactions that hold
 //!    several links of one organization wait for each other here.
-//! 3. The workspace.
+//! 3. The workspace: before a member's link, which only the workspace's purge deletes,
+//!    the workspace instead of the organization's row ([`hold_for_letting_in`]).
 //! 4. The board.
 //! 5. The links, a link before the links made like it for the recipients of its mail,
 //!    and then the registrations made by them.
@@ -29,10 +30,12 @@
 //!
 //! SQLite's writers wait for each other already: nothing here holds anything there.
 
+use fvoci_model::Invitation;
+
 use crate::NewLink;
 use crate::db::{Dialect, Id, Scope};
 use crate::error::StoreError;
-use crate::org_admin;
+use crate::{boards, org_admin};
 
 /// The key of the advisory lock of the turn of several links: `fvoclnks`.
 const SEVERAL_LINKS_LOCK: i64 = 0x6676_6f63_6c6e_6b73;
@@ -147,4 +150,29 @@ pub(crate) async fn hold_for_new_link(
         }
     }
     Ok(())
+}
+
+/// Holds what a link that lets somebody in hangs from, before the link: for a guest's
+/// link the organization's row and then its board, as team changes and its deletion
+/// hold them, which keeps the access the board gives through teams as it is through
+/// the grant; for a member's link its workspace, `FOR KEY SHARE`, against its purge
+/// from the trash, which holds it before the links it deletes. Nothing else waits for
+/// that, so taking a maker out of the workspace meanwhile does not wait for the link,
+/// and is seen once the link is held. Says whether the board is there still.
+pub(crate) async fn hold_for_letting_in(
+    scope: &mut Scope<'_>,
+    link: &Invitation,
+) -> Result<bool, StoreError> {
+    if let Some(board_id) = &link.board_id {
+        org_admin::hold_organization_row(scope).await?;
+        return boards::lock_board(scope, board_id).await;
+    }
+    if scope.dialect() == Dialect::Postgres {
+        let mut sql = scope.sql("SELECT id FROM workspaces WHERE id = ");
+        sql.bind(Id(&link.workspace_id))
+            .push_bind(" AND org_id = ", scope.org()?)
+            .push(" FOR KEY SHARE");
+        scope.fetch_optional(sql).await?;
+    }
+    Ok(true)
 }

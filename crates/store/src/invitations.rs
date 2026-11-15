@@ -18,7 +18,7 @@ use fvoci_model::{
 
 use crate::accounts::{self, Which};
 use crate::audit::{self, AuditEntry};
-use crate::boards::{find_member, lock_board, save_member};
+use crate::boards::{find_member, save_member};
 use crate::db::{Dialect, Id, OptId, Param, Row, Scope, Sql};
 use crate::error::{StoreError, Taken};
 use crate::link_locks;
@@ -420,9 +420,8 @@ impl Store {
 }
 
 /// Holds the live link of the scope's organization whose token has the digest
-/// `token_hash` at `now`, against the other acceptances of it, after the
-/// organization's row and the board of a guest's link (as removal and deletion hold
-/// them, `link_locks`), and its maker's
+/// `token_hash` at `now`, against the other acceptances of it, after what it hangs
+/// from (`link_locks::hold_for_letting_in`), and its maker's
 /// membership of the workspace if they are still `found`: the link, or what the
 /// acceptance is to answer instead.
 pub(crate) async fn hold_live_link(
@@ -438,14 +437,8 @@ pub(crate) async fn hold_live_link(
     let Some(row) = scope.fetch_optional(sql).await? else {
         return Ok(Err(Acceptance::Unavailable));
     };
-    // Team changes hold the organization before any board, and a deletion before the
-    // links it takes along: of the board, or of the workspace for a member's link.
-    crate::org_admin::hold_organization_row(scope).await?;
-    if let Some(board_id) = invitation_from_row(&row)?.board_id {
-        // Keep inherited board access stable through the grant.
-        if !lock_board(scope, &board_id).await? {
-            return Ok(Err(Acceptance::Unavailable));
-        }
+    if !link_locks::hold_for_letting_in(scope, &invitation_from_row(&row)?).await? {
+        return Ok(Err(Acceptance::Unavailable));
     }
     // The link itself, held against the other acceptances of it: read again,
     // it is live still, and its workspace still invites guests if it is for one.
