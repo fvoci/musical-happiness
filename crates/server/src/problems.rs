@@ -187,9 +187,11 @@ fn describe_reason(reason: Reason) -> &'static str {
              say which. Status 401 from a login. Status 400 from a change of the password, \
              whose session is good: `errors` names `/oldPassword`."
         }
-        Reason::InvitationRequired | Reason::InvitationUnavailable => {
-            describe_invitation(reason).unwrap_or_default()
-        }
+        Reason::InvitationRequired
+        | Reason::InvitationUnavailable
+        | Reason::TooManyRecipients
+        | Reason::InvitationMailLimit
+        | Reason::MailQueueFull => describe_invitation(reason).unwrap_or_default(),
         Reason::UsernameTaken => {
             "Status 409. Another user has the user name. `errors` names `/username`."
         }
@@ -251,21 +253,6 @@ fn describe_reason(reason: Reason) -> &'static str {
         | Reason::DefaultWorkspace
         | Reason::LastOrgAdmin
         | Reason::PublicLinksOff => describe_organization(reason).unwrap_or_default(),
-        Reason::TooManyRecipients => {
-            "Status 400. An invitation mail request names more recipients than \
-             `invitation_mail_recipients` allows (20 unless configured), which `limit` \
-             tells. `errors` names `/recipients`. Nothing was sent: send fewer at a time."
-        }
-        Reason::InvitationMailLimit => {
-            "Status 429. The workspace queued as many invitation messages within the last \
-             hour as `invitation_mail_per_hour` allows (100 unless configured), counting the \
-             recipients of this request. Nothing of it was sent. `Retry-After` and \
-             `retryAfter` say when enough of the earlier messages are an hour old."
-        }
-        Reason::MailQueueFull => {
-            "Status 503. The server holds as many invitation messages waiting to be sent as \
-             `mail_invitation_queue` allows. Nothing of this request was sent. Try again later."
-        }
         // The rest are the reasons of the search of bodies and of a body edited together,
         // which the functions below name one by one: a reason that is none of theirs
         // fails the tests.
@@ -327,7 +314,8 @@ fn describe_transfer(reason: Reason) -> Option<&'static str> {
     })
 }
 
-/// The descriptions of the reasons somebody is not let in for.
+/// The descriptions of the reasons somebody is not let in for, and an invitation's mail is
+/// not sent for.
 fn describe_invitation(reason: Reason) -> Option<&'static str> {
     Some(match reason {
         Reason::InvitationRequired => {
@@ -340,6 +328,21 @@ fn describe_invitation(reason: Reason) -> Option<&'static str> {
              whether there never was such a link, it ended after its seven days, it was \
              used as often as it may be, it was revoked, or who made it may no longer \
              invite. Ask for a new link."
+        }
+        Reason::TooManyRecipients => {
+            "Status 400. An invitation mail request names more recipients than \
+             `invitation_mail_recipients` allows (20 unless configured), which `limit` \
+             tells. `errors` names `/recipients`. Nothing was sent: send fewer at a time."
+        }
+        Reason::InvitationMailLimit => {
+            "Status 429. The workspace queued as many invitation messages within the last \
+             hour as `invitation_mail_per_hour` allows (100 unless configured), counting the \
+             recipients of this request. Nothing of it was sent. `Retry-After` and \
+             `retryAfter` say when enough of the earlier messages are an hour old."
+        }
+        Reason::MailQueueFull => {
+            "Status 503. The server holds as many invitation messages waiting to be sent as \
+             `mail_invitation_queue` allows. Nothing of this request was sent. Try again later."
         }
         _ => return None,
     })
