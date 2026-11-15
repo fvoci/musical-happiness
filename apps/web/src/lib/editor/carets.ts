@@ -45,8 +45,17 @@ const userOf = (user: unknown): string => {
   return typeof id === 'string' ? id : '';
 };
 
+/** The top of what is seen of the body: the lowest of its own, the window's, and every box it is clipped by. */
+function seenTop(dom: HTMLElement): number {
+  let top = Math.max(dom.getBoundingClientRect().top, 0);
+  for (let box = dom.parentElement; box; box = box.parentElement) {
+    if (getComputedStyle(box).overflowY !== 'visible') top = Math.max(top, box.getBoundingClientRect().top);
+  }
+  return top;
+}
+
 /**
- * Puts a name where it is not cut off: under the first line, and moved left
+ * Puts a name where it is not cut off: under the first line seen, and moved left
  * from its caret as far as keeps it within the right edge (the body's, or
  * the window's where the body runs past it), never past the left one. The
  * name is looked up again: it may have become known since it was drawn.
@@ -62,7 +71,7 @@ function place(view: EditorView, caret: HTMLElement, nameOf: (userId: string) =>
   const right = Math.min(box.right, view.dom.ownerDocument.documentElement.clientWidth);
   const past = Math.max(0, at.left + size.width - right);
   const moved = Math.min(past, Math.max(0, at.left - box.left));
-  caret.toggleAttribute('data-below', at.top - size.height < box.top);
+  caret.toggleAttribute('data-below', at.top - size.height < seenTop(view.dom));
   name.style.setProperty('--moved', `${String(-moved)}px`);
 }
 

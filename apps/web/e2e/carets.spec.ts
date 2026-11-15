@@ -188,6 +188,30 @@ test('a name is not cut off at the edges: under the first line, and moved left a
   await other.close();
 });
 
+test('a name is not cut off at the top of a body scrolled in its card', async ({ page }) => {
+  const lines = Array.from({ length: 60 }, (_, index) => `Line ${String(index + 1)}.`);
+  const { mine, theirs, other } = await twoTabs(page, lines);
+  // The first tab's body is scrolled until the thirtieth line is the first one seen.
+  const line = mine.locator('p').nth(29);
+  const seen = await line.evaluate((element) => {
+    let box = element.parentElement;
+    while (box && !(/auto|scroll/.test(getComputedStyle(box).overflowY) && box.scrollHeight > box.clientHeight))
+      box = box.parentElement;
+    const scroller = box ?? document.scrollingElement ?? document.documentElement;
+    const top = box ? box.getBoundingClientRect().top : 0;
+    scroller.scrollTop += element.getBoundingClientRect().top - top;
+    return top;
+  });
+  await theirs.locator('p').nth(29).click();
+  await other.keyboard.press('End');
+  await expect(caret(mine)).toHaveAttribute('data-named', '');
+  await expect(caret(mine)).toHaveAttribute('data-below', '');
+  await expect
+    .poll(async () => (await nameOf(mine).boundingBox())?.y ?? -1)
+    .toBeGreaterThanOrEqual(seen - 1);
+  await other.close();
+});
+
 test('a name finds its place again when the window is another width', async ({ page }) => {
   const { mine, theirs, other } = await twoTabs(page, ['Short.', 'Below.']);
   await page.setViewportSize({ width: 1280, height: 800 });
