@@ -165,6 +165,17 @@ async fn who_may_not_read_the_wiki_is_answered_of_its_comments_as_of_none() {
         [200, 403, 200, 403, 403],
         "who did not join the open wiki reads its comments and their versions, and writes none"
     );
+    let read = th
+        .client2
+        .get(&comments_of(TEST_WS, &open, &open_page))
+        .await
+        .value();
+    let read: Vec<String> = read.as_array().expect("a list").iter().map(id).collect();
+    assert_eq!(
+        read,
+        [id(&open_one)],
+        "what who did not join the open wiki reads"
+    );
     th.teardown().await;
 }
 
