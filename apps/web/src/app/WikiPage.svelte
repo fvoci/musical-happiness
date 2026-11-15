@@ -13,16 +13,24 @@
 
   The page's body is the card's kind of body (`CardBody`), edited together in
   the page's room; while the wiki is shown the reader is on it, and on the
-  page shown (the wiki's presence), as on a board and its card.
+  page shown (the wiki's presence), as on a board and its card. Below the body
+  are the page's comments, the card's (`CardComments`, `CommentComposer`),
+  and the page's menu opens the versions of its body, the card's dialog
+  (`BodyVersions`).
 -->
 <script lang="ts">
   import { untrack } from 'svelte';
 
   import ConfirmDialog from '$lib/components/confirm/ConfirmDialog.svelte';
+  import BodyVersions from '$lib/features/card/BodyVersions.svelte';
+  import { pageVersions, VersionsReading } from '$lib/features/card/body-versions.svelte.ts';
   import ShareDialog from '$lib/features/shell/ShareDialog.svelte';
   import { bodyReferences } from '$lib/features/card/body-references.ts';
   import CardBacklinks from '$lib/features/card/CardBacklinks.svelte';
   import CardBody from '$lib/features/card/CardBody.svelte';
+  import CardComments from '$lib/features/card/CardComments.svelte';
+  import CommentComposer from '$lib/features/card/CommentComposer.svelte';
+  import PageMenu from '$lib/features/wiki/PageMenu.svelte';
   import TrashDialog from '$lib/features/shell/TrashDialog.svelte';
   import WikiSettingsDialog from '$lib/features/wiki/WikiSettingsDialog.svelte';
   import WikiJoin from '$lib/features/wiki/WikiJoin.svelte';
@@ -41,6 +49,8 @@
     type WikiPage,
     type Workspace,
   } from '$lib/state/index.ts';
+
+  import { Button } from '$lib/ui/button/index.js';
 
   import ManagedBoard from './ManagedBoard.svelte';
   import NotFound from './NotFound.svelte';
@@ -124,6 +134,9 @@
   let settingsOpen = $state(false);
   let sharing = $state(false);
   let deleteWikiOpen = $state(false);
+  /** The versions of a page, read anew each time their dialog opens; it goes with the page. */
+  let versions = $state.raw<{ pageId: string; reading: VersionsReading }>();
+  let versionsOpen = $state(false);
   /** The wiki's deleted pages, read anew each time they are opened. */
   let trash = $state.raw<Trash | undefined>(undefined);
   let trashOpen = $state(false);
@@ -229,11 +242,54 @@
             references={bodyReferences(wiki, page.pageId)}
           />
           <!-- WikiScreen draws each page anew: the list is read for the page it is drawn for. -->
-          <CardBacklinks {workspace} blockId={page.pageId} of="page" />
+          <CardBacklinks {workspace} blockId={page.pageId} of="page" heading="h2" />
+          {@const comments = page.comments}
+          {#if page.status === 'ready' && comments.status === 'ready'}
+            <CardComments
+              board={comments}
+              card={comments}
+              readVersions={(commentId: string) => comments.commentVersions(commentId)}
+              heading="h2"
+            />
+            {#if comments.canComment}
+              <CommentComposer
+                board={comments}
+                card={comments}
+                draftKey={page.pageId}
+                placement="inline"
+              />
+            {/if}
+          {:else if comments.status === 'failed'}
+            <div class="flex flex-wrap items-center gap-2 border-t pt-5" role="alert">
+              <p class="text-muted-foreground">{m.app_problem_load()}</p>
+              <Button variant="outline" onclick={() => void comments.read(false)}>
+                {m.app_retry()}
+              </Button>
+            </div>
+          {/if}
+        {/snippet}
+        {#snippet pageActions(page: PageStore)}
+          {@const shown = wiki.page(page.pageId)}
+          {#if shown}
+            <PageMenu
+              page={shown}
+              onVersions={() => {
+                versions = {
+                  pageId: page.pageId,
+                  reading: new VersionsReading(pageVersions(page)),
+                };
+                versionsOpen = true;
+              }}
+            />
+          {/if}
         {/snippet}
       </WikiScreen>
     </div>
   </div>
+  <!-- Another page shown, the dialog of the one before goes with it. -->
+  {#if versions && versions.pageId === pageId}
+    <BodyVersions bind:open={versionsOpen} reading={versions.reading} board={wiki} of="page" />
+  {/if}
   {@const title = deleting?.title || m.wiki_page_untitled()}
   <ConfirmDialog
     bind:open={deleteOpen}

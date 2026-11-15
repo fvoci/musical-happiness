@@ -147,6 +147,8 @@ async fn pages(case: &mut Case, wiki: &str) {
         .await;
     case.run("patchPage", of_page, json!({"title": "changed page"}))
         .await;
+    page_comments(case, wiki, &page).await;
+    page_versions(case, wiki, &page).await;
     let of_below = &[("wikiId", wiki), ("pageId", below.as_str())];
     case.run("movePage", of_below, json!({"parentId": ""}))
         .await;
@@ -156,6 +158,67 @@ async fn pages(case: &mut Case, wiki: &str) {
     case.present("getDeletedPages", at, &below).await;
     case.run("undeletePage", of_below, json!({})).await;
     case.run("deletePage", of_below, json!({})).await;
+}
+
+/// The versions of the page's body: two written, listed, the older read and gone back
+/// to, which writes it to the page again.
+async fn page_versions(case: &mut Case, wiki: &str, page: &str) {
+    let of_page = &[("wikiId", wiki), ("pageId", page)];
+    for said in ["first", "second"] {
+        let read = case.present("getPage", of_page, page).await.value();
+        let body = json!({"type": "doc", "content": [{"type": "paragraph", "content": [
+            {"type": "text", "text": format!("secret {} {said} body", case.label)}]}]});
+        case.run(
+            "patchPage",
+            of_page,
+            json!({"readAt": read["updateAt"], "body": body}),
+        )
+        .await;
+    }
+    let listed = case
+        .run("getPageBodyVersions", of_page, json!({}))
+        .await
+        .value();
+    let version = listed[1]["version"]
+        .as_i64()
+        .expect("an older version")
+        .to_string();
+    let of_version = &[
+        ("wikiId", wiki),
+        ("pageId", page),
+        ("version", version.as_str()),
+    ];
+    case.run("getPageBodyVersion", of_version, json!({})).await;
+    case.run("restorePageBodyVersion", of_version, json!({}))
+        .await;
+}
+
+/// A comment on the page: written, listed, changed, its versions read, deleted and
+/// brought back.
+async fn page_comments(case: &mut Case, wiki: &str, page: &str) {
+    let of_page = &[("wikiId", wiki), ("pageId", page)];
+    let said = |text: String| {
+        json!({"type": "doc", "content": [{"type": "paragraph", "content": [
+            {"type": "text", "text": text}]}]})
+    };
+    let body = said(format!("secret {} comment", case.label));
+    let made = case
+        .run("createPageComment", of_page, json!({ "body": body }))
+        .await
+        .value();
+    let comment = case.remember(&made, "id");
+    case.present("getPageComments", of_page, &comment).await;
+    let of_comment = &[
+        ("wikiId", wiki),
+        ("pageId", page),
+        ("commentId", comment.as_str()),
+    ];
+    let change = json!({"body": said("changed comment".to_owned()), "readAt": made["updateAt"]});
+    case.run("patchPageComment", of_comment, change).await;
+    case.run("getPageCommentVersions", of_comment, json!({}))
+        .await;
+    case.run("deletePageComment", of_comment, json!({})).await;
+    case.run("undeletePageComment", of_comment, json!({})).await;
 }
 
 async fn cards(case: &mut Case, board: &str) -> String {

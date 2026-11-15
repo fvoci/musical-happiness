@@ -98,7 +98,8 @@ export class SharedBackend implements Backend {
   };
   /**
    * A wiki's link reads its tree and its pages, naming nobody, and nothing
-   * else of a wiki (no trash, no other wiki); nothing is changed.
+   * else of a wiki (no comments, no versions, no trash, no other wiki);
+   * nothing is changed.
    */
   readonly wiki: Wikis = {
     wikis: nothing,
@@ -111,6 +112,13 @@ export class SharedBackend implements Backend {
       this.#only(wikiId);
       return pageDetailOf(await this.#read<Schemas['Page']>('/pages/{pageId}', { pageId }));
     },
+    comments: nothing,
+    createComment: refused,
+    patchComment: refused,
+    deleteComment: refused,
+    restoreComment: refused,
+    commentVersions: nothing,
+    bodyVersions: this.bodyVersions,
     deletedPages: nothing,
     createWiki: refused,
     createPage: refused,

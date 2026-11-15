@@ -126,6 +126,24 @@ describe('the backend of a wiki’s public link', () => {
     }
   });
 
+  it('reads no comments or versions of a page, asking the server nothing, and writes none', async () => {
+    const sent = serve([]);
+    const wikis = new SharedBackend('', 'w1', 't').wiki;
+    expect([
+      await wikis.comments('w1', 'p1'),
+      await wikis.commentVersions('w1', 'p1', 'c1'),
+      await wikis.bodyVersions.list('w1', 'p1'),
+    ]).toEqual([[], [], []]);
+    expect(sent).toEqual([]);
+    for (const write of [
+      () => wikis.createComment('w1', 'p1', { type: 'doc', content: [] }),
+      () => wikis.deleteComment('w1', 'p1', 'c1'),
+      () => wikis.restoreComment('w1', 'p1', 'c1'),
+    ]) {
+      await expect(write()).rejects.toSatisfy(isBackendError);
+    }
+  });
+
   it('asks the server at the wiki’s addresses of the link', async () => {
     const sent = serve([]);
     const backend = new SharedBackend('', 'w1', 'to/ken');

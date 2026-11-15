@@ -95,6 +95,21 @@ export function roleOf(member: BoardMember | undefined): MemberRole {
   return member.schemeViewer || member.inheritedRole === 'viewer' ? 'viewer' : '';
 }
 
+/**
+ * Whether a reader of `role` changes, deletes and brings back a comment that
+ * `createdBy` wrote: their own when they may comment, anyone's when they are
+ * an admin (the user's decision of 2026-11-11 22:13 KST; `patchPageComment`
+ * in `contracts/openapi.json`), as `BoardStore.canEditComment` has it of a board.
+ */
+export function canChangeComment(
+  role: MemberRole,
+  createdBy: string,
+  readerId: string | undefined,
+): boolean {
+  if (role === 'admin') return true;
+  return (role === 'editor' || role === 'commenter') && createdBy === readerId;
+}
+
 /** The flags of a membership with exactly the one role. */
 export function roleFlags(
   role: BoardRole,

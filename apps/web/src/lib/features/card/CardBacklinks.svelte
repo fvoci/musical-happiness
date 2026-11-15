@@ -21,9 +21,11 @@
     blockId: string;
     /** Which it is, for the heading. */
     of?: 'card' | 'page';
+    /** The level of the heading: under a card's title, or under a page's. */
+    heading?: 'h2' | 'h3';
   }
 
-  let { workspace, blockId, of = 'card' }: Props = $props();
+  let { workspace, blockId, of = 'card', heading = 'h3' }: Props = $props();
 
   /** How many are read at a time (the server's own page). */
   const AT_ONCE = 50;
@@ -86,10 +88,10 @@
     class="flex flex-col gap-2 border-t pt-5"
     data-testid="card-backlinks"
   >
-    <h3 id="{uid}-heading" class="font-semibold">
+    <svelte:element this={heading} id="{uid}-heading" class="font-semibold">
       {of === 'page' ? m.page_backlinks() : m.card_backlinks()}
       <span class="font-normal text-muted-foreground">{naming.length}{more ? '+' : ''}</span>
-    </h3>
+    </svelte:element>
     <ul class="flex flex-col gap-1">
       {#each naming as linked (linked.id)}
         {@const href = titles.places?.href(linked)}

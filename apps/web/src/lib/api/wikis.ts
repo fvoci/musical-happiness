@@ -2,11 +2,19 @@
  * The wikis and their pages on the server (`Backend.wiki`): the operations
  * under `/w/{workspaceId}/wikis` (`getWikis`, `createWiki`, `getPageTree`,
  * `createPage`, `getPage`, `patchPage`, `deletePage`, `movePage`, `duplicatePage`, `getDeletedPages`,
- * `undeletePage`). What a wiki shares
+ * `undeletePage`), the comments on a page (`getPageComments` and the rest)
+ * and the versions of its body (`ServerPageVersions`). What a wiki shares
  * with a board (reading it, changing, deleting and bringing it back, its
  * members, joining it, the sidebar) goes by the board's operations.
  */
+import type { DocNode } from '../editor/schema.ts';
 import type { Board } from '../logic/wire.ts';
+import {
+  BackendError,
+  type BodyWrite,
+  type Comment,
+  type CommentVersion,
+} from '../state/backend.ts';
 import type { DeletedItem, Paging } from '../state/trash-reads.ts';
 import type {
   PageDraft,
@@ -18,7 +26,8 @@ import type {
   Wikis,
 } from '../state/wiki-types.ts';
 
-import { bodyOf, boardOf, wireBody, type Schemas } from './convert.ts';
+import { ServerPageVersions } from './body-versions.ts';
+import { bodyOf, boardOf, commentOf, commentVersionOf, wireBody, type Schemas } from './convert.ts';
 import type { RequestOptions } from './http.ts';
 import type { WorkspacePath } from './requests.ts';
 
@@ -113,9 +122,12 @@ export class ServerWikis implements Wikis {
   /** Keeps the workspace of each wiki read, for the paths under it. */
   readonly #learn: (wikis: readonly Schemas['Board'][]) => void;
 
+  readonly bodyVersions: ServerPageVersions;
+
   constructor(request: WikiRequest, learn: (wikis: readonly Schemas['Board'][]) => void) {
     this.#request = request;
     this.#learn = learn;
+    this.bodyVersions = new ServerPageVersions(request);
   }
 
   async wikis(workspaceId: string): Promise<Board[]> {
@@ -218,5 +230,77 @@ export class ServerWikis implements Wikis {
         { method: 'POST' },
       ),
     );
+  }
+
+  async comments(wikiId: string, pageId: string): Promise<Comment[]> {
+    const blocks = await this.#request<Schemas['Block'][]>(
+      '/wikis/{wikiId}/pages/{pageId}/comments',
+      { wikiId, pageId },
+    );
+    return blocks.map(commentOf);
+  }
+
+  async createComment(wikiId: string, pageId: string, body: DocNode): Promise<Comment> {
+    const request: Schemas['NewPageComment'] = { body: wireBody(body) };
+    return commentOf(
+      await this.#request<Schemas['Block']>(
+        '/wikis/{wikiId}/pages/{pageId}/comments',
+        { wikiId, pageId },
+        { method: 'POST', json: request },
+      ),
+    );
+  }
+
+  async patchComment(
+    wikiId: string,
+    pageId: string,
+    commentId: string,
+    write: BodyWrite,
+  ): Promise<Comment> {
+    if (!write.body) {
+      // As the server has it: a comment has a text.
+      throw new BackendError(400, { detail: 'a comment has a text' });
+    }
+    const request: Schemas['PageCommentPatch'] = {
+      body: wireBody(write.body),
+      readAt: write.readAt,
+    };
+    return commentOf(
+      await this.#request<Schemas['Block']>(
+        '/wikis/{wikiId}/pages/{pageId}/comments/{commentId}',
+        { wikiId, pageId, commentId },
+        { method: 'PATCH', json: request },
+      ),
+    );
+  }
+
+  async deleteComment(wikiId: string, pageId: string, commentId: string): Promise<void> {
+    await this.#request(
+      '/wikis/{wikiId}/pages/{pageId}/comments/{commentId}',
+      { wikiId, pageId, commentId },
+      { method: 'DELETE' },
+    );
+  }
+
+  async restoreComment(wikiId: string, pageId: string, commentId: string): Promise<Comment> {
+    return commentOf(
+      await this.#request<Schemas['Block']>(
+        '/wikis/{wikiId}/pages/{pageId}/comments/{commentId}/undelete',
+        { wikiId, pageId, commentId },
+        { method: 'POST' },
+      ),
+    );
+  }
+
+  async commentVersions(
+    wikiId: string,
+    pageId: string,
+    commentId: string,
+  ): Promise<CommentVersion[]> {
+    const versions = await this.#request<Schemas['CommentVersion'][]>(
+      '/wikis/{wikiId}/pages/{pageId}/comments/{commentId}/versions',
+      { wikiId, pageId, commentId },
+    );
+    return versions.map(commentVersionOf);
   }
 }
