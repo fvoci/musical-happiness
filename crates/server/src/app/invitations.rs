@@ -484,10 +484,16 @@ impl App {
         // Which address the guest goes to: a board gone meanwhile has none, and the
         // board's address tells them so.
         let board_kind = match &accepted.board_id {
-            Some(board_id) => app.store().get_board(board_id).await.ok(),
+            Some(board_id) => match app.store().get_board(board_id).await {
+                Ok(board) => Some(board.kind),
+                Err(error) if error.is_not_found() => None,
+                Err(error) => {
+                    tracing::warn!(%board_id, %error, "the kind of an accepted invitation's board was not read");
+                    None
+                }
+            },
             None => None,
-        }
-        .map(|board| board.kind);
+        };
         Ok(Admission::LetIn(AcceptedInvitation {
             workspace_id: accepted.workspace_id,
             board_id: accepted.board_id,

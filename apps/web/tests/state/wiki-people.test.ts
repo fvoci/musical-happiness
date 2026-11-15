@@ -91,6 +91,19 @@ describe('an open wiki, read without joining', () => {
     expect([store.missing, store.joinable, store.canEdit]).toEqual([false, true, false]);
     store.close();
   });
+  it('tells who watches it unjoined each change, that it is gone once when made private, and nothing after', async () => {
+    const made = await wikiOf('O');
+    const told: string[] = [];
+    const stop = made.other.watchBoard(made.wikiId, (change) => told.push(change.kind));
+    await made.backend.wiki.patchPage(made.wikiId, made.pageId, { title: 'Once' });
+    await settle();
+    expect(told).toEqual(['pages']);
+    await made.backend.patchBoard(made.wikiId, { type: 'P' });
+    await made.backend.wiki.patchPage(made.wikiId, made.pageId, { title: 'Twice' });
+    await settle();
+    expect(told).toEqual(['pages', 'boardDeleted']);
+    stop();
+  });
 });
 
 describe('a wiki shared by its admins', () => {
