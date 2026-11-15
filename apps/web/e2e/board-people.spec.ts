@@ -65,6 +65,10 @@ test('five faces in a wide pane and two in a narrow one, then the rest as a numb
   await presence(page).click();
   await page.getByTestId('presence-members').click();
   await expect(page.getByTestId('share-dialog')).toBeVisible();
+  // Once the list's sheet has gone too: it gives the focus back to the faces as it goes, which
+  // must not pull it out of the dialog.
+  await expect(page.getByTestId('presence-list')).toHaveCount(0);
+  await expect(page.getByTestId('bottom-sheet')).toHaveCount(0);
   await expect(page.getByTestId('share-members-title')).toBeFocused();
 });
 

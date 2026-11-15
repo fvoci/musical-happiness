@@ -14,7 +14,7 @@
 import path from 'node:path';
 
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import { pressInBar } from './shell.support.ts';
+
 import { ON_A_CARD, boardPath, viewAddress } from './address.ts';
 import { screensDir } from './screens.ts';
 import {
@@ -24,6 +24,7 @@ import {
   documentBoundary,
 } from './keyboard.support.ts';
 import { scrollTo } from './scroll.support.ts';
+import { pressInBar } from './shell.support.ts';
 
 // The longer tests here take a dozen steps each. On a machine that is busy with
 // other work they have run past the default of thirty seconds without anything
