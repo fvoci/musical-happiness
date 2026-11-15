@@ -192,6 +192,11 @@ pub(super) const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
     ("PATCH", "/wikis/{wikiId}/pages/{pageId}", "patchPage"),
     ("DELETE", "/wikis/{wikiId}/pages/{pageId}", "deletePage"),
     ("POST", "/wikis/{wikiId}/pages/{pageId}/move", "movePage"),
+    (
+        "POST",
+        "/wikis/{wikiId}/pages/{pageId}/duplicate",
+        "duplicatePage",
+    ),
     ("GET", "/wikis/{wikiId}/trash/pages", "getDeletedPages"),
     (
         "POST",
@@ -220,6 +225,7 @@ const REACHED_BY_ITEM: &[&str] = &[
     "patchPage",
     "deletePage",
     "movePage",
+    "duplicatePage",
     "getDeletedPages",
     "undeletePage",
     "createBoardsAndBlocks",

@@ -8,7 +8,7 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery};
 use fvoci_model::{
     Block, BlockType, Board, BoardKind, BoardType, DeletedPage, MinimumRole, NewPage, Page,
-    PageMove, PageNode, PagePatch,
+    PageDuplicate, PageMove, PageNode, PagePatch,
 };
 use serde::Deserialize;
 use utoipa::ToSchema;
@@ -38,6 +38,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
             handle_delete_page
         ))
         .routes(routes!(handle_move_page))
+        .routes(routes!(handle_duplicate_page))
         .routes(routes!(handle_get_deleted_pages))
         .routes(routes!(handle_undelete_page))
 }
@@ -342,6 +343,54 @@ async fn handle_move_page(
     let moved = ws.app.move_page(&wiki_id, &page.id, &to, user_id).await?;
     tracing::debug!(wiki_id, page_id, user_id, "MovePage");
     Ok(json_response(&moved))
+}
+
+/// Duplicate a page
+///
+/// Copies the page with every page below it, within its wiki, for editors of the wiki:
+/// the copy goes right after the page among its siblings, titled `title` if given
+/// (the page's own title otherwise; a client names it in its reader's language), and
+/// the pages below it are copied below it as they are, with their titles, icons,
+/// places and bodies, what is typed in them now included. The images in the bodies get
+/// files of their own, as a card's duplicate's do. The versions of the bodies and the
+/// comments are not copied. The tree is held to the organization's limits: 400 with the
+/// reason `page_too_deep` or `too_many_pages` (with the `limit`) if the copies would be
+/// deeper, or the wiki larger, than they let it be; 400 at `/title` for a title longer
+/// than 16383 characters. Nothing is changed then.
+///
+/// The wiki's members are told with `UPDATE_BLOCK` of each copy, a page before those
+/// below it, and of each page of the parent numbered anew to leave the copy room.
+#[utoipa::path(
+    post,
+    path = "/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/duplicate",
+    operation_id = "duplicatePage",
+    tag = tag::WIKIS,
+    params(MemberWorkspaceId, WikiId, PageId),
+    request_body = PageDuplicate,
+    responses((status = 201, description = "The copy of the page.", body = Page)),
+)]
+async fn handle_duplicate_page(
+    WsWiki(ws): WsWiki,
+    Path((_, wiki_id, page_id)): Path<(String, String, String)>,
+    body: Bytes,
+) -> ApiResult {
+    let user_id = ws.session.user_id.as_str();
+    let page = page_with_permission(
+        &ws,
+        &wiki_id,
+        &page_id,
+        BoardPermission::ManageBoardCards,
+        "access denied to duplicate page",
+    )
+    .await?;
+    let copy: PageDuplicate = decode_object(&body)?;
+    copy.check_request()?;
+    let made = ws
+        .app
+        .duplicate_page(&wiki_id, &page.id, copy.title.as_deref(), user_id)
+        .await?;
+    tracing::debug!(wiki_id, page_id, user_id, "DuplicatePage");
+    Ok(created(&made))
 }
 
 /// Delete a page

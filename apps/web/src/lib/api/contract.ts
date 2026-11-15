@@ -3238,6 +3238,38 @@ export interface paths {
         patch: operations["patchPage"];
         trace?: never;
     };
+    "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/duplicate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Duplicate a page
+         * @description Copies the page with every page below it, within its wiki, for editors of the wiki:
+         *     the copy goes right after the page among its siblings, titled `title` if given
+         *     (the page's own title otherwise; a client names it in its reader's language), and
+         *     the pages below it are copied below it as they are, with their titles, icons,
+         *     places and bodies, what is typed in them now included. The images in the bodies get
+         *     files of their own, as a card's duplicate's do. The versions of the bodies and the
+         *     comments are not copied. The tree is held to the organization's limits: 400 with the
+         *     reason `page_too_deep` or `too_many_pages` (with the `limit`) if the copies would be
+         *     deeper, or the wiki larger, than they let it be; 400 at `/title` for a title longer
+         *     than 16383 characters. Nothing is changed then.
+         *
+         *     The wiki's members are told with `UPDATE_BLOCK` of each copy, a page before those
+         *     below it, and of each page of the parent numbered anew to leave the copy room.
+         */
+        post: operations["duplicatePage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/move": {
         parameters: {
             query?: never;
@@ -4800,6 +4832,17 @@ export interface components {
             updateAt: number;
             /** @description The identifier of the wiki the page is of. */
             wikiId: string;
+        };
+        /**
+         * @description What a copy of a page, with every page below it, is given: its title, for the copy
+         *     of the page asked for alone (the pages below it keep theirs).
+         */
+        PageDuplicate: {
+            /**
+             * @description The copy's title; left out or `null`, the page's own. A client names the copy
+             *     in its reader's language (" (copy)"): the server does not.
+             */
+            title?: string | null;
         };
         /** @description Where a page moves to, with every page below it: within its wiki. */
         PageMove: {
@@ -10823,6 +10866,46 @@ export interface operations {
         responses: {
             /** @description The page as it is now. */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    duplicatePage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the wiki: a board of the `kind` `wiki`. A board of another kind is 404, as an identifier of nothing is. */
+                wikiId: string;
+                /** @description The identifier of the page: a page of the wiki of the path. 404 for a page of another wiki. */
+                pageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PageDuplicate"];
+            };
+        };
+        responses: {
+            /** @description The copy of the page. */
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };

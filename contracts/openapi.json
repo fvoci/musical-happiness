@@ -2853,6 +2853,20 @@
         ],
         "type": "object"
       },
+      "PageDuplicate": {
+        "additionalProperties": false,
+        "description": "What a copy of a page, with every page below it, is given: its title, for the copy\nof the page asked for alone (the pages below it keep theirs).",
+        "properties": {
+          "title": {
+            "description": "The copy's title; left out or `null`, the page's own. A client names the copy\nin its reader's language (\" (copy)\"): the server does not.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
       "PageMove": {
         "additionalProperties": false,
         "description": "Where a page moves to, with every page below it: within its wiki.",
@@ -12731,6 +12745,77 @@
           }
         },
         "summary": "Change a page",
+        "tags": [
+          "wikis"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/duplicate": {
+      "post": {
+        "description": "Copies the page with every page below it, within its wiki, for editors of the wiki:\nthe copy goes right after the page among its siblings, titled `title` if given\n(the page's own title otherwise; a client names it in its reader's language), and\nthe pages below it are copied below it as they are, with their titles, icons,\nplaces and bodies, what is typed in them now included. The images in the bodies get\nfiles of their own, as a card's duplicate's do. The versions of the bodies and the\ncomments are not copied. The tree is held to the organization's limits: 400 with the\nreason `page_too_deep` or `too_many_pages` (with the `limit`) if the copies would be\ndeeper, or the wiki larger, than they let it be; 400 at `/title` for a title longer\nthan 16383 characters. Nothing is changed then.\n\nThe wiki's members are told with `UPDATE_BLOCK` of each copy, a page before those\nbelow it, and of each page of the parent numbered anew to leave the copy room.",
+        "operationId": "duplicatePage",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the wiki: a board of the `kind` `wiki`. A board of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "wikiId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the page: a page of the wiki of the path. 404 for a page of another wiki.",
+            "in": "path",
+            "name": "pageId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PageDuplicate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page"
+                }
+              }
+            },
+            "description": "The copy of the page."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Duplicate a page",
         "tags": [
           "wikis"
         ]

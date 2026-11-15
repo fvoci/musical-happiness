@@ -2,8 +2,8 @@
 //! page is a block, and is changed and deleted as one ([`App::patch_block`],
 //! [`App::delete_block`]).
 
-use fvoci_model::{Block, BlockError, DeletedPage, NewPage, Page, PageMove, PageNode};
-use fvoci_store::{PageRestore, PageWrite, StoreError};
+use fvoci_model::{Block, BlockError, DeletedPage, NewPage, Page, PageMove, PageNode, PageTree};
+use fvoci_store::{PageCopies, PageRestore, PageWrite, StoreError};
 
 use super::App;
 use super::blocks::{ChangeAction, ChangeNotification, log_notification};
@@ -80,6 +80,61 @@ impl App {
         Ok(self.announce_pages(&wiki.workspace_id, written))
     }
 
+    /// Copies a page of the wiki with every page below it, right after the page, the copy
+    /// titled `title` if given; the bodies are copied, what is typed in them now
+    /// included, and the images in them get files of their own, as a card's duplicate's
+    /// do. Their versions and comments are not copied. The wiki's members are told of
+    /// each copy and each sibling numbered anew. Returns the copy of the page.
+    ///
+    /// # Errors
+    ///
+    /// Returns a not-found error if the wiki has no such page, and a bad request if the
+    /// copies would be deeper, or the wiki larger, than the organization's limits.
+    pub async fn duplicate_page(
+        &self,
+        wiki_id: &str,
+        page_id: &str,
+        title: Option<&str>,
+        user_id: &str,
+    ) -> Result<Page, AppError> {
+        let wiki = self.store().get_board(wiki_id).await?;
+        let limits = self.limits().pages;
+        let family: Vec<String> = self
+            .store()
+            .get_page_tree(wiki_id)
+            .await?
+            .into_iter()
+            .collect::<PageTree>()
+            .below(page_id)
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        // What is typed in the bodies now is copied too.
+        self.collab().write_bodies(self, &family).await?;
+        let PageCopies {
+            mut pages,
+            renumbered,
+        } = {
+            let _structure = self.collab().changing_structure(self).await;
+            self.store()
+                .duplicate_page(wiki_id, page_id, title, limits, user_id)
+                .await
+                .map_err(refused_without_parent)?
+        };
+        let files = self
+            .copy_and_update_card_files(wiki_id, user_id, &mut pages)
+            .await;
+        log_notification(ChangeNotification::Send, ChangeAction::Add, page_id);
+        // The copies are stored whatever became of their files, so they are told of
+        // whatever became of their files.
+        let page = pages.first().cloned().map(Page::from);
+        let mut told = renumbered;
+        told.extend(pages);
+        self.announce(&wiki.workspace_id, told);
+        files?;
+        page.ok_or_else(|| AppError::not_found("page"))
+    }
+
     /// The wiki's pages in the trash at the top of what went with them, one page of the
     /// list as `page` and `per_page` say (as for the cards of a board).
     ///
@@ -122,20 +177,7 @@ impl App {
                 .undelete_page(wiki_id, page_id, limits, user_id)
                 .await
         };
-        let PageRestore { pages, renumbered } = match restored {
-            Ok(restored) => restored,
-            Err(error) if error.is_not_found() => return Err(AppError::not_found("page")),
-            // A restore has no body: the refusal names no member of one.
-            Err(StoreError::InvalidBlock {
-                source: source @ BlockError::PageTooDeep { limit },
-                ..
-            }) => {
-                return Err(AppError::bad_request(source)
-                    .with_reason(Reason::PageTooDeep)
-                    .with_limit(u64::from(limit)));
-            }
-            Err(error) => return Err(error.into()),
-        };
+        let PageRestore { pages, renumbered } = restored.map_err(refused_without_parent)?;
         log_notification(ChangeNotification::Send, ChangeAction::Add, page_id);
         let page = pages
             .first()
@@ -168,5 +210,20 @@ impl App {
                 app.webhook().notify_update(block).await;
             }
         });
+    }
+}
+
+/// What a write of pages whose request names no parent (a restore, a copy) is refused
+/// with: a page that is not there is 404, and one that would be too deep names no member.
+fn refused_without_parent(error: StoreError) -> AppError {
+    match error {
+        error if error.is_not_found() => AppError::not_found("page"),
+        StoreError::InvalidBlock {
+            source: source @ BlockError::PageTooDeep { limit },
+            ..
+        } => AppError::bad_request(source)
+            .with_reason(Reason::PageTooDeep)
+            .with_limit(u64::from(limit)),
+        error => error.into(),
     }
 }

@@ -94,6 +94,7 @@ const REACHED: &[(&str, Reaches)] = &[
     ("patchPage", Reaches::Wikis),
     ("deletePage", Reaches::Wikis),
     ("movePage", Reaches::Wikis),
+    ("duplicatePage", Reaches::Wikis),
     ("getDeletedPages", Reaches::Wikis),
     ("undeletePage", Reaches::Wikis),
     // What the holder of a read token reads.

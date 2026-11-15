@@ -71,6 +71,7 @@ mod onboarding;
 mod org_admin;
 mod org_admin_review;
 mod organizations;
+mod page_copies;
 mod page_moves;
 mod page_rooms;
 mod page_trash;

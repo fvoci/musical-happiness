@@ -315,6 +315,29 @@ pub struct PageMove {
     pub after: Option<String>,
 }
 
+/// What a copy of a page, with every page below it, is given: its title, for the copy
+/// of the page asked for alone (the pages below it keep theirs).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize, utoipa::ToSchema)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+pub struct PageDuplicate {
+    /// The copy's title; left out or `null`, the page's own. A client names the copy
+    /// in its reader's language (" (copy)"): the server does not.
+    pub title: Option<String>,
+}
+
+impl PageDuplicate {
+    /// Refuses, at `title`, a title longer than [`BLOCK_TITLE_MAX_CHARS`] characters.
+    ///
+    /// # Errors
+    ///
+    /// Returns the refusal if the title may not be stored.
+    pub fn check_request(&self) -> Result<(), Refusals> {
+        let mut refused = Refusals::new();
+        refuse_title(&mut refused, self.title.as_deref());
+        refused.into_result()
+    }
+}
+
 /// What a title that is too long is refused with.
 const TITLE_TOO_LONG: &str = "the title is longer than 16383 characters";
 const _: () = assert!(
