@@ -1,7 +1,10 @@
 //! The search of the cards and pages of a workspace by the letters of their title and
 //! body (`blocks.body_text`), for a server without a search server: every word asked
 //! for is in the title or in the body, as it is written there, ASCII letters in either
-//! case. It reads the blocks that have a document ([`crate::search_docs`]), the same
+//! case. A word is looked for as text, never as a pattern of `LIKE`: each comparison of
+//! a row is one step SQLite cannot stop in, and `LIKE` of a word of 200 characters that
+//! almost matches everywhere in a body of a megabyte takes a fifth of a second, where
+//! `instr` takes a hundredth. It reads the blocks that have a document ([`crate::search_docs`]), the same
 //! ones a search server holds, and answers their identifiers alone, the best first:
 //! the caller checks each against what the user reads, as it checks what a search
 //! server answers.
@@ -37,44 +40,35 @@ pub enum TextFound {
     OutOfTime,
 }
 
-/// The text of a word as a pattern of `LIKE` that finds it anywhere, with the escape
-/// character `\`: its ASCII letters in lower case, and `%`, `_` and `\` taken as
-/// themselves.
-fn pattern(word: &str) -> String {
-    let mut pattern = String::with_capacity(word.len() + 2);
-    pattern.push('%');
-    for c in word.chars() {
-        if matches!(c, '%' | '_' | '\\') {
-            pattern.push('\\');
-        }
-        pattern.push(c.to_ascii_lowercase());
-    }
-    pattern.push('%');
-    pattern
+/// A word as it is looked for: its ASCII letters in lower case, and nothing else
+/// changed. It is looked for as text, by position (`instr`, `strpos`), never as a
+/// pattern: no character of it means anything but itself.
+fn needle(word: &str) -> String {
+    word.to_ascii_lowercase()
 }
 
-/// A column of `b` as it is matched against a [`pattern`]: with its ASCII letters in
-/// lower case and no other letter changed. SQLite's `LIKE` already reads ASCII letters
-/// alone in either case; PostgreSQL's `lower` does the same under the collation `C`.
-fn folded(dialect: Dialect, column: &str) -> String {
+/// Whether the column `column` of `b`, with its ASCII letters in lower case and no other
+/// letter changed, holds the next bound value. SQLite's `lower` changes ASCII letters
+/// alone; PostgreSQL's does under the collation `C`.
+fn holds(dialect: Dialect, column: &str) -> String {
     match dialect {
-        Dialect::Sqlite => column.to_owned(),
-        Dialect::Postgres => format!("lower({column} COLLATE \"C\")"),
+        Dialect::Sqlite => format!("instr(lower({column}), "),
+        Dialect::Postgres => format!("strpos(lower({column} COLLATE \"C\"), "),
     }
 }
 
 /// Adds the condition that every word is in the title or in the body.
 fn push_every_word(sql: &mut Sql, dialect: Dialect, words: &[String]) {
-    let title = folded(dialect, "b.title");
-    let body = folded(dialect, "COALESCE(b.body_text, '')");
+    let title = holds(dialect, "b.title");
+    let body = holds(dialect, "COALESCE(b.body_text, '')");
     for (index, word) in words.iter().enumerate() {
-        let pattern = pattern(word);
+        let needle = needle(word);
         if index > 0 {
             sql.push(" AND ");
         }
-        sql.push_bind(&format!("({title} LIKE "), pattern.clone())
-            .push_bind(&format!(" ESCAPE '\\' OR {body} LIKE "), pattern)
-            .push(" ESCAPE '\\')");
+        sql.push_bind(&format!("({title}"), needle.clone())
+            .push_bind(&format!(") > 0 OR {body}"), needle)
+            .push(") > 0)");
     }
 }
 
@@ -136,13 +130,12 @@ fn statement(scope: &Scope<'_>, search: &TextSearch<'_>, offset: i64, limit: i64
 
 /// Adds the condition that the title holds every word.
 fn push_title_holds_every_word(sql: &mut Sql, dialect: Dialect, words: &[String]) {
-    let title = folded(dialect, "b.title");
+    let title = holds(dialect, "b.title");
     for (index, word) in words.iter().enumerate() {
         if index > 0 {
             sql.push(" AND ");
         }
-        sql.push_bind(&format!("{title} LIKE "), pattern(word))
-            .push(" ESCAPE '\\'");
+        sql.push_bind(&title, needle(word)).push(") > 0");
     }
 }
 
@@ -151,11 +144,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_pattern_takes_what_like_reads_as_itself() {
-        assert_eq!(pattern("환불"), "%환불%");
-        assert_eq!(pattern("100%"), "%100\\%%");
-        assert_eq!(pattern("a_b"), "%a\\_b%");
-        assert_eq!(pattern(r"C:\x"), r"%c:\\x%");
-        assert_eq!(pattern("ÉTÉ API"), "%ÉtÉ api%");
+    fn a_word_is_looked_for_as_it_is_with_its_ascii_letters_in_lower_case() {
+        assert_eq!(needle("환불"), "환불");
+        assert_eq!(needle("100%"), "100%");
+        assert_eq!(needle(r"A_b\C"), r"a_b\c");
+        assert_eq!(needle("ÉTÉ API"), "ÉtÉ api");
     }
 }

@@ -74,16 +74,15 @@ fn push(parts: &mut Vec<SnippetPart>, text: &str, stretch: Stretch) {
 /// byte offsets, in order, the places that overlap or touch one another made one. The
 /// text past `within` is not looked through.
 fn places(folded: &str, words: &[String], within: Range<usize>) -> Vec<Range<usize>> {
-    let mut places: Vec<Range<usize>> = words
-        .iter()
-        .flat_map(|word| {
+    let mut places: Vec<Range<usize>> = Vec::new();
+    for word in words {
+        places.extend(
             folded[within.start..]
                 .match_indices(word.as_str())
                 .map(|(at, found)| within.start + at..within.start + at + found.len())
-                .take_while(|place| place.start < within.end)
-                .collect::<Vec<_>>()
-        })
-        .collect();
+                .take_while(|place| place.start < within.end),
+        );
+    }
     places.sort_unstable_by_key(|place| (place.start, place.end));
     let mut merged: Vec<Range<usize>> = Vec::with_capacity(places.len());
     for place in places {

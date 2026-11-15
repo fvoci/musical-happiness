@@ -35,7 +35,8 @@ const MAX_INDEX_NAME: usize = 100;
 #[cfg_attr(test, derive(serde::Serialize))]
 #[serde(default)]
 pub struct SearchSettings {
-    /// The scheme, host and port of the search server; empty for no search of bodies.
+    /// The scheme, host and port of the search server; empty for searching the
+    /// database.
     pub search_url: String,
     /// The user the server signs in as (HTTP Basic), with `search_password`.
     pub search_username: String,

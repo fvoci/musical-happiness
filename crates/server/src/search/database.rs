@@ -82,8 +82,12 @@ impl Asking {
             };
             store.search_text(&search, from, size, by).await
         });
-        page.await
-            .map_err(|error| AppError::internal(format_args!("the search task failed: {error}")))?
+        // Getting a connection is waited for within the time too: the task, once it has
+        // one past the time, asks nothing.
+        let Ok(page) = tokio::time::timeout_at(by.into(), page).await else {
+            return Ok(TextFound::OutOfTime);
+        };
+        page.map_err(|error| AppError::internal(format_args!("the search task failed: {error}")))?
             .map_err(AppError::from)
     }
 }
