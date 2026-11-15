@@ -196,6 +196,12 @@ impl StoreError {
         }
     }
 
+    /// Returns `true` if the pool of connections gave none in its own time.
+    #[must_use]
+    pub fn is_pool_timeout(&self) -> bool {
+        matches!(self, Self::Database(sqlx::Error::PoolTimedOut))
+    }
+
     /// Returns `true` if the error means a record does not exist, which the HTTP layer
     /// reports as "not found" rather than as a server error.
     pub fn is_not_found(&self) -> bool {

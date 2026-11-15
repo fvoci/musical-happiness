@@ -172,6 +172,17 @@ async fn an_open_wiki_not_joined_has_its_comments_read_as_a_viewer_does() {
         on_theirs(&th.client2, TEST_WS, &open, &page, &theirs).await,
         [200, 403, 200, 403, 403]
     );
+    let read = th
+        .client2
+        .get(&comments_of(TEST_WS, &open, &page))
+        .await
+        .value();
+    let read: Vec<String> = read.as_array().expect("a list").iter().map(id).collect();
+    assert_eq!(
+        read,
+        [id(&theirs)],
+        "what who did not join the open wiki reads"
+    );
 
     let membership = format!("{TEST_WS}/boards/{open}");
     th.client2

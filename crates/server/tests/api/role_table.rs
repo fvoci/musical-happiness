@@ -1,6 +1,7 @@
 //! The table of roles: what every operation on one board or wiki, its people, its
-//! sharing, its files, its place in the sidebar and the trash, answers to every kind of
-//! person, a board's and a wiki's each pinned in a file of `role_table/`.
+//! sharing, its files, its place in the sidebar and the trash, and a page's comments and
+//! versions, answers to every kind of person, a board's and a wiki's each pinned in a
+//! file of `role_table/`.
 //!
 //! The people are the roles on a container for the invited only (admin, editor,
 //! commenter, viewer), a member of the workspace without a role on it and on an open
@@ -112,6 +113,8 @@ enum Prepare {
     DeleteContainer,
     /// Its page is in the trash.
     DeletePage,
+    /// The comment on its page is in the trash.
+    DeleteComment,
 }
 
 const fn op(row: &'static str, method: Method, path: &'static str, body: Body) -> Op {
@@ -402,6 +405,57 @@ fn wiki_ops() -> Vec<Op> {
     ]
 }
 
+/// The operations of a page's comments and of the versions of its body besides those
+/// with the pages ([`wiki_ops`]: the list, writing one, the list of versions): one
+/// comment's versions, its change, deletion and restoring, a version, going back to it.
+fn page_ops() -> Vec<Op> {
+    use Body::{Json, None};
+    const COMMENT: &str = "/wikis/{c}/pages/{p}/comments/{comment}";
+    vec![
+        op(
+            "pages: comment versions",
+            Method::GET,
+            "/wikis/{c}/pages/{p}/comments/{comment}/versions",
+            None,
+        ),
+        op(
+            "pages: comment change",
+            Method::PATCH,
+            COMMENT,
+            Json(|things, _| json!({"body": said("changed"), "readAt": things.comment_at})),
+        ),
+        op("pages: comment delete", Method::DELETE, COMMENT, None),
+        Op {
+            prepare: Prepare::DeleteComment,
+            ..op(
+                "pages: comment undelete",
+                Method::POST,
+                "/wikis/{c}/pages/{p}/comments/{comment}/undelete",
+                Json(|_, _| json!({})),
+            )
+        },
+        op(
+            "pages: version",
+            Method::GET,
+            "/wikis/{c}/pages/{p}/body-versions/{version}",
+            None,
+        ),
+        op(
+            "pages: version restore",
+            Method::POST,
+            "/wikis/{c}/pages/{p}/body-versions/{version}/restore",
+            None,
+        ),
+    ]
+}
+
+/// A body of one paragraph that says `text`.
+fn said(text: &str) -> Value {
+    json!({"type": "doc", "content": [{"type": "paragraph", "content": [
+        {"type": "text", "text": text}
+    ]}]})
+}
+
 /// The people, signed in, and who the operations name.
 struct People {
     clients: BTreeMap<&'static str, Client>,
@@ -502,6 +556,11 @@ struct Things {
     /// Another page of the wiki, to move the page below; empty for a board.
     second: String,
     file: String,
+    /// The admin's comment on the page, and when it was written; empty for a board.
+    comment: String,
+    comment_at: Value,
+    /// A version of the page's body, written twice; empty for a board.
+    version: String,
 }
 
 fn text(value: &Value, member: &str) -> String {
@@ -523,7 +582,8 @@ fn done(response: &ApiResponse) {
 
 /// Makes a container of `kind` and `scope` with its people: an editor, a commenter and a
 /// viewer, the guest as an editor on one for the invited only, the team as a viewer;
-/// a file, sharing on, a card (with a comment) or two pages.
+/// a file, sharing on, a card (with a comment), or two pages, the first written twice
+/// and commented on.
 async fn make(people: &People, kind: Kind, scope: Scope) -> Things {
     let owner = &people.clients["admin"];
     let at = match kind {
@@ -563,13 +623,23 @@ async fn make(people: &People, kind: Kind, scope: Scope) -> Things {
             .post(&format!("{at}/sharing"), &json!({"enabled": true}))
             .await,
     );
-    let (block, second) = match kind {
+    let file = text(&uploaded.value(), "fileId");
+    match kind {
         Kind::Board => {
             let card = owner
                 .post(&format!("{at}/cards"), &json!({"title": "a card"}))
                 .await;
             done(&card);
-            (text(&card.value(), "id"), String::new())
+            Things {
+                scope,
+                container,
+                block: text(&card.value(), "id"),
+                second: String::new(),
+                file,
+                comment: String::new(),
+                comment_at: Value::Null,
+                version: String::new(),
+            }
         }
         Kind::Wiki => {
             let pages = format!("{TEST_WS}/wikis/{container}/pages");
@@ -577,15 +647,30 @@ async fn make(people: &People, kind: Kind, scope: Scope) -> Things {
             let second = owner.post(&pages, &json!({"title": "another"})).await;
             done(&page);
             done(&second);
-            (text(&page.value(), "id"), text(&second.value(), "id"))
+            let block = text(&page.value(), "id");
+            let at = format!("{pages}/{block}");
+            for body in ["first", "second"] {
+                let read = owner.get(&at).await.value();
+                let change = json!({"readAt": read["updateAt"], "body": said(body)});
+                done(&owner.patch(&at, &change).await);
+            }
+            let versions = owner.get(&format!("{at}/body-versions")).await.value();
+            let comment = owner
+                .post(&format!("{at}/comments"), &json!({"body": said("theirs")}))
+                .await;
+            done(&comment);
+            let comment = comment.value();
+            Things {
+                scope,
+                container,
+                block,
+                second: text(&second.value(), "id"),
+                file,
+                comment: text(&comment, "id"),
+                comment_at: comment["updateAt"].clone(),
+                version: versions[0]["version"].to_string(),
+            }
         }
-    };
-    Things {
-        scope,
-        container,
-        block,
-        second,
-        file: text(&uploaded.value(), "fileId"),
     }
 }
 
@@ -607,6 +692,13 @@ async fn prepare(people: &People, op: &Op, things: &Things) {
                 things.container, things.block
             );
             done(&owner.delete(&page).await);
+        }
+        Prepare::DeleteComment => {
+            let comment = format!(
+                "{TEST_WS}/wikis/{}/pages/{}/comments/{}",
+                things.container, things.block, things.comment
+            );
+            done(&owner.delete(&comment).await);
         }
     }
 }
@@ -634,6 +726,8 @@ async fn ask(
         .replace("{c}", &things.container)
         .replace("{p}", &things.block)
         .replace("{f}", &things.file)
+        .replace("{comment}", &things.comment)
+        .replace("{version}", &things.version)
         .replace("{team}", &people.team)
         .replace("{viewer}", &people.viewer)
         .replace("{commenter}", &people.commenter)
@@ -686,6 +780,9 @@ fn nothing(scope: Scope) -> Things {
         block: UNKNOWN_ID.to_owned(),
         second: UNKNOWN_ID.to_owned(),
         file: "missing-file".to_owned(),
+        comment: UNKNOWN_ID.to_owned(),
+        comment_at: json!(1),
+        version: "1".to_owned(),
     }
 }
 
@@ -702,7 +799,11 @@ fn place_of(who: Who) -> &'static str {
 async fn table(people: &People, kind: Kind) -> Vec<(&'static str, Vec<String>)> {
     let own = match kind {
         Kind::Board => board_ops(),
-        Kind::Wiki => wiki_ops(),
+        Kind::Wiki => {
+            let mut ops = wiki_ops();
+            ops.extend(page_ops());
+            ops
+        }
     };
     let mut categories = BTreeMap::new();
     for (name, who, _) in COLUMNS {
@@ -848,6 +949,8 @@ async fn the_wiki_differs_from_the_board_only_where_an_open_wiki_is_read() {
         "pages: get",
         "pages: comments",
         "pages: versions",
+        "pages: comment versions",
+        "pages: version",
     ];
     let viewer = column("viewer");
     for row in reads {
@@ -867,6 +970,21 @@ async fn the_wiki_differs_from_the_board_only_where_an_open_wiki_is_read() {
         );
     }
     assert_eq!(row_of(&board, "references: to")[unjoined], "404");
+    // Nor does who has not joined it write on its pages: a comment, a change or the
+    // removal of the admin's, bringing that back, or a version of the body.
+    for row in [
+        "pages: comment",
+        "pages: comment change",
+        "pages: comment delete",
+        "pages: comment undelete",
+        "pages: version restore",
+    ] {
+        assert_eq!(
+            row_of(&wiki, row)[unjoined],
+            "403",
+            "an open wiki unjoined: {row}"
+        );
+    }
     // What is not a change of the wiki: joining it, leaving it (who reads it may leave
     // it, and leaving a container one is no member of changes nothing, 204), and what
     // the reader keeps of it in their own sidebar and trash.

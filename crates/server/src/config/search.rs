@@ -1,8 +1,9 @@
 //! The search server what cards and pages say is found through (`search_*`): where it is,
 //! how the server signs in to it, and the index that is the server's there. Without
-//! `search_url` there is no search of bodies. The secrets never appear in diagnostics.
+//! `search_url` the database is searched. The secrets never appear in diagnostics.
 
 use std::fmt;
+use std::time::Duration;
 
 use anyhow::{anyhow, bail};
 use serde::Deserialize;
@@ -23,6 +24,9 @@ pub(super) const ENV_KEYS: [(&str, super::EnvKind); 6] = [
 /// the error repeating it.
 const SECRET_KEYS: [&str; 2] = ["search_password", "search_api_key"];
 
+/// How long a search may take ([`SearchSettings::timeout`]).
+const SEARCH_TIMEOUT: Duration = Duration::from_secs(3);
+
 /// The longest name an index may have here; the search servers take up to 255 bytes.
 const MAX_INDEX_NAME: usize = 100;
 
@@ -31,7 +35,8 @@ const MAX_INDEX_NAME: usize = 100;
 #[cfg_attr(test, derive(serde::Serialize))]
 #[serde(default)]
 pub struct SearchSettings {
-    /// The scheme, host and port of the search server; empty for no search of bodies.
+    /// The scheme, host and port of the search server; empty for searching the
+    /// database.
     pub search_url: String,
     /// The user the server signs in as (HTTP Basic), with `search_password`.
     pub search_username: String,
@@ -49,6 +54,10 @@ pub struct SearchSettings {
     /// set it, to say when what changed is sent.
     #[serde(skip)]
     pub upkeep_by_hand: bool,
+    /// How long a search may take, on the search server or in the database: three
+    /// seconds. Not a configuration file key: the tests shorten it.
+    #[serde(skip)]
+    pub timeout: Duration,
 }
 
 impl Default for SearchSettings {
@@ -61,6 +70,7 @@ impl Default for SearchSettings {
             search_index: "fvoci".to_owned(),
             search_requests_per_second: 5,
             upkeep_by_hand: false,
+            timeout: SEARCH_TIMEOUT,
         }
     }
 }
@@ -115,8 +125,6 @@ pub struct SearchServer {
     pub credentials: SearchCredentials,
     /// The index that is this server's.
     pub index: String,
-    /// How many searches a user may make in a second; 0 for no limit.
-    pub requests_per_second: u32,
 }
 
 impl SearchSettings {
@@ -152,7 +160,6 @@ impl SearchSettings {
             url: self.url()?,
             credentials: self.credentials()?,
             index: self.index()?,
-            requests_per_second: self.search_requests_per_second,
         }))
     }
 

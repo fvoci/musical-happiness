@@ -11,19 +11,24 @@
 //! ([`tend`]) sends what is stored of what was noted, with the reach of the
 //! housekeeping, as the one server of its database.
 //!
-//! Without `search_url` there is no search of bodies, nothing stands in for it, and
-//! nothing is noted.
+//! Without `search_url` the database is searched instead (`database`): by the
+//! letters of the titles and the bodies, behind the same API and the same check, and
+//! nothing is noted. A search server that is configured is never stood in for: while
+//! it does not answer, and where it cannot hold the index, a search is a 503.
 
 mod client;
+mod database;
 mod document;
 mod find;
 mod index;
 mod limit;
 mod query;
+mod snippet;
 mod upkeep;
+mod version;
 mod worker;
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 pub use find::{Asked, AskedError, MAX_LIMIT, MAX_TEXT_CHARS};
@@ -32,6 +37,7 @@ pub(crate) use upkeep::{settle_at_start, start_upkeep, stop_upkeep};
 
 use client::{Client, ClientError};
 use limit::Limiter;
+use version::Versions;
 
 use crate::config::search::SearchSettings;
 
@@ -40,25 +46,50 @@ use crate::config::search::SearchSettings;
 const FIRST_PAUSE: Duration = Duration::from_secs(1);
 /// See [`FIRST_PAUSE`].
 const LONGEST_PAUSE: Duration = Duration::from_secs(60);
-/// How often the log says that searches are not answered, while they are not.
+/// How many searches of the database run at once, of all users: each holds a
+/// connection of the pool while its statement runs, and the pool serves everything
+/// else too.
+const DATABASE_SEARCHES_AT_ONCE: usize = 4;
+
+/// How often the log says that searches are not answered, while they are not for the
+/// same reason.
 const FAILURES_SAID_EVERY: Duration = Duration::from_secs(30);
 
-/// The search of bodies, as the server is configured: on a search server, or none.
+/// The search of bodies, as the server is configured: on a search server, or in the
+/// database.
 #[derive(Debug)]
 pub struct Search {
+    /// `None` where no search server is configured: the database is searched.
     engine: Option<Engine>,
+    /// How often one user may search, either way.
+    limiter: Limiter,
+    /// How long a search may take, all its pages and checks together.
+    timeout: Duration,
+    /// The searches of the database that may run at once ([`DATABASE_SEARCHES_AT_ONCE`]).
+    database_searches: Arc<tokio::sync::Semaphore>,
+}
+
+/// Where a search is asked.
+#[derive(Debug, Clone, Copy)]
+enum Way<'a> {
+    /// The search server.
+    Engine(&'a Engine),
+    /// The database, for a server without a search server.
+    Database,
 }
 
 /// The search server and what is known of the index on it.
 #[derive(Debug)]
 pub(crate) struct Engine {
     client: Client,
-    limiter: Limiter,
     index: Mutex<IndexState>,
     /// Held by the upkeep while it runs: one at a time.
     upkeep: tokio::sync::Mutex<Pause>,
-    /// When a search that the search server did not answer was last said in the log.
-    search_failure_said: Mutex<Option<Instant>>,
+    /// The versions documents are written with.
+    versions: Versions,
+    /// When a search that the search server did not answer was last said in the log,
+    /// and why it was not answered.
+    search_failure_said: Mutex<Option<(Instant, ClientError)>>,
 }
 
 /// What is known of the index on the search server.
@@ -117,25 +148,22 @@ impl Search {
     /// Returns an error if the keys of the search server do not hold
     /// ([`SearchSettings::server`]) or its client cannot be set up.
     pub fn from_config(settings: &SearchSettings) -> anyhow::Result<Self> {
-        let Some(server) = settings.server()? else {
-            return Ok(Self { engine: None });
-        };
-        Ok(Self {
-            engine: Some(Engine {
+        let engine = match settings.server()? {
+            Some(server) => Some(Engine {
                 client: Client::new(&server)?,
-                limiter: Limiter::new(server.requests_per_second),
                 index: Mutex::new(IndexState::Unknown),
                 upkeep: tokio::sync::Mutex::default(),
+                versions: Versions::default(),
                 search_failure_said: Mutex::new(None),
             }),
+            None => None,
+        };
+        Ok(Self {
+            engine,
+            limiter: Limiter::new(settings.search_requests_per_second),
+            timeout: settings.timeout,
+            database_searches: Arc::new(tokio::sync::Semaphore::new(DATABASE_SEARCHES_AT_ONCE)),
         })
-    }
-
-    /// Whether bodies can be searched on this server: a search server is configured,
-    /// and has not turned out to be unable to hold the index.
-    #[must_use]
-    pub fn enabled(&self) -> bool {
-        self.engine().is_some()
     }
 
     /// Whether the configuration names a search server, whatever became of it.
@@ -143,11 +171,22 @@ impl Search {
         self.engine.is_some()
     }
 
-    /// The search server, if bodies can be searched.
+    /// The search server, if bodies can be searched there.
     fn engine(&self) -> Option<&Engine> {
         self.engine
             .as_ref()
             .filter(|engine| engine.index_state() != IndexState::Refused)
+    }
+
+    /// Where a search is asked: the search server that is configured, or the database
+    /// where none is. `None` for a search server that cannot hold the index: then every
+    /// search is a 503, as while it does not answer, and the database does not stand in
+    /// for it.
+    fn way(&self) -> Option<Way<'_>> {
+        match &self.engine {
+            None => Some(Way::Database),
+            Some(_) => self.engine().map(Way::Engine),
+        }
     }
 }
 
@@ -159,16 +198,19 @@ impl Engine {
             .expect("the lock of the index state is not poisoned")
     }
 
-    /// Whether a search that failed at `now` is to be said in the log: the first, and
-    /// then one every [`FAILURES_SAID_EVERY`].
-    pub(super) fn search_failure_is_news(&self, now: Instant) -> bool {
+    /// Whether a search that failed at `now` for `error` is to be said in the log: the
+    /// first, one that failed otherwise than the one said last, and then one every
+    /// [`FAILURES_SAID_EVERY`].
+    pub(super) fn search_failure_is_news(&self, now: Instant, error: &ClientError) -> bool {
         let mut said = self
             .search_failure_said
             .lock()
             .expect("the lock of the failures said is not poisoned");
-        let news = said.is_none_or(|last| now.duration_since(last) >= FAILURES_SAID_EVERY);
+        let news = said.as_ref().is_none_or(|(at, last)| {
+            last != error || now.duration_since(*at) >= FAILURES_SAID_EVERY
+        });
         if news {
-            *said = Some(now);
+            *said = Some((now, error.clone()));
         }
         news
     }
@@ -217,5 +259,38 @@ mod tests {
             pause.failed(start, down());
         }
         assert!(pause.is_over(start + LONGEST_PAUSE), "never longer");
+    }
+
+    #[test]
+    fn a_failed_search_is_said_at_once_when_it_failed_otherwise() {
+        let settings = SearchSettings {
+            search_url: "http://127.0.0.1:9".to_owned(),
+            ..SearchSettings::default()
+        };
+        let search = Search::from_config(&settings).expect("a search server");
+        let engine = search.engine.as_ref().expect("configured");
+        let start = Instant::now();
+        let down = ClientError::Unreachable(client::NoAnswer::Connection);
+        assert!(engine.search_failure_is_news(start, &down), "the first");
+        assert!(
+            !engine.search_failure_is_news(start + Duration::from_secs(1), &down),
+            "the same again"
+        );
+        assert!(
+            engine.search_failure_is_news(start + Duration::from_secs(2), &ClientError::Partial),
+            "another failure, at once"
+        );
+        assert!(
+            engine.search_failure_is_news(start + Duration::from_secs(3), &down),
+            "and back to the first"
+        );
+        assert!(
+            !engine.search_failure_is_news(start + Duration::from_secs(32), &down),
+            "the same within the time"
+        );
+        assert!(
+            engine.search_failure_is_news(start + Duration::from_secs(33), &down),
+            "the same, once the time is past"
+        );
     }
 }

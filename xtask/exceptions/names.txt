@@ -136,7 +136,7 @@ crates/server/src/api/contract/params.rs | Team
 crates/server/src/api/contract.rs | Team
 crates/server/src/api/contract/tests.rs | Team
 crates/server/tests/api/teams.rs
-crates/server/tests/api/content_search.rs | team
+crates/server/tests/api/search_isolation.rs | team
 crates/server/tests/api/main.rs | teams
 crates/server/tests/organization_boundary_round2/routes.rs | team
 crates/server/tests/organization_boundary_round2/member_operations.rs | team

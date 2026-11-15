@@ -4,19 +4,15 @@
 
 use std::time::{Duration, Instant};
 
-use fvoci_model::{Block, BlockType, Board, BoardMember, BoardType, Card, SearchHit, new_id};
-use fvoci_store::DbType;
-use fvoci_store::testing::db_type_of_the_tests;
+use fvoci_model::{Block, BlockType, Board, BoardType, Card, SearchHit, new_id};
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
-use crate::boards::{delete_member, editor, member, new_board};
+use crate::boards::new_board;
 use crate::common::{
-    ApiResponse, Client, HIDDEN_WORKSPACE_ID, ROOT_WS, Setup, TEST_WORKSPACE_ID, TEST_WS,
-    TestServer, UNKNOWN_ID,
+    ApiResponse, Client, Setup, TEST_WORKSPACE_ID, TEST_WS, TestServer, UNKNOWN_ID,
 };
 use crate::fake_search::{FakeSearch, Flavor, document};
-use crate::workspaces::another_organization;
 
 /// The name of the index a server makes unless it is told another.
 pub(crate) const INDEX: &str = "fvoci";
@@ -52,7 +48,7 @@ pub(crate) async fn new_card(client: &Client, board_id: &str, title: &str, text:
 }
 
 /// A card stored past the API, on behalf of nobody, on any board.
-async fn stored_card(store: &fvoci_store::Store, board_id: &str, title: &str) -> String {
+pub(crate) async fn stored_card(store: &fvoci_store::Store, board_id: &str, title: &str) -> String {
     let mut block = Block {
         id: new_id(),
         board_id: board_id.to_owned(),
@@ -82,7 +78,11 @@ fn encoded(value: &str) -> String {
 }
 
 /// The search of a workspace with these parameters.
-async fn search_with(client: &Client, workspace: &str, parameters: &[(&str, &str)]) -> ApiResponse {
+pub(crate) async fn search_with(
+    client: &Client,
+    workspace: &str,
+    parameters: &[(&str, &str)],
+) -> ApiResponse {
     let query: Vec<String> = parameters
         .iter()
         .map(|(name, value)| format!("{name}={}", encoded(value)))
@@ -97,14 +97,14 @@ pub(crate) async fn search(client: &Client, workspace: &str, query: &str) -> Api
 }
 
 /// The identifiers a search found, sorted.
-fn found(response: &ApiResponse) -> Vec<String> {
+pub(crate) fn found(response: &ApiResponse) -> Vec<String> {
     let hits: Vec<SearchHit> = response.ok_json();
     let mut ids: Vec<String> = hits.into_iter().map(|hit| hit.id).collect();
     ids.sort();
     ids
 }
 
-fn sorted(ids: &[&str]) -> Vec<String> {
+pub(crate) fn sorted(ids: &[&str]) -> Vec<String> {
     let mut ids: Vec<String> = ids.iter().map(|id| (*id).to_owned()).collect();
     ids.sort();
     ids
@@ -143,7 +143,7 @@ async fn plant_current(th: &TestServer, fake: &FakeSearch, card_id: &str) {
 
 /// Plants a document that claims to be of the test workspace and of `board_id`,
 /// whatever the database says of the identifier.
-fn plant_claiming(th: &TestServer, fake: &FakeSearch, id: &str, board_id: &str) {
+pub(crate) fn plant_claiming(th: &TestServer, fake: &FakeSearch, id: &str, board_id: &str) {
     fake.plant(
         id,
         document(
@@ -157,20 +157,26 @@ fn plant_claiming(th: &TestServer, fake: &FakeSearch, id: &str, board_id: &str) 
 }
 
 #[tokio::test]
-async fn without_a_search_server_bodies_are_not_searched() {
+async fn without_a_search_server_the_database_is_searched() {
     let th = Setup::native().start().await.init_basic().await;
+    // There is no upkeep to do.
     fvoci_server::search::tend(&th.app).await;
+    let board: Board = th
+        .client
+        .create_board(&new_board(TEST_WORKSPACE_ID, BoardType::Open, "Support"))
+        .await
+        .created_json();
+    let card = new_card(&th.client, &board.id, "고객 응대", "환불규정을 따른다").await;
 
     let config = th.anonymous().get("/client-config").await.value();
     let answer = search(&th.client, TEST_WS, "환불").await;
     let elsewhere = search(&th.client, &format!("/w/{UNKNOWN_ID}"), "환불").await;
     th.teardown().await;
 
-    assert_eq!(config["searchEnabled"], false, "{config}");
-    answer.check_status(StatusCode::NOT_FOUND);
-    let problem = answer.check_problem();
-    assert_eq!(problem["reason"], "search_not_configured", "{problem}");
-    assert_eq!(problem["type"], "/problems/search-not-configured");
+    assert_eq!(config["searchEnabled"], true, "{config}");
+    let hits: Vec<SearchHit> = answer.ok_json();
+    assert_eq!(hits.len(), 1, "{hits:?}");
+    assert_eq!(hits[0].id, card.id);
     // A workspace that is not the user's is not there, as for any other route.
     elsewhere.check_status(StatusCode::NOT_FOUND);
     assert_eq!(elsewhere.check_problem().get("reason"), None);
@@ -215,7 +221,7 @@ async fn a_search_answers_a_card_as_the_database_has_it() {
     let config = th.anonymous().get("/client-config").await.value();
     let answer = search(&th.client, TEST_WS, "환불").await;
     let empty = search(&th.client, TEST_WS, "  ").await;
-    let searches = fake.recorded_at("/_search");
+    let searches = fake.searches();
     let definition = fake.index_definition(INDEX);
     th.teardown().await;
 
@@ -259,7 +265,7 @@ async fn a_search_answers_a_card_as_the_database_has_it() {
         definition["settings"]["analysis"]["tokenizer"]["fvoci_nori"]["type"],
         "nori_tokenizer"
     );
-    assert_eq!(definition["mappings"]["_meta"]["fvoci"]["version"], 4);
+    assert_eq!(definition["mappings"]["_meta"]["fvoci"]["version"], 5);
 }
 
 /// The organization a filter names: some identifier, and not none.
@@ -272,7 +278,7 @@ fn stale_org(filter: &Value) -> String {
 }
 
 /// A private board of the test workspace with the user of `client` as its admin.
-async fn private_board(client: &Client, title: &str) -> Board {
+pub(crate) async fn private_board(client: &Client, title: &str) -> Board {
     client
         .create_board(&new_board(TEST_WORKSPACE_ID, BoardType::Private, title))
         .await
@@ -280,7 +286,7 @@ async fn private_board(client: &Client, title: &str) -> Board {
 }
 
 /// Makes a user that of a role in the test workspace.
-async fn set_role(th: &TestServer, user_id: &str, role: &str) {
+pub(crate) async fn set_role(th: &TestServer, user_id: &str, role: &str) {
     th.app
         .store()
         .execute_unchecked(&format!(
@@ -291,264 +297,8 @@ async fn set_role(th: &TestServer, user_id: &str, role: &str) {
         .expect("the user's role in the test workspace is set");
 }
 
-/// A private board that `user_id` reads through a team and is no member of, and a
-/// card of it: the board's and the card's identifiers.
-async fn card_read_through_a_team(th: &TestServer, user_id: &str) -> (String, String) {
-    let board = private_board(&th.client, "Teamed").await;
-    let team: fvoci_model::Team = th
-        .client
-        .post(&format!("{TEST_WS}/teams"), &json!({"name": "Support"}))
-        .await
-        .ok_json();
-    th.client
-        .put(
-            &format!("{TEST_WS}/teams/{}/members/{user_id}", team.id),
-            &json!({}),
-        )
-        .await
-        .check_no_content();
-    th.client
-        .put(
-            &format!("{TEST_WS}/boards/{}/teams/{}", board.id, team.id),
-            &json!({"role": "viewer"}),
-        )
-        .await
-        .check_no_content();
-    let card = new_card(&th.client, &board.id, "팀의 카드", "환불").await;
-    (board.id, card.id)
-}
-
-/// A board that went to the trash whole, and a card of it.
-async fn card_of_a_board_in_the_trash(th: &TestServer) -> (String, String) {
-    let board = private_board(&th.client, "Gone").await;
-    let card = new_card(&th.client, &board.id, "지운 보드의 카드", "환불").await;
-    th.client
-        .delete(&format!("{TEST_WS}/boards/{}", board.id))
-        .await
-        .check_no_content();
-    (board.id, card.id)
-}
-
-/// Two cards of a board that were deleted: one in the trash, and one that went from
-/// there for good.
-async fn cards_that_went(th: &TestServer, board_id: &str) -> (String, String) {
-    let trashed = new_card(&th.client, board_id, "지운 카드", "환불").await;
-    let purged = new_card(&th.client, board_id, "사라진 카드", "환불").await;
-    for card in [&trashed, &purged] {
-        th.client
-            .delete(&format!("{TEST_WS}/boards/{board_id}/blocks/{}", card.id))
-            .await
-            .check_no_content();
-    }
-    // The other card of the trash stays: only the one is removed for good.
-    th.app
-        .store()
-        .execute_unchecked(&format!(
-            "DELETE FROM deleted_blocks WHERE id = '{}'",
-            purged.id
-        ))
-        .await
-        .expect("the card is gone for good");
-    (trashed.id, purged.id)
-}
-
-/// What is stored and has no document for a searcher of the test workspace: a card of
-/// a workspace they are not in, a card of a template, and a comment on `card_id` of the
-/// board `open`.
-async fn blocks_without_a_document(
-    th: &TestServer,
-    open: &Board,
-    card_id: &str,
-    author: &str,
-) -> Vec<String> {
-    let store = th.app.store();
-    let hidden_owner = th.stranger_in(HIDDEN_WORKSPACE_ID).await;
-    let hidden = crate::boards::board_with_admin(
-        th,
-        new_board(HIDDEN_WORKSPACE_ID, BoardType::Open, "Hidden"),
-        &hidden_owner,
-    )
-    .await;
-    let hidden_card = stored_card(store, &hidden.id, "다른 워크스페이스").await;
-    let template: Board = th
-        .client
-        .create_board(&Board {
-            is_template: true,
-            ..new_board(TEST_WORKSPACE_ID, BoardType::Open, "Template")
-        })
-        .await
-        .created_json();
-    let template_card = new_card(&th.client, &template.id, "템플릿 카드", "환불").await;
-    let mut comment = Block {
-        id: new_id(),
-        board_id: open.id.clone(),
-        parent_id: card_id.to_owned(),
-        block_type: BlockType::Comment,
-        title: "환불 댓글".to_owned(),
-        ..Block::default()
-    };
-    store
-        .insert_block(&mut comment, author)
-        .await
-        .expect("the comment is stored");
-    vec![hidden_card, template_card.id, comment.id]
-}
-
-/// What the index holds of each of these, an honest index would not answer the
-/// searcher with: the search server here answers every search with all of them.
-#[tokio::test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "one index that is wrong in every way, and each reader of it"
-)]
-async fn a_stale_index_shows_nobody_what_they_do_not_read_now() {
-    let fake = FakeSearch::start().await;
-    let th = started(&fake).await;
-    let user1 = th.client.me().await.id;
-    let user2 = th.client2.me().await.id;
-    let guest_client = th.add_user("guest").await;
-    let guest = guest_client.me().await.id;
-    set_role(&th, &guest, "guest").await;
-    let stranger = th.stranger_in(TEST_WORKSPACE_ID).await;
-    let store = th.app.store();
-    // The first user administers the test workspace: they manage every board of it,
-    // and read those they have a role on.
-    set_role(&th, &user1, "admin").await;
-    // A board of the first user in the root workspace: a search there asks the index.
-    th.create_board(crate::common::ROOT_WORKSPACE_ID, BoardType::Private)
-        .await;
-
-    // An open board, and a card of it that every member reads.
-    let open: Board = th
-        .client
-        .create_board(&new_board(TEST_WORKSPACE_ID, BoardType::Open, "Open"))
-        .await
-        .created_json();
-    let open_card = new_card(&th.client, &open.id, "열린 카드", "환불규정을 따른다").await;
-    th.client2
-        .post_empty(&format!("{TEST_WS}/boards/{}/join", open.id))
-        .await
-        .check_ok();
-    // An open board the second user has not joined: theirs to join, and not to read.
-    let unjoined: Board = th
-        .client
-        .create_board(&new_board(TEST_WORKSPACE_ID, BoardType::Open, "Unjoined"))
-        .await
-        .created_json();
-    let unjoined_card = new_card(&th.client, &unjoined.id, "남의 열린 카드", "환불").await;
-    // A private board of the first user alone.
-    let private = private_board(&th.client, "Private").await;
-    let private_card = new_card(&th.client, &private.id, "비공개 카드", "환불").await;
-    // A private board the first user, an administrator of the workspace, is not on.
-    let managed = crate::boards::board_with_admin(
-        &th,
-        new_board(TEST_WORKSPACE_ID, BoardType::Private, "Managed"),
-        &stranger,
-    )
-    .await;
-    let managed_card = stored_card(store, &managed.id, "남의 카드").await;
-    // A private board the guest was invited to.
-    let invited = private_board(&th.client, "Invited").await;
-    th.client
-        .add_member(&BoardMember {
-            scheme_viewer: true,
-            ..member(&invited.id, &guest)
-        })
-        .await
-        .check_ok();
-    let invited_card = new_card(&th.client, &invited.id, "초대된 카드", "환불").await;
-    // A private board the second user was on when it was indexed, and is not now.
-    let left = private_board(&th.client, "Left").await;
-    th.client
-        .add_member(&editor(&left.id, &user2))
-        .await
-        .check_ok();
-    let left_card = new_card(&th.client, &left.id, "떠난 카드", "환불").await;
-    delete_member(&th.client, &member(&left.id, &user2))
-        .await
-        .check_no_content();
-    let (teamed, teamed_card) = card_read_through_a_team(&th, &user2).await;
-    let (gone, gone_card) = card_of_a_board_in_the_trash(&th).await;
-    let (trashed, purged) = cards_that_went(&th, &open.id).await;
-    let no_documents = blocks_without_a_document(&th, &open, &open_card.id, &user1).await;
-
-    let mut planted = vec![
-        (open_card.id.clone(), open.id.clone()),
-        // Twice, and once more as of a board it is not on.
-        (open_card.id.clone(), open.id.clone()),
-        (unjoined_card.id.clone(), unjoined.id.clone()),
-        (private_card.id.clone(), private.id.clone()),
-        (private_card.id.clone(), open.id.clone()),
-        (managed_card.clone(), managed.id.clone()),
-        (managed_card.clone(), open.id.clone()),
-        (invited_card.id.clone(), invited.id.clone()),
-        (left_card.id.clone(), left.id.clone()),
-        (teamed_card.clone(), teamed),
-        (gone_card.clone(), gone),
-        (gone_card, open.id.clone()),
-        (trashed, open.id.clone()),
-        (purged, open.id.clone()),
-        (UNKNOWN_ID.to_owned(), open.id.clone()),
-        ("not-an-identifier".to_owned(), open.id.clone()),
-        ("' OR 1=1 --".to_owned(), open.id.clone()),
-    ];
-    planted.extend(no_documents.into_iter().map(|id| (id, open.id.clone())));
-    // Another organization's card, where the database holds more than one.
-    if db_type_of_the_tests() == DbType::Postgres {
-        let (theirs, _, their_board) = another_organization(&th).await;
-        let their_card = stored_card(&theirs, &their_board, "남의 조직").await;
-        planted.push((their_card, open.id.clone()));
-    }
-    for (id, board_id) in &planted {
-        plant_claiming(&th, &fake, id, board_id);
-    }
-
-    let admin = search(&th.client, TEST_WS, "환불").await;
-    let member_found = search(&th.client2, TEST_WS, "환불").await;
-    let guest_found = search(&guest_client, TEST_WS, "환불").await;
-    let in_root = search(&th.client, ROOT_WS, "환불").await;
-    let asked = fake.recorded_at("/_search").len();
-    th.teardown().await;
-
-    assert_eq!(
-        found(&admin),
-        sorted(&[
-            &open_card.id,
-            &unjoined_card.id,
-            &private_card.id,
-            &invited_card.id,
-            &left_card.id,
-            &teamed_card
-        ]),
-        "the first user reads their boards, and no board they only manage"
-    );
-    assert_eq!(
-        found(&member_found),
-        sorted(&[&open_card.id, &teamed_card]),
-        "the second user reads the open board they joined and a team's board, and no board \
-         they left"
-    );
-    assert_eq!(
-        found(&guest_found),
-        sorted(&[&invited_card.id]),
-        "a guest reads the board they were invited to, and no open board"
-    );
-    assert_eq!(
-        found(&in_root),
-        Vec::<String>::new(),
-        "nothing of another workspace, whatever the index says"
-    );
-    // The hits say what the database says: the board the card is on, not the one the
-    // index claimed.
-    let hits: Vec<SearchHit> = admin.ok_json();
-    let private_hit = hits
-        .iter()
-        .find(|hit| hit.id == private_card.id)
-        .expect("found");
-    assert_eq!(private_hit.container_id, private.id);
-    assert_eq!(private_hit.title, "비공개 카드");
-    assert_eq!(asked, 4, "the search server was asked every time");
-}
+/// How long the slow search server takes to answer: far longer than a search waits.
+const SLOW: Duration = Duration::from_secs(20);
 
 #[tokio::test]
 async fn a_search_server_that_is_down_or_slow_is_a_503_and_holds_nothing_else() {
@@ -568,7 +318,7 @@ async fn a_search_server_that_is_down_or_slow_is_a_503_and_holds_nothing_else() 
     new_card(&th.client, &board.id, "카드", "환불").await;
     let writing_took = written.elapsed();
     fake.come_up();
-    fake.set_delay(Duration::from_secs(12));
+    fake.set_delay(SLOW);
     let asked = Instant::now();
     let slow = search(&th.client, TEST_WS, "환불").await;
     let waited = asked.elapsed();
@@ -584,16 +334,18 @@ async fn a_search_server_that_is_down_or_slow_is_a_503_and_holds_nothing_else() 
     }
     ready.check_ok();
     assert!(writing_took < Duration::from_secs(5), "{writing_took:?}");
-    // Three seconds, and not the twelve the search server takes to answer.
+    // Three seconds at least, and less than the search server takes to answer: however
+    // busy the machine, what the request did past its three seconds is no wait for an
+    // answer that is twenty seconds away.
     assert!(
-        waited >= Duration::from_secs(3) && waited < Duration::from_secs(10),
+        waited >= Duration::from_secs(3) && waited < SLOW,
         "a search waits three seconds for the search server: {waited:?}"
     );
     back.check_ok();
 }
 
 #[tokio::test]
-async fn a_search_server_without_nori_leaves_the_server_up_and_the_search_off() {
+async fn a_search_server_without_nori_leaves_the_server_up_and_the_search_unavailable() {
     let fake = FakeSearch::start_as(Flavor::Elasticsearch).await;
     fake.without_nori();
     let th = started(&fake).await;
@@ -601,13 +353,22 @@ async fn a_search_server_without_nori_leaves_the_server_up_and_the_search_off() 
     let config = th.anonymous().get("/client-config").await.value();
     let answer = search(&th.client, TEST_WS, "환불").await;
     let me = th.client.get("/users/me").await;
+    let reindexed = fvoci_server::search::reindex(&th.app)
+        .await
+        .map_err(|error| {
+            (
+                error.status(),
+                error.reason().map(fvoci_server::error::Reason::as_str),
+            )
+        });
     let made = fake.index_definition(INDEX);
     th.teardown().await;
 
-    assert_eq!(config["searchEnabled"], false, "{config}");
-    answer.check_status(StatusCode::NOT_FOUND);
-    assert_eq!(answer.check_problem()["reason"], "search_not_configured");
+    assert_eq!(config["searchEnabled"], true, "the box is there: {config}");
+    answer.check_status(StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(answer.check_problem()["reason"], "search_unavailable");
     me.check_ok();
+    assert_eq!(reindexed, Err((503, Some("search_unavailable"))));
     assert_eq!(made, None, "no index without the analyser");
 }
 
@@ -624,8 +385,8 @@ async fn an_index_the_server_did_not_make_is_left_as_it_is() {
     let requests = fake.recorded();
     th.teardown().await;
 
-    assert_eq!(config["searchEnabled"], false, "{config}");
-    answer.check_status(StatusCode::NOT_FOUND);
+    assert_eq!(config["searchEnabled"], true, "{config}");
+    answer.check_status(StatusCode::SERVICE_UNAVAILABLE);
     assert_eq!(left, Some(theirs), "the index is as it was");
     assert!(
         requests.iter().all(|request| request.method == "GET"),
@@ -652,7 +413,7 @@ async fn an_index_made_from_another_definition_is_made_again() {
     th.teardown().await;
 
     assert_eq!(config["searchEnabled"], true, "{config}");
-    assert_eq!(definition["mappings"]["_meta"]["fvoci"]["version"], 4);
+    assert_eq!(definition["mappings"]["_meta"]["fvoci"]["version"], 5);
     let path = format!("/{INDEX}");
     assert_eq!(
         requests,
@@ -720,7 +481,7 @@ async fn what_a_search_asks_for_is_checked_before_anything_is_asked() {
         .await
         .expect("the user leaves the test workspace");
     let outside = search(&stranger, TEST_WS, "x").await;
-    let asked = fake.recorded_at("/_search");
+    let asked = fake.searches();
     th.teardown().await;
 
     long.check_bad_request();
@@ -753,16 +514,25 @@ async fn a_user_searches_only_so_often() {
         .await;
     fvoci_server::search::tend(&th.app).await;
 
-    // One a second, and two at once after a pause: of eight in a row, the first is
+    // One a second, and two at once after a pause: of eight sent at once, some are
     // answered and some are not, however slowly the machine gets through them.
-    let mut answers = Vec::new();
-    for _ in 0..8 {
-        answers.push(search(&th.client, TEST_WS, "환불").await);
-    }
+    let sent = Instant::now();
+    let answers =
+        futures_util::future::join_all((0..8).map(|_| search(&th.client, TEST_WS, "환불"))).await;
+    // Two at once, and one more for every second the eight took.
+    let most = 2 + usize::try_from(sent.elapsed().as_secs()).expect("seconds") + 1;
     let other = search(&th.client2, TEST_WS, "환불").await;
     th.teardown().await;
 
-    answers[0].check_ok();
+    assert!(
+        answers.iter().any(|answer| answer.status == StatusCode::OK),
+        "some were answered"
+    );
+    let answered = answers
+        .iter()
+        .filter(|answer| answer.status == StatusCode::OK)
+        .count();
+    assert!(answered <= most, "{answered} answered, of at most {most}");
     let limited: Vec<&ApiResponse> = answers
         .iter()
         .filter(|answer| answer.status == StatusCode::TOO_MANY_REQUESTS)
@@ -807,7 +577,7 @@ async fn a_user_of_more_boards_than_a_request_lists_is_searched_for_in_the_works
     plant_claiming(&th, &fake, &their_card, &theirs.id);
 
     let answer = search_with(&th.client, TEST_WS, &[("q", "환불"), ("limit", "7")]).await;
-    let asked = fake.recorded_at("/_search");
+    let asked = fake.searches();
     th.teardown().await;
 
     assert_eq!(found(&answer), [mine.id]);
@@ -860,7 +630,7 @@ async fn an_index_a_newer_server_made_is_left_as_it_is() {
     let requests = fake.recorded();
     th.teardown().await;
 
-    assert_eq!(config["searchEnabled"], false, "{config}");
+    assert_eq!(config["searchEnabled"], true, "{config}");
     assert_eq!(left, Some(theirs), "the index is as it was");
     assert!(
         requests.iter().all(|request| request.method == "GET"),

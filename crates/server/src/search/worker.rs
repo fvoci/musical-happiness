@@ -11,9 +11,10 @@ use std::collections::HashMap;
 
 use fvoci_store::{SearchChange, SearchDocument, SearchIndexMark, SearchTarget, Store};
 
-use super::client::{Client, ClientError, IndexFound, Operation};
+use super::client::{Client, ClientError, IndexFound, Operation, Refused};
 use super::index;
 use super::query::Scope;
+use super::version::Versions;
 use crate::auth::now_millis;
 use crate::error::AppError;
 use crate::metrics::{Metrics, SearchSent};
@@ -95,6 +96,7 @@ async fn index_is_kept(store: &Store, client: &Client) -> Result<bool, Stopped> 
 pub(super) async fn work_off(
     store: &Store,
     client: &Client,
+    versions: &Versions,
     metrics: &Metrics,
 ) -> Result<usize, Stopped> {
     let mut looked_at = 0;
@@ -112,24 +114,27 @@ pub(super) async fn work_off(
             .into_iter()
             .partition(|change| change.target == SearchTarget::Board);
         for board in &boards {
-            send_board(store, client, metrics, board).await?;
+            send_board(store, client, versions, metrics, board).await?;
         }
         for blocks in blocks.chunks(DOCUMENTS_AT_ONCE) {
-            send_blocks(store, client, metrics, blocks).await?;
+            send_blocks(store, client, versions, metrics, blocks).await?;
         }
     }
     Ok(looked_at)
 }
 
 /// Sends what is stored of the blocks of `changes` now: the document of each that
-/// has one, and the removal of the document of each that has none.
+/// has one, and the removal of the document of each that has none, of the version of
+/// the time they were read.
 async fn send_blocks(
     store: &Store,
     client: &Client,
+    versions: &Versions,
     metrics: &Metrics,
     changes: &[SearchChange],
 ) -> Result<(), Stopped> {
     let ids: Vec<&str> = changes.iter().map(|change| change.id.as_str()).collect();
+    let version = versions.next();
     let mut documents: HashMap<String, SearchDocument> = store
         .search_documents(&ids)
         .await?
@@ -139,13 +144,16 @@ async fn send_blocks(
     let operations: Vec<Operation> = changes
         .iter()
         .map(|change| match documents.remove(&change.id) {
-            Some(document) => Operation::Put(document),
-            None => Operation::Remove(change.id.clone()),
+            Some(document) => Operation::Put { document, version },
+            None => Operation::Remove {
+                id: change.id.clone(),
+                version,
+            },
         })
         .collect();
     let refusals = client.write(&operations).await?;
     for (change, refusal) in changes.iter().zip(refusals) {
-        settle(store, metrics, change, refusal.as_deref()).await?;
+        settle(store, versions, metrics, change, refusal.as_ref()).await?;
     }
     Ok(())
 }
@@ -157,6 +165,7 @@ async fn send_blocks(
 async fn send_board(
     store: &Store,
     client: &Client,
+    versions: &Versions,
     metrics: &Metrics,
     change: &SearchChange,
 ) -> Result<(), Stopped> {
@@ -172,9 +181,10 @@ async fn send_board(
     // Every page is put, also after a document was refused: what is refused is one
     // document, and the others of the board are not left out for it.
     let mut after: Option<String> = None;
-    let mut refused: Option<String> = None;
+    let mut refused: Option<Refused> = None;
     let mut refused_count = 0_usize;
     loop {
+        let version = versions.next();
         let page = store
             .search_documents_of_container(&change.id, after.as_deref(), PAGE)
             .await?;
@@ -182,24 +192,34 @@ async fn send_board(
             break;
         };
         after = Some(last.id.clone());
-        let operations: Vec<Operation> = page.into_iter().map(Operation::Put).collect();
+        let operations: Vec<Operation> = page
+            .into_iter()
+            .map(|document| Operation::Put { document, version })
+            .collect();
         let refusals = client.write(&operations).await?;
-        for (operation, kind) in operations.iter().zip(refusals) {
-            let (Operation::Put(document), Some(kind)) = (operation, kind) else {
+        for (operation, refusal) in operations.iter().zip(refusals) {
+            let (Operation::Put { document, .. }, Some(refusal)) = (operation, refusal) else {
                 continue;
             };
             // Which documents, so that somebody can look at them: the first few of a
             // container, and how many in all below.
             if refused_count < REFUSALS_NAMED {
                 tracing::warn!(
-                    kind,
+                    kind = refusal.kind,
                     id = %document.id,
                     container_id = %change.id,
                     "the search server refused a document of a container sent whole"
                 );
             }
             refused_count += 1;
-            refused.get_or_insert(kind);
+            // A version it holds is gone past whichever document said it; the row
+            // keeps the refusal that says one, so that it is due again at once.
+            if let Some(holds) = refusal.holds {
+                versions.past(holds);
+            }
+            if refused.as_ref().is_none_or(|first| first.holds.is_none()) {
+                refused = Some(refusal);
+            }
         }
     }
     if refused_count > REFUSALS_NAMED {
@@ -209,37 +229,49 @@ async fn send_board(
             "the search server refused more documents of the container than were named"
         );
     }
-    settle(store, metrics, change, refused.as_deref()).await
+    settle(store, versions, metrics, change, refused.as_ref()).await
 }
 
 /// Takes a row off the list once what it is about was sent, or notes when to try
-/// again what the search server refused (`refusal`, the name of its error).
+/// again what the search server refused (`refusal`). One refused for a version lower
+/// than the search server holds (written by a server whose clock was ahead, or removed
+/// so: what `sent` does not say when a server starts) is due again at once, past that
+/// version; any other later and later.
 async fn settle(
     store: &Store,
+    versions: &Versions,
     metrics: &Metrics,
     change: &SearchChange,
-    refusal: Option<&str>,
+    refusal: Option<&Refused>,
 ) -> Result<(), Stopped> {
-    match refusal {
-        None => {
-            // A row noted again meanwhile stays, and is counted when it is sent again.
-            if store.settle_search_change(change).await? {
-                metrics.search_sent(SearchSent::Done);
-            }
+    let Some(refusal) = refusal else {
+        // A row noted again meanwhile stays, and is counted when it is sent again.
+        if store.settle_search_change(change).await? {
+            metrics.search_sent(SearchSent::Done);
         }
-        Some(kind) => {
-            tracing::warn!(
-                kind,
-                id = %change.id,
-                attempts = change.attempts.saturating_add(1),
-                "the search server refused a document; it is tried again later"
-            );
-            store
-                .search_change_failed(change, retry_at(now_millis(), change.attempts))
-                .await?;
-            metrics.search_sent(SearchSent::Refused);
-        }
-    }
+        return Ok(());
+    };
+    let now = now_millis();
+    let due = if let Some(holds) = refusal.holds {
+        versions.past(holds);
+        tracing::warn!(
+            id = %change.id,
+            holds,
+            "the search server holds a newer version of a document than this server \
+             gave; it is sent again past it"
+        );
+        now
+    } else {
+        tracing::warn!(
+            kind = refusal.kind,
+            id = %change.id,
+            attempts = change.attempts.saturating_add(1),
+            "the search server refused a document; it is tried again later"
+        );
+        retry_at(now, change.attempts)
+    };
+    store.search_change_failed(change, due).await?;
+    metrics.search_sent(SearchSent::Refused);
     Ok(())
 }
 

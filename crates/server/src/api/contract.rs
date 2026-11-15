@@ -171,7 +171,9 @@ themselves speak to the server over the websocket, whose messages name the same 
 (`contracts/websocket.md`); `document_read_only`, `connection_too_slow`, \
 `too_many_documents_joined`, `document_full`, `too_many_connections_joined` and \
 `too_many_frames` come only there. The \
-page of each kind says when it comes.
+page of each kind says when it comes. `search_not_configured` comes from none of these \
+operations: only from the reindex of the administration socket, on a server configured \
+without a search server (a search there searches its database).
 
 ## Request bodies
 

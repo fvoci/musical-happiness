@@ -17,7 +17,8 @@ import { defineConfig, devices } from '@playwright/test';
 const PORT = Number(process.env.FVOCI_LIVE_PORT ?? 18510);
 /** The tests of the first use of a server (e2e-live/first-use.spec.ts). */
 const FIRST_USE = /first-use\.spec\.ts$/;
-const ORGANIZATIONS = /organizations\.spec\.ts$/;
+/** The tests of the open PostgreSQL server, which has no search server: its database is searched. */
+const ORGANIZATIONS = /(organizations|search-database)\.spec\.ts$/;
 /** The tests of a server that confirms the address of a registration by mail. */
 const VERIFYING = /verify-email\.spec\.ts$/;
 

@@ -1,6 +1,6 @@
 /**
  * The search of the bodies of cards and pages, for the backend in memory: as
- * the server answers `searchWorkspaceContent`, without a search server.
+ * the server answers `searchWorkspaceContent`, and as its search server.
  *
  * A word matches where its letters stand in the title or the body as they
  * are, whatever the case, as the tests' fake search server matches (not by
@@ -19,7 +19,6 @@ import { plainText } from '../../editor/schema.ts';
 import { BackendError, problemOf } from '../backend.ts';
 import {
   MAX_SEARCH_CHARS,
-  SEARCH_NOT_CONFIGURED,
   type ContentSearch,
   type SearchAsk,
   type SearchHit,
@@ -105,9 +104,6 @@ export class MemoryContentSearch implements ContentSearch {
   async find(workspaceId: string, ask: SearchAsk): Promise<SearchHit[]> {
     await this.#enter();
     const world = this.#world;
-    if (!world.searchEnabled) {
-      fail(404, 'the server has no search server', { reason: SEARCH_NOT_CONFIGURED });
-    }
     if (workspaceId !== world.workspace.id) fail(404, 'no such workspace');
     const query = ask.query.trim();
     if (Array.from(query).length > MAX_SEARCH_CHARS)

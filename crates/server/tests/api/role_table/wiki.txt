@@ -39,3 +39,9 @@ pages: comments                  200         200         200         200        
 pages: comment                   201         201         201         403         404         403         201         404         404        404=        404=
 pages: versions                  200         200         200         200         404         200         200         404         404        404=        404=
 pages: undelete                  200         200         403         403         404         403         200         404         404        404=        404=
+pages: comment versions          200         200         200         200         404         200         200         404         404        404=        404=
+pages: comment change            200         403         403         403         404         403         403         404         404        404=        404=
+pages: comment delete            204         403         403         403         404         403         403         404         404        404=        404=
+pages: comment undelete          200         403         403         403         404         403         403         404         404        404=        404=
+pages: version                   200         200         200         200         404         200         200         404         404        404=        404=
+pages: version restore           200         200         403         403         404         403         200         404         404        404=        404=

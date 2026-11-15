@@ -1,10 +1,9 @@
 /**
  * Finding cards and pages by what they say, part of the data boundary
- * (`backend.ts`): the server's `searchWorkspaceContent`, which a search
- * server answers. A server without one has no such search
- * (`searchEnabled` of its client configuration), and says so with 404
- * `search_not_configured`; a search server that does not answer is 503
- * `search_unavailable`, and nothing else waits for it.
+ * (`backend.ts`): the server's `searchWorkspaceContent`, which its search
+ * server answers, or its database where it has none (`searchEnabled` of the
+ * client configuration says so). A search that is not answered in time, or
+ * whose search server cannot hold its index, is 503 `search_unavailable`.
  */
 
 /** What a search finds: a card of a board, or a page of a wiki. */
@@ -45,9 +44,7 @@ export interface SearchAsk {
 /** The most characters the words of a search may have. */
 export const MAX_SEARCH_CHARS = 200;
 
-/** The reason of the 404 of a server that has no search server. */
-export const SEARCH_NOT_CONFIGURED = 'search_not_configured';
-/** The reason of the 503 of a search server that does not answer. */
+/** The reason of the 503 of a search that is not answered in time, or not at all. */
 export const SEARCH_UNAVAILABLE = 'search_unavailable';
 
 export interface ContentSearch {

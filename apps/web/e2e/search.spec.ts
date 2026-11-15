@@ -2,8 +2,8 @@
  * The search of what cards and pages say, on the backend in memory: its keys
  * and button, finding by a word of a body and going there by the keyboard
  * alone, going to a page of a wiki, the kinds, an earlier answer that comes
- * late, what the dialog says of each state of the search, and a server
- * without a search server (`?search=0`).
+ * late, what the dialog says of each state of the search, and a client
+ * configuration that says bodies are not searched (`?search=0`).
  */
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
@@ -26,7 +26,6 @@ import {
 /** What the page's development handle offers this test (src/app/backend.ts). Only what is used. */
 interface Dev {
   backend: {
-    world: { searchEnabled: boolean };
     latency: number;
     workspaces(): Promise<{ id: string }[]>;
     boards(workspaceId: string): Promise<{ id: string; title: string }[]>;
@@ -454,22 +453,9 @@ test.describe('the search of cards and pages', () => {
     await expect(field(page)).toHaveAttribute('maxlength', '200');
   });
 
-  test('a server that no longer has a search server closes it, and the button goes', async ({
+  test('where bodies are not searched there is no button and the keys open nothing', async ({
     page,
   }) => {
-    await openWithSearch(page);
-    await page.keyboard.press(await primaryKey(page, 'k'));
-    await page.evaluate(() => {
-      (window as unknown as { fvociDev: Dev }).fvociDev.backend.world.searchEnabled = false;
-    });
-    await search(page, 'anything');
-    await expect(dialog(page)).toHaveCount(0);
-    await expect(topBar(page).getByTestId('open-search')).toHaveCount(0);
-    await page.keyboard.press(await primaryKey(page, 'k'));
-    await expect(dialog(page)).toHaveCount(0);
-  });
-
-  test('without a search server there is no button and the keys open nothing', async ({ page }) => {
     await openApp(page, '/?search=0');
     await expect(undoInBar(page)).toBeVisible();
     await expect(topBar(page).getByTestId('open-search')).toHaveCount(0);

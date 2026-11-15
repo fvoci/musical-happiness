@@ -100,8 +100,9 @@ export class World {
    */
   shareRooms: string | undefined;
   /**
-   * Whether the bodies of cards and pages can be searched, as a server with a
-   * search server (`searchEnabled`); one without has no such search (404).
+   * Whether the client configuration says that bodies are searched
+   * (`searchEnabled`): every server does; false shows a client that is told
+   * otherwise, which has no search box.
    */
   searchEnabled = true;
   /** Before a card's body is written whole: what its room's editors wrote is written into the card (`rooms.ts`). */

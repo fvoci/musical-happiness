@@ -37,17 +37,15 @@ interface Asked {
 }
 
 /** A session whose requests wait until the test answers them. */
-function session(): { session: SearchSession; asked: Asked[]; gone: ReturnType<typeof vi.fn> } {
+function session(): { session: SearchSession; asked: Asked[] } {
   const asked: Asked[] = [];
-  const gone = vi.fn();
   const made = new SearchSession({
     find: (ask) =>
       new Promise((resolve, reject) => {
         asked.push({ ask, answer: resolve, refuse: reject });
       }),
-    onGone: gone,
   });
-  return { session: made, asked, gone };
+  return { session: made, asked };
 }
 
 describe('a search session', () => {
@@ -160,16 +158,16 @@ describe('a search session', () => {
     expect(search.status).toBe('none');
   });
 
-  it('ends when the server has no search server, and says so', async () => {
-    const { session: search, asked, gone } = session();
+  it('says that a search server that cannot hold its index cannot search now, and asks again', async () => {
+    const { session: search, asked } = session();
     search.type('word');
     await vi.advanceTimersByTimeAsync(TYPING_PAUSE);
-    asked[0]?.refuse(new BackendError(404, { reason: 'search_not_configured' }));
+    asked[0]?.refuse(new BackendError(503, { reason: 'search_unavailable' }));
     await vi.runAllTimersAsync();
-    expect(gone).toHaveBeenCalledOnce();
+    expect(search.status).toBe('unavailable');
     search.type('more');
     await vi.runAllTimersAsync();
-    expect(asked).toHaveLength(1);
+    expect(asked).toHaveLength(2);
   });
 
   it('gives what the words in the field find to who waits for it, and nothing for words changed', async () => {
@@ -198,7 +196,6 @@ describe('a search session', () => {
         new Promise((resolve, reject) => {
           asked.push({ ask, answer: resolve, refuse: reject });
         }),
-      onGone: () => undefined,
       onRefused: refused,
     });
     search.type('word');
@@ -381,8 +378,6 @@ describe('whether the search is there', () => {
     expect(shown.on).toBe(false);
     await vi.advanceTimersByTimeAsync(0);
     expect(shown.on).toBe(true);
-    shown.turnOff();
-    expect(shown.on).toBe(false);
   });
 
   it('asks again after a failure, waiting longer each time, and then no more', async () => {
@@ -398,13 +393,5 @@ describe('whether the search is there', () => {
     new SearchSwitch(failing);
     await vi.runAllTimersAsync();
     expect(failing.enabled).toHaveBeenCalledTimes(RETRY_SECONDS.length + 1);
-  });
-
-  it('stays off once turned off, whatever an answer late says', async () => {
-    const search = searchAnswering([true]);
-    const shown = new SearchSwitch(search);
-    shown.turnOff();
-    await vi.runAllTimersAsync();
-    expect(shown.on).toBe(false);
   });
 });

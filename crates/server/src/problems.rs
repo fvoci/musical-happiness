@@ -292,14 +292,20 @@ fn describe_page_tree(reason: Reason) -> Option<&'static str> {
 fn describe_search(reason: Reason) -> Option<&'static str> {
     Some(match reason {
         Reason::SearchNotConfigured => {
-            "Status 404. The server has no search server (`search_url`), or the one it has \
-             cannot hold the index: what cards and pages say is not searched. `searchEnabled` of \
-             `getClientConfig` says so beforehand."
+            "Status 404. The administration socket's reindex, on a server that is configured \
+             with no search server: there is no index to make. (A search on such a server \
+             searches its database.)"
         }
         Reason::SearchUnavailable => {
-            "Status 503. The search server did not answer the search within three seconds, \
-             or refused it. Nothing else of the server depends on it: what is written \
-             meanwhile is found once the search server is back. Try again later."
+            "Status 503. The search was not answered within three seconds: the search \
+             server did not answer it, or refused it, or (on a server without a search \
+             server) the database did not finish it in time. Or the search server the server \
+             is configured with cannot hold its index (it has no nori plugin, or holds another \
+             index under the name), which the server says in its log when it finds it: every \
+             search is answered so until that is put right and the server started again, and \
+             the database does not stand in for it. Nothing else of the server depends on \
+             it: what is written meanwhile is found once the search answers again. Try again \
+             later."
         }
         _ => return None,
     })

@@ -66,8 +66,14 @@ async fn a_card_is_found_while_it_is_there_as_it_is() {
     let block = format!("{TEST_WS}/boards/{}/blocks/{}", board.id, card.id);
 
     tend(&th.app).await;
-    let sent = fake.documents(INDEX).remove(&card.id).expect("the card");
+    let mut sent = fake.documents(INDEX).remove(&card.id).expect("the card");
     let org_id = th.app.store().tenant().org_id().expect("an organization");
+    // The version it was written with, as the search server holds it.
+    let version = sent
+        .as_object_mut()
+        .and_then(|document| document.remove("sent"))
+        .and_then(|version| version.as_i64());
+    assert_eq!(version, fake.version_of(INDEX, &card.id), "{sent}");
     assert_eq!(
         sent,
         json!({
@@ -385,7 +391,7 @@ async fn the_operator_has_the_index_made_again() {
     fake.remove_index(INDEX);
     fake.put_index(
         INDEX,
-        json!({"mappings": {"_meta": {"fvoci": {"version": 4}}}}),
+        json!({"mappings": {"_meta": {"fvoci": {"version": 5}}}}),
     );
 
     let reindexed = socket_request(&socket, "POST", "/api/v1/admin/search/reindex", "").await;
@@ -461,7 +467,7 @@ async fn the_cards_of_two_organizations_are_sent_apart_and_found_apart() {
     tend(&th.app).await;
     let documents = fake.documents(INDEX);
     let mine = found(&th).await;
-    let asked = fake.recorded_at("/_search").pop().expect("a search");
+    let asked = fake.searches().pop().expect("a search");
     th.teardown().await;
 
     let our_org = &documents[&our_card.id]["orgId"];
@@ -529,7 +535,7 @@ async fn an_index_that_went_is_not_made_by_a_write() {
     th.teardown().await;
 
     assert_eq!(lost, None, "nothing was written where no index was");
-    assert_eq!(definition["mappings"]["_meta"]["fvoci"]["version"], 4);
+    assert_eq!(definition["mappings"]["_meta"]["fvoci"]["version"], 5);
     let mut both = vec![before.id, after.id];
     both.sort();
     assert_eq!(

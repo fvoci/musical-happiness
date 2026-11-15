@@ -101,7 +101,7 @@ async fn get_client_config() {
             "featureFlags": {"newBoardsEditor": "true"},
             "maxFileSize": 1234,
             "maxImportSize": 268_435_456,
-            "searchEnabled": false,
+            "searchEnabled": true,
         }),
         "the client configuration"
     );

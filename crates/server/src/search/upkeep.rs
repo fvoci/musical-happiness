@@ -15,6 +15,7 @@ use anyhow::Context as _;
 use fvoci_store::{SearchIndexMark, Store};
 
 use super::client::{ClientError, IndexFound};
+use super::find::index_refused;
 use super::worker::{self, Stopped};
 use super::{Engine, IndexState, Pause, index};
 use crate::app::App;
@@ -108,12 +109,20 @@ async fn sync_index(store: &Store, engine: &Engine) -> Result<Synced, Stopped> {
 /// organization. Returns how many rows of the list it looked at.
 async fn run(app: &App, engine: &Engine) -> Result<usize, Stopped> {
     if engine.index_state() == IndexState::Unknown {
-        if sync_index(app.store(), engine).await? == Synced::Refused {
-            return Err(Stopped::Search(ClientError::NoIndex));
+        match sync_index(app.store(), engine).await? {
+            Synced::Refused => return Err(Stopped::Search(ClientError::NoIndex)),
+            // Past every version the index holds, whatever the clock says now. An
+            // index just made holds none.
+            Synced::Kept => {
+                if let Some(highest) = engine.client.highest_version().await? {
+                    engine.versions.past(highest);
+                }
+            }
+            Synced::Made { .. } => {}
         }
         engine.set_index_state(IndexState::Ready);
     }
-    worker::work_off(app.store(), &engine.client, app.metrics()).await
+    worker::work_off(app.store(), &engine.client, &engine.versions, app.metrics()).await
 }
 
 /// Turns the search off for as long as the server runs: the search server cannot
@@ -233,14 +242,17 @@ pub async fn tend(app: &App) {
 ///
 /// # Errors
 ///
-/// Returns a 404 with the reason `search_not_configured` where bodies cannot be
-/// searched, or cannot be any more because the search server holds something else
-/// under the name; a 503 if this process does not hold the lock of the server or the
-/// search server does not take the requests (reason `search_unavailable`); and the
-/// store's error if the database cannot be asked.
+/// Returns a 404 with the reason `search_not_configured` on a server without a search
+/// server; a 503 with the reason `search_unavailable` where the search server cannot
+/// hold the index, or does not take the requests; a 503 if this process does not hold
+/// the lock of the server; and the store's error if the database cannot be asked.
 pub async fn reindex(app: &App) -> Result<u64, AppError> {
-    let not_configured = || AppError::not_found("search").with_reason(Reason::SearchNotConfigured);
-    let engine = app.search().engine().ok_or_else(not_configured)?;
+    let Some(engine) = app.search().engine.as_ref() else {
+        return Err(AppError::not_found("search").with_reason(Reason::SearchNotConfigured));
+    };
+    if engine.index_state() == IndexState::Refused {
+        return Err(index_refused());
+    }
     let mut pause = engine.upkeep.lock().await;
     let app = app.housekeeping();
     app.require_server_lock()?;
@@ -256,7 +268,7 @@ pub async fn reindex(app: &App) -> Result<u64, AppError> {
         Ok(Synced::Kept) => Err(AppError::internal("an index kept for no list")),
         Ok(Synced::Refused) => {
             refuse(&app, engine, &mut pause).await;
-            Err(not_configured())
+            Err(index_refused())
         }
         Err(Stopped::Store(error)) => Err(error),
         Err(error) => {

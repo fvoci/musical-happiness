@@ -310,9 +310,12 @@ reasons! {
     InvitationMailLimit => "invitation_mail_limit", "Hourly invitation mail limit reached";
     /// The server holds as many invitation messages waiting to be sent as it may.
     MailQueueFull => "mail_queue_full", "Mail queue full";
-    /// The server has no search server: bodies are not searched.
+    /// The search server the server is configured with cannot hold its index: bodies
+    /// are not searched (nor, on the administration socket, made again where there is no
+    /// search server).
     SearchNotConfigured => "search_not_configured", "Search not configured";
-    /// The search server did not answer a search.
+    /// A search was not answered in time: by the search server, or by the database
+    /// where there is none.
     SearchUnavailable => "search_unavailable", "Search unavailable";
     /// A page would be deeper in its wiki than the organization's limit.
     PageTooDeep => "page_too_deep", "Page too deep";

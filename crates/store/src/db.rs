@@ -6,8 +6,9 @@
 //! differ go through [`Dialect`].
 
 use std::fmt::Write as _;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use fvoci_model::is_id;
 use serde_json::Value;
@@ -477,6 +478,61 @@ impl<'c> Scope<'c> {
         }
     }
 
+    /// Runs a plain `SELECT` and returns all its rows, unless it runs past `by`: then
+    /// the database is told to stop it, and `None` is returned. On PostgreSQL the
+    /// statement runs under a `statement_timeout` of what is left of the time, in the
+    /// scope's transaction; the transaction cannot be used after a timeout. On SQLite a
+    /// progress handler stops it, and is taken off the connection again before it goes
+    /// back to the pool (or left harmless, should the call be given up).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails otherwise.
+    pub(crate) async fn fetch_all_by(
+        &mut self,
+        sql: Sql,
+        by: Instant,
+    ) -> Result<Option<Vec<Row>>, StoreError> {
+        debug_assert!(is_plain_select(&sql.text), "{}", sql.text);
+        let Some(left) = by
+            .checked_duration_since(Instant::now())
+            .filter(|left| !left.is_zero())
+        else {
+            return Ok(None);
+        };
+        match self.dialect() {
+            Dialect::Postgres => {
+                // 0 would be no limit: a millisecond at least. Bound, so that the
+                // statement is one, whatever time is left.
+                let millis = left.as_millis().max(1);
+                let mut setting = self.sql("SELECT set_config('statement_timeout', ");
+                setting.bind(format!("{millis}ms")).push(", true)");
+                self.fetch_all(setting).await?;
+                match self.fetch_all(sql).await {
+                    Err(StoreError::Database(error)) if is_query_canceled(&error) => Ok(None),
+                    rows => rows.map(Some),
+                }
+            }
+            Dialect::Sqlite => {
+                let stop = SqliteStop::set(self.sqlite(), by).await?;
+                let rows = self.fetch_all(sql).await;
+                let stopped = stop.take_off(self.sqlite()).await?;
+                match rows {
+                    Err(StoreError::Database(_)) if stopped => Ok(None),
+                    rows => rows.map(Some),
+                }
+            }
+        }
+    }
+
+    /// The connection of a scope of SQLite.
+    fn sqlite(&mut self) -> &mut SqliteConnection {
+        let ConnRef::Sqlite(conn) = &mut self.conn else {
+            unreachable!("a SQLite scope holds a SQLite connection");
+        };
+        conn
+    }
+
     /// Runs a query and returns its first row, if any.
     pub(crate) async fn fetch_optional(&mut self, sql: Sql) -> Result<Option<Row>, StoreError> {
         Ok(self.fetch_all(sql).await?.into_iter().next())
@@ -504,6 +560,61 @@ impl<'c> Scope<'c> {
                 .await?
                 .rows_affected()),
         }
+    }
+}
+
+/// Whether PostgreSQL stopped the statement: its `statement_timeout` ran out
+/// (`query_canceled`).
+fn is_query_canceled(error: &sqlx::Error) -> bool {
+    error
+        .as_database_error()
+        .and_then(sqlx::error::DatabaseError::code)
+        .is_some_and(|code| code == "57014")
+}
+
+/// How many virtual machine instructions of SQLite run between two looks at the clock.
+const SQLITE_STEPS_A_LOOK: i32 = 1000;
+
+/// The progress handler that stops a statement of SQLite at a time
+/// ([`Scope::fetch_all_by`]). Dropped without [`SqliteStop::take_off`] (the call was
+/// given up), it disarms the handler it left on the connection: that handler then lets
+/// every statement run, until another takes its place.
+struct SqliteStop {
+    armed: Arc<AtomicBool>,
+    stopped: Arc<AtomicBool>,
+}
+
+impl SqliteStop {
+    async fn set(conn: &mut SqliteConnection, by: Instant) -> Result<Self, StoreError> {
+        let armed = Arc::new(AtomicBool::new(true));
+        let stopped = Arc::new(AtomicBool::new(false));
+        let handler = {
+            let armed = Arc::clone(&armed);
+            let stopped = Arc::clone(&stopped);
+            move || {
+                if !armed.load(Ordering::Relaxed) || Instant::now() < by {
+                    return true;
+                }
+                stopped.store(true, Ordering::Relaxed);
+                false
+            }
+        };
+        conn.lock_handle()
+            .await?
+            .set_progress_handler(SQLITE_STEPS_A_LOOK, handler);
+        Ok(Self { armed, stopped })
+    }
+
+    /// Takes the handler off the connection. Returns whether it stopped the statement.
+    async fn take_off(self, conn: &mut SqliteConnection) -> Result<bool, StoreError> {
+        conn.lock_handle().await?.remove_progress_handler();
+        Ok(self.stopped.load(Ordering::Relaxed))
+    }
+}
+
+impl Drop for SqliteStop {
+    fn drop(&mut self) {
+        self.armed.store(false, Ordering::Relaxed);
     }
 }
 
@@ -659,5 +770,71 @@ mod tests {
         ] {
             assert!(!is_plain_select(statement), "{statement}");
         }
+    }
+
+    #[tokio::test]
+    async fn a_statement_that_runs_past_its_time_is_stopped_and_the_connection_serves_on() {
+        use std::time::{Duration, Instant};
+
+        use super::Dialect;
+        use crate::Store;
+        use crate::testing::TestDatabase;
+
+        let directory =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/deadline-tests");
+        let database = TestDatabase::create(&directory).await;
+        let store = Store::connect(database.db_type(), database.dbconfig())
+            .await
+            .expect("test store");
+        let counting = |to: u64| {
+            format!(
+                "SELECT count(*) FROM (WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL \
+                 SELECT x + 1 FROM n WHERE x < {to}) SELECT x FROM n) AS counted"
+            )
+        };
+        let endless = match store.dialect() {
+            Dialect::Sqlite => counting(u64::MAX / 2),
+            Dialect::Postgres => "SELECT pg_sleep(60)".to_owned(),
+        };
+        let run = async |text: &str, by: Instant| {
+            store
+                .with_conn(async |scope| {
+                    let sql = scope.sql(text);
+                    scope.fetch_all_by(sql, by).await
+                })
+                .await
+        };
+
+        let started = Instant::now();
+        let stopped = run(&endless, started + Duration::from_millis(300)).await;
+        let took = started.elapsed();
+        let late = run(&counting(10), started).await;
+        // Long past the time of the statement that was stopped: its handler is gone.
+        let mut after = Vec::new();
+        for _ in 0..4 {
+            after.push(run(&counting(300_000), Instant::now() + Duration::from_secs(30)).await);
+        }
+        let plain = store
+            .with_conn(async |scope| {
+                let sql = scope.sql(&counting(300_000));
+                scope.fetch_all(sql).await
+            })
+            .await;
+        store.close().await;
+        database.remove().await;
+
+        assert!(matches!(stopped, Ok(None)), "{stopped:?}");
+        assert!(took < Duration::from_secs(5), "stopped in time: {took:?}");
+        assert!(
+            matches!(late, Ok(None)),
+            "nothing asked past the time: {late:?}"
+        );
+        for rows in after {
+            assert!(
+                matches!(rows, Ok(Some(ref rows)) if rows.len() == 1),
+                "{rows:?}"
+            );
+        }
+        assert!(plain.is_ok(), "{plain:?}");
     }
 }
