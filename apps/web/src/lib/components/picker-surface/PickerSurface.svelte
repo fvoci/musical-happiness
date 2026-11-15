@@ -74,8 +74,11 @@
     props: {
       'aria-haspopup': 'dialog',
       'aria-expanded': open,
-      onclick: (event: MouseEvent) => {
+      // In the capture phase: a trigger may put its own `onclick` in place of this one's.
+      onclickcapture: (event: MouseEvent) => {
         opener = event.currentTarget as HTMLElement;
+      },
+      onclick: () => {
         open = true;
         onOpenChange?.(true);
       },

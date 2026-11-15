@@ -283,6 +283,21 @@ test('closing: Escape and the button for a panel or a dialog, the arrow for a fu
   await expect(page).toHaveURL(board);
 });
 
+test('the menu of a card, put away without a choice, gives the focus back to its button', async ({
+  page,
+}) => {
+  await openTaskCard(page);
+  const button = page.getByTestId('card-menu');
+  // A press, not the keyboard: Safari does not focus a button it presses.
+  await button.click();
+  const line = page.locator('[data-action="delete"]');
+  await expect(line).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(line).toHaveCount(0);
+  await expect(dialog(page)).toBeVisible();
+  await expect(button).toBeFocused();
+});
+
 test('opened from the board: the dialog has the focus, back closes it, and the focus returns to the card', async ({
   page,
 }) => {
