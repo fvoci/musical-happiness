@@ -12,8 +12,8 @@ use serde_json::{Value, json};
 /// The version of what the index holds. An index made from another is made again,
 /// and every document sent again: raise it with every change of [`definition`], and
 /// of which blocks have a document (2: the pages of wikis beside the cards; 3: the
-/// highlighter reads a whole body).
-pub(crate) const VERSION: i64 = 3;
+/// highlighter reads a whole body; 4: no card that is a template of its board).
+pub(crate) const VERSION: i64 = 4;
 
 /// How many characters of a text the highlighter reads to find the piece it shows:
 /// more than the longest body there is (a megabyte as it is stored). Both search

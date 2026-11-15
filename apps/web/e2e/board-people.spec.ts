@@ -72,7 +72,9 @@ test('alone, the head of the board shows nobody here and the number of members',
   const members = await page.evaluate(
     () => (window as unknown as { fvociDev: Dev }).fvociDev.workspace.board.members.length,
   );
-  await expect(topBar(page).getByTestId('board-members-count')).toHaveText(`Members ${members}`);
+  await expect(topBar(page).getByTestId('board-members-count')).toHaveAccessibleName(
+    `Members ${members}`,
+  );
   await expect(people(page)).toHaveAttribute(
     'aria-label',
     `People viewing this board: 0, members: ${members}`,
@@ -94,7 +96,9 @@ test('five faces in a wide pane and two in a narrow one, then the rest as a numb
   );
   await expect(faces(page)).toHaveCount(5);
   await expect(plus(page)).toHaveText('+2');
-  await expect(topBar(page).getByTestId('board-members-count')).toHaveText(`Members ${members}`);
+  await expect(topBar(page).getByTestId('board-members-count')).toHaveAccessibleName(
+    `Members ${members}`,
+  );
 
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(faces(page)).toHaveCount(2);

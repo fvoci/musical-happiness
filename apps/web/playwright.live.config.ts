@@ -5,7 +5,8 @@ import { defineConfig, devices } from '@playwright/test';
  *
  * tools/live-server.ts starts the server built in this checkout (`cargo
  * build -p fvoci-server --bins --examples`, which builds the fake OpenID
- * Connect provider beside it, on the next port) on SQLite, in a new data folder under
+ * Connect provider beside it, on the next port, and the fake search server it
+ * searches through, nine ports up) on SQLite, in a new data folder under
  * `target/web-live/`, serving this app's build (`pnpm run build` first). The
  * server stops when the run ends, passed or failed.
  *
