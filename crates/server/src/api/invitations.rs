@@ -23,7 +23,7 @@ use super::contract::params::{InvitationId, WorkerWorkspaceId};
 use super::contract::tag;
 use super::session::optional_session_of;
 use super::signup_cookie::{marker_of, with_marker};
-use super::workspace::Ws;
+use super::workspace::{Ws, WsModule};
 use super::{ApiResult, OptionalSession, created, decode_object, json_response, no_content};
 use crate::app::{Accepting, Admission, App, Inviting};
 use crate::client_address::ClientAddress;
@@ -60,9 +60,10 @@ pub(super) fn unauthenticated_routes() -> OpenApiRouter<App> {
 /// else who works there is refused (403). Whoever accepts it becomes a member of the
 /// workspace's organization too.
 ///
-/// With the `role` `guest` the link lets one person, once, onto the board `boardId` of
-/// the workspace, in the role `boardRole` (`viewer`, `commenter` or `editor`; an editor
-/// if left out): a guest of the workspace, who sees that board and nothing else of it.
+/// With the `role` `guest` the link lets one person, once, onto the board or the wiki
+/// `boardId` of the workspace, in the role `boardRole` (`viewer`, `commenter` or
+/// `editor`; an editor if left out): a guest of the workspace, who sees that board or
+/// wiki and nothing else of it.
 /// Who adds members to the board makes one (its admins, and the workspace's
 /// administrators), while the workspace lets guests be invited
 /// (`setGuestInvitations`); anybody else who sees the board is refused (403), and a
@@ -79,7 +80,7 @@ pub(super) fn unauthenticated_routes() -> OpenApiRouter<App> {
     request_body = NewInvitation,
     responses((status = 201, description = "The invitation, with its token.", body = Invitation)),
 )]
-async fn handle_create_invitation(ws: Ws, body: Bytes) -> ApiResult {
+async fn handle_create_invitation(WsModule(ws): WsModule, body: Bytes) -> ApiResult {
     let ws = ws.require_no_guest()?;
     let request: NewInvitation = decode_object(&body)?;
     let inviting = match request.role {

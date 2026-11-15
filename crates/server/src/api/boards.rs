@@ -101,6 +101,11 @@ pub(super) fn take_invalid_board_members(board: &mut JsonMap) -> Option<InvalidB
 /// bad request with the original's message.
 fn decode_board_patch(body: &[u8]) -> Result<BoardPatch, AppError> {
     let mut patch = json_object(decode_json(body)?)?;
+    // A board is of one kind from when it is made: a patch that names one is refused,
+    // whatever kind it names, where another member it does not know is left out.
+    if patch.contains_key("kind") {
+        return Err(AppError::bad_request("the kind of a board never changes").with_field("kind"));
+    }
     if let Some(invalid) = take_invalid_patch_members(&mut patch) {
         return Err(invalid.into_error());
     }
@@ -178,7 +183,9 @@ async fn handle_get_board(
 ///
 /// For who may manage the board's properties. Changing `type` or `minimumRole` is for
 /// the board's admins. A wiki is changed here too, by its identifier; it takes no card
-/// properties (400 at `/updatedCardProperties`), and nothing changes the `kind` of a board.
+/// properties (400 at `/updatedCardProperties`), and nothing changes the `kind` of a board:
+/// a patch with a `kind`, even the board's own, is 400 at `/kind`. Other members it does
+/// not know are left out.
 #[utoipa::path(
     patch,
     path = "/w/{workspaceId}/boards/{boardId}",

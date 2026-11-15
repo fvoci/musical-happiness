@@ -47,8 +47,8 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 #[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct NewWiki {
-    /// Whether the wiki is open (`O`), for whoever works in the workspace to find and
-    /// join, or private (`P`), for whom it is shared with.
+    /// Whether the wiki is open (`O`), for whoever works in the workspace to read, and to
+    /// join to write in it, or private (`P`), for whom it is shared with.
     #[serde(rename = "type")]
     board_type: BoardType,
     /// The role a user gets who joins the wiki. Left out, `editor`.

@@ -1633,7 +1633,9 @@ export interface paths {
          * Change a board
          * @description For who may manage the board's properties. Changing `type` or `minimumRole` is for
          *     the board's admins. A wiki is changed here too, by its identifier; it takes no card
-         *     properties (400 at `/updatedCardProperties`), and nothing changes the `kind` of a board.
+         *     properties (400 at `/updatedCardProperties`), and nothing changes the `kind` of a board:
+         *     a patch with a `kind`, even the board's own, is 400 at `/kind`. Other members it does
+         *     not know are left out.
          */
         patch: operations["patchBoard"];
         trace?: never;
@@ -2602,9 +2604,10 @@ export interface paths {
          *     else who works there is refused (403). Whoever accepts it becomes a member of the
          *     workspace's organization too.
          *
-         *     With the `role` `guest` the link lets one person, once, onto the board `boardId` of
-         *     the workspace, in the role `boardRole` (`viewer`, `commenter` or `editor`; an editor
-         *     if left out): a guest of the workspace, who sees that board and nothing else of it.
+         *     With the `role` `guest` the link lets one person, once, onto the board or the wiki
+         *     `boardId` of the workspace, in the role `boardRole` (`viewer`, `commenter` or
+         *     `editor`; an editor if left out): a guest of the workspace, who sees that board or
+         *     wiki and nothing else of it.
          *     Who adds members to the board makes one (its admins, and the workspace's
          *     administrators), while the workspace lets guests be invited
          *     (`setGuestInvitations`); anybody else who sees the board is refused (403), and a
@@ -2637,7 +2640,7 @@ export interface paths {
          *     allowed to make that kind of invitation. The same checks are repeated before each
          *     delivery. A member link is sent as it is, its expiry and uses unchanged.
          *     A guest link lets one person in once, so it is not sent: each recipient gets a
-         *     one-use guest link of their own, to the same board in the same role and ending
+         *     one-use guest link of their own, to the same board or wiki in the same role and ending
          *     with it, made by the sender as their message leaves, naming the named link as its
          *     `parentId` and the address as its `recipient` (and revoked if that message is
          *     refused for good or given up). The named link is left as it is; messages go out
@@ -3494,7 +3497,7 @@ export interface components {
         };
         /** @description Where an accepted link let somebody in. */
         AcceptedInvitation: {
-            /** @description For a guest: the board they were invited to. */
+            /** @description For a guest: the board or the wiki they were invited to. */
             boardId?: string | null;
             /** @description The workspace. */
             workspaceId: string;
@@ -4300,7 +4303,7 @@ export interface components {
         };
         /** @description A link that lets somebody into a workspace. */
         Invitation: {
-            /** @description For a guest: the board they are invited to. */
+            /** @description For a guest: the board or the wiki they are invited to. */
             boardId?: string | null;
             /** @description For a guest: their role on that board, `viewer`, `commenter` or `editor`. */
             boardRole?: string | null;
@@ -4357,7 +4360,7 @@ export interface components {
         };
         /** @description What a link shows of where it leads, to whoever holds it. */
         InvitationPreview: {
-            /** @description For a guest: the title of the board they are invited to. */
+            /** @description For a guest: the title of the board or the wiki they are invited to. */
             boardTitle?: string | null;
             /**
              * @description The name of who made the link: the name they are shown by, or their login name
@@ -4628,7 +4631,7 @@ export interface components {
         };
         /** @description A request to make a link. */
         NewInvitation: {
-            /** @description For a guest: the board they are invited to. Not for a member. */
+            /** @description For a guest: the board or the wiki they are invited to. Not for a member. */
             boardId?: string | null;
             /**
              * @description For a guest: their role on that board, `viewer`, `commenter` or `editor`; an
@@ -4715,8 +4718,8 @@ export interface components {
             /** @description The wiki's title. Left out, empty. */
             title?: string;
             /**
-             * @description Whether the wiki is open (`O`), for whoever works in the workspace to find and
-             *     join, or private (`P`), for whom it is shared with.
+             * @description Whether the wiki is open (`O`), for whoever works in the workspace to read, and to
+             *     join to write in it, or private (`P`), for whom it is shared with.
              */
             type: components["schemas"]["BoardType"];
         };

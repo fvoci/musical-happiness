@@ -593,7 +593,8 @@ async fn every_list_is_of_its_kinds() {
 }
 
 /// What names a board in a body or a query takes no wiki: the answer is the one for an
-/// identifier of nothing, and nothing is made or changed.
+/// identifier of nothing, and nothing is made or changed. The board a guest is
+/// invited to may be a wiki.
 #[tokio::test]
 async fn what_names_a_wiki_in_a_body_or_a_query_is_refused_as_what_names_nothing() {
     let world = World::start().await;
@@ -625,8 +626,7 @@ async fn what_names_a_wiki_in_a_body_or_a_query_is_refused_as_what_names_nothing
     }
     assert_eq!(ids(&client.get(&format!("{ROOT_WS}/wikis")).await).len(), 1);
 
-    // What changes or deletes boards together, the source of copied blocks, and the
-    // board a guest is invited to.
+    // What changes or deletes boards together, and the source of copied blocks.
     let same = async |method: Method, path: &str, body: &dyn Fn(&str) -> Value| {
         let send = async |id: &str| {
             Client::send(client.request(method.clone(), path).json(&body(id))).await
@@ -679,12 +679,14 @@ async fn what_names_a_wiki_in_a_body_or_a_query_is_refused_as_what_names_nothing
         )
         .await
         .check_done();
-    same(
-        Method::POST,
-        &format!("{ROOT_WS}/invitations"),
-        &|id| json!({"role": "guest", "boardId": id}),
-    )
-    .await;
+    // A guest is invited to a wiki as to a board.
+    client
+        .post(
+            &format!("{ROOT_WS}/invitations"),
+            &json!({"role": "guest", "boardId": wiki.container}),
+        )
+        .await
+        .check_done();
 
     // The wiki is as it was, and so is the board's card.
     let read = client
@@ -736,6 +738,39 @@ async fn the_audit_names_a_wiki_as_it_names_a_board() {
             .map(|record| &record["targetName"])
             .collect();
         assert_eq!(named, [&json!(title)], "the records about {title}");
+    }
+    world.ts.teardown().await;
+}
+
+/// Nothing changes the kind of a board or a wiki: a patch that names a kind, its own
+/// too, is refused at `/kind` and changes nothing; a member a patch does not know is
+/// left out, as it was.
+#[tokio::test]
+async fn a_patch_that_names_a_kind_is_refused() {
+    let world = World::start().await;
+    let client = &world.ts.client;
+    let (board, wiki) = (
+        world.make(Reaches::Boards).await,
+        world.make(Reaches::Wikis).await,
+    );
+    for (things, own) in [(&board, "board"), (&wiki, "wiki")] {
+        let at = format!("{ROOT_WS}/boards/{}", things.container);
+        for kind in ["board", "wiki", "page", ""] {
+            let refused = client
+                .patch(&at, &json!({"kind": kind, "title": "changed"}))
+                .await;
+            refused.check_bad_request();
+            assert_eq!(refused.refused_at(), "/kind", "{own} as {kind:?}");
+        }
+        let read = client.get(&at).await.value();
+        assert_eq!(
+            (read["kind"].as_str(), read["title"].as_str()),
+            (Some(own), Some(""))
+        );
+        client
+            .patch(&at, &json!({"unknown": true, "title": "changed"}))
+            .await
+            .check_done();
     }
     world.ts.teardown().await;
 }

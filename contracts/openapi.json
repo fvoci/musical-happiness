@@ -33,7 +33,7 @@
         "description": "Where an accepted link let somebody in.",
         "properties": {
           "boardId": {
-            "description": "For a guest: the board they were invited to.",
+            "description": "For a guest: the board or the wiki they were invited to.",
             "type": [
               "string",
               "null"
@@ -1592,7 +1592,7 @@
         "description": "A link that lets somebody into a workspace.",
         "properties": {
           "boardId": {
-            "description": "For a guest: the board they are invited to.",
+            "description": "For a guest: the board or the wiki they are invited to.",
             "type": [
               "string",
               "null"
@@ -1706,7 +1706,7 @@
         "description": "What a link shows of where it leads, to whoever holds it.",
         "properties": {
           "boardTitle": {
-            "description": "For a guest: the title of the board they are invited to.",
+            "description": "For a guest: the title of the board or the wiki they are invited to.",
             "type": [
               "string",
               "null"
@@ -2259,7 +2259,7 @@
         "description": "A request to make a link.",
         "properties": {
           "boardId": {
-            "description": "For a guest: the board they are invited to. Not for a member.",
+            "description": "For a guest: the board or the wiki they are invited to. Not for a member.",
             "type": [
               "string",
               "null"
@@ -2423,7 +2423,7 @@
           },
           "type": {
             "$ref": "#/components/schemas/BoardType",
-            "description": "Whether the wiki is open (`O`), for whoever works in the workspace to find and\njoin, or private (`P`), for whom it is shared with."
+            "description": "Whether the wiki is open (`O`), for whoever works in the workspace to read, and to\njoin to write in it, or private (`P`), for whom it is shared with."
           }
         },
         "required": [
@@ -8101,7 +8101,7 @@
         ]
       },
       "patch": {
-        "description": "For who may manage the board's properties. Changing `type` or `minimumRole` is for\nthe board's admins. A wiki is changed here too, by its identifier; it takes no card\nproperties (400 at `/updatedCardProperties`), and nothing changes the `kind` of a board.",
+        "description": "For who may manage the board's properties. Changing `type` or `minimumRole` is for\nthe board's admins. A wiki is changed here too, by its identifier; it takes no card\nproperties (400 at `/updatedCardProperties`), and nothing changes the `kind` of a board:\na patch with a `kind`, even the board's own, is 400 at `/kind`. Other members it does\nnot know are left out.",
         "operationId": "patchBoard",
         "parameters": [
           {
@@ -11009,7 +11009,7 @@
         ]
       },
       "post": {
-        "description": "Makes a link that lets whoever accepts it into the workspace, and answers it with\nits `token`: the one time the token is told, as the server keeps its digest only. A\nlink ends seven days after it was made, or when it is revoked, and lets nobody in\nfrom the moment who made it could no longer make it.\n\nWith the `role` `member` the link makes members of the workspace, as often as it is\nused, and names no board. Only the workspace's administrators make one: anybody\nelse who works there is refused (403). Whoever accepts it becomes a member of the\nworkspace's organization too.\n\nWith the `role` `guest` the link lets one person, once, onto the board `boardId` of\nthe workspace, in the role `boardRole` (`viewer`, `commenter` or `editor`; an editor\nif left out): a guest of the workspace, who sees that board and nothing else of it.\nWho adds members to the board makes one (its admins, and the workspace's\nadministrators), while the workspace lets guests be invited\n(`setGuestInvitations`); anybody else who sees the board is refused (403), and a\nboard the user does not see, or of another workspace, is not there (404). A\ntemplate takes no guests (400).\n\nA guest of the workspace is told that it is not there (404).",
+        "description": "Makes a link that lets whoever accepts it into the workspace, and answers it with\nits `token`: the one time the token is told, as the server keeps its digest only. A\nlink ends seven days after it was made, or when it is revoked, and lets nobody in\nfrom the moment who made it could no longer make it.\n\nWith the `role` `member` the link makes members of the workspace, as often as it is\nused, and names no board. Only the workspace's administrators make one: anybody\nelse who works there is refused (403). Whoever accepts it becomes a member of the\nworkspace's organization too.\n\nWith the `role` `guest` the link lets one person, once, onto the board or the wiki\n`boardId` of the workspace, in the role `boardRole` (`viewer`, `commenter` or\n`editor`; an editor if left out): a guest of the workspace, who sees that board or\nwiki and nothing else of it.\nWho adds members to the board makes one (its admins, and the workspace's\nadministrators), while the workspace lets guests be invited\n(`setGuestInvitations`); anybody else who sees the board is refused (403), and a\nboard the user does not see, or of another workspace, is not there (404). A\ntemplate takes no guests (400).\n\nA guest of the workspace is told that it is not there (404).",
         "operationId": "createInvitation",
         "parameters": [
           {
@@ -11062,7 +11062,7 @@
     },
     "/api/v1/w/{workspaceId}/invitations/mail": {
       "post": {
-        "description": "Queues a separate message for each unique email address with an existing link.\nThe token must name an invitation of this workspace that is neither revoked nor\nended (a member link must let somebody in still), and the sender must still be\nallowed to make that kind of invitation. The same checks are repeated before each\ndelivery. A member link is sent as it is, its expiry and uses unchanged.\nA guest link lets one person in once, so it is not sent: each recipient gets a\none-use guest link of their own, to the same board in the same role and ending\nwith it, made by the sender as their message leaves, naming the named link as its\n`parentId` and the address as its `recipient` (and revoked if that message is\nrefused for good or given up). The named link is left as it is; messages go out\nwhether or not it was used, and revoking it revokes its children nobody used.\nInvalid recipients reject the whole request before sending.\nEach message is in the recipient's language when the mail is written in it, else the\nsender's setting, else `language`, else English. A server that sends no mail answers 404.\nA request names at most `invitation_mail_recipients` addresses, repeats counted\n(400, `too_many_recipients`). Its messages are queued all or none: 429\n(`invitation_mail_limit`, with `Retry-After`) when the workspace would pass\n`invitation_mail_per_hour` messages within an hour or its organization its own\nhourly limit (`invitation_mail_per_org_hour`), and 503 (`mail_queue_full`) when the\nserver's invitation queue cannot hold them all, or, on a server of several\norganizations, the organization's share of it (half of what the others leave, at\nleast one request). A refused request sends nothing.",
+        "description": "Queues a separate message for each unique email address with an existing link.\nThe token must name an invitation of this workspace that is neither revoked nor\nended (a member link must let somebody in still), and the sender must still be\nallowed to make that kind of invitation. The same checks are repeated before each\ndelivery. A member link is sent as it is, its expiry and uses unchanged.\nA guest link lets one person in once, so it is not sent: each recipient gets a\none-use guest link of their own, to the same board or wiki in the same role and ending\nwith it, made by the sender as their message leaves, naming the named link as its\n`parentId` and the address as its `recipient` (and revoked if that message is\nrefused for good or given up). The named link is left as it is; messages go out\nwhether or not it was used, and revoking it revokes its children nobody used.\nInvalid recipients reject the whole request before sending.\nEach message is in the recipient's language when the mail is written in it, else the\nsender's setting, else `language`, else English. A server that sends no mail answers 404.\nA request names at most `invitation_mail_recipients` addresses, repeats counted\n(400, `too_many_recipients`). Its messages are queued all or none: 429\n(`invitation_mail_limit`, with `Retry-After`) when the workspace would pass\n`invitation_mail_per_hour` messages within an hour or its organization its own\nhourly limit (`invitation_mail_per_org_hour`), and 503 (`mail_queue_full`) when the\nserver's invitation queue cannot hold them all, or, on a server of several\norganizations, the organization's share of it (half of what the others leave, at\nleast one request). A refused request sends nothing.",
         "operationId": "emailInvitation",
         "parameters": [
           {
