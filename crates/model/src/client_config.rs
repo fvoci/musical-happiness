@@ -24,6 +24,7 @@ pub struct ClientConfig {
     /// unless the server is configured otherwise).
     pub max_import_size: i64,
     /// Whether what cards and pages say can be searched (`searchWorkspaceContent`):
-    /// the server has a search server, and one that can hold its index.
+    /// on a server without a search server always (the database is searched), and on
+    /// one with a search server unless it cannot hold the index.
     pub search_enabled: bool,
 }

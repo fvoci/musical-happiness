@@ -11,15 +11,19 @@
 //! ([`tend`]) sends what is stored of what was noted, with the reach of the
 //! housekeeping, as the one server of its database.
 //!
-//! Without `search_url` there is no search of bodies, nothing stands in for it, and
-//! nothing is noted.
+//! Without `search_url` the database is searched instead (`database`): by the
+//! letters of the titles and the bodies, behind the same API and the same check, and
+//! nothing is noted. A search server that is configured is never stood in for: while
+//! it does not answer, a search is a 503.
 
 mod client;
+mod database;
 mod document;
 mod find;
 mod index;
 mod limit;
 mod query;
+mod snippet;
 mod upkeep;
 mod worker;
 
@@ -43,17 +47,31 @@ const LONGEST_PAUSE: Duration = Duration::from_secs(60);
 /// How often the log says that searches are not answered, while they are not.
 const FAILURES_SAID_EVERY: Duration = Duration::from_secs(30);
 
-/// The search of bodies, as the server is configured: on a search server, or none.
+/// The search of bodies, as the server is configured: on a search server, or in the
+/// database.
 #[derive(Debug)]
 pub struct Search {
+    /// `None` where no search server is configured: the database is searched.
     engine: Option<Engine>,
+    /// How often one user may search, either way.
+    limiter: Limiter,
+    /// How long a search may take, all its pages and checks together.
+    timeout: Duration,
+}
+
+/// Where a search is asked.
+#[derive(Debug, Clone, Copy)]
+enum Way<'a> {
+    /// The search server.
+    Engine(&'a Engine),
+    /// The database, for a server without a search server.
+    Database,
 }
 
 /// The search server and what is known of the index on it.
 #[derive(Debug)]
 pub(crate) struct Engine {
     client: Client,
-    limiter: Limiter,
     index: Mutex<IndexState>,
     /// Held by the upkeep while it runs: one at a time.
     upkeep: tokio::sync::Mutex<Pause>,
@@ -117,25 +135,27 @@ impl Search {
     /// Returns an error if the keys of the search server do not hold
     /// ([`SearchSettings::server`]) or its client cannot be set up.
     pub fn from_config(settings: &SearchSettings) -> anyhow::Result<Self> {
-        let Some(server) = settings.server()? else {
-            return Ok(Self { engine: None });
-        };
-        Ok(Self {
-            engine: Some(Engine {
+        let engine = match settings.server()? {
+            Some(server) => Some(Engine {
                 client: Client::new(&server)?,
-                limiter: Limiter::new(server.requests_per_second),
                 index: Mutex::new(IndexState::Unknown),
                 upkeep: tokio::sync::Mutex::default(),
                 search_failure_said: Mutex::new(None),
             }),
+            None => None,
+        };
+        Ok(Self {
+            engine,
+            limiter: Limiter::new(settings.search_requests_per_second),
+            timeout: settings.timeout,
         })
     }
 
-    /// Whether bodies can be searched on this server: a search server is configured,
-    /// and has not turned out to be unable to hold the index.
+    /// Whether bodies can be searched on this server: in the database, or on a search
+    /// server that has not turned out to be unable to hold the index.
     #[must_use]
     pub fn enabled(&self) -> bool {
-        self.engine().is_some()
+        self.way().is_some()
     }
 
     /// Whether the configuration names a search server, whatever became of it.
@@ -143,11 +163,21 @@ impl Search {
         self.engine.is_some()
     }
 
-    /// The search server, if bodies can be searched.
+    /// The search server, if bodies can be searched there.
     fn engine(&self) -> Option<&Engine> {
         self.engine
             .as_ref()
             .filter(|engine| engine.index_state() != IndexState::Refused)
+    }
+
+    /// Where a search is asked: the search server that is configured, or the database
+    /// where none is. `None` for a search server that cannot hold the index: then bodies
+    /// are not searched at all, and the database does not stand in for it.
+    fn way(&self) -> Option<Way<'_>> {
+        match &self.engine {
+            None => Some(Way::Database),
+            Some(_) => self.engine().map(Way::Engine),
+        }
     }
 }
 

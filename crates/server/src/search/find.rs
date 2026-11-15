@@ -1,14 +1,14 @@
 //! A search of a workspace's bodies, and the check of what the search server answers.
 
 use std::collections::{HashMap, HashSet};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
-use fvoci_model::{SearchHit, SearchKind};
+use fvoci_model::{SearchHit, SearchKind, SnippetPart};
 use fvoci_store::{PublicBoards, SearchDocument};
 
-use super::client::{ClientError, Hit};
+use super::client::ClientError;
 use super::query::{Containers, Scope};
-use super::{Engine, document};
+use super::{Engine, Way, document};
 use crate::app::App;
 use crate::error::{AppError, Reason};
 use crate::metrics::SearchAsked;
@@ -18,8 +18,6 @@ pub const MAX_LIMIT: usize = 50;
 /// The most characters a search takes.
 pub const MAX_TEXT_CHARS: usize = 200;
 
-/// How long the search server may take to answer a search, all its pages together.
-const SEARCH_TIMEOUT: Duration = Duration::from_secs(3);
 /// The most containers a request to the search server lists. A user who reads more
 /// is searched for in the whole workspace, and what comes back is checked the same.
 const MAX_LISTED_CONTAINERS: usize = 1000;
@@ -31,14 +29,14 @@ const ASKED_FOR_LISTED: usize = 2;
 const ASKED_FOR_ALL: usize = 5;
 /// How far into what matches a search reads, a page after another: what both search
 /// servers page to by default.
-const DEEPEST: usize = 10_000;
+pub(super) const DEEPEST: usize = 10_000;
 
 /// What a search asks for: words, and at most so many of a kind.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Asked {
-    text: String,
-    kind: Option<SearchKind>,
-    limit: usize,
+    pub(super) text: String,
+    pub(super) kind: Option<SearchKind>,
+    pub(super) limit: usize,
 }
 
 /// What of a search's parameters is out of bounds.
@@ -75,8 +73,9 @@ impl Asked {
     }
 }
 
-/// The 503 of a search the search server did not answer.
-fn unavailable() -> AppError {
+/// The 503 of a search that was not answered in time, or that the search server did
+/// not answer.
+pub(super) fn unavailable() -> AppError {
     AppError::service_unavailable("the search is not available for now")
         .with_reason(Reason::SearchUnavailable)
 }
@@ -90,29 +89,30 @@ impl App {
     /// own or a team's, and in the open wikis of a workspace they work in, joined or
     /// not: an open board they have not joined is theirs to join, and not searched.
     ///
-    /// The search server is asked, and every document it answers with is then asked
-    /// of the database (`check_hits`): what the user does not read now is left out.
-    /// Where that leaves fewer than were asked for, the search server is asked for
-    /// what comes next, until there are enough, or nothing more matches: how many an
-    /// answer holds says nothing of what was left out. Words that are empty find
-    /// nothing.
+    /// The search server is asked where one is configured, and the database
+    /// otherwise (`search::database`); every card and page either answers with is then
+    /// asked of the database (`check_hits`): what the user does not read now is left
+    /// out. Where that leaves fewer than were asked for, what comes next is asked for,
+    /// until there are enough, or nothing more matches: how many an answer holds says
+    /// nothing of what was left out. Words that are empty find nothing.
     ///
     /// # Errors
     ///
-    /// Returns a 404 with the reason `search_not_configured` where bodies cannot be
-    /// searched, a 429 for a user who searches too often, a 503 with the reason
-    /// `search_unavailable` if the search server does not answer the search in three
-    /// seconds, and the store's error if a fact cannot be read.
+    /// Returns a 404 with the reason `search_not_configured` where the search server
+    /// cannot hold the index, a 429 for a user who searches too often, a 503 with the
+    /// reason `search_unavailable` if the search server or the database does not
+    /// answer in time (three seconds), and the store's error if a fact cannot be read.
     pub async fn search_workspace(
         &self,
         user_id: &str,
         workspace_id: &str,
         asked: &Asked,
     ) -> Result<Vec<SearchHit>, AppError> {
-        let engine = self.search().engine().ok_or_else(|| {
+        let search = self.search();
+        let way = search.way().ok_or_else(|| {
             AppError::not_found("search").with_reason(Reason::SearchNotConfigured)
         })?;
-        engine
+        search
             .limiter
             .take(user_id, Instant::now())
             .map_err(|wait| {
@@ -122,11 +122,6 @@ impl App {
         if asked.text.is_empty() {
             return Ok(Vec::new());
         }
-        let org_id = self
-            .store()
-            .tenant()
-            .org_id()
-            .ok_or_else(|| AppError::internal("a search outside an organization"))?;
         let theirs: HashSet<String> = self
             .boards_for_user_and_workspace(user_id, workspace_id, PublicBoards::OpenWikis)
             .await?
@@ -146,13 +141,6 @@ impl App {
             listed = ids;
             (Containers::Listed(&listed), ASKED_FOR_LISTED)
         };
-        let scope = Scope::Workspace {
-            org_id: &org_id,
-            workspace_id,
-            containers,
-            kind: asked.kind,
-        };
-        let size = asked.limit.saturating_mul(asked_for);
         let mut check = Check {
             user_id,
             workspace_id,
@@ -161,50 +149,88 @@ impl App {
             reads: HashMap::new(),
             answered: HashSet::new(),
         };
-        let by = Instant::now() + SEARCH_TIMEOUT;
+        let pages = Pages {
+            containers,
+            size: asked.limit.saturating_mul(asked_for),
+            by: Instant::now() + search.timeout,
+        };
+        let found = match way {
+            Way::Engine(engine) => self.search_engine(engine, &mut check, asked, &pages).await,
+            Way::Database => self.search_database(&mut check, asked, &pages).await,
+        };
+        let found = found.inspect_err(|error| {
+            if error.reason() == Some(Reason::SearchUnavailable) {
+                self.metrics().search_asked(SearchAsked::Unavailable);
+            }
+        })?;
+        self.metrics().search_asked(SearchAsked::Answered);
+        Ok(found)
+    }
+
+    /// The pages of a search on the search server, checked, until there are enough.
+    async fn search_engine(
+        &self,
+        engine: &Engine,
+        check: &mut Check<'_>,
+        asked: &Asked,
+        pages: &Pages<'_>,
+    ) -> Result<Vec<SearchHit>, AppError> {
+        let org_id = self
+            .store()
+            .tenant()
+            .org_id()
+            .ok_or_else(|| AppError::internal("a search outside an organization"))?;
+        let scope = Scope::Workspace {
+            org_id: &org_id,
+            workspace_id: check.workspace_id,
+            containers: pages.containers,
+            kind: asked.kind,
+        };
+        let size = pages.size;
         let mut found = Vec::new();
         let mut from = 0;
         loop {
-            let left = by.saturating_duration_since(Instant::now());
+            let left = pages.by.saturating_duration_since(Instant::now());
             let hits = engine
                 .client
                 .search(&scope, &asked.text, from, size, left)
                 .await
-                .map_err(|error| {
-                    self.metrics().search_asked(SearchAsked::Unavailable);
-                    search_failed(engine, &error)
-                })?;
+                .map_err(|error| search_failed(engine, &error))?;
             let more_may_match = hits.len() == size;
-            found.extend(self.check_hits(&mut check, hits).await?);
+            let kept = self.check_hits(check, hits, |hit| &hit.id).await?;
+            found.extend(kept.into_iter().map(|(hit, document)| {
+                let current = hit.digest == document::digest(&document.title, &document.text);
+                let snippet = if current { hit.snippet } else { Vec::new() };
+                found_hit(document, snippet)
+            }));
             from += size;
             if found.len() >= asked.limit || !more_may_match || from + size > DEEPEST {
                 break;
             }
         }
         found.truncate(asked.limit);
-        self.metrics().search_asked(SearchAsked::Answered);
         Ok(found)
     }
 
-    /// What the user reads now of what the search server answered, in its order.
+    /// What the user reads now of what a search answered, in its order, with the
+    /// document of each.
     ///
-    /// The search server's index may be behind what is stored, so a hit is no more
-    /// than an identifier to ask about. A hit is kept if the database, as this handle
-    /// reaches it, has a document of that identifier now ([`SearchDocument`]: a card
-    /// that is no template of its board, or a page, that is no block of the trash, in
-    /// a container that is no template),
-    /// in this workspace, of the kind asked for, in a container the user has a role
-    /// on or that is an open wiki, and reads ([`App::board_access`], asked once a
-    /// container). What is answered of it is what the database says: the container and
-    /// its kind, the kind and the title. The piece of text alone is the search server's,
-    /// and is left out unless the document was indexed from the title and the text it
-    /// has now.
-    async fn check_hits(
+    /// The search server's index may be behind what is stored, and the database may
+    /// have changed since it was searched, so a hit is no more than an identifier to
+    /// ask about. A hit is kept if the database, as this handle reaches it, has a
+    /// document of that identifier now ([`SearchDocument`]: a card that is no template
+    /// of its board, or a page, that is no block of the trash, in a container that is
+    /// no template), in this workspace, of the kind asked for, in a container the user
+    /// has a role on or that is an open wiki, and reads ([`App::board_access`], asked
+    /// once a container). What is answered of it is what the database says: the
+    /// container and its kind, the kind and the title.
+    pub(super) async fn check_hits<T>(
         &self,
         check: &mut Check<'_>,
-        hits: Vec<Hit>,
-    ) -> Result<Vec<SearchHit>, AppError> {
-        let ids: Vec<&str> = hits.iter().map(|hit| hit.id.as_str()).collect();
+        hits: Vec<T>,
+        id_of: impl Fn(&T) -> &String,
+    ) -> Result<Vec<(T, SearchDocument)>, AppError> {
+        let ids: Vec<&str> = hits.iter().map(|hit| id_of(hit).as_str()).collect();
         let mut documents: HashMap<String, SearchDocument> = self
             .store()
             .search_documents(&ids)
@@ -212,10 +238,10 @@ impl App {
             .into_iter()
             .map(|document| (document.id.clone(), document))
             .collect();
-        let mut found = Vec::new();
+        let mut kept = Vec::new();
         for hit in hits {
-            // Taken out: an identifier the index answers twice has a document once.
-            let Some(document) = documents.remove(&hit.id) else {
+            // Taken out: an identifier answered twice has a document once.
+            let Some(document) = documents.remove(id_of(&hit)) else {
                 continue;
             };
             // A container the user neither has a role on nor reads as an open wiki is
@@ -224,7 +250,7 @@ impl App {
             if document.workspace_id != check.workspace_id
                 || check.kind.is_some_and(|kind| kind != document.kind)
                 || !check.theirs.contains(&document.container_id)
-                || !check.answered.insert(hit.id)
+                || !check.answered.insert(document.id.clone())
             {
                 continue;
             }
@@ -242,28 +268,42 @@ impl App {
                 check.reads.insert(document.container_id.clone(), reads);
                 reads
             };
-            if !reads {
-                continue;
+            if reads {
+                kept.push((hit, document));
             }
-            let current = hit.digest == document::digest(&document.title, &document.text);
-            found.push(SearchHit {
-                id: document.id,
-                kind: document.kind,
-                container_id: document.container_id,
-                container_kind: document.container_kind,
-                title: document.title,
-                snippet: if current { hit.snippet } else { Vec::new() },
-            });
         }
-        Ok(found)
+        Ok(kept)
     }
+}
+
+/// What a search answers of a card or a page it kept: what the database says, and a
+/// piece of its body.
+pub(super) fn found_hit(document: SearchDocument, snippet: Vec<SnippetPart>) -> SearchHit {
+    SearchHit {
+        id: document.id,
+        kind: document.kind,
+        container_id: document.container_id,
+        container_kind: document.container_kind,
+        title: document.title,
+        snippet,
+    }
+}
+
+/// How a search is asked for a page after another.
+pub(super) struct Pages<'a> {
+    /// Which containers of the workspace are asked about.
+    pub(super) containers: Containers<'a>,
+    /// How many are asked for at a time.
+    pub(super) size: usize,
+    /// When the search is to be answered by.
+    pub(super) by: Instant,
 }
 
 /// What a search checks its hits against, and what it has learned so far: kept over
 /// the pages of one search.
-struct Check<'a> {
+pub(super) struct Check<'a> {
     user_id: &'a str,
-    workspace_id: &'a str,
+    pub(super) workspace_id: &'a str,
     kind: Option<SearchKind>,
     /// The boards and wikis of the workspace the user has a role on, and its open
     /// wikis for who works there.

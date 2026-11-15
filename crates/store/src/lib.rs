@@ -58,6 +58,7 @@ mod password_reset;
 mod schema;
 mod search_docs;
 mod search_outbox;
+mod search_text;
 mod server_lock;
 mod sessions;
 mod sharing;
@@ -113,6 +114,7 @@ pub use pages::PageWrite;
 pub use password_reset::PASSWORD_RESET_LIFETIME_MILLIS;
 pub use search_docs::SearchDocument;
 pub use search_outbox::{SearchChange, SearchIndexMark, SearchOutboxCounts, SearchTarget};
+pub use search_text::{TextFound, TextSearch};
 pub use server_lock::ServerLock;
 pub use sharing::SharingChange;
 pub use signups::{

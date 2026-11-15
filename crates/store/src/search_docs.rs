@@ -38,19 +38,19 @@ pub struct SearchDocument {
 /// workspaces `w`.
 const DOCUMENT_COLUMNS: &str = "b.id, w.org_id, bo.workspace_id, b.board_id, b.title, COALESCE(b.body_text, ''), b.type, bo.kind";
 
-/// Starts the statement that reads the blocks that have a document, with their
-/// boards and workspaces: the cards and the pages of the boards and wikis that are no
-/// templates, but the cards that are templates of their boards (`isTemplate` is
-/// `true`; a block without the field, as a page, is none). What is in the trash is no block,
-/// and has none. More `AND` conditions on `b` may follow.
-fn select_documents(scope: &Scope<'_>) -> Sql {
+/// Starts the statement that reads `columns` of the blocks that have a document, with
+/// their boards `bo` and workspaces `w`: the cards and the pages of the boards and
+/// wikis that are no templates, but the cards that are templates of their boards
+/// (`isTemplate` is `true`; a block without the field, as a page, is none). What is in
+/// the trash is no block, and has none. More `AND` conditions on `b` may follow.
+pub(crate) fn select_documents(scope: &Scope<'_>, columns: &str) -> Sql {
     // Only the JSON `true`, as `block_derived` reads it: not `1`, nor `"true"`.
     let no_card_template = match scope.dialect() {
         Dialect::Sqlite => "json_type(b.fields, '$.isTemplate') IS NOT 'true'",
         Dialect::Postgres => "(b.fields->'isTemplate')::text IS DISTINCT FROM 'true'",
     };
     let mut sql = scope.sql(&format!(
-        "SELECT {DOCUMENT_COLUMNS} FROM blocks AS b JOIN boards AS bo ON bo.id = b.board_id{} \
+        "SELECT {columns} FROM blocks AS b JOIN boards AS bo ON bo.id = b.board_id{} \
          JOIN workspaces AS w ON w.id = bo.workspace_id{} \
          WHERE bo.is_template = false AND bo.is_builtin = false AND {no_card_template} \
          AND b.type IN (",
@@ -87,7 +87,7 @@ impl Store {
         self.with_conn(async |scope| {
             let mut documents = Vec::with_capacity(ids.len());
             for batch in ids.chunks(BATCH) {
-                let mut sql = select_documents(scope);
+                let mut sql = select_documents(scope, DOCUMENT_COLUMNS);
                 sql.push(" AND b.id IN (")
                     .bind_list(batch.iter().map(|id| Id(id)))
                     .push(") ORDER BY b.id");
@@ -114,7 +114,7 @@ impl Store {
         limit: i64,
     ) -> Result<Vec<SearchDocument>, StoreError> {
         self.with_conn(async |scope| {
-            let mut sql = select_documents(scope);
+            let mut sql = select_documents(scope, DOCUMENT_COLUMNS);
             sql.push_bind(" AND b.board_id = ", Id(board_id));
             if let Some(after) = after {
                 sql.push_bind(" AND b.id > ", Id(after));
