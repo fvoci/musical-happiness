@@ -134,10 +134,12 @@ impl Collab {
         if near_limit && grown && self.remake_and_tell(app, card_id, slot).await {
             return true;
         }
-        if slot
-            .open
-            .as_ref()
-            .is_some_and(|open| open.log_end - open.state_seq >= FOLD_AFTER)
+        // Not by a process that lost the lock of the server, as at closing.
+        if app.holds_server_lock()
+            && slot
+                .open
+                .as_ref()
+                .is_some_and(|open| open.log_end - open.state_seq >= FOLD_AFTER)
             && let Err(error) = self.fold(app, card_id, slot).await
         {
             tracing::error!(%error, card_id, "cannot fold a document's log into its state");
@@ -196,12 +198,14 @@ impl Collab {
     /// Folds the log of the open document of a slot into its state, if it holds
     /// updates the state does not, for a document that is closed next: what is stored
     /// of it is its state alone. A fold that fails is logged; the log stays, and is
-    /// taken again when the document is opened.
+    /// taken again when the document is opened. Not by a process that lost the lock of
+    /// the server (it is going down, and the next server may write the same document).
     pub(super) async fn fold_as_it_closes(&self, app: &App, card_id: &str, slot: &mut Held) {
-        if slot
-            .open
-            .as_ref()
-            .is_some_and(|open| open.state_seq < open.log_end)
+        if app.holds_server_lock()
+            && slot
+                .open
+                .as_ref()
+                .is_some_and(|open| open.state_seq < open.log_end)
             && let Err(error) = self.fold(app, card_id, slot).await
         {
             tracing::error!(%error, card_id, "cannot fold a document's log into its state as it closes");

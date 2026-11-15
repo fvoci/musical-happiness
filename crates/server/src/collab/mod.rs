@@ -71,6 +71,15 @@ use worker::{Worker, WorkerCommand, WorkerSettings};
 /// How many updates the log of a document holds before they are folded into its state.
 pub const FOLD_AFTER: i64 = 200;
 
+/// What a server that ended left of a document ([`Collab::recover`]).
+#[derive(Debug, Clone, Copy)]
+enum Leftover {
+    /// A body it did not write, or a version it did not keep.
+    Unfinished,
+    /// Written and kept, and a log it did not fold.
+    Unfolded,
+}
+
 /// How long a server that stops waits to write the bodies of the open documents.
 const END_WAIT: Duration = Duration::from_secs(5);
 
@@ -485,10 +494,10 @@ impl Collab {
 
     /// Writes the body of a card's document to the card, keeps it as a version if the
     /// document took updates no version holds, folds its log into its state, and
-    /// closes the document. The next
-    /// request opens it again from what is stored. A body that cannot be written
-    /// now stays in the log and is written when the document is opened again, or when
-    /// the server starts: the document is closed all the same.
+    /// closes the document. The next request opens it again from what is stored. A
+    /// body that cannot be written now is still in the stored state (the card is
+    /// marked as not holding it) and is written when the document is opened again, or
+    /// when the server starts: the document is closed all the same.
     ///
     /// # Errors
     ///
@@ -513,37 +522,46 @@ impl Collab {
     }
 
     /// Lets nobody into a room any more, writes the body of every open document, keeps
-    /// it as a version if its editors changed it since the newest, closes the
-    /// documents, and ends the workers: for a server that stops. `app` is any handle of the server: each document is
-    /// written as its card's organization. What is not done within five seconds (a
-    /// write of a whole body that holds a card, a database that does not answer) is
-    /// left: the log holds it, and the next start writes it.
+    /// it as a version if its editors changed it since the newest, folds its log,
+    /// closes the documents, and ends the workers: for a server that stops. `app` is
+    /// any handle of the server: each document is written as its card's organization.
+    /// The bodies come first and the folds after them: what is not done within five
+    /// seconds (a write of a whole body that holds a card, a database that does not
+    /// answer) is left, a body to the next start, a log to the next start or opening.
     pub async fn end(&self, app: &App) {
         self.end_rooms();
         let deadline = tokio::time::Instant::now() + END_WAIT;
-        for slot in self.all_slots() {
-            let ended = tokio::time::timeout_at(deadline, async {
-                // The slot is let go before the gate is waited for: a deletion holds
-                // the gate while it waits for slots.
-                let tenant = slot.lock().await.tenant;
-                let _gate = self.reading(tenant).await;
-                let mut slot = slot.lock_owned().await;
-                let app = app.scoped(slot.tenant);
-                if let Some(card_id) = slot.open.is_some().then(|| slot.card_id.clone()) {
-                    match self.write_now(&app, &card_id, &mut slot).await {
-                        Ok(()) => self.version_as_left(&app, &card_id, &mut slot).await,
-                        Err(error) => {
-                            tracing::error!(%error, card_id, "cannot write a card's body as the server stops");
-                        }
+        let slots = self.all_slots();
+        for slot in &slots {
+            let written = self.on_ending(app, slot, deadline, async |collab, app, card_id, slot| {
+                match collab.write_now(app, card_id, slot).await {
+                    Ok(()) => collab.version_as_left(app, card_id, slot).await,
+                    Err(error) => {
+                        tracing::error!(%error, card_id, "cannot write a card's body as the server stops");
                     }
-                    self.fold_as_it_closes(&app, &card_id, &mut slot).await;
-                    self.forget(&mut slot).await;
                 }
-                self.retire(&mut slot);
-            })
-            .await;
-            if ended.is_err() {
+            });
+            if written.await.is_err() {
                 tracing::warn!("the bodies of documents are left for the next start to write");
+                break;
+            }
+        }
+        for slot in &slots {
+            let folded = self.on_ending(app, slot, deadline, async |collab, app, card_id, slot| {
+                collab.fold_as_it_closes(app, card_id, slot).await;
+            });
+            if folded.await.is_err() {
+                tracing::warn!("the logs of documents are left for the next start to fold");
+                break;
+            }
+        }
+        for slot in &slots {
+            let closed = tokio::time::timeout_at(deadline, async {
+                let mut slot = Arc::clone(slot).lock_owned().await;
+                self.forget(&mut slot).await;
+                self.retire(&mut slot);
+            });
+            if closed.await.is_err() {
                 break;
             }
         }
@@ -577,19 +595,24 @@ impl Collab {
                 return;
             }
         };
-        self.see_to(app, unfinished).await;
+        self.see_to(app, unfinished, Leftover::Unfinished).await;
         // Read after those are seen to, which folded theirs: those left were written
         // and kept, and their logs alone are left.
         match app.store().unfolded_body_docs().await {
-            Ok(unfolded) => self.see_to(app, unfolded).await,
+            Ok(unfolded) => self.see_to(app, unfolded, Leftover::Unfolded).await,
             Err(error) => tracing::error!(%error, "cannot read which logs are not folded"),
         }
     }
 
     /// Opens each of `docs` (cards with their organizations), writes its body, keeps a
-    /// version if one is due, folds its log and closes it.
-    async fn see_to(&self, app: &App, docs: Vec<(String, String)>) {
+    /// version if one is due, folds its log and closes it, while this process holds
+    /// the lock of the server.
+    async fn see_to(&self, app: &App, docs: Vec<(String, String)>, left: Leftover) {
         for (card_id, org_id) in docs {
+            if let Err(error) = app.require_server_lock() {
+                tracing::warn!(%error, "what a run that ended left is left for the next start");
+                return;
+            }
             let tenant = match Tenant::org(&org_id) {
                 Ok(tenant) => tenant,
                 Err(error) => {
@@ -597,32 +620,70 @@ impl Collab {
                     continue;
                 }
             };
-            match self.close_after_open(&app.scoped(tenant), &card_id).await {
-                Ok(()) => tracing::info!(card_id, "saw to a body a server that ended had left"),
-                Err(error) => {
-                    tracing::error!(%error, card_id, "cannot write a body a server that ended had left");
+            match (
+                self.close_after_open(&app.scoped(tenant), &card_id).await,
+                left,
+            ) {
+                (Ok(()), Leftover::Unfinished) => {
+                    tracing::info!(card_id, "saw to a body a server that ended had left");
+                }
+                (Ok(()), Leftover::Unfolded) => {
+                    tracing::debug!(card_id, "saw to a log a server that ended had left");
+                }
+                (Err(error), _) => {
+                    tracing::error!(%error, card_id, "cannot open, write or fold a document a server that ended had left");
                 }
             }
         }
     }
 
-    /// Opens a card's document, writes its body, which keeps it as a version if one
-    /// is due (a document opened with what no version holds is), folds its log, and
-    /// closes it.
+    /// Opens a card's document aside, writes its body, which keeps it as a version if
+    /// one is due (a document opened with what no version holds is), folds its log,
+    /// and closes it. A document a room holds open meanwhile (somebody came back while
+    /// the start saw to the others) is written and folded, and stays open.
     async fn close_after_open(&self, app: &App, card_id: &str) -> Result<(), AppError> {
         self.on_slot(
             app,
             card_id,
             move |collab, app, card_id, mut slot| async move {
                 let (collab, app, card_id, slot) = (&collab, &app, card_id.as_str(), &mut slot);
-                collab.ensure_open(app, card_id, slot).await?;
+                let held_by_a_room = slot.open.is_some();
+                if !held_by_a_room {
+                    collab.open_aside(app, card_id, slot).await?;
+                }
                 let written = collab.write_now(app, card_id, slot).await;
                 collab.fold_as_it_closes(app, card_id, slot).await;
-                collab.forget(slot).await;
-                collab.retire(slot);
+                if !held_by_a_room {
+                    collab.forget(slot).await;
+                    collab.retire(slot);
+                }
                 written
             },
         )
+        .await
+    }
+
+    /// Does `work` on the open document of `slot`, as its card's organization, under
+    /// the document gate, by `deadline`: for a server that stops. A slot without an
+    /// open document is passed over.
+    async fn on_ending(
+        &self,
+        app: &App,
+        slot: &Arc<tokio::sync::Mutex<Slot>>,
+        deadline: tokio::time::Instant,
+        work: impl AsyncFnOnce(&Self, &App, &str, &mut Held),
+    ) -> Result<(), tokio::time::error::Elapsed> {
+        tokio::time::timeout_at(deadline, async {
+            // The slot is let go before the gate is waited for: a deletion holds the
+            // gate while it waits for slots.
+            let tenant = slot.lock().await.tenant;
+            let _gate = self.reading(tenant).await;
+            let mut slot = Arc::clone(slot).lock_owned().await;
+            let app = app.scoped(slot.tenant);
+            if let Some(card_id) = slot.open.is_some().then(|| slot.card_id.clone()) {
+                work(self, &app, &card_id, &mut slot).await;
+            }
+        })
         .await
     }
 

@@ -399,7 +399,7 @@ impl Store {
     ///
     /// Returns [`StoreError::Database`] if the query fails.
     pub async fn unfinished_body_docs(&self) -> Result<Vec<(String, String)>, StoreError> {
-        self.body_docs_where(&|scope| {
+        self.body_docs_where(|scope| {
             [
                 // Only the body of a card or a page is kept: of a block that is one no
                 // more, the names stay put down, and nothing is to see to.
@@ -415,17 +415,43 @@ impl Store {
         .await
     }
 
-    /// The documents whose log holds updates their state does not, with the
-    /// organization of each: what a server that ended before it folded them leaves.
-    /// Blocks in the trash are left out; theirs is folded when they are opened again
-    /// and closed.
+    /// How many updates a block's log holds, whether or not its state holds them: for
+    /// the tests of the folds, which remove them.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    #[cfg(feature = "test-util")]
+    pub async fn logged_body_updates(&self, block_id: &str) -> Result<i64, StoreError> {
+        self.with_conn(async |scope| {
+            let mut sql = scope.sql("SELECT COUNT(*) FROM body_updates WHERE block_id = ");
+            sql.bind(Id(block_id));
+            match scope.fetch_optional(sql).await? {
+                Some(row) => row.int(0),
+                None => Ok(0),
+            }
+        })
+        .await
+    }
+
+    /// The documents of cards and pages whose log holds updates their state does not,
+    /// with the organization of each: what a server that ended before it folded them
+    /// leaves. Blocks in the trash are left out; theirs is folded when they are opened
+    /// again and closed.
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if the query fails.
     pub async fn unfolded_body_docs(&self) -> Result<Vec<(String, String)>, StoreError> {
-        self.body_docs_where(&|_| " WHERE d.state_seq < d.log_end".to_owned())
-            .await
+        self.body_docs_where(|_| {
+            // Of a block that is a card or a page no more, nothing is opened.
+            [
+                " WHERE d.state_seq < d.log_end AND ",
+                &body_versions::with_room_sql("b.type"),
+            ]
+            .concat()
+        })
+        .await
     }
 
     /// The documents of the blocks that are not in the trash, of the condition
@@ -433,7 +459,7 @@ impl Store {
     /// the organization of each, by block.
     async fn body_docs_where(
         &self,
-        condition: &(dyn Fn(&Scope<'_>) -> String + Sync),
+        condition: impl Fn(&Scope<'_>) -> String + Send + Sync,
     ) -> Result<Vec<(String, String)>, StoreError> {
         self.with_conn(async |scope| {
             let statement = [
