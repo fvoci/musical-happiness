@@ -1,6 +1,7 @@
 /**
- * The versions of the bodies of cards, as the server keeps them
- * (`getCardBodyVersions`), for the backend in memory:
+ * The versions of the bodies of cards, and of the pages of wikis, as the
+ * server keeps them (`getCardBodyVersions`, `getPageBodyVersions`), for the
+ * backend in memory:
  *
  * - the body a card has before somebody writes in its room is kept first
  *   (by nobody, as of the card's last change, when nobody is known to have
@@ -24,7 +25,7 @@ import { BackendError } from '../problems.ts';
 import { memberRole } from './board-access.ts';
 import { checkedBody } from './bodies.ts';
 import { fail } from './refuse.ts';
-import { copy, wireOf } from './shapes.ts';
+import { copy, pageOf, wireOf } from './shapes.ts';
 import type { StoredCard, World } from './world.ts';
 
 /** How many versions of a body are kept (the server's `collab_body_versions`). */
@@ -145,17 +146,32 @@ function storable(world: World, boardId: string, body: DocNode | null): DocNode 
   }
 }
 
-/** The versions of a world's cards, read and restored as one of its users. */
+/**
+ * The versions of a world's cards, or of its wikis' pages (`of`), read and
+ * restored as one of its users: the board's or the wiki's members read them,
+ * its editors restore them.
+ */
 export class MemoryBodyVersions implements BodyVersions {
   readonly #world: World;
   readonly #userId: string;
   /** The wait every call of the backend starts with, and the failure a test asked for. */
   readonly #enter: () => Promise<void>;
+  readonly #of: 'card' | 'page';
 
-  constructor(world: World, userId: string, enter: () => Promise<void>) {
+  constructor(
+    world: World,
+    userId: string,
+    enter: () => Promise<void>,
+    of: 'card' | 'page' = 'card',
+  ) {
     this.#world = world;
     this.#userId = userId;
     this.#enter = enter;
+    this.#of = of;
+  }
+
+  get #kind(): 'board' | 'wiki' {
+    return this.#of === 'page' ? 'wiki' : 'board';
   }
 
   async list(boardId: string, cardId: string): Promise<BodyVersion[]> {
@@ -172,11 +188,16 @@ export class MemoryBodyVersions implements BodyVersions {
   async restore(boardId: string, cardId: string, version: number): Promise<void> {
     await this.#enter();
     const world = this.#world;
-    const role = memberRole(world, this.#userId, boardId);
+    const role = memberRole(world, this.#userId, boardId, this.#kind);
+    const refuse = (): void => {
+      if (role !== 'admin' && role !== 'editor') {
+        fail(403, `access denied to restore a version of the ${this.#of}'s body`);
+      }
+    };
+    // As the server: a card is looked for first, a page's wiki asked first.
+    if (this.#of === 'page') refuse();
     const card = this.#card(boardId, cardId);
-    if (role !== 'admin' && role !== 'editor') {
-      fail(403, "access denied to restore a version of the card's body");
-    }
+    refuse();
     const kept = keptOf(world, cardId).versions.find((one) => one.version === version);
     if (!kept) fail(404, 'no such version');
     // What the room's editors typed is in the card first, and is kept with the body before.
@@ -189,14 +210,16 @@ export class MemoryBodyVersions implements BodyVersions {
       card.modifiedBy = this.#userId;
     });
     world.bodyWritten?.(cardId);
-    world.tellBoard(boardId, { kind: 'blocks', boardId, blocks: [wireOf(card)] });
+    if (this.#of === 'page') {
+      world.tellBoard(boardId, { kind: 'pages', boardId, pages: [pageOf(card)] });
+    } else world.tellBoard(boardId, { kind: 'blocks', boardId, blocks: [wireOf(card)] });
   }
 
-  /** A card of the board, for a member of it: the versions are theirs to read. */
+  /** A card of the board (a page of the wiki), for a member of it: the versions are theirs to read. */
   #card(boardId: string, cardId: string): StoredCard {
-    memberRole(this.#world, this.#userId, boardId);
+    memberRole(this.#world, this.#userId, boardId, this.#kind);
     const block = this.#world.blocks.get(cardId);
-    if (block?.type !== 'card' || block.boardId !== boardId) fail(404, 'no such card');
+    if (block?.type !== this.#of || block.boardId !== boardId) fail(404, `no such ${this.#of}`);
     return block as StoredCard;
   }
 

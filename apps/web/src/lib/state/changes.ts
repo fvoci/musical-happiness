@@ -43,3 +43,8 @@ export function isCardBlock(block: ChangedBlock): block is CardSummary {
 export function isViewBlock(block: ChangedBlock): block is BoardView {
   return block.type === 'view';
 }
+
+/** Whether a changed block is a comment, of a card or of a page. */
+export function isCommentBlock(block: ChangedBlock): block is Comment {
+  return block.type === 'comment';
+}

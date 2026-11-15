@@ -8,10 +8,12 @@
  * a page of the same wiki or at its top, among its siblings where `after`
  * says (`orderBetween`); its pages are for the wiki's members, written by its
  * editors; a body is written with the `updateAt` it was read at (409 when the
- * page changed since, what its room took counted first); deleting a page
- * takes every page below it along, and tells of the page alone; bringing it
- * back brings them, below the page it was below or, that one gone, last at
- * the top (`crates/store/src/page_trash.rs`).
+ * page changed since, what its room took counted first) and kept as a
+ * version around the write, as a card's is; deleting a page takes every page
+ * below it along, and their comments, and tells of the page alone; bringing
+ * it back brings them, below the page it was below or, that one gone, last at
+ * the top (`crates/store/src/page_trash.rs`). The comments on a page are
+ * `page-comments.ts`'.
  */
 import type { DocNode } from '../../editor/schema.ts';
 import { PAGE_TITLE_MAX } from '../../logic/page-tree.ts';
@@ -29,11 +31,13 @@ import type {
 
 import { memberRole } from './board-access.ts';
 import { checkedWhole } from './bodies.ts';
+import { MemoryBodyVersions, writtenWhole } from './body-versions.ts';
+import { MemoryPageComments, type OnPage } from './page-comments.ts';
 import { DEFAULT_LIMITS, PageTree, type PageLimits, type Place } from './page-tree.ts';
 import { fail } from './refuse.ts';
-import { copy, memberOf, orderOf, pageOf, scramble } from './shapes.ts';
+import { commentOf, copy, memberOf, orderOf, pageOf, scramble } from './shapes.ts';
 import { deletedPagesOf, deletion } from './trash.ts';
-import type { StoredBlock, World } from './world.ts';
+import type { StoredBlock, StoredCard, World } from './world.ts';
 
 /** What the wikis share with the backend they are of. */
 export interface WikiHost {
@@ -69,18 +73,39 @@ function checkedTitle(title: string): string {
   return title;
 }
 
-export class MemoryWikis implements Wikis {
+export class MemoryWikis extends MemoryPageComments implements Wikis {
   readonly #host: WikiHost;
   readonly #failures = new Map<keyof Wikis, BackendError>();
   /** The limits of the tree: the server's defaults, lowered by a test to reach them. */
   limits: PageLimits = DEFAULT_LIMITS;
+  /** Made when first asked: the host's world is not there yet while this is made. */
+  #bodyVersions: MemoryBodyVersions | undefined;
 
   constructor(host: WikiHost) {
+    super();
     this.#host = host;
   }
 
   get #world(): World {
     return this.#host.world;
+  }
+
+  get bodyVersions(): MemoryBodyVersions {
+    this.#bodyVersions ??= new MemoryBodyVersions(
+      this.#world,
+      this.#host.userId,
+      () => this.#enter('bodyVersions'),
+      'page',
+    );
+    return this.#bodyVersions;
+  }
+
+  protected enter(method: keyof Wikis): Promise<void> {
+    return this.#enter(method);
+  }
+
+  protected on(wikiId: string, pageId: string): OnPage {
+    return { world: this.#world, userId: this.#host.userId, wikiId, pageId };
   }
 
   /** Makes the next call of `method` reject with `error`, once. */
@@ -330,11 +355,16 @@ export class MemoryWikis implements Wikis {
     if (patch.readAt !== undefined && patch.readAt !== page.updateAt) {
       throw new BackendError(409, { detail: 'the page changed since it was read' });
     }
-    if (title !== undefined) page.title = title;
-    if (icon !== undefined) page.fields = { ...page.fields, icon };
-    if (body !== undefined) page.body = body;
-    page.updateAt = this.#world.now();
-    page.modifiedBy = this.#host.userId;
+    const write = (): void => {
+      if (title !== undefined) page.title = title;
+      if (icon !== undefined) page.fields = { ...page.fields, icon };
+      if (body !== undefined) page.body = body;
+      page.updateAt = this.#world.now();
+      page.modifiedBy = this.#host.userId;
+    };
+    // A body written whole is kept as a version, after the one it is written over.
+    if (body === undefined) write();
+    else writtenWhole(this.#world, page as StoredCard, body, this.#host.userId, write);
     if (body !== undefined) this.#world.bodyWritten?.(pageId);
     this.#tellPages(wikiId, [page]);
     return detailOf(page);
@@ -345,10 +375,8 @@ export class MemoryWikis implements Wikis {
     this.#mayWrite(wikiId);
     const page = this.#page(wikiId, pageId);
     const gone = [page];
-    // Each page found brings the pages below it: the list grows as it is walked.
-    for (const above of gone) {
-      gone.push(...this.#pagesOf(wikiId).filter((block) => block.parentId === above.id));
-    }
+    // Each page found brings the pages and the comments below it: the list grows as it is walked.
+    for (const above of gone) gone.push(...this.#world.childrenOf(above.id));
     this.#world.deletedBlocks.set(pageId, {
       boardId: wikiId,
       blocks: gone,
@@ -380,12 +408,14 @@ export class MemoryWikis implements Wikis {
       fail(404, 'no such page in the trash');
     }
     const { blocks } = deleted;
+    // The comments that went with the pages come back with them; the limits count pages.
+    const pages = blocks.filter((block) => block.type === 'page');
     const tree = this.#tree(wikiId);
     const coming = new PageTree(
-      blocks.map((block) => ({ id: block.id, parentId: block.parentId, order: orderOf(block) })),
+      pages.map((block) => ({ id: block.id, parentId: block.parentId, order: orderOf(block) })),
     );
     const parentId = top.parentId !== '' && !tree.has(top.parentId) ? '' : top.parentId;
-    tree.checkRoom(parentId, coming.height(pageId), blocks.length, this.limits);
+    tree.checkRoom(parentId, coming.height(pageId), pages.length, this.limits);
     const order = orderOf(top);
     const siblings = tree.siblings(parentId);
     let renumbered: StoredBlock[] = [];
@@ -405,7 +435,12 @@ export class MemoryWikis implements Wikis {
       [block.updateAt, block.modifiedBy] = [now, this.#host.userId];
       world.blocks.set(block.id, block);
     }
-    this.#tellPages(wikiId, [...renumbered, ...blocks]);
+    this.#tellPages(wikiId, [...renumbered, ...pages]);
+    // And the comments that came back with them, as the server tells them.
+    const comments = blocks.filter((block) => block.type === 'comment');
+    if (comments.length > 0) {
+      world.tellBoard(wikiId, { kind: 'blocks', boardId: wikiId, blocks: comments.map(commentOf) });
+    }
     return detailOf(top);
   }
 }
