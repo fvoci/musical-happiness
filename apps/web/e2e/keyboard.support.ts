@@ -3,7 +3,10 @@ import { expect, type Locator, type Page } from '@playwright/test';
 
 import { isApplePlatform } from '../src/lib/keys.ts';
 
-/** Uses the browser's platform, including an Apple device emulated on Linux. */
+/**
+ * The browser's platform, as the app reads it. An Apple device emulated by Playwright's WebKit
+ * on Linux keeps Linux's platform (only its User-Agent is Apple's): Control there.
+ */
 export async function primaryKey(page: Page, key: string): Promise<string> {
   return `${await primaryName(page)}+${key}`;
 }

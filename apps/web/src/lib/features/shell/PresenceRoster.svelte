@@ -17,6 +17,7 @@
   import { PickerPresentation } from '$lib/components/picker-surface/default-presentation.svelte.ts';
   import PickerSurface from '$lib/components/picker-surface/PickerSurface.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
+  import { pane } from '$lib/layout/room.svelte.ts';
   import { boardPresence, type BoardStore } from '$lib/state/index.ts';
 
   let { board, onMembers }: { board: BoardStore; onMembers: () => void } = $props();
@@ -37,6 +38,11 @@
     Math.max(presence.others.length - shown, 0) + presence.snapshot.hiddenCount;
   const more = $derived(moreThan(FACES));
   const narrowMore = $derived(moreThan(NARROW_FACES) + presence.snapshot.anonymousCount);
+  /**
+   * A narrow pane, where the faces stand in for the members' button. Read by script for the
+   * list: it opens in a popover or a sheet outside the pane, where no container query reaches.
+   */
+  const narrow = $derived(pane.measured && !pane.columns);
 </script>
 
 <div
@@ -110,21 +116,23 @@
       {/if}
       {#if presence.count === 0}<li class="text-muted-foreground">{m.presence_alone()}</li>{/if}
       <!-- Narrow, where the members' own button gives way to the faces. -->
-      <li class="border-t pt-2 @columns/pane:hidden">
-        <button
-          type="button"
-          data-testid="presence-members"
-          aria-haspopup="dialog"
-          class="flex min-h-8 w-full items-center gap-2 rounded-md px-1 text-left hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring roomy:min-h-touch"
-          onclick={() => {
-            listOpen = false;
-            onMembers();
-          }}
-        >
-          <UsersIcon class="size-4" aria-hidden="true" />
-          {membersLabel}
-        </button>
-      </li>
+      {#if narrow}
+        <li class="border-t pt-2">
+          <button
+            type="button"
+            data-testid="presence-members"
+            aria-haspopup="dialog"
+            class="flex min-h-8 w-full items-center gap-2 rounded-md px-1 text-left hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring roomy:min-h-touch"
+            onclick={() => {
+              listOpen = false;
+              onMembers();
+            }}
+          >
+            <UsersIcon class="size-4" aria-hidden="true" />
+            {membersLabel}
+          </button>
+        </li>
+      {/if}
     </ul>
   </PickerSurface>
   <button

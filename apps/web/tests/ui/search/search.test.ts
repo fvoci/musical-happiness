@@ -242,6 +242,16 @@ describe('the keys of the search', () => {
     expect(opensSearch(press({ key: 'k', code: 'KeyK', ctrlKey: true, altKey: true }))).toBe(false);
   });
 
+  it('on Apple’s devices ⌘K alone, and ⌘Enter opens a new tab', () => {
+    for (const platform of ['MacIntel', 'iPad']) {
+      expect(opensSearch(press({ key: 'k', code: 'KeyK', metaKey: true }), platform)).toBe(true);
+      // On a Mac, Ctrl+K in a field deletes to the end of the line: it is the field's.
+      expect(opensSearch(press({ key: 'k', code: 'KeyK', ctrlKey: true }), platform)).toBe(false);
+      expect(listMove(press({ key: 'Enter', metaKey: true }), platform)).toBe('goNewTab');
+      expect(listMove(press({ key: 'Enter', ctrlKey: true }), platform)).toBeUndefined();
+    }
+  });
+
   it('by the K of a Latin keyboard where the key gives a letter of another script', () => {
     expect(opensSearch(press({ key: 'ㅏ', code: 'KeyK', ctrlKey: true }))).toBe(true);
     // Where the K key gives a Latin letter, the letter is what counts (Dvorak's T there).

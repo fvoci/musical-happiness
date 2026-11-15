@@ -16,9 +16,9 @@ import { isComposing, primaryModifier, shortcutKeys, shortcutLabel } from '$lib/
  * listens takes the repeats too while the search is open, or the browser's
  * own Ctrl+K gets them.
  */
-export function opensSearch(event: KeyboardEvent): boolean {
+export function opensSearch(event: KeyboardEvent, platform?: string): boolean {
   if (event.defaultPrevented || isComposing(event)) return false;
-  if (!primaryModifier(event) || event.altKey || event.shiftKey) return false;
+  if (!primaryModifier(event, platform) || event.altKey || event.shiftKey) return false;
   const key = event.key.toLowerCase();
   if (key === 'k') return true;
   return !/^[a-z]$/.test(key) && event.code === 'KeyK';
@@ -33,11 +33,11 @@ export type ListMove = 'next' | 'previous' | 'go' | 'goNewTab';
  * arrows move among the candidates (`isComposing`). The platform's modifier
  * with Enter opens a new tab, as with a click; the other modifier does nothing.
  */
-export function listMove(event: KeyboardEvent): ListMove | undefined {
+export function listMove(event: KeyboardEvent, platform?: string): ListMove | undefined {
   if (isComposing(event) || event.altKey) return undefined;
   const modified = event.ctrlKey || event.metaKey;
   if (event.key === 'Enter') {
-    if (primaryModifier(event)) return 'goNewTab';
+    if (primaryModifier(event, platform)) return 'goNewTab';
     return modified || event.shiftKey ? undefined : 'go';
   }
   if (modified || event.shiftKey) return undefined;

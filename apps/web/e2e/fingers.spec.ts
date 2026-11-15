@@ -233,7 +233,10 @@ test.describe('the menu of a phone’s bar', () => {
     await line(page, 'card-trash').click();
     const trash = page.getByTestId('card-trash');
     await expect(trash).toBeVisible();
-    // The focus is in the dialog while it is open, not left behind on the sheet's way out.
+    // The focus is in the dialog while it is open, also once the sheet has gone: the sheet
+    // gives the focus back to "…" as it goes, which must not pull it out of the dialog.
+    await expect(page.getByRole('menu')).toHaveCount(0);
+    await expect(page.getByTestId('bottom-sheet')).toHaveCount(0);
     await expect
       .poll(() => trash.evaluate((dialog) => dialog.contains(document.activeElement)))
       .toBe(true);

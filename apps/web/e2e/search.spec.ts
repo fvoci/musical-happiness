@@ -13,6 +13,7 @@ import { newWiki, pageTree, showTree, wikiPath, wikiScreen } from './wiki.suppor
 import {
   boardMenu,
   chooseFromMenu,
+  nextFrame,
   openApp,
   showSidebar,
   sidebar,
@@ -128,6 +129,8 @@ test.describe('the search of cards and pages', () => {
     // end of the line. Pressed first, it leaves the search shut.
     await page.getByTestId('board-page').focus();
     await page.keyboard.press(`${modifier === 'Meta' ? 'Control' : 'Meta'}+k`);
+    // A search the keys open is drawn by the next frame.
+    await nextFrame(page);
     await expect(dialog(page)).toHaveCount(0);
     await page.keyboard.press(await primaryKey(page, 'k'));
     await expect(dialog(page)).toBeVisible();
@@ -471,7 +474,8 @@ test.describe('the search of cards and pages', () => {
     await expect(undoInBar(page)).toBeVisible();
     await expect(topBar(page).getByTestId('open-search')).toHaveCount(0);
     await page.keyboard.press(await primaryKey(page, 'k'));
-    await page.keyboard.press('Meta+k');
+    await page.keyboard.press(`${(await primaryName(page)) === 'Meta' ? 'Control' : 'Meta'}+k`);
+    await nextFrame(page);
     await expect(dialog(page)).toHaveCount(0);
   });
 

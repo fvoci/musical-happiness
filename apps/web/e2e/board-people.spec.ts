@@ -48,6 +48,13 @@ test('five faces in a wide pane and two in a narrow one, then the rest as a numb
   await expect(plus(page)).toHaveText('+2');
   const count = topBar(page).getByTestId('board-members-count');
   await expect(count).toHaveText(`Members ${members}`, { useInnerText: true });
+  // Wide, the members have their own button: the list of who is here does not end in them
+  // again (it opens outside the pane, where the pane's container queries do not reach).
+  await presence(page).click();
+  await expect(page.getByTestId('presence-list')).toBeVisible();
+  await expect(page.getByTestId('presence-members')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('presence-list')).toHaveCount(0);
 
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(faces(page)).toHaveCount(2);

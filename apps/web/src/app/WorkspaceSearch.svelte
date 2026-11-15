@@ -1,6 +1,6 @@
 <!--
   The search of the workspace's cards and pages, where the features meet:
-  its button (in the top bar), its keys (⌘K, Ctrl+K), its dialog, and going
+  its button (in the top bar), its keys (⌘K on Apple's devices, Ctrl+K elsewhere), its dialog, and going
   to what it found by the router.
 
   Only where the server searches bodies (`searchEnabled`): until that is
@@ -100,7 +100,7 @@
   }
 
   /**
-   * ⌘K and Ctrl+K. Open, they go back to the field (held down, they do
+   * ⌘K, or Ctrl+K off Apple's devices. Open, they go back to the field (held down, they do
    * nothing more). Over a drawer, a sheet or another dialog they open
    * nothing: going somewhere from the search would leave that open over the
    * new page, and its entry of the history with it. A card is no such thing:
