@@ -361,3 +361,68 @@ test('the browser going offline leaves the body read-only at once, and what was 
   await api.dispose();
   expect(errors).toEqual([]);
 });
+
+test("a wiki's page shows the carets of who write it, by the name the server knows them by", async ({
+  browser,
+  baseURL,
+}) => {
+  const base = baseURL ?? '';
+  const [ada, bora] = [person('page-ada'), person('page-bora')];
+  for (const who of [ada, bora]) await register(base, who);
+  const api = await signedIn(base, ada);
+  const { workspaceId } = await makeBoard(api, { title: 'Roadmap' });
+  const inWorkspace = `/api/v1/w/${workspaceId}`;
+  const wiki = (await (
+    await api.post(`${inWorkspace}/wikis`, { data: { title: 'Handbook', type: 'P' } })
+  ).json()) as Schemas['Board'];
+  const boraApi = await signedIn(base, bora);
+  const [adaId, boraId] = [await userId(api), await userId(boraApi)];
+  await api.post(`${inWorkspace}/boards/${wiki.id}/members`, {
+    data: { userId: boraId, schemeViewer: true, schemeCommenter: true, schemeEditor: true },
+  });
+  const made = (await (
+    await api.post(`${inWorkspace}/wikis/${wiki.id}/pages`, { data: { title: 'Welcome' } })
+  ).json()) as Schemas['Page'];
+  const address = `/w/${workspaceId}/wikis/${wiki.id}/${made.id}`;
+  const [first, second] = await Promise.all(
+    [ada, bora].map(async (who) => {
+      const page = await (await browser.newContext({ locale: 'en-US' })).newPage();
+      await page.goto(address);
+      await signInOnPage(page, who);
+      await expect(page.getByTestId('page-body')).toHaveAttribute('data-editor', 'ready');
+      return page;
+    }),
+  );
+  if (!first || !second) throw new Error('two pages');
+  const watched = [first, second].map((page) => watchErrors(page));
+  const body = (page: Page): Locator =>
+    page.getByTestId('page-body').locator('[contenteditable]').first();
+  const caretsOn = (page: Page): Locator => body(page).locator('.doc-caret');
+
+  await body(first).click();
+  await first.keyboard.type('The handbook.');
+  await first.keyboard.press('Enter');
+  await first.keyboard.type('Its second line.');
+  await expect(body(second).locator('p')).toHaveText(['The handbook.', 'Its second line.']);
+  await body(second).locator('p').first().click();
+  await second.keyboard.press('End');
+
+  for (const [page, whose, who] of [
+    [first, boraId, bora.username],
+    [second, adaId, ada.username],
+  ] as const) {
+    await expect(caretsOn(page)).toHaveCount(1);
+    await expect(caretsOn(page)).toHaveAttribute('data-user', whose);
+    await expect(caretsOn(page).locator('.doc-caret-name')).toHaveAttribute(
+      'data-name',
+      new RegExp(who),
+    );
+  }
+  await expect(body(first).locator('p').first().locator('.doc-caret')).toHaveCount(1);
+  // Bora leaves the page: her caret goes with her.
+  await second.context().close();
+  await expect(caretsOn(first)).toHaveCount(0);
+  expect(watched[0]).toEqual([]);
+  await first.context().close();
+  await Promise.all([api.dispose(), boraApi.dispose()]);
+});

@@ -49,7 +49,8 @@ const userOf = (user: unknown): string => {
 function seenTop(dom: HTMLElement): number {
   let top = Math.max(dom.getBoundingClientRect().top, 0);
   for (let box = dom.parentElement; box; box = box.parentElement) {
-    if (getComputedStyle(box).overflowY !== 'visible') top = Math.max(top, box.getBoundingClientRect().top);
+    if (getComputedStyle(box).overflowY !== 'visible')
+      top = Math.max(top, box.getBoundingClientRect().top);
   }
   return top;
 }

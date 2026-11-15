@@ -195,7 +195,10 @@ test('a name is not cut off at the top of a body scrolled in its card', async ({
   const line = mine.locator('p').nth(29);
   const seen = await line.evaluate((element) => {
     let box = element.parentElement;
-    while (box && !(/auto|scroll/.test(getComputedStyle(box).overflowY) && box.scrollHeight > box.clientHeight))
+    while (
+      box &&
+      !(/auto|scroll/.test(getComputedStyle(box).overflowY) && box.scrollHeight > box.clientHeight)
+    )
       box = box.parentElement;
     const scroller = box ?? document.scrollingElement ?? document.documentElement;
     const top = box ? box.getBoundingClientRect().top : 0;
