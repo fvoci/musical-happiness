@@ -18,6 +18,7 @@ import type {
   User,
 } from '../backend.ts';
 
+import { reads } from './board-access.ts';
 import type { KeptOfCard } from './body-versions.ts';
 import type { BoardPlace } from './trash.ts';
 
@@ -149,9 +150,22 @@ export class World {
     };
   }
 
-  /** Tells everybody who watches the board. */
+  /**
+   * Tells everybody who watches the board. Who watches a wiki they no longer
+   * read (made private, or taken off it) is told, as the server tells them,
+   * that it is gone for them.
+   */
   tellBoard(boardId: string, change: Change): void {
-    this.#tell((watcher) => watcher.boardId === boardId, change);
+    if (this.boards.get(boardId)?.kind !== 'wiki') {
+      this.#tell((watcher) => watcher.boardId === boardId, change);
+      return;
+    }
+    const readers = (watcher: Watcher): boolean => reads(this, watcher.userId, boardId);
+    this.#tell((watcher) => watcher.boardId === boardId && readers(watcher), change);
+    this.#tell((watcher) => watcher.boardId === boardId && !readers(watcher), {
+      kind: 'boardDeleted',
+      boardId,
+    });
   }
 
   /** Tells the given users, wherever they are. */
@@ -160,6 +174,11 @@ export class World {
       (watcher) => watcher.boardId === undefined && userIds.includes(watcher.userId),
       change,
     );
+  }
+
+  /** Tells the user, wherever they are, that a board is gone for them, unless they still read it (an open wiki). */
+  tellGone(userId: string, boardId: string): void {
+    if (!reads(this, userId, boardId)) this.tellUsers([userId], { kind: 'boardDeleted', boardId });
   }
 
   #tell(wanted: (watcher: Watcher) => boolean, change: Change): void {

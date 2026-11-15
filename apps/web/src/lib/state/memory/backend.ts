@@ -644,7 +644,7 @@ export class MemoryBackend implements Backend {
     if (next.length === members.length) return;
     this.#keepAnAdmin(next);
     this.#setMembers(boardId, next);
-    this.world.tellUsers([userId], { kind: 'boardDeleted', boardId });
+    this.world.tellGone(userId, boardId);
   }
 
   /** A board keeps an admin, as on the server (409, `last_admin`). */

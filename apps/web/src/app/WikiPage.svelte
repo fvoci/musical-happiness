@@ -6,8 +6,10 @@
   A wiki's address without a page shows its first page, the address put in
   place (no entry of the history). A wiki not there for the reader, a board's
   identifier at a wiki's address, and a page that is not there show the same
-  "not found" as the rest of the app. An open wiki the reader has not joined
-  shows its title with a way to join.
+  "not found" as the rest of the app; one for the invited only that the
+  reader manages without reading it shows a way to its members and to join
+  it (`ManagedBoard`). An open wiki the reader has not joined
+  is read as its viewers read it, under a bar to join it and write in it.
 
   The page's body is the card's kind of body (`CardBody`), edited together in
   the page's room; while the wiki is shown the reader is on it, and on the
@@ -17,6 +19,7 @@
   import { untrack } from 'svelte';
 
   import ConfirmDialog from '$lib/components/confirm/ConfirmDialog.svelte';
+  import ShareDialog from '$lib/features/shell/ShareDialog.svelte';
   import { bodyReferences } from '$lib/features/card/body-references.ts';
   import CardBacklinks from '$lib/features/card/CardBacklinks.svelte';
   import CardBody from '$lib/features/card/CardBody.svelte';
@@ -39,6 +42,7 @@
     type Workspace,
   } from '$lib/state/index.ts';
 
+  import ManagedBoard from './ManagedBoard.svelte';
   import NotFound from './NotFound.svelte';
   import { referencePlaces } from './reference-places.ts';
   import type { Router } from './router.svelte.ts';
@@ -67,8 +71,8 @@
       // What the head of the page told, and the focus of a join, were the wiki's before.
       notice = undefined;
       joined = false;
-      // And so were its deleted pages.
-      [trash, trashOpen] = [undefined, false];
+      // And so were its deleted pages, and the dialog of its people.
+      [trash, trashOpen, sharing] = [undefined, false, false];
       void store.load();
     });
     return () => {
@@ -100,10 +104,10 @@
     router.openPage(firstPage(wiki.pages)?.id, { replace: true });
   });
 
-  // Who is on the wiki, while it is shown and the reader is in it; and on which page.
+  // Who is on the wiki, while it is shown (joined or not); and on which page.
   $effect(() => {
     const shown = wiki;
-    if (shown?.status === 'ready' && !shown.missing && !shown.joinable) {
+    if (shown?.status === 'ready' && !shown.missing) {
       return untrack(() => shown.presence.start());
     }
     return undefined;
@@ -118,6 +122,7 @@
   /** How many pages are below the page to delete: they go with it. */
   const below = $derived(deleting && wiki ? withDescendants(wiki.pages, deleting.id).size - 1 : 0);
   let settingsOpen = $state(false);
+  let sharing = $state(false);
   let deleteWikiOpen = $state(false);
   /** The wiki's deleted pages, read anew each time they are opened. */
   let trash = $state.raw<Trash | undefined>(undefined);
@@ -148,69 +153,86 @@
   <div class="grid h-full place-items-center p-6">
     <p class="text-muted-foreground" role="status">{m.app_loading()}</p>
   </div>
-{:else if wiki.joinable && wiki.wiki}
+{:else if wiki.missing}
+  <!-- Not there, or there to be managed only: ManagedBoard tells which. -->
   {@const store = wiki}
-  <WikiJoin
-    wiki={wiki.wiki}
-    joining={wiki.joining}
-    onJoin={() => {
-      void store.join().then((done) => {
-        joined = done;
-      });
+  <ManagedBoard
+    {workspace}
+    board={store}
+    kind="wiki"
+    shown={() => shownWiki(workspace).current === store}
+    {router}
+    onJoined={() => {
+      joined = true;
     }}
   />
-{:else if wiki.missing}
-  <NotFound {router} />
 {:else if wiki.status === 'failed'}
   <div class="grid h-full place-items-center p-6 text-center">
     <p class="text-muted-foreground" role="alert">{m.app_problem_load()}</p>
   </div>
 {:else}
-  <WikiScreen
-    {wiki}
-    page={wiki.openPage}
-    {notice}
-    takeFocus={joined}
-    onDismissNotice={() => {
-      notice = undefined;
-    }}
-    pageHref={(id: string) => router.href({ ...router.route, pageId: id })}
-    onDelete={(page: WikiPage) => {
-      deleting = page;
-      deleteOpen = true;
-    }}
-    onEditWiki={() => {
-      settingsOpen = true;
-    }}
-    onDeleteWiki={() => {
-      deleteWikiOpen = true;
-    }}
-    onOpenTrash={() => {
-      trash = pageTrash(wiki);
-      trashOpen = true;
-      void trash.read();
-    }}
-    onOpenPage={(id: string) => {
-      router.openPage(id);
-    }}
-  >
-    {#snippet missingPage()}
-      <NotFound {router} />
-    {/snippet}
-    {#snippet body(page: PageStore)}
-      <!-- The page's body is edited together as a card's is, in the page's own room. -->
-      <CardBody
-        board={wiki}
-        card={page}
-        of="page"
-        testId="page-body"
-        references={bodyReferences(wiki, page.pageId)}
-      />
-      <!-- WikiScreen draws each page anew: the list is read for the page it is drawn for. -->
-      <CardBacklinks {workspace} blockId={page.pageId} of="page" />
-    {/snippet}
-  </WikiScreen>
   {@const store = wiki}
+  <div class="flex h-full min-h-0 flex-col">
+    {#if wiki.joinable}
+      <WikiJoin
+        joining={wiki.joining}
+        onJoin={() => {
+          void store.join().then((done) => {
+            joined = done;
+          });
+        }}
+      />
+    {/if}
+    <div class="min-h-0 flex-1">
+      <WikiScreen
+        {wiki}
+        page={wiki.openPage}
+        {notice}
+        takeFocus={joined}
+        onDismissNotice={() => {
+          notice = undefined;
+        }}
+        pageHref={(id: string) => router.href({ ...router.route, pageId: id })}
+        onDelete={(page: WikiPage) => {
+          deleting = page;
+          deleteOpen = true;
+        }}
+        onEditWiki={() => {
+          settingsOpen = true;
+        }}
+        onDeleteWiki={() => {
+          deleteWikiOpen = true;
+        }}
+        onShare={() => {
+          sharing = true;
+        }}
+        onOpenTrash={() => {
+          trash = pageTrash(wiki);
+          trashOpen = true;
+          void trash.read();
+        }}
+        onOpenPage={(id: string) => {
+          router.openPage(id);
+        }}
+      >
+        {#snippet missingPage()}
+          <NotFound {router} />
+        {/snippet}
+        {#snippet body(page: PageStore)}
+          <!-- The page's body is edited together as a card's is, in the page's own room. -->
+          <CardBody
+            board={wiki}
+            card={page}
+            of="page"
+            testId="page-body"
+            references={bodyReferences(wiki, page.pageId)}
+          />
+          <!-- WikiScreen draws each page anew: the list is read for the page it is drawn for. -->
+          <CardBacklinks {workspace} blockId={page.pageId} of="page" />
+        {/snippet}
+      </WikiScreen>
+    </div>
+  </div>
   {@const title = deleting?.title || m.wiki_page_untitled()}
   <ConfirmDialog
     bind:open={deleteOpen}
@@ -241,6 +263,16 @@
     />
   {/if}
   {#if store.wiki}
+    <!-- Whoever reads the wiki sees its members; only its admins change them or share it. -->
+    <ShareDialog
+      bind:open={sharing}
+      {workspace}
+      board={store}
+      membersOnly={!store.canManage}
+      readOnly={!store.canManage}
+      linkOf={(readToken: string) =>
+        new URL(router.href({ boardId: store.wikiId, readToken }), location.href).href}
+    />
     <WikiSettingsDialog
       bind:open={settingsOpen}
       wiki={store.wiki}

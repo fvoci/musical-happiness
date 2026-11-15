@@ -74,13 +74,15 @@ describe('a wiki in memory', () => {
     expect((await rejection(made.backend.wiki.createPage(board.id, {}))).status).toBe(404);
   });
 
-  it('is listed to another person when it is open, its pages refused until they join', async () => {
+  it('is listed and read by another person when it is open, written once they join', async () => {
     const made = await aWiki(setup(), 'O');
     const listed = await made.other.wiki.wikis(made.workspaceId);
     expect(listed.map((wiki) => wiki.id)).toEqual([made.wiki.id]);
-    expect((await rejection(made.other.wiki.pages(made.wiki.id))).status).toBe(403);
-    await made.other.joinBoard(made.wiki.id);
     expect(await made.other.wiki.pages(made.wiki.id)).toEqual([]);
+    expect((await rejection(made.other.wiki.createPage(made.wiki.id, {}))).status).toBe(403);
+    await made.other.joinBoard(made.wiki.id);
+    await made.other.wiki.createPage(made.wiki.id, {});
+    expect(await made.other.wiki.pages(made.wiki.id)).toHaveLength(1);
   });
 
   it('is not there for another person when it is private', async () => {

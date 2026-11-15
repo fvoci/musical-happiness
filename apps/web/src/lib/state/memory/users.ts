@@ -1,6 +1,7 @@
 /** The memory directory distinguishes current members from the authors of readable work. */
 import type { User } from '../backend.ts';
 
+import { isOpenWiki } from './board-access.ts';
 import { roleOn } from './comments.ts';
 import { fail } from './refuse.ts';
 import { copy, scramble } from './shapes.ts';
@@ -30,7 +31,7 @@ export function usersNamed(world: World, readerId: string, userIds: readonly str
   for (const board of world.boards.values()) {
     if (board.workspaceId !== world.workspace.id) continue;
     const role = roleOn(world.members.get(board.id) ?? [], readerId);
-    if (!role && !(board.isTemplate && board.type === 'O')) continue;
+    if (!role && !(board.isTemplate && board.type === 'O') && !isOpenWiki(board)) continue;
     visible.add(board.createdBy);
     for (const block of world.blocksOf(board.id)) {
       visible.add(block.createdBy);

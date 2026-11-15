@@ -45,6 +45,7 @@
   import type { Organizations } from '$lib/state/organization.ts';
   import { Button } from '$lib/ui/button/index.js';
 
+  import { acceptedRoute } from './accepted-route.ts';
   import { resendLink, startBackend } from './backend.ts';
   import { lastWorkspace, rememberWorkspace } from './last-workspace.ts';
   import {
@@ -289,6 +290,7 @@
 {:else if invitation !== undefined && account}
   {@const signedInAs = workspace.status === 'ready' ? workspace.me : undefined}
   {@const accounts = account}
+  {@const backend = workspace.backend}
   <InvitePage
     token={invitation}
     signedInAs={signedInAs && userDisplayName(signedInAs)}
@@ -302,10 +304,9 @@
       // Loaded afresh where the invitation let the reader in: what the page
       // has in memory is of whoever was, or was not, signed in before. In
       // place of the link, whose token is not to stay in the history.
-      router.restart(
-        { workspaceId: accepted.workspaceId, boardId: accepted.boardId },
-        { replace: true },
-      );
+      void acceptedRoute(backend, accepted).then((route) => {
+        router.restart(route, { replace: true });
+      });
     }}
     onSessionEnded={() => {
       location.reload();

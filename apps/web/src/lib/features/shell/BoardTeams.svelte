@@ -1,4 +1,7 @@
-<!-- One row per team, shaped as a member's row; direct memberships remain in the people list. -->
+<!--
+  The teams of a board or a wiki: one row per team, shaped as a member's row;
+  direct memberships remain in the people list.
+-->
 <script lang="ts">
   import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
   import UserPlusIcon from '@lucide/svelte/icons/user-plus';
@@ -6,12 +9,15 @@
 
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
-  import type { BoardStore, Workspace } from '$lib/state/index.ts';
+  import type { Shareable, Workspace } from '$lib/state/index.ts';
   import type { BoardTeam, Team, TeamRole, Teams } from '$lib/state/team-types.ts';
   import { Button } from '$lib/ui/button/index.js';
 
-  let { workspace, board, teams }: { workspace: Workspace; board: BoardStore; teams: Teams } =
+  import { shareWords } from './share-words.ts';
+
+  let { workspace, board, teams }: { workspace: Workspace; board: Shareable; teams: Teams } =
     $props();
+  const words = $derived(shareWords(board.board?.kind));
   const id = $props.id();
   const place = $derived(workspace.info?.id);
   let assigned = $state.raw<BoardTeam[]>([]);
@@ -124,7 +130,7 @@
               >{/each}
           </select>
           <IconButton
-            label={m.teams_board_remove({ name: item.team.name })}
+            label={words.teamRemove({ name: item.team.name })}
             class="text-muted-foreground"
             disabled={busy}
             onclick={() => void change(item.team.id, undefined)}
