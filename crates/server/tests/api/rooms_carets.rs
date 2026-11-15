@@ -514,3 +514,54 @@ async fn a_held_member_is_told_no_caret_until_the_check_keeps_them() {
     no_caret(&mut two, "put out, they were told no caret shown after").await;
     th.teardown().await;
 }
+
+/// A page's room tells carets as a card's does: who writes the page is told under
+/// the server's word of whose it is, and who only reads the wiki is told and shows
+/// none.
+#[tokio::test]
+async fn a_caret_goes_through_the_room_of_a_page() {
+    let th = Setup::native().start().await.init_basic().await;
+    let d = crate::page_rooms::desk(&th, &paragraphs(&["first"])).await;
+    let (user1, user2) = (th.client.me().await.id, th.client2.me().await.id);
+    give(&th, &d.wiki_id, &user2, "viewer").await;
+    let mut writer = Peer::connect(&th.client, 101).await;
+    let mut reader = Peer::connect(&th.client2, 102).await;
+    writer.joined(TEST_WORKSPACE_ID, &d.page_id).await;
+    let joined = reader.joined(TEST_WORKSPACE_ID, &d.page_id).await;
+    assert_eq!(joined["mode"], json!("read"), "{joined}");
+
+    show(&mut writer, 1).await;
+    assert_eq!(reader.caret().await.state, state_of(&user1, 1));
+    show(&mut reader, 4).await;
+    reader.barrier().await;
+    no_caret(&mut writer, "a reader of the wiki shows no caret").await;
+    writer.leave().await;
+    assert_eq!(
+        reader.caret().await.state,
+        Value::Null,
+        "gone with its writer"
+    );
+    th.teardown().await;
+}
+
+/// A caret is no change of the body: two who only showed theirs leave a room, and no
+/// version is kept of it.
+#[tokio::test]
+async fn a_caret_alone_keeps_no_version() {
+    let th = Setup::native().start().await.init_basic().await;
+    let (t, mut one, mut two) = two_in_a_room(&th, &paragraphs(&["first"])).await;
+    let before = crate::body_versions::versions(&th.client, &t.card_id).await;
+    show(&mut one, 1).await;
+    two.caret().await;
+    show(&mut two, 2).await;
+    one.caret().await;
+    one.leave().await;
+    two.leave().await;
+    crate::rooms::no_rooms(&th).await;
+    assert_eq!(
+        crate::body_versions::versions(&th.client, &t.card_id).await,
+        before,
+        "nothing was typed"
+    );
+    th.teardown().await;
+}
