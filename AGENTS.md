@@ -8,6 +8,8 @@ This codebase is yours: what it's for and how it's built are your call, and you'
 
 ## 코드 찾기
 
-- Rust: LSP 도구(rust-analyzer, 플러그인 `rust-analyzer-lsp`). `incomingCalls`·`outgoingCalls`(부르는 쪽·불리는 쪽), `findReferences`, `goToImplementation`, `goToDefinition`, `workspaceSymbol`(이름으로). 위치는 줄·글자 모두 1부터. 세션의 첫 질의가 "찾지 못함"이면 색인 중이니 한 번 더 묻는다.
-- 웹(`.ts`, `.svelte`)에는 LSP가 없다: `rg`로 찾는다.
-- 기기마다 한 번: `rustup component add rust-analyzer`, `claude plugin install rust-analyzer-lsp@claude-plugins-official`.
+LSP 도구로 찾는다. 위치는 줄·글자 모두 1부터. 첫 질의가 "찾지 못함"이면 색인 중이니 한 번 더 묻는다.
+
+- Rust(rust-analyzer): `incomingCalls`·`outgoingCalls`(부르는 쪽·불리는 쪽), `findReferences`, `goToImplementation`, `goToDefinition`, `workspaceSymbol`(이름으로).
+- 웹: `.ts`의 함수·메서드를 누가 부르나는 `incomingCalls`(`.svelte`에서 부르는 곳까지 나온다). `.ts`에서의 `findReferences`는 정의 한 줄만 돌려주니 쓰지 않는다. `.svelte`에서는 `findReferences`와 `goToDefinition`.
+- 기기마다 한 번: `bash .agents/setup-lsp.sh`.
