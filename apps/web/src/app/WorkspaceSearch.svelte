@@ -56,10 +56,15 @@
     return document.querySelector('main') ?? undefined;
   }
 
-  /** Opens the search, from `from` (the button: Safari does not focus a button clicked). */
-  function openSearch(from?: HTMLElement): void {
+  /**
+   * Opens the search, from `from` (the button: Safari does not focus a button
+   * clicked); whether it did. Never over another overlay: the wiki's drawer of
+   * pages leaves the top bar out of its reach, and going from the search to a
+   * page of the same wiki would leave it open, without its entry of the history.
+   */
+  function openSearch(from?: HTMLElement): boolean {
     const workspaceId = workspace.info?.id;
-    if (!enabled.on || !workspaceId) return;
+    if (!enabled.on || !workspaceId || otherOverlayOpen()) return false;
     const focused = document.activeElement;
     opener = from ?? (focused instanceof HTMLElement ? focused : undefined);
     session?.close();
@@ -74,17 +79,17 @@
       },
     });
     open = true;
+    return true;
   }
 
   /**
    * Whether a drawer, a sheet or a dialog other than a card's is open: all are
-   * modal (`aria-modal`), and those the back button closes say so too.
+   * modal (`aria-modal`), and those the back button closes say so too. The
+   * search's own, closed and still fading out, is none.
    */
   function otherOverlayOpen(): boolean {
-    return (
-      overlayOpen() ||
-      document.querySelector('[aria-modal="true"]:not([data-card-dialog])') !== null
-    );
+    const other = '[aria-modal="true"]:not([data-card-dialog], [data-search-dialog])';
+    return overlayOpen() || document.querySelector(other) !== null;
   }
 
   /**
@@ -101,9 +106,7 @@
       if (!event.repeat) dialog?.focusField();
       return;
     }
-    if (event.repeat || otherOverlayOpen() || !workspace.info?.id) return;
-    event.preventDefault();
-    openSearch();
+    if (!event.repeat && openSearch()) event.preventDefault();
   }
 
   /** The route of a card: over the view shown where its board is shown, else over any. */

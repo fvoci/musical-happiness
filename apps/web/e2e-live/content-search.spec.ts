@@ -122,7 +122,8 @@ test('a page of a wiki is found by its title and opened over its wiki', async ({
   await register(base, owner);
   const api = await signedIn(base, owner);
   const word = `puffin${Date.now().toString(36)}`;
-  const { workspaceId } = await makeBoard(api, { title: 'Coast' });
+  const board = await makeBoard(api, { title: 'Coast' });
+  const { workspaceId } = board;
   const inWorkspace = `/api/v1/w/${workspaceId}`;
   const made = await api.post(`${inWorkspace}/wikis`, {
     data: { title: 'Lighthouse handbook', type: 'P' },
@@ -138,6 +139,9 @@ test('a page of a wiki is found by its title and opened over its wiki', async ({
 
   await page.goto('/');
   await signInOnPage(page, owner);
+  // From the board, not the wiki: the page is gone to over its wiki.
+  await page.goto(`/w/${workspaceId}/boards/${board.boardId}`);
+  await expect(page).toHaveURL(new RegExp(`/boards/${board.boardId}/${board.viewId}$`));
   await expect(page.getByTestId('open-search')).toBeVisible();
   await page.keyboard.press('Control+k');
   await page.getByTestId('search-field').fill(word);

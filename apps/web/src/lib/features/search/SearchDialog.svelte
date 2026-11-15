@@ -152,6 +152,7 @@
 <Dialog.Root bind:open>
   <Dialog.Content
     data-testid="search-dialog"
+    data-search-dialog
     data-status={session.status}
     data-compact={compact}
     showCloseButton={false}

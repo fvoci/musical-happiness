@@ -8,7 +8,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { ON_A_CARD, ON_A_VIEW, placeOf } from './address.ts';
-import { newWiki, wikiPath, wikiScreen } from './wiki.support.ts';
+import { newWiki, pageTree, showTree, wikiPath, wikiScreen } from './wiki.support.ts';
 import {
   boardMenu,
   chooseFromMenu,
@@ -264,39 +264,86 @@ test.describe('the search of cards and pages', () => {
     expect(placeOf(page.url()).boardId).toBe(shown.boardId);
   });
 
-  test('a page opens over its wiki, another page of it in its place, and back goes where each was', async ({
+  test('a page opens over its wiki, another of it in its place, a card from it and back, and Back goes where each was', async ({
     page,
   }) => {
     await openWithSearch(page);
     const board = placeOf(page.url()).boardId;
     const wikiId = await newWiki(page, 'Handbook');
+    // Not the wiki's first page: going over the wiki would show that one by itself.
     const [keeping, harbour] = await pagesIn(page, wikiId, ['Lighthouse keeping', 'Harbour log']);
+    const card = await cardWith(page, 'Keeper notes', 'the beacon is lit');
     await page.goBack();
     await expect(page).toHaveURL(ON_A_VIEW);
+    const title = wikiScreen(page).getByTestId('page-title');
+    const onPage = (pageId = ''): RegExp => new RegExp(`${wikiPath(wikiId, pageId)}$`);
 
+    // From a board, over the wiki.
     await page.keyboard.press('Control+k');
-    await search(page, 'lighthouse');
+    await search(page, 'harbour');
     await expect(dialog(page)).toHaveAttribute('data-status', 'found');
     await expect(hits(page)).toHaveCount(1);
     await expect(hits(page).first()).toHaveAttribute('data-kind', 'page');
     await expect(hits(page).first().locator('[data-hit-container]')).toHaveText('Handbook');
     await page.keyboard.press('Enter');
     await expect(dialog(page)).toHaveCount(0);
-    await expect(page).toHaveURL(new RegExp(`${wikiPath(wikiId, keeping)}$`));
-    await expect(wikiScreen(page).getByTestId('page-title')).toHaveValue('Lighthouse keeping');
+    await expect(page).toHaveURL(onPage(harbour));
+    await expect(title).toHaveValue('Harbour log');
 
+    // Another page of the wiki shown, as from its tree.
+    await page.keyboard.press('Control+k');
+    await search(page, 'lighthouse');
+    await expect(hits(page).locator('[data-hit-title]')).toHaveText(['Lighthouse keeping']);
+    await page.keyboard.press('Enter');
+    await expect(page).toHaveURL(onPage(keeping));
+    await expect(title).toHaveValue('Lighthouse keeping');
+
+    // A card from a page, and a page from the card.
+    await goTo(page, 'beacon', 'Keeper notes');
+    expect(placeOf(page.url())).toMatchObject({ boardId: board, cardId: card });
     await page.keyboard.press('Control+k');
     await search(page, 'harbour');
     await expect(hits(page).locator('[data-hit-title]')).toHaveText(['Harbour log']);
     await page.keyboard.press('Enter');
-    await expect(page).toHaveURL(new RegExp(`${wikiPath(wikiId, harbour)}$`));
-    await expect(wikiScreen(page).getByTestId('page-title')).toHaveValue('Harbour log');
+    await expect(page).toHaveURL(onPage(harbour));
+    await expect(title).toHaveValue('Harbour log');
 
+    // Back, one place at a time.
     await page.goBack();
-    await expect(page).toHaveURL(new RegExp(`${wikiPath(wikiId, keeping)}$`));
+    await expect(page).toHaveURL(ON_A_CARD);
+    await expect(page.getByTestId('card-dialog')).toContainText('Keeper notes');
+    await page.goBack();
+    await expect(page).toHaveURL(onPage(keeping));
+    await expect(title).toHaveValue('Lighthouse keeping');
+    await page.goBack();
+    await expect(page).toHaveURL(onPage(harbour));
+    await expect(title).toHaveValue('Harbour log');
     await page.goBack();
     await expect(page).toHaveURL(ON_A_VIEW);
     expect(placeOf(page.url()).boardId).toBe(board);
+  });
+
+  test('390 pixels wide, the search opens nothing over the drawer of the pages', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await openWithSearch(page);
+    const wikiId = await newWiki(page, 'Handbook');
+    const [pier] = await pagesIn(page, wikiId, ['Pier']);
+    await topBar(page).getByTestId('open-search').click();
+    await search(page, 'pier');
+    await expect(hits(page).locator('[data-hit-title]')).toHaveText(['Pier']);
+    await page.keyboard.press('Enter');
+    await expect(page).toHaveURL(new RegExp(`${wikiPath(wikiId, pier)}$`));
+    await showTree(page);
+    // The drawer leaves the top bar in reach: neither its button nor the keys open the search.
+    await topBar(page).getByTestId('open-search').click();
+    await page.keyboard.press('Control+k');
+    await expect(dialog(page)).toHaveCount(0);
+    await expect(pageTree(page)).toBeVisible();
+    await page.goBack();
+    await expect(pageTree(page)).toBeHidden();
+    await expect(page).toHaveURL(new RegExp(`${wikiPath(wikiId, pier)}$`));
   });
 
   test('the keys open nothing over a drawer or another dialog', async ({ page }) => {
