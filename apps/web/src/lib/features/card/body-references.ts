@@ -16,7 +16,8 @@ function offered(board: BoardStore, linked: LinkedBlock): string {
   return where ? `${name} · ${where.title || m['Sidebar.untitled-board']()}` : name;
 }
 
-export function bodyReferences(board: BoardStore): BodyReferences {
+/** What is drawn of the references in the bodies of `board`; `around` is the card the bodies are of, which `[[` does not offer. */
+export function bodyReferences(board: BoardStore, around?: string): BodyReferences {
   const titles = referenceTitles(board.workspace);
   return {
     shown: (id) => {
@@ -31,7 +32,9 @@ export function bodyReferences(board: BoardStore): BodyReferences {
     },
     search: async (query) => {
       const found = await titles.search(query, board);
-      return found.map((linked) => ({ value: linked.id, label: offered(board, linked) }));
+      return found
+        .filter((linked) => linked.id !== around)
+        .map((linked) => ({ value: linked.id, label: offered(board, linked) }));
     },
     named: (address) => titles.places?.named(address),
     seen: (id) => titles.seen(id),

@@ -57,6 +57,8 @@ function stateOf(
 function part(page: Document, name: string, text: string): HTMLElement {
   const element = page.createElement('span');
   element.setAttribute('class', name);
+  // The icon is a picture of the title, not words of it.
+  if (name === 'reference-icon') element.setAttribute('aria-hidden', 'true');
   element.textContent = text;
   return element;
 }
@@ -73,12 +75,18 @@ export function drawReference(element: HTMLElement, drawing: ReferenceDrawing | 
   const page = element.ownerDocument;
   if (!shown) {
     element.removeAttribute('data-kind');
-    if (state === 'pending') element.setAttribute('aria-busy', 'true');
-    else element.removeAttribute('aria-busy');
+    if (state === 'pending') {
+      element.setAttribute('aria-busy', 'true');
+      element.setAttribute('aria-label', m.editor_reference_pending());
+    } else {
+      element.removeAttribute('aria-busy');
+      element.removeAttribute('aria-label');
+    }
     element.replaceChildren(state === 'pending' ? '…' : m.editor_reference_unseen());
     return;
   }
   element.removeAttribute('aria-busy');
+  element.removeAttribute('aria-label');
   element.dataset.kind = shown.kind;
   const parts = [
     ...(shown.icon === '' ? [] : [part(page, 'reference-icon', shown.icon)]),

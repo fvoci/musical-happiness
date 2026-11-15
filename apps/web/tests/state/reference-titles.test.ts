@@ -5,7 +5,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 
-import { referenceTitles } from '$lib/state/index.ts';
+import { BackendError, referenceTitles } from '$lib/state/index.ts';
 
 import { openFirstBoard, settle } from './support.ts';
 
@@ -46,6 +46,10 @@ describe('the titles of what references name', () => {
     titles.of(alpha.id);
     titles.of(beta.id);
     await settle();
+    // Drawn again with the answer: what is drawn follows its board from then on.
+    titles.of(alpha.id);
+    titles.of(beta.id);
+    await settle();
 
     await other.patchCard(board.boardId, alpha.id, { title: 'Renamed', icon: '🚀' });
     await settle();
@@ -54,6 +58,81 @@ describe('the titles of what references name', () => {
     await other.deleteBlock(board.boardId, beta.id);
     await settle();
     expect(titles.of(beta.id)).toBeNull();
+  });
+
+  it('follow the reader taken off the board of what is named', async () => {
+    const { backend, world, board, alpha, titles } = await opened();
+    titles.of(alpha.id);
+    await settle();
+    titles.of(alpha.id);
+    await settle();
+    // What the reader is told when another takes them off the board (removeMember).
+    world.tellUsers([backend.userId], { kind: 'boardDeleted', boardId: board.boardId });
+    await settle();
+    expect(titles.of(alpha.id)).toBeNull();
+  });
+
+  it('never put back an answer older than a change heard while it was asked', async () => {
+    const { backend, other, board, alpha, beta, titles } = await opened();
+    titles.of(alpha.id);
+    await settle();
+    titles.of(alpha.id);
+    await settle();
+    // What names beta is asked; the answer, Alpha as it was, comes after the rename.
+    const held = titles.of(alpha.id);
+    if (!held) throw new Error('Alpha is not held');
+    const before = { ...held };
+    let answer: () => void = () => undefined;
+    vi.spyOn(backend.references, 'to').mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          answer = () => {
+            resolve([before]);
+          };
+        }),
+    );
+    const naming = titles.to(beta.id);
+    await other.patchCard(board.boardId, alpha.id, { title: 'Renamed' });
+    await settle();
+    answer();
+    await naming;
+    expect(titles.of(alpha.id)?.title).toBe('Renamed');
+  });
+
+  it('show what could not be asked as what the reader may not see, and ask again later', async () => {
+    const { backend, alpha, titles } = await opened();
+    const asked = vi
+      .spyOn(backend.references, 'resolve')
+      .mockRejectedValueOnce(new BackendError(503));
+    vi.useFakeTimers();
+    try {
+      expect(titles.of(alpha.id)).toBeUndefined();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(titles.of(alpha.id)).toBeNull();
+      // Drawn again meanwhile, nothing more is asked.
+      expect(asked).toHaveBeenCalledOnce();
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(asked).toHaveBeenCalledTimes(2);
+      expect(titles.of(alpha.id)?.title).toBe('Alpha');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('ask again what is held of a workspace that is entered again', async () => {
+    const { backend, workspace, alpha, titles } = await opened();
+    titles.of(alpha.id);
+    await settle();
+    const info = workspace.info;
+    if (!info) throw new Error('no workspace');
+    const asked = vi.spyOn(backend.references, 'resolve');
+    workspace.info = { ...info, id: 'elsewhere' };
+    titles.of(alpha.id);
+    await settle();
+    workspace.info = info;
+    expect(titles.of(alpha.id)?.title).toBe('Alpha');
+    await settle();
+    expect(asked.mock.calls.map((call) => call[1])).toContainEqual([alpha.id]);
   });
 
   it('say whether the reader may see what an identifier names', async () => {

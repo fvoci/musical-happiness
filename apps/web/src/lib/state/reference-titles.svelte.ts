@@ -2,10 +2,17 @@
  * What the references of the bodies on screen name, for the reader: asked of
  * the backend once (`References.resolve`, all that is drawn in one turn in
  * one request), then held and kept current by the change messages of the
- * boards the named cards are on. A card that is renamed shows its new title,
- * one that is deleted shows as what the reader may not see. When the
- * connection was away everything held is asked again, and when a board comes
- * into the reader's sight, what they could not see is.
+ * boards the named cards that are drawn are on. A card that is renamed shows
+ * its new title, one that is deleted, or whose board the reader leaves, shows
+ * as what the reader may not see. A page keeps the title it was answered
+ * with until it is asked again. When the connection was away, or the reader
+ * comes back to a workspace, everything held there is asked again, and when a
+ * board comes into the reader's sight, what they could not see is. What
+ * could not be asked shows as what the reader may not see, and is asked
+ * again a while later.
+ *
+ * An answer never puts back what a change heard while it was asked for
+ * changed: the change is newer.
  *
  * One of these belongs to a `Workspace` (`referenceTitles`); what it holds is
  * kept by the workspace entered, where an identifier is asked.
@@ -34,6 +41,10 @@ export interface ReferencePlaces {
 const SEARCH_WAIT_MS = 150;
 /** How many cards of the open board are offered before anything is typed. */
 const OFFERED_UNASKED = 8;
+/** How long what could not be asked waits before it is asked again, the first time. */
+const RETRY_FIRST_MS = 5_000;
+/** The longest wait between two tries of what could not be asked. */
+const RETRY_LONGEST_MS = 60_000;
 
 /** The identifiers asked together in one turn, and the answer they wait for. */
 interface Batch {
@@ -62,14 +73,39 @@ export class ReferenceTitles {
   #following = false;
   #searches = 0;
   #latest: Promise<LinkedBlock[]> = Promise.resolve([]);
+  /** The workspace that was entered when something was last asked. */
+  #entered: string | undefined;
+  /** Counts what happens to what is known: asking, and hearing of a change. */
+  #ticks = 0;
+  /** When a change to each entry was last heard (`#ticks`). */
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity -- nothing that is drawn reads it
+  readonly #changedAt = new Map<string, number>();
+  #retryWait = RETRY_FIRST_MS;
+  #retry: ReturnType<typeof setTimeout> | undefined;
 
   constructor(workspace: Workspace) {
     this.#workspace = workspace;
   }
 
-  /** The workspace an identifier is asked in; a reader by a link has none. */
+  /**
+   * The workspace an identifier is asked in; a reader by a link has none. A
+   * workspace that is entered again may have changed while another was shown,
+   * and its boards were not followed meanwhile: what is held of it is asked
+   * again, and the boards of the one left are no more followed.
+   */
   #here(): string {
-    return this.#workspace.info?.id ?? '';
+    const id = this.#workspace.info?.id ?? '';
+    if (id === this.#entered) return id;
+    const back = this.#entered !== undefined;
+    this.#entered = id;
+    if (back) {
+      // Out of the drawing that noticed: following and unfollowing are no part of it.
+      queueMicrotask(() => {
+        this.#unwatchAll();
+        void this.#ask(this.#knownHere(() => true));
+      });
+    }
+    return id;
   }
 
   /**
@@ -79,9 +115,19 @@ export class ReferenceTitles {
    */
   of(id: string): LinkedBlock | null | undefined {
     const key = `${this.#here()}/${id}`;
-    if (this.#known.has(key)) return this.#known.get(key);
-    void this.#ask([id]);
-    return undefined;
+    if (!this.#known.has(key)) {
+      void this.#ask([id]);
+      return undefined;
+    }
+    const linked = this.#known.get(key);
+    // What is drawn follows its board, from out of the drawing that reads it.
+    if (linked && !this.#watched.has(linked.boardId)) {
+      const { boardId } = linked;
+      queueMicrotask(() => {
+        this.#watch(boardId);
+      });
+    }
+    return linked;
   }
 
   /** Whether the reader may see what the identifier names, asked if it is not known. */
@@ -94,9 +140,15 @@ export class ReferenceTitles {
   /** What names the block, a page of it; what is read is known from then on. */
   async to(blockId: string, paging?: Paging): Promise<LinkedBlock[]> {
     const workspaceId = this.#here();
-    const found = await this.#workspace.backend.references.to(workspaceId, blockId, paging);
-    this.#learn(workspaceId, found);
-    return found;
+    const asked = this.#tick();
+    try {
+      const found = await this.#workspace.backend.references.to(workspaceId, blockId, paging);
+      this.#learn(workspaceId, found, asked);
+      return found;
+    } catch (error) {
+      this.#failed(error);
+      throw error;
+    }
   }
 
   /**
@@ -112,14 +164,15 @@ export class ReferenceTitles {
     const found = (async (): Promise<LinkedBlock[]> => {
       if (term.trim() === '') {
         const recent = board ? recentOf(board) : [];
-        this.#learn(workspaceId, recent);
+        this.#learn(workspaceId, recent, this.#tick());
         return recent;
       }
       await new Promise((resolve) => setTimeout(resolve, SEARCH_WAIT_MS));
       if (mine !== this.#searches) return this.#latest;
       try {
+        const asked = this.#tick();
         const blocks = await this.#workspace.backend.references.search(workspaceId, term);
-        this.#learn(workspaceId, blocks);
+        this.#learn(workspaceId, blocks, asked);
         return mine === this.#searches ? blocks : await this.#latest;
       } catch (error) {
         this.#failed(error);
@@ -136,17 +189,34 @@ export class ReferenceTitles {
     else if (!isBackendError(error)) console.error(error);
   }
 
-  #learn(workspaceId: string, blocks: readonly LinkedBlock[]): void {
-    for (const linked of blocks) this.#set(workspaceId, linked.id, linked);
+  /** A new moment, after everything heard so far. */
+  #tick(): number {
+    this.#ticks += 1;
+    return this.#ticks;
   }
 
-  #set(workspaceId: string, id: string, linked: LinkedBlock | null): void {
-    this.#known.set(`${workspaceId}/${id}`, linked);
-    if (!linked || this.#watched.has(linked.boardId)) return;
-    const stop = this.#workspace.backend.watchBoard(linked.boardId, (change) => {
+  #learn(workspaceId: string, blocks: readonly LinkedBlock[], asked: number): void {
+    for (const linked of blocks) this.#set(workspaceId, linked.id, linked, asked);
+  }
+
+  /** Holds what was answered when `asked`, unless a change heard since says otherwise. */
+  #set(workspaceId: string, id: string, linked: LinkedBlock | null, asked: number): void {
+    const key = `${workspaceId}/${id}`;
+    if ((this.#changedAt.get(key) ?? 0) > asked) return;
+    this.#known.set(key, linked);
+  }
+
+  #watch(boardId: string): void {
+    if (this.#watched.has(boardId)) return;
+    const stop = this.#workspace.backend.watchBoard(boardId, (change) => {
       this.#heard(change);
     });
-    this.#watched.set(linked.boardId, stop);
+    this.#watched.set(boardId, stop);
+  }
+
+  #unwatchAll(): void {
+    for (const stop of this.#watched.values()) stop();
+    this.#watched.clear();
   }
 
   /** Asks for the identifiers that are not being asked, with all that is asked this turn. */
@@ -178,20 +248,43 @@ export class ReferenceTitles {
   }
 
   async #read(workspaceId: string, ids: readonly string[]): Promise<void> {
+    let start = 0;
     try {
-      for (let start = 0; start < ids.length; start += REFERENCES_AT_ONCE) {
+      for (; start < ids.length; start += REFERENCES_AT_ONCE) {
         const part = ids.slice(start, start + REFERENCES_AT_ONCE);
+        const asked = this.#tick();
         const found = await this.#workspace.backend.references.resolve(workspaceId, part);
         for (const id of part) {
-          this.#set(workspaceId, id, found.find((linked) => linked.id === id) ?? null);
+          this.#set(workspaceId, id, found.find((linked) => linked.id === id) ?? null, asked);
         }
       }
+      this.#retryWait = RETRY_FIRST_MS;
     } catch (error) {
-      // What was not answered stays asked for: the next drawing asks again.
       this.#failed(error);
+      this.#notAnswered(workspaceId, ids.slice(start));
     } finally {
       for (const id of ids) this.#pending.delete(`${workspaceId}/${id}`);
     }
+  }
+
+  /**
+   * What could not be asked: shown as what the reader may not see (no title,
+   * no link) rather than waited for, and asked again a while later, a longer
+   * while each time it fails again.
+   */
+  #notAnswered(workspaceId: string, ids: readonly string[]): void {
+    const asked = this.#tick();
+    for (const id of ids) {
+      const key = `${workspaceId}/${id}`;
+      if (!this.#known.has(key)) this.#set(workspaceId, id, null, asked);
+    }
+    if (this.#retry !== undefined) return;
+    const wait = this.#retryWait;
+    this.#retryWait = Math.min(wait * 2, RETRY_LONGEST_MS);
+    this.#retry = setTimeout(() => {
+      this.#retry = undefined;
+      if (this.#here() === workspaceId) void this.#ask(ids);
+    }, wait);
   }
 
   /** The identifiers known in the workspace entered that `wanted` picks. */
@@ -209,6 +302,8 @@ export class ReferenceTitles {
     this.#workspace.backend.watchSelf((change) => {
       if (change.kind === 'resync') void this.#ask(this.#knownHere(() => true));
       else if (change.kind === 'board') void this.#ask(this.#knownHere((linked) => !linked));
+      // A board the reader is taken off.
+      else if (change.kind === 'boardDeleted') this.#heard(change);
     });
   }
 
@@ -221,6 +316,7 @@ export class ReferenceTitles {
         if (!this.#known.has(key) || !isCardBlock(block)) continue;
         const { id, title, boardId } = block;
         const icon = cardIcon(block);
+        this.#changedAt.set(key, this.#tick());
         this.#known.set(key, { id, kind: 'card', title, icon, boardId, boardKind: 'board' });
       }
     } else if (change.kind === 'blocksDeleted') {
@@ -234,6 +330,7 @@ export class ReferenceTitles {
 
   #unsee(key: string): void {
     if (!this.#known.get(key)) return;
+    this.#changedAt.set(key, this.#tick());
     this.#known.set(key, null);
   }
 }

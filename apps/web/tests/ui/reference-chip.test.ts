@@ -44,6 +44,8 @@ describe('a reference as it is drawn', () => {
     const link = element.querySelector('a');
     expect(link?.getAttribute('href')).toBe('/w/ws/boards/b/v/c');
     expect(link?.textContent).toBe('🚀Plan');
+    // The icon is not read out as a word of the title.
+    expect(link?.querySelector('.reference-icon')?.getAttribute('aria-hidden')).toBe('true');
   });
 
   it('shows what has no screen with its title and no link, and a title for what has none', () => {
@@ -79,6 +81,7 @@ describe('a reference as it is drawn', () => {
     drawReference(element, drawing());
     expect(element.dataset.state).toBe('pending');
     expect(element.getAttribute('aria-busy')).toBe('true');
+    expect(element.getAttribute('aria-label')).toBe('Loading link');
     expect(element.textContent).not.toContain('see');
   });
 

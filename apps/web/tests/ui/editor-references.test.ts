@@ -6,7 +6,7 @@
  * when what is known changes.
  */
 import { Editor } from '@tiptap/core';
-import { Selection } from '@tiptap/pm/state';
+import { Selection, TextSelection } from '@tiptap/pm/state';
 import { render } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -141,7 +141,7 @@ describe('what is typed after `[[`', () => {
     );
   });
 
-  it('ends at a closing bracket, at a reference, and after a title no card has', () => {
+  it('ends at a closing bracket, at a reference, and past the longest title looked for', () => {
     const closed = create(doc(paragraph(text('[[done]'))));
     expect(typed(closed, ' and more')).toBeNull();
     closed.destroy();
@@ -151,6 +151,7 @@ describe('what is typed after `[[`', () => {
     const long = create(doc(paragraph(text('[['))));
     expect(typed(long, 'x'.repeat(80))).not.toBeNull();
     expect(typed(long, 'x')).toBeNull();
+    long.destroy();
   });
 
   it('is nothing in code', () => {
@@ -181,6 +182,8 @@ describe('a pasted address', () => {
   });
 
   it('of what the reader may see becomes a reference to it', async () => {
+    // The simulated page has no clipboard events; the editor makes one to paste text with.
+    vi.stubGlobal('ClipboardEvent', class extends Event {});
     const made = create(doc(paragraph(text('See '))), given(references({ [SEEN]: plan })));
     made.commands.focus('end');
     expect(paste(made, ADDRESS)).toBe(true);
@@ -200,6 +203,48 @@ describe('a pasted address', () => {
     expect(made.getText()).toBe(`See ${HIDDEN_ADDRESS}`);
   });
 
+  it('becomes a reference where it was pasted, whatever is typed before the answer', async () => {
+    vi.stubGlobal('ClipboardEvent', class extends Event {});
+    let answer: (seen: boolean) => void = () => undefined;
+    const known = references({ [SEEN]: plan });
+    const made = create(doc(paragraph(text('See '))), {
+      ...given(known),
+      seen: () => new Promise((resolve) => (answer = resolve)),
+    });
+    // The caret at the end, without the focus (and its scrolling) the simulated page lacks.
+    made.view.dispatch(made.state.tr.setSelection(Selection.atEnd(made.state.doc)));
+    expect(paste(made, ADDRESS)).toBe(true);
+    // Typed before it, and the caret taken elsewhere: the reference is put where the address is.
+    made.view.dispatch(made.state.tr.insertText('Now ', 1));
+    made.view.dispatch(made.state.tr.setSelection(TextSelection.create(made.state.doc, 2)));
+    answer(true);
+    await settle();
+    expect(stored(made).content?.[0]?.content).toEqual([
+      text('Now See '),
+      reference(SEEN),
+      text(' '),
+    ]);
+    expect(made.state.selection.from).toBe(2);
+  });
+
+  it('stays the address it was if it was changed before the answer', async () => {
+    vi.stubGlobal('ClipboardEvent', class extends Event {});
+    let answer: (seen: boolean) => void = () => undefined;
+    const made = create(doc(paragraph(text('See '))), {
+      ...given(references({ [SEEN]: plan })),
+      seen: () => new Promise((resolve) => (answer = resolve)),
+    });
+    // The caret at the end, without the focus (and its scrolling) the simulated page lacks.
+    made.view.dispatch(made.state.tr.setSelection(Selection.atEnd(made.state.doc)));
+    expect(paste(made, ADDRESS)).toBe(true);
+    const end = made.state.doc.content.size - 1;
+    made.view.dispatch(made.state.tr.delete(end - 2, end));
+    answer(true);
+    await settle();
+    expect(chips(made.view.dom)).toHaveLength(0);
+    expect(made.getText()).toBe(`See ${ADDRESS.slice(0, -2)}`);
+  });
+
   it('is left to the editor over a selection, among other words, and in code', () => {
     const known = references({ [SEEN]: plan });
     const made = create(doc(paragraph(text('See this'))), given(known));
@@ -212,6 +257,14 @@ describe('a pasted address', () => {
     const code = create(doc({ type: 'codeBlock', content: [text('x')] }), given(known));
     code.commands.focus('end');
     expect(paste(code, ADDRESS)).toBe(false);
+    code.destroy();
+    const marked = create(
+      doc(paragraph({ ...text('x'), marks: [{ type: 'code' }] })),
+      given(known),
+    );
+    marked.commands.focus('end');
+    expect(paste(marked, ADDRESS)).toBe(false);
+    marked.destroy();
   });
 });
 

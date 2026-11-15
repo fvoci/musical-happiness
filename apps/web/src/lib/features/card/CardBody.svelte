@@ -37,7 +37,7 @@
 
   let { board, card }: Props = $props();
 
-  const references = $derived(bodyReferences(board));
+  const references = $derived(bodyReferences(board, card.cardId));
 
   const workspace = $derived(board.workspace);
   const room = $derived(card.room);

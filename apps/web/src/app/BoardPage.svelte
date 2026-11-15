@@ -35,7 +35,12 @@
 
   // Where the references in the bodies of this workspace lead: the address bar is here.
   $effect.pre(() => {
-    referenceTitles(workspace).places = referencePlaces(router);
+    const titles = referenceTitles(workspace);
+    const places = referencePlaces(router);
+    titles.places = places;
+    return () => {
+      if (titles.places === places) titles.places = undefined;
+    };
   });
 
   // Open the board the address names.

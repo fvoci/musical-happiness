@@ -344,6 +344,7 @@
   "editor_reference_unseen": "Link you can't see",
   "editor_reference_untitled": "Untitled",
   "editor_reference_page": "Page",
+  "editor_reference_pending": "Loading link",
   "card_backlinks": "What links to this card",
   "card_backlinks_more": "Show more",
   "editor_math_edit": "Edit formula",

@@ -344,6 +344,7 @@
   "editor_reference_unseen": "볼 수 없는 링크",
   "editor_reference_untitled": "제목 없음",
   "editor_reference_page": "페이지",
+  "editor_reference_pending": "링크를 불러오는 중",
   "card_backlinks": "이 카드를 가리키는 곳",
   "card_backlinks_more": "더 보기",
   "editor_math_edit": "수식 편집",
