@@ -7,11 +7,10 @@
 //! of its record: whoever may read one board cannot fetch another board's file by
 //! knowing its name. A file without a record is given out through no board.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use fvoci_model::{
-    Block, BlockError, BlockPatch, BlockPatchBatch, Board, Body, BodyChange, FileInfo, JsonMap,
-    new_id,
+    Block, BlockError, BlockPatch, BlockPatchBatch, Board, Body, FileInfo, JsonMap, new_id,
 };
 use serde_json::Value;
 use tokio::io::AsyncRead;
@@ -241,7 +240,10 @@ impl App {
     ///
     /// `board_id` is the board the blocks were copied from; `blocks` are the copies, as
     /// they are stored already, and are changed along with what is stored. A block whose
-    /// file could not be copied ends up naming no file. For blocks that are not stored yet, see [`App::copy_card_files_into`].
+    /// file could not be copied ends up naming no file. The bodies pointed at their copies
+    /// are part of the copy, not a change of it: a copy begins without versions of its
+    /// body, as a copied page does. For blocks that are not stored yet, see
+    /// [`App::copy_card_files_into`].
     ///
     /// # Errors
     ///
@@ -262,8 +264,15 @@ impl App {
                 HashMap::new()
             }
         };
+        let not_written = |error| {
+            AppError::from(error).context(format_args!(
+                "could not patch file IDs while duplicating board {board_id}"
+            ))
+        };
 
-        // Write the names of the copies to the stored blocks.
+        // The names of the copies, for the stored blocks: the bodies by the boards of
+        // the copies, the attachments as a patch.
+        let mut bodies: BTreeMap<String, Vec<(String, Option<Body>)>> = BTreeMap::new();
         let mut block_ids = Vec::new();
         let mut block_patches = Vec::new();
         for block in blocks.iter_mut() {
@@ -276,14 +285,10 @@ impl App {
                     .body
                     .take()
                     .and_then(|body| rename_body_files(body, &new_file_names));
-                block_ids.push(block.id.clone());
-                block_patches.push(BlockPatch {
-                    body: block
-                        .body
-                        .clone()
-                        .map_or(BodyChange::Clear, BodyChange::Set),
-                    ..BlockPatch::default()
-                });
+                bodies
+                    .entry(block.board_id.clone())
+                    .or_default()
+                    .push((block.id.clone(), block.body.clone()));
                 continue;
             }
             let Some(file_id) = block.attachment_file() else {
@@ -306,6 +311,12 @@ impl App {
             });
         }
 
+        for (copies_board, renamed) in bodies {
+            self.store()
+                .replace_bodies_as_written(&copies_board, renamed)
+                .await
+                .map_err(not_written)?;
+        }
         if !block_ids.is_empty() {
             let batch = BlockPatchBatch {
                 block_ids,
@@ -314,11 +325,7 @@ impl App {
             self.store()
                 .patch_blocks(&batch, user_id)
                 .await
-                .map_err(|error| {
-                    AppError::from(error).context(format_args!(
-                        "could not patch file IDs while duplicating board {board_id}"
-                    ))
-                })?;
+                .map_err(not_written)?;
             // The patch moved `updateAt` on: the caller's copies are what is answered and
             // announced, and a client edits them with that `updateAt` as `readAt`.
             let patched: std::collections::HashSet<&str> =
