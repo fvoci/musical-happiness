@@ -465,6 +465,13 @@ test.describe('the search of cards and pages', () => {
   test('390 pixels wide, the button is there and the dialog fills the screen', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await openWithSearch(page);
+    // The button takes its room from the members' word, not from the title, and fits.
+    const title = await topBar(page).getByRole('heading', { level: 1 }).boundingBox();
+    expect(title?.width).toBeGreaterThan(0);
+    const rights = await topBar(page)
+      .getByRole('button')
+      .evaluateAll((buttons) => buttons.map((button) => button.getBoundingClientRect().right));
+    expect(Math.max(...rights)).toBeLessThanOrEqual(390);
     await cardWith(page, 'Axolotl', 'small screens');
     await topBar(page).getByTestId('open-search').click();
     await expect(dialog(page)).toHaveAttribute('data-compact', 'true');
