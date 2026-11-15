@@ -18,9 +18,9 @@
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type { BoardPlace } from '$lib/logic/urls.ts';
-  import type { Board } from '$lib/logic/wire.ts';
   import { isGuest, type Workspace } from '$lib/state/index.ts';
 
+  import { shownTitle } from './shown-title.ts';
   import BoardIcon from './BoardIcon.svelte';
 
   interface Props {
@@ -51,7 +51,7 @@
   }: Props = $props();
 
   const boards = $derived(workspace.sidebar.flatMap((entry) => entry.boards));
-  const titleOf = (board: Board): string => board.title || m['Sidebar.untitled-board']();
+  const titleOf = shownTitle;
   const myName = $derived(
     (workspace.me && workspace.userName(workspace.me.id)) ?? m['centerPanel.unknown-user'](),
   );
@@ -86,7 +86,7 @@
       <li class="shrink-0">
         <a
           href={boardHref(board)}
-          aria-label={title}
+          aria-label={board.kind === 'wiki' ? m.shell_wiki_named({ title }) : title}
           {title}
           aria-current={board.id === boardId ? 'page' : undefined}
           class="grid size-8 place-items-center rounded-lg hover:bg-sidebar-accent aria-[current=page]:bg-sidebar-accent aria-[current=page]:ring-1 aria-[current=page]:ring-input-border roomy:size-touch"
@@ -94,7 +94,7 @@
             open(event, board);
           }}
         >
-          <BoardIcon icon={board.icon} {title} locale={workspace.locale} />
+          <BoardIcon icon={board.icon} kind={board.kind} {title} locale={workspace.locale} />
         </a>
       </li>
     {/each}

@@ -46,6 +46,33 @@ export function firstChoiceOf(
 }
 
 /**
+ * The boards and the wikis of a workspace the reader can see, the two lists
+ * of the sidebar together (a wiki is a board of the kind `wiki`).
+ */
+export async function modulesOf(backend: Backend, workspaceId: string): Promise<Board[]> {
+  const [boards, wikis] = await Promise.all([
+    backend.boards(workspaceId),
+    backend.wiki?.wikis(workspaceId) ?? [],
+  ]);
+  return [...boards, ...wikis];
+}
+
+/** The templates a board can be made from; none (told) when they cannot be read. */
+export async function templatesOf(workspace: {
+  readonly backend: Backend;
+  readonly info: WorkspaceInfo | undefined;
+  report(action: 'load', error: unknown): void;
+}): Promise<Board[]> {
+  if (!workspace.info) return [];
+  try {
+    return await workspace.backend.templates(workspace.info.id);
+  } catch (error) {
+    workspace.report('load', error);
+    return [];
+  }
+}
+
+/**
  * The people, boards and sidebar of a workspace. Undefined when the backend
  * says the reader has no such workspace (403, 404: left meanwhile, or never
  * theirs), as for one they do not work in.
@@ -57,7 +84,7 @@ export async function readWorkspace(
   try {
     const [users, boards, categories] = await Promise.all([
       backend.users(workspaceId),
-      backend.boards(workspaceId),
+      modulesOf(backend, workspaceId),
       backend.categories(workspaceId),
     ]);
     return { users, boards, categories };

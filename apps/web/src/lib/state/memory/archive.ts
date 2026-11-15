@@ -7,6 +7,7 @@ import type { Board } from '../../logic/wire.ts';
 import type { DownloadedFile, DownloadOptions } from '../backend.ts';
 
 import { flushBoards } from './bodies.ts';
+import { fail } from './refuse.ts';
 import { MEMORY_ARCHIVE } from './shapes.ts';
 import type { World } from './world.ts';
 
@@ -27,4 +28,21 @@ export function archiveOf(
   options?.onProgress?.({ sentBytes: bytes.size, totalBytes: bytes.size });
   const day = new Date(world.now()).toISOString().slice(0, 10);
   return { bytes, name: `archive-${day}.boardarchive` };
+}
+
+/** The lines of an archive of the memory backend; 400 for what is none (`exportBoard`). */
+export async function archiveLines(
+  file: File,
+): Promise<{ type?: string; version?: string; data?: unknown }[]> {
+  let lines: { type?: string; version?: string; data?: unknown }[];
+  try {
+    lines = (await file.text())
+      .split('\n')
+      .filter((line) => line.trim() !== '')
+      .map((line) => JSON.parse(line) as { type?: string; version?: string; data?: unknown });
+  } catch {
+    fail(400, 'not an archive');
+  }
+  if (lines[0]?.version !== MEMORY_ARCHIVE) fail(400, 'not an archive of this app');
+  return lines;
 }

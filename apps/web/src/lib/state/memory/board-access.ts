@@ -1,10 +1,22 @@
 /** Content belongs to members: open boards ask others to join; private ones are missing. */
+import type { BoardKind } from '../../logic/wire.ts';
+
 import { roleOn, type Role } from './comments.ts';
 import { fail } from './refuse.ts';
 import type { World } from './world.ts';
 
-export function memberRole(world: World, userId: string, boardId: string): Exclude<Role, ''> {
-  const board = world.boards.get(boardId) ?? fail(404, 'no such board');
+/**
+ * The reader's role on a board of the `kind` (the server answers a wiki to an
+ * operation of cards as a board that is not there); `any` for one of either.
+ */
+export function memberRole(
+  world: World,
+  userId: string,
+  boardId: string,
+  kind: BoardKind | 'any' = 'board',
+): Exclude<Role, ''> {
+  const board = world.boards.get(boardId);
+  if (!board || (kind !== 'any' && (board.kind ?? 'board') !== kind)) fail(404, 'no such board');
   const role = roleOn(world.members.get(boardId) ?? [], userId);
   if (role !== '') return role;
   if (board.type === 'O') fail(403, 'access denied to board');

@@ -18,6 +18,11 @@
     /** Draws the button that goes ahead in the colour of danger. */
     destructive?: boolean;
     onConfirm: () => void;
+    /**
+     * Puts the focus somewhere once the dialog has closed, in place of where it
+     * was before (which the confirmed action may have taken away).
+     */
+    focusAfter?: (() => HTMLElement | null | undefined) | undefined;
   }
 
   let {
@@ -27,11 +32,20 @@
     confirmLabel,
     destructive = false,
     onConfirm,
+    focusAfter,
   }: Props = $props();
 </script>
 
 <AlertDialog.Root bind:open>
-  <AlertDialog.Content data-testid="confirm-dialog">
+  <AlertDialog.Content
+    data-testid="confirm-dialog"
+    onCloseAutoFocus={(event: Event) => {
+      const target = focusAfter?.();
+      if (!target) return;
+      event.preventDefault();
+      target.focus();
+    }}
+  >
     <AlertDialog.Header>
       <AlertDialog.Title>{title}</AlertDialog.Title>
       {#if description}
