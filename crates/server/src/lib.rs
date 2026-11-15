@@ -6,6 +6,7 @@
 pub mod api;
 pub mod app;
 pub mod auth;
+mod base_path;
 pub mod client_address;
 pub mod collab;
 pub mod collab_worker;
@@ -40,6 +41,7 @@ use tokio_util::sync::CancellationToken;
 use tower_http::compression::CompressionLayer;
 use tower_http::compression::predicate::{DefaultPredicate, Predicate};
 
+pub use crate::base_path::checked_base_path;
 pub use crate::request_log::Peer;
 pub use crate::tls::TlsFiles;
 
@@ -107,20 +109,7 @@ impl Server {
         for warning in config.check()? {
             tracing::warn!("{warning}");
         }
-        let base_path = base_path.trim_end_matches('/');
-        // What the router would read as a pattern or could never match is refused here,
-        // with words, and not by a panic of the router or by a server that answers 404
-        // to everything.
-        let is_malformed = !base_path.starts_with('/')
-            || base_path.contains(['{', '}', '*', '?', '#', '\\'])
-            || base_path.contains("//")
-            || base_path.contains("/:")
-            || base_path.chars().any(char::is_whitespace);
-        if !base_path.is_empty() && is_malformed {
-            bail!(
-                "{BASE_PATH_ENV} must be empty or an absolute path such as /boards, not {base_path:?}"
-            );
-        }
+        let base_path = checked_base_path(base_path)?;
         let store = app::open_store(&config).await?;
         // Before anything is changed or cleaned up: what is left over is nobody's only
         // if no other process serves the database.

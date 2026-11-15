@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use anyhow::Context as _;
 use clap::Parser;
 use fvoci_server::config::{Configuration, ENV_PREFIX};
-use fvoci_server::{BASE_PATH_ENV, Server, listen_address};
+use fvoci_server::{BASE_PATH_ENV, Server, checked_base_path, listen_address};
 use tracing_subscriber::EnvFilter;
 
 /// Settings that are distinctive enough to recognize under a wrong prefix.
@@ -51,17 +51,22 @@ struct Cli {
 /// within two and a half seconds.
 const READY_CHECK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 
-/// Asks the server on this machine whether it is ready, where the configuration says it
-/// listens: the port, plain HTTP or TLS, and the base path. The answer is all that is
-/// read; nothing is sent but the request. The certificate of a server that serves TLS
-/// itself is for its public name, not `localhost`, so it is not verified here.
-async fn check_ready(config: &Configuration, base_path: &str) -> anyhow::Result<()> {
+/// Where the server this configuration describes answers whether it is ready, on this
+/// machine: the port, plain HTTP or TLS, and the base path (as the server checks it).
+fn ready_url(config: &Configuration, base_path: &str) -> String {
     let scheme = if config.use_ssl { "https" } else { "http" };
-    let url = format!(
+    format!(
         "{scheme}://localhost:{}{base_path}{}/ready",
         config.port,
         fvoci_server::api::PREFIX
-    );
+    )
+}
+
+/// Asks the server on this machine whether it is ready, and succeeds only on 200.
+/// Nothing is sent but the request. The certificate of a server that serves TLS itself
+/// is for its public name, not `localhost`, so it is not verified here.
+async fn check_ready(config: &Configuration, base_path: &str) -> anyhow::Result<()> {
+    let url = ready_url(config, base_path);
     let client = reqwest::Client::builder()
         .no_proxy()
         .redirect(reqwest::redirect::Policy::none())
@@ -75,7 +80,7 @@ async fn check_ready(config: &Configuration, base_path: &str) -> anyhow::Result<
         .await
         .with_context(|| format!("asking {url}"))?
         .status();
-    anyhow::ensure!(status.is_success(), "{url} answered {status}");
+    anyhow::ensure!(status == reqwest::StatusCode::OK, "{url} answered {status}");
     Ok(())
 }
 
@@ -158,7 +163,7 @@ async fn serve() -> anyhow::Result<()> {
 
     let base_path = std::env::var(BASE_PATH_ENV).unwrap_or_default();
     if cli.check_ready {
-        return check_ready(&config, base_path.trim_end_matches('/')).await;
+        return check_ready(&config, checked_base_path(&base_path)?).await;
     }
 
     let address = listen_address(&config);
@@ -214,4 +219,41 @@ async fn shutdown_signal() {
             std::process::exit(130);
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_check_asks_where_the_server_listens() {
+        let plain = Configuration {
+            port: 8000,
+            ..Configuration::default()
+        };
+        let tls = Configuration {
+            port: 8443,
+            use_ssl: true,
+            ..Configuration::default()
+        };
+        let base = |raw| checked_base_path(raw).expect("a base path the server takes");
+        assert_eq!(
+            ready_url(&plain, base("")),
+            "http://localhost:8000/api/v1/ready"
+        );
+        assert_eq!(
+            ready_url(&plain, base("/boards/")),
+            "http://localhost:8000/boards/api/v1/ready"
+        );
+        assert_eq!(
+            ready_url(&tls, base("/")),
+            "https://localhost:8443/api/v1/ready"
+        );
+    }
+
+    #[test]
+    fn a_base_path_the_server_refuses_is_refused_by_the_check_too() {
+        assert!(checked_base_path("boards").is_err());
+        assert!(checked_base_path("/a//b").is_err());
+    }
 }

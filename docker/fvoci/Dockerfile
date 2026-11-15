@@ -5,9 +5,10 @@
 #
 #   docker build -f docker/fvoci/Dockerfile -t fvoci-server \
 #       --build-arg FVOCI_BUILD_HASH=$(git rev-parse HEAD) .
-#   docker run -p 127.0.0.1:8080:8000 -v fvoci-data:/data fvoci-server
+#   docker run --init -p 127.0.0.1:8080:8000 -v fvoci-data:/data fvoci-server
 #
-# Alone it serves SQLite under /data.
+# Alone it serves SQLite under /data. Settings are FVOCI_* variables or a file mounted
+# over /opt/fvoci/config.json; --init lets a stop end a server that is still starting.
 #
 # Nothing here depends on the processor: the same file builds linux/arm64 and
 # linux/amd64, each natively on a machine of that kind. TLS is rustls throughout, so
@@ -35,8 +36,7 @@ WORKDIR /src
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/web/package.json apps/web/
 RUN --mount=type=cache,id=fvoci-pnpm-store,target=/root/.cache/pnpm-store \
-    pnpm config set store-dir /root/.cache/pnpm-store --location project \
-    && pnpm install --frozen-lockfile
+    pnpm install --frozen-lockfile --store-dir /root/.cache/pnpm-store
 COPY apps/web apps/web
 # The board templates, which the web app's in-memory server reads at build time, and
 # the licences the bundle may ship under.
@@ -48,6 +48,8 @@ RUN --mount=type=cache,id=fvoci-web-fonts,target=/src/target/web-fonts \
 # Debian 13 for the server and the image: a prebuilt part of the TLS library needs its
 # C library (glibc 2.38 or newer); with Debian 12 the link step fails.
 FROM rust:${RUST_VERSION}-trixie AS build
+# The processor the image is built for, which keeps apart the caches of the builds.
+ARG TARGETARCH
 # The commit the server is built from, for ping and the metrics' fvoci_build_info:
 #   --build-arg FVOCI_BUILD_HASH=$(git rev-parse HEAD)
 ARG FVOCI_BUILD_HASH=
@@ -58,7 +60,7 @@ COPY crates ./crates
 # A member of the workspace; cargo needs its manifest even though it is not built here.
 COPY xtask ./xtask
 RUN --mount=type=cache,id=fvoci-cargo-registry,target=/usr/local/cargo/registry \
-    --mount=type=cache,id=fvoci-cargo-target,target=/src/target \
+    --mount=type=cache,id=fvoci-cargo-target-${TARGETARCH},target=/src/target \
     cargo build --release --locked -p fvoci-server \
     && cp target/release/fvoci-server /fvoci-server
 
@@ -74,12 +76,14 @@ RUN useradd --system --uid 10001 --home-dir /data --create-home fvoci \
 COPY --from=build /fvoci-server /opt/fvoci/fvoci-server
 COPY --from=web /src/apps/web/dist/ /opt/fvoci/web/
 COPY docker/fvoci/config.json /opt/fvoci/config.json
-COPY docker/fvoci/entrypoint.sh /opt/fvoci/entrypoint.sh
+COPY --chmod=0755 docker/fvoci/entrypoint.sh /opt/fvoci/entrypoint.sh
 USER fvoci
 WORKDIR /data
 VOLUME /data
 EXPOSE 8000
-HEALTHCHECK --interval=10s --timeout=5s --start-period=60s --retries=3 \
+# Every 30 s once started (each check writes a small file to the storage), every 2 s
+# while it starts.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --start-interval=2s --retries=3 \
     CMD ["/opt/fvoci/fvoci-server", "--config", "/opt/fvoci/config.json", "--check-ready"]
 ENTRYPOINT ["/opt/fvoci/entrypoint.sh"]
 

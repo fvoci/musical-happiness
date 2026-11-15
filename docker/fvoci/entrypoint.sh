@@ -3,9 +3,14 @@
 # reads, then becomes the server (its arguments are passed on).
 #
 # For each NAME below, NAME_FILE may name a file (a Docker secret, /run/secrets/...)
-# whose content, without the final newline, becomes NAME. A file that is named but
-# missing or empty stops the start, saying which variable named it; the value is never
-# printed. NAME and NAME_FILE together are refused, so that it is clear which one holds.
+# whose content, without carriage returns and final newlines, becomes NAME. A file
+# that is named but missing, empty or blank stops the start, saying which variable
+# named it; the value is never printed. A non-empty NAME next to NAME_FILE is refused,
+# so that it is clear which one holds.
+#
+# The settings come from /opt/fvoci/config.json (mount another over it) and the
+# FVOCI_* variables; the arguments that would choose another file or port are refused,
+# since the health check reads the same file and variables and would ask elsewhere.
 #
 #   PGPASSWORD                 the password of the PostgreSQL role in FVOCI_DBCONFIG
 #                              (the address then carries no password)
@@ -18,12 +23,21 @@
 #   AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY                 S3 credentials
 set -eu
 
+for argument in "$@"; do
+    case $argument in
+    --config | --config=* | --port | --port=* | --dbtype | --dbtype=* | --dbconfig | --dbconfig=*)
+        echo "fvoci: ${argument%%=*} is not taken here: set FVOCI_PORT, FVOCI_DBTYPE, FVOCI_DBCONFIG, or mount a file over /opt/fvoci/config.json" >&2
+        exit 1
+        ;;
+    esac
+done
+
 for name in PGPASSWORD FVOCI_SECRET_KEY FVOCI_SEARCH_PASSWORD FVOCI_SEARCH_API_KEY \
     FVOCI_PROMETHEUSTOKEN FVOCI_SMTP_PASSWORD FVOCI_CLOUDFLARE_API_TOKEN \
     FVOCI_SES_SECRET_ACCESS_KEY AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY; do
     eval "file=\${${name}_FILE:-}"
     [ -n "$file" ] || continue
-    eval "given=\${${name}+set}"
+    eval "given=\${${name}:+set}"
     if [ -n "$given" ]; then
         echo "fvoci: both $name and ${name}_FILE are set; give one" >&2
         exit 1
@@ -32,11 +46,14 @@ for name in PGPASSWORD FVOCI_SECRET_KEY FVOCI_SEARCH_PASSWORD FVOCI_SEARCH_API_K
         echo "fvoci: ${name}_FILE names $file, which cannot be read" >&2
         exit 1
     fi
-    value=$(cat "$file")
-    if [ -z "$value" ]; then
-        echo "fvoci: ${name}_FILE names $file, which is empty" >&2
+    value=$(tr -d '\r' <"$file")
+    case $value in
+    *[![:space:]]*) ;;
+    *)
+        echo "fvoci: ${name}_FILE names $file, which is empty or blank" >&2
         exit 1
-    fi
+        ;;
+    esac
     export "$name=$value"
     unset "${name}_FILE"
 done
