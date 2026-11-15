@@ -32,6 +32,7 @@
   import ActionMenu from '$lib/components/menu/ActionMenu.svelte';
   import type { MenuAction } from '$lib/components/menu/actions.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
+  import { fingerPointer } from '$lib/layout/room.svelte.ts';
   import { stepped, type MoveStep, type PagePlace } from '$lib/logic/page-moves.ts';
   import { pageRows, type PageRow } from '$lib/logic/page-tree.ts';
   import type { PageDraft, WikiPage, WikiStore } from '$lib/state/index.ts';
@@ -82,6 +83,10 @@
   };
   /** How the menu writes the key held with an arrow: ⌥ on Apple's systems. */
   const alt = /Mac|iPhone|iPad/u.test(navigator.userAgent) ? '⌥' : 'Alt+';
+  /** The keys are shown where there is likely a keyboard: not with a finger for a pointer. */
+  const keys = $derived(!fingerPointer.current);
+  /** Said after a page is moved with the keys. */
+  let said = $state('');
 
   const uid = $props.id();
   const rows = $derived(pageRows(wiki.tree, (pageId) => open.has(pageId)));
@@ -125,6 +130,15 @@
     // The answer may move its row again, which drops the focus; where the reader took it is theirs.
     void moving.then(() => {
       if (document.activeElement === document.body) void focusOn(pageId);
+      const row = rows.find((one) => one.page.id === pageId);
+      if (row) {
+        said = m.wiki_moved_to({
+          title: titleOf(row.page),
+          position: row.position,
+          count: row.siblings,
+          level: row.depth + 1,
+        });
+      }
     });
     return true;
   }
@@ -235,17 +249,17 @@
           id: 'move-up',
           label: m.wiki_move_up(),
           icon: ArrowUpIcon,
-          hint: `${alt}↑`,
+          ...(keys ? { hint: `${alt}↑` } : {}),
           separated: true,
-          disabled: !stepped(wiki.pages, pageId, 'up'),
+          disabled: row.position === 1,
           run: () => moveBy(pageId, 'up'),
         },
         {
           id: 'move-down',
           label: m.wiki_move_down(),
           icon: ArrowDownIcon,
-          hint: `${alt}↓`,
-          disabled: !stepped(wiki.pages, pageId, 'down'),
+          ...(keys ? { hint: `${alt}↓` } : {}),
+          disabled: row.position === row.siblings,
           run: () => moveBy(pageId, 'down'),
         },
       );
@@ -327,8 +341,13 @@
           tabindex={page.id === active ? 0 : -1}
           data-page={page.id}
           data-drop={mark?.zone}
+          aria-keyshortcuts={mayMove
+            ? 'Alt+ArrowUp Alt+ArrowDown Alt+ArrowLeft Alt+ArrowRight'
+            : undefined}
           class={[
             'group/page relative rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            // A finger rests on a row to drag it: no callout of the link, and no selection.
+            mayMove && 'select-none [-webkit-touch-callout:none]',
             drag.dragged === page.id && 'opacity-50',
           ]}
           onfocus={(event: FocusEvent) => {
@@ -421,6 +440,7 @@
       {/each}
     </ul>
   {/if}
+  <p class="sr-only" aria-live="polite">{said}</p>
   {#if drag.dragged && drag.at}
     <!-- The page dragged, with the pointer. -->
     <div

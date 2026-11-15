@@ -247,7 +247,7 @@ export class WikiStore {
         else [this.missing, this.status] = [true, 'failed'];
         break;
       case 'pages':
-        for (const page of change.pages) this.#takePage(page);
+        for (const page of change.pages) this.#receive(page);
         break;
       case 'blocksDeleted':
         this.#writes.forget(change.blockIds, 'others');
@@ -263,6 +263,11 @@ export class WikiStore {
       default:
         break;
     }
+  }
+
+  /** A version of a page from the backend: shown, unless a move of it is under way. */
+  #receive(page: WikiPage): void {
+    if (this.#writes.receive(page)) this.#takePage(page);
   }
 
   /** A page made or changed: the newer of the two is kept, and the open page is told. */
@@ -291,7 +296,7 @@ export class WikiStore {
       [this.wiki, this.members] = [wiki, members];
       const shown = this.openPage;
       const title = (shown && this.page(shown.pageId)?.title) ?? '';
-      this.pages = reread(this.pages, pages, before);
+      this.pages = reread(this.pages, pages, before, (page) => this.#writes.receive(page));
       if (shown && !this.page(shown.pageId)) shown.gone('others', title);
       else if (shown) void shown.refresh();
     } catch (error) {
@@ -352,7 +357,7 @@ export class WikiStore {
     };
     shown(looks);
     try {
-      this.#takePage(await this.#wikis.patchPage(this.wikiId, pageId, looks));
+      this.#receive(await this.#wikis.patchPage(this.wikiId, pageId, looks));
     } catch (error) {
       shown(back);
       throw error;

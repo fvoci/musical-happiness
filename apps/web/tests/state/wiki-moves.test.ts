@@ -147,6 +147,34 @@ describe('moving a page in memory', () => {
   });
 });
 
+describe('the rules of a move in memory, as the server’s', () => {
+  it('lets a page deeper than a lowered limit move as long as no deeper, and writes nothing for no move', async () => {
+    const made = await openWiki();
+    const wikis = made.backend.wiki;
+    const a = await made.page('A');
+    const b = await made.page('B', a);
+    const c = await made.page('C', b);
+    const sibling = await made.page('D', b);
+    const top = await made.page('E');
+    // C and D at depth 3, below a limit of 2 lowered since: they move, no deeper.
+    wikis.limits = { depth: 2, pages: 100 };
+    await wikis.movePage(made.wikiId, c, { parentId: b, after: sibling });
+    await wikis.movePage(made.wikiId, c, { parentId: a });
+    await wikis.movePage(made.wikiId, sibling, { parentId: c });
+    const refused = await rejection(wikis.movePage(made.wikiId, top, { parentId: c }));
+    expect(refused.reason).toBe('page_too_deep');
+    const told: string[] = [];
+    const stop = made.backend.watchBoard(made.wikiId, (change) => {
+      if (change.kind === 'pages') told.push(...change.pages.map((page) => page.id));
+    });
+    const before = (await wikis.page(made.wikiId, c)).updateAt;
+    await wikis.movePage(made.wikiId, c, { parentId: a });
+    await settle();
+    stop();
+    expect([(await wikis.page(made.wikiId, c)).updateAt, told]).toEqual([before, []]);
+  });
+});
+
 describe('moving a page in an open wiki', () => {
   it('shows the move at once, and undoes it back to where the page was', async () => {
     const made = await openWiki();
@@ -172,6 +200,23 @@ describe('moving a page in an open wiki', () => {
     await made.store.load();
     made.backend.wiki.failNext('movePage', new BackendError(500, {}));
     expect(await made.store.movePage(c, { parentId: a })).toBe(false);
+    expect(titles(made.store.pages)).toEqual(['A', 'B', 'C']);
+
+    // Two moves of one page asked for at once: the first refused, the second taken.
+    made.backend.wiki.failNext('movePage', new BackendError(500, {}));
+    const first = made.store.movePage(c, { parentId: a });
+    const second = made.store.movePage(c, { parentId: b });
+    // The second waits for the first, which shows at once.
+    expect(titles(made.store.pages)).toEqual(['A', '  C', 'B']);
+    await Promise.all([first, second]);
+    expect(titles(made.store.pages)).toEqual(['A', 'B', '  C']);
+    await made.workspace.undoLast();
+    expect(titles(made.store.pages)).toEqual(['A', 'B', 'C']);
+    // Both refused: back where it was before both, whatever was guessed between.
+    made.backend.wiki.failNext('movePage', new BackendError(500, {}));
+    const refusedFirst = made.store.movePage(c, { parentId: a });
+    const refusedSecond = made.store.movePage(c, { parentId: c });
+    await Promise.all([refusedFirst, refusedSecond]);
     expect(titles(made.store.pages)).toEqual(['A', 'B', 'C']);
 
     // C was after B; B is moved away meanwhile: back last at the top.

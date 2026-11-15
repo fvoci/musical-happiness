@@ -9,8 +9,8 @@
   import { untrack } from 'svelte';
 
   import { m } from '$lib/i18n/paraglide/messages.js';
-  import { mayGoBelow, type PagePlace } from '$lib/logic/page-moves.ts';
-  import { pageRows } from '$lib/logic/page-tree.ts';
+  import type { PagePlace } from '$lib/logic/page-moves.ts';
+  import { pageRows, withDescendants } from '$lib/logic/page-tree.ts';
   import type { WikiPage, WikiStore } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
   import * as Dialog from '$lib/ui/dialog/index.js';
@@ -18,18 +18,23 @@
   interface Props {
     open: boolean;
     wiki: WikiStore;
-    /** The page to move; the dialog shows nothing without one. */
-    page: WikiPage | undefined;
+    /** The page to move, as it is now; the dialog shows nothing without one. */
+    pageId: string | undefined;
     onMove: (pageId: string, to: PagePlace) => void;
   }
 
-  let { open = $bindable(), wiki, page, onMove }: Props = $props();
+  let { open = $bindable(), wiki, pageId, onMove }: Props = $props();
 
   const uid = $props.id();
   /** The page chosen to go below; empty for the top of the wiki. */
   let parentId = $state('');
 
+  const page = $derived(wiki.page(pageId));
   const rows = $derived(pageRows(wiki.tree, () => true));
+  /** It and the pages below it: none of them is a place for it. */
+  const moving = $derived(
+    pageId === undefined ? new Set<string>() : withDescendants(wiki.pages, pageId),
+  );
   const titleOf = (one: WikiPage): string => one.title || m.wiki_page_untitled();
 
   /** Each opening starts from where the page is. */
@@ -67,7 +72,7 @@
             <span class="font-medium">{m.wiki_move_top()}</span>
           </label>
           {#each rows as row (row.page.id)}
-            {@const allowed = mayGoBelow(wiki.pages, page.id, row.page.id)}
+            {@const allowed = !moving.has(row.page.id)}
             <label
               class={[
                 'flex min-h-8 items-center gap-2 rounded-sm px-2 roomy:min-h-touch',
@@ -81,6 +86,7 @@
                 name="{uid}-parent"
                 value={row.page.id}
                 disabled={!allowed}
+                aria-label={m.wiki_move_target({ title: titleOf(row.page), level: row.depth + 1 })}
                 bind:group={parentId}
               />
               {#if row.page.icon}<span aria-hidden="true">{row.page.icon}</span>{/if}

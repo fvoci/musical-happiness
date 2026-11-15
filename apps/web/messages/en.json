@@ -1262,5 +1262,7 @@
   "wiki_move_confirm": "Move",
   "wiki_move_drop_hint": "Drop to put the page here",
   "app_problem_page_too_deep": "Pages go no more than {limit} levels deep. Nothing was changed.",
-  "app_problem_too_many_pages": "A wiki holds no more than {limit} pages. Nothing was changed."
+  "app_problem_too_many_pages": "A wiki holds no more than {limit} pages. Nothing was changed.",
+  "wiki_moved_to": "“{title}” moved: {position} of {count}, level {level}",
+  "wiki_move_target": "{title}, level {level}"
 }

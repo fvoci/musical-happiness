@@ -151,12 +151,33 @@ export class PageTree {
     }
   }
 
-  /** Refuses a move of the page below itself, below a page below it, or too deep. */
+  /**
+   * Refuses a move of the page below itself, below a page below it, or deeper
+   * than the limit and than it is (a limit lowered since leaves it movable).
+   */
   checkMove(pageId: string, parentId: string, limits: PageLimits): void {
     if (parentId !== '' && this.below(pageId).includes(parentId)) {
       fail(400, 'the parent is the page itself or below it', { field: 'parentId' });
     }
-    this.checkRoom(parentId, this.height(pageId), 0, limits);
+    const height = this.height(pageId);
+    const deepest = this.depth(parentId) + height;
+    if (deepest > limits.depth && deepest > this.depth(pageId) + height - 1) {
+      refuseLimit('page_too_deep', limits.depth);
+    }
+    this.checkRoom(parentId, 0, 0, limits);
+  }
+
+  /** Whether the page is already below `parentId` where `after` says: a move there changes nothing. */
+  isAt(pageId: string, parentId: string, after: string | undefined): boolean {
+    const others = this.siblings(parentId, pageId);
+    let at = others.length;
+    if (after === '') at = 0;
+    else if (after !== undefined) {
+      const found = others.findIndex((page) => page.id === after);
+      if (found < 0) fail(400, 'no other page of the same parent', { field: 'after' });
+      at = found + 1;
+    }
+    return this.siblings(parentId).findIndex((page) => page.id === pageId) === at;
   }
 
   /** The pages below `parentId` but `except`, in the order they are listed in. */

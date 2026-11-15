@@ -262,6 +262,8 @@ export class MemoryWikis implements Wikis {
     const parentId = to.parentId === wikiId ? '' : (to.parentId ?? '');
     const tree = this.#tree(wikiId);
     tree.checkMove(pageId, parentId, this.limits);
+    // Where it is already: nothing is written, and nobody is told.
+    if (page.parentId === parentId && tree.isAt(pageId, parentId, to.after)) return detailOf(page);
     const place = tree.place(parentId, to.after, pageId);
     const renumbered = this.#writePlace(page, place);
     page.parentId = parentId;

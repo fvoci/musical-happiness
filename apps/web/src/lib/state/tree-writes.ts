@@ -20,6 +20,7 @@ import {
 } from './backend.ts';
 import type { PageStore } from './page.svelte.ts';
 import { unlessGone } from './wiki-parts.ts';
+import { PendingWrites } from './write.ts';
 import type { Workspace } from './workspace.svelte.ts';
 
 /** What the writes of the tree need of the wiki's store. */
@@ -160,7 +161,22 @@ export class TreeWrites {
    * Moves a page, with every page below it, where `to` says: shown at once,
    * undone as one step back to where it was. False when it was refused (told).
    */
-  async movePage(pageId: string, to: PagePlace): Promise<boolean> {
+  movePage(pageId: string, to: PagePlace): Promise<boolean> {
+    // One after another, as asked for: each starts from where the one before left the
+    // page, and goes back there when undone.
+    // Nothing under way: shown at once.
+    const turn =
+      this.#queued === 0
+        ? this.#movePage(pageId, to)
+        : this.#queue.then(() => this.#movePage(pageId, to));
+    this.#queued += 1;
+    this.#queue = turn.finally(() => {
+      this.#queued -= 1;
+    });
+    return turn;
+  }
+
+  async #movePage(pageId: string, to: PagePlace): Promise<boolean> {
     if (!movesAnywhere(this.#host.pages(), pageId, to)) return true;
     const back = placeOf(this.#host.pages(), pageId);
     if (!back) return false;
@@ -177,18 +193,54 @@ export class TreeWrites {
     }
   }
 
-  /** Shows the page where `to` says and moves it there; on a refusal it is shown back and rejects. */
+  /** The moves of a page under way, by page. */
+  readonly #moving = new Map<string, number>();
+  /** Versions of a page from the backend while a move of it is under way: held. */
+  readonly #pending = new PendingWrites<WikiPage>();
+  /** A page as it was shown before the first of its moves under way. */
+  readonly #unmoved = new Map<string, WikiPage>();
+  /** The moves asked for, one after another; each ends without rejecting. */
+  #queue: Promise<unknown> = Promise.resolve();
+  /** How many of them have not ended. */
+  #queued = 0;
+
+  /**
+   * A version of a page from the backend (an answer, a change heard, a
+   * reading): true to show it now, false while a move of it is under way and
+   * it is held, to be shown when the last move comes back.
+   */
+  receive(page: WikiPage): boolean {
+    return this.#pending.receive(page);
+  }
+
+  /**
+   * Shows the page where `to` says and moves it there. Once its last move
+   * under way (an undo's among them) comes back, the newest version the
+   * backend gave of it is shown, or, all of them refused, the page as it was
+   * before them. Rejects when this move was refused.
+   */
   async #move(pageId: string, to: PagePlace): Promise<void> {
-    const was = this.#page(pageId);
+    const shown = this.#page(pageId);
+    if (shown && !this.#moving.has(pageId)) this.#unmoved.set(pageId, shown);
+    this.#moving.set(pageId, (this.#moving.get(pageId) ?? 0) + 1);
+    this.#pending.begin(pageId);
     this.#host.setPages(moved(this.#host.pages(), pageId, to));
+    let answer: WikiPage | undefined;
     try {
-      this.#host.takePage(await this.#host.wikis().movePage(this.#host.wikiId, pageId, to));
-      // Its siblings numbered anew are told of apart: until then, read the tree again.
-      if (!isPlaced(this.#host.pages(), pageId, to)) this.#host.reread();
-    } catch (error) {
-      if (was)
-        this.#host.setPages(this.#host.pages().map((page) => (page.id === pageId ? was : page)));
-      throw error;
+      answer = await this.#host.wikis().movePage(this.#host.wikiId, pageId, to);
+    } finally {
+      const latest = this.#pending.end(pageId, answer);
+      const left = (this.#moving.get(pageId) ?? 1) - 1;
+      if (left > 0) this.#moving.set(pageId, left);
+      else {
+        this.#moving.delete(pageId);
+        const unmoved = this.#unmoved.get(pageId);
+        this.#unmoved.delete(pageId);
+        const show = latest ?? unmoved;
+        if (show) this.#host.takePage(show);
+        // Its siblings numbered anew are told of apart: until then, read the tree again.
+        if (answer && !isPlaced(this.#host.pages(), pageId, to)) this.#host.reread();
+      }
     }
   }
 

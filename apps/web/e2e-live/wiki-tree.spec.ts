@@ -64,7 +64,7 @@ test('pages moved with the keys, from "Move…" and dragged are where they were 
     .toEqual(['Welcome', '  Getting started', 'Travel', 'Policies']);
   await pageAction(page, 'Welcome', 'move');
   const dialog = page.getByTestId('move-page');
-  await dialog.getByRole('radio', { name: 'Policies' }).check();
+  await dialog.getByRole('radio', { name: 'Policies, level 1' }).check();
   await dialog.getByRole('button', { name: 'Move', exact: true }).click();
   // Gone with its backdrop, which would take the press of the drag.
   await expect(dialog).toBeHidden();

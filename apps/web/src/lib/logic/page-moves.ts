@@ -1,15 +1,15 @@
 /**
  * Moving a page in its wiki's tree, as the reader asks for it: the place a
  * page is at (to go back to), the place a step of the keyboard takes it to
- * (up, down, in and out), the pages a page may go below, and the tree as it
- * will be once the server takes the move (shown at once).
+ * (up, down, in and out), and the tree as it will be once the server takes
+ * the move (shown at once).
  *
  * A place is said as the server takes it (`movePage`): below `parentId`
  * (empty for the top), right after `after` (empty for the first place,
  * left out for the last).
  */
 import { orderBetween } from './page-order.ts';
-import { comparePlaces, withDescendants, type PlacedPage } from './page-tree.ts';
+import { comparePlaces, type PlacedPage } from './page-tree.ts';
 
 /** Where a page goes, as `movePage` takes it. */
 export interface PagePlace {
@@ -68,15 +68,6 @@ export function stepped(
   }
 }
 
-/** Whether the page may go below `parentId`: neither itself nor a page below it. */
-export function mayGoBelow(
-  pages: readonly PlacedPage[],
-  pageId: string,
-  parentId: string,
-): boolean {
-  return parentId === '' || !withDescendants(pages, pageId).has(parentId);
-}
-
 /** Whether the page is below `to.parentId` at the place `to.after` says. */
 export function isPlaced(pages: readonly PlacedPage[], pageId: string, to: PagePlace): boolean {
   const now = placeOf(pages, pageId);
@@ -100,10 +91,10 @@ export function movesAnywhere(
 
 /**
  * The pages as they will be once the page is moved: below its new parent,
- * at an order between its new neighbours, a write newer than what it was. Where they have no order between
+ * at an order between its new neighbours. Where they have no order between
  * them the server numbers them anew, and tells; meanwhile it goes last.
  */
-export function moved<P extends PlacedPage & { updateAt: number }>(
+export function moved<P extends PlacedPage>(
   pages: readonly P[],
   pageId: string,
   to: PagePlace,
@@ -118,11 +109,7 @@ export function moved<P extends PlacedPage & { updateAt: number }>(
   } catch {
     order = '~';
   }
-  // One past what it was, as the server's write is at least: an echo of an earlier
-  // write of the page loses to it, and the answer wins.
   return pages.map((page) =>
-    page.id === pageId
-      ? { ...page, parentId: to.parentId, order, updateAt: page.updateAt + 1 }
-      : page,
+    page.id === pageId ? { ...page, parentId: to.parentId, order } : page,
   );
 }

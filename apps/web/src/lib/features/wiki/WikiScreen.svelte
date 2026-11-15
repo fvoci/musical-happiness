@@ -134,7 +134,7 @@
   /** A page is being made: a second click does not make another. */
   let creating = $state(false);
   /** The page "Move…" asks a place for. */
-  let moving = $state<WikiPage | undefined>(undefined);
+  let moving = $state<string | undefined>(undefined);
   let movingOpen = $state(false);
 
   /** Moves a page; the page it goes below unfolds, so that it stays in sight. */
@@ -250,7 +250,7 @@
       {onDelete}
       onMove={move}
       onMoveTo={(chosen: WikiPage) => {
-        [moving, movingOpen] = [chosen, true];
+        [moving, movingOpen] = [chosen.id, true];
       }}
       busy={creating}
     />
@@ -319,6 +319,6 @@
 <MovePageDialog
   bind:open={movingOpen}
   {wiki}
-  page={moving}
+  pageId={moving}
   onMove={(pageId: string, to: PagePlace) => void move(pageId, to)}
 />

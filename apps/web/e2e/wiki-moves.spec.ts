@@ -97,10 +97,10 @@ test.describe('a page moved', () => {
     const dialog = page.getByTestId('move-page');
     await expect(dialog).toContainText('Move “Welcome”');
     // Neither itself nor a page below it.
-    await expect(dialog.getByRole('radio', { name: 'Welcome' })).toBeDisabled();
-    await expect(dialog.getByRole('radio', { name: 'Getting started' })).toBeDisabled();
+    await expect(dialog.getByRole('radio', { name: 'Welcome, level 1' })).toBeDisabled();
+    await expect(dialog.getByRole('radio', { name: 'Getting started, level 2' })).toBeDisabled();
     await expect(dialog.getByRole('radio', { name: 'Top of the wiki' })).toBeChecked();
-    await dialog.getByRole('radio', { name: 'Travel' }).check();
+    await dialog.getByRole('radio', { name: 'Travel, level 1' }).check();
     await dialog.getByRole('button', { name: 'Move', exact: true }).click();
     await expect(dialog).toBeHidden();
     await showTree(page);
@@ -161,6 +161,35 @@ test.describe('a page moved', () => {
     ]);
   });
 
+  test('after the last page of a level, as deep as the pointer is far in', async ({
+    page,
+  }, info) => {
+    test.skip(touch(info), 'a mouse');
+    await openApp(page);
+    await wikiWithPages(page);
+    const drag = async (to: { x: number; y: number }): Promise<void> => {
+      const from = await pointOn(row(page, 'Travel'));
+      await page.mouse.move(from.x, from.y);
+      await page.mouse.down();
+      await page.mouse.move(from.x + 4, from.y - 6, { steps: 3 });
+      await page.mouse.move(to.x, to.y, { steps: 6 });
+      await nextFrame(page);
+    };
+    // The lower quarter of "Getting started", the last below "Welcome": far in, after it.
+    const last = row(page, 'Getting started');
+    const box = await last.boundingBox();
+    if (!box) throw new Error('no row');
+    await drag({ x: box.x + box.width / 2, y: box.y + box.height * 0.9 });
+    await expect(last).toHaveAttribute('data-drop', 'after');
+    // Far left: after "Welcome", at the top.
+    await page.mouse.move(box.x + 2, box.y + box.height * 0.9, { steps: 3 });
+    await nextFrame(page);
+    await page.mouse.up();
+    await expect
+      .poll(() => treeShape(page))
+      .toEqual(['Welcome', '  Getting started', 'Travel', 'Policies']);
+  });
+
   test('dragged with a finger that rests on it first', async ({ page }, info) => {
     test.skip(!touch(info), 'a finger');
     await openApp(page);
@@ -189,7 +218,7 @@ test.describe('a page moved at a phone’s width', () => {
     await wikiWithPages(page);
     await pageAction(page, 'Policies', 'move');
     const dialog = page.getByTestId('move-page');
-    await dialog.getByRole('radio', { name: 'Welcome' }).check();
+    await dialog.getByRole('radio', { name: 'Welcome, level 1' }).check();
     await dialog.getByRole('button', { name: 'Move', exact: true }).click();
     await showTree(page);
     await expect
