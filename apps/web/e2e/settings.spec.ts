@@ -9,7 +9,15 @@
  */
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
-import { openApp, shell, showSidebar, sidebar, stageOf, strip, topBar } from './shell.support.ts';
+import {
+  openApp,
+  shell,
+  showSidebar,
+  sidebar,
+  stageOf,
+  strip,
+  undoInBar,
+} from './shell.support.ts';
 
 const dialog = (page: Page): Locator => page.getByTestId('settings-dialog');
 const setting = (page: Page, name: string): Locator =>
@@ -125,7 +133,7 @@ test('density: "Comfortable" makes what is pressed 44px, "Compact" 32px, and a r
   hasTouch,
 }) => {
   await openApp(page);
-  const undo = topBar(page).getByTestId('undo');
+  const undo = undoInBar(page);
   const height = async (): Promise<number | undefined> => (await undo.boundingBox())?.height;
   // "Automatic" follows the pointer: roomy for a finger, compact for a mouse.
   expect(await height()).toBe(hasTouch ? 44 : 32);

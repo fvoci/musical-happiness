@@ -11,12 +11,17 @@
 
   Its editors find the board's deleted cards here ("Deleted cards").
 
+  A narrow pane (a phone) has room for the title only if undo, redo and the
+  deleted cards are lines of a menu ("…"): there are no keys for them there.
+  From where two kanban columns fit they are buttons of their own.
+
   The title is a field for a reader who may change the board, and plain text
   for one who may not; a board that can only be read says so next to it. The
   button that slides the sidebar in stands at the left where nothing else on
   the page opens it (a compact page).
 -->
 <script lang="ts">
+  import EllipsisIcon from '@lucide/svelte/icons/ellipsis';
   import MenuIcon from '@lucide/svelte/icons/menu';
   import Redo2Icon from '@lucide/svelte/icons/redo-2';
   import Share2Icon from '@lucide/svelte/icons/share-2';
@@ -27,6 +32,8 @@
   import { shortcutKeys, shortcutLabel } from '$lib/keys.ts';
   import PresenceRoster from './PresenceRoster.svelte';
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
+  import ActionMenu from '$lib/components/menu/ActionMenu.svelte';
+  import type { MenuAction } from '$lib/components/menu/actions.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { cardTrash, type Trash, type Workspace } from '$lib/state/index.ts';
 
@@ -73,6 +80,36 @@
   const canShare = $derived(store?.canShare === true && store.board?.isTemplate !== true);
   /** The trash of cards is for the board's editors, as the server has it. */
   const canRestoreCards = $derived(store?.canEdit === true);
+
+  /** The narrow pane's menu: the same undo, redo and trash as the buttons it stands for. */
+  const narrowActions = $derived.by<MenuAction[]>(() => {
+    const list: MenuAction[] = [
+      {
+        id: 'undo',
+        label: m['UndoRedoHotKeys.canUndo'](),
+        icon: Undo2Icon,
+        disabled: !workspace.canUndo,
+        run: () => void workspace.undoLast(),
+      },
+      {
+        id: 'redo',
+        label: m['UndoRedoHotKeys.canRedo'](),
+        icon: Redo2Icon,
+        disabled: !workspace.canRedo,
+        run: () => void workspace.redoLast(),
+      },
+    ];
+    if (canRestoreCards) {
+      list.push({
+        id: 'card-trash',
+        label: m.shell_trash_cards(),
+        icon: Trash2Icon,
+        separated: true,
+        run: openTrash,
+      });
+    }
+    return list;
+  });
 
   function openTrash(): void {
     if (!store) return;
@@ -181,6 +218,7 @@
       label={m.shell_trash_cards()}
       data-testid="open-card-trash"
       aria-haspopup="dialog"
+      class="@max-columns/pane:hidden"
       onclick={openTrash}
     >
       <Trash2Icon />
@@ -189,7 +227,7 @@
 
   {@render search?.(workspace)}
 
-  <!-- An undo or redo waiting for a write says so on both, until it is carried out. -->
+  <!-- An undo or redo waiting for a write says so on both (on the menu in a narrow pane), until it is carried out. -->
   <IconButton
     label={m['UndoRedoHotKeys.canUndo']()}
     data-testid="undo"
@@ -197,7 +235,7 @@
     aria-keyshortcuts={shortcutKeys('Z')}
     disabled={!workspace.canUndo}
     aria-busy={workspace.undoBusy}
-    class="aria-busy:motion-safe:animate-pulse aria-busy:motion-reduce:opacity-60"
+    class="aria-busy:motion-safe:animate-pulse aria-busy:motion-reduce:opacity-60 @max-columns/pane:hidden"
     onclick={() => void workspace.undoLast()}
   >
     <Undo2Icon />
@@ -209,11 +247,24 @@
     aria-keyshortcuts={shortcutKeys('Z', { shift: true })}
     disabled={!workspace.canRedo}
     aria-busy={workspace.undoBusy}
-    class="aria-busy:motion-safe:animate-pulse aria-busy:motion-reduce:opacity-60"
+    class="aria-busy:motion-safe:animate-pulse aria-busy:motion-reduce:opacity-60 @max-columns/pane:hidden"
     onclick={() => void workspace.redoLast()}
   >
     <Redo2Icon />
   </IconButton>
+  <ActionMenu title={m.shell_bar_more()} actions={narrowActions}>
+    {#snippet trigger(props: Record<string, unknown>)}
+      <IconButton
+        {...props}
+        label={m.shell_bar_more()}
+        data-testid="bar-menu"
+        aria-busy={workspace.undoBusy}
+        class="aria-busy:motion-safe:animate-pulse aria-busy:motion-reduce:opacity-60 @columns/pane:hidden"
+      >
+        <EllipsisIcon />
+      </IconButton>
+    {/snippet}
+  </ActionMenu>
 </header>
 
 {#if store && canRestoreCards}

@@ -112,6 +112,28 @@ export const boardMenu = (page: Page, title: string): Locator =>
 export const categoryMenu = (page: Page, name: string): Locator =>
   sidebar(page).getByRole('button', { name: `Menu of the category ${name}`, exact: true });
 
+/** What shows of undo in the top bar: its own button, or on a phone the bar's menu that holds it. */
+export const undoInBar = (page: Page): Locator =>
+  topBar(page)
+    .getByTestId(/^(undo|bar-menu)$/)
+    .filter({ visible: true });
+
+/**
+ * Undo, redo or the deleted cards, from the top bar: their own buttons where the pane has
+ * room for them, else the lines of the bar's menu ("…"), as on a phone.
+ */
+export async function pressInBar(
+  page: Page,
+  command: 'undo' | 'redo' | 'card-trash',
+): Promise<void> {
+  const button = topBar(page).getByTestId(command === 'card-trash' ? 'open-card-trash' : command);
+  if (await button.isVisible()) {
+    await button.click();
+    return;
+  }
+  await chooseFromMenu(page, topBar(page).getByTestId('bar-menu'), command);
+}
+
 export async function nextFrame(page: Page): Promise<void> {
   await page.evaluate(
     () =>

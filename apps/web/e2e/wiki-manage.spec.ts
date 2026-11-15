@@ -8,7 +8,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
 import { screensDir } from './screens.ts';
-import { hideSidebar, openApp, showSidebar, sidebar } from './shell.support.ts';
+import { hideSidebar, openApp, pressInBar, showSidebar, sidebar } from './shell.support.ts';
 import {
   goInside,
   hideTree,
@@ -92,7 +92,7 @@ test.describe('a wiki looked after', () => {
     await expect(sidebar(page).getByRole('link', { name: 'Guide, wiki' })).toBeVisible();
     await hideSidebar(page);
 
-    await page.getByTestId('undo').click();
+    await pressInBar(page, 'undo');
     await showSidebar(page);
     await expect(sidebar(page).getByRole('link', { name: 'Handbook, wiki' })).toBeVisible();
     await hideSidebar(page);

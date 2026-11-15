@@ -128,30 +128,60 @@ test('a wiki: the pages of its tree are a finger high where they are pressed', a
   await expectPageStill(page);
 });
 
+/** Of the bar's undo, redo and deleted cards, and its menu, those that show. */
+async function shownInBar(page: Page): Promise<string[]> {
+  return page
+    .getByTestId('top-bar')
+    .locator(
+      '[data-testid="undo"], [data-testid="redo"], [data-testid="open-card-trash"], [data-testid="bar-menu"]',
+    )
+    .evaluateAll((buttons) =>
+      buttons
+        .filter((button) => button.getBoundingClientRect().width > 0)
+        .map((button) => (button as HTMLElement).dataset.testid ?? ''),
+    );
+}
+
 for (const width of [360, 393]) {
   test.describe(`a phone held upright, ${width} wide`, () => {
     // 393: an iPhone's Safari with its bars folded; 360: the narrowest Android phones.
     test.use({ viewport: { width, height: 800 }, hasTouch: true });
 
-    /** The bar's buttons, a finger wide and on the screen, and none of them over the title. */
+    /**
+     * The bar's buttons, a finger wide and on the screen, none of them over another or
+     * over the title; undo, redo and the deleted cards are in the menu at the end.
+     */
     async function expectBarFits(page: Page, people: string): Promise<void> {
       const bar = page.getByTestId('top-bar');
-      for (const id of ['open-sidebar', people, 'share-board', 'undo', 'redo']) {
+      const ids = ['open-sidebar', people, 'share-board', 'open-search', 'bar-menu'];
+      const boxes = [];
+      for (const id of ids) {
         await expectFingerSized(bar.getByTestId(id), id);
+        const box = await bar.getByTestId(id).boundingBox();
+        if (!box) throw new Error(`no ${id}`);
+        boxes.push(box);
       }
-      const redo = await bar.getByTestId('redo').boundingBox();
-      expect((redo?.x ?? 0) + (redo?.width ?? 0)).toBeLessThanOrEqual(width);
+      expect(await shownInBar(page)).toEqual(['bar-menu']);
+      for (const [index, box] of boxes.entries()) {
+        const next = boxes[index + 1];
+        if (next) expect(box.x + box.width, ids[index]).toBeLessThanOrEqual(next.x);
+      }
+      const last = boxes.at(-1);
+      expect((last?.x ?? 0) + (last?.width ?? 0)).toBeLessThanOrEqual(width);
       const title = await bar.getByTestId('board-title').boundingBox();
       const group = await bar.getByTestId('board-people').boundingBox();
       if (!title || !group) throw new Error('no title or people');
       expect(title.x + title.width).toBeLessThanOrEqual(group.x);
-      // Room for the start of the name: a few letters among six buttons at 360, a word at 393.
-      expect(title.width).toBeGreaterThanOrEqual(width === 360 ? 24 : 56);
+      // Room for the name: 74 pixels at 360 and 107 at 393 in Chromium, alone or not (14 at
+      // both while undo, redo and the deleted cards were buttons beside the search's).
+      expect(title.width).toBeGreaterThanOrEqual(width === 360 ? 70 : 100);
       await expectPageStill(page);
     }
 
     test('alone or with others, the bar fits and the title keeps its room', async ({ page }) => {
       await openApp(page);
+      // The search's button comes once the server is known to search.
+      await expect(page.getByTestId('open-search')).toBeVisible();
       // Alone: the members, as a figure and the number.
       await expectBarFits(page, 'board-members-count');
       await expect(page.getByTestId('board-presence')).toBeHidden();
@@ -163,3 +193,64 @@ for (const width of [360, 393]) {
     });
   });
 }
+
+test.describe('the menu of a phone’s bar', () => {
+  test.use({ viewport: { width: 393, height: 800 }, hasTouch: true });
+
+  const line = (page: Page, action: string) =>
+    page.getByRole('menu').locator(`[data-action="${action}"]`);
+
+  test('undoes and redoes as the buttons do, and offers neither with nothing to', async ({
+    page,
+  }) => {
+    await openApp(page);
+    const menu = page.getByTestId('bar-menu');
+    const title = page.getByTestId('board-title');
+    await menu.click();
+    await expect(line(page, 'undo')).toBeDisabled();
+    await expect(line(page, 'redo')).toBeDisabled();
+    await page.keyboard.press('Escape');
+    await expect(menu).toBeFocused();
+
+    await title.fill('Launch plan');
+    await title.press('Enter');
+    await menu.click();
+    await expect(line(page, 'redo')).toBeDisabled();
+    await line(page, 'undo').click();
+    await expect(title).toHaveValue('Project Tasks');
+    // The sheet gives the focus back to what opened it.
+    await expect(menu).toBeFocused();
+    await menu.click();
+    await expect(line(page, 'undo')).toBeDisabled();
+    await line(page, 'redo').click();
+    await expect(title).toHaveValue('Launch plan');
+  });
+
+  test('opens the deleted cards, and the focus comes back to the menu', async ({ page }) => {
+    await openApp(page);
+    const menu = page.getByTestId('bar-menu');
+    await menu.click();
+    await line(page, 'card-trash').click();
+    const trash = page.getByTestId('card-trash');
+    await expect(trash).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(trash).toBeHidden();
+    await expect(menu).toBeFocused();
+  });
+
+  test('where two columns fit, the buttons and not the menu: each once on either side', async ({
+    page,
+  }) => {
+    await openApp(page);
+    await expect(page.getByTestId('open-search')).toBeVisible();
+    // A compact page's pane is the whole window: 544 is where two kanban columns fit.
+    for (const [width, shown] of [
+      [543, ['bar-menu']],
+      [544, ['open-card-trash', 'undo', 'redo']],
+    ] as const) {
+      await page.setViewportSize({ width, height: 800 });
+      await expect.poll(() => shownInBar(page)).toEqual(shown);
+      await expectPageStill(page);
+    }
+  });
+});

@@ -17,6 +17,7 @@ import {
   hideSidebar,
   openApp,
   pane,
+  pressInBar,
   READ_ONLY_BOARD,
   shell,
   showSidebar,
@@ -24,6 +25,7 @@ import {
   stageOf,
   strip,
   topBar,
+  undoInBar,
 } from './shell.support.ts';
 import { screensDir } from './screens.ts';
 
@@ -180,14 +182,14 @@ test.describe('the top bar', () => {
     await title.press('Enter');
     await expect(undo).toBeEnabled();
 
-    await undo.click();
+    await pressInBar(page, 'undo');
     await expect(title).toHaveValue(FIRST_BOARD);
     await expect(redo).toBeEnabled();
-    await redo.click();
+    await pressInBar(page, 'redo');
     await expect(title).toHaveValue('One');
 
     // The keys, pressed outside of any field.
-    await undo.focus();
+    await undoInBar(page).focus();
     await page.keyboard.press(await primaryKey(page, 'z'));
     await expect(title).toHaveValue(FIRST_BOARD);
     await page.keyboard.press(await primaryKey(page, 'Shift+z'));
@@ -198,7 +200,7 @@ test.describe('the top bar', () => {
     const other = modifier === 'Meta' ? 'Control' : 'Meta';
     await title.fill('Two');
     await title.press('Enter');
-    await undo.focus();
+    await undoInBar(page).focus();
     await page.keyboard.press(`${other}+z`);
     await page.keyboard.press(await primaryKey(page, 'z'));
     await expect(title).toHaveValue('One');

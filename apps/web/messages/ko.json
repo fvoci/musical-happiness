@@ -445,6 +445,7 @@
   "shell_trash": "휴지통",
   "shell_trash_boards_description": "관리자였던 보드와 위키입니다. 휴지통은 일정 기간이 지나면 비워집니다.",
   "shell_trash_cards": "지운 카드",
+  "shell_bar_more": "더 보기",
   "shell_trash_cards_description": "이 보드에서 지운 카드입니다. 휴지통은 일정 기간이 지나면 비워집니다.",
   "shell_trash_empty": "비어 있습니다.",
   "shell_trash_deleted_by": "지운 사람: {name}",

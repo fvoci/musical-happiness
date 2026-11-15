@@ -18,6 +18,7 @@ import {
   stageOf,
   strip,
   topBar,
+  undoInBar,
 } from './shell.support.ts';
 
 /** What the page's development handle offers this test (src/app/backend.ts). Only what is used. */
@@ -460,7 +461,7 @@ test.describe('the search of cards and pages', () => {
 
   test('without a search server there is no button and the keys open nothing', async ({ page }) => {
     await openApp(page, '/?search=0');
-    await expect(topBar(page).getByTestId('undo')).toBeVisible();
+    await expect(undoInBar(page)).toBeVisible();
     await expect(topBar(page).getByTestId('open-search')).toHaveCount(0);
     await page.keyboard.press('Control+k');
     await page.keyboard.press('Meta+k');
