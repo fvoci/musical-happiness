@@ -47,6 +47,7 @@ mod session_origin;
 mod sessions;
 mod setup;
 mod sharing;
+mod signup_lock_order;
 mod signups;
 mod subscriptions;
 mod tenancy;
