@@ -51,16 +51,22 @@ async fn a_server_serves_tables_its_role_does_not_own() {
 
 /// A server whose role does not own the tables does not start on a schema that is
 /// behind it, and names the migration to run; the owner's migration takes the lock of
-/// the server, and the server then starts.
+/// the server, and the server then starts. Whoever owns the tables.
 #[tokio::test]
 async fn a_server_waits_for_the_owner_to_migrate_a_schema_behind_it() {
     if db_type_of_the_tests() != DbType::Postgres {
         return;
     }
+    for owner in [TableOwner::Superuser, TableOwner::Role] {
+        the_owner_migrates_while_no_server_serves(owner).await;
+    }
+}
+
+async fn the_owner_migrates_while_no_server_serves(owner: TableOwner) {
     let directory = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
         .join("api-tests")
         .join(fvoci_model::new_id());
-    let database = TestDatabase::create_owned_apart(&directory, TableOwner::Superuser).await;
+    let database = TestDatabase::create_owned_apart(&directory, owner).await;
     migrate_up_to(
         database.db_type(),
         database.owner_dbconfig(),
@@ -80,7 +86,10 @@ async fn a_server_waits_for_the_owner_to_migrate_a_schema_behind_it() {
         panic!("the server started on a schema behind it");
     };
     let refusal = format!("{refused:#}");
-    assert!(refusal.contains("fvoci-server --migrate"), "{refusal}");
+    assert!(
+        refusal.contains("fvoci-server --migrate"),
+        "{owner:?}: {refusal}"
+    );
 
     fvoci_server::app::migrate_database(&config(database.owner_dbconfig()))
         .await
@@ -94,7 +103,7 @@ async fn a_server_waits_for_the_owner_to_migrate_a_schema_behind_it() {
         .expect_err("no migration while a server serves the database");
     assert!(
         format!("{busy:#}").contains("another process is the server"),
-        "{busy:#}"
+        "{owner:?}: {busy:#}"
     );
     server.shutdown().await;
     database.remove().await;

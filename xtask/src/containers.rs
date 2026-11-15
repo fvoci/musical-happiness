@@ -205,21 +205,22 @@ impl Container {
         if !inspected.succeeded {
             bail!("`docker inspect {}` failed: {}", self.name, inspected.error);
         }
-        let given: Vec<&str> = inspected.output.lines().map(str::trim).collect();
-        let missing: Vec<&str> = self
-            .environment
-            .iter()
-            .map(String::as_str)
-            .filter(|wanted| !given.contains(wanted))
-            .collect();
+        let missing = missing_environment(&self.environment, &inspected.output);
         if missing.is_empty() {
             return Ok(());
         }
+        let older = if missing
+            .iter()
+            .any(|entry| entry.starts_with("POSTGRES_USER="))
+        {
+            " (one made by an older task had the superuser fvoci, now the tests' role)"
+        } else {
+            ""
+        };
         bail!(
-            "the container {name} was not made by this task as it is now (it lacks {missing:?}): \
-             an older one, whose superuser was fvoci. Its test schemas are of no use; remove \
-             it with `docker rm --force {name}` and run again, or name another container and \
-             port with the environment",
+            "the container {name} was not made by this task as it is now: it lacks {missing:?}{older}. \
+             Remove it with `docker rm --force {name}` (its test data goes with it) and run \
+             again, or name another container and port with the environment",
             name = self.name
         )
     }
@@ -453,6 +454,17 @@ impl State {
         }
         bail!("{}", inspected.error)
     }
+}
+
+/// The entries of `wanted` that a container's environment (`given`, one `NAME=value` a
+/// line, as `docker inspect` lists it) does not have.
+fn missing_environment<'a>(wanted: &'a [String], given: &str) -> Vec<&'a str> {
+    let given: Vec<&str> = given.lines().map(str::trim).collect();
+    wanted
+        .iter()
+        .map(String::as_str)
+        .filter(|entry| !given.contains(entry))
+        .collect()
 }
 
 fn docker(arguments: &[&str]) -> Result<()> {
@@ -888,6 +900,22 @@ mod tests {
              NOCREATEROLE PASSWORD 'fvoci-test'; \
              GRANT CREATE ON DATABASE fvoci TO fvoci;",
             "made if missing, altered if there, and let make schemas"
+        );
+    }
+
+    #[test]
+    fn a_container_of_an_older_task_lacks_the_superuser_it_is_given_now() {
+        let container = Container::postgres().expect("the default container");
+        let older =
+            "POSTGRES_USER=fvoci\nPOSTGRES_PASSWORD=fvoci-test\nPOSTGRES_DB=fvoci\nPATH=/bin\n";
+        assert_eq!(
+            missing_environment(&container.environment, older),
+            ["POSTGRES_USER=postgres"]
+        );
+        let current = format!("{}\nPATH=/bin", container.environment.join("\n"));
+        assert_eq!(
+            missing_environment(&container.environment, &current),
+            Vec::<&str>::new()
         );
     }
 

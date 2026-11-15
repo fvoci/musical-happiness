@@ -134,6 +134,22 @@ pub enum StoreError {
     #[error("unsupported database schema: {0}")]
     Schema(String),
 
+    /// The database's schema is to be brought up to date, and the role the store
+    /// connects as may not: it does not own the tables. Nothing was changed.
+    #[error(
+        "the database's schema is not this server's ({reason}), and the role {role} does not \
+         own the tables of the schema {schema}: bring it up to date as the role that owns \
+         them, with the same search_path"
+    )]
+    SchemaNotOwned {
+        /// The role the store connects as.
+        role: String,
+        /// The schema the role works in.
+        schema: String,
+        /// What is to be done to the schema.
+        reason: String,
+    },
+
     /// A stored value cannot be decoded.
     #[error("corrupt value in column {column}: {reason}")]
     Corrupt {

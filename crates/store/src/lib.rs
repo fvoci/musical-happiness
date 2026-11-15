@@ -299,21 +299,39 @@ impl Store {
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::Schema`] if the database is not this server's to open, or
-    /// its schema is to be changed and the role cannot change it (it does not own the
-    /// tables), and [`StoreError::Database`] if a statement fails.
+    /// Returns [`StoreError::SchemaNotOwned`] if the schema is to be changed and the
+    /// role may not change it (it does not own the tables), [`StoreError::Schema`] if
+    /// the database is not this server's to open or the role may not read and write
+    /// its tables, and [`StoreError::Database`] if a statement fails.
     pub async fn migrate(&self) -> Result<(), StoreError> {
-        if !schema::is_current(self).await? {
-            if !schema::may_change(self).await? {
-                return Err(StoreError::Schema(
-                    "the database's schema is not this server's, and the role the server \
-                     connects as does not own its tables: bring it up to date as the role \
-                     that does (fvoci-server --migrate, with that role's dbconfig), then \
-                     start the server"
-                        .to_owned(),
-                ));
+        let state = schema::state(self).await?;
+        let may_change = schema::may_change(self).await?;
+        match state {
+            schema::SchemaState::Current if !may_change => {
+                let ungranted = schema::ungranted_tables(self).await?;
+                if !ungranted.is_empty() {
+                    let (role, schema) = schema::whereabouts(self).await?;
+                    return Err(StoreError::Schema(format!(
+                        "the role {role} may not read and write the tables {} of the schema \
+                         {schema}: grant it SELECT, INSERT, UPDATE and DELETE on them",
+                        ungranted.join(", ")
+                    )));
+                }
             }
-            schema::migrate(self, None).await?;
+            schema::SchemaState::Current => {}
+            state if !may_change => {
+                let (role, schema) = schema::whereabouts(self).await?;
+                let reason = match state {
+                    schema::SchemaState::Foreign(reason) => reason,
+                    _ => "migrations of this server are not applied yet".to_owned(),
+                };
+                return Err(StoreError::SchemaNotOwned {
+                    role,
+                    schema,
+                    reason,
+                });
+            }
+            _ => schema::migrate(self, None).await?,
         }
         data_steps::run(self).await
     }
@@ -520,6 +538,16 @@ impl Store {
             scope.fetch_optional(sql).await.map(|_| ())
         })
         .await
+    }
+
+    /// The role the store connects as and the schema it works in, for what a server
+    /// says of them; empty on SQLite.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if they cannot be read.
+    pub async fn role_and_schema(&self) -> Result<(String, String), StoreError> {
+        schema::whereabouts(self).await
     }
 
     /// The name of the role the store connects as, if the wall between organizations

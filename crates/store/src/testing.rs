@@ -238,17 +238,15 @@ impl TestDatabase {
         let superuser_url = url_of(SUPERUSER_CONN_STRING_ENV);
         let name = new_id().replace('-', "_");
         let schema = format!("t_{name}");
-        let user = |url: String| async move {
-            sqlx::query_scalar::<_, String>("SELECT current_user::text")
-                .fetch_one(&mut connect(&url).await)
-                .await
-                .unwrap_or_else(|error| panic!("reading the role of a test URL: {error}"))
-        };
-        let tests_role = user(tests_url.clone()).await;
+        let tests_role = role_of(&tests_url).await;
+        assert!(
+            !role_is_past_the_wall(&mut connect(&tests_url).await).await,
+            "{CONN_STRING_ENV} names a superuser or a role with BYPASSRLS"
+        );
         let mut connection = connect(&superuser_url).await;
         let (owner_role, owner_url, made) = match owner {
             TableOwner::Superuser => {
-                let role = user(superuser_url.clone()).await;
+                let role = role_of(&superuser_url).await;
                 (role, superuser_url.clone(), None)
             }
             TableOwner::Role => {
@@ -257,8 +255,9 @@ impl TestDatabase {
                 run(
                     &mut connection,
                     format!(
-                        "CREATE ROLE {role} LOGIN PASSWORD '{password}' NOSUPERUSER \
-                         NOBYPASSRLS NOCREATEDB NOCREATEROLE"
+                        "CREATE ROLE {} LOGIN PASSWORD '{password}' NOSUPERUSER \
+                         NOBYPASSRLS NOCREATEDB NOCREATEROLE",
+                        quoted(&role)
                     ),
                 )
                 .await;
@@ -266,15 +265,17 @@ impl TestDatabase {
                 (role.clone(), url, Some(role))
             }
         };
+        assert_ne!(owner_role, tests_role, "the tables' owner is another role");
+        let (owner_role, tests_role) = (quoted(&owner_role), quoted(&tests_role));
         run(
             &mut connection,
             format!(
-                "CREATE SCHEMA {schema} AUTHORIZATION \"{owner_role}\"; \
-                 GRANT USAGE ON SCHEMA {schema} TO \"{tests_role}\"; \
-                 ALTER DEFAULT PRIVILEGES FOR ROLE \"{owner_role}\" IN SCHEMA {schema} \
-                   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO \"{tests_role}\"; \
-                 ALTER DEFAULT PRIVILEGES FOR ROLE \"{owner_role}\" IN SCHEMA {schema} \
-                   GRANT USAGE, SELECT ON SEQUENCES TO \"{tests_role}\""
+                "CREATE SCHEMA {schema} AUTHORIZATION {owner_role}; \
+                 GRANT USAGE ON SCHEMA {schema} TO {tests_role}; \
+                 ALTER DEFAULT PRIVILEGES FOR ROLE {owner_role} IN SCHEMA {schema} \
+                   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO {tests_role}; \
+                 ALTER DEFAULT PRIVILEGES FOR ROLE {owner_role} IN SCHEMA {schema} \
+                   GRANT USAGE, SELECT ON SEQUENCES TO {tests_role}"
             ),
         )
         .await;
@@ -356,6 +357,19 @@ fn url_as_role(url: &str, role: &str, password: &str) -> String {
         .rfind('@')
         .unwrap_or_else(|| panic!("{SUPERUSER_CONN_STRING_ENV} names no role"));
     format!("{scheme}://{role}:{password}@{}", &rest[at + 1..])
+}
+
+/// The role a URL connects as.
+async fn role_of(url: &str) -> String {
+    sqlx::query_scalar::<_, String>("SELECT current_user::text")
+        .fetch_one(&mut connect(url).await)
+        .await
+        .unwrap_or_else(|error| panic!("reading the role of a test URL: {error}"))
+}
+
+/// A role's name as an identifier of a statement.
+fn quoted(role: &str) -> String {
+    format!("\"{}\"", role.replace('"', "\"\""))
 }
 
 async fn connect(url: &str) -> PgConnection {

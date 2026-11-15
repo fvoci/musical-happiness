@@ -4,7 +4,7 @@
 use std::time::Duration;
 
 use anyhow::{Context as _, bail};
-use fvoci_store::{DbType, Store};
+use fvoci_store::{DbType, Store, StoreError};
 
 use crate::config::Configuration;
 
@@ -31,11 +31,14 @@ pub(crate) async fn open_store(config: &Configuration) -> anyhow::Result<Store> 
 /// Returns an error if the database is not this server's to open, or cannot be
 /// brought up to date.
 pub(crate) async fn prepare_store(store: Store) -> anyhow::Result<Store> {
-    store
-        .migrate()
-        .await
-        .context("bringing the database's schema up to date")?;
-    Ok(store)
+    match store.migrate().await {
+        Ok(()) => Ok(store),
+        Err(error @ StoreError::SchemaNotOwned { .. }) => Err(anyhow::Error::from(error).context(
+            "the server does not start: run `fvoci-server --migrate` first, with the \
+                 dbconfig of the role that owns the tables",
+        )),
+        Err(error) => Err(error).context("bringing the database's schema up to date"),
+    }
 }
 
 /// Brings the database's schema up to date and ends: `fvoci-server --migrate`, run as
@@ -50,13 +53,21 @@ pub(crate) async fn prepare_store(store: Store) -> anyhow::Result<Store> {
 /// longer than `server_lock_wait_seconds`, or the schema cannot be brought up to date.
 pub async fn migrate_database(config: &Configuration) -> anyhow::Result<()> {
     let store = connect(config).await?;
-    let lock = super::take_server_lock(&store, config).await?;
+    let lock = match super::take_server_lock(&store, config).await {
+        Ok(lock) => lock,
+        Err(error) => {
+            store.close().await;
+            return Err(error);
+        }
+    };
     let migrated = store.migrate().await;
+    let whereabouts = store.role_and_schema().await;
     // As a server ends: the database is closed before its lock is let go.
     store.close().await;
     lock.release().await;
     migrated.context("bringing the database's schema up to date")?;
-    tracing::info!("the database's schema is up to date");
+    let (role, schema) = whereabouts.unwrap_or_default();
+    tracing::info!(role, schema, "the database's schema is up to date");
     Ok(())
 }
 

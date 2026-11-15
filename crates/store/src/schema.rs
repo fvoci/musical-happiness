@@ -384,19 +384,31 @@ pub(crate) async fn migrate(store: &Store, up_to: Option<i64>) -> Result<(), Sto
 }
 
 /// The version of the newest migration.
+#[cfg(any(test, feature = "test-util"))]
 pub(crate) fn latest_version() -> i64 {
     STEPS.last().map_or(0, |step| step.version)
 }
 
-/// Whether the database holds this build's schema exactly: every migration of this
-/// build recorded as applied, with this build's text, and no other. Such a database is
-/// opened without a statement that changes the schema, so that a role that does not own
-/// the tables may serve it.
+/// Where a database's schema stands against this build's migrations.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum SchemaState {
+    /// Every migration of this build is recorded as applied, with this build's text,
+    /// and no other: the database is opened without a statement that changes it.
+    Current,
+    /// Some of this build's migrations are not recorded yet (none, if the database is
+    /// empty); what is recorded is this build's.
+    Behind,
+    /// The record is not this build's: why, as the migrator would say it.
+    Foreign(String),
+}
+
+/// Reads where the database's schema stands, from the record of the migrations.
 ///
 /// # Errors
 ///
-/// Returns [`StoreError::Database`] if the record cannot be read.
-pub(crate) async fn is_current(store: &Store) -> Result<bool, StoreError> {
+/// Returns [`StoreError::Schema`] if the record is there but the role may not read it
+/// (it was not granted the tables), and [`StoreError::Database`] if it cannot be read.
+pub(crate) async fn state(store: &Store) -> Result<SchemaState, StoreError> {
     let migrator = migrator(store.dialect(), None);
     let known: Vec<(i64, &[u8])> = migrator
         .iter()
@@ -404,12 +416,8 @@ pub(crate) async fn is_current(store: &Store) -> Result<bool, StoreError> {
         .collect();
     store
         .with_conn(async |scope| {
-            if !table_names(scope)
-                .await?
-                .iter()
-                .any(|table| table == MIGRATIONS_TABLE)
-            {
-                return Ok(false);
+            if !has_record(scope).await? {
+                return Ok(SchemaState::Behind);
             }
             let sql = scope
                 .sql("SELECT version, checksum, success FROM _sqlx_migrations ORDER BY version");
@@ -419,20 +427,69 @@ pub(crate) async fn is_current(store: &Store) -> Result<bool, StoreError> {
                 .iter()
                 .map(|row| Ok((row.int(0)?, row.bytes(1)?, row.bool(2)?)))
                 .collect::<Result<Vec<_>, StoreError>>()?;
-            Ok(recorded.len() == known.len()
-                && recorded.iter().zip(&known).all(
-                    |((version, checksum, applied), (known_version, known_checksum))| {
-                        *applied && version == known_version && checksum == known_checksum
-                    },
-                ))
+            for (version, checksum, applied) in &recorded {
+                let reason = match known.iter().find(|(known, _)| known == version) {
+                    None => format!(
+                        "the database holds schema migration {version}, which this server \
+                         does not know: it was last opened by a newer server"
+                    ),
+                    Some((_, known)) if known != checksum => format!(
+                        "schema migration {version} of the database differs from this \
+                         server's: the database was created by a different build"
+                    ),
+                    Some(_) if !applied => {
+                        format!("schema migration {version} failed when it was applied")
+                    }
+                    Some(_) => continue,
+                };
+                return Ok(SchemaState::Foreign(reason));
+            }
+            Ok(if recorded.len() == known.len() {
+                SchemaState::Current
+            } else {
+                SchemaState::Behind
+            })
         })
         .await
 }
 
-/// Whether the role the store connects as may bring the schema up to date: on
-/// PostgreSQL, a role that owns the record of the migrations (and so the tables the
-/// migrations made), or that may make tables in the schema when there is no record
-/// yet. A superuser may. SQLite has no roles.
+/// Whether the record of the migrations is in the schema the role works in. On
+/// PostgreSQL it is found whatever the role was granted, and a record the role may not
+/// read is an error that says what to grant.
+async fn has_record(scope: &mut Scope<'_>) -> Result<bool, StoreError> {
+    if scope.dialect() == Dialect::Sqlite {
+        return Ok(table_names(scope)
+            .await?
+            .iter()
+            .any(|table| table == MIGRATIONS_TABLE));
+    }
+    let sql = scope.sql(
+        "SELECT record IS NOT NULL, COALESCE(has_table_privilege(record, 'SELECT'), false), \
+           current_user::text, COALESCE(current_schema()::text, '') \
+         FROM (SELECT to_regclass(quote_ident(current_schema()) || '._sqlx_migrations') \
+           AS record) AS found",
+    );
+    let Some(row) = scope.fetch_optional(sql).await? else {
+        return Ok(false);
+    };
+    let (found, readable) = (row.bool(0)?, row.bool(1)?);
+    if found && !readable {
+        return Err(StoreError::Schema(format!(
+            "the role {} may not read the tables of the schema {}: grant it SELECT, INSERT, \
+             UPDATE and DELETE on them, and USAGE and SELECT on the sequences, also by default \
+             for the tables the role that migrates makes later",
+            row.text(2)?,
+            row.text(3)?
+        )));
+    }
+    Ok(found)
+}
+
+/// Whether the role the store connects as may change the schema: on PostgreSQL, the
+/// role that owns the record of the migrations (and so the tables the migrations made),
+/// a superuser, or, on an empty schema, a role that may make tables in it. A member of
+/// the owner's role is not taken for it: what it made would be its own. SQLite has no
+/// roles.
 ///
 /// # Errors
 ///
@@ -447,8 +504,9 @@ pub(crate) async fn may_change(store: &Store) -> Result<bool, StoreError> {
                 "SELECT COALESCE(( \
                    SELECT CASE WHEN record IS NULL \
                      THEN has_schema_privilege(current_schema(), 'CREATE') \
-                     ELSE pg_has_role(current_user, \
-                       (SELECT relowner FROM pg_class WHERE oid = record), 'USAGE') END \
+                     ELSE (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) \
+                       OR (SELECT relowner FROM pg_class WHERE oid = record) \
+                         = (SELECT oid FROM pg_roles WHERE rolname = current_user) END \
                    FROM (SELECT to_regclass(quote_ident(current_schema()) \
                      || '._sqlx_migrations') AS record) AS found), false)",
             );
@@ -456,6 +514,58 @@ pub(crate) async fn may_change(store: &Store) -> Result<bool, StoreError> {
                 Some(row) => row.bool(0),
                 None => Ok(false),
             }
+        })
+        .await
+}
+
+/// The role and the schema the store works as and in, for what it says: on SQLite,
+/// none.
+pub(crate) async fn whereabouts(store: &Store) -> Result<(String, String), StoreError> {
+    if store.dialect() == Dialect::Sqlite {
+        return Ok((String::new(), String::new()));
+    }
+    store
+        .with_conn(async |scope| {
+            let sql =
+                scope.sql("SELECT current_user::text, COALESCE(current_schema()::text, '(none)')");
+            match scope.fetch_optional(sql).await? {
+                Some(row) => Ok((row.text(0)?, row.text(1)?)),
+                None => Ok((String::new(), String::new())),
+            }
+        })
+        .await
+}
+
+/// The tables of the schema the role may not read and write all of: a role that does
+/// not own them, on a schema that is up to date, would otherwise start and fail its
+/// requests (the default privileges cover only the tables made after them).
+///
+/// # Errors
+///
+/// Returns [`StoreError::Database`] if the catalog cannot be read.
+pub(crate) async fn ungranted_tables(store: &Store) -> Result<Vec<String>, StoreError> {
+    if store.dialect() == Dialect::Sqlite {
+        return Ok(Vec::new());
+    }
+    store
+        .with_conn(async |scope| {
+            let sql = scope.sql(
+                "SELECT c.relname::text FROM pg_class c \
+                 WHERE c.relnamespace = (SELECT oid FROM pg_namespace \
+                   WHERE nspname = current_schema()) \
+                 AND c.relkind IN ('r', 'p') \
+                 AND NOT (has_table_privilege(c.oid, 'SELECT') \
+                   AND has_table_privilege(c.oid, 'INSERT') \
+                   AND has_table_privilege(c.oid, 'UPDATE') \
+                   AND has_table_privilege(c.oid, 'DELETE')) \
+                 ORDER BY c.relname",
+            );
+            scope
+                .fetch_all(sql)
+                .await?
+                .iter()
+                .map(|row| row.text(0))
+                .collect()
         })
         .await
 }

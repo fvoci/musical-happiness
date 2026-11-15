@@ -159,7 +159,7 @@ DOCKER_BUILDKIT=1 docker build -f docker/fvoci/Dockerfile -t fvoci-server:s5 .  
 
 | 컨테이너 | 주소 | 접속 |
 |---|---|---|
-| `fvoci-test-pg` (PostgreSQL) | `127.0.0.1:15433` | 테스트는 슈퍼유저가 아닌 역할 `fvoci`로 붙는다(xtask가 만든다). 이미지의 슈퍼유저 `postgres`로는 그 역할을 다루는 테스트와 표의 주인이 따로인 테스트만 붙는다(옛 슈퍼유저 `fvoci`의 컨테이너는 xtask가 까닭을 말하고 거절한다). 비밀번호 `fvoci-test`, DB `fvoci` |
+| `fvoci-test-pg` (PostgreSQL) | `127.0.0.1:15433` | 테스트는 슈퍼유저가 아닌 역할 `fvoci`로 붙는다(xtask가 만든다). 이미지의 슈퍼유저 `postgres`로는 그 역할과 표의 주인을 다루는 테스트만 붙는다. 비밀번호 `fvoci-test`, DB `fvoci` |
 | `fvoci-test-s3` (S3 호환) | `127.0.0.1:18333` | 인증 없음, 버킷 `fvoci-test` |
 
 - `cargo xtask test`가 멈춘 컨테이너는 시작하고 없는 것은 만든다. 재시작 정책은 없다.

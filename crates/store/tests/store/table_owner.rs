@@ -7,7 +7,7 @@
 use std::path::PathBuf;
 
 use fvoci_store::testing::{self, TableOwner, TestDatabase};
-use fvoci_store::{DbType, Store};
+use fvoci_store::{DbType, Store, StoreError};
 
 use crate::common;
 
@@ -57,31 +57,103 @@ async fn a_role_that_does_not_own_the_tables_uses_what_an_owner_held_by_the_wall
 }
 
 /// A schema that is behind is not the server's role's to change: it is refused with
-/// what to do, and left as it was.
+/// what to do, and left as it was, whoever owns the tables.
 #[tokio::test]
 async fn a_role_that_does_not_own_the_tables_refuses_a_schema_that_is_behind() {
     if common::db_type() != DbType::Postgres {
         return;
     }
-    let database = owned_apart(TableOwner::Superuser).await;
-    let behind = testing::latest_migration() - 1;
-    testing::migrate_up_to(database.db_type(), database.owner_dbconfig(), behind).await;
+    for owner in [TableOwner::Superuser, TableOwner::Role] {
+        let database = owned_apart(owner).await;
+        let behind = testing::latest_migration() - 1;
+        testing::migrate_up_to(database.db_type(), database.owner_dbconfig(), behind).await;
 
+        let refused = Store::connect(database.db_type(), database.dbconfig())
+            .await
+            .expect_err("the server's role does not migrate");
+        assert!(
+            matches!(&refused, StoreError::SchemaNotOwned { reason, .. }
+                if reason.contains("not applied")),
+            "{owner:?}: {refused}"
+        );
+
+        let owner_store = Store::connect(database.db_type(), database.owner_dbconfig())
+            .await
+            .expect("the owner brings it up to date");
+        owner_store.close().await;
+        let store = Store::connect(database.db_type(), database.dbconfig())
+            .await
+            .expect("then the server's role opens it");
+        store.close().await;
+        database.remove().await;
+    }
+}
+
+/// An empty schema that the server's role may not make tables in is refused the same
+/// way: the owner makes them.
+#[tokio::test]
+async fn a_role_that_may_not_make_tables_refuses_an_empty_schema() {
+    if common::db_type() != DbType::Postgres {
+        return;
+    }
+    let database = owned_apart(TableOwner::Superuser).await;
     let refused = Store::connect(database.db_type(), database.dbconfig())
         .await
-        .expect_err("the server's role does not migrate");
-    let said = refused.to_string();
-    assert!(said.contains("fvoci-server --migrate"), "{said}");
-    assert!(said.contains("does not own"), "{said}");
+        .expect_err("nothing is made as the server's role");
+    assert!(
+        matches!(refused, StoreError::SchemaNotOwned { .. }),
+        "{refused}"
+    );
+    database.remove().await;
+}
 
-    let owner_store = Store::connect(database.db_type(), database.owner_dbconfig())
-        .await
-        .expect("the owner brings it up to date");
-    owner_store.close().await;
+/// The changes of the data that the migrations leave to the server are DML: the
+/// server's role does those its owner did not.
+#[tokio::test]
+async fn a_role_that_does_not_own_the_tables_does_the_data_steps_left_to_it() {
+    let database = owned_apart(TableOwner::Superuser).await;
+    let latest = testing::latest_migration();
+    testing::migrate_up_to(database.db_type(), database.owner_dbconfig(), latest).await;
     let store = Store::connect(database.db_type(), database.dbconfig())
         .await
-        .expect("then the server's role opens it");
+        .expect("the server's role opens the schema and does the data steps");
+    assert_eq!(
+        store.count_rows("data_steps").await.expect("counted"),
+        0,
+        "no step is left"
+    );
     store.close().await;
+    database.remove().await;
+}
+
+/// A table the server's role was not granted, as one a migration made before the
+/// default privileges were set, is named at the start rather than failing requests.
+#[tokio::test]
+async fn a_role_that_was_not_granted_a_table_is_told_which() {
+    if common::db_type() != DbType::Postgres {
+        return;
+    }
+    let database = owned_apart(TableOwner::Superuser).await;
+    Store::connect(database.db_type(), database.owner_dbconfig())
+        .await
+        .expect("the owner brings the schema up to date")
+        .close()
+        .await;
+    common::execute_raw(
+        database.owner_dbconfig(),
+        "DO $$ DECLARE grantee text; BEGIN \
+           FOR grantee IN SELECT DISTINCT g.grantee FROM information_schema.role_table_grants g \
+             WHERE g.table_schema = current_schema() AND g.table_name = 'blocks' \
+             AND g.grantee <> current_user LOOP \
+             EXECUTE format('REVOKE DELETE ON blocks FROM %I', grantee); \
+           END LOOP; END $$",
+    )
+    .await;
+    let refused = Store::connect(database.db_type(), database.dbconfig())
+        .await
+        .expect_err("a table the role may not write is refused");
+    let said = refused.to_string();
+    assert!(said.contains("blocks") && said.contains("grant"), "{said}");
     database.remove().await;
 }
 
