@@ -1,15 +1,21 @@
 //! A registration that replaces the one of its browser, and an acceptance that does,
-//! each hold two links: whichever goes first holds both before the other holds any
-//! (`crates/store/src/link_locks.rs`). On PostgreSQL the test stops the registration
-//! once it holds its first link, starts the acceptance, and lets the registration go
-//! once the acceptance waits for it; on SQLite, whose writers take turns, the two run
-//! one after the other.
+//! each hold two links, here of two organizations: whichever goes first holds both
+//! before the other holds any (`crates/store/src/link_locks.rs`), by the turn of
+//! several links, as the rows of the two organizations would not keep them apart. On
+//! PostgreSQL the test stops the registration once it holds its first link, starts the
+//! acceptance, and lets the registration go once the acceptance waits for it; on
+//! SQLite, which holds one organization and whose writers take turns, the two run one
+//! after the other, in one organization.
 
+use fvoci_model::BoardRole;
 use fvoci_model::new_id;
-use fvoci_store::{Acceptor, DbType, SIGNUP_LIFETIME_MILLIS, Signup, SignupStart, Store};
+use fvoci_store::{
+    Acceptor, DbType, NewLink, SIGNUP_LIFETIME_MILLIS, Signup, SignupLookup, SignupStart, Store,
+    Tenant,
+};
 
 use crate::common::{self, TestStore};
-use crate::invitations::{MakerFound, NOW, link, newcomer};
+use crate::invitations::{LATER, MakerFound, NOW, link, newcomer};
 use crate::lock_gate::{Gate, ended};
 
 /// When the registration again and the acceptance happen: after the registration that
@@ -46,13 +52,24 @@ async fn register_by(store: &Store, token_hash: &str, signup: &Signup) {
     assert!(reserved.accepted().is_some(), "the link lets them register");
 }
 
-/// How often the link of `token_hash` counts as used.
-async fn uses_of(test: &TestStore, token_hash: &str) -> i64 {
-    test.unended_invitation(token_hash, AFTER)
+/// How often the link of `token_hash` of the organization of `store` counts as used.
+async fn uses_of(store: &Store, token_hash: &str) -> i64 {
+    store
+        .unended_invitation(token_hash, AFTER)
         .await
         .expect("the link is read")
         .expect("the link")
         .uses
+}
+
+/// The organization the second link is of: on PostgreSQL another, and on SQLite, which
+/// holds one, the test's.
+async fn other_organization(test: &TestStore) -> (Store, String) {
+    if common::db_type() != DbType::Postgres {
+        return (test.store.clone(), test.org_id.clone());
+    }
+    let (org_id, _) = common::organization(&test.scoped(Tenant::Unset), "Other").await;
+    (test.for_org(&org_id).expect("an identifier"), org_id)
 }
 
 /// The registration from the browser `one` replaces its own, made by the second link,
@@ -65,23 +82,41 @@ async fn a_registration_again_and_an_acceptance_again_take_turns() {
     let test = common::setup().await;
     let admin = common::user(&test, "admin").await;
     link(&test, &admin, "first", None, None).await;
-    link(&test, &admin, "second", None, None).await;
+    let (theirs, their_org) = other_organization(&test).await;
+    let their_admin = common::user(&theirs, "their-admin").await;
+    let their_workspace = common::workspace(&theirs).await;
+    theirs
+        .create_invitation(&NewLink {
+            workspace_id: &their_workspace,
+            guest_of: None::<(&str, BoardRole)>,
+            token_hash: "second",
+            created_by: &their_admin,
+            now: NOW,
+            expires_at: LATER + SIGNUP_LIFETIME_MILLIS,
+            max_uses: None,
+            mailed: None,
+        })
+        .await
+        .expect("the second link is stored");
     let waiting = NOW + SIGNUP_LIFETIME_MILLIS;
     register_by(&test, "first", &registration("ended", "gone", NOW + 1)).await;
     register_by(&test, "first", &registration("tess", "two", waiting)).await;
-    register_by(&test, "second", &registration("olga", "one", waiting)).await;
+    register_by(&theirs, "second", &registration("olga", "one", waiting)).await;
     let again = registration("olga", "one", AFTER + SIGNUP_LIFETIME_MILLIS);
-    let maker = MakerFound::of(&test, "second", AFTER)
+    let maker = MakerFound::of(&theirs, "second", AFTER)
         .await
         .expect("the maker is found");
     let mut account = newcomer("tess");
 
     if common::db_type() == DbType::Postgres {
         let mut gate = Gate::before(&test, "DELETE", "signups", "OLD.browser_hash = 'gone'").await;
-        let acceptor = gate.second_store(&test).await;
+        let acceptor = gate.second_store_of(&test, &their_org).await;
         let registrar = test.store.clone();
+        let renewed = again.clone();
         let registering =
-            tokio::spawn(async move { registrar.create_signup(&again, Some("one"), AFTER).await });
+            tokio::spawn(
+                async move { registrar.create_signup(&renewed, Some("one"), AFTER).await },
+            );
         let holding = gate.stopped(&registering).await;
         let accepting = tokio::spawn(async move {
             let replacing = Acceptor::Replacing {
@@ -105,7 +140,7 @@ async fn a_registration_again_and_an_acceptance_again_take_turns() {
             user: &mut account,
             browser: "two",
         };
-        let accepted = test
+        let accepted = theirs
             .accept_invitation("second", replacing, AFTER, maker.inviter())
             .await
             .expect("accepted");
@@ -117,9 +152,23 @@ async fn a_registration_again_and_an_acceptance_again_take_turns() {
         "both its registrations went"
     );
     assert_eq!(
-        uses_of(&test, "second").await,
+        uses_of(&theirs, "second").await,
         1,
         "its registration went, and its acceptance counts"
     );
+    let olga = test
+        .live_signup(SignupLookup::Username("olga"), AFTER)
+        .await
+        .expect("read");
+    assert_eq!(
+        olga.map(|signup| signup.id),
+        Some(again.id),
+        "the registration again waits"
+    );
+    let waiting_tess = test
+        .live_signup(SignupLookup::Username("tess"), AFTER)
+        .await
+        .expect("read");
+    assert_eq!(waiting_tess, None, "replaced by the account");
     test.teardown().await;
 }

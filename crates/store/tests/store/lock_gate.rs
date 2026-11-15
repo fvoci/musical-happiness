@@ -85,6 +85,11 @@ impl Gate {
     /// Other tests' transactions may wait for the first one too, for a lock that is the
     /// server's and not a schema's.
     pub(crate) async fn second_store(&self, test: &TestStore) -> Store {
+        self.second_store_of(test, &test.org_id).await
+    }
+
+    /// A store as [`Gate::second_store`] is, of the organization `org_id`.
+    pub(crate) async fn second_store_of(&self, test: &TestStore, org_id: &str) -> Store {
         let dbconfig = test.dbconfig();
         let separator = if dbconfig.contains('?') { '&' } else { '?' };
         let named = format!(
@@ -94,7 +99,7 @@ impl Gate {
         Store::connect(DbType::Postgres, &named)
             .await
             .expect("a second store connects")
-            .for_org(&test.org_id)
+            .for_org(org_id)
             .expect("an identifier")
     }
 
