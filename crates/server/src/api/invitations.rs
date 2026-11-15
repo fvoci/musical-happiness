@@ -8,7 +8,7 @@
 
 use axum::body::Bytes;
 use axum::extract::{Extension, Path, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::{Extensions, HeaderMap, StatusCode};
 use axum::response::IntoResponse as _;
 use fvoci_model::{
     AcceptInvitation, AcceptedInvitation, BoardRole, GuestInvitationsChange, Invitation,
@@ -21,6 +21,7 @@ use utoipa_axum::routes;
 use super::auth::address_of;
 use super::contract::params::{InvitationId, WorkerWorkspaceId};
 use super::contract::tag;
+use super::session::optional_session_of;
 use super::signup_cookie::{marker_of, with_marker};
 use super::workspace::Ws;
 use super::{ApiResult, OptionalSession, created, decode_object, json_response, no_content};
@@ -287,14 +288,22 @@ async fn handle_set_guest_invitations(ws: Ws, body: Bytes) -> ApiResult {
 )]
 async fn handle_preview_invitation(
     State(app): State<App>,
-    OptionalSession(session): OptionalSession,
     client: Option<Extension<ClientAddress>>,
+    extensions: Extensions,
     headers: HeaderMap,
     body: Bytes,
 ) -> ApiResult {
     let request: InvitationToken = decode_object(&body)?;
-    // Who is signed in accepts as their account, which replaces no registration.
-    let browser = marker_of(&app, &headers).filter(|_| session.is_none());
+    let mut browser = marker_of(&app, &headers).filter(|_| app.verifies_email());
+    // Who is signed in accepts as their account, which replaces no registration. Only
+    // a browser with a registration's marker is asked for its session.
+    if browser.is_some()
+        && optional_session_of(&app, &headers, &extensions)
+            .await?
+            .is_some()
+    {
+        browser = None;
+    }
     let preview = app
         .preview_invitation(&request.token, browser.as_deref(), address_of(client))
         .await?;

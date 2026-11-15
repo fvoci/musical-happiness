@@ -564,7 +564,7 @@ impl App {
             .login_limiter()
             .admit_login(&[&user.username], address, Instant::now())
             .map_err(|RetryAfter(wait)| AppError::rate_limited(wait))?;
-        let known = Known {
+        let known = PasswordOf {
             username: &user.username,
             password_hash: &user.password_hash,
         };
@@ -581,7 +581,7 @@ impl App {
     /// name: a wrong one is a failure at the name, a right one ends the failures there.
     pub(super) async fn is_password_of(
         &self,
-        known: Known<'_>,
+        known: PasswordOf<'_>,
         password: &str,
         attempt: crate::auth::limiter::Attempt,
     ) -> Result<bool, AppError> {
@@ -598,7 +598,7 @@ impl App {
 
 /// Whose password is asked for: an account's, or a registration's that waits.
 #[derive(Clone, Copy)]
-pub(super) struct Known<'a> {
+pub(super) struct PasswordOf<'a> {
     /// The name its failed attempts are counted at.
     pub(super) username: &'a str,
     /// An Argon2id PHC string.

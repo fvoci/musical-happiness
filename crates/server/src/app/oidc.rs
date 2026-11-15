@@ -21,7 +21,7 @@ use fvoci_store::{
 };
 
 use super::App;
-use super::oidc_account::{Known, proved_address};
+use super::oidc_account::{FoundAccount, proved_address};
 use super::oidc_carry::carry_over_refused;
 use super::oidc_settings::secret_context;
 use crate::auth::limiter::RetryAfter;
@@ -673,7 +673,7 @@ impl App {
             .await
             .map_err(|error| logged(&error, "looking up an identity"))?;
         if let Some(user) = found {
-            let known = Known {
+            let known = FoundAccount {
                 user: &user,
                 identity,
                 proved_email: proved_address(claims),
@@ -734,13 +734,13 @@ impl App {
     /// waits at the address the provider vouches for is removed with it.
     pub(super) async fn let_in(
         &self,
-        known: Known<'_>,
+        known: FoundAccount<'_>,
         stored: &StoredProvider,
         ending: Ending<'_>,
         session: &mut Session,
         digest: &str,
     ) -> Result<Option<Applied>, LoginFailure> {
-        let Known {
+        let FoundAccount {
             user,
             identity,
             proved_email,

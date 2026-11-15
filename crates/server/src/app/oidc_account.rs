@@ -79,7 +79,7 @@ impl App {
                         .await
                         .map_err(|error| logged(&error, "looking up an identity"))?
                         .ok_or(Reason::OidcUnavailable)?;
-                    let known = Known {
+                    let known = FoundAccount {
                         user: &user,
                         identity,
                         proved_email: Some(email),
@@ -101,7 +101,7 @@ impl App {
 
 /// The account a sign-in through a provider ends in, as it was found.
 #[derive(Debug, Clone, Copy)]
-pub(super) struct Known<'a> {
+pub(super) struct FoundAccount<'a> {
     /// The account of the identity.
     pub(super) user: &'a User,
     /// Who the provider vouches for.

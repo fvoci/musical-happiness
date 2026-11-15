@@ -17,7 +17,7 @@ use fvoci_store::{
 };
 
 use super::App;
-use super::auth::{Known, account_error, incorrect_login};
+use super::auth::{PasswordOf, account_error, incorrect_login};
 use super::mail::{Content, Language, Letter};
 use crate::auth::limiter::RetryAfter;
 use crate::auth::now_millis;
@@ -280,7 +280,7 @@ impl App {
             let attempt = turn
                 .at_account(&signup.username, Instant::now())
                 .map_err(|RetryAfter(wait)| AppError::rate_limited(wait))?;
-            let known = Known {
+            let known = PasswordOf {
                 username: &signup.username,
                 password_hash: &signup.password_hash,
             };

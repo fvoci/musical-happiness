@@ -147,6 +147,10 @@ impl Store {
     ) -> Result<(), StoreError> {
         self.system()
             .transaction(async |scope| {
+                if replacing.is_some() {
+                    // The clean-up may hold a link, and what is replaced another.
+                    hold_several_links(scope).await?;
+                }
                 remove_ended(scope, now).await?;
                 if let Some(browser) = replacing {
                     discard_of_browser(scope, browser).await?;

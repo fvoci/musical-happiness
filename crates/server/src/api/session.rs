@@ -30,14 +30,30 @@ impl FromRequestParts<App> for OptionalSession {
     type Rejection = AppError;
 
     async fn from_request_parts(parts: &mut Parts, app: &App) -> Result<Self, Self::Rejection> {
-        match session_of(app, &parts.headers, &parts.extensions).await {
-            Ok(session) => Ok(Self(Some(session))),
-            // No session is an answer the route can work with. A store that failed is
-            // not "no session": answered as one, it would make clients throw a valid
-            // session away.
-            Err(error) if error.kind() == ErrorKind::Unauthorized => Ok(Self(None)),
-            Err(error) => Err(error),
-        }
+        optional_session_of(app, &parts.headers, &parts.extensions)
+            .await
+            .map(Self)
+    }
+}
+
+/// The session of a request, as [`session_of`] finds it, or `None` if the request
+/// carries no valid session token.
+///
+/// # Errors
+///
+/// Returns the store's error if the session cannot be looked up.
+pub(crate) async fn optional_session_of(
+    app: &App,
+    headers: &HeaderMap,
+    extensions: &Extensions,
+) -> Result<Option<Session>, AppError> {
+    match session_of(app, headers, extensions).await {
+        Ok(session) => Ok(Some(session)),
+        // No session is an answer the route can work with. A store that failed is not
+        // "no session": answered as one, it would make clients throw a valid session
+        // away.
+        Err(error) if error.kind() == ErrorKind::Unauthorized => Ok(None),
+        Err(error) => Err(error),
     }
 }
 
