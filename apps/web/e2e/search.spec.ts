@@ -1,13 +1,14 @@
 /**
  * The search of what cards and pages say, on the backend in memory: its keys
  * and button, finding by a word of a body and going there by the keyboard
- * alone, the kinds, an earlier answer that comes late, what the dialog says
- * of each state of the search, and a server without a search server
- * (`?search=0`).
+ * alone, going to a page of a wiki, the kinds, an earlier answer that comes
+ * late, what the dialog says of each state of the search, and a server
+ * without a search server (`?search=0`).
  */
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { ON_A_CARD, ON_A_VIEW, placeOf } from './address.ts';
+import { newWiki, wikiPath, wikiScreen } from './wiki.support.ts';
 import {
   boardMenu,
   chooseFromMenu,
@@ -30,6 +31,7 @@ interface Dev {
     card(boardId: string, cardId: string): Promise<unknown>;
     failNext(method: string, error: unknown): void;
     search: { find(workspaceId: string, ask: object): Promise<unknown[]> };
+    wiki: { createPage(wikiId: string, draft: object): Promise<{ id: string }> };
   };
 }
 
@@ -59,6 +61,19 @@ async function cardWith(
       return (await backend.createCard(board.id, { title, body })).id;
     },
     { title, body: paragraph(body), boardTitle },
+  );
+}
+
+/** Makes pages at the top of a wiki, one after another, with these titles. */
+async function pagesIn(page: Page, wikiId: string, titles: string[]): Promise<string[]> {
+  return page.evaluate(
+    async ({ wikiId, titles }) => {
+      const { backend } = (window as unknown as { fvociDev: Dev }).fvociDev;
+      const made: string[] = [];
+      for (const title of titles) made.push((await backend.wiki.createPage(wikiId, { title })).id);
+      return made;
+    },
+    { wikiId, titles },
   );
 }
 
@@ -247,6 +262,41 @@ test.describe('the search of cards and pages', () => {
     await expect(page.getByTestId('card-dialog')).toHaveCount(0);
     await expect(page).toHaveURL(ON_A_VIEW);
     expect(placeOf(page.url()).boardId).toBe(shown.boardId);
+  });
+
+  test('a page opens over its wiki, another page of it in its place, and back goes where each was', async ({
+    page,
+  }) => {
+    await openWithSearch(page);
+    const board = placeOf(page.url()).boardId;
+    const wikiId = await newWiki(page, 'Handbook');
+    const [keeping, harbour] = await pagesIn(page, wikiId, ['Lighthouse keeping', 'Harbour log']);
+    await page.goBack();
+    await expect(page).toHaveURL(ON_A_VIEW);
+
+    await page.keyboard.press('Control+k');
+    await search(page, 'lighthouse');
+    await expect(dialog(page)).toHaveAttribute('data-status', 'found');
+    await expect(hits(page)).toHaveCount(1);
+    await expect(hits(page).first()).toHaveAttribute('data-kind', 'page');
+    await expect(hits(page).first().locator('[data-hit-container]')).toHaveText('Handbook');
+    await page.keyboard.press('Enter');
+    await expect(dialog(page)).toHaveCount(0);
+    await expect(page).toHaveURL(new RegExp(`${wikiPath(wikiId, keeping)}$`));
+    await expect(wikiScreen(page).getByTestId('page-title')).toHaveValue('Lighthouse keeping');
+
+    await page.keyboard.press('Control+k');
+    await search(page, 'harbour');
+    await expect(hits(page).locator('[data-hit-title]')).toHaveText(['Harbour log']);
+    await page.keyboard.press('Enter');
+    await expect(page).toHaveURL(new RegExp(`${wikiPath(wikiId, harbour)}$`));
+    await expect(wikiScreen(page).getByTestId('page-title')).toHaveValue('Harbour log');
+
+    await page.goBack();
+    await expect(page).toHaveURL(new RegExp(`${wikiPath(wikiId, keeping)}$`));
+    await page.goBack();
+    await expect(page).toHaveURL(ON_A_VIEW);
+    expect(placeOf(page.url()).boardId).toBe(board);
   });
 
   test('the keys open nothing over a drawer or another dialog', async ({ page }) => {

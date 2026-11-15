@@ -3,9 +3,8 @@
  * search server (`tools/live-server.ts`, nine ports up), which finds by the
  * letters: a card is found by a word of its body and opened from the
  * dialog; another person's private board and a card template are not found;
- * a search server that is down is said so, and searched again once it is up.
- *
- * Pages of wikis are not searched here: the app has no wiki screen yet.
+ * a page of a wiki is found by its title and opened over its wiki; a search
+ * server that is down is said so, and searched again once it is up.
  */
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 
@@ -110,6 +109,47 @@ test('a card is found by a word of its body and opened; what the reader cannot r
   await expect(page).toHaveURL(new RegExp(`/boards/${board.boardId}/${board.viewId}/${card}$`));
   await api.dispose();
   await theirs.dispose();
+  expect(errors).toEqual([]);
+});
+
+test('a page of a wiki is found by its title and opened over its wiki', async ({
+  page,
+  baseURL,
+}) => {
+  const base = baseURL ?? '';
+  const errors = watchErrors(page);
+  const owner = person('page-searcher');
+  await register(base, owner);
+  const api = await signedIn(base, owner);
+  const word = `puffin${Date.now().toString(36)}`;
+  const { workspaceId } = await makeBoard(api, { title: 'Coast' });
+  const inWorkspace = `/api/v1/w/${workspaceId}`;
+  const made = await api.post(`${inWorkspace}/wikis`, {
+    data: { title: 'Lighthouse handbook', type: 'P' },
+  });
+  expect(made.ok(), await made.text()).toBe(true);
+  const wiki = (await made.json()) as Schemas['Board'];
+  const written = await api.post(`${inWorkspace}/wikis/${wiki.id}/pages`, {
+    data: { title: `Counting the ${word}` },
+  });
+  expect(written.ok(), await written.text()).toBe(true);
+  const pageId = ((await written.json()) as Schemas['Page']).id;
+  await expect.poll(() => foundBy(api, workspaceId, word)).toEqual([pageId]);
+
+  await page.goto('/');
+  await signInOnPage(page, owner);
+  await expect(page.getByTestId('open-search')).toBeVisible();
+  await page.keyboard.press('Control+k');
+  await page.getByTestId('search-field').fill(word);
+  await expect(dialog(page)).toHaveAttribute('data-status', 'found');
+  const hits = dialog(page).getByRole('option');
+  await expect(hits).toHaveCount(1);
+  await expect(hits.first()).toHaveAttribute('data-kind', 'page');
+  await expect(hits.first().locator('[data-hit-container]')).toHaveText('Lighthouse handbook');
+  await page.keyboard.press('Enter');
+  await expect(page).toHaveURL(`/w/${workspaceId}/wikis/${wiki.id}/${pageId}`);
+  await expect(page.getByTestId('page-title')).toHaveValue(`Counting the ${word}`);
+  await api.dispose();
   expect(errors).toEqual([]);
 });
 
