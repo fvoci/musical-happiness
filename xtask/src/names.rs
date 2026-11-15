@@ -53,13 +53,7 @@ pub(crate) fn run(root: &Path) -> Result<()> {
         if !is_checked(&file) {
             continue;
         }
-        let text = match std::fs::read(root.join(&file)) {
-            // Read as text whatever its encoding, as the web app's check reads.
-            Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
-            // Tracked and deleted from the working tree: its name is still checked.
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
-            Err(error) => return Err(error).with_context(|| format!("reading {file}")),
-        };
+        let text = tracked_text(&root.join(&file)).with_context(|| format!("reading {file}"))?;
         hits.extend(check_file(&file, &text, &exceptions, &mut used));
     }
     let stale: Vec<String> = exceptions
@@ -223,12 +217,49 @@ fn matches_name(pattern: &str, name: &str) -> bool {
     }
 }
 
+/// The text of a file git tracks, as git holds it: a link is the path it points at (a
+/// link to a folder, as the skills' under `.claude/skills/`, has no text of its own),
+/// a file its bytes read as text whatever their encoding, as the web app's check reads,
+/// and a file deleted from the working tree none, though its name is still checked.
+fn tracked_text(path: &Path) -> std::io::Result<String> {
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.is_symlink() => {
+            Ok(std::fs::read_link(path)?.to_string_lossy().into_owned())
+        }
+        Ok(_) => Ok(String::from_utf8_lossy(&std::fs::read(path)?).into_owned()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+        Err(error) => Err(error),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::files::testing;
 
     fn exceptions(listed: &str) -> Vec<Exception> {
         parse(listed).expect("the exceptions are read")
+    }
+
+    #[test]
+    fn a_link_is_read_as_the_path_it_points_at_and_a_gone_file_as_nothing() {
+        let root = testing::scratch("names-tracked-text");
+        testing::write(&root, "skills/a/SKILL.md", "a skill\n");
+        std::fs::create_dir_all(root.join("links")).expect("the folder of links is made");
+        std::os::unix::fs::symlink("../skills/a", root.join("links/a")).expect("the link is made");
+
+        assert_eq!(
+            tracked_text(&root.join("links/a")).expect("a link is read"),
+            "../skills/a"
+        );
+        assert_eq!(
+            tracked_text(&root.join("skills/a/SKILL.md")).expect("a file is read"),
+            "a skill\n"
+        );
+        assert_eq!(
+            tracked_text(&root.join("gone.md")).expect("a gone file is read"),
+            ""
+        );
     }
 
     #[test]

@@ -13,7 +13,7 @@
 
 # Skills copied as they are from their sources by `npx skills add` (skills-lock.json):
 # their text is not ours to change.
-.claude/skills/**
+.agents/skills/**
 
 # The migrations a database has already run are not changed; 17 renames what they made,
 # and the list of migrations names the files.

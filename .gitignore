@@ -16,8 +16,4 @@ node_modules/
 .claude/worktrees/
 .claude/settings.local.json
 
-# Serena: its cache and notes of one machine; the project file is committed
-.serena/*
-!.serena/project.yml
-
 # What apps/web builds and the fonts it fetches are in apps/web/.gitignore.
