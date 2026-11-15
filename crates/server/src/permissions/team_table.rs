@@ -57,6 +57,7 @@ fn direct_and_team_roles_take_the_highest_within_the_team_limit() {
         for scope in [
             BoardScope::InvitedOnly,
             BoardScope::Open,
+            BoardScope::OpenWiki,
             BoardScope::InvitedOnlyTemplate,
         ] {
             assert_eq!(

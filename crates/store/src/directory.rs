@@ -207,7 +207,8 @@ fn push_seen(sql: &mut Sql, scope: &Scope<'_>, sight: Sight<'_>) {
 /// Pushes `OR` the condition that the user `id` authored a board, a block, a kept
 /// comment version or a kept version of a card's body the seer reads, as
 /// `permissions::grant` has it: one they hold a
-/// role on, or an open template of a workspace they work in; of the workspace `within`
+/// role on, or an open template or an open wiki of a workspace they work in; of the
+/// workspace `within`
 /// names, as far as its [`Reach`] goes, or of any workspace in use the seer is a member
 /// of.
 fn push_writer(sql: &mut Sql, scope: &Scope<'_>, seer_id: &str, within: Option<(&str, Reach)>) {
@@ -267,11 +268,12 @@ fn push_writer(sql: &mut Sql, scope: &Scope<'_>, seer_id: &str, within: Option<(
     sql.push(" OR ");
     board_team_access::push_has_team_role(sql, scope, seer_id);
     if open_where_seer_works {
-        // Read without a role: an open template, for who works in its workspace. An
-        // open board that is none is joined to be read.
+        // Read without a role: an open template and an open wiki, for who works in
+        // its workspace. An open board that is neither is joined to be read.
         sql.push_bind(" OR (b.type = ", BoardType::Open.as_str())
-            .push_bind(" AND b.is_template = ", true)
-            .push_bind(" AND me.role <> ", WorkspaceRole::Guest.as_str())
+            .push_bind(" AND (b.is_template = ", true)
+            .push_bind(" OR b.kind = ", BoardKind::Wiki.as_str())
+            .push_bind(") AND me.role <> ", WorkspaceRole::Guest.as_str())
             .push(")");
     }
     sql.push("))");

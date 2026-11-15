@@ -222,7 +222,8 @@ async fn nothing_tells_a_member_the_title_of_what_is_on_a_board_they_are_not_on(
     let th = Setup::native().start().await.init_basic().await;
     let private = made(&th.client, TEST_WS, "P", HIDDEN).await;
     let open = made(&th.client, TEST_WS, "O", HIDDEN).await;
-    let targets = [private.card.as_str(), &private.page, &open.card]; // The page of the open wiki is read unjoined: its title is no secret.
+    let targets = [private.card.as_str(), &private.page, &open.card];
+    // The page of the open wiki is read unjoined: its title is no secret.
     th.client
         .patch(
             &format!("{TEST_WS}/wikis/{}/pages/{}", open.wiki, open.page),

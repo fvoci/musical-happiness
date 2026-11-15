@@ -195,7 +195,7 @@ impl App {
         // Who read an open wiki without joining it reads it no more once it is private:
         // they are told it is gone for them, as when it is deleted.
         let closed = scope_before.filter(|before| {
-            before.read_by_the_workspace() && !BoardScope::of(&updated).read_by_the_workspace()
+            *before == BoardScope::OpenWiki && BoardScope::of(&updated) != BoardScope::OpenWiki
         });
         if changes_access(patch) {
             self.collab()
@@ -254,8 +254,20 @@ impl App {
     }
 
     /// Tells who read the board as it was, `scope`, and no longer does that it is gone
-    /// for them: the message of its deletion, to who reads it no more alone.
+    /// for them: the message of its deletion, to who reads it no more alone. Nothing is
+    /// told if it is open again by now: a later change made it so, and told so.
     async fn broadcast_closed(&self, board: &Board, scope: BoardScope) {
+        let now = match self.store().get_board(&board.id).await {
+            Ok(now) => Some(BoardScope::of(&now)),
+            Err(error) if error.is_not_found() => None,
+            Err(error) => {
+                tracing::error!(%error, "Unable to read the board made private");
+                return;
+            }
+        };
+        if now == Some(scope) {
+            return;
+        }
         let members = match self.effective_board_members(&board.id).await {
             Ok(members) => members,
             Err(error) => {

@@ -186,14 +186,6 @@ impl BoardScope {
     fn open_to_the_workspace(self) -> bool {
         matches!(self, Self::Open | Self::OpenWiki | Self::OpenTemplate)
     }
-
-    /// Whether whoever works in the workspace reads what is on the board without being
-    /// its member: an open wiki, and an open template, which is read to be copied. An
-    /// open board is not: it is read once joined.
-    #[must_use]
-    pub const fn read_by_the_workspace(self) -> bool {
-        matches!(self, Self::OpenWiki | Self::OpenTemplate)
-    }
 }
 
 /// What is known of a board for one user: its scope and the user's role on it.

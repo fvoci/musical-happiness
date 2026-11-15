@@ -194,11 +194,10 @@ impl App {
     /// or a page that is no block of the trash, in a container that is no template),
     /// in this workspace, of the kind asked for, in a container the user has a role
     /// on or that is an open wiki, and reads ([`App::board_access`], asked once a
-    /// container). What is answered
-    /// of it is what the database says: the container and its kind, the kind and the
-    /// title. The piece of text alone
-    /// is the search server's, and is left out unless the document was indexed from
-    /// the title and the text it has now.
+    /// container). What is answered of it is what the database says: the container and
+    /// its kind, the kind and the title. The piece of text alone is the search server's,
+    /// and is left out unless the document was indexed from the title and the text it
+    /// has now.
     async fn check_hits(
         &self,
         check: &mut Check<'_>,

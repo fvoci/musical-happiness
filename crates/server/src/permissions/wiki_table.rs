@@ -7,12 +7,16 @@ use super::BoardPermission::{
     CommentBoardCards, DeleteBoard, JoinBoard, ListMembers, ManageBoardCards,
     ManageBoardProperties, ManageBoardRoles, SeeBoard, ViewBoard,
 };
+use super::BoardScope::{BuiltIn, InvitedOnlyTemplate, OpenTemplate};
 use super::BoardScope::{InvitedOnly, Open, OpenWiki};
 use super::table::{
     GUEST, MEMBER, ORG_ADMIN_IN_WORKSPACE, ORG_ADMIN_ONLY, OUTSIDE_GUEST, REMOVED, STRANGER,
     WORKSPACE_ADMIN,
 };
-use super::{Actor, BoardFacts, BoardPermission, BoardScope, DocMode, doc_mode, grant};
+use super::{
+    Actor, BoardFacts, BoardPermission, BoardScope, DocMode, doc_mode, grant, told_without_a_role,
+};
+use fvoci_model::WorkspaceRole;
 
 /// What who works in the workspace may do on an open wiki they did not join: read it,
 /// list who is on it, and join it.
@@ -159,4 +163,29 @@ fn whoever_reads_an_open_wiki_without_joining_it_is_no_mere_manager_of_it() {
     );
     assert!(!admin.manages_only());
     assert!(!admin.hides(ViewBoard));
+}
+
+#[test]
+fn the_changes_of_an_open_wiki_are_told_to_whoever_works_there_and_of_nothing_else() {
+    for scope in [
+        OpenWiki,
+        Open,
+        InvitedOnly,
+        OpenTemplate,
+        InvitedOnlyTemplate,
+        BuiltIn,
+    ] {
+        for role in [
+            WorkspaceRole::Admin,
+            WorkspaceRole::Member,
+            WorkspaceRole::Guest,
+        ] {
+            let told = scope == OpenWiki && role != WorkspaceRole::Guest;
+            assert_eq!(
+                told_without_a_role(scope, role),
+                told,
+                "{scope:?}, {role:?}"
+            );
+        }
+    }
 }

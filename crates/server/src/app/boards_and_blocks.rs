@@ -229,11 +229,11 @@ impl App {
 
         // The memberships go with the boards, so who is told is who was a member; and
         // the blocks are gone afterwards, so which board each was on is read first.
-        let mut former_members = HashMap::with_capacity(request.boards.len());
+        let mut readers_before = HashMap::with_capacity(request.boards.len());
         for board_id in &request.boards {
             let members = self.store().effective_board_members(board_id).await?;
             let scope = BoardScope::of(&self.store().get_board(board_id).await?);
-            former_members.insert(board_id.as_str(), (members, scope));
+            readers_before.insert(board_id.as_str(), (members, scope));
         }
         let mut deleted_blocks = Vec::with_capacity(request.blocks.len());
         for block_id in &request.blocks {
@@ -256,7 +256,7 @@ impl App {
                 .await;
         }
         let former = |board_id: &str| {
-            former_members
+            readers_before
                 .get(board_id)
                 .map_or(NOBODY, |(members, scope)| Former {
                     members,

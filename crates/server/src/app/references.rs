@@ -200,8 +200,9 @@ impl App {
     /// [`App::board_access`] before the store is asked what is on any. So the store
     /// looks only where the user reads, what is found there is the answer as it is, a
     /// page is cut from that alone, and the reads a question takes are those of the
-    /// boards the user holds a role on and of the open wikis, whatever is on them. They are asked one after
-    /// another: a request holds no more of the store's connections than any other does.
+    /// boards the user holds a role on and of the open wikis, whatever is on them. They
+    /// are asked one after another: a request holds no more of the store's connections
+    /// than any other does.
     async fn boards_read(
         &self,
         user_id: &str,

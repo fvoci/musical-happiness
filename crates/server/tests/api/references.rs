@@ -292,12 +292,17 @@ async fn what_a_member_is_not_on_is_resolved_as_nothing() {
         named(&resolved(member, TEST_WS, &asked).await),
         [private.page.as_str(), &open.card, &open.page]
     );
-    let known = [own.card.as_str(), &private.card];
-    let unknown = [own.card.as_str(), UNKNOWN_ID];
-    assert_eq!(
-        resolved(member, TEST_WS, &known).await.text(),
-        resolved(member, TEST_WS, &unknown).await.text()
-    );
+    // What stays nothing is nothing wherever it is among what is asked.
+    let other = made(&th.client, TEST_WS, "P", HIDDEN).await;
+    let still = [private.card.as_str(), other.card.as_str()];
+    for ids in [still, [still[1], still[0]]] {
+        let known = [own.card.as_str(), ids[0], ids[1]];
+        let unknown = [own.card.as_str(), UNKNOWN_ID, UNKNOWN_ID];
+        assert_eq!(
+            resolved(member, TEST_WS, &known).await.text(),
+            resolved(member, TEST_WS, &unknown).await.text()
+        );
+    }
 
     // Taken off again, it is nothing again.
     th.client

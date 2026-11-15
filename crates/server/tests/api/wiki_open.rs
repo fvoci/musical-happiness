@@ -73,13 +73,15 @@ async fn make(admin: &Client, wiki: &str, wiki_type: &str) {
         .check_ok();
 }
 
-/// What `socket` is told of pages and wikis until it is told of the page `until`: the
-/// messages `UPDATE_BLOCK` and `UPDATE_BOARD`, with the last one about `until`.
-async fn told_until(socket: &mut WorkspaceSocket, until: &str) -> Vec<Value> {
+/// What `socket` is told of pages, cards, boards and wikis until `enough` holds of it,
+/// and for a while after: messages that went out before the last one asked for, by
+/// another task, may come after it.
+async fn told_until(socket: &mut WorkspaceSocket, enough: impl Fn(&[Value]) -> bool) -> Vec<Value> {
     let mut heard = Vec::new();
     for _ in 0..20 {
         heard.extend(socket.drain().await);
-        if heard.iter().any(|told| told["block"]["id"] == json!(until)) {
+        if enough(&heard) {
+            heard.extend(socket.drain().await);
             break;
         }
     }
@@ -89,8 +91,20 @@ async fn told_until(socket: &mut WorkspaceSocket, until: &str) -> Vec<Value> {
     heard
 }
 
-/// The identifiers of the pages and wikis among what was told.
-fn about(heard: &[Value]) -> Vec<String> {
+/// Whether what was told has the block `id`.
+fn has_block(id: &str) -> impl Fn(&[Value]) -> bool + '_ {
+    move |heard| heard.iter().any(|told| told["block"]["id"] == json!(id))
+}
+
+/// Whether the board or wiki `id` was told as deleted.
+fn is_gone(told: &Value, id: &str) -> bool {
+    told["action"] == json!("UPDATE_BOARD")
+        && told["board"]["id"] == json!(id)
+        && told["board"]["deleteAt"] != json!(0)
+}
+
+/// The identifiers of the blocks, boards and wikis among what was told, each once.
+fn about(heard: &[Value]) -> std::collections::BTreeSet<String> {
     heard
         .iter()
         .map(|told| {
@@ -102,6 +116,11 @@ fn about(heard: &[Value]) -> Vec<String> {
             of.as_str().expect("an identifier").to_owned()
         })
         .collect()
+}
+
+/// The set of these identifiers.
+fn ids(of: &[&str]) -> std::collections::BTreeSet<String> {
+    of.iter().map(|id| (*id).to_owned()).collect()
 }
 
 /// A member of the workspace reads the open wiki and its members without joining it,
@@ -163,8 +182,10 @@ async fn an_open_wiki_is_nothing_to_a_guest() {
     let mut socket = WorkspaceSocket::subscribe(&th, &th.client2, TEST_WORKSPACE_ID, &guest).await;
     retitle(&th.client, &open, &open_page, "told nobody").await;
     retitle(&th.client, &invited, &invited_page, "told the guest").await;
-    let heard = told_until(&mut socket, &invited_page).await;
-    assert_eq!(about(&heard), [invited_page], "{heard:?}");
+    make(&th.client, &open, "P").await;
+    retitle(&th.client, &invited, &invited_page, "told the guest again").await;
+    let heard = told_until(&mut socket, has_block(&invited_page)).await;
+    assert_eq!(about(&heard), ids(&[&invited_page]), "{heard:?}");
 
     let mut peer = Peer::connect(&th.client2, 401).await;
     let refused = peer.join(TEST_WORKSPACE_ID, &open_page).await;
@@ -174,17 +195,45 @@ async fn an_open_wiki_is_nothing_to_a_guest() {
 
 /// Who works in the workspace is told what changes in an open wiki they did not join,
 /// as its members are; made private it is gone for them, told as a deletion, and they
-/// are told nothing of it any more; open again, they are told again, and of its
-/// deletion.
+/// are told nothing of it any more, while its members are told it is private; open
+/// again, they are told again, and of its deletion. An open board they did not join
+/// tells them nothing.
 #[tokio::test]
 async fn who_works_there_is_told_the_changes_of_an_open_wiki_they_did_not_join() {
     let th = Setup::native().start().await.init_basic().await;
-    let member = th.client2.me().await.id;
+    let (owner, member) = (th.client.me().await.id, th.client2.me().await.id);
     let (open, page) = wiki_of(&th.client, "O").await;
     let (own, own_page) = wiki_of(&th.client2, "P").await;
+    let board = th
+        .client
+        .post(&format!("{TEST_WS}/boards"), &json!({"type": "O"}))
+        .await
+        .value()["id"]
+        .as_str()
+        .expect("an id")
+        .to_owned();
+    let card = th
+        .client
+        .post(
+            &format!("{TEST_WS}/boards/{board}/cards"),
+            &json!({"title": "a card"}),
+        )
+        .await
+        .value()["id"]
+        .as_str()
+        .expect("an id")
+        .to_owned();
     let mut socket = WorkspaceSocket::subscribe(&th, &th.client2, TEST_WORKSPACE_ID, &member).await;
+    let mut of_owner = WorkspaceSocket::subscribe(&th, &th.client, TEST_WORKSPACE_ID, &owner).await;
 
     retitle(&th.client, &open, &page, "told who reads it").await;
+    th.client
+        .patch(
+            &format!("{TEST_WS}/cards/{card}"),
+            &json!({"title": "told its members"}),
+        )
+        .await
+        .check_ok();
     th.client
         .patch(
             &format!("{TEST_WS}/boards/{open}"),
@@ -193,23 +242,31 @@ async fn who_works_there_is_told_the_changes_of_an_open_wiki_they_did_not_join()
         .await
         .check_ok();
     retitle(&th.client2, &own, &own_page, "the end").await;
-    let heard = told_until(&mut socket, &own_page).await;
+    let heard = told_until(&mut socket, has_block(&own_page)).await;
+    assert_eq!(about(&heard), ids(&[&page, &open, &own_page]), "{heard:?}");
+    let retitled = heard.iter().find(|told| told["block"]["id"] == json!(page));
     assert_eq!(
-        about(&heard),
-        [page.clone(), open.clone(), own_page.clone()],
-        "{heard:?}"
+        retitled.expect("the page")["block"]["title"],
+        json!("told who reads it")
     );
-    assert_eq!(heard[0]["block"]["title"], json!("told who reads it"));
 
     make(&th.client, &open, "P").await;
+    let heard = told_until(&mut socket, |heard| {
+        heard.iter().any(|told| is_gone(told, &open))
+    })
+    .await;
+    assert!(
+        heard.iter().any(|told| is_gone(told, &open)),
+        "gone for them: {heard:?}"
+    );
     retitle(&th.client, &open, &page, "told its members alone").await;
     retitle(&th.client2, &own, &own_page, "the end again").await;
-    let heard = told_until(&mut socket, &own_page).await;
-    assert_eq!(about(&heard), [open.clone(), own_page.clone()], "{heard:?}");
-    assert_ne!(
-        heard[0]["board"]["deleteAt"],
-        json!(0),
-        "gone for them: {heard:?}"
+    let heard = told_until(&mut socket, has_block(&own_page)).await;
+    assert_eq!(about(&heard), ids(&[&own_page]), "{heard:?}");
+    let to_owner = told_until(&mut of_owner, has_block(&page)).await;
+    assert!(
+        !to_owner.iter().any(|told| is_gone(told, &open)),
+        "a member reads it still: {to_owner:?}"
     );
 
     make(&th.client, &open, "O").await;
@@ -217,15 +274,18 @@ async fn who_works_there_is_told_the_changes_of_an_open_wiki_they_did_not_join()
         .delete(&format!("{TEST_WS}/boards/{open}"))
         .await
         .check_no_content();
-    retitle(&th.client2, &own, &own_page, "the very end").await;
-    let heard = told_until(&mut socket, &own_page).await;
-    let of_open: Vec<&Value> = heard
+    let heard = told_until(&mut socket, |heard| {
+        heard.iter().any(|told| is_gone(told, &open))
+    })
+    .await;
+    let reopened = heard
         .iter()
-        .filter(|told| told["board"]["id"] == json!(open))
-        .collect();
-    assert_eq!(of_open.len(), 2, "made open and deleted: {heard:?}");
-    assert_eq!(of_open[0]["board"]["type"], json!("O"));
-    assert_ne!(of_open[1]["board"]["deleteAt"], json!(0), "{heard:?}");
+        .any(|told| told["board"]["id"] == json!(open) && told["board"]["type"] == json!("O"));
+    assert!(reopened, "made open: {heard:?}");
+    assert!(
+        heard.iter().any(|told| is_gone(told, &open)),
+        "deleted: {heard:?}"
+    );
     th.teardown().await;
 }
 

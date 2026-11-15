@@ -25,9 +25,10 @@ pub(super) enum Access<'a> {
 #[derive(Clone, Copy)]
 pub(super) enum Readers<'a> {
     /// The board as it is when the change is sent: its members and its scope are read
-    /// then.
+    /// then, the scope only if it is a board of the workspace the change is told in.
     Now(&'a str),
-    /// A board that is gone, as it was: its members and its scope.
+    /// A board that is gone, as it was: its members and its scope, of the workspace the
+    /// change is told in.
     Former {
         members: &'a [BoardMember],
         scope: BoardScope,
@@ -252,8 +253,11 @@ impl Hub {
     }
 
     async fn authorized(&self, ids: &[ListenerId], access: Access<'_>) -> Vec<ListenerId> {
-        let known = if let Access::Members { readers, .. } = access {
-            let Some(known) = self.known(readers).await else {
+        let known = if let Access::Members {
+            workspace, readers, ..
+        } = access
+        {
+            let Some(known) = self.known(workspace, readers).await else {
                 self.close_unread(ids);
                 return Vec::new();
             };
@@ -270,8 +274,10 @@ impl Hub {
         authorized
     }
 
-    /// What `readers` stand for now; `None`, logged, if it cannot be read.
-    async fn known(&self, readers: Readers<'_>) -> Option<Known> {
+    /// What `readers` stand for now in `workspace`; `None`, logged, if it cannot be read.
+    /// A board of another workspace is told to its members alone: what it is there for
+    /// besides them is of its own workspace.
+    async fn known(&self, workspace: &str, readers: Readers<'_>) -> Option<Known> {
         match readers {
             Readers::Former { members, scope } => Some(Known {
                 members: members.to_vec(),
@@ -286,7 +292,7 @@ impl Hub {
                     .ok()?;
                 let scope = self
                     .audience
-                    .board_scope(board)
+                    .board_scope(workspace, board)
                     .await
                     .inspect_err(|error| unread(board, error))
                     .ok()?;
