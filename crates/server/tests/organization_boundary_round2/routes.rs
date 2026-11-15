@@ -194,6 +194,46 @@ pub(super) const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
     ("GET", "/wikis/{wikiId}/pages/{pageId}", "getPage"),
     ("PATCH", "/wikis/{wikiId}/pages/{pageId}", "patchPage"),
     ("DELETE", "/wikis/{wikiId}/pages/{pageId}", "deletePage"),
+    (
+        "GET",
+        "/wikis/{wikiId}/pages/{pageId}/comments",
+        "getPageComments",
+    ),
+    (
+        "POST",
+        "/wikis/{wikiId}/pages/{pageId}/comments",
+        "createPageComment",
+    ),
+    (
+        "PATCH",
+        "/wikis/{wikiId}/pages/{pageId}/comments/{commentId}",
+        "patchPageComment",
+    ),
+    (
+        "DELETE",
+        "/wikis/{wikiId}/pages/{pageId}/comments/{commentId}",
+        "deletePageComment",
+    ),
+    (
+        "GET",
+        "/wikis/{wikiId}/pages/{pageId}/comments/{commentId}/versions",
+        "getPageCommentVersions",
+    ),
+    (
+        "GET",
+        "/wikis/{wikiId}/pages/{pageId}/body-versions",
+        "getPageBodyVersions",
+    ),
+    (
+        "GET",
+        "/wikis/{wikiId}/pages/{pageId}/body-versions/{version}",
+        "getPageBodyVersion",
+    ),
+    (
+        "POST",
+        "/wikis/{wikiId}/pages/{pageId}/body-versions/{version}/restore",
+        "restorePageBodyVersion",
+    ),
     ("POST", "/wikis/{wikiId}/pages/{pageId}/move", "movePage"),
     (
         "POST",
@@ -205,6 +245,11 @@ pub(super) const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
         "POST",
         "/wikis/{wikiId}/pages/{pageId}/undelete",
         "undeletePage",
+    ),
+    (
+        "POST",
+        "/wikis/{wikiId}/pages/{pageId}/comments/{commentId}/undelete",
+        "undeletePageComment",
     ),
 ];
 
@@ -228,10 +273,19 @@ const REACHED_BY_ITEM: &[&str] = &[
     "getPage",
     "patchPage",
     "deletePage",
+    "getPageComments",
+    "createPageComment",
+    "patchPageComment",
+    "deletePageComment",
+    "getPageCommentVersions",
+    "getPageBodyVersions",
+    "getPageBodyVersion",
+    "restorePageBodyVersion",
     "movePage",
     "duplicatePage",
     "getDeletedPages",
     "undeletePage",
+    "undeletePageComment",
     "createBoardsAndBlocks",
     "deleteBoardsAndBlocks",
     "patchBoardsAndBlocks",
@@ -838,6 +892,8 @@ struct Items<'a> {
     card: &'a Block,
     /// A page of a wiki of the same workspace; its `board_id` is the wiki.
     page: &'a Block,
+    /// A comment on the page.
+    comment: &'a Block,
     file: &'a str,
     upload_id: &'a str,
     category: &'a str,
@@ -881,6 +937,7 @@ impl Items<'_> {
             .replace("{blockId}", &pick(&self.card.id, UNKNOWN_ID))
             .replace("{wikiId}", &pick(&self.page.board_id, UNKNOWN_ID))
             .replace("{pageId}", &pick(&self.page.id, UNKNOWN_ID))
+            .replace("{commentId}", &pick(&self.comment.id, UNKNOWN_ID))
             .replace("{fileId}", &pick(self.file, "missing-file"))
             .replace("{uploadId}", &pick(self.upload_id, "missing-upload"))
             .replace("{userId}", &pick(self.user, UNKNOWN_ID))
@@ -1090,6 +1147,23 @@ async fn a_page_in(ts: &super::common::TestServer, workspace_id: &str, owner: &s
         .page
 }
 
+/// A comment on the page, by its maker.
+async fn a_comment_on(ts: &super::common::TestServer, page: &Block) -> Block {
+    let mut comment = Block {
+        id: new_id(),
+        board_id: page.board_id.clone(),
+        parent_id: page.id.clone(),
+        block_type: BlockType::Comment,
+        ..Block::default()
+    };
+    ts.app
+        .store()
+        .insert_block(&mut comment, &page.created_by)
+        .await
+        .expect("a comment on the page");
+    comment
+}
+
 #[tokio::test]
 async fn identifier_only_inventory_hides_resources_of_an_unjoined_workspace() {
     let ts = Setup::native().start().await.init_basic().await;
@@ -1148,10 +1222,12 @@ async fn identifier_only_inventory_hides_resources_of_an_unjoined_workspace() {
     let invitation = a_link_into(&ts, HIDDEN_WORKSPACE_ID, &owner).await;
     let team = a_team_in(&ts, &board.workspace_id, &board.created_by).await;
     let page = a_page_in(&ts, &board.workspace_id, &board.created_by).await;
+    let comment = a_comment_on(&ts, &page).await;
     let items = Items {
         board: &board,
         card: &card,
         page: &page,
+        comment: &comment,
         file: &file,
         upload_id: &upload.id,
         category: &category,
@@ -1509,10 +1585,12 @@ async fn what_is_of_one_workspace_is_not_there_under_another() {
     );
     let invitation = a_link_into(&ts, TEST_WORKSPACE_ID, &me).await;
     let team = a_team_in(&ts, &board.workspace_id, &board.created_by).await;
+    let comment = a_comment_on(&ts, &page).await;
     let items = Items {
         board: &board,
         card: &card,
         page: &page,
+        comment: &comment,
         file: &file,
         upload_id: &upload.id,
         category: &category,

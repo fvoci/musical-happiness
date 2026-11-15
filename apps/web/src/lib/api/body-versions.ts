@@ -47,3 +47,40 @@ export class ServerBodyVersions implements BodyVersions {
     );
   }
 }
+
+/**
+ * The versions of a wiki page's body on the server (`getPageBodyVersions`,
+ * `getPageBodyVersion`, `restorePageBodyVersion`), as a card's: the wiki is
+ * named where a card's board is, and the page where the card is. The page
+ * restored comes to the wiki through the socket too.
+ */
+export class ServerPageVersions implements BodyVersions {
+  readonly #ask: Ask;
+
+  constructor(ask: Ask) {
+    this.#ask = ask;
+  }
+
+  list(wikiId: string, pageId: string): Promise<BodyVersion[]> {
+    return this.#ask<Schemas['BodyVersion'][]>('/wikis/{wikiId}/pages/{pageId}/body-versions', {
+      wikiId,
+      pageId,
+    });
+  }
+
+  async read(wikiId: string, pageId: string, version: number): Promise<BodyVersionContent> {
+    const kept = await this.#ask<Schemas['BodyVersionContent']>(
+      '/wikis/{wikiId}/pages/{pageId}/body-versions/{version}',
+      { wikiId, pageId, version: String(version) },
+    );
+    return { ...kept, body: bodyOf(kept.body) };
+  }
+
+  async restore(wikiId: string, pageId: string, version: number): Promise<void> {
+    await this.#ask<Schemas['Page']>(
+      '/wikis/{wikiId}/pages/{pageId}/body-versions/{version}/restore',
+      { wikiId, pageId, version: String(version) },
+      { method: 'POST' },
+    );
+  }
+}

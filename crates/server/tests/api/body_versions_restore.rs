@@ -268,7 +268,7 @@ async fn a_version_that_cannot_be_stored_is_not_restored() {
         ),
         (
             pictured,
-            "the version shows an image whose file the board does not have any more",
+            "the version shows an image whose file is not there any more",
         ),
     ] {
         // As a version kept before the server was told to store less, or whose file

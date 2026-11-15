@@ -17,12 +17,17 @@
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type { CardFrame } from '$lib/layout/presentation.ts';
   import type { BoardView } from '$lib/logic/wire.ts';
-  import { whileHere, type BoardStore, type CardStore } from '$lib/state/index.ts';
+  import {
+    whileHere,
+    type BoardStore,
+    type CardStore,
+    type CommentVersion,
+  } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
   import { bodyReferences } from './body-references.ts';
   import BodyVersions from './BodyVersions.svelte';
-  import { VersionsReading } from './body-versions.svelte.ts';
+  import { cardVersions, VersionsReading } from './body-versions.svelte.ts';
   import CardAttachments from './CardAttachments.svelte';
   import CardBacklinks from './CardBacklinks.svelte';
   import CardBody from './CardBody.svelte';
@@ -62,7 +67,7 @@
   let versionsOpen = $state(false);
 
   function showVersions(): void {
-    versions = new VersionsReading(board, card);
+    versions = new VersionsReading(cardVersions(board, card));
     versionsOpen = true;
   }
 
@@ -89,6 +94,14 @@
     // Refused: the card is still there, and stays open.
     if (store.card(cardId)) deleting = false;
     else close();
+  }
+
+  /** What a comment of the card said before, with its writers known by name. */
+  async function readVersions(commentId: string): Promise<CommentVersion[]> {
+    const workspace = board.workspace;
+    const list = await workspace.backend.commentVersions(board.boardId, commentId);
+    await workspace.learnUsers(list.map((version) => version.writtenBy).filter((id) => id !== ''));
+    return list;
   }
 
   function showNewest(): void {
@@ -151,7 +164,7 @@
         <CardBody {board} {card} {references} />
         <CardBacklinks workspace={board.workspace} blockId={card.cardId} />
         <CardAttachments {board} {card} />
-        <CardComments {board} {card} />
+        <CardComments {board} {card} {readVersions} />
       {:else if card.status === 'failed'}
         <p class="border-t pt-5 text-muted-foreground" role="alert">{m.app_problem_load()}</p>
       {:else}
@@ -160,6 +173,6 @@
     </article>
   </div>
   {#if ready && board.canComment}
-    <CommentComposer {board} {card} onSent={showNewest} />
+    <CommentComposer {board} {card} draftKey={card.cardId} onSent={showNewest} />
   {/if}
 {/if}

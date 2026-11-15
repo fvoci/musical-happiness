@@ -75,7 +75,8 @@ export function deletedPagesOf(
       title: first.title,
       deletedAt: deleted.deletedAt,
       deletedBy: deleted.deletedBy,
-      below: deleted.blocks.length - 1,
+      // The pages that went with it: its comments and theirs went too, and are no pages.
+      below: deleted.blocks.filter((block) => block.type === 'page').length - 1,
     });
   }
   const order = (one: DeletedItem, other: DeletedItem): number =>

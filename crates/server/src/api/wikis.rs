@@ -128,12 +128,15 @@ async fn handle_create_wiki(WsWiki(ws): WsWiki, body: Bytes) -> ApiResult {
     Ok(created(&wiki))
 }
 
+/// What a member of the workspace who may not read the wiki is refused a page with.
+pub(super) const READ_DENIED: &str = "access denied to fetch page";
+
 /// Returns the page of the wiki for a handler of `/wikis/{wikiId}/pages/{pageId}`, if
 /// the user has the permission on the wiki: its block, read once.
 ///
 /// Who may not read the wiki is told what `require_board_permission` tells; a block
 /// that is no page of this wiki is no page, whatever else it is.
-async fn page_with_permission(
+pub(super) async fn page_with_permission(
     ws: &Ws,
     wiki_id: &str,
     page_id: &str,
@@ -247,7 +250,7 @@ async fn handle_get_page(
         &wiki_id,
         &page_id,
         BoardPermission::ViewBoard,
-        "access denied to fetch page",
+        READ_DENIED,
     )
     .await?;
     Ok(json_response(&Page::from(block)))
@@ -395,10 +398,10 @@ async fn handle_duplicate_page(
 
 /// Delete a page
 ///
-/// The page goes to the trash with every page below it, for editors of the wiki. The
-/// wiki's members are told with `UPDATE_BLOCK` of the page alone, whose `deleteAt` is
-/// not 0, as for any block that is deleted; the pages below it went with it and are
-/// not told of one by one.
+/// The page goes to the trash with every page below it and the comments on them, for
+/// editors of the wiki. The wiki's members are told with `UPDATE_BLOCK` of the page
+/// alone, whose `deleteAt` is not 0, as for any block that is deleted; what went with
+/// it is not told of one by one.
 #[utoipa::path(
     delete,
     path = "/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}",
@@ -472,9 +475,10 @@ async fn handle_get_deleted_pages(
 /// The tree is held to the organization's limits: 400 with the reason `page_too_deep`
 /// or `too_many_pages` (with the `limit`) if the pages would be deeper, or the wiki
 /// larger, than they let it be. A page that is not in this wiki's trash, or went there
-/// with the page it was below (it comes back with that page), is 404. The
-/// wiki's members are told with `UPDATE_BLOCK` of each page that came back, a page
-/// before those below it, and of each page numbered anew to leave it room.
+/// with the page it was below (it comes back with that page), is 404. The comments on
+/// the pages come back with them; the limits count pages. The wiki's members are told
+/// with `UPDATE_BLOCK` of each page and comment that came back, a page before what is
+/// below it, and of each page numbered anew to leave it room.
 #[utoipa::path(
     post,
     path = "/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/undelete",
