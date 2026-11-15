@@ -112,12 +112,12 @@ async fn a_page_is_a_block_of_a_wiki_and_a_wiki_has_no_other() {
         ),
         BlockError::PageOffWiki
     );
-    // What a board has, on a wiki: at its top and below a page.
+    // What a board has, on a wiki: at its top and below a page. A comment is on a page
+    // (`a_comment_of_a_wiki_is_on_a_page_and_goes_to_the_trash_with_it`).
     for block_type in [
         BlockType::Card,
         BlockType::View,
         BlockType::Attachment,
-        BlockType::Comment,
         BlockType::from("text"),
     ] {
         for parent in ["", on_wiki.as_str()] {
@@ -542,5 +542,89 @@ async fn the_pages_of_two_organizations_are_out_of_each_others_reach() {
     let found = theirs.board_of_card(&their_page).await.expect("read");
     assert_eq!(found.as_ref(), Some(&their_wiki.id));
     assert_eq!(below(&theirs, &their_wiki, "").await, [their_page]);
+    test.teardown().await;
+}
+
+/// A comment on a wiki is on a page of it, as one on a board is on a card of it: not at
+/// the wiki's top, not on a page of another wiki, not moved off its page, and nothing is
+/// below it. It goes to the trash with its page and comes back with it, and on its own
+/// comes back onto its page.
+#[tokio::test]
+async fn a_comment_of_a_wiki_is_on_a_page_and_goes_to_the_trash_with_it() {
+    let test = common::setup().await;
+    let user_id = common::user(&test, "user").await;
+    let workspace_id = common::workspace_of(&test, &[&user_id]).await;
+    let board = stored(&test, &workspace_id, &user_id, BoardKind::Board).await;
+    let wiki = stored(&test, &workspace_id, &user_id, BoardKind::Wiki).await;
+    let other_wiki = stored(&test, &workspace_id, &user_id, BoardKind::Wiki).await;
+    let on_wiki = page(&test, &wiki, "", None).await;
+    let below = page(&test, &wiki, &on_wiki, None).await;
+    let elsewhere = page(&test, &other_wiki, "", None).await;
+
+    let mut comment = block(&wiki.id, &on_wiki, BlockType::Comment);
+    test.insert_block(&mut comment, &user_id)
+        .await
+        .expect("a comment on a page is stored");
+    // At the top of the wiki: its parent is what is wrong, as on a board.
+    let mut on_top = block(&wiki.id, "", BlockType::Comment);
+    assert_eq!(
+        refusal(test.insert_block(&mut on_top, &user_id).await),
+        BlockError::CommentNotOnCardOrPage
+    );
+    // On a page of another wiki, and as a board's on a wiki's page.
+    for (board_id, parent) in [(&wiki.id, &elsewhere), (&board.id, &on_wiki)] {
+        let mut stray = block(board_id, parent, BlockType::Comment);
+        assert_eq!(
+            refusal(test.insert_block(&mut stray, &user_id).await),
+            BlockError::ParentNotOnBoard,
+            "on {board_id} below {parent}"
+        );
+    }
+    // Moved to the top of the wiki, to another page, and with a block below it.
+    let moved = |parent_id: &str| BlockPatch {
+        parent_id: Some(parent_id.to_owned()),
+        ..BlockPatch::default()
+    };
+    assert_eq!(
+        refusal(test.patch_block(&comment.id, &moved(""), &user_id).await),
+        BlockError::CommentNotOnCardOrPage
+    );
+    test.patch_block(&comment.id, &moved(&below), &user_id)
+        .await
+        .expect("a comment moves to another page of its wiki");
+    let mut reply = block(&wiki.id, &comment.id, BlockType::Comment);
+    assert_eq!(
+        refusal(test.insert_block(&mut reply, &user_id).await),
+        BlockError::CommentNotOnCardOrPage
+    );
+    // The tree has the pages only.
+    let tree = test.get_page_tree(&wiki.id).await.expect("the tree");
+    assert_eq!(tree.len(), 2, "{tree:?}");
+
+    // With its page to the trash, and back with it.
+    test.delete_block(&on_wiki, &user_id)
+        .await
+        .expect("the page is deleted");
+    let deleted = test.get_deleted_block(&comment.id).await;
+    assert!(
+        deleted.is_ok(),
+        "the comment went with its page: {deleted:?}"
+    );
+    assert!(test.get_block(&comment.id).await.is_err());
+    test.undelete_block(&on_wiki, &user_id)
+        .await
+        .expect("the page comes back");
+    let back = test.get_block(&comment.id).await.expect("and its comment");
+    assert_eq!(
+        (back.parent_id.as_str(), back.board_id.as_str()),
+        (below.as_str(), wiki.id.as_str())
+    );
+    // On its own, onto its page.
+    test.delete_block(&comment.id, &user_id)
+        .await
+        .expect("the comment is deleted");
+    test.undelete_block(&comment.id, &user_id)
+        .await
+        .expect("the comment comes back onto its page");
     test.teardown().await;
 }

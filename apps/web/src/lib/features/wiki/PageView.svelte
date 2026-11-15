@@ -10,7 +10,7 @@
   title and the icon as text.
 
   The body is the caller's (`body`): the page's room is opened by what is put
-  there.
+  there; so is what the head offers to do with the page (`actions`).
 -->
 <script lang="ts">
   import ShuffleIcon from '@lucide/svelte/icons/shuffle';
@@ -36,9 +36,10 @@
     /** Start with the caret in the title: for a page that was just made. */
     autofocus?: boolean;
     body: Snippet<[PageStore]>;
+    actions?: Snippet<[PageStore]> | undefined;
   }
 
-  let { wiki, store, page, autofocus = false, body }: Props = $props();
+  let { wiki, store, page, autofocus = false, body, actions }: Props = $props();
 
   /** How long the typing has to pause before the title is stored, in milliseconds. */
   const PAUSE = 800;
@@ -182,6 +183,7 @@
       {/if}
       <div class="min-w-0 flex-1"></div>
       <PageViewers {wiki} pageId={page.id} large />
+      {@render actions?.(store)}
     </div>
     {#if editable}
       <textarea

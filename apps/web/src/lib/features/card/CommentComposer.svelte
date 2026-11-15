@@ -13,6 +13,9 @@
   the field only leaves the field (the next one closes the card), and a card
   that is closed with a draft has it again when it is opened later in the
   same visit (comment-drafts.ts).
+
+  A wiki's page has the same field below its comments (`placement` `inline`),
+  with the page's comments in place of the card.
 -->
 <script lang="ts">
   import { untrack } from 'svelte';
@@ -28,23 +31,29 @@
   import { draftOf, keepDraft } from './comment-drafts.ts';
 
   interface Props {
-    board: BoardStore;
-    card: CardStore;
+    /** The board, or the page's comments: who writes. */
+    board: Pick<BoardStore, 'workspace'>;
+    /** The card, or the page's comments: where the comment goes. */
+    card: Pick<CardStore, 'addComment'>;
+    /** Whose draft it is (`comment-drafts.ts`): the card's or the page's identifier. */
+    draftKey: string;
+    /** `pinned`: the last row of a card; `inline`: below the comments of a page. */
+    placement?: 'pinned' | 'inline';
     /** A comment was stored: the card shows it. */
     onSent?: () => void;
   }
 
-  let { board, card, onSent }: Props = $props();
+  let { board, card, draftKey, placement = 'pinned', onSent }: Props = $props();
 
   const workspace = $derived(board.workspace);
   const me = $derived(workspace.me);
   const myName = $derived(me ? (workspace.userName(me.id) ?? me.username) : '');
 
-  const cardId = untrack(() => card.cardId);
-  let draft = $state(draftOf(cardId));
+  const key = untrack(() => draftKey);
+  let draft = $state(draftOf(key));
   let sending = $state(false);
   $effect(() => {
-    keepDraft(cardId, draft);
+    keepDraft(key, draft);
   });
   const doc = $derived(commentDoc(draft));
 
@@ -80,7 +89,12 @@
 </script>
 
 <form
-  class="flex shrink-0 items-end gap-2 border-t bg-inherit px-3 pt-2 pb-[calc(0.5rem+max(0px,var(--safe-bottom)-var(--keyboard)))] @card-roomy/card:px-6"
+  class={[
+    'flex shrink-0 items-end gap-2',
+    placement === 'pinned'
+      ? 'border-t bg-inherit px-3 pt-2 pb-[calc(0.5rem+max(0px,var(--safe-bottom)-var(--keyboard)))] @card-roomy/card:px-6'
+      : 'pt-1',
+  ]}
   data-testid="comment-composer"
   onsubmit={(event) => {
     event.preventDefault();

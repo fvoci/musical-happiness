@@ -6,10 +6,15 @@
 
   The text of a comment is changed in place (the same plain field as a new
   comment: lines are paragraphs) by whom the server lets (`canEditComment`),
-  and deleted the same way; "Undo" in the card's menu brings a deleted one
+  and deleted the same way; on a card, "Undo" in its menu brings a deleted one
   back. A changed comment says who changed it and when, and any member can
   open what it said before (`CommentHistory`). The field for a new comment is not here: it is pinned to the
   bottom edge of the card (CommentComposer).
+
+  A wiki's page has comments of the same kind: they are shown by this too,
+  with the page's comments (`PageComments`) in place of both the board and
+  the card; "Undo" brings a deleted one back there too, and the heading is
+  one level under the page's title.
 -->
 <script lang="ts">
   import HistoryIcon from '@lucide/svelte/icons/history';
@@ -23,7 +28,7 @@
   import BodyView from '$lib/editor/BodyView.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { displayDateTime, relativeTime } from '$lib/logic/format.ts';
-  import type { BoardStore, CardStore } from '$lib/state/index.ts';
+  import type { BoardStore, CardStore, CommentVersion } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
   import { autosize } from '$lib/components/autosize.ts';
@@ -32,13 +37,30 @@
   import CommentHistory from './CommentHistory.svelte';
 
   interface Props {
-    board: BoardStore;
-    card: CardStore;
+    /** The board, or the page's comments: who may do what, and who the names are. */
+    board: Pick<
+      BoardStore,
+      'workspace' | 'canEditComment' | 'canDeleteComment' | 'canReadCommentHistory'
+    >;
+    /** The card, or the page's comments: the comments and their changes. */
+    card: Pick<CardStore, 'comments' | 'comment' | 'editComment' | 'deleteComment'>;
+    /** What a comment said before (`CommentHistory`). */
+    readVersions: (commentId: string) => Promise<CommentVersion[]>;
+    /** The level of the heading: under a card's title, or under a page's. */
+    heading?: 'h2' | 'h3';
   }
 
-  let { board, card }: Props = $props();
+  let { board, card, readVersions, heading = 'h3' }: Props = $props();
 
-  const references = $derived(bodyReferences(board, card.cardId));
+  /** Deletes the comment; its field and its history, if open, go with it. */
+  function remove(commentId: string): void {
+    if (editing?.id === commentId) editing = undefined;
+    if (historyOf === commentId) historyOf = undefined;
+    void card.deleteComment(commentId);
+  }
+
+  // The comments are drawn, not written in: what `[[` offers is none of theirs.
+  const references = $derived(bodyReferences(board));
 
   const uid = $props.id();
   const workspace = $derived(board.workspace);
@@ -139,10 +161,10 @@
   class="flex flex-col gap-4 border-t pt-5"
   data-testid="card-comments"
 >
-  <h3 id="{uid}-heading" class="font-semibold">
+  <svelte:element this={heading} id="{uid}-heading" class="font-semibold">
     {m['CardBadges.title-comments']()}
     <span class="font-normal text-muted-foreground">{card.comments.length}</span>
-  </h3>
+  </svelte:element>
   {#if card.comments.length === 0}
     <p class="text-muted-foreground">{m.card_comments_none()}</p>
   {/if}
@@ -246,7 +268,8 @@
           {#if historyOf === comment.id && comment.editedAt && board.canReadCommentHistory}
             <CommentHistory
               id="{uid}-history-{comment.id}"
-              {board}
+              read={readVersions}
+              {references}
               commentId={comment.id}
               editedAt={comment.editedAt}
               {context}
@@ -289,10 +312,8 @@
             })}
             class="shrink-0 text-muted-foreground"
             onclick={() => {
-              // Its field, if open, goes with it (an undo brings the comment back, not the edit).
-              if (editing?.id === comment.id) editing = undefined;
-              if (historyOf === comment.id) historyOf = undefined;
-              void card.deleteComment(comment.id);
+              // An undo brings the comment back, not the edit.
+              remove(comment.id);
             }}
           >
             <Trash2Icon aria-hidden="true" />

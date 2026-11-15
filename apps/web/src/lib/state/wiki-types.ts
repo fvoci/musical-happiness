@@ -7,11 +7,14 @@
  * the board's operations. What only a wiki has is here: its pages, a tree
  * (each names the page it is below), each with a title, an icon and a body.
  * The body is written together in the page's room, as a card's is
- * (`Backend.openDoc` with the page in place of the card).
+ * (`Backend.openDoc` with the page in place of the card). A page has
+ * comments and versions of its body as a card has, by the card's rules.
  */
 import type { DocNode } from '../editor/schema.ts';
 import type { Board, BoardType, MemberRole } from '../logic/wire.ts';
 
+import type { BodyWrite, Comment, CommentVersion } from './backend.ts';
+import type { BodyVersions } from './body-versions.ts';
 import type { DeletedItem, Paging } from './trash-reads.ts';
 
 /** A page as the tree of its wiki lists it: without its body. */
@@ -99,6 +102,40 @@ export interface Wikis {
    * editors. The wiki's listeners are told of the page alone (`blocksDeleted`).
    */
   deletePage(wikiId: string, pageId: string): Promise<void>;
+
+  // The comments on a page, as a card's (`Backend.comments` and the rest).
+  /** Oldest first. For the wiki's members; a page that is not there is 404. */
+  comments(wikiId: string, pageId: string): Promise<Comment[]>;
+  /** For the wiki's commenters and up. A comment has a text: an empty one is 400. */
+  createComment(wikiId: string, pageId: string, body: DocNode): Promise<Comment>;
+  /**
+   * Replaces the text of a comment: its author's, from the commenter's role,
+   * and anyone's for the wiki's admins. 409 when it changed since `readAt`.
+   */
+  patchComment(
+    wikiId: string,
+    pageId: string,
+    commentId: string,
+    write: BodyWrite,
+  ): Promise<Comment>;
+  /**
+   * Moves a comment to the trash, by whom may change it. A page brought back
+   * from the trash has the comments that went with it.
+   */
+  deleteComment(wikiId: string, pageId: string, commentId: string): Promise<void>;
+  /**
+   * Brings back a comment deleted on its own, onto its page: its author's if
+   * they deleted it, anyone's for the wiki's admins (403 otherwise); one that
+   * went with its page, or is not in the trash, is 404. Its listeners are told.
+   */
+  restoreComment(wikiId: string, pageId: string, commentId: string): Promise<Comment>;
+  /** What a comment said before each change, the first text first. For the wiki's members. */
+  commentVersions(wikiId: string, pageId: string, commentId: string): Promise<CommentVersion[]>;
+  /**
+   * The versions of a page's body, as a card's: with the wiki in place of the
+   * board and the page in place of the card. Restored by the wiki's editors.
+   */
+  readonly bodyVersions: BodyVersions;
   /**
    * The wiki's pages in the trash, for its editors: a page, the last deleted
    * first, each with how many pages below it went with it (`below`). A page
@@ -110,8 +147,9 @@ export interface Wikis {
    * Brings a page back from the trash with the pages that went with it, for
    * the wiki's editors: below the page it was below, or, that one gone, last
    * at the top. Past the wiki's limits it is 400 (`page_too_deep`,
-   * `too_many_pages`); one the trash does not have, 404. Each page that came
-   * back is told (`pages`); the answer is the page asked for.
+   * `too_many_pages`); one the trash does not have, 404. The comments on the
+   * pages come back with them. Each page that came back is told (`pages`),
+   * and each comment (`blocks`); the answer is the page asked for.
    */
   undeletePage(wikiId: string, pageId: string): Promise<WikiPageDetail>;
   /**

@@ -269,3 +269,60 @@ async fn pages_that_come_back_are_noted_for_the_search_server() {
     assert_eq!(noted, expected);
     test.teardown().await;
 }
+
+/// The comments on the pages go to the trash with them and come back with them, and
+/// are no pages: the trash says how many pages went below a page, and the limits count
+/// the pages that come back.
+#[tokio::test]
+async fn the_comments_of_deleted_pages_are_no_pages_below_them() {
+    let test = common::setup().await;
+    let user_id = common::user(&test, "user").await;
+    let workspace_id = common::workspace_of(&test, &[&user_id]).await;
+    let wiki = stored(&test, &workspace_id, &user_id, BoardKind::Wiki).await;
+    let a = page(&test, &wiki, "", None).await;
+    let b = page(&test, &wiki, &a, None).await;
+    let mut comments = Vec::new();
+    for on in [&a, &a, &b] {
+        let mut comment = fvoci_model::Block {
+            id: new_id(),
+            board_id: wiki.id.clone(),
+            parent_id: on.clone(),
+            block_type: fvoci_model::BlockType::Comment,
+            ..fvoci_model::Block::default()
+        };
+        test.insert_block(&mut comment, &user_id)
+            .await
+            .expect("a comment on the page");
+        comments.push(comment.id);
+    }
+    test.delete_block(&a, &user_id).await.expect("deleted");
+    let listed = test
+        .get_deleted_pages(&wiki.id, None)
+        .await
+        .expect("listed");
+    let seen: Vec<(&str, u32)> = listed
+        .iter()
+        .map(|one| (one.id.as_str(), one.below))
+        .collect();
+    assert_eq!(
+        seen,
+        [(a.as_str(), 1)],
+        "one page below, whatever its comments"
+    );
+    // Two pages come back within a limit of two, with the comments.
+    let two = PageLimits {
+        depth: 10,
+        pages: 2,
+    };
+    let back = test
+        .undelete_page(&wiki.id, &a, two, &user_id)
+        .await
+        .expect("the pages come back within the limit");
+    let back: Vec<&str> = back.pages.iter().map(|block| block.id.as_str()).collect();
+    assert_eq!(back.first(), Some(&a.as_str()), "the page asked for first");
+    for id in [&b].into_iter().chain(&comments) {
+        assert!(back.contains(&id.as_str()), "{id} came back: {back:?}");
+        test.get_block(id).await.expect("there again");
+    }
+    test.teardown().await;
+}
