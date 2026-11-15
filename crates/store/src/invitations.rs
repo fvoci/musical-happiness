@@ -18,9 +18,10 @@ use fvoci_model::{
 
 use crate::accounts::{self, Which};
 use crate::audit::{self, AuditEntry};
-use crate::boards::{find_member, lock_board, save_member};
+use crate::boards::{find_member, save_member};
 use crate::db::{Dialect, Id, OptId, Param, Row, Scope, Sql};
 use crate::error::{StoreError, Taken};
+use crate::link_locks::{self, Turn};
 use crate::trash::{self, TrashedRoles};
 use crate::users::InstanceRole;
 use crate::{Standing, Store, signups};
@@ -160,10 +161,13 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::NotFound`] if the organization has no such workspace in
-    /// use, or the workspace no such board; [`StoreError::NoOrganization`] if the
-    /// handle names none; and [`StoreError::Database`] if the statement fails.
+    /// use, or the workspace no such board or invites no guests to it for a guest's
+    /// link, or the link it is made like is revoked or ended, or of another board;
+    /// [`StoreError::NoOrganization`] if the handle names none; and
+    /// [`StoreError::Database`] if a statement fails.
     pub async fn create_invitation(&self, link: &NewLink<'_>) -> Result<Invitation, StoreError> {
-        self.with_conn(async |scope| {
+        self.transaction(async |scope| {
+            link_locks::hold_for_new_link(scope, link).await?;
             let (role, board_id, board_role) = match link.guest_of {
                 Some((board_id, board_role)) => {
                     (WorkspaceRole::Guest, board_id, Some(board_role.as_str()))
@@ -173,10 +177,11 @@ impl Store {
             let mut sql = scope.sql(
                 "INSERT INTO invitations (id, org_id, workspace_id, role, board_id, board_role, \
                  token_hash, created_by, create_at, expires_at, max_uses, parent_id, \
-                 recipient) SELECT ",
+                 recipient) VALUES (",
             );
             sql.bind(Id(&new_id()))
-                .push(", t.org_id, t.id")
+                .push_bind(", ", scope.org()?)
+                .push_bind(", ", Id(link.workspace_id))
                 .push_bind(", ", role.as_str())
                 .push_bind(", ", OptId(board_id))
                 .push_bind(", ", Param::OptText(board_role.map(str::to_owned)))
@@ -193,45 +198,10 @@ impl Store {
                     ", ",
                     Param::OptText(link.mailed.map(|mailed| mailed.recipient.to_owned())),
                 )
-                .push_bind(" FROM workspaces AS t WHERE t.id = ", Id(link.workspace_id))
-                .push_bind(" AND t.org_id = ", scope.org()?)
-                .push_bind(" AND t.delete_at = ", 0_i64);
-            if link.guest_of.is_some() {
-                sql.push_bind(" AND t.guest_invitations = ", true)
-                    .push_bind(
-                        " AND EXISTS (SELECT 1 FROM boards AS b WHERE b.id = ",
-                        Id(board_id),
-                    )
-                    .push_bind(" AND b.workspace_id = t.id AND b.is_template = ", false)
-                    .push(")");
-            }
-            // A child is made while its parent is neither revoked nor ended, and holds it
-            // as it is made: who revokes the parent waits for it, and revokes it then
-            // with the parent's other children.
-            if let Some(mailed) = link.mailed {
-                sql.push_bind(
-                    " AND EXISTS (SELECT 1 FROM invitations AS p WHERE p.id = ",
-                    Id(mailed.parent_id),
-                )
-                .push(" AND p.org_id = t.org_id")
-                .push_bind(" AND p.revoked_at = ", 0_i64)
-                .push_bind(" AND p.expires_at > ", link.now);
-                if scope.dialect() == Dialect::Postgres {
-                    sql.push(" FOR SHARE");
-                }
-                sql.push(")");
-            }
-            // Whoever turns the invitations of guests off holds the workspace first and
-            // revokes its links then: a link is made before that, and revoked with the
-            // others, or after it, and then not at all.
-            if link.guest_of.is_some() && scope.dialect() == Dialect::Postgres {
-                sql.push(" FOR SHARE OF t");
-            }
-            sql.push(&format!(" RETURNING {COLUMNS}"));
-            match scope.fetch_optional(sql).await? {
-                Some(row) => invitation_from_row(&row),
-                None => Err(StoreError::not_found("workspace or board")),
-            }
+                .push(&format!(") RETURNING {COLUMNS}"));
+            // An insert that returns no row has failed already.
+            let row = scope.fetch_optional(sql).await?.ok_or(StoreError::NoRows)?;
+            invitation_from_row(&row)
         })
         .await
     }
@@ -312,9 +282,9 @@ impl Store {
         now: i64,
     ) -> Result<bool, StoreError> {
         self.transaction(async |scope| {
-            // The link and its children: against a registration by a child that
-            // replaces one by the link.
-            signups::hold_several_links(scope).await?;
+            // The link and its children: against an acceptance of a child that replaces
+            // a registration by the link, and a deletion of their board.
+            link_locks::hold_links_of_organization(scope).await?;
             let mut sql = scope.sql("UPDATE invitations AS i SET revoked_at = ");
             sql.bind(now.max(1))
                 .push_bind(" WHERE i.id = ", Id(invitation_id))
@@ -407,14 +377,13 @@ impl Store {
         inviter: Inviter<'_>,
     ) -> Result<Acceptance, StoreError> {
         self.transaction(async |scope| {
+            // The link of what is replaced may be another than this one.
             let replacing = match &acceptor {
-                Acceptor::Replacing { browser, .. } => Some(*browser),
+                Acceptor::Replacing { browser, .. } => {
+                    Some((*browser, link_locks::take_turn(scope).await?))
+                }
                 Acceptor::Account(_) | Acceptor::NewAccount(_) => None,
             };
-            if replacing.is_some() {
-                // The link of what is replaced may be another than this one.
-                signups::hold_several_links(scope).await?;
-            }
             let held = hold_live_link(scope, token_hash, now, inviter.standing, replacing);
             let link = match held.await? {
                 Ok(link) => link,
@@ -426,8 +395,10 @@ impl Store {
                     accounts::insert_account(scope, user, InstanceRole::User).await?;
                     user.id.clone()
                 }
-                Acceptor::Replacing { user, browser } => {
-                    signups::discard_of_browser(scope, browser).await?;
+                Acceptor::Replacing { user, .. } => {
+                    if let Some((browser, turn)) = replacing {
+                        signups::discard_of_browser(scope, browser, turn).await?;
+                    }
                     accounts::insert_account(scope, user, InstanceRole::User).await?;
                     user.id.clone()
                 }
@@ -448,8 +419,8 @@ impl Store {
 }
 
 /// Holds the live link of the scope's organization whose token has the digest
-/// `token_hash` at `now`, against the other acceptances of it, after its board and the
-/// organization's row for a guest's link (as removal holds them), and its maker's
+/// `token_hash` at `now`, against the other acceptances of it, after what it hangs
+/// from (`link_locks::hold_for_letting_in`), and its maker's
 /// membership of the workspace if they are still `found`: the link, or what the
 /// acceptance is to answer instead.
 pub(crate) async fn hold_live_link(
@@ -457,25 +428,22 @@ pub(crate) async fn hold_live_link(
     token_hash: &str,
     now: i64,
     found: Standing<'_>,
-    replacing: Option<&str>,
+    replacing: Option<(&str, Turn)>,
 ) -> Result<Result<Invitation, Acceptance>, StoreError> {
-    // Hold the board before its invitation and membership, as removal does.
-    // The acceptor's role then stays what was read until its write.
-    let sql = select_live_by_token(scope, token_hash, now, replacing)?;
+    let (browser, turn) = (replacing.map(|(b, _)| b), replacing.map(|(_, t)| t));
+    // What the link hangs from before the link, its invitation and membership: the
+    // acceptor's role then stays what was read until its write.
+    let sql = select_live_by_token(scope, token_hash, now, browser)?;
     let Some(row) = scope.fetch_optional(sql).await? else {
         return Ok(Err(Acceptance::Unavailable));
     };
-    if let Some(board_id) = invitation_from_row(&row)?.board_id {
-        // Team changes hold the organization before any board. Keep inherited
-        // board access stable through the grant; workspace links have no such role.
-        crate::org_admin::hold_organization_row(scope).await?;
-        if !lock_board(scope, &board_id).await? {
-            return Ok(Err(Acceptance::Unavailable));
-        }
+    let link = invitation_from_row(&row)?;
+    if !link_locks::hold_for_letting_in(scope, &link, turn).await? {
+        return Ok(Err(Acceptance::Unavailable));
     }
     // The link itself, held against the other acceptances of it: read again,
     // it is live still, and its workspace still invites guests if it is for one.
-    let mut sql = select_live_by_token(scope, token_hash, now, replacing)?;
+    let mut sql = select_live_by_token(scope, token_hash, now, browser)?;
     push_invites(&mut sql);
     if scope.dialect() == Dialect::Postgres {
         sql.push(" FOR UPDATE OF i");

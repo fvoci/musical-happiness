@@ -727,6 +727,110 @@ async fn a_copy_of_a_body_shows_copies_of_its_files() {
     th.teardown().await;
 }
 
+/// A copy of a card that shows an image begins with one version of its body, as any
+/// copy of a card does: the body as copied, which shows the copy's own file, and none
+/// of the original's versions. The cards of a copy of its board begin without versions.
+/// The original keeps its versions.
+#[tokio::test]
+async fn a_copy_of_a_card_that_shows_an_image_begins_with_one_version() {
+    let th = Setup::native().start().await.init_basic().await;
+    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
+    let file_id = crate::files::uploaded_id(
+        &crate::files::upload(&th.client, &board.id, "picture.png", b"png").await,
+    );
+    let created: Card = new_card(
+        &th.client,
+        &board.id,
+        &json!({"title": "Card", "body": paragraph_doc("before")}),
+    )
+    .await
+    .created_json();
+    th.client
+        .patch(
+            &format!("{TEST_WS}/cards/{}", created.id),
+            &json!({"body": with_image(&file_id), "readAt": created.update_at}),
+        )
+        .await
+        .check_ok();
+    let kept = crate::body_versions::versions(&th.client, &created.id).await;
+    assert_eq!(
+        kept.len(),
+        2,
+        "the body before and the one written: {kept:?}"
+    );
+
+    let copies: Vec<Value> = th
+        .client
+        .post_empty(&format!(
+            "{TEST_WS}/boards/{}/blocks/{}/duplicate",
+            board.id, created.id
+        ))
+        .await
+        .created_json();
+    let copy = copies
+        .iter()
+        .find(|block| block["type"] == json!("card"))
+        .and_then(|block| block["id"].as_str())
+        .expect("the copy of the card");
+    let stored = card(&th.client, copy).await;
+    let shown = stored.body.as_ref().map(fvoci_model::Body::file_ids);
+    assert!(
+        shown
+            .as_ref()
+            .is_some_and(|files| files.len() == 1 && files[0] != file_id),
+        "the copy shows a copy of the file: {shown:?}"
+    );
+    let of_copy = crate::body_versions::versions(&th.client, copy).await;
+    assert_eq!(
+        crate::body_versions::said(&of_copy),
+        [(1, Vec::<&str>::new(), true)],
+        "one version, the copy's body"
+    );
+    let version: Value = th
+        .client
+        .get(&format!("{TEST_WS}/cards/{copy}/body-versions/1"))
+        .await
+        .ok_json();
+    assert_eq!(
+        version["body"]["content"][1]["attrs"]["fileId"].as_str(),
+        shown.as_ref().and_then(|files| files.first().copied()),
+        "the version shows the copy's file, not the original's"
+    );
+
+    let board_copy: Value = th
+        .client
+        .post_empty(&format!("{TEST_WS}/boards/{}/duplicate", board.id))
+        .await
+        .created_json();
+    let mut cards = 0;
+    for block in board_copy["blocks"].as_array().expect("blocks") {
+        if block["type"] == json!("card") && block["body"].is_object() {
+            cards += 1;
+            let id = block["id"].as_str().expect("an id");
+            assert_eq!(
+                crate::body_versions::versions(&th.client, id).await,
+                Vec::<Value>::new(),
+                "a card of a copy of the board begins without versions"
+            );
+            let answered = block["body"]["content"][1]["attrs"]["fileId"].as_str();
+            let stored = card(&th.client, id).await;
+            assert_eq!(
+                stored.body.as_ref().map(fvoci_model::Body::file_ids),
+                answered.map(|name| vec![name]),
+                "the stored copy shows the copied file it was answered with"
+            );
+            assert_ne!(answered, Some(file_id.as_str()), "a copy of the file");
+        }
+    }
+    assert_eq!(cards, 2, "both cards of the board were copied");
+    assert_eq!(
+        crate::body_versions::versions(&th.client, &created.id).await,
+        kept,
+        "the original keeps its versions"
+    );
+    th.teardown().await;
+}
+
 /// The copies of files that copying a card makes are shown by the copies and are not
 /// collected, however much later; a file that was uploaded and never shown is
 /// (`docs/s6-design.md` 5.7).

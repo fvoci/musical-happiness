@@ -2,11 +2,14 @@
 //! organization, until the link of their mail confirms them; removed seven days after
 //! they were made if it never does.
 
+use std::collections::BTreeSet;
+
 use fvoci_model::User;
 
 use crate::accounts::{self, Founding};
 use crate::db::{Dialect, Id, OptId, Row, Scope, Sql};
 use crate::error::{StoreError, Taken};
+use crate::link_locks::{self, Turn};
 use crate::{Store, users};
 
 /// A registration waits seven days for its address to be confirmed, in milliseconds.
@@ -18,9 +21,6 @@ pub const SIGNUP_LINK_LIFETIME_MILLIS: i64 = 24 * 60 * 60 * 1_000;
 /// The key of the lock that account names are claimed under on PostgreSQL: an account
 /// and a registration are two tables, which no unique index holds together.
 const ACCOUNT_NAMES_LOCK: i64 = 0x6676_6f63_6e61_6d65;
-
-/// The key of the lock of the transactions that hold more than one link at once.
-const SEVERAL_LINKS_LOCK: i64 = 0x6676_6f63_6c6e_6b73;
 
 /// A registration whose email address is not confirmed yet.
 #[derive(Clone, PartialEq, Eq)]
@@ -147,13 +147,15 @@ impl Store {
     ) -> Result<(), StoreError> {
         self.system()
             .transaction(async |scope| {
-                if replacing.is_some() {
-                    // The clean-up may hold a link, and what is replaced another.
-                    hold_several_links(scope).await?;
-                }
-                remove_ended(scope, now).await?;
-                if let Some(browser) = replacing {
-                    discard_of_browser(scope, browser).await?;
+                // The clean-up may hold a link, and what is replaced another.
+                let replacing = match replacing {
+                    Some(browser) => Some((browser, link_locks::take_turn(scope).await?)),
+                    None => None,
+                };
+                let turn = replacing.map(|(_, turn)| turn);
+                remove_ended(scope, now, turn, BTreeSet::new()).await?;
+                if let Some((browser, turn)) = replacing {
+                    discard_of_browser(scope, browser, turn).await?;
                 }
                 hold_names(scope, signup).await
             })
@@ -288,7 +290,7 @@ impl Store {
                 };
                 // The link before the registration, as a registration by it is made;
                 // the use goes back only with the registration that took it.
-                hold_link_of(scope, &signup).await?;
+                hold_link_of(scope, &signup, None).await?;
                 if !take(scope, &signup.id, proof, now).await? {
                     return Ok(false);
                 }
@@ -345,29 +347,38 @@ impl Store {
     pub async fn remove_ended_signups(&self, now: i64) -> Result<u64, StoreError> {
         self.system()
             .transaction(async |scope| {
-                let removed = remove_ended(scope, now).await?;
+                // The registrations by links whose mail's link ended are written too,
+                // which a deletion of their links deletes: after their organizations'
+                // rows. One by a link of another organization, made meanwhile, waits
+                // for the next clean-up.
+                let mut sql = scope.sql(
+                    "SELECT DISTINCT invitation_org_id FROM signups WHERE token_expires_at <= ",
+                );
+                sql.bind(now).push(" AND invitation_org_id IS NOT NULL");
+                let mailed: BTreeSet<String> = scope
+                    .fetch_all(sql)
+                    .await?
+                    .iter()
+                    .map(|row| row.id(0))
+                    .collect::<Result<_, _>>()?;
+                let removed = remove_ended(scope, now, None, mailed.clone()).await?;
                 let mut links =
                     scope.sql("UPDATE signups SET token_hash = NULL, token_expires_at = NULL");
-                links.push_bind(" WHERE token_expires_at <= ", now);
+                links
+                    .push_bind(" WHERE token_expires_at <= ", now)
+                    .push(" AND (invitation_org_id IS NULL");
+                if !mailed.is_empty() {
+                    links
+                        .push(" OR invitation_org_id IN (")
+                        .bind_list(mailed.iter().map(|org_id| Id(org_id)))
+                        .push(")");
+                }
+                links.push(")");
                 scope.execute(links).await?;
                 Ok(removed)
             })
             .await
     }
-}
-
-/// Holds the turn of the transactions that hold more than one link of an invitation
-/// at once, until this one ends: a registration that replaces one made by another
-/// link holds both, and so do the clean-up, the revocation of a link with its
-/// children and turning a workspace's guest links off, in no order they share. Taken
-/// first. SQLite's writers wait for each other already.
-pub(crate) async fn hold_several_links(scope: &mut Scope<'_>) -> Result<(), StoreError> {
-    if scope.dialect() == Dialect::Postgres {
-        let mut sql = scope.sql("SELECT pg_advisory_xact_lock(");
-        sql.bind(SEVERAL_LINKS_LOCK).push(")");
-        scope.fetch_optional(sql).await?;
-    }
-    Ok(())
 }
 
 /// Holds the names of accounts until the transaction ends, against every other
@@ -525,10 +536,12 @@ fn push_proof(sql: &mut Sql, proof: Proof<'_>, now: i64) {
 /// Removes the registration made from the browser whose marker has the digest
 /// `browser`, if there is one, ended or not: its name and address are free again, and
 /// the use of a link it was made by is given back, in whatever organization the link
-/// is. For a transaction that stores what replaces it. Says whether there was one.
+/// is. For a transaction that stores what replaces it, and holds the turn: what it
+/// holds besides is another link. Says whether there was one.
 pub(crate) async fn discard_of_browser(
     scope: &mut Scope<'_>,
     browser: &str,
+    turn: Turn,
 ) -> Result<bool, StoreError> {
     let mut sql = scope.sql(&format!(
         "SELECT {COLUMNS} FROM signups WHERE browser_hash = "
@@ -537,7 +550,7 @@ pub(crate) async fn discard_of_browser(
     let Some(row) = scope.fetch_optional(sql).await? else {
         return Ok(false);
     };
-    discard(scope, &signup_from_row(&row)?).await
+    discard(scope, &signup_from_row(&row)?, Some(turn)).await
 }
 
 /// Removes the registration that waits at the address `email`, in any letter case, if
@@ -560,14 +573,21 @@ pub(crate) async fn discard_at_address(
         return Ok(None);
     };
     let signup = signup_from_row(&row)?;
-    Ok(discard(scope, &signup).await?.then_some(signup.id))
+    // The one link of the sign-in, after the account it signs in, which a deletion
+    // does not hold.
+    Ok(discard(scope, &signup, None).await?.then_some(signup.id))
 }
 
 /// Removes `signup`, giving back the use of the link it was made by; says whether it
 /// was there still. The link is held first, as a confirmation holds it: the use goes
-/// back only with the registration that took it, one confirmed meanwhile keeping it.
-async fn discard(scope: &mut Scope<'_>, signup: &Signup) -> Result<bool, StoreError> {
-    hold_link_of(scope, signup).await?;
+/// back only with the registration that took it, one confirmed meanwhile keeping it;
+/// under the `turn`, after its organization's row.
+async fn discard(
+    scope: &mut Scope<'_>,
+    signup: &Signup,
+    turn: Option<Turn>,
+) -> Result<bool, StoreError> {
+    hold_link_of(scope, signup, turn).await?;
     let mut sql = scope.sql("DELETE FROM signups WHERE id = ");
     sql.bind(Id(&signup.id));
     if scope.execute(sql).await? == 0 {
@@ -619,28 +639,40 @@ async fn set_wall(scope: &mut Scope<'_>, reach: &str) -> Result<(), StoreError> 
 /// Removes the registrations that ended by `now`, giving back the uses of the links
 /// they were made by first; returns how many. Needs the system's reach: the links are
 /// of every organization, and a statement the wall hides them from changes nothing.
-async fn remove_ended(scope: &mut Scope<'_>, now: i64) -> Result<u64, StoreError> {
+/// The links are held after the rows of their organizations, and of the organizations
+/// `more` names, whose registrations the caller writes after: a clean-up holds the
+/// registrations of a link's board or workspace too, which their deletion deletes.
+/// Under the `turn` if the caller holds it; taken here for more than one organization.
+async fn remove_ended(
+    scope: &mut Scope<'_>,
+    now: i64,
+    turn: Option<Turn>,
+    more: BTreeSet<String>,
+) -> Result<u64, StoreError> {
     // Those made by a link one by one, each link held before its registration goes, as
-    // a registration by it is made and confirmed, and in the order of the links, so that
-    // two clean-ups at once hold them alike: a use goes back only with the registration
-    // that took it, one confirmed meanwhile keeping it.
+    // a registration by it is made and confirmed: a use goes back only with the
+    // registration that took it, one confirmed meanwhile keeping it.
     let mut sql = scope.sql(&format!(
         "SELECT {COLUMNS} FROM signups WHERE expires_at <= "
     ));
     sql.bind(now)
-        .push(" AND invitation_id IS NOT NULL ORDER BY invitation_id, id");
+        .push(" AND invitation_id IS NOT NULL ORDER BY invitation_org_id, invitation_id, id");
     let held = scope
         .fetch_all(sql)
         .await?
         .iter()
         .map(signup_from_row)
         .collect::<Result<Vec<_>, _>>()?;
-    if held.len() > 1 {
-        hold_several_links(scope).await?;
-    }
+    let mut organizations = more;
+    organizations.extend(held.iter().filter_map(|signup| match &signup.start {
+        SignupStart::Invitation { org_id, .. } => Some(org_id.clone()),
+        SignupStart::Organization(_) => None,
+    }));
+    hold_organizations(scope, turn, &organizations).await?;
     let mut removed = 0;
     for signup in &held {
-        hold_link_of(scope, signup).await?;
+        // Its organization's row is held already.
+        hold_link_of(scope, signup, None).await?;
         let mut sql = scope.sql("DELETE FROM signups WHERE id = ");
         sql.bind(Id(&signup.id))
             .push_bind(" AND expires_at <= ", now);
@@ -654,13 +686,41 @@ async fn remove_ended(scope: &mut Scope<'_>, now: i64) -> Result<u64, StoreError
     Ok(removed + scope.execute(sql).await?)
 }
 
+/// Holds the row of each of `organizations`, in their order: under the `turn` if the
+/// caller holds it, and taken here for more than one; one organization's row alone
+/// keeps its links in order (`link_locks`).
+async fn hold_organizations(
+    scope: &mut Scope<'_>,
+    turn: Option<Turn>,
+    organizations: &BTreeSet<String>,
+) -> Result<(), StoreError> {
+    if turn.is_none() && organizations.len() > 1 {
+        link_locks::take_turn(scope).await?;
+    }
+    for org_id in organizations {
+        let wall = open_wall(scope, org_id).await?;
+        link_locks::hold_organization(scope, org_id).await?;
+        close_wall(scope, wall).await?;
+    }
+    Ok(())
+}
+
 /// Holds the link a registration was made by, if it is there, against its acceptances
-/// and confirmations, in whatever organization it is.
-async fn hold_link_of(scope: &mut Scope<'_>, signup: &Signup) -> Result<(), StoreError> {
+/// and confirmations, in whatever organization it is: under the `turn` after that
+/// organization's row, as a deletion of the link's board or workspace holds them
+/// (`link_locks`); without it alone, or after a row held already.
+async fn hold_link_of(
+    scope: &mut Scope<'_>,
+    signup: &Signup,
+    turn: Option<Turn>,
+) -> Result<(), StoreError> {
     if let (SignupStart::Invitation { id, org_id }, Dialect::Postgres) =
         (&signup.start, scope.dialect())
     {
         let wall = open_wall(scope, org_id).await?;
+        if turn.is_some() {
+            link_locks::hold_organization(scope, org_id).await?;
+        }
         let mut sql = scope.sql("SELECT id FROM invitations WHERE id = ");
         sql.bind(Id(id))
             .push_bind(" AND org_id = ", Id(org_id))

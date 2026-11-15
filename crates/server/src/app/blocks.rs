@@ -489,6 +489,9 @@ impl App {
         let files = self
             .copy_and_update_card_files(board_id, user_id, &mut blocks)
             .await;
+        if files.is_ok() {
+            self.keep_bodies_as_copied(&blocks).await;
+        }
 
         // The copies are stored whatever became of their files, so they are announced
         // whatever became of their files.
@@ -503,6 +506,24 @@ impl App {
         });
         files?;
         Ok(blocks)
+    }
+
+    /// Keeps the body of each copied card, as it was copied and pointed at its own files,
+    /// as the copy's one version: a copy begins with the body it was made with to go back
+    /// to, and none of the original's versions. A version that cannot be kept is logged:
+    /// the copy is stored and told of already, as a card that has none yet.
+    async fn keep_bodies_as_copied(&self, copies: &[Block]) {
+        let with_bodies = copies
+            .iter()
+            .filter(|copy| copy.block_type.has_room() && copy.body.is_some());
+        for copy in with_bodies {
+            if let Err(error) = self.store().keep_body_version(&copy.id).await {
+                tracing::error!(
+                    block_id = %copy.id, %error,
+                    "the body of a copy was not kept as its version"
+                );
+            }
+        }
     }
 
     /// Posts the blocks to the webhooks, one after the other, in the background.
