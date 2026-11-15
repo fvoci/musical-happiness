@@ -40,6 +40,43 @@ struct Cli {
     /// configured, opened or served.
     #[arg(long)]
     print_openapi: bool,
+    /// Ask the server this configuration describes, on this machine, whether it is
+    /// ready (`GET /api/v1/ready`), and exit with success only if it is: the health
+    /// check of a container, whose image has no HTTP client. Nothing is opened or served.
+    #[arg(long)]
+    check_ready: bool,
+}
+
+/// How long the check of readiness waits for the answer: the server answers `ready`
+/// within two and a half seconds.
+const READY_CHECK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// Asks the server on this machine whether it is ready, where the configuration says it
+/// listens: the port, plain HTTP or TLS, and the base path. The answer is all that is
+/// read; nothing is sent but the request. The certificate of a server that serves TLS
+/// itself is for its public name, not `localhost`, so it is not verified here.
+async fn check_ready(config: &Configuration, base_path: &str) -> anyhow::Result<()> {
+    let scheme = if config.use_ssl { "https" } else { "http" };
+    let url = format!(
+        "{scheme}://localhost:{}{base_path}{}/ready",
+        config.port,
+        fvoci_server::api::PREFIX
+    );
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .tls_danger_accept_invalid_certs(config.use_ssl)
+        .timeout(READY_CHECK_TIMEOUT)
+        .build()
+        .context("unable to set up the check")?;
+    let status = client
+        .get(&url)
+        .send()
+        .await
+        .with_context(|| format!("asking {url}"))?
+        .status();
+    anyhow::ensure!(status.is_success(), "{url} answered {status}");
+    Ok(())
 }
 
 /// Writes the contract of the API to the standard output: what `contracts/openapi.json`
@@ -120,6 +157,9 @@ async fn serve() -> anyhow::Result<()> {
     }
 
     let base_path = std::env::var(BASE_PATH_ENV).unwrap_or_default();
+    if cli.check_ready {
+        return check_ready(&config, base_path.trim_end_matches('/')).await;
+    }
 
     let address = listen_address(&config);
     let port = config.port;
