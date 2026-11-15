@@ -28,6 +28,7 @@ fn millis(duration: Duration) -> String {
 
 /// The middle, the ninety-fifth of a hundred and the longest of `times`.
 fn spread(times: &mut [Duration]) -> String {
+    assert!(!times.is_empty(), "something was measured");
     times.sort_unstable();
     let at = |hundredth: usize| times[(times.len() - 1) * hundredth / 100];
     format!(
@@ -152,17 +153,22 @@ const WRITING: Duration = Duration::from_secs(10);
 /// How often each connection writes: someone typing steadily, as the web app gathers
 /// what is typed into frames (at most 33 a second). Twenty of them are forty updates a
 /// second for the room, which takes them one after another: a debug build on SQLite
-/// takes some sixty a second on a quiet machine of four cores, and eight a second each
-/// (160 for the room) falls behind there.
+/// took some sixty a second, in turn, on the four cores of the machine it was first
+/// measured on, and eight a second each (160 for the room) fell behind there.
 const EVERY: Duration = Duration::from_millis(500);
 
-/// The client of the editor whose update `update` is: the first client it holds
-/// items of (an update of one paragraph by one editor holds that one).
-fn writer_of(update: &[u8]) -> u64 {
+/// The client of the editor whose update `update` is; `None` for one that holds no
+/// items, only what it deletes (the server's repair). An update of one paragraph by
+/// one editor holds the items of that one.
+fn writer_of(update: &[u8]) -> Option<u64> {
     let mut bytes = update;
-    let _clients = take_varuint(&mut bytes);
+    let clients = take_varuint(&mut bytes);
+    if clients == 0 {
+        return None;
+    }
+    assert_eq!(clients, 1, "an update of one writer: {update:?}");
     let _structs = take_varuint(&mut bytes);
-    take_varuint(&mut bytes)
+    Some(take_varuint(&mut bytes))
 }
 
 /// When the writers of the room under load sent each of their updates, by writer and
@@ -210,13 +216,15 @@ impl Seen {
         match incoming {
             Incoming::Frame(frame) => {
                 assert_eq!((frame.doc, frame.sync), (peer.doc, UPDATE), "{frame:?}");
-                let writer = writer_of(&frame.payload);
-                let nth = self.taken.entry(writer).or_default();
-                if let Some(at) = sent.when(writer, *nth) {
+                if let Some(writer) = writer_of(&frame.payload) {
+                    let nth = self.taken.entry(writer).or_default();
+                    let at = sent
+                        .when(writer, *nth)
+                        .unwrap_or_else(|| panic!("{writer} sent an update {nth}"));
                     self.reached.push(at.elapsed());
+                    *nth += 1;
+                    self.last = Some(Instant::now());
                 }
-                *nth += 1;
-                self.last = Some(Instant::now());
                 peer.editor().receive(&frame.payload);
             }
             Incoming::Text(message) if message["action"] == json!("DOC_ACK") => {
@@ -267,10 +275,16 @@ async fn write_and_read(
         let incoming = peer.incoming(wait).await;
         seen.take(&mut peer, &sent, incoming);
     }
-    // Everyone stopped writing: what each sent is all there is to have.
-    stopped.wait().await;
+    // Everyone stopped writing: what each sent is all there is to have. One that
+    // failed does not come: the others do not wait for it for ever.
+    tokio::time::timeout(PATIENCE, stopped.wait())
+        .await
+        .expect("everyone stopped writing");
     let all = sent.counts();
-    let deadline = Instant::now() + PATIENCE * 6;
+    // A quarter of a second for each update, which the room takes one after another,
+    // past the minute: a machine four times slower than the first one measured on.
+    let written = u32::try_from(all.values().sum::<usize>()).expect("a count");
+    let deadline = Instant::now() + PATIENCE * 6 + Duration::from_millis(250) * written;
     while !seen.has_all(me, &all) {
         assert!(
             Instant::now() < deadline,
@@ -291,8 +305,10 @@ async fn write_and_read(
 /// second each: every one holds the same document in the end, and so does the card.
 /// Prints how long an update took to reach each of the others and to be answered, how
 /// many bytes the worker holds of the document, and the memory of the worker and of
-/// the server's process (which is this test's, with its twenty editors).
-#[tokio::test]
+/// the server's process (which is this test's, with its twenty editors, and with any
+/// other test that runs meanwhile: `--test-threads=1` for a figure of its own). The
+/// server runs on four threads, as it does when it is deployed on such a machine.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn twenty_connections_write_at_once_for_a_while() {
     let th = Setup::native().start().await.init_basic().await;
     let t = table(&th, &paragraphs(&["first"])).await;
@@ -333,17 +349,23 @@ async fn twenty_connections_write_at_once_for_a_while() {
         .collect();
     let (mut reached, mut answered, mut peers) = (Vec::new(), Vec::new(), Vec::new());
     let mut last = began;
-    for done in writing {
-        let (peer, seen) = done
-            .await
-            .expect("a connection of the room writes and reads");
+    // The first that fails is told at once, whichever it is.
+    let done = futures_util::future::try_join_all(writing)
+        .await
+        .expect("a connection of the room writes and reads");
+    for (peer, seen) in done {
         reached.extend(seen.reached);
         answered.extend(seen.answered);
         last = last.max(seen.last.unwrap_or(began));
         peers.push(peer);
     }
     let took = last - began;
-    let held = th.app.collab().held_state_bytes(&th.app, &t.card_id).await;
+    let held = th
+        .app
+        .collab()
+        .held_state_bytes(&th.app, &t.card_id)
+        .await
+        .expect("the document is open");
     let after = resident_kib(std::process::id());
     let worker = th.app.collab().worker_pids().await[0];
 
@@ -358,9 +380,10 @@ async fn twenty_connections_write_at_once_for_a_while() {
         "{} connections of {USERS} users in one room, all writing every {} ms for {} s: \
          {written} updates, everywhere {} ms after the first was sent; at each of the \
          other {} {}; answered (DOC_ACK) {}; the \
-         worker holds {} bytes of the document's state and its resident memory is {} \
-         KiB; the server's process (with the test and its editors) {} KiB before the \
-         connections, {} KiB with them in the room, {} KiB after the writing",
+         worker holds {held} bytes of the document's state and its resident memory is {} \
+         KiB; the whole test process (the server, the test's editors, and any other test \
+         running meanwhile) {} KiB before the connections, {} KiB with them in the \
+         room, {} KiB after the writing",
         peers.len(),
         EVERY.as_millis(),
         WRITING.as_secs(),
@@ -368,7 +391,6 @@ async fn twenty_connections_write_at_once_for_a_while() {
         peers.len() - 1,
         spread(&mut reached),
         spread(&mut answered),
-        held.map_or_else(|| "?".to_owned(), |bytes| bytes.to_string()),
         kib(worker.and_then(resident_kib)),
         kib(before),
         kib(joined),
