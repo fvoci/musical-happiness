@@ -16,6 +16,7 @@ import path from 'node:path';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { boardPath } from './address.ts';
+import { scrollTo, uncovered } from './carets.support.ts';
 import { screensDir } from './screens.ts';
 
 test.describe.configure({ mode: 'parallel', timeout: 90_000 });
@@ -181,37 +182,35 @@ test('a name is not cut off at the edges: under the first line, and moved left a
   await other.keyboard.press('ArrowLeft');
   await inside(mine);
   await expect.poll(() => moved(mine)).toBeLessThan(0);
-  // In the line below there is room above.
+  // In the line below there is room above, once it is in sight.
   await other.keyboard.press('Control+End');
+  // (On a phone the long word's rows take it out of sight: it is scrolled back into it.)
+  await mine.locator('p').nth(1).scrollIntoViewIfNeeded();
   await expect(caret(mine)).not.toHaveAttribute('data-below', '');
   await inside(mine);
   await other.close();
 });
 
-test('a name is not cut off at the top of a body scrolled in its card', async ({ page }) => {
+test('a name is not cut off at the top of a body scrolled in its card, drawn or scrolled after', async ({
+  page,
+}) => {
   const lines = Array.from({ length: 60 }, (_, index) => `Line ${String(index + 1)}.`);
   const { mine, theirs, other } = await twoTabs(page, lines);
   // The first tab's body is scrolled until the thirtieth line is the first one seen.
-  const line = mine.locator('p').nth(29);
-  const seen = await line.evaluate((element) => {
-    let box = element.parentElement;
-    while (
-      box &&
-      !(/auto|scroll/.test(getComputedStyle(box).overflowY) && box.scrollHeight > box.clientHeight)
-    )
-      box = box.parentElement;
-    const scroller = box ?? document.scrollingElement ?? document.documentElement;
-    const top = box ? box.getBoundingClientRect().top : 0;
-    scroller.scrollTop += element.getBoundingClientRect().top - top;
-    return top;
-  });
+  expect(await scrollTo(mine.locator('p').nth(29))).toBe(true);
   await theirs.locator('p').nth(29).click();
   await other.keyboard.press('End');
   await expect(caret(mine)).toHaveAttribute('data-named', '');
   await expect(caret(mine)).toHaveAttribute('data-below', '');
-  await expect
-    .poll(async () => (await nameOf(mine).boundingBox())?.y ?? -1)
-    .toBeGreaterThanOrEqual(seen - 1);
+  await expect.poll(() => uncovered(mine)).toBe(true);
+  // Drawn above a line in sight, the name goes under it as that line is scrolled to the top.
+  await theirs.locator('p').nth(33).click();
+  await other.keyboard.press('End');
+  await expect(caret(mine)).not.toHaveAttribute('data-below', '');
+  await expect(caret(mine)).toHaveAttribute('data-named', '');
+  expect(await scrollTo(mine.locator('p').nth(33))).toBe(true);
+  await expect(caret(mine)).toHaveAttribute('data-below', '');
+  await expect.poll(() => uncovered(mine)).toBe(true);
   await other.close();
 });
 

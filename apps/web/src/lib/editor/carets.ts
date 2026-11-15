@@ -45,18 +45,23 @@ const userOf = (user: unknown): string => {
   return typeof id === 'string' ? id : '';
 };
 
-/** The top of what is seen of the body: the lowest of its own, the window's, and every box it is clipped by. */
-function seenTop(dom: HTMLElement): number {
-  let top = Math.max(dom.getBoundingClientRect().top, 0);
-  for (let box = dom.parentElement; box; box = box.parentElement) {
-    if (getComputedStyle(box).overflowY !== 'visible')
-      top = Math.max(top, box.getBoundingClientRect().top);
-  }
-  return top;
+/**
+ * Whether a name `height` high has room above its caret at `at`: it would be
+ * within the body, and the body itself is what is seen there (not cut off by a
+ * box it scrolls in or the window, nor under a bar that stays over it). A name
+ * lets the pointer through, so one drawn there already is not what is seen.
+ */
+function roomAbove(view: EditorView, body: DOMRect, at: DOMRect, height: number): boolean {
+  const top = at.top - height;
+  if (top < body.top) return false;
+  const root = view.root;
+  if (typeof root.elementFromPoint !== 'function') return true;
+  const seen = root.elementFromPoint(at.left + 1, top + 1);
+  return seen !== null && view.dom.contains(seen);
 }
 
 /**
- * Puts a name where it is not cut off: under the first line seen, and moved left
+ * Puts a name where it is not cut off: under its line where there is no room above, and moved left
  * from its caret as far as keeps it within the right edge (the body's, or
  * the window's where the body runs past it), never past the left one. The
  * name is looked up again: it may have become known since it was drawn.
@@ -72,7 +77,7 @@ function place(view: EditorView, caret: HTMLElement, nameOf: (userId: string) =>
   const right = Math.min(box.right, view.dom.ownerDocument.documentElement.clientWidth);
   const past = Math.max(0, at.left + size.width - right);
   const moved = Math.min(past, Math.max(0, at.left - box.left));
-  caret.toggleAttribute('data-below', at.top - size.height < seenTop(view.dom));
+  caret.toggleAttribute('data-below', !roomAbove(view, box, at, size.height));
   name.style.setProperty('--moved', `${String(-moved)}px`);
 }
 
@@ -106,7 +111,9 @@ export function caretsOf(options: CaretsOptions): Extension {
       frame = undefined;
       for (const [client, caret] of drawn) {
         if (!caret.isConnected) drawn.delete(client);
-        else if (view && !view.isDestroyed) place(view, caret, options.nameOf);
+        // A name that does not show is placed as it shows again (`moved`).
+        else if (view && !view.isDestroyed && caret.hasAttribute('data-named'))
+          place(view, caret, options.nameOf);
       }
     });
   };
@@ -166,10 +173,17 @@ export function caretsOf(options: CaretsOptions): Extension {
             const resized =
               typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(placeSoon);
             resized?.observe(editorView.dom);
+            // Scrolled (the body's box, the window): what is seen above a name that shows is something else.
+            const page = editorView.dom.ownerDocument;
+            const scrolled = (): void => {
+              if (named.size > 0) placeSoon();
+            };
+            page.addEventListener('scroll', scrolled, { capture: true, passive: true });
             return {
               update: placeSoon,
               destroy: () => {
                 resized?.disconnect();
+                page.removeEventListener('scroll', scrolled, { capture: true });
                 awareness.off('change', changed);
                 for (const timer of named.values()) clearTimeout(timer);
                 named.clear();

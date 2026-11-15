@@ -20,6 +20,7 @@ import {
   type WebSocketRoute,
 } from '@playwright/test';
 
+import { scrollTo, uncovered } from '../e2e/carets.support.ts';
 import { screensDir } from '../e2e/screens.ts';
 
 import {
@@ -419,7 +420,31 @@ test("a wiki's page shows the carets of who write it, by the name the server kno
     );
   }
   await expect(body(first).locator('p').first().locator('.doc-caret')).toHaveCount(1);
+
+  // On a phone the page scrolls under a bar that stays at its top: a name on the line
+  // just below the bar is drawn under its line, not under the bar.
+  await body(first).locator('p').nth(1).click();
+  await first.keyboard.press('End');
+  for (let line = 3; line <= 70; line += 1) {
+    await first.keyboard.press('Enter');
+    await first.keyboard.insertText(`Line ${String(line)}.`);
+  }
+  await expect(body(second).locator('p')).toHaveCount(70);
+  await first.setViewportSize({ width: 390, height: 844 });
+  expect(await scrollTo(body(first).locator('p').nth(29), 30)).toBe(true);
+  await body(second).locator('p').nth(29).click();
+  await second.keyboard.press('End');
+  await expect(body(first).locator('p').nth(29).locator('.doc-caret')).toHaveCount(1);
+  await expect(caretsOn(first)).toHaveAttribute('data-named', '');
+  await expect.poll(() => uncovered(body(first))).toBe(true);
+  if (process.env.FVOCI_SCREENS === '1') {
+    await first.screenshot({
+      path: path.join(screensDir('caret'), 'live-page-under-the-bar-390.png'),
+    });
+  }
+
   // Bora leaves the page: her caret goes with her.
+  expect(watched[1]).toEqual([]);
   await second.context().close();
   await expect(caretsOn(first)).toHaveCount(0);
   expect(watched[0]).toEqual([]);
