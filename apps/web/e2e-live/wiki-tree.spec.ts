@@ -44,7 +44,8 @@ test('pages moved with the keys, from "Move…" and dragged are where they were 
   const errors = watchErrors(page);
   await page.goto('/');
   await signInOnPage(page, owner);
-  const wikiId = await newWiki(page, 'Handbook');
+  // Private: the open wikis of the workspace are other tests' to count.
+  const wikiId = await newWiki(page, 'Tree moves', false);
   await page.getByTestId('wiki-first-page').click();
   await nameThePage(page, 'Welcome');
   await pageAction(page, 'Welcome', 'add-child');
@@ -111,7 +112,7 @@ test('a page deleted and brought back, from the trash and by undo, is there afte
   const errors = watchErrors(page);
   await page.goto('/');
   await signInOnPage(page, owner);
-  await newWiki(page, 'Handbook');
+  await newWiki(page, 'Tree trash', false);
   await page.getByTestId('wiki-first-page').click();
   await nameThePage(page, 'Welcome');
   await pageAction(page, 'Welcome', 'add-child');
