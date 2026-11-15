@@ -3,11 +3,14 @@
 //! for each other; in two orders, each can hold what the other waits for, and
 //! PostgreSQL ends one of them (`40P01`).
 //!
-//! 1. The turn of several links ([`take_turn`]): first, by a transaction that holds
-//!    more than one link, which it may then hold in an order of its own.
-//! 2. The organization's row ([`org_admin::hold_organization_row`]); under the turn,
-//!    the row of each organization whose link is held, before that link
-//!    ([`hold_organization`]).
+//! 1. The turn of several links ([`take_turn`]): first, by a transaction that may hold
+//!    the links of more than one organization, and so their rows in an order of its
+//!    own.
+//! 2. The organization's row ([`org_admin::hold_organization_row`]), before any link
+//!    of it that is held with another, or with anything a deletion holds; under the
+//!    turn, the row of each organization whose link is held ([`hold_organization`]).
+//!    Two transactions that hold several links of one organization wait for each other
+//!    here.
 //! 3. The workspace.
 //! 4. The board.
 //! 5. The links, a link before the links made like it for the recipients of its mail.
@@ -16,9 +19,9 @@
 //! workspace holds the organization's row and then the board or the workspace, and the
 //! schema's cascades then delete the links and the registrations made by them in an
 //! order of the database's own: whoever holds more than one link, or a link and then
-//! anything such a deletion holds, holds the organization's row first. A transaction
-//! that holds a single link, and after it nothing a deletion holds, may hold it alone:
-//! a deletion waits for it.
+//! anything such a deletion holds or deletes, holds the organization's row first. A
+//! transaction that holds a single link, and after it nothing a deletion holds or
+//! deletes, may hold it alone: a deletion waits for it.
 //!
 //! SQLite's writers wait for each other already: nothing here holds anything there.
 
@@ -33,10 +36,10 @@ const SEVERAL_LINKS_LOCK: i64 = 0x6676_6f63_6c6e_6b73;
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Turn(());
 
-/// Takes the turn of the transactions that hold more than one link, until this one
-/// ends: a registration that replaces one made by another link holds both, and so do
-/// the clean-up of registrations that ended, the revocation of a link with its
-/// children and turning a workspace's guest links off.
+/// Takes the turn of the transactions that may hold the links of more than one
+/// organization, until this one ends: a registration, or an acceptance, that replaces
+/// one made by another link holds both, and the clean-up of registrations that ended
+/// holds the links of any.
 pub(crate) async fn take_turn(scope: &mut Scope<'_>) -> Result<Turn, StoreError> {
     if scope.dialect() == Dialect::Postgres {
         let mut sql = scope.sql("SELECT pg_advisory_xact_lock(");
@@ -46,13 +49,13 @@ pub(crate) async fn take_turn(scope: &mut Scope<'_>) -> Result<Turn, StoreError>
     Ok(Turn(()))
 }
 
-/// Takes the turn and holds the handle's organization's row: for a transaction that
-/// writes several links of the organization, which a deletion of their board or
-/// workspace takes along.
-pub(crate) async fn hold_links_of_organization(scope: &mut Scope<'_>) -> Result<Turn, StoreError> {
-    let turn = take_turn(scope).await?;
-    org_admin::hold_organization_row(scope).await?;
-    Ok(turn)
+/// Holds the handle's organization's row, for a transaction that writes several links
+/// of the organization and no other's, which a deletion of their board or workspace
+/// takes along: the revocation of a link with its children, and turning a
+/// workspace's guest links off. No turn: what holds the links of several
+/// organizations holds this row before any link of it.
+pub(crate) async fn hold_links_of_organization(scope: &mut Scope<'_>) -> Result<(), StoreError> {
+    org_admin::hold_organization_row(scope).await
 }
 
 /// Holds the row of the organization `org_id` under the turn, before a link of it, as

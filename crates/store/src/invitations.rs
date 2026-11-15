@@ -313,8 +313,8 @@ impl Store {
         now: i64,
     ) -> Result<bool, StoreError> {
         self.transaction(async |scope| {
-            // The link and its children: against a registration by a child that
-            // replaces one by the link, and a deletion of their board.
+            // The link and its children: against an acceptance of a child that replaces
+            // a registration by the link, and a deletion of their board.
             link_locks::hold_links_of_organization(scope).await?;
             let mut sql = scope.sql("UPDATE invitations AS i SET revoked_at = ");
             sql.bind(now.max(1))
