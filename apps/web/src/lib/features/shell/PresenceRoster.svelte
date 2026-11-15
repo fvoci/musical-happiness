@@ -6,9 +6,13 @@
   readers of its public link) open the list of who is here and
   which cards they have open. Beside them the number of the board's members opens
   the members of the sharing dialog (`onMembers`); it is there also when nobody
-  else is. A screen reader hears both numbers together on the group.
+  else is, in a narrow pane as an icon and the number alone ("Members 4" for a
+  screen reader still), which leaves the title room. A screen reader hears both
+  numbers together on the group.
 -->
 <script lang="ts">
+  import UsersIcon from '@lucide/svelte/icons/users';
+
   import Avatar from '$lib/components/avatar/Avatar.svelte';
   import { PickerPresentation } from '$lib/components/picker-surface/default-presentation.svelte.ts';
   import PickerSurface from '$lib/components/picker-surface/PickerSurface.svelte';
@@ -105,9 +109,13 @@
     type="button"
     data-testid="board-members-count"
     aria-haspopup="dialog"
-    class="flex min-h-8 shrink-0 items-center rounded-md px-1 text-xs whitespace-nowrap text-muted-foreground hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring roomy:min-h-touch"
+    aria-label={m.presence_members_short({ count: members })}
+    title={m.presence_members_short({ count: members })}
+    class="flex min-h-8 shrink-0 items-center gap-0.5 rounded-md px-1 text-xs whitespace-nowrap text-muted-foreground hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring roomy:min-h-touch"
     onclick={onMembers}
   >
-    {m.presence_members_short({ count: members })}
+    <UsersIcon aria-hidden="true" class="size-3.5 @columns/pane:hidden" />
+    <span class="@columns/pane:hidden">{members}</span>
+    <span class="@max-columns/pane:hidden">{m.presence_members_short({ count: members })}</span>
   </button>
 </div>

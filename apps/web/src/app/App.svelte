@@ -61,6 +61,7 @@
   import { placeRoute, type Router } from './router.svelte.ts';
   import { signInOrganizations, signInWays } from './sign-in-organizations.ts';
   import WorkspacePane from './WorkspacePane.svelte';
+  import WorkspaceSearch from './WorkspaceSearch.svelte';
 
   let { router }: { router: Router } = $props();
 
@@ -421,15 +422,8 @@
     onChooseLanguage={(setting: string) => void chooseLanguage(setting)}
     onSignOut={account ? () => void signOut() : undefined}
     onChangePassword={account
-      ? async (oldPassword: string, newPassword: string) => {
-          try {
-            await account?.changePassword(oldPassword, newPassword);
-          } catch (error) {
-            // The session was over: that is signing out, not a wrong password.
-            if (isSignedOut(error)) workspace?.report('save', error);
-            throw error;
-          }
-        }
+      ? (oldPassword: string, newPassword: string) =>
+          signedIn(async () => account?.changePassword(oldPassword, newPassword))
       : undefined}
     accountSettings={account ? accountSettings : undefined}
     bind:settingsOpen={
@@ -441,6 +435,9 @@
       }
     }
   >
+    {#snippet search(shown: Workspace)}
+      <WorkspaceSearch workspace={shown} {router} />
+    {/snippet}
     <WorkspacePane
       {workspace}
       {router}

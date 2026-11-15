@@ -168,6 +168,15 @@ impl Collab {
         }
     }
 
+    /// How many bytes the state of a card's open document is, as its worker counts it
+    /// against what it may hold; `None` if it is not open. For the tests that measure.
+    #[cfg(feature = "test-util")]
+    #[doc(hidden)]
+    pub async fn held_state_bytes(&self, app: &App, card_id: &str) -> Option<u64> {
+        let slot = self.existing_slot(app, card_id).await?;
+        slot.open.as_ref().map(|open| open.state_bytes)
+    }
+
     /// Every slot.
     pub(super) fn all_slots(&self) -> Vec<Arc<Mutex<Slot>>> {
         let slots = self.inner.slots.lock().expect("the slots are not poisoned");

@@ -81,7 +81,7 @@ test('board presence shows another person and removes their closed browser', asy
  */
 async function membersOfTheBoard(admin: Page, viewer: Page, adminName: string): Promise<void> {
   for (const page of [admin, viewer]) {
-    await expect(page.getByTestId('board-members-count')).toHaveText('Members 2');
+    await expect(page.getByTestId('board-members-count')).toHaveAccessibleName('Members 2');
     await expect(page.getByTestId('board-people')).toHaveAttribute(
       'aria-label',
       'People viewing this board: 1, members: 2',

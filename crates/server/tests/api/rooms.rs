@@ -39,7 +39,7 @@ fn put_varuint(out: &mut Vec<u8>, mut value: u64) {
     out.push(u8::try_from(value).expect("seven bits"));
 }
 
-fn take_varuint(bytes: &mut &[u8]) -> u64 {
+pub(crate) fn take_varuint(bytes: &mut &[u8]) -> u64 {
     let mut value = 0;
     let mut shift = 0;
     loop {

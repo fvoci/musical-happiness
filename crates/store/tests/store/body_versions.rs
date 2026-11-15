@@ -529,3 +529,47 @@ async fn the_body_of_a_page_is_kept_as_that_of_a_card() {
     assert_eq!(store.unfinished_body_docs().await.expect("read"), []);
     test.teardown().await;
 }
+
+/// A document whose log holds updates its state does not is one a server that starts
+/// folds, written to its card and kept or not; folded, it is not, and neither is the
+/// document of a card in the trash.
+#[tokio::test]
+async fn a_document_with_a_log_its_state_does_not_hold_is_folded_at_the_start() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let author = common::user(store, "kelly.kapoor").await;
+    let board_id = board_with_files(store, &author, &[]).await;
+    let folded = card_with(store, &board_id, body_showing("one", &[]), &author).await;
+    let logged = card_with(store, &board_id, body_showing("one", &[]), &author).await;
+    let trashed = card_with(store, &board_id, body_showing("one", &[]), &author).await;
+    let unfolded = async || -> Vec<String> {
+        let docs = store.unfolded_body_docs().await.expect("read");
+        docs.into_iter().map(|(block_id, _)| block_id).collect()
+    };
+    assert_eq!(unfolded().await, Vec::<String>::new(), "no documents yet");
+    for card_id in [&folded, &logged, &trashed] {
+        type_body(store, card_id, body_showing("two", &[]), &author).await;
+        keep(store, card_id).await;
+    }
+    assert_eq!(
+        store.unfinished_body_docs().await.expect("read"),
+        [],
+        "written and kept"
+    );
+    let log_end = store
+        .get_body_doc(&folded)
+        .await
+        .expect("read")
+        .expect("a document")
+        .log_end;
+    store
+        .fold_body_doc(&folded, b"the state with it", log_end)
+        .await
+        .expect("folded");
+    store
+        .delete_block(&trashed, &author)
+        .await
+        .expect("to the trash");
+    assert_eq!(unfolded().await, std::slice::from_ref(&logged));
+    test.teardown().await;
+}

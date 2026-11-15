@@ -38,6 +38,7 @@ import type { WorkspaceRole } from './people-types.ts';
 import type { OfBodies } from './references.ts';
 import type { TrashReads } from './trash-reads.ts';
 import type { ChangeListener } from './changes.ts';
+import type { ContentSearchOfBackend } from './content-search.ts';
 import type { WikisOfBackend } from './wiki-types.ts';
 
 export type {
@@ -52,6 +53,7 @@ export type {
   SignInOrganization,
 } from './account-types.ts';
 export type { DeletedItem, Paging, TrashReads } from './trash-reads.ts';
+export * from './content-search.ts';
 export type { BodyDoc, BodyDocHears, BodyDocState, BodyDocStatus, DocRooms } from './body-doc.ts';
 export { isCardBlock, isViewBlock, type Change, type ChangeListener } from './changes.ts';
 export type * from './wiki-types.ts';
@@ -64,19 +66,7 @@ export interface Imported {
 
 // ----------------------------------------------------------------- errors
 
-export {
-  BackendError,
-  ERROR_STATUSES,
-  isBackendError,
-  isConflict,
-  isSignedOut,
-  problemOf,
-  refusedMember,
-  ssoOrgOf,
-  type ErrorStatus,
-  type InvalidInput,
-  type Problem,
-} from './problems.ts';
+export * from './problems.ts';
 
 // ------------------------------------------------------------------ model
 
@@ -278,7 +268,8 @@ export interface UploadedFile {
 
 // ---------------------------------------------------------------- backend
 
-export interface Backend extends DocRooms, TrashReads, PresenceOfBoards, OfBodies, WikisOfBackend {
+export interface Backend
+  extends DocRooms, TrashReads, PresenceOfBoards, OfBodies, WikisOfBackend, ContentSearchOfBackend {
   // The reader and the people around them.
   me(): Promise<User>;
   /** Changes the reader's display name, as the server reads it (`patchMe`); `null` is none. */

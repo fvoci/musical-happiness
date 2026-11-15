@@ -2,7 +2,10 @@
 //! block and every going and coming of a board is put on in its own transaction, by a
 //! store that keeps it, and what the worker reads and takes off.
 
-use fvoci_model::{Block, BlockPatch, BlockType, Board, BoardType, Body, BodyChange, new_id};
+use fvoci_model::{
+    Block, BlockPatch, BlockType, Board, BoardKind, BoardType, Body, BodyChange, NewPage,
+    PageLimits, new_id,
+};
 use fvoci_store::{DbType, SearchChange, SearchIndexMark, SearchTarget, Store, Tenant};
 use serde_json::json;
 
@@ -334,6 +337,143 @@ async fn a_template_and_what_is_built_in_have_no_documents() {
     assert_eq!(documents[0].container_id, board.id);
     assert_eq!(documents[0].workspace_id, board.workspace_id);
     assert_eq!(Some(documents[0].org_id.clone()), store.tenant().org_id());
+    test.teardown().await;
+}
+
+/// A card that is a template of its board is no document; a card that says it is none,
+/// one without the field and a page of a wiki are.
+#[tokio::test]
+async fn a_card_template_of_a_board_has_no_document() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let (board, user_id) = board(store).await;
+    let with_template_field = async |is_template: bool| {
+        let mut block = Block {
+            id: new_id(),
+            board_id: board.id.clone(),
+            block_type: BlockType::Card,
+            title: "환불 규정".to_owned(),
+            ..Block::default()
+        };
+        block
+            .fields
+            .insert("isTemplate".to_owned(), is_template.into());
+        store
+            .insert_block(&mut block, &user_id)
+            .await
+            .expect("the card is stored");
+        block.id
+    };
+    let template = with_template_field(true).await;
+    let not_a_template = with_template_field(false).await;
+    let without_the_field = card(store, &board.id, &user_id).await.id;
+    let mut wiki = Board {
+        id: new_id(),
+        workspace_id: board.workspace_id.clone(),
+        board_type: BoardType::Open,
+        kind: BoardKind::Wiki,
+        ..Board::default()
+    };
+    store
+        .insert_board(&mut wiki, &user_id)
+        .await
+        .expect("the wiki is stored");
+    let page = store
+        .create_page(
+            &wiki.id,
+            &NewPage::default(),
+            PageLimits::default(),
+            &user_id,
+        )
+        .await
+        .expect("the page is made")
+        .page
+        .id;
+
+    let mut found: Vec<String> = store
+        .search_documents(&[&template, &not_a_template, &without_the_field, &page])
+        .await
+        .expect("read")
+        .into_iter()
+        .map(|document| document.id)
+        .collect();
+    found.sort();
+    let mut wanted = vec![not_a_template.clone(), without_the_field.clone(), page];
+    wanted.sort();
+    assert_eq!(found, wanted, "the template {template} is left out");
+
+    let mut on_board: Vec<String> = store
+        .search_documents_of_container(&board.id, None, 10)
+        .await
+        .expect("read")
+        .into_iter()
+        .map(|document| document.id)
+        .collect();
+    on_board.sort();
+    let mut wanted = vec![not_a_template, without_the_field];
+    wanted.sort();
+    assert_eq!(
+        on_board, wanted,
+        "a board sent whole leaves its template out"
+    );
+    test.teardown().await;
+}
+
+/// A card that becomes a template of its board is taken out of the index, and one that
+/// stops being one is put back: what a search would find of it changed.
+#[tokio::test]
+async fn a_card_that_becomes_a_template_or_stops_being_one_is_noted() {
+    let test = common::setup().await;
+    let store = &test.store;
+    store.keep_search_outbox();
+    let (board, user_id) = board(store).await;
+    let card = card(store, &board.id, &user_id).await;
+    settle_all(store).await;
+    let flag = |value: serde_json::Value| BlockPatch {
+        updated_fields: json!({"isTemplate": value})
+            .as_object()
+            .expect("an object")
+            .clone(),
+        ..BlockPatch::default()
+    };
+
+    patch(store, &card.id, &flag(json!(true)), &user_id).await;
+    assert_eq!(
+        listed(store).await,
+        [(SearchTarget::Block, card.id.clone())],
+        "a card became a template"
+    );
+    assert_eq!(
+        store
+            .search_documents(std::slice::from_ref(&card.id))
+            .await
+            .expect("read"),
+        [],
+        "a template has no document"
+    );
+    settle_all(store).await;
+    patch(store, &card.id, &flag(json!(true)), &user_id).await;
+    assert_eq!(listed(store).await, [], "a template stays one");
+
+    let unflag = BlockPatch {
+        deleted_fields: vec!["isTemplate".to_owned()],
+        ..BlockPatch::default()
+    };
+    patch(store, &card.id, &unflag, &user_id).await;
+    assert_eq!(
+        listed(store).await,
+        [(SearchTarget::Block, card.id.clone())],
+        "a template became a card"
+    );
+    settle_all(store).await;
+    patch(store, &card.id, &flag(json!(true)), &user_id).await;
+    settle_all(store).await;
+    patch(store, &card.id, &flag(json!(false)), &user_id).await;
+    assert_eq!(
+        listed(store).await,
+        [(SearchTarget::Block, card.id.clone())],
+        "a template that says it is none became a card"
+    );
     test.teardown().await;
 }
 
