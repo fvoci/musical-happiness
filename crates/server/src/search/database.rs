@@ -9,16 +9,23 @@
 //! server answers is ([`App::check_hits`]), and a search that takes longer than its
 //! time is stopped in the database and answered with a 503.
 
+use std::sync::Arc;
 use std::time::Instant;
 
 use fvoci_model::{SearchHit, SearchKind};
 use fvoci_store::{Store, TextFound, TextSearch};
 
+use super::Search;
 use super::find::{Asked, Check, DEEPEST, Pages, found_hit, unavailable};
 use super::query::Containers;
 use super::snippet::snippet;
 use crate::app::App;
 use crate::error::AppError;
+
+/// The most containers a statement names, one bound value each, well within what both
+/// databases bind: a user who reads more is searched for in the whole workspace, a page
+/// after another, and what comes back is checked the same.
+pub(super) const MAX_BOUND_CONTAINERS: usize = 10_000;
 
 /// The words of what was typed, each once, in the order typed.
 fn words(text: &str) -> Vec<String> {
@@ -40,7 +47,9 @@ struct Asking {
 }
 
 impl Asking {
-    /// A page of what the database finds, `size` past the `from` best, by `by`.
+    /// A page of what the database finds, `size` past the `from` best, by `by`: once
+    /// one of the searches of the database that may run at once is free, and
+    /// [`TextFound::OutOfTime`] if none is by then.
     ///
     /// Asked in a task of its own, which runs to its end however soon the request is
     /// given up (a browser drops the search of every word typed before the last):
@@ -48,17 +57,23 @@ impl Asking {
     /// the pool as it came.
     async fn page(
         &self,
+        search: &Search,
         store: &Store,
         from: i64,
         size: i64,
         by: Instant,
     ) -> Result<TextFound, AppError> {
+        let turn = Arc::clone(&search.database_searches);
+        let Ok(Ok(turn)) = tokio::time::timeout_at(by.into(), turn.acquire_owned()).await else {
+            return Ok(TextFound::OutOfTime);
+        };
         let store = store.clone();
         let workspace_id = self.workspace_id.clone();
         let containers = self.containers.clone();
         let kind = self.kind;
         let words = self.words.clone();
         let page = tokio::spawn(async move {
+            let _turn = turn;
             let search = TextSearch {
                 workspace_id: &workspace_id,
                 containers: containers.as_deref(),
@@ -95,7 +110,10 @@ impl App {
         let mut found = Vec::new();
         let mut from = 0_i64;
         loop {
-            let TextFound::Ids(ids) = asking.page(self.store(), from, size, pages.by).await? else {
+            let TextFound::Ids(ids) = asking
+                .page(self.search(), self.store(), from, size, pages.by)
+                .await?
+            else {
                 tracing::warn!(
                     words = words.len(),
                     "a search of the database did not end in its time"
@@ -110,7 +128,8 @@ impl App {
             }));
             from = from.saturating_add(size);
             let deepest = i64::try_from(DEEPEST).unwrap_or(i64::MAX);
-            if found.len() >= asked.limit || !more_may_match || from + size > deepest {
+            if found.len() >= asked.limit || !more_may_match || from.saturating_add(size) > deepest
+            {
                 break;
             }
         }

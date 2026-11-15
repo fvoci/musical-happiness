@@ -16,19 +16,31 @@ const BEFORE_CHARS: usize = 40;
 /// characters from a little before the first word found, or from the start where none
 /// is (the words were in the title). Empty for an empty text.
 pub(super) fn snippet(text: &str, words: &[String]) -> Vec<SnippetPart> {
-    let places = matches(text, words);
-    let first = places.first().map_or(0, |found| found.start);
-    let start = back_by_chars(text, first, BEFORE_CHARS);
+    // ASCII letters in lower case keep every byte where it is, and only those letters
+    // change: a place found in the folded text is the same place in the text, on the
+    // boundaries of its characters.
+    let folded = text.to_ascii_lowercase();
+    let words: Vec<String> = words
+        .iter()
+        .filter(|word| !word.is_empty())
+        .map(|word| word.to_ascii_lowercase())
+        .collect();
+    let first = words
+        .iter()
+        .filter_map(|word| folded.find(word.as_str()).map(|at| at..at + word.len()))
+        .min_by_key(|place| place.start);
+    let start = back_by_chars(
+        text,
+        first.as_ref().map_or(0, |found| found.start),
+        BEFORE_CHARS,
+    );
     let end = forward_by_chars(text, start, SNIPPET_CHARS).max(
         // A word longer than the snippet is shown whole.
-        places.first().map_or(0, |found| found.end),
+        first.map_or(0, |found| found.end),
     );
     let mut parts: Vec<SnippetPart> = Vec::new();
     let mut at = start;
-    for found in places {
-        if found.start >= end {
-            break;
-        }
+    for found in places(&folded, &words, start..end) {
         let shown = found.start.max(at)..found.end.min(end);
         if shown.is_empty() {
             continue;
@@ -58,21 +70,17 @@ fn push(parts: &mut Vec<SnippetPart>, text: &str, stretch: Stretch) {
     }
 }
 
-/// Every place of every word in `text`, in byte offsets, in order, the places that
-/// overlap or touch one another made one.
-fn matches(text: &str, words: &[String]) -> Vec<Range<usize>> {
-    // ASCII letters in lower case keep every byte where it is, and only those letters
-    // change: a place found in the folded text is the same place in the text, on the
-    // boundaries of its characters.
-    let folded = text.to_ascii_lowercase();
+/// Every place of every word of `words` in `folded` that begins within `within`, in
+/// byte offsets, in order, the places that overlap or touch one another made one. The
+/// text past `within` is not looked through.
+fn places(folded: &str, words: &[String], within: Range<usize>) -> Vec<Range<usize>> {
     let mut places: Vec<Range<usize>> = words
         .iter()
-        .filter(|word| !word.is_empty())
         .flat_map(|word| {
-            let word = word.to_ascii_lowercase();
-            folded
+            folded[within.start..]
                 .match_indices(word.as_str())
-                .map(|(start, found)| start..start + found.len())
+                .map(|(at, found)| within.start + at..within.start + at + found.len())
+                .take_while(|place| place.start < within.end)
                 .collect::<Vec<_>>()
         })
         .collect();

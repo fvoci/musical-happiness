@@ -27,7 +27,7 @@ mod snippet;
 mod upkeep;
 mod worker;
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 pub use find::{Asked, AskedError, MAX_LIMIT, MAX_TEXT_CHARS};
@@ -44,6 +44,11 @@ use crate::config::search::SearchSettings;
 const FIRST_PAUSE: Duration = Duration::from_secs(1);
 /// See [`FIRST_PAUSE`].
 const LONGEST_PAUSE: Duration = Duration::from_secs(60);
+/// How many searches of the database run at once, of all users: each holds a
+/// connection of the pool while its statement runs, and the pool serves everything
+/// else too.
+const DATABASE_SEARCHES_AT_ONCE: usize = 4;
+
 /// How often the log says that searches are not answered, while they are not for the
 /// same reason.
 const FAILURES_SAID_EVERY: Duration = Duration::from_secs(30);
@@ -58,6 +63,8 @@ pub struct Search {
     limiter: Limiter,
     /// How long a search may take, all its pages and checks together.
     timeout: Duration,
+    /// The searches of the database that may run at once ([`DATABASE_SEARCHES_AT_ONCE`]).
+    database_searches: Arc<tokio::sync::Semaphore>,
 }
 
 /// Where a search is asked.
@@ -150,6 +157,7 @@ impl Search {
             engine,
             limiter: Limiter::new(settings.search_requests_per_second),
             timeout: settings.timeout,
+            database_searches: Arc::new(tokio::sync::Semaphore::new(DATABASE_SEARCHES_AT_ONCE)),
         })
     }
 

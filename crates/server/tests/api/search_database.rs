@@ -5,13 +5,13 @@
 
 use std::time::Duration;
 
-use fvoci_model::{Board, BoardType, SearchHit};
+use fvoci_model::{Board, BoardType, SearchHit, new_id};
 use fvoci_server::config::search::SearchSettings;
 use reqwest::StatusCode;
 
 use crate::boards::new_board;
 use crate::common::{Client, Setup, TEST_WORKSPACE_ID, TEST_WS, TestServer};
-use crate::content_search::{new_card, search, search_with, started};
+use crate::content_search::{new_card, search, search_with, started, stored_card};
 use crate::fake_search::FakeSearch;
 use crate::search_pages::{new_page, new_wiki};
 
@@ -76,7 +76,9 @@ async fn without_a_search_server_the_letters_of_titles_and_bodies_are_found() {
     let rule = made("고객 응대", "결제 후 환불규정을 따른다", 2000).await;
     let asked = made("문의", "환불 문의가 왔다", 3000).await;
     let deploy = made("배포 일정", "다음 주에 배포합니다", 4000).await;
-    let api = made("API guide", "The REST api uses tokens", 5000).await;
+    // Each says the word in one case only, in its body alone.
+    let api = made("Guide", "The REST API uses tokens", 5000).await;
+    let lower_api = made("Notes", "an api of ours", 4500).await;
     let summer = made("Été", "plage", 6000).await;
     let signs = made("할인율", r"100% 할인_코드 C:\temp", 7000).await;
     let hundred = made("인원", "100명 할인 코드", 8000).await;
@@ -104,6 +106,13 @@ async fn without_a_search_server_the_letters_of_titles_and_bodies_are_found() {
     let one = hits(&th.client, &[("q", "환불"), ("limit", "1")]).await;
     let nul = search(&th.client, TEST_WS, "환\0불").await;
     let blank = hits(&th.client, &[("q", "   ")]).await;
+    // The second user reads a board of their own, which does not hold the word.
+    let theirs: Board = th
+        .client2
+        .create_board(&new_board(TEST_WORKSPACE_ID, BoardType::Private, "Theirs"))
+        .await
+        .created_json();
+    new_card(&th.client2, &theirs.id, "다른 말", "다른 말").await;
     let unjoined = hits(&th.client2, &[("q", "환불")]).await;
     th.teardown().await;
 
@@ -135,11 +144,12 @@ async fn without_a_search_server_the_letters_of_titles_and_bodies_are_found() {
         "no ending is taken off"
     );
     assert_eq!(ids(&a_stem), [deploy]);
-    assert_eq!(ids(&upper), std::slice::from_ref(&api));
-    assert_eq!(ids(&lower), [api]);
+    let both = [api, lower_api];
+    assert_eq!(ids(&upper), both, "the upper case finds the lower");
+    assert_eq!(ids(&lower), both, "and the lower the upper");
     assert_eq!(
         shown(&lower[0]),
-        [("The REST ", false), ("api", true), (" uses tokens", false)]
+        [("The REST ", false), ("API", true), (" uses tokens", false)]
     );
     assert_eq!(
         accents.map(|found| ids(&found)),
@@ -237,4 +247,40 @@ async fn a_user_searches_the_database_only_so_often() {
     assert_eq!(limited + answered, 8, "answered, or told to wait");
     assert!(answered >= 1 && limited >= 1, "{answered} answered");
     other.check_ok();
+}
+
+#[tokio::test]
+async fn a_user_of_more_boards_than_a_search_server_is_asked_about_finds_in_them_all() {
+    let th = Setup::native().start().await.init_basic().await;
+    let user1 = th.client.me().await.id;
+    let mut last = String::new();
+    for number in 0..1001 {
+        let mut board = new_board(TEST_WORKSPACE_ID, BoardType::Private, &format!("b{number}"));
+        board.id = new_id();
+        th.app
+            .store()
+            .insert_board_with_admin(&mut board, &user1)
+            .await
+            .expect("a board is stored");
+        last = board.id;
+    }
+    let mine = new_card(&th.client, &last, "내 카드", "환불").await;
+    // Of the same workspace, on a board the user is not on.
+    let stranger = th.stranger_in(TEST_WORKSPACE_ID).await;
+    let theirs = crate::boards::board_with_admin(
+        &th,
+        new_board(TEST_WORKSPACE_ID, BoardType::Private, "Theirs"),
+        &stranger,
+    )
+    .await;
+    stored_card(th.app.store(), &theirs.id, "남의 환불 카드").await;
+
+    let found = hits(&th.client, &[("q", "환불"), ("limit", "7")]).await;
+    th.teardown().await;
+
+    assert_eq!(
+        ids(&found),
+        [mine.id],
+        "the last of a thousand and one boards"
+    );
 }

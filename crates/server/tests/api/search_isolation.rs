@@ -135,6 +135,24 @@ async fn blocks_without_a_document(
     vec![hidden_card, template_card.id, card_template.id, comment.id]
 }
 
+/// Pages that went to the trash: one of a wiki that stays, and the wiki of another,
+/// whole. Their identifiers, and the wikis they were in.
+async fn pages_that_went(th: &TestServer) -> Vec<(String, String)> {
+    let kept = new_wiki(&th.client).await;
+    let trashed = new_page(&th.client, &kept, "", "지운 쪽", WORD).await;
+    th.client
+        .delete(&format!("{TEST_WS}/wikis/{kept}/pages/{}", trashed.id))
+        .await
+        .check_no_content();
+    let gone = new_wiki(&th.client).await;
+    let of_gone = new_page(&th.client, &gone, "", "지운 위키의 쪽", WORD).await;
+    th.client
+        .delete(&format!("{TEST_WS}/boards/{gone}"))
+        .await
+        .check_no_content();
+    vec![(trashed.id, kept), (of_gone.id, gone)]
+}
+
 /// The pages of two wikis: one open to the workspace that the second user has not
 /// joined, and a private one of the first user alone.
 async fn pages_of_wikis(th: &TestServer) -> (String, String, String, String) {
@@ -238,6 +256,7 @@ async fn world(th: &TestServer) -> World {
     let (trashed, purged) = cards_that_went(th, &open.id).await;
     let no_documents = blocks_without_a_document(th, &open, &open_card.id, &user1).await;
     let (open_wiki, open_page, private_wiki, private_page) = pages_of_wikis(th).await;
+    let pages_gone = pages_that_went(th).await;
 
     let mut planted = vec![
         (open_card.id.clone(), open.id.clone()),
@@ -262,6 +281,7 @@ async fn world(th: &TestServer) -> World {
         ("' OR 1=1 --".to_owned(), open.id.clone()),
     ];
     planted.extend(no_documents.into_iter().map(|id| (id, open.id.clone())));
+    planted.extend(pages_gone);
     // Another organization's card, where the database holds more than one.
     if db_type_of_the_tests() == DbType::Postgres {
         let (theirs, _, their_board) = another_organization(th).await;

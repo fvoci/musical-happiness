@@ -7,6 +7,7 @@ use fvoci_model::{SearchHit, SearchKind, SnippetPart};
 use fvoci_store::{PublicBoards, SearchDocument};
 
 use super::client::ClientError;
+use super::database::MAX_BOUND_CONTAINERS;
 use super::query::{Containers, Scope};
 use super::{Engine, Way, document};
 use crate::app::App;
@@ -131,14 +132,16 @@ impl App {
         if theirs.is_empty() {
             return Ok(Vec::new());
         }
-        let listed: Vec<String>;
-        let (containers, asked_for) = if theirs.len() > MAX_LISTED_CONTAINERS {
+        // In one order, whatever order the set has them in.
+        let mut listed: Vec<String> = theirs.iter().cloned().collect();
+        listed.sort_unstable();
+        let most_listed = match way {
+            Way::Engine(_) => MAX_LISTED_CONTAINERS,
+            Way::Database => MAX_BOUND_CONTAINERS,
+        };
+        let (containers, asked_for) = if listed.len() > most_listed {
             (Containers::All, ASKED_FOR_ALL)
         } else {
-            // In one order, whatever order the set has them in.
-            let mut ids: Vec<String> = theirs.iter().cloned().collect();
-            ids.sort_unstable();
-            listed = ids;
             (Containers::Listed(&listed), ASKED_FOR_LISTED)
         };
         let mut check = Check {

@@ -502,11 +502,11 @@ impl<'c> Scope<'c> {
         };
         match self.dialect() {
             Dialect::Postgres => {
-                // 0 would be no limit: a millisecond at least.
+                // 0 would be no limit: a millisecond at least. Bound, so that the
+                // statement is one, whatever time is left.
                 let millis = left.as_millis().max(1);
-                let setting = self.sql(&format!(
-                    "SELECT set_config('statement_timeout', '{millis}ms', true)"
-                ));
+                let mut setting = self.sql("SELECT set_config('statement_timeout', ");
+                setting.bind(format!("{millis}ms")).push(", true)");
                 self.fetch_all(setting).await?;
                 match self.fetch_all(sql).await {
                     Err(StoreError::Database(error)) if is_query_canceled(&error) => Ok(None),
@@ -514,21 +514,23 @@ impl<'c> Scope<'c> {
                 }
             }
             Dialect::Sqlite => {
-                let ConnRef::Sqlite(conn) = &mut self.conn else {
-                    unreachable!("a SQLite scope holds a SQLite connection");
-                };
-                let stop = SqliteStop::set(conn, by).await?;
+                let stop = SqliteStop::set(self.sqlite(), by).await?;
                 let rows = self.fetch_all(sql).await;
-                let ConnRef::Sqlite(conn) = &mut self.conn else {
-                    unreachable!("a SQLite scope holds a SQLite connection");
-                };
-                let stopped = stop.take_off(conn).await?;
+                let stopped = stop.take_off(self.sqlite()).await?;
                 match rows {
                     Err(StoreError::Database(_)) if stopped => Ok(None),
                     rows => rows.map(Some),
                 }
             }
         }
+    }
+
+    /// The connection of a scope of SQLite.
+    fn sqlite(&mut self) -> &mut SqliteConnection {
+        let ConnRef::Sqlite(conn) = &mut self.conn else {
+            unreachable!("a SQLite scope holds a SQLite connection");
+        };
+        conn
     }
 
     /// Runs a query and returns its first row, if any.

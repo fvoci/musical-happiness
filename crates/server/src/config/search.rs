@@ -1,6 +1,6 @@
 //! The search server what cards and pages say is found through (`search_*`): where it is,
 //! how the server signs in to it, and the index that is the server's there. Without
-//! `search_url` there is no search of bodies. The secrets never appear in diagnostics.
+//! `search_url` the database is searched. The secrets never appear in diagnostics.
 
 use std::fmt;
 use std::time::Duration;
