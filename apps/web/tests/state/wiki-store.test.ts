@@ -170,6 +170,12 @@ describe('an open wiki', () => {
     await made.workspace.undoLast();
     expect(titles(made.store)).toEqual(['Written', 'Parent', '  Child']);
     expect(made.workspace.problems).toEqual([]);
+    // Done again, they are the same pages: none is made anew.
+    await made.workspace.redoLast();
+    await made.workspace.redoLast();
+    await settle();
+    expect(titles(made.store)).toEqual(['Written', 'Parent', '  Child']);
+    expect(await made.backend.wiki.pages(made.wikiId)).toHaveLength(3);
   });
 
   it('undoes nothing, and says nothing, of a page deleted since', async () => {

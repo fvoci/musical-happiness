@@ -288,3 +288,38 @@ test('a wiki is renamed and described, deleted from its menu, and restored from 
   expect(errors).toEqual([]);
   await api.dispose();
 });
+
+test('an open wiki is listed to whoever works in the workspace, joined first, then read', async ({
+  browser,
+  baseURL,
+}) => {
+  const base = baseURL ?? '';
+  const owner = person('wiki-opener');
+  const colleague = person('wiki-joiner');
+  await register(base, owner);
+  await register(base, colleague);
+  const api = await signedIn(base, owner);
+  const { workspaceId } = await makeBoard(api, { title: 'Roadmap' });
+  const inWorkspace = `/api/v1/w/${workspaceId}`;
+  const wiki = (await (
+    await api.post(`${inWorkspace}/wikis`, { data: { title: 'Open notes', type: 'O' } })
+  ).json()) as Schemas['Board'];
+  const first = (await (
+    await api.post(`${inWorkspace}/wikis/${wiki.id}/pages`, { data: { title: 'Hello' } })
+  ).json()) as Schemas['Page'];
+
+  const page = await (await browser.newContext({ locale: 'en-US' })).newPage();
+  const errors = watchErrors(page);
+  await page.goto(`/w/${workspaceId}/wikis/${wiki.id}`);
+  await signInOnPage(page, colleague);
+  // Listed to them, its pages not theirs to read until they join.
+  await expect(sidebar(page).getByRole('link', { name: 'Open notes, wiki' })).toBeVisible();
+  const join = page.getByTestId('wiki-join');
+  await expect(join).toContainText('Open notes');
+  await join.getByRole('button').click();
+  await expect(page).toHaveURL(`/w/${workspaceId}/wikis/${wiki.id}/${first.id}`);
+  await expect(page.getByTestId('page-title')).toHaveValue('Hello');
+  expect(errors).toEqual([]);
+  await page.context().close();
+  await api.dispose();
+});

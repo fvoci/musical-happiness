@@ -321,6 +321,10 @@ test.describe('screens', () => {
       await showTree(page);
       await shot('wiki-screen');
 
+      // The page itself, the tree put away where it is a drawer.
+      await hideTree(page);
+      await shot('page');
+
       // The sidebar, boards and wikis in one list.
       await hideTree(page);
       await showSidebar(page);

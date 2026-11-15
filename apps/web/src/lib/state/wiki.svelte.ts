@@ -327,16 +327,26 @@ export class WikiStore {
    * Undoing it deletes it.
    */
   async createPage(draft: PageDraft): Promise<WikiPageDetail | undefined> {
+    /** The page an undo kept (written in, or with pages below): done again, it is that page. */
+    let kept: WikiPageDetail | undefined;
     try {
       return await this.workspace.undo.perform(
         async () => {
+          if (kept) {
+            const again = kept;
+            kept = undefined;
+            return again;
+          }
           const made = await this.#wikis.createPage(this.wikiId, draft);
           this.#takePage(made);
           return made;
         },
         async (made) => {
           // Written in since, or with pages below it: kept, for undo would lose them for good.
-          if (await this.#grownSince(made.id)) return;
+          if (await this.#grownSince(made.id)) {
+            kept = made;
+            return;
+          }
           await unlessGone(() => this.#deletePage(made.id));
           this.#forget([made.id], 'reader');
         },
