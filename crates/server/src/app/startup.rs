@@ -42,10 +42,11 @@ pub(crate) async fn prepare_store(store: Store) -> anyhow::Result<Store> {
 }
 
 /// Brings the database's schema up to date and ends: `fvoci-server --migrate`, run as
-/// the role that owns the tables when the server connects as one that does not. It
-/// holds the lock of the server meanwhile, so that no server serves the database while
-/// its tables change, and it does not look at the wall: the owner that migrates may be a
-/// superuser.
+/// the role that owns the tables when the server connects as one that does not. A
+/// schema that is up to date already is left as it is at once, while a server serves
+/// it. Otherwise it holds the lock of the server meanwhile, so that no server serves
+/// the database while its tables change: it waits for a server that serves it to stop.
+/// It does not look at the wall: the owner that migrates may be a superuser.
 ///
 /// # Errors
 ///
@@ -53,11 +54,27 @@ pub(crate) async fn prepare_store(store: Store) -> anyhow::Result<Store> {
 /// longer than `server_lock_wait_seconds`, or the schema cannot be brought up to date.
 pub async fn migrate_database(config: &Configuration) -> anyhow::Result<()> {
     let store = connect(config).await?;
+    match store.schema_is_current().await {
+        Ok(true) => {
+            let (role, schema) = store.role_and_schema().await.unwrap_or_default();
+            store.close().await;
+            tracing::info!(role, schema, "the database's schema is up to date already");
+            return Ok(());
+        }
+        Ok(false) => {}
+        Err(error) => {
+            store.close().await;
+            return Err(error).context("reading the record of the database's migrations");
+        }
+    }
     let lock = match super::take_server_lock(&store, config).await {
         Ok(lock) => lock,
         Err(error) => {
             store.close().await;
-            return Err(error);
+            return Err(error.context(
+                "the schema is to be changed while a server serves the database: stop it, \
+                 then migrate",
+            ));
         }
     };
     let migrated = store.migrate().await;

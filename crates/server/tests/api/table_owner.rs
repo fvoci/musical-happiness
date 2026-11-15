@@ -11,7 +11,8 @@ use fvoci_server::Server;
 use fvoci_server::config::Configuration;
 use fvoci_store::DbType;
 use fvoci_store::testing::{
-    TableOwner, TestDatabase, db_type_of_the_tests, latest_migration, migrate_up_to,
+    TableOwner, TestDatabase, db_type_of_the_tests, forget_migration, latest_migration,
+    migrate_up_to,
 };
 
 use crate::boards::new_board;
@@ -51,7 +52,9 @@ async fn a_server_serves_tables_its_role_does_not_own() {
 
 /// A server whose role does not own the tables does not start on a schema that is
 /// behind it, and names the migration to run; the owner's migration takes the lock of
-/// the server, and the server then starts. Whoever owns the tables.
+/// the server, and the server then starts. While it serves, a migration of a schema
+/// that is up to date does nothing, and one of a schema behind is refused. Whoever owns
+/// the tables.
 #[tokio::test]
 async fn a_server_waits_for_the_owner_to_migrate_a_schema_behind_it() {
     if db_type_of_the_tests() != DbType::Postgres {
@@ -98,12 +101,25 @@ async fn the_owner_migrates_while_no_server_serves(owner: TableOwner) {
         .await
         .expect("then the server starts");
 
+    // Up to date, a migration leaves the schema alone while the server serves it, as a
+    // second `up` of the compose file asks for one.
+    fvoci_server::app::migrate_database(&config(database.owner_dbconfig()))
+        .await
+        .expect("nothing to do while the server serves the database");
+    // Behind, it waits for the lock the server holds, and gives up.
+    forget_migration(
+        database.db_type(),
+        database.owner_dbconfig(),
+        latest_migration(),
+    )
+    .await;
     let busy = fvoci_server::app::migrate_database(&config(database.owner_dbconfig()))
         .await
         .expect_err("no migration while a server serves the database");
+    let said = format!("{busy:#}");
     assert!(
-        format!("{busy:#}").contains("another process is the server"),
-        "{owner:?}: {busy:#}"
+        said.contains("another process is the server") && said.contains("stop it"),
+        "{owner:?}: {said}"
     );
     server.shutdown().await;
     database.remove().await;

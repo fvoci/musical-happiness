@@ -540,6 +540,17 @@ impl Store {
         .await
     }
 
+    /// Whether the database's schema is this build's already: every migration recorded
+    /// as applied, with this build's text, and no other. Reads only.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Schema`] if the role may not read the record of the
+    /// migrations, and [`StoreError::Database`] if it cannot be read.
+    pub async fn schema_is_current(&self) -> Result<bool, StoreError> {
+        Ok(schema::state(self).await? == schema::SchemaState::Current)
+    }
+
     /// The role the store connects as and the schema it works in, for what a server
     /// says of them; empty on SQLite.
     ///

@@ -8,21 +8,24 @@
 # unless .env says otherwise): put the reverse proxy that ends TLS in front of it and
 # set FVOCI_SERVERROOT to the address people use. PostgreSQL, the search server and the
 # profiles' services are on the network `backend`, which has no way out and no
-# published port.
+# published port; fvoci is on `edge` too, for its port and what it asks outside.
 #
 # Secrets come from .env (never committed; .env.example lists them) as Docker secrets:
-# files under /run/secrets, not variables of the containers. A missing one stops the
-# service that needs it, saying which. fvoci's entry (docker/fvoci/entrypoint.sh)
-# reads them into the variables the server reads.
+# files under /run/secrets, not variables of the containers. compose refuses to start
+# while one is not set, naming it; an empty one stops the service that needs it, which
+# names its file. fvoci's entry (docker/fvoci/entrypoint.sh) reads them into the
+# variables the server reads.
 #
-# PostgreSQL, database fvoci. Its superuser postgres (POSTGRES_PASSWORD) owns the tables:
-# when the volume is new, postgres/init-fvoci.sh makes the role fvoci (FVOCI_DB_PASSWORD),
-# which owns nothing and may only use the tables; at every `up` the one-shot service
-# `migrate` brings the schema up to date as postgres (fvoci-server --migrate, under the
-# server's lock), and fvoci starts once it has succeeded. A server that is broken into
-# cannot turn the row-level security between organizations off. The server holds a
-# session advisory lock on a connection of its own: nothing between it and PostgreSQL may
-# share sessions (no pooler in transaction mode).
+# PostgreSQL, database fvoci. Its superuser postgres (POSTGRES_PASSWORD, set when the
+# volume is new) owns the tables. At every `up` the one-shot service `roles`
+# (postgres/fvoci-role.sh) makes the role fvoci what it must be, with FVOCI_DB_PASSWORD:
+# it owns nothing and may only use the tables. Then `migrate` brings the schema up to
+# date as postgres (fvoci-server --migrate), and fvoci starts once both have succeeded.
+# A server that is broken into cannot turn the row-level security between
+# organizations off. The server holds a session advisory lock on a connection of its
+# own: nothing between it and PostgreSQL may share sessions (no pooler in transaction
+# mode). An `up` that brings a new image whose schema changes waits for that lock: stop
+# fvoci first (`docker compose stop fvoci`, then `up -d`).
 #
 # The search server is OpenSearch with nori and its security plugin; fvoci reaches it as
 # https://search:9200 and trusts the authority it made (volume search-ca) beside the
@@ -31,7 +34,8 @@
 #
 # Profiles: `s3` keeps files in SeaweedFS instead of the volume fvoci-data (set
 # FVOCI_FILESDRIVER=amazons3 and the S3 lines of .env); `mail` is Mailpit, a mail relay
-# that keeps what it gets (set FVOCI_SMTP_HOST=mailpit and the mail lines of .env).
+# that keeps what it gets (set FVOCI_SMTP_HOST=mailpit and the mail lines of .env), read
+# with `docker compose exec mailpit wget -qO- localhost:8025/api/v1/messages`.
 #
 # Stopping waits for fvoci to finish its requests and let go of its lock.
 
@@ -69,6 +73,7 @@ services:
       - fvoci_metrics_token
       - s3_access_key_id
       - s3_secret_access_key
+      - smtp_password
     environment:
       FVOCI_SERVERROOT: ${FVOCI_SERVERROOT:-http://localhost:8080}
       FVOCI_DBTYPE: postgres
@@ -84,32 +89,58 @@ services:
       # replaces the system's list, so both are given.
       SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
       SSL_CERT_DIR: /opt/fvoci/search-ca
-      # Metrics on the backend network only, behind the token.
+      # Metrics on every network fvoci is on, published nowhere, behind the token.
       FVOCI_PROMETHEUSADDRESS: ":9092"
       FVOCI_PROMETHEUSTOKEN_FILE: /run/secrets/fvoci_metrics_token
       FVOCI_FILESDRIVER: ${FVOCI_FILESDRIVER:-local}
       FVOCI_FILESS3CONFIG_ENDPOINT: ${FVOCI_FILESS3CONFIG_ENDPOINT:-}
       FVOCI_FILESS3CONFIG_BUCKET: ${FVOCI_FILESS3CONFIG_BUCKET:-}
       FVOCI_FILESS3CONFIG_REGION: ${FVOCI_FILESS3CONFIG_REGION:-}
+      FVOCI_FILESS3CONFIG_SSL: ${FVOCI_FILESS3CONFIG_SSL:-false}
       # An empty secret is not mounted, and an empty *_FILE is passed over.
       AWS_ACCESS_KEY_ID_FILE: ${FVOCI_S3_ACCESS_KEY_ID:+/run/secrets/s3_access_key_id}
       AWS_SECRET_ACCESS_KEY_FILE: ${FVOCI_S3_SECRET_ACCESS_KEY:+/run/secrets/s3_secret_access_key}
       FVOCI_SMTP_HOST: ${FVOCI_SMTP_HOST:-}
       FVOCI_SMTP_PORT: ${FVOCI_SMTP_PORT:-587}
       FVOCI_SMTP_TLS: ${FVOCI_SMTP_TLS:-starttls}
+      FVOCI_SMTP_USER: ${FVOCI_SMTP_USER:-}
+      FVOCI_SMTP_PASSWORD_FILE: ${FVOCI_SMTP_PASSWORD:+/run/secrets/smtp_password}
       FVOCI_MAIL_FROM: ${FVOCI_MAIL_FROM:-}
       FVOCI_LOG_FORMAT: ${FVOCI_LOG_FORMAT:-}
     volumes:
       - fvoci-data:/data
       - search-ca:/opt/fvoci/search-ca:ro
 
-  # Brings the schema up to date as the owner of the tables, and ends.
+  # Makes the role fvoci what it must be, as the superuser, and ends.
+  roles:
+    image: postgres:18
+    entrypoint: ["/fvoci-role.sh"]
+    user: postgres
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    networks: [backend]
+    secrets: [postgres_password, fvoci_db_password]
+    environment:
+      PGHOST: postgres
+      PGUSER: postgres
+      PGDATABASE: fvoci
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      FVOCI_DB_PASSWORD_FILE: /run/secrets/fvoci_db_password
+    volumes:
+      - ./postgres/fvoci-role.sh:/fvoci-role.sh:ro
+    healthcheck:
+      disable: true
+
+  # Brings the schema up to date as the owner of the tables, and ends: at once when it
+  # is up to date already.
   migrate:
     image: ${FVOCI_IMAGE:-fvoci-server:local}
     command: ["--migrate"]
     depends_on:
-      postgres:
-        condition: service_healthy
+      roles:
+        condition: service_completed_successfully
     restart: "no"
     init: true
     networks: [backend]
@@ -127,15 +158,13 @@ services:
     image: postgres:18
     restart: unless-stopped
     networks: [backend]
-    secrets: [postgres_password, fvoci_db_password]
+    secrets: [postgres_password]
     environment:
       POSTGRES_DB: fvoci
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
-      FVOCI_DB_PASSWORD_FILE: /run/secrets/fvoci_db_password
     volumes:
       - postgres-data:/var/lib/postgresql
-      - ./postgres/init-fvoci.sh:/docker-entrypoint-initdb.d/init-fvoci.sh:ro
     healthcheck:
       # Over TCP: while the image sets the volume up, its server listens on its socket only.
       test: ["CMD", "pg_isready", "--host=127.0.0.1", "--username=postgres", "--dbname=fvoci"]
@@ -169,6 +198,7 @@ services:
     # The image's own user, who owns /data.
     user: seaweed
     restart: unless-stopped
+    init: true
     networks: [backend]
     secrets: [s3_access_key_id, s3_secret_access_key]
     environment:
@@ -178,11 +208,19 @@ services:
     command:
       - |
         set -eu
+        rm -f /tmp/bucket-ready
+        for secret in s3_access_key_id s3_secret_access_key; do
+          [ -s /run/secrets/$$secret ] || { echo "s3: the secret $$secret is empty" >&2; exit 1; }
+        done
         umask 077
         printf '{"identities":[{"name":"fvoci","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Read","Write","List","Tagging"]}]}' \
           "$$(cat /run/secrets/s3_access_key_id)" "$$(cat /run/secrets/s3_secret_access_key)" > /tmp/s3.json
         weed server -dir=/data -s3 -s3.port=8333 -s3.config=/tmp/s3.json &
-        until echo "s3.bucket.create -name $$S3_BUCKET" | weed shell -master=localhost:9333 2>/dev/null | grep -qv error; do sleep 1; done
+        trap 'kill $$!; wait' TERM INT
+        until echo "s3.bucket.list" | weed shell -master=localhost:9333 2>/dev/null | grep -qw "$$S3_BUCKET"; do
+          echo "s3.bucket.create -name $$S3_BUCKET" | weed shell -master=localhost:9333 >/dev/null 2>&1 || true
+          sleep 1
+        done
         touch /tmp/bucket-ready
         wait
     healthcheck:
@@ -228,3 +266,5 @@ secrets:
     environment: FVOCI_S3_ACCESS_KEY_ID
   s3_secret_access_key:
     environment: FVOCI_S3_SECRET_ACCESS_KEY
+  smtp_password:
+    environment: FVOCI_SMTP_PASSWORD

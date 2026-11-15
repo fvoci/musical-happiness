@@ -418,6 +418,28 @@ pub async fn migrate_up_to(db_type: DbType, dbconfig: &str, version: i64) {
     store.close().await;
 }
 
+/// Removes the record of migration `version` from the schema `dbconfig` connects to,
+/// as its owner: the schema then reads as behind this build while its tables are
+/// unchanged, for the tests of a migration asked for while a server serves it.
+///
+/// # Panics
+///
+/// Panics if the database cannot be reached or the record cannot be removed.
+pub async fn forget_migration(db_type: DbType, dbconfig: &str, version: i64) {
+    let store = Store::open(db_type, dbconfig)
+        .await
+        .unwrap_or_else(|error| panic!("connecting to the test database: {error}"));
+    store
+        .with_conn(async |scope| {
+            let mut sql = scope.sql("DELETE FROM _sqlx_migrations WHERE version = ");
+            sql.bind(version);
+            scope.execute(sql).await
+        })
+        .await
+        .unwrap_or_else(|error| panic!("removing the record of migration {version}: {error}"));
+    store.close().await;
+}
+
 /// The tables that are no organization's; every other table of the schema is behind
 /// the wall between organizations.
 pub const GLOBAL_TABLES: [&str; 10] = crate::schema::GLOBAL_TABLES;

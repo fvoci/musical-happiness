@@ -10,8 +10,8 @@ use anyhow::{Result, bail};
 
 use crate::steps::{self, capture, say};
 
-/// Where the images go: the organization of the repository, whose packages inherit
-/// the repository's visibility through the `source` label.
+/// Where the images go: the organization of the repository. The `source` label links a
+/// package to the repository, whose access it then inherits; a new package is private.
 const REGISTRY: &str = "ghcr.io/fvoci";
 
 /// The names of one image.
@@ -52,6 +52,12 @@ impl Names {
         };
         let arch = asked("docker", &["version", "--format", "{{.Server.Arch}}"])?;
         Ok(Self::new(&revision, tree, &arch))
+    }
+
+    /// Names of a commit that is no checkout's, for the tests.
+    #[cfg(test)]
+    pub(crate) fn for_tests() -> Self {
+        Self::new("0123456789abcdef", Tree::Committed, "arm64")
     }
 
     fn new(revision: &str, tree: Tree, arch: &str) -> Self {
@@ -104,7 +110,9 @@ fn asked(program: &str, arguments: &[&str]) -> Result<String> {
 ///
 /// Fails if a build fails.
 pub(crate) fn build(root: &Path, names: &Names) -> Result<()> {
-    let created = asked("date", &["--utc", "+%Y-%m-%dT%H:%M:%SZ"])?;
+    // The commit's time, so that a build of a commit says the same whenever it is made.
+    let root_text = root.to_string_lossy();
+    let created = asked("git", &["-C", &root_text, "log", "-1", "--format=%cI"])?;
     let hash = format!("FVOCI_BUILD_HASH={}", names.revision);
     let created = format!("FVOCI_CREATED={created}");
     let common = ["--build-arg", &hash, "--build-arg", &created];
@@ -143,7 +151,14 @@ pub(crate) fn print_push_plan(root: &Path) -> Result<()> {
 
 fn push_plan(names: &Names) -> String {
     let both = [&names.server, &names.search];
-    let mut lines = vec![
+    let mut lines = Vec::new();
+    if names.tag.ends_with("-dirty") {
+        lines.push(
+            "# WARNING: the checkout has changes no commit holds; commit them before pushing."
+                .to_owned(),
+        );
+    }
+    lines.extend([
         "# Sign in once per machine with a classic personal access token that has".to_owned(),
         "# write:packages (GHCR takes no fine-grained token):".to_owned(),
         "#   echo \"$GHCR_TOKEN\" | docker login ghcr.io --username <github user> --password-stdin"
@@ -152,7 +167,7 @@ fn push_plan(names: &Names) -> String {
             "# On this machine ({}), after `cargo xtask docker` has built and tried them:",
             names.arch
         ),
-    ];
+    ]);
     lines.extend(
         both.iter()
             .map(|name| format!("docker push {}", name.local)),

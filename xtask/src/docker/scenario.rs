@@ -158,7 +158,8 @@ pub(super) fn run(trial: &Trial, directory: &Path) -> Result<()> {
         base: &trial.base,
         jar: directory.join("cookies.txt"),
     };
-    let _ = std::fs::remove_file(&client.jar);
+    // The session's cookie is the owner's only.
+    super::write_private(&client.jar, "")?;
 
     let page = client.send("GET", "/", None)?;
     ensure!(

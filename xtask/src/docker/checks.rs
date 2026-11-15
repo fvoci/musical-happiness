@@ -4,10 +4,13 @@ use anyhow::{Context as _, Result, bail, ensure};
 use serde_json::Value;
 
 use super::Trial;
-use crate::steps::{capture, say};
+use crate::steps::{Captured, capture, say};
 
 /// The services of the installation that run without a profile.
 const SERVICES: [&str; 3] = ["fvoci", "postgres", "search"];
+
+/// The one-shot services, which have ended when the checks run.
+const ONE_SHOTS: [&str; 2] = ["roles", "migrate"];
 
 /// The role the server connects as, as the database's superuser sees it: no superuser,
 /// no `BYPASSRLS`, no `CREATEDB` or `CREATEROLE`, the owner of no table, while the
@@ -55,12 +58,8 @@ pub(super) fn database_role(trial: &Trial) -> Result<()> {
         "{unforced} walled tables do not force their policies"
     );
 
-    // As fvoci, with the password the database container was given: the wall stays.
-    let attempt = trial.compose(&[
-        "exec", "-T", "postgres", "sh", "-c",
-        "PGPASSWORD=$(cat /run/secrets/fvoci_db_password) psql --host=127.0.0.1 \
-         --username=fvoci --dbname=fvoci --command='ALTER TABLE blocks NO FORCE ROW LEVEL SECURITY'",
-    ])?;
+    // As fvoci, with its password on the standard input: the wall stays.
+    let attempt = as_the_server_role(trial, "ALTER TABLE blocks NO FORCE ROW LEVEL SECURITY")?;
     ensure!(
         !attempt.succeeded && attempt.error.contains("must be owner"),
         "fvoci was not refused the change of a table: {} {}",
@@ -72,6 +71,37 @@ pub(super) fn database_role(trial: &Trial) -> Result<()> {
          {walled} tables walled and forced"
     ));
     Ok(())
+}
+
+/// Runs a statement in the database as the role fvoci, whose password goes to psql on
+/// its standard input, on no command line.
+fn as_the_server_role(trial: &Trial, statement: &str) -> Result<Captured> {
+    use std::io::Write as _;
+    use std::process::Stdio;
+
+    let script = format!(
+        "PGPASSWORD=$(cat) psql --host=127.0.0.1 --username=fvoci --dbname=fvoci \
+         --command='{statement}'"
+    );
+    let mut child = trial
+        .command(&["exec", "-T", "postgres", "sh", "-c", &script])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .context("starting docker compose exec")?;
+    child
+        .stdin
+        .take()
+        .context("the standard input of psql")?
+        .write_all(trial.role_password.as_bytes())
+        .context("giving psql the password")?;
+    let output = child.wait_with_output().context("waiting for psql")?;
+    Ok(Captured {
+        succeeded: output.status.success(),
+        output: String::from_utf8_lossy(&output.stdout).trim().to_owned(),
+        error: String::from_utf8_lossy(&output.stderr).trim().to_owned(),
+    })
 }
 
 /// The containers of the services, by name.
@@ -148,7 +178,14 @@ pub(super) fn processes(trial: &Trial) -> Result<()> {
             .skip(1)
             .map(|line| line.split_whitespace().collect())
             .collect();
-        let root: Vec<_> = rows.iter().filter(|row| row.get(1) == Some(&"0")).collect();
+        // The health checks' probes run as the image's user, which is root for the
+        // postgres image; they come and go and are no part of the service.
+        let probes = ["pg_isready", "curl"];
+        let root: Vec<_> = rows
+            .iter()
+            .filter(|row| row.get(1) == Some(&"0"))
+            .filter(|row| !row.get(2).is_some_and(|command| probes.contains(command)))
+            .collect();
         ensure!(root.is_empty(), "{service} runs as root: {root:?}");
         let users: Vec<&str> = rows.iter().filter_map(|row| row.get(1).copied()).collect();
         say(&format!("    {service}: user IDs {users:?}"));
@@ -157,7 +194,8 @@ pub(super) fn processes(trial: &Trial) -> Result<()> {
 }
 
 /// None of the trial's secrets is in an image (its layers' commands, environment,
-/// labels) or in the description of a container (its environment and command line).
+/// labels), in the description of a container (its environment and command line), or
+/// in the logs of the services.
 ///
 /// # Errors
 ///
@@ -177,12 +215,21 @@ pub(super) fn secrets(trial: &Trial) -> Result<()> {
         places.push((format!("the history of {image}"), history.output));
         places.push((format!("the description of {image}"), inspect.output));
     }
-    for service in SERVICES.iter().chain(&["migrate"]) {
+    for service in SERVICES.iter().chain(&ONE_SHOTS) {
         let id = trial.compose(&["ps", "--all", "--quiet", service])?;
+        ensure!(
+            id.succeeded && !id.output.is_empty(),
+            "no container of {service}"
+        );
         let inspect = capture("docker", &["inspect", &id.output])?;
         ensure!(inspect.succeeded, "{service} cannot be inspected");
         places.push((format!("the container of {service}"), inspect.output));
     }
+    let logs = trial.compose(&["logs", "--no-color"])?;
+    places.push((
+        "the logs".to_owned(),
+        format!("{}\n{}", logs.output, logs.error),
+    ));
     for (place, text) in &places {
         if trial
             .secrets
