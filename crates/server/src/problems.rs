@@ -287,7 +287,8 @@ fn describe_page_tree(reason: Reason) -> Option<&'static str> {
             "Status 400. The page, or the lowest of the pages below it, would be deeper in its \
              wiki than the organization's limit, which `limit` tells (a page at the top is at \
              depth 1; `wiki_page_depth`, 10 unless configured): when a page is made, moved or restored. \
-             `errors` names `/parentId`. Nothing was changed."
+             `errors` names `/parentId` when a page is made or moved; a restore has no body to \
+             name. Nothing was changed."
         }
         Reason::TooManyPages => {
             "Status 400. The wiki would have more pages than the organization's limit, which \

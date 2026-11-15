@@ -417,11 +417,13 @@ async fn handle_get_deleted_pages(
 /// Bring back a page
 ///
 /// The page comes back from the wiki's trash with every page that was deleted along
-/// with it, for editors of the wiki: below the page it was below, at the place it had,
-/// or, that page gone (in the trash, or gone for good), last at the top of the wiki.
+/// with it, for editors of the wiki: below the page it was below, at the place it had
+/// (right after the pages before it there, if a page made since has that place), or,
+/// that page gone (in the trash, or gone for good), last at the top of the wiki.
 /// The tree is held to the organization's limits: 400 with the reason `page_too_deep`
 /// or `too_many_pages` (with the `limit`) if the pages would be deeper, or the wiki
-/// larger, than they let it be. A page that is not in this wiki's trash is 404. The
+/// larger, than they let it be. A page that is not in this wiki's trash, or went there
+/// with the page it was below (it comes back with that page), is 404. The
 /// wiki's members are told with `UPDATE_BLOCK` of each page that came back, a page
 /// before those below it, and of each page numbered anew to leave it room.
 #[utoipa::path(

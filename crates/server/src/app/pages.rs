@@ -2,13 +2,13 @@
 //! page is a block, and is changed and deleted as one ([`App::patch_block`],
 //! [`App::delete_block`]).
 
-use fvoci_model::{Block, DeletedPage, NewPage, Page, PageMove, PageNode};
-use fvoci_store::{PageRestore, PageWrite};
+use fvoci_model::{Block, BlockError, DeletedPage, NewPage, Page, PageMove, PageNode};
+use fvoci_store::{PageRestore, PageWrite, StoreError};
 
 use super::App;
 use super::blocks::{ChangeAction, ChangeNotification, log_notification};
 use super::cards::CardRange;
-use crate::error::AppError;
+use crate::error::{AppError, Reason};
 
 impl App {
     /// The pages of the wiki without their bodies, as their tree lists them.
@@ -125,17 +125,27 @@ impl App {
         let PageRestore { pages, renumbered } = match restored {
             Ok(restored) => restored,
             Err(error) if error.is_not_found() => return Err(AppError::not_found("page")),
+            // A restore has no body: the refusal names no member of one.
+            Err(StoreError::InvalidBlock {
+                source: source @ BlockError::PageTooDeep { limit },
+                ..
+            }) => {
+                return Err(AppError::bad_request(source)
+                    .with_reason(Reason::PageTooDeep)
+                    .with_limit(u64::from(limit)));
+            }
             Err(error) => return Err(error.into()),
         };
         log_notification(ChangeNotification::Send, ChangeAction::Add, page_id);
-        let mut told = renumbered;
-        told.extend(pages.iter().cloned());
-        self.announce(&wiki.workspace_id, told);
-        pages
-            .into_iter()
-            .next()
+        let page = pages
+            .first()
+            .cloned()
             .map(Page::from)
-            .ok_or_else(|| AppError::not_found("page"))
+            .ok_or_else(|| AppError::not_found("page"))?;
+        let mut told = renumbered;
+        told.extend(pages);
+        self.announce(&wiki.workspace_id, told);
+        Ok(page)
     }
 
     /// Tells websocket listeners and webhooks in the background of the pages written,

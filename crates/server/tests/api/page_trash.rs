@@ -126,3 +126,36 @@ async fn the_trash_of_a_wiki_is_its_editors_and_held_to_the_limits() {
     assert_eq!(listed.len(), 1, "still in the trash");
     ts.teardown().await;
 }
+
+#[tokio::test]
+async fn a_page_that_would_be_too_deep_stays_in_the_trash_and_names_no_member() {
+    let ts = Setup::native()
+        .configure(|config| config.wiki.wiki_page_depth = 2)
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let client = &ts.client;
+    let (_, wiki) = wiki(client).await;
+    let a = make(client, &wiki, "").await;
+    let b = make(client, &wiki, &a).await;
+    let c = make(client, &wiki, "").await;
+    client
+        .delete(&format!("{wiki}/pages/{b}"))
+        .await
+        .check_no_content();
+    // a below c: b back below a would be at depth 3.
+    client
+        .post(&format!("{wiki}/pages/{a}/move"), &json!({"parentId": c}))
+        .await
+        .check_ok();
+    let refused = client
+        .post(&format!("{wiki}/pages/{b}/undelete"), &json!({}))
+        .await;
+    refused.check_bad_request();
+    let problem = refused.value();
+    assert_eq!(problem["reason"], json!("page_too_deep"), "{problem}");
+    assert_eq!(problem["limit"], json!(2));
+    assert_eq!(problem.get("errors"), None, "{problem}");
+    ts.teardown().await;
+}

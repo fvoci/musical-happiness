@@ -2,7 +2,7 @@
 //! it, at the top where the page it was below is gone, and held to the wiki's limits.
 
 use fvoci_model::{BlockError, BoardKind, PageLimits, PageMove, new_id};
-use fvoci_store::{SearchTarget, Store};
+use fvoci_store::{Paging, SearchTarget, Store};
 
 use crate::common;
 use crate::pages::{below, page, refusal, stored};
@@ -63,6 +63,24 @@ async fn a_page_deleted_with_those_below_is_listed_once_and_comes_back_with_them
     assert!(
         listed[0].deleted_at >= listed[1].deleted_at,
         "the last deleted first"
+    );
+    let second = Paging {
+        page: 1,
+        per_page: 1,
+    };
+    let paged = test
+        .get_deleted_pages(&wiki.id, Some(second))
+        .await
+        .expect("listed");
+    assert_eq!(
+        paged.iter().map(|one| one.id.as_str()).collect::<Vec<_>>(),
+        [d.as_str()]
+    );
+    // A page that went with the page it was below comes back with that page only.
+    let refused = test.undelete_page(&wiki.id, &b, ROOMY, &user_id).await;
+    assert!(
+        matches!(&refused, Err(error) if error.is_not_found()),
+        "{refused:?}"
     );
 
     // The page asked for first, then those below it, parents first.
@@ -132,6 +150,36 @@ async fn a_page_whose_parent_is_gone_comes_back_last_at_the_top() {
     // Its parent comes back where it was, and the page stays where it went.
     restore(&test, &wiki.id, &a, &user_id).await;
     assert_eq!(below(&test, &wiki, &a).await, Vec::<String>::new());
+    test.teardown().await;
+}
+
+#[tokio::test]
+async fn a_page_whose_place_was_taken_meanwhile_comes_back_beside_it() {
+    let test = common::setup().await;
+    let user_id = common::user(&test, "user").await;
+    let workspace_id = common::workspace_of(&test, &[&user_id]).await;
+    let wiki = stored(&test, &workspace_id, &user_id, BoardKind::Wiki).await;
+    let a = page(&test, &wiki, "", None).await;
+    let b = page(&test, &wiki, "", None).await;
+    test.delete_block(&b, &user_id).await.expect("deleted");
+    // Made last where b was, it takes b's order.
+    let c = page(&test, &wiki, "", None).await;
+    let order = |id: &str| {
+        let id = id.to_owned();
+        let test = &test;
+        async move { test.get_block(&id).await.expect("a page").fields["order"].clone() }
+    };
+    let restored = test
+        .undelete_page(&wiki.id, &b, ROOMY, &user_id)
+        .await
+        .expect("it comes back");
+    let orders = [order(&a).await, order(&b).await, order(&c).await];
+    assert_ne!(orders[1], orders[2], "each its own place");
+    assert_ne!(orders[1], orders[0]);
+    let top = below(&test, &wiki, "").await;
+    assert_eq!(top.len(), 3);
+    assert_eq!(top[0], a, "the page before it stays before it");
+    assert_eq!(restored.pages[0].fields["order"], orders[1]);
     test.teardown().await;
 }
 

@@ -12809,7 +12809,7 @@
     },
     "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/undelete": {
       "post": {
-        "description": "The page comes back from the wiki's trash with every page that was deleted along\nwith it, for editors of the wiki: below the page it was below, at the place it had,\nor, that page gone (in the trash, or gone for good), last at the top of the wiki.\nThe tree is held to the organization's limits: 400 with the reason `page_too_deep`\nor `too_many_pages` (with the `limit`) if the pages would be deeper, or the wiki\nlarger, than they let it be. A page that is not in this wiki's trash is 404. The\nwiki's members are told with `UPDATE_BLOCK` of each page that came back, a page\nbefore those below it, and of each page numbered anew to leave it room.",
+        "description": "The page comes back from the wiki's trash with every page that was deleted along\nwith it, for editors of the wiki: below the page it was below, at the place it had\n(right after the pages before it there, if a page made since has that place), or,\nthat page gone (in the trash, or gone for good), last at the top of the wiki.\nThe tree is held to the organization's limits: 400 with the reason `page_too_deep`\nor `too_many_pages` (with the `limit`) if the pages would be deeper, or the wiki\nlarger, than they let it be. A page that is not in this wiki's trash, or went there\nwith the page it was below (it comes back with that page), is 404. The\nwiki's members are told with `UPDATE_BLOCK` of each page that came back, a page\nbefore those below it, and of each page numbered anew to leave it room.",
         "operationId": "undeletePage",
         "parameters": [
           {

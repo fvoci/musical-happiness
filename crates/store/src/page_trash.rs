@@ -6,7 +6,9 @@
 //! the deletion together, held to the wiki's limits; where the page it was below is
 //! gone (in the trash, or gone for good), it comes back at the top of the wiki, last.
 
-use fvoci_model::{Block, BlockType, DeletedPage, PageLimits, PageNode, PageTree};
+use fvoci_model::{
+    Block, BlockError, BlockType, DeletedPage, PageLimits, PageNode, PageTree, Place,
+};
 
 use crate::blocks::Paging;
 use crate::db::{Dialect, Id, Scope, now_millis};
@@ -82,7 +84,8 @@ impl Store {
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::NotFound`] if the trash of the wiki has no such page, and
+    /// Returns [`StoreError::NotFound`] if the trash of the wiki has no such page at the
+    /// top of what was deleted with it, and
     /// [`StoreError::InvalidBlock`] if the pages would be deeper, or the wiki larger,
     /// than `limits` let them.
     pub async fn undelete_page(
@@ -98,20 +101,20 @@ impl Store {
             boards::lock_board_of_kind(scope, wiki_id)
                 .await?
                 .ok_or_else(block_not_in_trash)?;
-            let family = deletion_of(scope, wiki_id, page_id).await?;
-            undelete(scope, wiki_id, page_id, family, limits, user_id).await
+            let deletion = deletion_of(scope, wiki_id, page_id).await?;
+            undelete(scope, wiki_id, page_id, deletion, limits, user_id).await
         })
         .await
     }
 }
 
-/// The deletion of the wiki the page went with, if it is in the wiki's trash: its
-/// identifier, and the blocks of it.
+/// The deletion of the wiki the page went with, if the page is in the wiki's trash at
+/// the top of it.
 async fn deletion_of(
     scope: &mut Scope<'_>,
     wiki_id: &str,
     page_id: &str,
-) -> Result<(String, Vec<Block>), StoreError> {
+) -> Result<Deletion, StoreError> {
     let mut sql = scope.sql("SELECT deletion_id, block FROM deleted_blocks WHERE id = ");
     sql.bind(Id(page_id))
         .push_bind(" AND board_id = ", Id(wiki_id));
@@ -119,7 +122,8 @@ async fn deletion_of(
         .fetch_optional(sql)
         .await?
         .ok_or_else(block_not_in_trash)?;
-    if block_from_json(&row, 1)?.block_type != BlockType::Page {
+    let page = block_from_json(&row, 1)?;
+    if page.block_type != BlockType::Page {
         return Err(block_not_in_trash());
     }
     let deletion_id = row.id(0)?;
@@ -130,17 +134,31 @@ async fn deletion_of(
         .await?
         .iter()
         .map(|row| block_from_json(row, 0))
-        .collect::<Result<_, _>>()?;
-    Ok((deletion_id, family))
+        .collect::<Result<Vec<_>, _>>()?;
+    // One that went with the page it was below comes back with that page, not by itself.
+    if family.iter().any(|block| block.id == page.parent_id) {
+        return Err(block_not_in_trash());
+    }
+    Ok(Deletion {
+        id: deletion_id,
+        blocks: family,
+    })
+}
+
+/// A deletion in the trash: its identifier, and the blocks that went with it.
+struct Deletion {
+    id: String,
+    blocks: Vec<Block>,
 }
 
 /// Brings the deletion back, the wiki held: its pages at the top of it below their
-/// parent if it is there, last at the top otherwise.
+/// parent if it is there, last at the top otherwise; at the place it had, unless a page
+/// made since has that place.
 async fn undelete(
     scope: &mut Scope<'_>,
     wiki_id: &str,
     page_id: &str,
-    (deletion_id, family): (String, Vec<Block>),
+    deletion: Deletion,
     limits: PageLimits,
     user_id: &str,
 ) -> Result<PageRestore, StoreError> {
@@ -149,16 +167,17 @@ async fn undelete(
         source,
     };
     let tree = page_tree(scope, wiki_id).await?;
-    let coming: PageTree = family
+    let coming: PageTree = deletion
+        .blocks
         .iter()
         .filter(|block| block.block_type == BlockType::Page)
         .cloned()
         .map(PageNode::from)
         .collect();
-    let mut tops: Vec<Block> = family
-        .iter()
-        .filter(|block| coming.parent_of(&block.parent_id).is_none())
-        .cloned()
+    let mut tops: Vec<Block> = deletion
+        .blocks
+        .into_iter()
+        .filter(|block| !coming.contains(&block.parent_id))
         .collect();
     let mut renumbered = Vec::new();
     for top in &mut tops {
@@ -169,21 +188,45 @@ async fn undelete(
         let adding = coming.below(&top.id).len();
         tree.check_room(&top.parent_id, coming.height(&top.id), adding, limits)
             .map_err(invalid)?;
-        if parent_gone {
+        let place = if parent_gone {
             // Last at the top of the wiki.
-            let place = tree.place("", None, "").map_err(invalid)?;
+            Some(tree.place("", None, "").map_err(invalid)?)
+        } else {
+            place_taken(&tree, top).map_err(invalid)?
+        };
+        if let Some(place) = place {
             renumbered.extend(write_place(scope, top, place).await?);
         }
     }
-    let restored = take_blocks_out_of_trash(scope, &deletion_id, user_id, now_millis(), |block| {
+    let mut pages = take_blocks_out_of_trash(scope, &deletion.id, user_id, now_millis(), |block| {
         if let Some(top) = tops.iter().find(|top| top.id == block.id) {
             block.parent_id.clone_from(&top.parent_id);
             block.fields.clone_from(&top.fields);
         }
     })
     .await?;
-    let mut pages = restored;
+    // Emptied of it meanwhile (`purge_trash` takes no lock): nothing is written.
+    if !pages.iter().any(|block| block.id == page_id) {
+        return Err(block_not_in_trash());
+    }
     // The page asked for first, then parents before what is below them.
     pages.sort_by_key(|block| (block.id != page_id, coming.depth(&block.id)));
     Ok(PageRestore { pages, renumbered })
+}
+
+/// Where a page coming back below its parent goes when a sibling has taken its order
+/// meanwhile: right after the siblings before it. None where its order is its own.
+fn place_taken(tree: &PageTree, top: &Block) -> Result<Option<Place>, BlockError> {
+    let node = PageNode::from(top.clone());
+    let siblings = tree.siblings(&node.parent_id, "");
+    if !siblings.iter().any(|sibling| sibling.order == node.order) {
+        return Ok(None);
+    }
+    let key = (node.order.as_str(), node.id.as_str());
+    let after = siblings
+        .iter()
+        .take_while(|sibling| (sibling.order.as_str(), sibling.id.as_str()) < key)
+        .last()
+        .map_or("", |sibling| sibling.id.as_str());
+    tree.place(&node.parent_id, Some(after), "").map(Some)
 }
