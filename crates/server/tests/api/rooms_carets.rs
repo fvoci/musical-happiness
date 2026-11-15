@@ -530,15 +530,21 @@ async fn a_caret_goes_through_the_room_of_a_page() {
     let joined = reader.joined(TEST_WORKSPACE_ID, &d.page_id).await;
     assert_eq!(joined["mode"], json!("read"), "{joined}");
 
-    show(&mut writer, 1).await;
-    assert_eq!(reader.caret().await.state, state_of(&user1, 1));
+    // As the reader, under the reader's number: told as the writer's.
+    let forged = json!({"user": {"id": user2, "name": "Mallory"}, "cursor": cursor(1)});
+    writer
+        .send_caret(&awareness(reader.client(), 900, &forged))
+        .await;
+    let shown = reader.caret().await;
+    assert_eq!(shown.state, state_of(&user1, 1));
     show(&mut reader, 4).await;
     reader.barrier().await;
     no_caret(&mut writer, "a reader of the wiki shows no caret").await;
     writer.leave().await;
+    let gone = reader.caret().await;
     assert_eq!(
-        reader.caret().await.state,
-        Value::Null,
+        (gone.number, gone.clock, &gone.state),
+        (shown.number, shown.clock + 1, &Value::Null),
         "gone with its writer"
     );
     th.teardown().await;
@@ -551,6 +557,11 @@ async fn a_caret_alone_keeps_no_version() {
     let th = Setup::native().start().await.init_basic().await;
     let (t, mut one, mut two) = two_in_a_room(&th, &paragraphs(&["first"])).await;
     let before = crate::body_versions::versions(&th.client, &t.card_id).await;
+    assert_eq!(
+        before,
+        Vec::<Value>::new(),
+        "a body nobody typed in has none"
+    );
     show(&mut one, 1).await;
     two.caret().await;
     show(&mut two, 2).await;
