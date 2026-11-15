@@ -1,7 +1,8 @@
 //! The administration API: setting a user's password without knowing the old one, which
 //! also ends every session of that user, confirming the address of a registration whose
-//! mail does not arrive, making a user an administrator of the instance, releasing an organization from taking no password, and comparing the file
-//! storage with the records.
+//! mail does not arrive, making a user an administrator of the instance, releasing an
+//! organization from taking no password, comparing the file storage with the records,
+//! and making the search index again.
 //!
 //! It is served on the local Unix socket only, never on the TCP listener, so that being
 //! able to open the socket file is the credential. There is no session and no cross-site
@@ -49,6 +50,10 @@ pub(super) fn routes() -> Router<App> {
         .route(
             &format!("{}/admin/orgs/{{orgId}}/sso/release", super::PREFIX),
             post(handle_release_sso),
+        )
+        .route(
+            &format!("{}/admin/search/reindex", super::PREFIX),
+            post(handle_reindex_search),
         )
         .route_layer(middleware::from_fn(require_unix_connection))
         // The socket speaks the API's language for what it does not have as well.
@@ -188,6 +193,19 @@ async fn handle_reconcile_files(State(app): State<App>, body: Bytes) -> ApiResul
     record_operator(Command::ReconcileFiles, result)
 }
 
+/// Makes the index of the search server again and lists every board of every
+/// organization to be sent to it: for an index that is thought to be wrong. Answers
+/// how many boards were listed (`boards`); they are sent by the server's upkeep in
+/// the seconds or minutes after, and until then a search finds what was sent so far.
+/// 404 (`search_not_configured`) on a server without a search server, 503 if the
+/// search server does not take the requests.
+async fn handle_reindex_search(State(app): State<App>) -> ApiResult {
+    let result = crate::search::reindex(&app)
+        .await
+        .map(|boards| json_response(&serde_json::json!({"boards": boards})));
+    record_operator(Command::ReindexSearch, result)
+}
+
 /// A command of the operator, with what it was about, as its line in the log names
 /// them.
 #[derive(Debug, Clone, Copy)]
@@ -203,6 +221,8 @@ enum Command<'a> {
     ReleaseSso(Option<&'a str>),
     /// Comparing the file storage with the records: the whole server.
     ReconcileFiles,
+    /// Making the search index again: the whole server.
+    ReindexSearch,
 }
 
 impl<'a> Command<'a> {
@@ -214,6 +234,7 @@ impl<'a> Command<'a> {
             Self::VerifyEmail(_) => "verify_email",
             Self::ReleaseSso(_) => "release_sso",
             Self::ReconcileFiles => "reconcile_files",
+            Self::ReindexSearch => "reindex_search",
         }
     }
 
@@ -224,7 +245,7 @@ impl<'a> Command<'a> {
             | Self::MakeAdmin(user_id)
             | Self::VerifyEmail(user_id) => (user_id.unwrap_or_default(), ""),
             Self::ReleaseSso(org_id) => ("", org_id.unwrap_or_default()),
-            Self::ReconcileFiles => ("", ""),
+            Self::ReconcileFiles | Self::ReindexSearch => ("", ""),
         }
     }
 }

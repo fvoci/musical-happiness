@@ -36,6 +36,7 @@ mod pages;
 mod password_reset;
 mod registration;
 mod restored_boards;
+mod search_outbox;
 mod session_origin;
 mod sessions;
 mod setup;

@@ -2781,6 +2781,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/w/{workspaceId}/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search what the cards and pages of a workspace say
+         * @description The cards of the boards and the pages of the wikis of the workspace that the user
+         *     has a role on, their own or a team's (an open board or wiki they have not joined is
+         *     not searched), whose title and body together hold every word of `q`. Korean is
+         *     matched by its words, whatever particles and endings they carry, and a compound by
+         *     its parts too: "환불 규정" finds "환불규정을". Comments, property values and attached
+         *     files are not searched, and neither are templates. Each hit is the card or the page
+         *     as it is now: its `kind`, its `title`, the board or the wiki it is in (`containerId`,
+         *     and `containerKind`, by which a client tells a card's address from a page's), and
+         *     `snippet`, a piece of its body in stretches of plain text, those that matched
+         *     marked; the snippet is empty for a body that changed a moment ago, or has nothing
+         *     to show. The best match first. Nothing says how many match in all: fewer than
+         *     `limit` means that no more of what the user reads matches (for a user with a role
+         *     on more than 1,000 boards and wikis: among the 10,000 best matches of the
+         *     workspace).
+         *
+         *     A `q` of more than 200 characters, a `kind` that is none and a `limit` outside 1
+         *     to 50 are 400; a `q` that is empty finds nothing. A user who searches more often
+         *     than the server lets one is told to wait (429, `Retry-After`). Where the server
+         *     has no search server (`searchEnabled` of `getClientConfig` is false) the answer is
+         *     404 with the reason `search_not_configured`, and while the search server does not
+         *     answer, 503 with the reason `search_unavailable`: nothing else of the server waits
+         *     for it.
+         */
+        get: operations["searchWorkspaceContent"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/w/{workspaceId}/subscriptions": {
         parameters: {
             query?: never;
@@ -3841,6 +3882,11 @@ export interface components {
              *     unless the server is configured otherwise).
              */
             maxImportSize: number;
+            /**
+             * @description Whether what cards and pages say can be searched (`searchWorkspaceContent`):
+             *     the server has a search server, and one that can hold its index.
+             */
+            searchEnabled: boolean;
             /** @description How other users' names are displayed. */
             teammateNameDisplay: string;
         };
@@ -4884,6 +4930,30 @@ export interface components {
              */
             language?: string;
         };
+        /** @description One thing a search found: the user reads it now. */
+        SearchHit: {
+            /** @description The identifier of the board the card is on, or of the wiki the page is in. */
+            containerId: string;
+            /** @description What its container is: a board, or a wiki. */
+            containerKind: components["schemas"]["BoardKind"];
+            /** @description The identifier of the card or the page. */
+            id: string;
+            /** @description What it is. */
+            kind: components["schemas"]["SearchKind"];
+            /**
+             * @description A piece of its body around what matched, in stretches that follow one
+             *     another; empty where the body has changed since it was indexed, or has nothing
+             *     to show.
+             */
+            snippet: components["schemas"]["SnippetPart"][];
+            /** @description Its title as it is now. */
+            title: string;
+        };
+        /**
+         * @description The kind of thing a search finds.
+         * @enum {string}
+         */
+        SearchKind: "card" | "page";
         /** @description What `ping` reports about the server. */
         ServerMetadata: {
             /** @description The build date; empty unless set at build time. */
@@ -4965,6 +5035,13 @@ export interface components {
              *     working.
              */
             regenerate?: boolean | null;
+        };
+        /** @description A stretch of a snippet: text as it is in the body, never markup. */
+        SnippetPart: {
+            /** @description Whether the stretch is what the search matched. */
+            matched: boolean;
+            /** @description The text of the stretch. */
+            text: string;
         };
         /**
          * @description The kind of entity that subscribes.
@@ -9709,6 +9786,45 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OnboardingStart"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    searchWorkspaceContent: {
+        parameters: {
+            query?: {
+                /** @description The words to find, at most 200 characters. Without it nothing is found. */
+                q?: string;
+                /** @description The kind of thing to find: `card` or `page`. Left out, both. Anything else is 400. */
+                kind?: string;
+                /** @description How many hits to answer with at most, from 1 to 50; 20 if left out. */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What was found. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchHit"][];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */

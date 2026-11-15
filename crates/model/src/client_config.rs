@@ -23,4 +23,7 @@ pub struct ClientConfig {
     /// The largest archive an import takes, in bytes; always more than zero (256 MiB
     /// unless the server is configured otherwise).
     pub max_import_size: i64,
+    /// Whether what cards and pages say can be searched (`searchWorkspaceContent`):
+    /// the server has a search server, and one that can hold its index.
+    pub search_enabled: bool,
 }
