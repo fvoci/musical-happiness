@@ -3,7 +3,7 @@
 //! Every statement here names the organization itself: the handle's
 //! ([`Tenant::Org`](crate::Tenant::Org)).
 
-use fvoci_model::{BoardType, OrgRole, WorkspaceRole};
+use fvoci_model::{BoardKind, BoardType, OrgRole, WorkspaceRole};
 
 use crate::audit::AuditActor;
 use crate::db::{Dialect, Id, Scope, Sql, now_millis};
@@ -21,10 +21,18 @@ const IN_USE_MEMBERSHIPS: &str = " AND b.workspace_id IN (SELECT wm.workspace_id
 /// Opens the condition on a board `b` that it is an open board of a workspace the user
 /// works in (a member who is no guest: `WorkspaceAccess::works_there`), "or": the
 /// caller appends the other way to the board and closes the parenthesis. An open
-/// board is no secret to who works in its workspace, and to nobody else.
-pub(crate) fn push_open_boards_at_work<'sql>(sql: &'sql mut Sql, user_id: &str) -> &'sql mut Sql {
-    sql.push_bind(" AND ((b.type = ", BoardType::Open.as_str())
-        .push(IN_USE_MEMBERSHIPS)
+/// board is no secret to who works in its workspace, and to nobody else. With `kind`,
+/// only the open boards of that kind are.
+pub(crate) fn push_open_boards_at_work<'sql>(
+    sql: &'sql mut Sql,
+    user_id: &str,
+    kind: Option<BoardKind>,
+) -> &'sql mut Sql {
+    sql.push_bind(" AND ((b.type = ", BoardType::Open.as_str());
+    if let Some(kind) = kind {
+        sql.push_bind(" AND b.kind = ", kind.as_str());
+    }
+    sql.push(IN_USE_MEMBERSHIPS)
         .push_bind(" AND wm.user_id = ", Id(user_id))
         .push_bind(" AND wm.role <> ", WorkspaceRole::Guest.as_str())
         .push(")) OR ")

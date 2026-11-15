@@ -36,6 +36,9 @@ pub enum PublicBoards {
     Include,
     /// Only boards the user is a member of are returned.
     Exclude,
+    /// Open wikis are returned whether or not the user is a member, as whoever works
+    /// in the workspace reads them; an open board only if the user is its member.
+    OpenWikis,
 }
 
 /// What joining a board did.
@@ -176,8 +179,9 @@ impl Store {
     }
 
     /// Returns the boards of `kinds` of a workspace that a user is a member of and, with
-    /// [`PublicBoards::Include`], the open ones of the workspace, oldest first. Templates
-    /// are left out.
+    /// [`PublicBoards::Include`], the open ones of the workspace (with
+    /// [`PublicBoards::OpenWikis`], its open wikis), oldest first. Templates are left
+    /// out.
     ///
     /// # Errors
     ///
@@ -526,7 +530,10 @@ pub(crate) fn select_boards_of_user(
     sql.bind(false);
     board_kinds::push_kinds(&mut sql, "b.kind", kinds);
     match public_boards {
-        PublicBoards::Include => members::push_open_boards_at_work(&mut sql, user_id),
+        PublicBoards::Include => members::push_open_boards_at_work(&mut sql, user_id, None),
+        PublicBoards::OpenWikis => {
+            members::push_open_boards_at_work(&mut sql, user_id, Some(BoardKind::Wiki))
+        }
         PublicBoards::Exclude => sql.push(" AND ("),
     };
     sql.push("(");

@@ -5,7 +5,7 @@ use fvoci_model::InvitationMail;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use super::contract::{params::WorkerWorkspaceId, tag};
-use super::workspace::Ws;
+use super::workspace::WsModule;
 use super::{ApiResult, decode_object, no_content};
 use crate::app::App;
 
@@ -21,7 +21,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 /// allowed to make that kind of invitation. The same checks are repeated before each
 /// delivery. A member link is sent as it is, its expiry and uses unchanged.
 /// A guest link lets one person in once, so it is not sent: each recipient gets a
-/// one-use guest link of their own, to the same board in the same role and ending
+/// one-use guest link of their own, to the same board or wiki in the same role and ending
 /// with it, made by the sender as their message leaves, naming the named link as its
 /// `parentId` and the address as its `recipient` (and revoked if that message is
 /// refused for good or given up). The named link is left as it is; messages go out
@@ -42,7 +42,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
     tag = tag::WORKSPACES, params(WorkerWorkspaceId), request_body = InvitationMail,
     responses((status = 204, description = "Delivery queued; the existing invitation is unchanged.")),
 )]
-async fn send(ws: Ws, body: Bytes) -> ApiResult {
+async fn send(WsModule(ws): WsModule, body: Bytes) -> ApiResult {
     let ws = ws.require_no_guest()?;
     let request = decode_object(&body)?;
     ws.app

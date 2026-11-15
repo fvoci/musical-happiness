@@ -1313,3 +1313,110 @@ async fn a_guest_let_in_by_a_manager_who_does_not_read_the_board_is_on_the_recor
 
     th.teardown().await;
 }
+
+/// Makes a wiki of the root workspace of `wiki_type` (`P` or `O`) titled `title`, as
+/// `client`, who is its admin: its identifier.
+async fn wiki_in_the_root(client: &Client, wiki_type: &str, title: &str) -> String {
+    let made = client
+        .post(
+            &format!("/w/{ROOT_WORKSPACE_ID}/wikis"),
+            &json!({"type": wiki_type, "title": title}),
+        )
+        .await;
+    made.check_created();
+    made.value()["id"].as_str().expect("an id").to_owned()
+}
+
+/// A guest is invited onto a wiki as onto a board: the link names the wiki, its maker
+/// is who adds the wiki's members, the guest is at most an editor of it, and comes in
+/// to that wiki and nothing else of the workspace, an open wiki among it. A wiki of
+/// another workspace is no wiki to invite to.
+#[tokio::test]
+async fn a_guest_comes_in_by_a_link_onto_one_wiki() {
+    let th = Setup::native().start().await.init_basic().await;
+    let wiki = wiki_in_the_root(&th.client2, "P", "Handbook").await;
+    let open = wiki_in_the_root(&th.client2, "O", "Open to the workspace").await;
+    let elsewhere = th
+        .client2
+        .post(
+            &format!("/w/{}/wikis", crate::common::TEST_WORKSPACE_ID),
+            &json!({"type": "P"}),
+        )
+        .await
+        .value()["id"]
+        .as_str()
+        .expect("an id")
+        .to_owned();
+    let refused = ask_for_a_guest_link(&th.client2, &wiki, Some("admin")).await;
+    refused.check_bad_request();
+    assert_eq!(refused.refused_at(), "/boardRole");
+    let of_elsewhere = ask_for_a_guest_link(&th.client2, &elsewhere, None).await;
+    let of_nothing = ask_for_a_guest_link(&th.client2, crate::common::UNKNOWN_ID, None).await;
+    of_elsewhere.check_not_found();
+    assert_eq!(of_elsewhere.problem(), of_nothing.problem());
+    // Who reads the wiki and does not add its members makes no link to it.
+    let reader = th.add_user("wiki.reader").await;
+    let reader_id = reader.me().await.id;
+    let member = json!({"boardId": wiki, "userId": reader_id, "schemeViewer": true});
+    th.client2
+        .post(
+            &format!("/w/{ROOT_WORKSPACE_ID}/boards/{wiki}/members"),
+            &member,
+        )
+        .await
+        .check_ok();
+    ask_for_a_guest_link(&reader, &wiki, None)
+        .await
+        .check_forbidden();
+
+    let token = guest_link(&th.client2, &wiki)
+        .await
+        .token
+        .expect("the token of a new link");
+    let preview: Value = th
+        .anonymous()
+        .post("/invitations/preview", &json!({"token": token}))
+        .await
+        .ok_json();
+    assert_eq!(preview["boardTitle"], json!("Handbook"));
+    let accepted = th
+        .anonymous()
+        .post(
+            "/invitations/accept",
+            &json!({"token": token, "account": account("wiki.guest")}),
+        )
+        .await;
+    accepted.check_ok();
+    assert_eq!(
+        accepted.value(),
+        json!({"workspaceId": ROOT_WORKSPACE_ID, "boardId": wiki})
+    );
+    let guest = th.login("wiki.guest", PASSWORD).await;
+    assert_eq!(
+        role_in_the_root_workspace(&guest).await,
+        Some(fvoci_model::WorkspaceRole::Guest)
+    );
+    let wikis: Vec<Board> = guest
+        .get(&format!("/w/{ROOT_WORKSPACE_ID}/wikis"))
+        .await
+        .ok_json();
+    let wikis: Vec<String> = wikis.into_iter().map(|wiki| wiki.id).collect();
+    assert_eq!(wikis, std::slice::from_ref(&wiki), "the invited wiki alone");
+    let pages = format!("/w/{ROOT_WORKSPACE_ID}/wikis/{wiki}/pages");
+    guest
+        .post(&pages, &json!({"title": "by the guest"}))
+        .await
+        .check_created();
+    for not_theirs in [open.as_str(), elsewhere.as_str()] {
+        guest
+            .get(&format!("/w/{ROOT_WORKSPACE_ID}/wikis/{not_theirs}/pages"))
+            .await
+            .check_not_found();
+    }
+    let boards: Vec<Board> = guest
+        .get(&format!("/w/{ROOT_WORKSPACE_ID}/boards"))
+        .await
+        .ok_json();
+    assert!(boards.is_empty(), "{boards:?}");
+    th.teardown().await;
+}

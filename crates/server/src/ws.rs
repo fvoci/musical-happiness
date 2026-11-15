@@ -15,7 +15,7 @@ mod presence;
 mod readers;
 mod subscriptions;
 
-use delivery::Access;
+use delivery::{Access, Readers};
 #[cfg(feature = "test-util")]
 mod testing;
 mod writer;
@@ -35,11 +35,11 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use crate::app::Audience;
+use crate::app::{Audience, Former};
 use crate::auth::limiter::AddressKey;
 use crate::auth::{Authenticator, now_millis};
 use crate::metrics::{Disconnect, Metrics};
-use crate::permissions::role_of;
+use crate::permissions::{BoardScope, role_of};
 
 /// How many undelivered messages a connection may have queued before it is dropped. A
 /// client that reads this slowly has lost track of the board anyway and reloads on
@@ -425,7 +425,7 @@ impl Hub {
             &message,
             Access::Members {
                 workspace: workspace_id,
-                board: &block.board_id,
+                readers: Readers::Now(&block.board_id),
                 also: None,
             },
         )
@@ -464,16 +464,16 @@ impl Hub {
         self.broadcast_block_change(workspace_id, &block).await;
     }
 
-    /// Tells those who were the members of a board that is deleted by now that one of
-    /// its blocks was deleted, with the message of [`Self::broadcast_block_delete`].
+    /// Tells those who read a board that is deleted by now that one of its blocks was
+    /// deleted, with the message of [`Self::broadcast_block_delete`].
     ///
-    /// The memberships went with the board, so the caller says who the members were.
+    /// The memberships went with the board, so the caller says who read it.
     pub async fn broadcast_block_delete_with_board(
         &self,
         workspace_id: &str,
         block_id: &str,
         board_id: &str,
-        former_members: &[BoardMember],
+        former: Former<'_>,
     ) {
         let now = now_millis();
         let block = Block {
@@ -488,9 +488,7 @@ impl Hub {
             workspace_id,
             block: &block,
         };
-        let recipients = self.listeners_among(workspace_id, former_members, None);
-        self.send(&recipients, &message, Access::Workspace(workspace_id))
-            .await;
+        self.send_to_former(workspace_id, &message, former).await;
     }
 
     /// Tells the board's members in the workspace that the board changed.
@@ -506,22 +504,24 @@ impl Hub {
             &message,
             Access::Members {
                 workspace: workspace_id,
-                board: &board.id,
+                readers: Readers::Now(&board.id),
                 also: None,
             },
         )
         .await;
     }
 
-    /// Tells those who were the board's members that the board was deleted. The message
-    /// is a board change whose board has only its identifiers and the deletion time.
+    /// Tells those who read the board that it was deleted. The message is a board change
+    /// whose board has only its identifiers and the deletion time.
     ///
-    /// The memberships went with the board, so the caller says who the members were.
+    /// The memberships went with the board, so the caller says who read it. It is told
+    /// so as well to those who read an open wiki that was made private, as they read it
+    /// no longer: the caller says who read it before.
     pub async fn broadcast_board_delete(
         &self,
         workspace_id: &str,
         board_id: &str,
-        former_members: &[BoardMember],
+        former: Former<'_>,
     ) {
         let now = now_millis();
         let board = Board {
@@ -536,9 +536,85 @@ impl Hub {
             workspace_id,
             board: &board,
         };
-        let recipients = self.listeners_among(workspace_id, former_members, None);
-        self.send(&recipients, &message, Access::Workspace(workspace_id))
-            .await;
+        self.send_to_former(workspace_id, &message, former).await;
+    }
+
+    /// Tells who read the board as it was, `scope`, without holding a role on it, that
+    /// it is gone for them, with the message of [`Self::broadcast_board_delete`]: an
+    /// open wiki made private. Its `members` read it still, and are not told.
+    pub async fn broadcast_closed_to_others(
+        &self,
+        workspace_id: &str,
+        board_id: &str,
+        members: &[BoardMember],
+        scope: BoardScope,
+    ) {
+        let now = now_millis();
+        let board = Board {
+            id: board_id.to_owned(),
+            workspace_id: workspace_id.to_owned(),
+            update_at: now,
+            delete_at: now,
+            ..Board::default()
+        };
+        let message = UpdateBoardMessage {
+            action: "UPDATE_BOARD",
+            workspace_id,
+            board: &board,
+        };
+        let in_workspace = self.workspace_listeners(workspace_id);
+        let recipients: Vec<ListenerId> = {
+            let listeners = self.listeners();
+            in_workspace
+                .into_iter()
+                .filter(|id| {
+                    listeners.by_id.get(id).is_some_and(|listener| {
+                        !members.iter().any(|member| {
+                            member.user_id == listener.user_id && role_of(member).is_some()
+                        })
+                    })
+                })
+                .collect()
+        };
+        let readers = Readers::Former {
+            members: &[],
+            scope,
+        };
+        self.send(
+            &recipients,
+            &message,
+            Access::Members {
+                workspace: workspace_id,
+                readers,
+                also: None,
+            },
+        )
+        .await;
+    }
+
+    /// Tells who read a board that is gone of `message`: its members, and of an open
+    /// wiki whoever works in the workspace, as they are in it now.
+    async fn send_to_former(
+        &self,
+        workspace_id: &str,
+        message: &impl Outgoing,
+        former: Former<'_>,
+    ) {
+        let recipients = self.workspace_listeners(workspace_id);
+        let readers = Readers::Former {
+            members: former.members,
+            scope: former.scope,
+        };
+        self.send(
+            &recipients,
+            message,
+            Access::Members {
+                workspace: workspace_id,
+                readers,
+                also: None,
+            },
+        )
+        .await;
     }
 
     /// Tells the board's members in the workspace that a membership changed.
@@ -559,7 +635,7 @@ impl Hub {
             &message,
             Access::Members {
                 workspace: workspace_id,
-                board: board_id,
+                readers: Readers::Now(board_id),
                 also: None,
             },
         )
@@ -585,7 +661,7 @@ impl Hub {
             &message,
             Access::Members {
                 workspace: workspace_id,
-                board: board_id,
+                readers: Readers::Now(board_id),
                 also: Some(user_id),
             },
         )
@@ -668,31 +744,6 @@ impl Hub {
             .get(workspace_id)
             .cloned()
             .unwrap_or_default()
-    }
-
-    /// The workspace's listeners whose user is one of `members` with a role, or `also_user`.
-    fn listeners_among(
-        &self,
-        workspace_id: &str,
-        members: &[BoardMember],
-        also_user: Option<&str>,
-    ) -> Vec<ListenerId> {
-        let listeners = self.listeners();
-        let Some(workspace_listeners) = listeners.by_workspace.get(workspace_id) else {
-            return Vec::new();
-        };
-        workspace_listeners
-            .iter()
-            .copied()
-            .filter(|id| {
-                listeners.by_id.get(id).is_some_and(|listener| {
-                    also_user == Some(listener.user_id.as_str())
-                        || members.iter().any(|member| {
-                            member.user_id == listener.user_id && role_of(member).is_some()
-                        })
-                })
-            })
-            .collect()
     }
 
     /// Sends a message to every connection of the user that is subscribed to the workspace:

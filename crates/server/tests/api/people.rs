@@ -422,6 +422,62 @@ async fn who_left_is_named_on_an_open_board_to_its_members_only() {
     assert_eq!(after, (1, StatusCode::OK));
 }
 
+/// An open wiki is read without joining it: who left after writing a page of one is
+/// named to whoever works in the workspace, joined or not, and to no guest.
+#[tokio::test]
+async fn who_left_is_named_on_an_open_wiki_to_whoever_works_there() {
+    let th = Setup::native().start().await.init_basic().await;
+    let leaver = th.client2.me().await.id;
+    let third = th.add_user("third").await;
+    let wiki = th
+        .client
+        .post(&format!("{ROOT_WS}/wikis"), &json!({"type": "O"}))
+        .await
+        .value()["id"]
+        .as_str()
+        .expect("an id")
+        .to_owned();
+    th.client2
+        .post_empty(&format!("{ROOT_WS}/boards/{wiki}/join"))
+        .await
+        .check_ok();
+    th.client2
+        .post(
+            &format!("{ROOT_WS}/wikis/{wiki}/pages"),
+            &json!({"title": "Mine"}),
+        )
+        .await
+        .check_created();
+    leave_every_workspace(&th, &leaver).await;
+    let named = async |client: &crate::common::Client| {
+        let found: Vec<User> = client
+            .post(&format!("{ROOT_WS}/users"), &[&leaver])
+            .await
+            .ok_json();
+        (
+            found.len(),
+            client
+                .get(&format!("{ROOT_WS}/users/{leaver}"))
+                .await
+                .status,
+        )
+    };
+    let unjoined = named(&third).await;
+    let third_id = third.me().await.id;
+    th.app
+        .store()
+        .execute_unchecked(&format!(
+            "UPDATE workspace_members SET role = 'guest' WHERE user_id = '{third_id}'"
+        ))
+        .await
+        .expect("the third user becomes a guest");
+    let as_guest = named(&third).await;
+    th.teardown().await;
+
+    assert_eq!(unjoined, (1, StatusCode::OK), "unjoined, as a reader");
+    assert_eq!(as_guest, (0, StatusCode::NOT_FOUND), "a guest, not");
+}
+
 /// A guest names who wrote on its board, also when they share no role there any more,
 /// and finds them nowhere.
 #[tokio::test]

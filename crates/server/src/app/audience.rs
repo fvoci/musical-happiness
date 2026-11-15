@@ -10,6 +10,8 @@ use cache::Cache;
 use fvoci_model::{Block, BoardMember, Body, PersonProperties};
 use fvoci_store::{Store, StoreError, Tenant, VisibilityVersion, WorkspaceAccess};
 
+use crate::permissions::BoardScope;
+
 /// The boards as the websocket hub asks about them: who the members of a board are,
 /// which of its properties name users, and which board a block is of. The hub is made
 /// before the [`App`](super::App) that holds it, and so asks here.
@@ -26,6 +28,7 @@ struct Caches {
     workspaces: Cache<(String, String), Option<WorkspaceAccess>>,
     members: Cache<(Tenant, String), Vec<BoardMember>>,
     people: Cache<(Tenant, String), PersonProperties>,
+    scopes: Cache<(Tenant, String), Option<(String, BoardScope)>>,
     shares: Cache<(String, String), bool>,
 }
 
@@ -160,6 +163,38 @@ impl Audience {
             .await
     }
 
+    /// Who the board is there for besides its members ([`BoardScope::of`]), if it is a
+    /// board of the workspace `workspace_id`; `None` for a board of another workspace,
+    /// and for one that is not there, in the trash among them.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if the board cannot be read.
+    pub async fn board_scope(
+        &self,
+        workspace_id: &str,
+        board_id: &str,
+    ) -> Result<Option<BoardScope>, StoreError> {
+        let placed = self
+            .cache
+            .scopes
+            .read(
+                &self.store,
+                (self.store.tenant(), board_id.to_owned()),
+                || async {
+                    match self.store.get_board(board_id).await {
+                        Ok(board) => Ok(Some((board.workspace_id.clone(), BoardScope::of(&board)))),
+                        Err(error) if error.is_not_found() => Ok(None),
+                        Err(error) => Err(error),
+                    }
+                },
+            )
+            .await?;
+        Ok(placed
+            .filter(|(of, _)| of == workspace_id)
+            .map(|(_, scope)| scope))
+    }
+
     /// The properties of the board's cards whose values name users.
     ///
     /// # Errors
@@ -199,6 +234,17 @@ impl Audience {
             .await?;
         Ok(UnsaidByLink { people, shown })
     }
+}
+
+/// Who read a board that is gone: its members when it went, and who it was there for
+/// besides them (an open wiki is read by whoever works in its workspace), of the
+/// workspace the change is told in.
+#[derive(Debug, Clone, Copy)]
+pub struct Former<'a> {
+    /// The board's members, as they were.
+    pub members: &'a [BoardMember],
+    /// Who the board was there for besides its members.
+    pub scope: BoardScope,
 }
 
 /// What a block is sent without to whoever reads its board by the link alone

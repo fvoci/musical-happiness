@@ -29,7 +29,7 @@ pub struct Invitation {
     pub workspace_id: String,
     /// What whoever accepts becomes in the workspace: `member`, or `guest`.
     pub role: WorkspaceRole,
-    /// For a guest: the board they are invited to.
+    /// For a guest: the board or the wiki they are invited to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub board_id: Option<String>,
     /// For a guest: their role on that board, `viewer`, `commenter` or `editor`.
@@ -84,7 +84,7 @@ impl fmt::Debug for Invitation {
 pub struct NewInvitation {
     /// What whoever accepts becomes in the workspace: `member`, or `guest`.
     pub role: WorkspaceRole,
-    /// For a guest: the board they are invited to. Not for a member.
+    /// For a guest: the board or the wiki they are invited to. Not for a member.
     #[serde(default)]
     pub board_id: Option<String>,
     /// For a guest: their role on that board, `viewer`, `commenter` or `editor`; an
@@ -119,7 +119,7 @@ pub struct InvitationPreview {
     /// The name of who made the link: the name they are shown by, or their login name
     /// if they have none.
     pub inviter_name: String,
-    /// For a guest: the title of the board they are invited to.
+    /// For a guest: the title of the board or the wiki they are invited to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub board_title: Option<String>,
 }
@@ -156,7 +156,7 @@ impl fmt::Debug for AcceptInvitation {
 pub struct AcceptedInvitation {
     /// The workspace.
     pub workspace_id: String,
-    /// For a guest: the board they were invited to.
+    /// For a guest: the board or the wiki they were invited to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub board_id: Option<String>,
 }

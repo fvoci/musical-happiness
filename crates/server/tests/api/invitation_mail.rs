@@ -485,3 +485,64 @@ async fn a_guest_link_mailed_by_another_inviter_is_made_by_the_sender_and_gone_w
     th.teardown().await;
     smtp.stop().await;
 }
+
+/// A guest link to a wiki is mailed as one to a board is: each recipient gets a
+/// one-use link of their own to the wiki, and comes in by it onto the wiki.
+#[tokio::test]
+async fn a_guest_link_to_a_wiki_is_mailed_and_lets_its_recipient_onto_the_wiki() {
+    let smtp = FakeSmtp::start_on(0).await;
+    let th = Setup::native()
+        .smtp(smtp.settings())
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let wiki = th
+        .client
+        .post(
+            &format!("/w/{ROOT_WORKSPACE_ID}/wikis"),
+            &json!({"type": "P", "title": "Handbook"}),
+        )
+        .await
+        .value()["id"]
+        .as_str()
+        .expect("an id")
+        .to_owned();
+    let path = format!("/w/{ROOT_WORKSPACE_ID}/invitations");
+    let link: Invitation = th
+        .client
+        .post(&path, &json!({"role": "guest", "boardId": wiki}))
+        .await
+        .created_json();
+    th.client
+        .post(
+            &format!("{path}/mail"),
+            &json!({"token": link.token, "recipients": ["reader@example.test"]}),
+        )
+        .await
+        .check_no_content();
+    let messages = smtp.received(1).await;
+    assert!(th.app.finish_background(Duration::from_secs(10)).await);
+    let tokens = invite_tokens(&messages[0]);
+    assert_eq!(tokens.len(), 1, "{tokens:?}");
+    let accepted = th
+        .anonymous()
+        .post(
+            "/invitations/accept",
+            &json!({"token": tokens[0], "account": {
+                "username": "mailed.reader",
+                "email": "reader@example.test",
+                "password": crate::common::PASSWORD,
+            }}),
+        )
+        .await;
+    accepted.check_ok();
+    assert_eq!(accepted.value()["boardId"], json!(wiki));
+    let reader = th.login("mailed.reader", crate::common::PASSWORD).await;
+    reader
+        .get(&format!("/w/{ROOT_WORKSPACE_ID}/wikis/{wiki}/pages"))
+        .await
+        .check_ok();
+    th.teardown().await;
+    smtp.stop().await;
+}
