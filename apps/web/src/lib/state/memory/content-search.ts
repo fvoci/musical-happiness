@@ -1,6 +1,6 @@
 /**
  * The search of the bodies of cards and pages, for the backend in memory: as
- * the server answers `searchWorkspaceContent`, without a search server.
+ * the server answers `searchWorkspaceContent`, and as its search server.
  *
  * A word matches where its letters stand in the title or the body as they
  * are, whatever the case, as the tests' fake search server matches (not by
@@ -105,7 +105,7 @@ export class MemoryContentSearch implements ContentSearch {
     await this.#enter();
     const world = this.#world;
     if (!world.searchEnabled) {
-      fail(404, 'the server has no search server', { reason: SEARCH_NOT_CONFIGURED });
+      fail(404, 'the search server holds no index', { reason: SEARCH_NOT_CONFIGURED });
     }
     if (workspaceId !== world.workspace.id) fail(404, 'no such workspace');
     const query = ask.query.trim();

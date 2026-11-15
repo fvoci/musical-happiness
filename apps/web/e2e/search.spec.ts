@@ -3,7 +3,7 @@
  * and button, finding by a word of a body and going there by the keyboard
  * alone, going to a page of a wiki, the kinds, an earlier answer that comes
  * late, what the dialog says of each state of the search, and a server
- * without a search server (`?search=0`).
+ * whose search server cannot hold its index (`?search=0`).
  */
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
@@ -443,9 +443,7 @@ test.describe('the search of cards and pages', () => {
     await expect(field(page)).toHaveAttribute('maxlength', '200');
   });
 
-  test('a server that no longer has a search server closes it, and the button goes', async ({
-    page,
-  }) => {
+  test('a server that searches bodies no more closes it, and the button goes', async ({ page }) => {
     await openWithSearch(page);
     await page.keyboard.press('Control+k');
     await page.evaluate(() => {
@@ -458,7 +456,9 @@ test.describe('the search of cards and pages', () => {
     await expect(dialog(page)).toHaveCount(0);
   });
 
-  test('without a search server there is no button and the keys open nothing', async ({ page }) => {
+  test('where bodies are not searched there is no button and the keys open nothing', async ({
+    page,
+  }) => {
     await openApp(page, '/?search=0');
     await expect(topBar(page).getByTestId('undo')).toBeVisible();
     await expect(topBar(page).getByTestId('open-search')).toHaveCount(0);

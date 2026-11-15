@@ -126,7 +126,7 @@ describe('the search in memory', () => {
     expect((elsewhere as BackendError).status).toBe(404);
   });
 
-  it('is off where the world has no search server, and says so as the server does', async () => {
+  it('is off where the search server holds no index, and says so as the server does', async () => {
     const off = world();
     off.searchEnabled = false;
     const backend = new MemoryBackend(off, 'reader');

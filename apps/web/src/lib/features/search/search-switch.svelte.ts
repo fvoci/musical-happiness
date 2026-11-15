@@ -1,7 +1,7 @@
 /**
  * Whether the search is there: unknown, and so off, until the backend says
  * (`searchEnabled`), and off for good once a search is answered that the
- * server has no search server (its settings changed). A backend that cannot
+ * server searches bodies no more (404). A backend that cannot
  * say is asked again a few times, waiting longer each time
  * (`RETRY_SECONDS`), and leaves it off meanwhile.
  */
@@ -20,7 +20,7 @@ export class SearchSwitch {
     this.#ask(0);
   }
 
-  /** The server has no search server any more. */
+  /** The server searches bodies no more. */
   turnOff(): void {
     this.#gone = true;
     this.on = false;

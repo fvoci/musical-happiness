@@ -10,8 +10,8 @@
  * Told to wait (429), it says so and asks once more when the server said it
  * may; told again, it says so with the way to try again, as for a search
  * server that does not answer (503). A session that ended (401) is passed on
- * (`onRefused`) as well as said. A server that has no search server (404
- * `search_not_configured`) had its settings changed: the session ends, and
+ * (`onRefused`) as well as said. A server whose search server stopped
+ * holding its index (404 `search_not_configured`): the session ends, and
  * whoever opened it is told (`onGone`).
  */
 import {
@@ -50,7 +50,7 @@ export type SearchStatus =
 export interface SearchSessionOptions {
   /** Asks the backend. */
   find: (ask: SearchAsk) => Promise<SearchHit[]>;
-  /** The server has no search server any more. */
+  /** The server searches bodies no more. */
   onGone: () => void;
   /** A refusal that is not the search's alone (a session that ended), for the page to tell. */
   onRefused?: (error: unknown) => void;

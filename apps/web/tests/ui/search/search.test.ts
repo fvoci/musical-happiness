@@ -155,7 +155,7 @@ describe('a search session', () => {
     expect(search.status).toBe('none');
   });
 
-  it('ends when the server has no search server, and says so', async () => {
+  it('ends when the server searches bodies no more, and says so', async () => {
     const { session: search, asked, gone } = session();
     search.type('word');
     await vi.advanceTimersByTimeAsync(TYPING_PAUSE);
