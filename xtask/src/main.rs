@@ -8,9 +8,13 @@
 //!   test. Prepares the containers the tests need.
 //! * `cargo xtask openapi` — fails if `contracts/openapi.json` is not the document the
 //!   server prints; `--write` rewrites the file.
+//! * `cargo xtask docker` — builds the images of `docker/`, starts them as an
+//!   installation, tries it from outside and takes it down; `--push-plan` prints how
+//!   the images go to GHCR. Not part of `check` or `test`: it takes minutes.
 
 mod check;
 mod containers;
+mod docker;
 mod files;
 mod layers;
 mod lengths;
@@ -60,6 +64,15 @@ enum Command {
         #[arg(long)]
         write: bool,
     },
+    /// Builds the server's and the search server's images for this machine, starts
+    /// them with docker/compose.yaml, signs up, writes a card and finds it by search,
+    /// checks what the installation must not do, and takes it down with its volumes.
+    Docker {
+        /// Prints the commands that put the images of this commit on GHCR instead,
+        /// and runs nothing.
+        #[arg(long)]
+        push_plan: bool,
+    },
 }
 
 /// Which databases `cargo xtask test` covers.
@@ -107,6 +120,8 @@ fn main() -> ExitCode {
             };
             openapi::run(&root, mode)
         }
+        Command::Docker { push_plan: true } => docker::print_push_plan(&root),
+        Command::Docker { push_plan: false } => docker::run(&root),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,

@@ -9,6 +9,10 @@
 #
 # Alone it serves SQLite under /data. Settings are FVOCI_* variables or a file mounted
 # over /opt/fvoci/config.json; --init lets a stop end a server that is still starting.
+# With the argument --migrate it brings a database's schema up to date as the role of
+# FVOCI_DBCONFIG, the owner of the tables, and exits. docker/compose.yaml runs it with
+# PostgreSQL and the search server; `cargo xtask docker` builds both images, starts
+# that and tries it, and `cargo xtask docker --push-plan` prints how they go to GHCR.
 #
 # Nothing here depends on the processor: the same file builds linux/arm64 and
 # linux/amd64, each natively on a machine of that kind. TLS is rustls throughout, so
