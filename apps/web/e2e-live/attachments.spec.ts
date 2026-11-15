@@ -28,7 +28,7 @@ const sha = (bytes: Buffer): string => createHash('sha256').update(bytes).digest
 test('a file of two parts is attached on the server and downloads as the same bytes', async ({
   page,
   baseURL,
-}) => {
+}, info) => {
   const base = baseURL ?? '';
   const owner = person('filer');
   await register(base, owner);
@@ -86,7 +86,11 @@ test('a file of two parts is attached on the server and downloads as the same by
   await section.getByRole('link', { name: 'scan.bin' }).click();
   const download = await downloading;
   expect(download.suggestedFilename()).toBe('scan.bin');
-  expect(sha(readFileSync(await download.path()))).toBe(sha(bytes));
+  // Saved, not read where the browser put it: a browser reached over the network (Linux's
+  // WebKit in its image) keeps the file on its own side.
+  const saved = info.outputPath('scan.bin');
+  await download.saveAs(saved);
+  expect(sha(readFileSync(saved))).toBe(sha(bytes));
 
   await section.getByRole('button', { name: 'Delete scan.bin' }).click();
   await expect(row).toHaveCount(0);

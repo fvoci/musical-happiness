@@ -14,6 +14,7 @@
 import path from 'node:path';
 
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { pressInBar } from './shell.support.ts';
 import { ON_A_CARD, boardPath, viewAddress } from './address.ts';
 import { screensDir } from './screens.ts';
 import {
@@ -1253,7 +1254,7 @@ test('the menu deletes the card without asking, the card closes, and undo brings
   await expect(onBoard).toHaveCount(0);
   await expect(page).toHaveURL(viewAddress(place.boardId, place.viewId));
 
-  await page.getByRole('button', { name: 'Undo' }).click();
+  await pressInBar(page, 'undo');
   await expect(onBoard).toHaveCount(1);
 });
 
