@@ -12,11 +12,11 @@ use tokio::task::JoinSet;
 
 use crate::common::{self, TestStore};
 
-const NOW: i64 = 1_000_000;
-const LATER: i64 = NOW + 1_000;
+pub(crate) const NOW: i64 = 1_000_000;
+pub(crate) const LATER: i64 = NOW + 1_000;
 
 /// Somebody who is not stored yet.
-fn newcomer(username: &str) -> User {
+pub(crate) fn newcomer(username: &str) -> User {
     User {
         id: new_id(),
         username: username.to_owned(),
@@ -26,7 +26,7 @@ fn newcomer(username: &str) -> User {
 }
 
 /// Stores a link into the workspace of the test that `maker` makes.
-async fn link(
+pub(crate) async fn link(
     test: &TestStore,
     maker: &str,
     token_hash: &str,
@@ -47,49 +47,77 @@ async fn link(
     .expect("the link is stored")
 }
 
+/// What the store says of the maker of a live link, as the server asks it before an
+/// acceptance: the acceptance is stored only if they are that still.
+pub(crate) struct MakerFound {
+    maker: String,
+    workspace_role: Option<WorkspaceRole>,
+    member: Option<BoardMember>,
+    team_role: Option<BoardRole>,
+}
+
+impl MakerFound {
+    /// Asks the store about the maker of the live link whose token has the digest
+    /// `token_hash` at `now`; of nobody, if there is no such link.
+    pub(crate) async fn of(store: &Store, token_hash: &str, now: i64) -> Result<Self, StoreError> {
+        let link = store.live_invitation(token_hash, now, None).await?;
+        let (maker, workspace_id, board_id) = match &link {
+            Some(link) => (
+                link.created_by.as_str(),
+                link.workspace_id.as_str(),
+                link.board_id.as_deref(),
+            ),
+            None => ("", "", None),
+        };
+        let workspace_role = store
+            .resolve_workspace(maker, workspace_id)
+            .await?
+            .map(|access| access.workspace_role);
+        let member = match board_id {
+            Some(board_id) => match store.get_member_for_board(board_id, maker).await {
+                Ok(member) => Some(member),
+                Err(error) if error.is_not_found() => None,
+                Err(error) => return Err(error),
+            },
+            None => None,
+        };
+        let team_role = match board_id {
+            Some(id) => store.board_team_role(id, maker).await?,
+            None => None,
+        };
+        Ok(Self {
+            maker: maker.to_owned(),
+            workspace_role,
+            member,
+            team_role,
+        })
+    }
+
+    /// The maker as found, for the acceptance.
+    pub(crate) fn inviter(&self) -> Inviter<'_> {
+        Inviter {
+            standing: Standing {
+                user_id: &self.maker,
+                workspace_role: self.workspace_role,
+                member: self.member.as_ref(),
+                team_role: self.team_role,
+            },
+            of_board: InviterOfBoard::Member,
+        }
+    }
+}
+
 /// Accepts the link as the server does: its maker is held to what the store says of
 /// them when the acceptance is asked for.
-async fn accept(
+pub(crate) async fn accept(
     store: &Store,
     token_hash: &str,
     acceptor: Acceptor<'_>,
     now: i64,
 ) -> Result<Option<Accepted>, StoreError> {
-    let link = store.live_invitation(token_hash, now, None).await?;
-    let (maker, workspace_id, board_id) = match &link {
-        Some(link) => (
-            link.created_by.as_str(),
-            link.workspace_id.as_str(),
-            link.board_id.as_deref(),
-        ),
-        None => ("", "", None),
-    };
-    let workspace_role = store
-        .resolve_workspace(maker, workspace_id)
-        .await?
-        .map(|access| access.workspace_role);
-    let member = match board_id {
-        Some(board_id) => match store.get_member_for_board(board_id, maker).await {
-            Ok(member) => Some(member),
-            Err(error) if error.is_not_found() => None,
-            Err(error) => return Err(error),
-        },
-        None => None,
-    };
-    let inviter = Inviter {
-        standing: Standing {
-            user_id: maker,
-            workspace_role,
-            member: member.as_ref(),
-            team_role: match board_id {
-                Some(id) => store.board_team_role(id, maker).await?,
-                None => None,
-            },
-        },
-        of_board: InviterOfBoard::Member,
-    };
+    let maker = MakerFound::of(store, token_hash, now).await?;
     Ok(store
-        .accept_invitation(token_hash, acceptor, now, inviter)
+        .accept_invitation(token_hash, acceptor, now, maker.inviter())
         .await?
         .accepted())
 }

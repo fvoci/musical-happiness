@@ -21,6 +21,7 @@ use crate::audit::{self, AuditEntry};
 use crate::boards::{find_member, lock_board, save_member};
 use crate::db::{Dialect, Id, OptId, Param, Row, Scope, Sql};
 use crate::error::{StoreError, Taken};
+use crate::link_locks;
 use crate::trash::{self, TrashedRoles};
 use crate::users::InstanceRole;
 use crate::{Standing, Store, signups};
@@ -313,8 +314,8 @@ impl Store {
     ) -> Result<bool, StoreError> {
         self.transaction(async |scope| {
             // The link and its children: against a registration by a child that
-            // replaces one by the link.
-            signups::hold_several_links(scope).await?;
+            // replaces one by the link, and a deletion of their board.
+            link_locks::hold_links_of_organization(scope).await?;
             let mut sql = scope.sql("UPDATE invitations AS i SET revoked_at = ");
             sql.bind(now.max(1))
                 .push_bind(" WHERE i.id = ", Id(invitation_id))
@@ -407,15 +408,15 @@ impl Store {
         inviter: Inviter<'_>,
     ) -> Result<Acceptance, StoreError> {
         self.transaction(async |scope| {
+            // The link of what is replaced may be another than this one.
             let replacing = match &acceptor {
-                Acceptor::Replacing { browser, .. } => Some(*browser),
+                Acceptor::Replacing { browser, .. } => {
+                    Some((*browser, link_locks::take_turn(scope).await?))
+                }
                 Acceptor::Account(_) | Acceptor::NewAccount(_) => None,
             };
-            if replacing.is_some() {
-                // The link of what is replaced may be another than this one.
-                signups::hold_several_links(scope).await?;
-            }
-            let held = hold_live_link(scope, token_hash, now, inviter.standing, replacing);
+            let browser = replacing.map(|(browser, _)| browser);
+            let held = hold_live_link(scope, token_hash, now, inviter.standing, browser);
             let link = match held.await? {
                 Ok(link) => link,
                 Err(refused) => return Ok(refused),
@@ -426,8 +427,10 @@ impl Store {
                     accounts::insert_account(scope, user, InstanceRole::User).await?;
                     user.id.clone()
                 }
-                Acceptor::Replacing { user, browser } => {
-                    signups::discard_of_browser(scope, browser).await?;
+                Acceptor::Replacing { user, .. } => {
+                    if let Some((browser, turn)) = replacing {
+                        signups::discard_of_browser(scope, browser, turn).await?;
+                    }
                     accounts::insert_account(scope, user, InstanceRole::User).await?;
                     user.id.clone()
                 }
@@ -448,8 +451,9 @@ impl Store {
 }
 
 /// Holds the live link of the scope's organization whose token has the digest
-/// `token_hash` at `now`, against the other acceptances of it, after its board and the
-/// organization's row for a guest's link (as removal holds them), and its maker's
+/// `token_hash` at `now`, against the other acceptances of it, after the
+/// organization's row and the board of a guest's link (as removal and deletion hold
+/// them, `link_locks`), and its maker's
 /// membership of the workspace if they are still `found`: the link, or what the
 /// acceptance is to answer instead.
 pub(crate) async fn hold_live_link(
@@ -465,10 +469,11 @@ pub(crate) async fn hold_live_link(
     let Some(row) = scope.fetch_optional(sql).await? else {
         return Ok(Err(Acceptance::Unavailable));
     };
+    // Team changes hold the organization before any board, and a deletion before the
+    // links it takes along: of the board, or of the workspace for a member's link.
+    crate::org_admin::hold_organization_row(scope).await?;
     if let Some(board_id) = invitation_from_row(&row)?.board_id {
-        // Team changes hold the organization before any board. Keep inherited
-        // board access stable through the grant; workspace links have no such role.
-        crate::org_admin::hold_organization_row(scope).await?;
+        // Keep inherited board access stable through the grant.
         if !lock_board(scope, &board_id).await? {
             return Ok(Err(Acceptance::Unavailable));
         }

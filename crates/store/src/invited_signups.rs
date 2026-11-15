@@ -14,6 +14,7 @@ use crate::invitations::{
     COLUMNS_OF_I, count_uses, hold_live_link, invitation_from_row, inviter_still, let_in,
     push_invites, take_use,
 };
+use crate::link_locks;
 use crate::signups::{self, Confirmed, Proof, Signup, SignupStart};
 use crate::users::InstanceRole;
 use crate::{Acceptance, Accepted, Inviter, Store, accounts};
@@ -64,17 +65,19 @@ impl Store {
         inviter: Inviter<'_>,
     ) -> Result<Acceptance, StoreError> {
         self.transaction(async |scope| {
-            if replacing.is_some() {
-                // The link of what is replaced may be another than this one.
-                signups::hold_several_links(scope).await?;
-            }
-            let held = hold_live_link(scope, token_hash, now, inviter.standing, replacing);
+            // The link of what is replaced may be another than this one.
+            let replacing = match replacing {
+                Some(browser) => Some((browser, link_locks::take_turn(scope).await?)),
+                None => None,
+            };
+            let browser = replacing.map(|(browser, _)| browser);
+            let held = hold_live_link(scope, token_hash, now, inviter.standing, browser);
             let link = match held.await? {
                 Ok(link) => link,
                 Err(refused) => return Ok(refused),
             };
-            if let Some(browser) = replacing {
-                signups::discard_of_browser(scope, browser).await?;
+            if let Some((browser, turn)) = replacing {
+                signups::discard_of_browser(scope, browser, turn).await?;
             }
             let org_id = scope.org_id().ok_or(StoreError::NoOrganization)?;
             let signup = Signup {
@@ -200,7 +203,7 @@ async fn link_by_id(
 }
 
 /// Holds the link with the identifier against its acceptances, after the
-/// organization's row and its board for a guest's link, as an acceptance holds them;
+/// organization's row and the board of a guest's link, as an acceptance holds them;
 /// the link, if it is there.
 async fn hold_link(
     scope: &mut Scope<'_>,
@@ -209,8 +212,8 @@ async fn hold_link(
     let Some(link) = link_by_id(scope, invitation_id).await? else {
         return Ok(None);
     };
+    crate::org_admin::hold_organization_row(scope).await?;
     if let Some(board_id) = &link.board_id {
-        crate::org_admin::hold_organization_row(scope).await?;
         // A board that is gone took its links along.
         if !lock_board(scope, board_id).await? {
             return Ok(None);

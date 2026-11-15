@@ -22,6 +22,8 @@ mod file_info;
 mod image_files;
 mod instance_role_scope;
 mod invitations;
+mod link_lock_order;
+mod lock_gate;
 mod loose_objects;
 mod observe;
 mod oidc;
