@@ -1,7 +1,7 @@
 <!--
-  A board for the invited only that the reader, an administrator of the
-  workspace, manages without reading: in place of its content, its title, a
-  line saying that joining shows the content and that every member reads
+  A board or a wiki for the invited only that the reader, an administrator of
+  the workspace, manages without reading: in place of its content, its title,
+  a line saying that joining shows the content and that every member reads
   that it was joined, the button that joins it (as a viewer), and the way to
   its members (the share dialog, without the public link, which is content).
   Anything else not there is `NotFound`.
@@ -11,8 +11,9 @@
 
   import ShareDialog from '$lib/features/shell/ShareDialog.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
-  import { joinManaged, readManagedOnly } from '$lib/state/managed-board.ts';
-  import type { BoardStore, Workspace } from '$lib/state/index.ts';
+  import type { BoardKind } from '$lib/logic/wire.ts';
+  import { joinManaged, readManagedOnly, type Managed } from '$lib/state/managed-board.ts';
+  import type { Workspace } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
   import NotFound from './NotFound.svelte';
@@ -20,13 +21,19 @@
 
   interface Props {
     workspace: Workspace;
-    board: BoardStore;
+    board: Managed;
+    /** Which of the two it is: a board's address names a board, a wiki's a wiki. */
+    kind?: BoardKind;
+    /** Whether it is still the one shown: joined after it went, it is not read. */
+    shown: () => boolean;
     router: Router;
-    /** The board is joined and shown: the page takes the focus, where the button was. */
+    /** It is joined and shown: the page takes the focus, where the button was. */
     onJoined: () => void;
   }
 
-  let { workspace, board, router, onJoined }: Props = $props();
+  let { workspace, board, kind = 'board', shown, router, onJoined }: Props = $props();
+
+  const wiki = $derived(kind === 'wiki');
 
   let managed = $state<'asking' | 'yes' | 'no'>('asking');
   let joining = $state(false);
@@ -37,7 +44,8 @@
     const store = board;
     managed = 'asking';
     // What the reading looks at besides the store is not what this waits for.
-    void untrack(() => readManagedOnly(store)).then(
+    const asked = kind;
+    void untrack(() => readManagedOnly(store, asked)).then(
       (yes) => {
         if (store === board) managed = yes ? 'yes' : 'no';
       },
@@ -50,7 +58,7 @@
   async function join(): Promise<void> {
     if (joining) return;
     joining = true;
-    const joined = await joinManaged(board);
+    const joined = await joinManaged(board, shown);
     joining = false;
     if (joined) onJoined();
   }
@@ -63,13 +71,18 @@
 {:else if managed === 'no' || !board.board}
   <NotFound {router} />
 {:else}
-  <div class="grid h-full place-items-center p-6 text-center" data-testid="board-managed">
+  <div
+    class="grid h-full place-items-center p-6 text-center"
+    data-testid={wiki ? 'wiki-managed' : 'board-managed'}
+  >
     <div class="flex max-w-md flex-col items-center gap-3">
       <h2 class="text-lg font-medium">
         {board.board.icon ? `${board.board.icon} ` : ''}{board.board.title ||
-          m['Sidebar.untitled-board']()}
+          (wiki ? m.wiki_untitled() : m['Sidebar.untitled-board']())}
       </h2>
-      <p class="text-muted-foreground">{m.app_board_managed_hint()}</p>
+      <p class="text-muted-foreground">
+        {wiki ? m.app_wiki_managed_hint() : m.app_board_managed_hint()}
+      </p>
       <div class="flex flex-wrap justify-center gap-2">
         <Button aria-disabled={joining} aria-busy={joining} onclick={() => void join()}
           >{m.app_board_managed_join()}</Button

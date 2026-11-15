@@ -1,14 +1,15 @@
 /**
  * What bodies name, for the backend in memory, as the server answers it
  * (`resolveReferences`, `getReferencesTo`, `searchReferences`): a card is told
- * to whoever has a role on its board, a page to whoever has one on its wiki,
- * and neither to anybody else, whatever is asked.
+ * to whoever has a role on its board, a page to whoever reads its wiki (a role
+ * on it, or work in the workspace of an open one), and neither to anybody else,
+ * whatever is asked.
  */
 import type { DocNode } from '../../editor/schema.ts';
 import { REFERENCES_AT_ONCE, type LinkedBlock, type References } from '../references.ts';
 import type { Paging } from '../trash-reads.ts';
 
-import { roleOn } from './comments.ts';
+import { reads } from './board-access.ts';
 import { fail } from './refuse.ts';
 import type { StoredBlock, World } from './world.ts';
 
@@ -54,7 +55,7 @@ export class MemoryReferences implements References {
   #shown(block: StoredBlock | undefined): LinkedBlock | undefined {
     const { world, userId } = this.#asker;
     if (block?.type !== 'card' && block?.type !== 'page') return undefined;
-    if (roleOn(world.members.get(block.boardId) ?? [], userId) === '') return undefined;
+    if (!reads(world, userId, block.boardId)) return undefined;
     const icon = typeof block.fields.icon === 'string' ? block.fields.icon : '';
     const { id, title, boardId } = block;
     return block.type === 'page'

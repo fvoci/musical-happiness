@@ -494,15 +494,55 @@ async fn the_cards_of_a_board_are_told_among_many_identifiers() {
     asked.push(&unknown);
     asked.extend(cards.iter().map(|card| card.id.as_str()));
     let told = store
-        .cards_on_board_among(&board.id, &asked)
+        .blocks_on_board_among(&board.id, BlockType::Card, &asked)
         .await
         .expect("asked");
     assert_eq!(told.len(), 600);
     assert!(cards.iter().all(|card| told.contains(&card.id)));
     let none = store
-        .cards_on_board_among(&board.id, &[])
+        .blocks_on_board_among(&board.id, BlockType::Card, &[])
         .await
         .expect("asked");
     assert_eq!(none.len(), 0);
+    test.teardown().await;
+}
+
+/// Of a wiki, the pages on it are told: not a page of another wiki, one in the trash,
+/// or a card.
+#[tokio::test]
+async fn the_pages_of_a_wiki_are_told_among_identifiers() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let user = common::user(store, "kelly.kapoor").await;
+    let workspace_id = common::workspace_of(store, &[&user]).await;
+    let wiki = container(store, &workspace_id, &user, BoardKind::Wiki).await;
+    let other = container(store, &workspace_id, &user, BoardKind::Wiki).await;
+    let board = container(store, &workspace_id, &user, BoardKind::Board).await;
+    let block = |board: &Board, block_type: BlockType| Block {
+        id: new_id(),
+        board_id: board.id.clone(),
+        block_type,
+        ..Block::default()
+    };
+    let mut blocks = vec![
+        block(&wiki, BlockType::Page),
+        block(&wiki, BlockType::Page),
+        block(&other, BlockType::Page),
+        block(&board, BlockType::Card),
+    ];
+    common::insert_blocks(store, &mut blocks, &user).await;
+    store
+        .delete_block(&blocks[1].id, &user)
+        .await
+        .expect("the page goes to the trash");
+    let asked: Vec<&str> = blocks.iter().map(|block| block.id.as_str()).collect();
+    let told = store
+        .blocks_on_board_among(&wiki.id, BlockType::Page, &asked)
+        .await
+        .expect("asked");
+    assert_eq!(
+        told,
+        std::collections::HashSet::from([blocks[0].id.clone()])
+    );
     test.teardown().await;
 }

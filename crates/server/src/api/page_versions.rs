@@ -30,8 +30,8 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 ///
 /// As `getCardBodyVersions` gives a card's: the newest first, each with when it was
 /// kept and who wrote the body up to it, without the bodies (`getPageBodyVersion`).
-/// For the members of the wiki, whatever their role. A page in the trash is not there
-/// (404); its versions are kept while it is there, and go when it is gone for good.
+/// For who reads the wiki, whatever their role: its members, and of an open wiki
+/// whoever works in the workspace. A page in the trash is not there (404); its versions are kept while it is there, and go when it is gone for good.
 #[utoipa::path(
     get,
     path = "/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/body-versions",

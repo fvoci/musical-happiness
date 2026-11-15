@@ -122,9 +122,11 @@
   </div>
 {:else if board.missing}
   <!-- Not there, or there to be managed only: ManagedBoard tells which. -->
+  {@const store = board}
   <ManagedBoard
     {workspace}
-    {board}
+    board={store}
+    shown={() => workspace.board === store}
     {router}
     onJoined={() => {
       void tick().then(() => page?.focus());

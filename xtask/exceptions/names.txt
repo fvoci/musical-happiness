@@ -192,6 +192,8 @@ crates/server/tests/api/rooms_access.rs | team.id
 crates/server/tests/api/rooms_access.rs | through a team
 crates/server/tests/api/rooms_access.rs | the team member left
 apps/web/src/lib/features/shell/ShareDialog.svelte | team
+apps/web/src/lib/features/shell/share-words.ts | team
+apps/web/src/lib/state/member-writes.ts | boardteams
 
 # Team membership is reusable across workspace modules; board effects live on the board side.
 crates/model/src/board_teams.rs

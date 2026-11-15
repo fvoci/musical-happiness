@@ -75,9 +75,12 @@ export class PageComments {
     return this.canEditComment(createdBy);
   }
 
-  /** Whether the reader reads what comments said before: any member of the wiki. */
+  /**
+   * Whether the reader reads what comments said before: any member of the
+   * wiki, and of an open one whoever works in the workspace (`joinable`).
+   */
   get canReadCommentHistory(): boolean {
-    return this.#wiki.role !== '';
+    return this.#wiki.role !== '' || this.#wiki.joinable;
   }
 
   /**

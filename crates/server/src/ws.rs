@@ -537,14 +537,7 @@ impl Hub {
         board_id: &str,
         former: Former<'_>,
     ) {
-        let now = now_millis();
-        let board = Board {
-            id: board_id.to_owned(),
-            workspace_id: workspace_id.to_owned(),
-            update_at: now,
-            delete_at: now,
-            ..Board::default()
-        };
+        let board = gone_board(workspace_id, board_id);
         let message = UpdateBoardMessage {
             action: "UPDATE_BOARD",
             workspace_id,
@@ -563,14 +556,7 @@ impl Hub {
         members: &[BoardMember],
         scope: BoardScope,
     ) {
-        let now = now_millis();
-        let board = Board {
-            id: board_id.to_owned(),
-            workspace_id: workspace_id.to_owned(),
-            update_at: now,
-            delete_at: now,
-            ..Board::default()
-        };
+        let board = gone_board(workspace_id, board_id);
         let message = UpdateBoardMessage {
             action: "UPDATE_BOARD",
             workspace_id,
@@ -840,6 +826,19 @@ fn unsubscribe_from_blocks(listeners: &mut Listeners, id: ListenerId, block_ids:
     }
     for block_id in block_ids {
         remove_from(&mut listeners.by_block, block_id, id);
+    }
+}
+
+/// A board as it is told once gone: only its identifiers and the time it went, as
+/// its deletion and the closing of an open wiki to who did not join it are told.
+fn gone_board(workspace_id: &str, board_id: &str) -> Board {
+    let now = now_millis();
+    Board {
+        id: board_id.to_owned(),
+        workspace_id: workspace_id.to_owned(),
+        update_at: now,
+        delete_at: now,
+        ..Board::default()
     }
 }
 

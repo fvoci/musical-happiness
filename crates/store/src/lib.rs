@@ -93,7 +93,9 @@ pub use category_boards::{BoardPlace, BoardVisibility};
 pub use comment_versions::DEFAULT_COMMENT_VERSIONS_KEPT;
 pub use connect::DbType;
 pub use db::Dialect;
-pub use directory::{Looking, Reach, SYSTEM_ORG_ID, SYSTEM_WORKSPACE_ID, Sight, WorkspaceAccess};
+pub use directory::{
+    Looking, Reach, SYSTEM_ORG_ID, SYSTEM_WORKSPACE_ID, SharedContainer, Sight, WorkspaceAccess,
+};
 pub use error::{StoreError, Taken};
 pub use file_refs::NewImages;
 pub use invitations::{Acceptance, Accepted, Acceptor, Inviter, InviterOfBoard, MailedTo, NewLink};

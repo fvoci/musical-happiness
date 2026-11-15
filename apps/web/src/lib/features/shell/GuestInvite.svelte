@@ -1,8 +1,8 @@
 <!--
-  Inviting a guest to the board that is shared: a link for one person, who
-  will see this board and nothing else of the workspace. Made here, shown once.
+  Inviting a guest to the board or the wiki that is shared: a link for one
+  person, who will see it and nothing else of the workspace. Made here, shown once.
   Where the workspace invites no guests the server refuses, and the section says so.
-  Below, the guest links of this board that are out (all of them for an
+  Below, the guest links of it that are out (all of them for an
   administrator of the workspace, one's own otherwise), the ones mailed to
   somebody by their address, each to be revoked. They are read when the section
   is made and after each change; a list that cannot be read is left out.
@@ -10,6 +10,7 @@
 <script lang="ts">
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { displayDate } from '$lib/logic/format.ts';
+  import type { BoardKind } from '$lib/logic/wire.ts';
   import {
     isBackendError,
     type GuestBoardRole,
@@ -20,14 +21,17 @@
   import { Button } from '$lib/ui/button/index.js';
 
   import InviteLink from './InviteLink.svelte';
+  import { shareWords } from './share-words.ts';
 
   interface Props {
     workspace: Workspace;
     access: PeopleAccess;
     boardId: string;
+    kind?: BoardKind | undefined;
   }
 
-  let { workspace, access, boardId }: Props = $props();
+  let { workspace, access, boardId, kind }: Props = $props();
+  const words = $derived(shareWords(kind));
 
   const workspaceName = $derived(workspace.info?.title || m.shell_workspace_unnamed());
 
@@ -116,7 +120,7 @@
 
 <section class="grid gap-2" aria-labelledby="{uid}-guest" data-testid="share-guest">
   <h3 id="{uid}-guest" class="font-medium">{m.share_guest_title()}</h3>
-  <p class="text-sm text-muted-foreground">{m.share_guest_hint({ workspace: workspaceName })}</p>
+  <p class="text-sm text-muted-foreground">{words.guestHint({ workspace: workspaceName })}</p>
   <div class="flex flex-wrap items-center gap-2">
     <select
       class="h-8 rounded-md border border-input-border bg-background px-2 roomy:h-touch"
@@ -153,13 +157,13 @@
             workspaceId: workspace.info.id,
             token: made.token,
             language: workspace.locale,
-            hint: m.mail_guest_addresses_hint(),
+            hint: words.guestAddresses(),
           }
         : undefined}
     />
   {/if}
   {#if boardLinks.length > 0}
-    <h4 id="{uid}-links" class="text-sm font-medium">{m.share_guest_links_title()}</h4>
+    <h4 id="{uid}-links" class="text-sm font-medium">{words.guestLinks()}</h4>
     <ul class="grid gap-1" aria-labelledby="{uid}-links" data-testid="share-guest-links">
       {#each boardLinks as link (link.id)}
         <li class="flex min-h-8 items-center gap-2 roomy:min-h-touch">

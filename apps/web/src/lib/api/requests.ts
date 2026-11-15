@@ -241,6 +241,7 @@ export class ServerRequests implements TrashReads {
       workspaceName: preview.workspaceName,
       inviterName: preview.inviterName,
       ...(typeof preview.boardTitle === 'string' ? { boardTitle: preview.boardTitle } : {}),
+      ...(preview.boardKind ? { boardKind: preview.boardKind } : {}),
     };
   }
 
@@ -264,6 +265,7 @@ export class ServerRequests implements TrashReads {
     return {
       workspaceId: accepted.workspaceId,
       ...(accepted.boardId ? { boardId: accepted.boardId } : {}),
+      ...(accepted.boardKind ? { boardKind: accepted.boardKind } : {}),
     };
   }
 

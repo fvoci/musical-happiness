@@ -15,7 +15,6 @@ import {
 } from '../logic/wire.ts';
 
 import type { Backend, BoardRole, CardDraft, Paging } from './backend.ts';
-import type { BoardStore } from './board.svelte.ts';
 import { BackendError } from './problems.ts';
 
 /**
@@ -121,21 +120,6 @@ export function roleFlags(
     schemeCommenter: role === 'commenter',
     schemeViewer: role === 'viewer',
   };
-}
-
-/** Makes a person of the workspace a member of `board`; one who is a member already keeps their role. */
-export async function addMemberTo(
-  board: BoardStore,
-  userId: string,
-  role: BoardRole,
-): Promise<void> {
-  try {
-    const member = await board.workspace.backend.addMember(board.boardId, userId, role);
-    board.members = [...board.members.filter((one) => one.userId !== userId), member];
-    void board.workspace.learnUsers([userId], { members: true });
-  } catch (error) {
-    board.workspace.report('save', error);
-  }
 }
 
 /** Where dropped cards go: a column (by the value of the grouping property) and a place in it. */

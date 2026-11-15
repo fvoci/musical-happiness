@@ -7,7 +7,9 @@ use std::path::Path;
 use std::time::Duration;
 
 use futures_util::{SinkExt as _, StreamExt as _};
-use fvoci_model::{Block, BlockType, Board, BoardPatch, BoardType, Category, new_id};
+use fvoci_model::{Block, BlockType, Board, BoardMember, BoardPatch, BoardType, Category, new_id};
+use fvoci_server::app::Former;
+use fvoci_server::permissions::BoardScope;
 use serde_json::{Value, json};
 use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::Message;
@@ -1175,22 +1177,12 @@ async fn board_with_a_card(th: &TestServer, user_id: &str) -> (Board, Block) {
     (board, block)
 }
 
-/// The messages the server answers a client's own with: where it is, and whether its
-/// connection still carries.
-async fn hear_the_answers(
-    socket: &mut Socket,
-    contract_check: &mut ContractCheck<'_>,
-    board_id: &str,
-) {
-    socket
-        .send(
-            json!({"action": "SET_PRESENCE", "workspaceId": ROOT_WORKSPACE_ID,
-            "boardId": board_id}),
-        )
-        .await;
-    contract_check.hear(socket, "UPDATE_PRESENCE").await;
-    socket.send(json!({"action": "PING"})).await;
-    contract_check.hear(socket, "PONG").await;
+/// Who read a board for the invited only, now gone: its `members`.
+fn of_the_invited(members: &[BoardMember]) -> Former<'_> {
+    Former {
+        members,
+        scope: BoardScope::InvitedOnly,
+    }
 }
 
 /// Every message the server sends has exactly the members `contracts/websocket.json`
@@ -1276,16 +1268,20 @@ async fn messages_match_the_websocket_contract() {
         .hear(&mut socket, "UPDATE_CLIENT_CONFIG")
         .await;
     // The board deletion goes to the former members, with the board's identifiers only.
-    let former = fvoci_server::app::Former {
-        members: &members,
-        scope: fvoci_server::permissions::BoardScope::InvitedOnly,
-    };
-    ws.broadcast_board_delete(ROOT_WORKSPACE_ID, &board.id, former)
+    ws.broadcast_board_delete(ROOT_WORKSPACE_ID, &board.id, of_the_invited(&members))
         .await;
     contract_check.hear(&mut socket, "UPDATE_BOARD").await;
     hear_the_endings(&th, &mut socket, &mut contract_check, &block, &user1.id).await;
 
-    hear_the_answers(&mut socket, &mut contract_check, &board.id).await;
+    socket
+        .send(
+            json!({"action": "SET_PRESENCE", "workspaceId": ROOT_WORKSPACE_ID,
+        "boardId": board.id}),
+        )
+        .await;
+    contract_check.hear(&mut socket, "UPDATE_PRESENCE").await;
+    socket.send(json!({"action": "PING"})).await;
+    contract_check.hear(&mut socket, "PONG").await;
 
     // Every message of the contract was heard; those of the bodies edited together
     // are heard by `rooms_contract`.

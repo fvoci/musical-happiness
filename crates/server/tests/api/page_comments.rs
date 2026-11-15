@@ -138,8 +138,7 @@ async fn each_role_of_the_wiki_does_to_the_comments_of_a_page_what_it_does_to_a_
 }
 
 /// Who is not on the wiki, and who names it under another workspace, is answered as for
-/// a wiki that is nowhere; who works in the workspace reads an open wiki without
-/// joining it, its comments as a viewer does, and writes none.
+/// a wiki that is nowhere.
 #[tokio::test]
 async fn who_may_not_read_the_wiki_is_answered_of_its_comments_as_of_none() {
     let th = Setup::native().start().await.init_basic().await;
@@ -158,13 +157,50 @@ async fn who_may_not_read_the_wiki_is_answered_of_its_comments_as_of_none() {
         let of_none = client.get(&comments_of(at, UNKNOWN_ID, &page)).await;
         assert_eq!(of_wiki.problem(), of_none.problem(), "{at}");
     }
-    let (open, open_page) = wiki_of(&th.client, "O").await;
-    let open_one = written(&th.client, &open, &open_page, "open").await;
+    th.teardown().await;
+}
+
+/// Who works in the workspace and did not join an open wiki reads its comments and
+/// what they said before, as its viewers do, and writes none: not even, once they
+/// left it, a change, deletion or restoring of a comment they wrote while they were in.
+#[tokio::test]
+async fn an_open_wiki_not_joined_has_its_comments_read_as_a_viewer_does() {
+    let th = Setup::native().start().await.init_basic().await;
+    let (open, page) = wiki_of(&th.client, "O").await;
+    let theirs = written(&th.client, &open, &page, "open").await;
     assert_eq!(
-        on_theirs(&th.client2, TEST_WS, &open, &open_page, &open_one).await,
-        [200, 403, 200, 403, 403],
-        "who did not join the open wiki, as a viewer"
+        on_theirs(&th.client2, TEST_WS, &open, &page, &theirs).await,
+        [200, 403, 200, 403, 403]
     );
+
+    let membership = format!("{TEST_WS}/boards/{open}");
+    th.client2
+        .post(&format!("{membership}/join"), &json!({}))
+        .await
+        .check_ok();
+    let kept = written(&th.client2, &open, &page, "kept").await;
+    let gone = written(&th.client2, &open, &page, "gone").await;
+    let comments = comments_of(TEST_WS, &open, &page);
+    th.client2
+        .delete(&format!("{comments}/{}", id(&gone)))
+        .await
+        .check_no_content();
+    th.client2
+        .post(&format!("{membership}/leave"), &json!({}))
+        .await
+        .check_no_content();
+
+    let own = format!("{comments}/{}", id(&kept));
+    let change = json!({"body": text("changed"), "readAt": kept["updateAt"]});
+    let answers = [
+        th.client2.patch(&own, &change).await,
+        th.client2.delete(&own).await,
+        th.client2
+            .post(&format!("{comments}/{}/undelete", id(&gone)), &json!({}))
+            .await,
+    ]
+    .map(|response| response.status.as_u16());
+    assert_eq!(answers, [403; 3], "their own, once they left");
     th.teardown().await;
 }
 

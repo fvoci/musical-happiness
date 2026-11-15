@@ -1,4 +1,8 @@
-<!-- One row per team, shaped as a member's row; direct memberships remain in the people list. -->
+<!--
+  The teams of a board or a wiki: one row per team, shaped as a member's row;
+  direct memberships remain in the people list. Shown, not changed, to a
+  reader who is no admin of it (`readOnly`).
+-->
 <script lang="ts">
   import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
   import UserPlusIcon from '@lucide/svelte/icons/user-plus';
@@ -6,12 +10,21 @@
 
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
-  import type { BoardStore, Workspace } from '$lib/state/index.ts';
+  import type { Shareable, Workspace } from '$lib/state/index.ts';
   import type { BoardTeam, Team, TeamRole, Teams } from '$lib/state/team-types.ts';
   import { Button } from '$lib/ui/button/index.js';
 
-  let { workspace, board, teams }: { workspace: Workspace; board: BoardStore; teams: Teams } =
-    $props();
+  import { shareWords } from './share-words.ts';
+
+  interface Props {
+    workspace: Workspace;
+    board: Shareable;
+    teams: Teams;
+    readOnly?: boolean;
+  }
+
+  let { workspace, board, teams, readOnly = false }: Props = $props();
+  const words = $derived(shareWords(board.board?.kind));
   const id = $props.id();
   const place = $derived(workspace.info?.id);
   let assigned = $state.raw<BoardTeam[]>([]);
@@ -79,97 +92,108 @@
   }
 </script>
 
-<section class="grid grid-cols-1 gap-2" aria-labelledby="{id}-title" data-testid="board-teams">
-  <h3 id="{id}-title" class="font-medium">{m.teams_title()}</h3>
-  <p class="text-sm text-muted-foreground">{m.teams_board_description()}</p>
-  {#if problem || unread}<p role="alert" class="text-sm text-destructive">
-      {problem || m.teams_load_failed()}
-    </p>{/if}
-  <ul class="grid grid-cols-1 gap-1">
-    {#each assigned as item (item.team.id)}
-      <li class="flex items-start gap-2" data-board-team={item.team.name}>
-        <details class="group min-w-0 flex-1">
-          <summary
-            class="flex min-h-8 cursor-pointer list-none items-center gap-2 roomy:min-h-touch [&::-webkit-details-marker]:hidden"
-          >
-            <!-- The chevron is the marker: WebKit would draw its own beside it. -->
-            <ChevronRightIcon
-              class="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-90"
-              aria-hidden="true"
-            />
-            <span class="min-w-0 truncate" translate="no">{item.team.name}</span>
-            <span class="text-sm text-muted-foreground">({item.team.members.length})</span>
-          </summary>
-          <ul class="grid grid-cols-1 gap-1 pb-1 pl-6 text-sm">
-            {#each item.team.members as person (person.userId)}
-              <li class="break-words" translate="no">{person.displayName || person.username}</li>
-            {/each}
-          </ul>
-        </details>
-        <div class="flex min-h-8 items-center gap-2 roomy:min-h-touch">
-          <select
-            class="h-8 rounded-md border border-input-border bg-background px-2 disabled:opacity-60 roomy:h-touch"
-            aria-label={m.share_role_of({ name: item.team.name })}
-            value={item.role}
-            disabled={busy}
-            onchange={(event) => {
-              const select = event.currentTarget;
-              void change(item.team.id, select.value as TeamRole).then((done) => {
-                // A refused role is not left showing as if it were the team's.
-                if (!done) select.value = item.role;
-              });
-            }}
-          >
-            {#each roles as option (option)}<option value={option}>{labels[option]()}</option
-              >{/each}
-          </select>
-          <IconButton
-            label={m.teams_board_remove({ name: item.team.name })}
-            class="text-muted-foreground"
-            disabled={busy}
-            onclick={() => void change(item.team.id, undefined)}
-          >
-            <XIcon />
-          </IconButton>
-        </div>
-      </li>
-    {/each}
-  </ul>
-  {#if candidates.length > 0}
-    <form
-      class="flex flex-wrap gap-2"
-      onsubmit={(event) => {
-        event.preventDefault();
-        if (selected) void change(selected, role);
-      }}
-    >
-      <select
-        class="h-8 min-w-0 flex-1 rounded-md border border-input-border bg-background px-2 disabled:opacity-60 roomy:h-touch"
-        aria-label={m.teams_board_choose()}
-        bind:value={selected}
-        disabled={busy}
+<!-- A reader who changes nothing is not shown an empty list of teams. -->
+{#if !readOnly || assigned.length > 0 || unread}
+  <section class="grid grid-cols-1 gap-2" aria-labelledby="{id}-title" data-testid="board-teams">
+    <h3 id="{id}-title" class="font-medium">{m.teams_title()}</h3>
+    <p class="text-sm text-muted-foreground">{m.teams_board_description()}</p>
+    {#if problem || unread}<p role="alert" class="text-sm text-destructive">
+        {problem || m.teams_load_failed()}
+      </p>{/if}
+    <ul class="grid grid-cols-1 gap-1">
+      {#each assigned as item (item.team.id)}
+        <li class="flex items-start gap-2" data-board-team={item.team.name}>
+          <details class="group min-w-0 flex-1">
+            <summary
+              class="flex min-h-8 cursor-pointer list-none items-center gap-2 roomy:min-h-touch [&::-webkit-details-marker]:hidden"
+            >
+              <!-- The chevron is the marker: WebKit would draw its own beside it. -->
+              <ChevronRightIcon
+                class="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-90"
+                aria-hidden="true"
+              />
+              <span class="min-w-0 truncate" translate="no">{item.team.name}</span>
+              <span class="text-sm text-muted-foreground">({item.team.members.length})</span>
+            </summary>
+            <ul class="grid grid-cols-1 gap-1 pb-1 pl-6 text-sm">
+              {#each item.team.members as person (person.userId)}
+                <li class="break-words" translate="no">{person.displayName || person.username}</li>
+              {/each}
+            </ul>
+          </details>
+          {#if readOnly}
+            <span
+              class="flex min-h-8 shrink-0 items-center text-muted-foreground roomy:min-h-touch"
+            >
+              {labels[item.role]()}
+            </span>
+          {:else}
+            <div class="flex min-h-8 items-center gap-2 roomy:min-h-touch">
+              <select
+                class="h-8 rounded-md border border-input-border bg-background px-2 disabled:opacity-60 roomy:h-touch"
+                aria-label={m.share_role_of({ name: item.team.name })}
+                value={item.role}
+                disabled={busy}
+                onchange={(event) => {
+                  const select = event.currentTarget;
+                  void change(item.team.id, select.value as TeamRole).then((done) => {
+                    // A refused role is not left showing as if it were the team's.
+                    if (!done) select.value = item.role;
+                  });
+                }}
+              >
+                {#each roles as option (option)}<option value={option}>{labels[option]()}</option
+                  >{/each}
+              </select>
+              <IconButton
+                label={words.teamRemove({ name: item.team.name })}
+                class="text-muted-foreground"
+                disabled={busy}
+                onclick={() => void change(item.team.id, undefined)}
+              >
+                <XIcon />
+              </IconButton>
+            </div>
+          {/if}
+        </li>
+      {/each}
+    </ul>
+    {#if candidates.length > 0 && !readOnly}
+      <form
+        class="flex flex-wrap gap-2"
+        onsubmit={(event) => {
+          event.preventDefault();
+          if (selected) void change(selected, role);
+        }}
       >
-        <option value="">{m.teams_board_choose()}</option>
-        {#each candidates as team (team.id)}<option value={team.id}>{team.name}</option>{/each}
-      </select>
-      <select
-        class="h-8 rounded-md border border-input-border bg-background px-2 disabled:opacity-60 roomy:h-touch"
-        aria-label={m.share_minimum_role()}
-        bind:value={role}
-        disabled={busy}
-      >
-        {#each roles as option (option)}<option value={option}>{labels[option]()}</option>{/each}
-      </select>
-      <Button
-        type="submit"
-        variant="outline"
-        size="sm"
-        class="roomy:min-h-touch"
-        disabled={busy || !selected}
-      >
-        <UserPlusIcon aria-hidden="true" />
-        {m.teams_board_add()}
-      </Button>
-    </form>
-  {/if}
-</section>
+        <select
+          class="h-8 min-w-0 flex-1 rounded-md border border-input-border bg-background px-2 disabled:opacity-60 roomy:h-touch"
+          aria-label={m.teams_board_choose()}
+          bind:value={selected}
+          disabled={busy}
+        >
+          <option value="">{m.teams_board_choose()}</option>
+          {#each candidates as team (team.id)}<option value={team.id}>{team.name}</option>{/each}
+        </select>
+        <select
+          class="h-8 rounded-md border border-input-border bg-background px-2 disabled:opacity-60 roomy:h-touch"
+          aria-label={m.share_minimum_role()}
+          bind:value={role}
+          disabled={busy}
+        >
+          {#each roles as option (option)}<option value={option}>{labels[option]()}</option>{/each}
+        </select>
+        <Button
+          type="submit"
+          variant="outline"
+          size="sm"
+          class="roomy:min-h-touch"
+          disabled={busy || !selected}
+        >
+          <UserPlusIcon aria-hidden="true" />
+          {m.teams_board_add()}
+        </Button>
+      </form>
+    {/if}
+  </section>
+{/if}

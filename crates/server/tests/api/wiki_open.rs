@@ -165,6 +165,40 @@ async fn an_open_wiki_is_read_without_joining_and_written_in_once_joined() {
     th.teardown().await;
 }
 
+/// Joining an open wiki gives its minimum role: of one read by viewers, a viewer, who
+/// reads and writes nothing.
+#[tokio::test]
+async fn joining_an_open_wiki_gives_its_minimum_role() {
+    let th = Setup::native().start().await.init_basic().await;
+    let (wiki, page) = wiki_of(&th.client, "O").await;
+    th.client
+        .patch(
+            &format!("{TEST_WS}/boards/{wiki}"),
+            &json!({"minimumRole": "viewer"}),
+        )
+        .await
+        .check_ok();
+
+    let joined: Value = th
+        .client2
+        .post(&format!("{TEST_WS}/boards/{wiki}/join"), &json!({}))
+        .await
+        .ok_json();
+    let roles = [
+        "schemeAdmin",
+        "schemeEditor",
+        "schemeCommenter",
+        "schemeViewer",
+    ]
+    .map(|role| joined[role].as_bool().expect("a scheme flag"));
+    assert_eq!(roles, [false, false, false, true], "{joined}");
+    assert_eq!(
+        answers(&th.client2, &wiki, &page).await,
+        [200, 200, 200, 403, 403, 403]
+    );
+    th.teardown().await;
+}
+
 /// A guest of the workspace is not among who works there: an open wiki is not there
 /// for them, and nothing of it is told them.
 #[tokio::test]
@@ -197,7 +231,7 @@ async fn an_open_wiki_is_nothing_to_a_guest() {
 /// as its members are; made private it is gone for them, told as a deletion, and they
 /// are told nothing of it any more, while its members are told it is private; open
 /// again, they are told again, and of its deletion. An open board they did not join
-/// tells them nothing.
+/// tells them nothing, not even its deletion.
 #[tokio::test]
 async fn who_works_there_is_told_the_changes_of_an_open_wiki_they_did_not_join() {
     let th = Setup::native().start().await.init_basic().await;
@@ -271,6 +305,10 @@ async fn who_works_there_is_told_the_changes_of_an_open_wiki_they_did_not_join()
 
     make(&th.client, &open, "O").await;
     th.client
+        .delete(&format!("{TEST_WS}/boards/{board}"))
+        .await
+        .check_no_content();
+    th.client
         .delete(&format!("{TEST_WS}/boards/{open}"))
         .await
         .check_no_content();
@@ -285,6 +323,10 @@ async fn who_works_there_is_told_the_changes_of_an_open_wiki_they_did_not_join()
     assert!(
         heard.iter().any(|told| is_gone(told, &open)),
         "deleted: {heard:?}"
+    );
+    assert!(
+        !heard.iter().any(|told| is_gone(told, &board)),
+        "an open board they did not join is not told deleted: {heard:?}"
     );
     th.teardown().await;
 }

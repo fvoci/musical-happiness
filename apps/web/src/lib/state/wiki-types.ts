@@ -91,7 +91,7 @@ export interface Wikis {
   wikis(workspaceId: string): Promise<Board[]>;
   /** Makes a wiki, filed under the reader's default category; its members are told. */
   createWiki(workspaceId: string, draft: WikiDraft): Promise<Board>;
-  /** Every page of the wiki, in no promised order. For its members (an open one: 403 until joined). */
+  /** Every page of the wiki, in no promised order. For who reads it (an open one: who works there). */
   pages(wikiId: string): Promise<WikiPage[]>;
   page(wikiId: string, pageId: string): Promise<WikiPageDetail>;
   /** For the wiki's editors. A parent or `after` that is no such page is 400. */
@@ -104,7 +104,7 @@ export interface Wikis {
   deletePage(wikiId: string, pageId: string): Promise<void>;
 
   // The comments on a page, as a card's (`Backend.comments` and the rest).
-  /** Oldest first. For the wiki's members; a page that is not there is 404. */
+  /** Oldest first. For who reads the wiki (an open one: who works there); a page that is not there is 404. */
   comments(wikiId: string, pageId: string): Promise<Comment[]>;
   /** For the wiki's commenters and up. A comment has a text: an empty one is 400. */
   createComment(wikiId: string, pageId: string, body: DocNode): Promise<Comment>;
@@ -129,7 +129,7 @@ export interface Wikis {
    * went with its page, or is not in the trash, is 404. Its listeners are told.
    */
   restoreComment(wikiId: string, pageId: string, commentId: string): Promise<Comment>;
-  /** What a comment said before each change, the first text first. For the wiki's members. */
+  /** What a comment said before each change, the first text first. For who reads the wiki. */
   commentVersions(wikiId: string, pageId: string, commentId: string): Promise<CommentVersion[]>;
   /**
    * The versions of a page's body, as a card's: with the wiki in place of the
@@ -170,7 +170,7 @@ export interface Wikis {
   duplicatePage(wikiId: string, pageId: string, title?: string): Promise<WikiPageDetail>;
 }
 
-/** Where a backend keeps its wikis. One by a public link has none (W4). */
+/** Where a backend keeps its wikis. One by a public link reads only its wiki's tree and pages. */
 export interface WikisOfBackend {
   readonly wiki?: Wikis;
 }

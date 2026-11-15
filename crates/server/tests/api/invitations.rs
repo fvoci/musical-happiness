@@ -773,7 +773,7 @@ async fn a_guest_comes_in_by_a_link_onto_one_board() {
     preview.check_ok();
     assert_eq!(
         preview.value(),
-        json!({"workspaceName": ORG_NAME, "inviterName": inviter.username, "boardTitle": "Plans"})
+        json!({"workspaceName": ORG_NAME, "inviterName": inviter.username, "boardTitle": "Plans", "boardKind": "board"})
     );
     let members_of_the_organization = async || {
         th.app
@@ -795,7 +795,7 @@ async fn a_guest_comes_in_by_a_link_onto_one_board() {
     accepted.check_ok();
     assert_eq!(
         accepted.value(),
-        json!({"workspaceId": ROOT_WORKSPACE_ID, "boardId": board.id})
+        json!({"workspaceId": ROOT_WORKSPACE_ID, "boardId": board.id, "boardKind": "board"})
     );
     let visitor = th.login("visitor", PASSWORD).await;
     assert_eq!(
@@ -1157,7 +1157,7 @@ async fn a_link_never_lowers_what_somebody_is_in_the_workspace() {
     accepted.check_ok();
     assert_eq!(
         accepted.value(),
-        json!({"workspaceId": ROOT_WORKSPACE_ID, "boardId": board.id})
+        json!({"workspaceId": ROOT_WORKSPACE_ID, "boardId": board.id, "boardKind": "board"})
     );
     assert_eq!(
         role_in_the_root_workspace(&th.client2).await,
@@ -1379,6 +1379,7 @@ async fn a_guest_comes_in_by_a_link_onto_one_wiki() {
         .await
         .ok_json();
     assert_eq!(preview["boardTitle"], json!("Handbook"));
+    assert_eq!(preview["boardKind"], json!("wiki"));
     let accepted = th
         .anonymous()
         .post(
@@ -1389,7 +1390,7 @@ async fn a_guest_comes_in_by_a_link_onto_one_wiki() {
     accepted.check_ok();
     assert_eq!(
         accepted.value(),
-        json!({"workspaceId": ROOT_WORKSPACE_ID, "boardId": wiki})
+        json!({"workspaceId": ROOT_WORKSPACE_ID, "boardId": wiki, "boardKind": "wiki"})
     );
     let guest = th.login("wiki.guest", PASSWORD).await;
     assert_eq!(
