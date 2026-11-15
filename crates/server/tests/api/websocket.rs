@@ -1266,16 +1266,7 @@ async fn messages_match_the_websocket_contract() {
         .await;
     contract_check.hear(&mut socket, "UPDATE_BOARD").await;
     hear_the_endings(&th, &mut socket, &mut contract_check, &block, &user1.id).await;
-
-    socket
-        .send(
-            json!({"action": "SET_PRESENCE", "workspaceId": ROOT_WORKSPACE_ID,
-        "boardId": board.id}),
-        )
-        .await;
-    contract_check.hear(&mut socket, "UPDATE_PRESENCE").await;
-    socket.send(json!({"action": "PING"})).await;
-    contract_check.hear(&mut socket, "PONG").await;
+    hear_the_answers(&mut socket, &mut contract_check, &board.id).await;
 
     // Every message of the contract was heard; those of the bodies edited together
     // are heard by `rooms_contract`.
@@ -1292,6 +1283,24 @@ async fn messages_match_the_websocket_contract() {
     );
 
     th.teardown().await;
+}
+
+/// Hears what the server answers the connection itself: its presence on the board
+/// `board_id`, and a Ping.
+async fn hear_the_answers(
+    socket: &mut Socket,
+    contract_check: &mut ContractCheck<'_>,
+    board_id: &str,
+) {
+    socket
+        .send(
+            json!({"action": "SET_PRESENCE", "workspaceId": ROOT_WORKSPACE_ID,
+            "boardId": board_id}),
+        )
+        .await;
+    contract_check.hear(socket, "UPDATE_PRESENCE").await;
+    socket.send(json!({"action": "PING"})).await;
+    contract_check.hear(socket, "PONG").await;
 }
 
 /// What ends of a shared board, and of a workspace, ends what followed it, and is told.
