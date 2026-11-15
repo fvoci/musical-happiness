@@ -5,6 +5,7 @@
  */
 import type { Editor } from '@tiptap/core';
 import type { Snippet } from 'svelte';
+import type { Awareness } from 'y-protocols/awareness';
 import type { Doc } from 'yjs';
 
 import type { SuggestionEntry } from './extensions.ts';
@@ -88,6 +89,26 @@ export interface BodyEditorProps {
    * only. Another document needs another editor.
    */
   collab?: Doc;
+  /**
+   * With `collab`: the carets of that document (carets.ts). The others' are
+   * drawn with their name (`resolveUser`) and their colour (`colorOf`, a CSS
+   * colour by the user's identifier); where the reader's own is is written
+   * into `awareness`. Read when the editor is made, as `collab` is.
+   */
+  carets?: { awareness: Awareness; colorOf: (userId: string) => string };
+  /**
+   * With `collab`: the reader began (`true`) or ended composing a syllable
+   * with an input method. A change from outside in the line being composed
+   * would end the composition: whoever brings such changes holds them back
+   * meanwhile.
+   */
+  onComposing?: (composing: boolean) => void;
+  /**
+   * With `collab`: takes what has the editor read the selection of the page
+   * and gives what takes it back. Whoever brings the others' changes calls
+   * it before each (moves-kept.ts).
+   */
+  readsFirst?: (read: () => void) => () => void;
   /** Called once the editor is made, with it: for whoever puts the caret back where it was. */
   onEditor?: (editor: Editor) => void;
   /**
