@@ -275,6 +275,44 @@ export class MemoryWikis implements Wikis {
     return detailOf(page);
   }
 
+  /** As the server: the page and the pages below it copied right after it, held to the limits. */
+  async duplicatePage(wikiId: string, pageId: string, title?: string): Promise<WikiPageDetail> {
+    await this.#enter('duplicatePage');
+    this.#mayWrite(wikiId);
+    const page = this.#page(wikiId, pageId);
+    const copied = title === undefined ? page.title : checkedTitle(title);
+    const tree = this.#tree(wikiId);
+    const family = tree.below(pageId);
+    tree.checkRoom(page.parentId, tree.height(pageId), family.length, this.limits);
+    const place = tree.place(page.parentId, pageId);
+    const world = this.#world;
+    const now = world.now();
+    const userId = this.#host.userId;
+    const ids = new Map(family.map((id) => [id, world.newId()]));
+    const copies = family.flatMap((id) => {
+      const source = world.blocks.get(id);
+      if (!source) return [];
+      const made: StoredBlock = {
+        ...copy(source),
+        id: ids.get(id) ?? world.newId(),
+        parentId: ids.get(source.parentId) ?? source.parentId,
+        createdBy: userId,
+        modifiedBy: userId,
+        createAt: now,
+        updateAt: now,
+        deleteAt: 0,
+      };
+      return [made];
+    });
+    const [top] = copies;
+    if (!top) fail(404, 'no such page');
+    top.title = copied;
+    const renumbered = this.#writePlace(top, place);
+    for (const one of copies) world.blocks.set(one.id, one);
+    this.#tellPages(wikiId, [...renumbered, ...copies]);
+    return detailOf(top);
+  }
+
   async patchPage(wikiId: string, pageId: string, patch: PagePatch): Promise<WikiPageDetail> {
     await this.#enter('patchPage');
     this.#mayWrite(wikiId);

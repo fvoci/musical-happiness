@@ -12,8 +12,8 @@
  *
  * Writes show at once and go back when the backend refuses them, told
  * (`workspace.report`). Renaming a page, changing its icon, making one,
- * moving one, deleting one (brought back from the trash) and changing the
- * wiki can be undone.
+ * moving one, copying one, deleting one (brought back from the trash) and
+ * changing the wiki can be undone.
  */
 import type { PagePlace } from '../logic/page-moves.ts';
 import { pageTree } from '../logic/page-tree.ts';
@@ -332,6 +332,11 @@ export class WikiStore {
   /** Moves a page with the pages below it where `to` says; false when it was refused (told). */
   movePage(pageId: string, to: PagePlace): Promise<boolean> {
     return this.#writes.movePage(pageId, to);
+  }
+
+  /** Copies a page with the pages below it, right after it; undefined when it was refused (told). */
+  duplicatePage(pageId: string, title: string): Promise<WikiPageDetail | undefined> {
+    return this.#writes.duplicatePage(pageId, title);
   }
 
   /** Deletes a page and every page below it; false when it was refused (told). */

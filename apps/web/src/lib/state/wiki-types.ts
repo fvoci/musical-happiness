@@ -121,6 +121,15 @@ export interface Wikis {
    * `after`. Siblings numbered anew to leave it room are told (`pages`).
    */
   movePage(wikiId: string, pageId: string, to: PageMove): Promise<WikiPageDetail>;
+  /**
+   * Copies the page with every page below it, for the wiki's editors: the
+   * copy right after the page, titled `title` (left out, the page's own), the
+   * pages below it copied below it as they are, bodies and their images too;
+   * not their versions or comments. Past the wiki's limits it is 400
+   * (`page_too_deep`, `too_many_pages`). Each copy is told (`pages`); the
+   * answer is the copy of the page.
+   */
+  duplicatePage(wikiId: string, pageId: string, title?: string): Promise<WikiPageDetail>;
 }
 
 /** Where a backend keeps its wikis. One by a public link has none (W4). */

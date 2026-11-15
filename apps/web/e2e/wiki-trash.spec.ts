@@ -2,7 +2,8 @@
  * The trash of a wiki's pages, in the world in memory: a page deleted with
  * the pages below it comes back by undo, or from the "Deleted pages" of the
  * wiki's head (how many below it says), and the tree follows a page that
- * somebody else brings back.
+ * somebody else brings back. And a page copied with the pages below it from
+ * its menu, right after it, the copy shown, undone.
  */
 import { expect, test, type Page } from '@playwright/test';
 
@@ -109,6 +110,23 @@ test.describe('the trash of a wiki’s pages at a phone’s width', () => {
     await expect(close).toBeFocused();
     await page.keyboard.press('Enter');
     await expect(trash).toBeHidden();
+    await showTree(page);
+    await expect.poll(() => treeShape(page)).toEqual(['Welcome', '  Getting started', 'Policies']);
+  });
+});
+
+test.describe('a page copied', () => {
+  test('from its menu with those below it, right after it, shown, and undone', async ({ page }) => {
+    await openApp(page);
+    await wikiWithPages(page);
+    await pageAction(page, 'Welcome', 'duplicate');
+    await expect(page.getByTestId('page-title')).toHaveValue('Welcome (copy)');
+    await showTree(page);
+    await expect
+      .poll(() => treeShape(page))
+      .toEqual(['Welcome', '  Getting started', 'Welcome (copy)', '  Getting started', 'Policies']);
+    await hideTree(page);
+    await page.getByTestId('undo').click();
     await showTree(page);
     await expect.poll(() => treeShape(page)).toEqual(['Welcome', '  Getting started', 'Policies']);
   });

@@ -220,3 +220,42 @@ describe('the trash of pages in an open wiki', () => {
     expect(titles(made.store.pages)).toEqual(['C']);
   });
 });
+
+describe('a page copied with the pages below it', () => {
+  it('goes right after the page in memory, held to the limits', async () => {
+    const made = await openWiki();
+    const wikis = made.backend.wiki;
+    const a = await made.page('A');
+    await made.page('B', a);
+    await made.page('C');
+    const copy = await wikis.duplicatePage(made.wikiId, a, 'A (copy)');
+    expect(copy.title).toBe('A (copy)');
+    expect(titles(await wikis.pages(made.wikiId))).toEqual(['A', '  B', 'A (copy)', '  B', 'C']);
+    wikis.limits = { depth: 10, pages: 6 };
+    const full = await rejection(wikis.duplicatePage(made.wikiId, a));
+    expect([full.reason, full.limit]).toEqual(['too_many_pages', 6]);
+    wikis.limits = { depth: 1, pages: 100 };
+    const deep = await rejection(wikis.duplicatePage(made.wikiId, a));
+    expect(deep.reason).toBe('page_too_deep');
+  });
+
+  it('shows the copy in an open wiki, undone to the trash and done again from it', async () => {
+    const made = await openWiki();
+    const a = await made.page('A');
+    await made.page('B', a);
+    await made.store.load();
+    const copy = await made.store.duplicatePage(a, 'A (copy)');
+    await settle();
+    expect(titles(made.store.pages)).toEqual(['A', '  B', 'A (copy)', '  B']);
+    await made.workspace.undoLast();
+    await settle();
+    expect(titles(made.store.pages)).toEqual(['A', '  B']);
+    expect((await made.backend.wiki.deletedPages(made.wikiId)).map((item) => item.id)).toEqual([
+      copy?.id,
+    ]);
+    await made.workspace.redoLast();
+    await settle();
+    expect(titles(made.store.pages)).toEqual(['A', '  B', 'A (copy)', '  B']);
+    expect(made.workspace.problems).toEqual([]);
+  });
+});

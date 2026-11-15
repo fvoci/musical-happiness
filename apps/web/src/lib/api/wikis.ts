@@ -1,7 +1,7 @@
 /**
  * The wikis and their pages on the server (`Backend.wiki`): the operations
  * under `/w/{workspaceId}/wikis` (`getWikis`, `createWiki`, `getPageTree`,
- * `createPage`, `getPage`, `patchPage`, `deletePage`, `movePage`, `getDeletedPages`,
+ * `createPage`, `getPage`, `patchPage`, `deletePage`, `movePage`, `duplicatePage`, `getDeletedPages`,
  * `undeletePage`). What a wiki shares
  * with a board (reading it, changing, deleting and bringing it back, its
  * members, joining it, the sidebar) goes by the board's operations.
@@ -184,6 +184,17 @@ export class ServerWikis implements Wikis {
     return pageDetailOf(
       await this.#request<Schemas['Page']>(
         '/wikis/{wikiId}/pages/{pageId}/move',
+        { wikiId, pageId },
+        { method: 'POST', json: request },
+      ),
+    );
+  }
+
+  async duplicatePage(wikiId: string, pageId: string, title?: string): Promise<WikiPageDetail> {
+    const request: Schemas['PageDuplicate'] = title === undefined ? {} : { title };
+    return pageDetailOf(
+      await this.#request<Schemas['Page']>(
+        '/wikis/{wikiId}/pages/{pageId}/duplicate',
         { wikiId, pageId },
         { method: 'POST', json: request },
       ),

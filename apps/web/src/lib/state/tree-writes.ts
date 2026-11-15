@@ -1,10 +1,10 @@
 /**
  * The writes of an open wiki's tree (`wiki.svelte.ts`): making a page,
- * moving one with the pages below it, deleting one with them and bringing
- * one back from the trash. Each shows at once (bringing back, once it is
+ * moving one with the pages below it, copying one with them, deleting one
+ * with them and bringing one back from the trash. Each shows at once (bringing back, once it is
  * back) and goes back when the backend refuses it, told
- * (`workspace.report`); making, moving and deleting are undone as one step
- * each, a deletion by bringing the page back.
+ * (`workspace.report`); making, moving, copying and deleting are undone as
+ * one step each, a deletion by bringing the page back, a copy by deleting it.
  *
  * A page deleted takes the pages below it along, and only it is told: the
  * pages below it are taken off here (`forget`), as of a deletion heard.
@@ -194,6 +194,35 @@ export class TreeWrites {
     }
     const shown = this.#host.openPage();
     if (shown && gone.has(shown.pageId)) shown.gone('reader', title);
+  }
+
+  /**
+   * Copies a page with the pages below it, the copy titled `title`, right
+   * after the page; gives the copy, undefined when it was refused (told).
+   * Undone, the copies go to the trash; done again, they come back from it.
+   */
+  async duplicatePage(pageId: string, title: string): Promise<WikiPageDetail | undefined> {
+    let copied: WikiPageDetail | undefined;
+    try {
+      return await this.#host.workspace.undo.perform(
+        async () => {
+          if (copied) {
+            await this.restorePage(copied.id);
+            return copied;
+          }
+          copied = await this.#host.wikis().duplicatePage(this.#host.wikiId, pageId, title);
+          this.#host.takePage(copied);
+          // The copies below it are told apart: until then, read the tree again.
+          this.#host.reread();
+          return copied;
+        },
+        (copy) => unlessGone(() => this.#deleteShown(copy.id)),
+        'duplicatePage',
+      );
+    } catch (error) {
+      this.#host.workspace.report('save', error);
+      return undefined;
+    }
   }
 
   /**

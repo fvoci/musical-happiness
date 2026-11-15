@@ -146,6 +146,17 @@
     return wiki.movePage(pageId, to);
   }
 
+  /** Copies a page with those below it, and shows the copy, right after it, open as the page is. */
+  async function duplicate(source: WikiPage): Promise<void> {
+    const copying = wiki;
+    const title = m.wiki_page_copy({ title: source.title || m.wiki_page_untitled() });
+    const copy = await whileHere(copying.workspace, () => copying.duplicatePage(source.id, title));
+    if (!copy || wiki !== copying) return;
+    // Open as the page is, its pages below in sight as below it.
+    if (open.has(source.id)) open.set([copy.id]);
+    show(copy.id);
+  }
+
   async function create(draft: PageDraft): Promise<void> {
     if (creating) return;
     creating = true;
@@ -255,6 +266,7 @@
       onMoveTo={(chosen: WikiPage) => {
         [moving, movingOpen] = [chosen.id, true];
       }}
+      onDuplicate={(source: WikiPage) => void duplicate(source)}
       busy={creating}
     />
   </div>

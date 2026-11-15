@@ -21,6 +21,7 @@
   import ArrowDownIcon from '@lucide/svelte/icons/arrow-down';
   import ArrowUpIcon from '@lucide/svelte/icons/arrow-up';
   import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
+  import CopyIcon from '@lucide/svelte/icons/copy';
   import EllipsisIcon from '@lucide/svelte/icons/ellipsis';
   import FilePlusIcon from '@lucide/svelte/icons/file-plus';
   import FolderInputIcon from '@lucide/svelte/icons/folder-input';
@@ -57,6 +58,8 @@
     onMove?: ((pageId: string, to: PagePlace) => Promise<unknown>) | undefined;
     /** Asks where to move a page ("Move…"). */
     onMoveTo?: ((page: WikiPage) => void) | undefined;
+    /** Copies a page with the pages below it; left out where pages are not copied here. */
+    onDuplicate?: ((page: WikiPage) => void) | undefined;
     /** A page is being made: no other is asked for meanwhile. */
     busy?: boolean;
   }
@@ -71,6 +74,7 @@
     onDelete,
     onMove,
     onMoveTo,
+    onDuplicate,
     busy = false,
   }: Props = $props();
 
@@ -272,6 +276,17 @@
         icon: FolderInputIcon,
         run: () => {
           ask(row.page);
+        },
+      });
+    }
+    if (wiki.canEdit && onDuplicate) {
+      const copy = onDuplicate;
+      actions.push({
+        id: 'duplicate',
+        label: m.wiki_duplicate_page(),
+        icon: CopyIcon,
+        run: () => {
+          copy(row.page);
         },
       });
     }
