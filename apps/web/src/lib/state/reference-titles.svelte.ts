@@ -2,10 +2,11 @@
  * What the references of the bodies on screen name, for the reader: asked of
  * the backend once (`References.resolve`, all that is drawn in one turn in
  * one request), then held and kept current by the change messages of the
- * boards the named cards that are drawn are on. A card that is renamed shows
- * its new title, one that is deleted, or whose board the reader leaves, shows
- * as what the reader may not see. A page keeps the title it was answered
- * with until it is asked again. When the connection was away, or the reader
+ * boards and wikis what is drawn is on. A card or a page that is renamed
+ * shows its new title, one that is deleted, or whose board or wiki the reader
+ * leaves, shows as what the reader may not see; the pages of a wiki that a
+ * page was deleted from are asked again, as the pages below it went with it
+ * and are not told of. When the connection was away, or the reader
  * comes back to a workspace, everything held there is asked again, and when a
  * board comes into the reader's sight, what they could not see is. What
  * could not be asked shows as what the reader may not see, and is asked
@@ -124,7 +125,7 @@ export class ReferenceTitles {
     }
     const linked = this.#known.get(key);
     // What is drawn follows its board, from out of the drawing that reads it.
-    if (linked?.boardKind === 'board' && !this.#watched.has(linked.boardId)) {
+    if (linked && !this.#watched.has(linked.boardId)) {
       const { boardId } = linked;
       queueMicrotask(() => {
         this.#watch(boardId);
@@ -332,8 +333,22 @@ export class ReferenceTitles {
         this.#changedAt.set(key, this.#tick());
         this.#known.set(key, { id, kind: 'card', title, icon, boardId, boardKind: 'board' });
       }
+    } else if (change.kind === 'pages') {
+      for (const page of change.pages) {
+        const key = `${workspaceId}/${page.id}`;
+        if (!this.#held(key)) continue;
+        const { id, title, icon, wikiId } = page;
+        this.#changedAt.set(key, this.#tick());
+        this.#known.set(key, { id, kind: 'page', title, icon, boardId: wikiId, boardKind: 'wiki' });
+      }
     } else if (change.kind === 'blocksDeleted') {
       for (const id of change.blockIds) this.#unsee(`${workspaceId}/${id}`);
+      // A page goes with those below it, and only it is told of: the rest are asked.
+      const { boardId } = change;
+      const pages = this.#knownHere(
+        (linked) => linked?.kind === 'page' && linked.boardId === boardId,
+      );
+      if (pages.length > 0) void this.#ask(pages);
     } else if (change.kind === 'boardDeleted') {
       for (const id of this.#knownHere((linked) => linked?.boardId === change.boardId)) {
         this.#unsee(`${workspaceId}/${id}`);

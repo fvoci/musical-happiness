@@ -212,6 +212,44 @@ describe('the titles of what references name', () => {
     expect(asked.mock.calls).toContainEqual([info.id, [alpha.id]]);
   });
 
+  it('follow a page that is renamed, and pages that go with the one deleted', async () => {
+    const { backend, workspace, titles } = await opened();
+    const workspaceId = workspace.info?.id ?? '';
+    const wiki = await backend.wiki.createWiki(workspaceId, { title: 'Handbook', type: 'P' });
+    const top = await backend.wiki.createPage(wiki.id, { title: 'Top' });
+    const below = await backend.wiki.createPage(wiki.id, { title: 'Below', parentId: top.id });
+    titles.of(top.id);
+    titles.of(below.id);
+    await settle();
+    // Drawn with the answer: the wiki is followed from then on.
+    expect(titles.of(top.id)).toMatchObject({ kind: 'page', title: 'Top', boardKind: 'wiki' });
+    titles.of(below.id);
+    await settle();
+
+    await backend.wiki.patchPage(wiki.id, top.id, { title: 'Renamed' });
+    await settle();
+    expect(titles.of(top.id)?.title).toBe('Renamed');
+
+    await backend.wiki.deletePage(wiki.id, top.id);
+    await settle();
+    expect([titles.of(top.id), titles.of(below.id)]).toEqual([null, null]);
+  });
+
+  it('offer what the server changed last before anything is typed where there is no board', async () => {
+    const { backend, titles } = await opened();
+    const asked = vi.spyOn(backend.references, 'search');
+    vi.useFakeTimers();
+    try {
+      const found = titles.search('');
+      await vi.runAllTimersAsync();
+      expect((await found).length).toBeGreaterThan(0);
+      expect(asked).toHaveBeenCalledOnce();
+      expect(asked.mock.calls[0]?.[1]).toBe('');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('say whether the reader may see what an identifier names', async () => {
     const { alpha, titles } = await opened();
     expect(await titles.seen(alpha.id)).toBe(true);

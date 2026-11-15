@@ -90,8 +90,9 @@ test('a page names a card and a card names the page, each opens the other, and e
   await expect(naming.getByRole('link')).toHaveText(['Road plan']);
   await naming.getByRole('link').click();
   await expect(page).toHaveURL(new RegExp(`/wikis/[0-9a-f-]{36}/${pageId}$`));
-  await expect(page.getByTestId('page-body')).toBeVisible();
-  // Nothing names the page yet: no such part.
+  await expect(page.getByTestId('page-body')).toHaveAttribute('data-editor', 'ready');
+  // Nothing names the page yet: no such part (what names it is asked as the page opens,
+  // and the end of this test sees the same list appear once a card names the page).
   await expect(page.getByTestId('card-backlinks')).toHaveCount(0);
 
   // A card names the page: a chip with its title, which opens it.

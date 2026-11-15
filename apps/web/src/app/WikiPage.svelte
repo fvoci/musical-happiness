@@ -193,9 +193,8 @@
         testId="page-body"
         references={bodyReferences(wiki, page.pageId)}
       />
-      {#key page.pageId}
-        <CardBacklinks {workspace} blockId={page.pageId} of="page" />
-      {/key}
+      <!-- WikiScreen draws each page anew: the list is read for the page it is drawn for. -->
+      <CardBacklinks {workspace} blockId={page.pageId} of="page" />
     {/snippet}
   </WikiScreen>
   {@const store = wiki}
