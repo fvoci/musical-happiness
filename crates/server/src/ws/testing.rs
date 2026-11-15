@@ -1,4 +1,5 @@
-//! A deterministic seam between validating a subscription and registering it.
+//! The seams of the tests: between validating a subscription and registering it, and
+//! the quiet limit of a connection.
 
 use std::sync::Arc;
 
@@ -95,5 +96,17 @@ impl Hub {
             pause.reached.notify_one();
             pause.resumed.notified().await;
         }
+    }
+}
+
+impl Hub {
+    /// Has the connections opened from now on closed after `limit` of sending
+    /// nothing, in place of the ninety seconds of `ws/inbound.rs`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a thread panicked while it held the limit.
+    pub fn set_quiet_limit(&self, limit: std::time::Duration) {
+        *self.inner.quiet_limit.lock().expect("lock poisoned") = Some(limit);
     }
 }

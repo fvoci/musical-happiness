@@ -11,6 +11,7 @@
 
 mod connection;
 mod delivery;
+mod inbound;
 mod presence;
 mod readers;
 mod subscriptions;
@@ -359,6 +360,9 @@ struct HubInner {
     subscription_pause: Mutex<Option<SubscriptionPause>>,
     #[cfg(feature = "test-util")]
     dispatch_pause: Mutex<Option<SubscriptionPause>>,
+    /// The quiet limit in place of [`inbound::QUIET_LIMIT`], for the tests of it.
+    #[cfg(feature = "test-util")]
+    quiet_limit: Mutex<Option<Duration>>,
 }
 
 impl Hub {
@@ -381,6 +385,8 @@ impl Hub {
                 subscription_pause: Mutex::default(),
                 #[cfg(feature = "test-util")]
                 dispatch_pause: Mutex::default(),
+                #[cfg(feature = "test-util")]
+                quiet_limit: Mutex::default(),
             }),
             audience,
         }

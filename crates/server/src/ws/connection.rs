@@ -6,10 +6,11 @@ use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use axum::extract::ws::{Message, Utf8Bytes, WebSocket};
-use futures_util::StreamExt as _;
+use futures_util::{Stream, StreamExt as _};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
+use super::inbound::{Came, Inbound};
 use super::{
     Command, Hub, Identity, Listener, ListenerId, OUTBOX_CAPACITY, SESSION_CHECK_WITHOUT_PING,
     WRITER_GRACE, presence, subscribe, writer,
@@ -32,8 +33,9 @@ impl Hub {
         identity: Option<Identity>,
         address: Option<IpAddr>,
     ) {
-        let (sink, mut stream) = socket.split();
+        let (sink, stream) = socket.split();
         let (outbox, inbox) = mpsc::channel::<Utf8Bytes>(OUTBOX_CAPACITY);
+        let mut inbound = Inbound::new(stream, outbox.clone(), self.quiet_limit());
         let closed = CancellationToken::new();
         let closed_because = Arc::new(OnceLock::new());
         let mut who = subscribe::Who::of(identity);
@@ -99,7 +101,7 @@ impl Hub {
             _ = &mut writer => Disconnect::ReadError,
             never = Box::pin(self.presence_loop(app, id)) => match never {},
             () = docs_overrun.cancelled() => Disconnect::SlowConsumer,
-            reason = self.read_commands(app, id, &mut stream, &mut docs) => reason,
+            reason = self.read_commands(app, id, &mut inbound, &mut docs) => reason,
             // The session ended by its idle or absolute limit, which nobody announces:
             // the sessions that ended so are deleted only by the hourly clean-up.
             () = self.session_ends(token.as_deref(), session_check) => Disconnect::SessionEnded,
@@ -131,30 +133,30 @@ impl Hub {
     }
 
     /// Reads the commands of a connection and carries them out, until the client
-    /// closes it, goes away or sends what is no websocket frame; returns which.
+    /// closes it, goes away, sends what is no websocket frame or nothing at all for
+    /// the quiet limit; returns which. It reads on while it carries one out
+    /// ([`Inbound::meanwhile`]).
     async fn read_commands(
         &self,
         app: &App,
         id: ListenerId,
-        stream: &mut (impl futures_util::Stream<Item = Result<Message, axum::Error>> + Unpin),
+        inbound: &mut Inbound<impl Stream<Item = Result<Message, axum::Error>> + Unpin>,
         docs: &mut Seat,
     ) -> Disconnect {
         loop {
-            let text = match stream.next().await {
-                Some(Ok(Message::Text(text))) => text,
-                Some(Ok(Message::Close(_))) | None => return Disconnect::ClientClosed,
-                Some(Ok(Message::Binary(frame))) => {
-                    docs.frame(frame).await;
+            let text = match inbound.next().await {
+                Ok(Came::Text(text)) => text,
+                Ok(Came::Binary(frame)) => {
+                    inbound.meanwhile(docs.frame(frame)).await;
                     continue;
                 }
-                Some(Ok(Message::Ping(_) | Message::Pong(_))) => continue,
-                Some(Err(_)) => return Disconnect::ReadError,
+                Err(reason) => return reason,
             };
             // A command is small, whatever a frame of a body edited together may be.
             if text.len() > crate::api::WEBSOCKET_MESSAGE_LIMIT {
                 return Disconnect::ReadError;
             }
-            if docs.command(&text).await {
+            if inbound.meanwhile(docs.command(&text)).await {
                 continue;
             }
             let Ok(command) = serde_json::from_str::<Command>(&text) else {
@@ -162,10 +164,21 @@ impl Hub {
                 continue;
             };
             // No command closes a connection now; were one to, the client asked for it.
-            if !self.handle(app, id, command).await {
+            // Boxed: what a command holds is large, and is no part of what reading holds.
+            if !Box::pin(inbound.meanwhile(self.handle(app, id, command))).await {
                 return Disconnect::ClientClosed;
             }
         }
+    }
+
+    /// How long a connection may send nothing: [`super::inbound::QUIET_LIMIT`], or
+    /// what a test set.
+    fn quiet_limit(&self) -> Duration {
+        #[cfg(feature = "test-util")]
+        if let Some(limit) = *self.inner.quiet_limit.lock().expect("lock poisoned") {
+            return limit;
+        }
+        super::inbound::QUIET_LIMIT
     }
 
     /// Returns once the session of `token` has ended, looked up every `period`; never
