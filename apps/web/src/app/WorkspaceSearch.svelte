@@ -156,6 +156,22 @@
       router.openBoard({ id: hit.containerId, workspaceId: workspace.info?.id ?? '', kind });
       router.go(route, { replace: true });
     }
+    await tick();
+    settleFocus();
+  }
+
+  /**
+   * After going: the focus, still in the field fading out (and then on
+   * nothing), goes to the card shown, else to the page. A card that opens
+   * later, over another board, takes it from there.
+   */
+  function settleFocus(): void {
+    const at = document.activeElement;
+    if (at instanceof HTMLElement && at !== document.body && !at.closest('[data-search-dialog]')) {
+      return;
+    }
+    const card = document.querySelector<HTMLElement>('[data-card-dialog]');
+    (card ?? document.querySelector<HTMLElement>('main'))?.focus();
   }
 
   function containerOf(hit: SearchHit): string {

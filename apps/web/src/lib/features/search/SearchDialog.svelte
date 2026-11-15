@@ -159,7 +159,7 @@
     class={[
       'flex flex-col gap-3 p-3',
       compact
-        ? 'inset-0 h-[calc(100dvh-var(--keyboard))] max-w-none translate-x-0 translate-y-0 rounded-none pt-[calc(var(--safe-top)+0.75rem)] pr-[calc(var(--safe-right)+0.75rem)] pb-(--safe-bottom) pl-[calc(var(--safe-left)+0.75rem)] ring-0'
+        ? 'inset-0 h-[calc(100dvh-var(--keyboard))] max-w-none translate-x-0 translate-y-0 rounded-none pt-[calc(var(--safe-top)+0.75rem)] pr-[calc(var(--safe-right)+0.75rem)] pb-(--safe-bottom) pl-[calc(var(--safe-left)+0.75rem)] ring-0 sm:max-w-none'
         : 'top-[12dvh] max-h-[76dvh] translate-y-0 sm:max-w-xl',
     ]}
     onOpenAutoFocus={(event: Event) => {

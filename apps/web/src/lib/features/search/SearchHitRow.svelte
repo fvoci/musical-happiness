@@ -41,6 +41,11 @@
     event.preventDefault();
     onGo();
   }
+
+  /** The field keeps the focus: a click that opens a new tab leaves the search open, its keys with it. */
+  function keepFocus(event: MouseEvent): void {
+    event.preventDefault();
+  }
 </script>
 
 <a
@@ -56,6 +61,7 @@
     active && 'bg-accent text-accent-foreground',
   ]}
   {onclick}
+  onmousedown={keepFocus}
   onpointermove={onPoint}
 >
   {#if hit.kind === 'page'}

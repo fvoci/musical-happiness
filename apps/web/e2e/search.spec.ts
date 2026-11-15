@@ -237,6 +237,8 @@ test.describe('the search of cards and pages', () => {
     await cardWith(page, 'Heron second', 'egret two');
     await goTo(page, 'egret one', 'Heron first');
     await goTo(page, 'egret two', 'Heron second');
+    // The card shown in place of the other has the focus: Escape reaches it.
+    await expect(page.getByTestId('card-dialog')).toBeFocused();
     await page.keyboard.press('Escape');
     await expect(page.getByTestId('card-dialog')).toHaveCount(0);
     await expect(page).toHaveURL(ON_A_VIEW);
@@ -289,6 +291,8 @@ test.describe('the search of cards and pages', () => {
     await expect(dialog(page)).toHaveCount(0);
     await expect(page).toHaveURL(onPage(harbour));
     await expect(title).toHaveValue('Harbour log');
+    // Not left on nothing: Tab goes on from the page.
+    await expect(page.locator('main')).toBeFocused();
 
     // Another page of the wiki shown, as from its tree.
     await page.keyboard.press('Control+k');
@@ -297,6 +301,7 @@ test.describe('the search of cards and pages', () => {
     await page.keyboard.press('Enter');
     await expect(page).toHaveURL(onPage(keeping));
     await expect(title).toHaveValue('Lighthouse keeping');
+    await expect(page.locator('main')).toBeFocused();
 
     // A card from a page, and a page from the card.
     await goTo(page, 'beacon', 'Keeper notes');
@@ -486,5 +491,35 @@ test.describe('the search of cards and pages', () => {
     await hits(page).first().click();
     await expect(page.getByTestId('card-dialog')).toBeVisible();
     await expect(dialog(page)).toHaveCount(0);
+  });
+
+  test('a phone held sideways, too low for the dialog, is filled by it from edge to edge', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 844, height: 390 });
+    await openWithSearch(page);
+    await page.keyboard.press('Control+k');
+    await expect(dialog(page)).toHaveAttribute('data-compact', 'true');
+    await expect.poll(async () => (await dialog(page).boundingBox())?.width).toBe(844);
+    expect((await dialog(page).boundingBox())?.x).toBe(0);
+  });
+
+  test('a hit opened in a new tab leaves the search open, the focus in its field', async ({
+    page,
+  }) => {
+    await openWithSearch(page);
+    await cardWith(page, 'Ibis', 'a tab of its own');
+    await page.keyboard.press('Control+k');
+    await search(page, 'ibis');
+    await expect(hits(page)).toHaveCount(1);
+    // The browser's click: a new tab (in the background, of no interest here), the search left open.
+    await hits(page)
+      .first()
+      .click({ modifiers: ['ControlOrMeta'] });
+    await expect(dialog(page)).toBeVisible();
+    await expect(field(page)).toBeFocused();
+    await expect(hits(page).first()).toHaveAttribute('aria-selected', 'true');
+    await page.keyboard.press('Enter');
+    await expect(page.getByTestId('card-dialog')).toBeVisible();
   });
 });
