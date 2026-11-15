@@ -7,6 +7,7 @@
  */
 import { expect, test, type Browser, type Page } from '@playwright/test';
 
+import { primaryKey } from '../e2e/keyboard.support.ts';
 import { topBar } from '../e2e/shell.support.ts';
 
 import {
@@ -115,7 +116,7 @@ test('comments on a page arrive at the other person as they are written, changed
   await own.locator('[data-action="edit"]').click();
   const field = own.getByRole('textbox', { name: 'Comment text' });
   await field.fill('From the commenter, changed');
-  await field.press('Control+Enter');
+  await field.press(await primaryKey(second, 'Enter'));
   await expect(rows(first).first()).toContainText('From the commenter, changed');
   await expect(rows(first).first().getByTestId('comment-edited')).toBeVisible();
   await rows(first).first().locator('[data-action="history"]').click();
