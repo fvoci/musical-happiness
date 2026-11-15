@@ -80,6 +80,11 @@ export class SharedBackend implements Backend {
     read: refused,
     restore: refused,
   };
+  /** No search through a public link: the board is all there is to read. */
+  readonly search: Backend['search'] = {
+    enabled: () => Promise.resolve(false),
+    find: nothing,
+  };
   readonly #http: Http;
   readonly #boardId: string;
   readonly #readToken: string;

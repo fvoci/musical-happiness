@@ -80,7 +80,9 @@ import { changeDisplayName } from './account.ts';
 import { archiveOf } from './archive.ts';
 import { checkedBody, checkedWhole, flushBoards, flushCard, openMemoryRoom } from './bodies.ts';
 import { checkRelations, renameCopied } from './references.ts';
+import { MemoryContentSearch } from './content-search.ts';
 import { fail } from './refuse.ts';
+import { nextScreenState } from './screen-state.ts';
 import {
   deletedBoardsOf,
   deletedCardsOf,
@@ -101,7 +103,6 @@ import {
   MEMORY_ARCHIVE,
   memberOf,
   scramble,
-  SCREEN_STATE_KEY,
   summaryOf,
   viewOf,
   wireOf,
@@ -116,6 +117,7 @@ export class MemoryBackend implements Backend {
   readonly userId: string;
   readonly presence: MemoryPresence;
   readonly bodyVersions: MemoryBodyVersions;
+  readonly search: MemoryContentSearch;
   /** Milliseconds every call waits before it answers. */
   latency = 0;
   readonly #failures = new Map<MethodName, BackendError>();
@@ -125,6 +127,7 @@ export class MemoryBackend implements Backend {
     this.userId = userId;
     this.presence = new MemoryPresence(world, userId);
     this.bodyVersions = new MemoryBodyVersions(world, userId, () => this.#enter('bodyVersions'));
+    this.search = new MemoryContentSearch(world, userId, () => this.#enter('search'));
   }
 
   /** The same world, seen and changed by another user. */
@@ -296,33 +299,8 @@ export class MemoryBackend implements Backend {
 
   async patchScreenState(updated: Record<string, string>, deleted: string[] = []): Promise<void> {
     await this.#enter('patchScreenState');
-    const next = Object.fromEntries(
-      Object.entries(this.world.screenState.get(this.userId) ?? {}).filter(
-        ([key]) => !deleted.includes(key),
-      ),
-    );
-    for (const [key, value] of Object.entries(updated)) {
-      if (!SCREEN_STATE_KEY.test(key)) {
-        fail(400, 'invalid key', {
-          field: key,
-          within: 'updatedFields',
-          reason: 'invalid_characters',
-        });
-      }
-      if (new TextEncoder().encode(value).length > LIMITS.screenStateValueBytes) {
-        fail(400, 'value too long', {
-          field: key,
-          within: 'updatedFields',
-          reason: 'too_long',
-          limit: LIMITS.screenStateValueBytes,
-        });
-      }
-      next[key] = value;
-    }
-    if (Object.keys(next).length > LIMITS.screenStateKeys) {
-      fail(400, 'too many keys', { limit: LIMITS.screenStateKeys });
-    }
-    this.world.screenState.set(this.userId, next);
+    const current = this.world.screenState.get(this.userId) ?? {};
+    this.world.screenState.set(this.userId, nextScreenState(current, updated, deleted));
   }
 
   // ------------------------------------------------------------- boards

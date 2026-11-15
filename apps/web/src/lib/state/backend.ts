@@ -37,6 +37,7 @@ import type { DocRooms } from './body-doc.ts';
 import type { VersionsOfBodies } from './body-versions.ts';
 import type { WorkspaceRole } from './people-types.ts';
 import type { TrashReads } from './trash-reads.ts';
+import type { ContentSearchOfBackend } from './content-search.ts';
 
 export type {
   AcceptedInvitation,
@@ -50,6 +51,7 @@ export type {
   SignInOrganization,
 } from './account-types.ts';
 export type { DeletedItem, Paging, TrashReads } from './trash-reads.ts';
+export * from './content-search.ts';
 export type { BodyDoc, BodyDocHears, BodyDocState, BodyDocStatus, DocRooms } from './body-doc.ts';
 
 /** What an import did beyond making the archive's boards. */
@@ -60,19 +62,7 @@ export interface Imported {
 
 // ----------------------------------------------------------------- errors
 
-export {
-  BackendError,
-  ERROR_STATUSES,
-  isBackendError,
-  isConflict,
-  isSignedOut,
-  problemOf,
-  refusedMember,
-  ssoOrgOf,
-  type ErrorStatus,
-  type InvalidInput,
-  type Problem,
-} from './problems.ts';
+export * from './problems.ts';
 
 // ------------------------------------------------------------------ model
 
@@ -310,7 +300,8 @@ export function isViewBlock(block: ChangedBlock): block is BoardView {
 
 // ---------------------------------------------------------------- backend
 
-export interface Backend extends DocRooms, TrashReads, PresenceOfBoards, VersionsOfBodies {
+export interface Backend
+  extends DocRooms, TrashReads, PresenceOfBoards, VersionsOfBodies, ContentSearchOfBackend {
   // The reader and the people around them.
   me(): Promise<User>;
   /** Changes the reader's display name, as the server reads it (`patchMe`); `null` is none. */

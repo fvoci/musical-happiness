@@ -82,6 +82,8 @@
     onSwitchWorkspace?: (workspaceId: string) => void;
     /** Reads the workspace's records. Without it (no server) they are not offered. */
     readRecords?: (workspaceId: string) => Promise<AuditRecord[]>;
+    /** The button of the search of the workspace, in the top bar; none where there is no search. */
+    search?: Snippet<[Workspace]>;
     /** The page: what is shown beside the sidebar. */
     children: Snippet;
   }
@@ -103,6 +105,7 @@
     orgHref,
     onSwitchWorkspace,
     readRecords,
+    search,
     children,
   }: Props = $props();
 
@@ -338,6 +341,7 @@
       {sharedHref}
       menuButton={layout.menuButton}
       onOpenSidebar={openDrawer}
+      {search}
     />
     <div class="relative min-h-0 flex-1">
       {@render children()}
