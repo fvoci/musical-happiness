@@ -42,7 +42,7 @@ impl Open {
             match self.peer.incoming(PATIENCE).await {
                 Incoming::Closed => break true,
                 Incoming::Nothing => break false,
-                Incoming::Text(_) | Incoming::Frame(_) => {}
+                Incoming::Text(_) | Incoming::Frame(_) | Incoming::Caret(_) => {}
             }
         };
         socket && peer
@@ -55,7 +55,7 @@ impl Open {
             match self.peer.incoming(QUIET).await {
                 Incoming::Closed => break false,
                 Incoming::Nothing => break true,
-                Incoming::Text(_) | Incoming::Frame(_) => {}
+                Incoming::Text(_) | Incoming::Frame(_) | Incoming::Caret(_) => {}
             }
         };
         socket && peer

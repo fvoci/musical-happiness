@@ -9,9 +9,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
 
 import { LiveChanges } from '$lib/api/live.ts';
-import { decodeDocFrame, encodeDocFrame, SYNC_STEP_2, SYNC_UPDATE } from '$lib/logic/doc-frame.ts';
+import {
+  decodeCaretFrame,
+  decodeDocFrame,
+  encodeCaretFrame,
+  encodeDocFrame,
+  SYNC_STEP_1,
+  SYNC_STEP_2,
+  SYNC_UPDATE,
+} from '$lib/logic/doc-frame.ts';
 import type { BodyDoc, BodyDocHears, BodyDocState, Change } from '$lib/state/backend.ts';
+import { CARET_WAIT } from '$lib/state/doc-carets.ts';
 import { missingFrom, openRoom } from '$lib/state/doc-client.ts';
+import { caretTold } from '$lib/state/memory/caret-frame.ts';
 import { bodyOf, FIELD, roomsOf } from '$lib/state/memory/rooms.ts';
 
 import { setup } from './support.ts';
@@ -95,6 +105,111 @@ describe('the rooms of the backend in memory', () => {
     await vi.waitFor(() => {
       expect(roomsOf(stored).members(cardId)).toBe(0);
     });
+  });
+
+  it('takes what a reader sent in the order sent, also what arrives at one moment', async () => {
+    const { backend, boardId, cardId } = world();
+    const told = listener();
+    const mine = backend.openDoc('w', boardId, cardId, told);
+    const a = await joined(mine);
+    // Slow, then fast: what is sent next arrives at the moment the slow one does, and each
+    // change rests on the one before it. (Here the timers of one moment fire in the order
+    // they were made; a browser's need not, which the card's browser tests would show.)
+    backend.latency = 300;
+    append(a, 'slow');
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    backend.latency = 0;
+    for (let sent = 0; sent < 12; sent += 1) {
+      append(a, `fast ${String(sent)}`);
+      await new Promise((resolve) => setTimeout(resolve, 35));
+    }
+    await vi.waitFor(() => {
+      expect(mine.state.pending).toBe(false);
+    });
+    expect(told.lost).toEqual([]);
+    expect(mine.state.status).toBe('joined');
+    expect(texts(mine.state.doc).filter((line) => line.includes('fast'))).toHaveLength(12);
+    mine.close();
+  });
+
+  it('sends who comes in again with the document of this making its state vector and what they lack', async () => {
+    const { world: stored, backend, other, boardId, cardId } = world();
+    const frames: { sync: number; payload: Uint8Array }[] = [];
+    const joins: number[] = [];
+    const port = roomsOf(stored).line(
+      backend,
+      boardId,
+      cardId,
+    )({
+      up: () => undefined,
+      down: () => undefined,
+      message: (message) => {
+        if (message.action === 'DOC_JOINED') joins.push(message.epoch);
+      },
+      frame: (frame) => frames.push(frame),
+      carets: () => undefined,
+    });
+    port.join();
+    await vi.waitFor(() => {
+      expect(frames).toHaveLength(1);
+    });
+    const held = new Y.Doc();
+    Y.applyUpdate(held, frames[0]?.payload ?? new Uint8Array());
+    // The words of the body as it was stored: the whole carries them, a difference need not.
+    const storedWords = held.getXmlFragment(FIELD).toDOM().textContent ?? '';
+    const carries = (payload: Uint8Array | undefined): boolean =>
+      new TextDecoder().decode(payload).includes(storedWords);
+    expect(storedWords).not.toBe('');
+    expect(carries(frames[0]?.payload)).toBe(true);
+    // Somebody else writes while this reader is away with the document.
+    const theirs = backend.openDoc('w', boardId, cardId, listener());
+    append(await joined(theirs), 'meanwhile');
+    await vi.waitFor(() => {
+      expect(theirs.state.pending).toBe(false);
+    });
+
+    // (In the room, the seat was sent that change too; the document it went away with was not.)
+    await vi.waitFor(() => {
+      expect(frames).toHaveLength(2);
+    });
+    port.join({ epoch: joins[0] ?? 0, stateVector: Y.encodeStateVector(held) });
+    await vi.waitFor(() => {
+      expect(frames).toHaveLength(4);
+    });
+    expect(frames.slice(2).map((frame) => frame.sync)).toEqual([SYNC_STEP_1, SYNC_STEP_2]);
+    expect(carries(frames[3]?.payload)).toBe(false);
+    Y.applyUpdate(held, frames[3]?.payload ?? new Uint8Array());
+    expect(texts(held)).toEqual(texts(theirs.state.doc));
+    // Who only reads is sent the whole, whatever they name.
+    await backend.setMemberRole(boardId, other.userId, 'viewer');
+    const read: { sync: number; payload: Uint8Array }[] = [];
+    const reader = roomsOf(stored).line(
+      other,
+      boardId,
+      cardId,
+    )({
+      up: () => undefined,
+      down: () => undefined,
+      message: () => undefined,
+      frame: (frame) => read.push(frame),
+      carets: () => undefined,
+    });
+    reader.join({ epoch: joins[0] ?? 0, stateVector: Y.encodeStateVector(held) });
+    await vi.waitFor(() => {
+      expect(read).toHaveLength(1);
+    });
+    expect([read[0]?.sync, carries(read[0]?.payload)]).toEqual([SYNC_STEP_2, true]);
+    reader.close();
+    // Of another epoch, or with what is no state vector: the whole.
+    port.join({ epoch: 99, stateVector: Y.encodeStateVector(held) });
+    port.join({ epoch: joins[0] ?? 0, stateVector: new Uint8Array([5]) });
+    await vi.waitFor(() => {
+      expect(frames).toHaveLength(6);
+    });
+    expect(frames.slice(4).map((frame) => frame.sync)).toEqual([SYNC_STEP_2, SYNC_STEP_2]);
+    expect(frames.slice(4).map((frame) => carries(frame.payload))).toEqual([true, true]);
+    port.close();
+    theirs.close();
   });
 
   it('lets a viewer in to read: they see the changes and cannot write', async () => {
@@ -284,7 +399,17 @@ describe('a room on the page connection', () => {
     vi.advanceTimersByTime(600);
     expect(socket()).not.toBe(first);
     socket().open();
-    expect(socket().texts).toContainEqual({ action: 'JOIN_DOC', workspaceId: 'w1', cardId: 'c1' });
+    // The join names the document held: its epoch, and its state vector in base64.
+    const held = body.state.doc;
+    if (!held) throw new Error('no document');
+    const stateVector = Buffer.from(Y.encodeStateVector(held)).toString('base64');
+    expect(socket().texts).toContainEqual({
+      action: 'JOIN_DOC',
+      workspaceId: 'w1',
+      cardId: 'c1',
+      epoch: 2,
+      stateVector,
+    });
     expect(body.state.status).toBe('receiving');
     socket().message({
       action: 'DOC_JOINED',
@@ -298,6 +423,131 @@ describe('a room on the page connection', () => {
     expect(body.state).toMatchObject({ status: 'joined', writable: true });
     // The same epoch: the document held goes on, nothing doubled.
     expect(texts(body.state.doc)).toHaveLength(1);
+    body.close();
+  });
+
+  it('back after a drop, takes what it lacks, sends what the server lacks, and tells its caret again', () => {
+    const { live, socket } = server();
+    const told = listener();
+    const body = openRoom(live.rooms.line('w1', 'c1'), told);
+    const joined = (doc: number): void => {
+      socket().message({
+        action: 'DOC_JOINED',
+        workspaceId: 'w1',
+        cardId: 'c1',
+        doc,
+        epoch: 2,
+        mode: 'write',
+      });
+    };
+    const theirs = new Y.Doc();
+    Y.applyUpdate(theirs, whole());
+    socket().open();
+    joined(1);
+    socket().binary(
+      encodeDocFrame({
+        doc: 1,
+        epoch: 2,
+        sync: SYNC_STEP_2,
+        payload: Y.encodeStateAsUpdate(theirs),
+      }),
+    );
+    const { doc, carets } = body.state;
+    if (!doc || !carets) throw new Error('no document');
+    // The reader is in the body, and somebody else is too.
+    const place = Y.createRelativePositionFromTypeIndex(doc.getXmlFragment(FIELD), 0);
+    carets.setLocalStateField('cursor', { anchor: place, head: place });
+    vi.advanceTimersByTime(CARET_WAIT);
+    const caretFrames = (of: FakeSocket): number =>
+      of.frames.filter((frame) => decodeCaretFrame(frame) !== undefined).length;
+    expect(caretFrames(socket())).toBe(1);
+    const other = '{"user":{"id":"u2"},"cursor":null}';
+    socket().binary(encodeCaretFrame({ doc: 1, epoch: 2, update: caretTold(77, 1, other) }));
+    expect(carets.getStates().has(77)).toBe(true);
+
+    // The connection drops; both write meanwhile, the reader deleting what both held.
+    socket().drop();
+    expect(carets.getStates().has(77)).toBe(false);
+    append(theirs, 'theirs meanwhile');
+    doc.getXmlFragment(FIELD).delete(0, 1);
+    append(doc, 'mine meanwhile');
+    vi.advanceTimersByTime(600);
+    socket().open();
+    joined(2);
+    // The server's state vector, and what the reader lacks of its document: not the whole.
+    const lacked = Y.encodeStateAsUpdate(theirs, Y.encodeStateVector(doc));
+    socket().binary(
+      encodeDocFrame({ doc: 2, epoch: 2, sync: SYNC_STEP_1, payload: Y.encodeStateVector(theirs) }),
+    );
+    socket().binary(encodeDocFrame({ doc: 2, epoch: 2, sync: SYNC_STEP_2, payload: lacked }));
+    expect(body.state).toMatchObject({ status: 'joined', writable: true, pending: true });
+    expect(texts(doc)).toContain('<paragraph>theirs meanwhile</paragraph>');
+    // What the server lacks goes as one change; taken, both hold the same.
+    vi.advanceTimersByTime(50);
+    const sent = socket()
+      .frames.map((frame) => decodeDocFrame(frame))
+      .filter((frame) => frame !== undefined);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ doc: 2, epoch: 2, sync: SYNC_UPDATE });
+    Y.applyUpdate(theirs, sent[0]?.payload ?? new Uint8Array());
+    socket().message({ action: 'DOC_ACK', doc: 2, epoch: 2, seq: 9 });
+    expect(body.state.pending).toBe(false);
+    expect(texts(theirs)).toEqual(texts(doc));
+    // What both held was deleted by the reader; what each wrote meanwhile is there.
+    expect([...texts(doc)].sort()).toEqual([
+      '<paragraph>mine meanwhile</paragraph>',
+      '<paragraph>theirs meanwhile</paragraph>',
+    ]);
+    expect(told.lost).toEqual([]);
+    // The room is told where the reader is again, in the room's new number.
+    vi.advanceTimersByTime(CARET_WAIT);
+    const again = socket()
+      .frames.map((frame) => decodeCaretFrame(frame))
+      .filter((frame) => frame !== undefined);
+    expect(again).toHaveLength(1);
+    expect(again[0]).toMatchObject({ doc: 2, epoch: 2 });
+    body.close();
+  });
+
+  it('sends all it holds when the state vector of the server cannot be read', () => {
+    const { live, socket } = server();
+    const body = openRoom(live.rooms.line('w1', 'c1'), listener());
+    const joined = (doc: number): void => {
+      socket().message({
+        action: 'DOC_JOINED',
+        workspaceId: 'w1',
+        cardId: 'c1',
+        doc,
+        epoch: 2,
+        mode: 'write',
+      });
+    };
+    socket().open();
+    joined(1);
+    socket().binary(encodeDocFrame({ doc: 1, epoch: 2, sync: SYNC_STEP_2, payload: whole() }));
+    const doc = body.state.doc;
+    if (!doc) throw new Error('no document');
+    socket().drop();
+    append(doc, 'mine meanwhile');
+    vi.advanceTimersByTime(600);
+    socket().open();
+    joined(2);
+    // Five clients, the state vector says, and names none.
+    const unreadable = new Uint8Array([5]);
+    socket().binary(encodeDocFrame({ doc: 2, epoch: 2, sync: SYNC_STEP_1, payload: unreadable }));
+    socket().binary(
+      encodeDocFrame({ doc: 2, epoch: 2, sync: SYNC_STEP_2, payload: new Uint8Array([0, 0]) }),
+    );
+    vi.advanceTimersByTime(50);
+    const sent = socket()
+      .frames.map((frame) => decodeDocFrame(frame))
+      .filter((frame) => frame !== undefined);
+    expect(sent).toHaveLength(1);
+    const theirs = new Y.Doc();
+    Y.applyUpdate(theirs, sent[0]?.payload ?? new Uint8Array());
+    expect(texts(theirs)).toEqual(texts(doc));
+    // Not taken as known to the server until it says so.
+    expect(body.state.pending).toBe(true);
     body.close();
   });
 
