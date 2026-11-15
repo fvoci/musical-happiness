@@ -66,7 +66,9 @@
     const workspaceId = workspace.info?.id;
     if (!enabled.on || !workspaceId || otherOverlayOpen()) return false;
     const focused = document.activeElement;
-    opener = from ?? (focused instanceof HTMLElement ? focused : undefined);
+    // Not the field of the search that was just closed and is fading out: it goes.
+    const kept = focused instanceof HTMLElement && !focused.closest('[data-search-dialog]');
+    opener = from ?? (kept ? focused : undefined);
     session?.close();
     session = new SearchSession({
       find: (ask) => workspace.backend.search.find(workspaceId, ask),
@@ -84,11 +86,12 @@
 
   /**
    * Whether a drawer, a sheet or a dialog other than a card's is open: all are
-   * modal (`aria-modal`), and those the back button closes say so too. The
-   * search's own, closed and still fading out, is none.
+   * modal (`aria-modal`), and those the back button closes say so too. A
+   * dialog closed and still fading out (the search's own, after a hit was
+   * chosen) is none.
    */
   function otherOverlayOpen(): boolean {
-    const other = '[aria-modal="true"]:not([data-card-dialog], [data-search-dialog])';
+    const other = '[aria-modal="true"]:not([data-card-dialog], [data-state="closed"])';
     return overlayOpen() || document.querySelector(other) !== null;
   }
 

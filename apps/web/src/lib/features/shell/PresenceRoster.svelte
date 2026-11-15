@@ -110,6 +110,7 @@
     data-testid="board-members-count"
     aria-haspopup="dialog"
     aria-label={m.presence_members_short({ count: members })}
+    title={m.presence_members_short({ count: members })}
     class="flex min-h-8 shrink-0 items-center gap-0.5 rounded-md px-1 text-xs whitespace-nowrap text-muted-foreground hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring roomy:min-h-touch"
     onclick={onMembers}
   >
