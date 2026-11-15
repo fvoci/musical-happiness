@@ -20,16 +20,16 @@ use crate::accounts::{self, Which};
 use crate::audit::{self, AuditEntry};
 use crate::boards::{find_member, lock_board, save_member};
 use crate::db::{Dialect, Id, OptId, Param, Row, Scope, Sql};
-use crate::error::StoreError;
+use crate::error::{StoreError, Taken};
 use crate::trash::{self, TrashedRoles};
 use crate::users::InstanceRole;
-use crate::{Standing, Store};
+use crate::{Standing, Store, signups};
 
 /// The columns of an invitation, in the order [`invitation_from_row`] reads them.
 const COLUMNS: &str = "id, workspace_id, role, board_id, board_role, created_by, create_at, \
                        expires_at, max_uses, uses, parent_id, recipient";
 /// [`COLUMNS`] of the table as `i`.
-const COLUMNS_OF_I: &str = "i.id, i.workspace_id, i.role, i.board_id, i.board_role, \
+pub(crate) const COLUMNS_OF_I: &str = "i.id, i.workspace_id, i.role, i.board_id, i.board_role, \
                             i.created_by, i.create_at, i.expires_at, i.max_uses, i.uses, \
                             i.parent_id, i.recipient";
 
@@ -81,6 +81,16 @@ pub enum Acceptor<'a> {
     Account(&'a str),
     /// A new account, stored with the acceptance and updated to what was stored.
     NewAccount(&'a mut User),
+    /// A new account, made from the browser of a registration that waits for its
+    /// address, which it replaces.
+    Replacing {
+        /// The account, stored with the acceptance and updated to what was stored.
+        user: &'a mut User,
+        /// The digest of the marker of the browser's registration: removed with the
+        /// acceptance, its name and address free for the account and its use of a
+        /// link given back, of this link too.
+        browser: &'a str,
+    },
 }
 
 /// Who made a link, as the server found them when it found that their link lets
@@ -227,7 +237,9 @@ impl Store {
     }
 
     /// The live link of the handle's organization whose token has the digest
-    /// `token_hash`, if there is one at `now`.
+    /// `token_hash`, if there is one at `now`; live also if only the registration made
+    /// from the browser whose marker has the digest `replacing` uses it up: what the
+    /// browser does next replaces that registration.
     ///
     /// # Errors
     ///
@@ -237,9 +249,10 @@ impl Store {
         &self,
         token_hash: &str,
         now: i64,
+        replacing: Option<&str>,
     ) -> Result<Option<Invitation>, StoreError> {
         self.with_conn(async |scope| {
-            let sql = select_live_by_token(scope, token_hash, now)?;
+            let sql = select_live_by_token(scope, token_hash, now, replacing)?;
             scope
                 .fetch_optional(sql)
                 .await?
@@ -299,6 +312,9 @@ impl Store {
         now: i64,
     ) -> Result<bool, StoreError> {
         self.transaction(async |scope| {
+            // The link and its children: against a registration by a child that
+            // replaces one by the link.
+            signups::hold_several_links(scope).await?;
             let mut sql = scope.sql("UPDATE invitations AS i SET revoked_at = ");
             sql.bind(now.max(1))
                 .push_bind(" WHERE i.id = ", Id(invitation_id))
@@ -379,7 +395,8 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::Conflict`] if a new account's name or email address is
-    /// taken; [`StoreError::NoOrganization`] if the handle names none; and
+    /// taken, or ([`Taken::LinkUse`]) the link was used as often as it may be after
+    /// all; [`StoreError::NoOrganization`] if the handle names none; and
     /// [`StoreError::Database`] if a statement fails, as it does for an account that
     /// does not exist. Nothing is stored then.
     pub async fn accept_invitation(
@@ -390,88 +407,34 @@ impl Store {
         inviter: Inviter<'_>,
     ) -> Result<Acceptance, StoreError> {
         self.transaction(async |scope| {
-            // Hold the board before its invitation and membership, as removal does.
-            // The acceptor's role then stays what was read until its write.
-            let sql = select_live_by_token(scope, token_hash, now)?;
-            let Some(row) = scope.fetch_optional(sql).await? else {
-                return Ok(Acceptance::Unavailable);
+            let replacing = match &acceptor {
+                Acceptor::Replacing { browser, .. } => Some(*browser),
+                Acceptor::Account(_) | Acceptor::NewAccount(_) => None,
             };
-            if let Some(board_id) = invitation_from_row(&row)?.board_id {
-                // Team changes hold the organization before any board. Keep inherited
-                // board access stable through the grant; workspace links have no such role.
-                crate::org_admin::hold_organization_row(scope).await?;
-                if !lock_board(scope, &board_id).await? {
-                    return Ok(Acceptance::Unavailable);
-                }
+            if replacing.is_some() {
+                // The link of what is replaced may be another than this one.
+                signups::hold_several_links(scope).await?;
             }
-            // The link itself, held against the other acceptances of it: read again,
-            // it is live still, and its workspace still invites guests if it is for one.
-            let mut sql = select_live_by_token(scope, token_hash, now)?;
-            sql.push_bind(" AND (i.role <> ", WorkspaceRole::Guest.as_str())
-                .push_bind(
-                    " OR EXISTS (SELECT 1 FROM workspaces AS t WHERE t.id = i.workspace_id \
-                     AND t.guest_invitations = ",
-                    true,
-                )
-                .push("))");
-            if scope.dialect() == Dialect::Postgres {
-                sql.push(" FOR UPDATE OF i");
-            }
-            let Some(row) = scope.fetch_optional(sql).await? else {
-                return Ok(Acceptance::Unavailable);
+            let held = hold_live_link(scope, token_hash, now, inviter.standing, replacing);
+            let link = match held.await? {
+                Ok(link) => link,
+                Err(refused) => return Ok(refused),
             };
-            let link = invitation_from_row(&row)?;
-            if !inviter_still(scope, &link, inviter.standing).await? {
-                return Ok(Acceptance::InviterChanged);
-            }
             let user_id = match acceptor {
                 Acceptor::Account(user_id) => user_id.to_owned(),
                 Acceptor::NewAccount(user) => {
                     accounts::insert_account(scope, user, InstanceRole::User).await?;
                     user.id.clone()
                 }
-            };
-            // What the link gives is said by its role: a row whose board does not go
-            // with its role is broken, and lets nobody in as anything.
-            let used = match (link.role, &link.board_id, link.board_role) {
-                (WorkspaceRole::Member, None, None) => {
-                    let_in_as_member(scope, &link.workspace_id, &user_id).await?
-                }
-                (WorkspaceRole::Guest, Some(board_id), Some(board_role)) => {
-                    let guest = BoardMember {
-                        board_id: board_id.clone(),
-                        user_id: user_id.clone(),
-                        ..BoardMember::default()
-                    }
-                    .with_role(Some(board_role));
-                    let let_in = let_in_as_guest(scope, &link.workspace_id, guest).await?;
-                    // Whom a manager who does not read the board puts on it is on the
-                    // record, by a link as by adding them.
-                    if let_in.onto_board && inviter.of_board == InviterOfBoard::ManagerOnly {
-                        let entry = AuditEntry::new(
-                            &link.workspace_id,
-                            &link.created_by,
-                            AuditAction::AddedToBoard,
-                            board_id,
-                        )
-                        .with_subject(&user_id);
-                        audit::record_entry(scope, &entry).await?;
-                    }
-                    let_in.changed
-                }
-                _ => {
-                    return Err(StoreError::Corrupt {
-                        column: "role",
-                        reason: "an invitation is for members, or for a guest of a board"
-                            .to_owned(),
-                    });
+                Acceptor::Replacing { user, browser } => {
+                    signups::discard_of_browser(scope, browser).await?;
+                    accounts::insert_account(scope, user, InstanceRole::User).await?;
+                    user.id.clone()
                 }
             };
+            let used = let_in(scope, &link, &user_id, inviter.of_board).await?;
             if used {
-                let mut sql = scope.sql("UPDATE invitations SET uses = uses + 1 WHERE id = ");
-                sql.bind(Id(&link.id))
-                    .push_bind(" AND org_id = ", scope.org()?);
-                scope.execute(sql).await?;
+                take_use(scope, &link.id).await?;
             }
             Ok(Acceptance::Accepted(Accepted {
                 user_id,
@@ -482,6 +445,142 @@ impl Store {
         })
         .await
     }
+}
+
+/// Holds the live link of the scope's organization whose token has the digest
+/// `token_hash` at `now`, against the other acceptances of it, after its board and the
+/// organization's row for a guest's link (as removal holds them), and its maker's
+/// membership of the workspace if they are still `found`: the link, or what the
+/// acceptance is to answer instead.
+pub(crate) async fn hold_live_link(
+    scope: &mut Scope<'_>,
+    token_hash: &str,
+    now: i64,
+    found: Standing<'_>,
+    replacing: Option<&str>,
+) -> Result<Result<Invitation, Acceptance>, StoreError> {
+    // Hold the board before its invitation and membership, as removal does.
+    // The acceptor's role then stays what was read until its write.
+    let sql = select_live_by_token(scope, token_hash, now, replacing)?;
+    let Some(row) = scope.fetch_optional(sql).await? else {
+        return Ok(Err(Acceptance::Unavailable));
+    };
+    if let Some(board_id) = invitation_from_row(&row)?.board_id {
+        // Team changes hold the organization before any board. Keep inherited
+        // board access stable through the grant; workspace links have no such role.
+        crate::org_admin::hold_organization_row(scope).await?;
+        if !lock_board(scope, &board_id).await? {
+            return Ok(Err(Acceptance::Unavailable));
+        }
+    }
+    // The link itself, held against the other acceptances of it: read again,
+    // it is live still, and its workspace still invites guests if it is for one.
+    let mut sql = select_live_by_token(scope, token_hash, now, replacing)?;
+    push_invites(&mut sql);
+    if scope.dialect() == Dialect::Postgres {
+        sql.push(" FOR UPDATE OF i");
+    }
+    let Some(row) = scope.fetch_optional(sql).await? else {
+        return Ok(Err(Acceptance::Unavailable));
+    };
+    let link = invitation_from_row(&row)?;
+    if !inviter_still(scope, &link, found).await? {
+        return Ok(Err(Acceptance::InviterChanged));
+    }
+    Ok(Ok(link))
+}
+
+/// Pushes the condition that the link `i` is for members, or that its workspace still
+/// invites guests.
+pub(crate) fn push_invites(sql: &mut Sql) {
+    sql.push_bind(" AND (i.role <> ", WorkspaceRole::Guest.as_str())
+        .push_bind(
+            " OR EXISTS (SELECT 1 FROM workspaces AS t WHERE t.id = i.workspace_id \
+             AND t.guest_invitations = ",
+            true,
+        )
+        .push("))");
+}
+
+/// Lets the user `user_id` in by `link`, as [`Store::accept_invitation`] says, its
+/// maker being `of_board` to a guest's board; says whether anything changed, which
+/// counts as a use of the link.
+pub(crate) async fn let_in(
+    scope: &mut Scope<'_>,
+    link: &Invitation,
+    user_id: &str,
+    of_board: InviterOfBoard,
+) -> Result<bool, StoreError> {
+    // What the link gives is said by its role: a row whose board does not go
+    // with its role is broken, and lets nobody in as anything.
+    match (link.role, &link.board_id, link.board_role) {
+        (WorkspaceRole::Member, None, None) => {
+            let_in_as_member(scope, &link.workspace_id, user_id).await
+        }
+        (WorkspaceRole::Guest, Some(board_id), Some(board_role)) => {
+            let guest = BoardMember {
+                board_id: board_id.clone(),
+                user_id: user_id.to_owned(),
+                ..BoardMember::default()
+            }
+            .with_role(Some(board_role));
+            let let_in = let_in_as_guest(scope, &link.workspace_id, guest).await?;
+            // Whom a manager who does not read the board puts on it is on the
+            // record, by a link as by adding them.
+            if let_in.onto_board && of_board == InviterOfBoard::ManagerOnly {
+                let entry = AuditEntry::new(
+                    &link.workspace_id,
+                    &link.created_by,
+                    AuditAction::AddedToBoard,
+                    board_id,
+                )
+                .with_subject(user_id);
+                audit::record_entry(scope, &entry).await?;
+            }
+            Ok(let_in.changed)
+        }
+        _ => Err(StoreError::Corrupt {
+            column: "role",
+            reason: "an invitation is for members, or for a guest of a board".to_owned(),
+        }),
+    }
+}
+
+/// Counts `uses` more uses of the link `link_id` of the scope's organization, or gives
+/// some back where `uses` is negative (never below none).
+pub(crate) async fn count_uses(
+    scope: &mut Scope<'_>,
+    link_id: &str,
+    uses: i64,
+) -> Result<(), StoreError> {
+    let mut sql = scope.sql("UPDATE invitations SET uses = uses + ");
+    sql.bind(uses)
+        .push_bind(" WHERE id = ", Id(link_id))
+        .push_bind(" AND org_id = ", scope.org()?)
+        .push_bind(" AND uses + ", uses)
+        .push(" >= 0");
+    scope.execute(sql).await?;
+    Ok(())
+}
+
+/// Counts one more use of the held link `link_id` of the scope's organization, if it
+/// may be used once more. A link is held live before this, which decides for every
+/// link the server makes; this is what stands behind that where a link was found live
+/// only by a registration that the acceptance replaces.
+///
+/// # Errors
+///
+/// Returns [`StoreError::Conflict`] with [`Taken::LinkUse`] if the link was used as
+/// often as it may be.
+pub(crate) async fn take_use(scope: &mut Scope<'_>, link_id: &str) -> Result<(), StoreError> {
+    let mut sql = scope.sql("UPDATE invitations SET uses = uses + 1 WHERE id = ");
+    sql.bind(Id(link_id))
+        .push_bind(" AND org_id = ", scope.org()?)
+        .push(" AND (max_uses IS NULL OR uses < max_uses)");
+    if scope.execute(sql).await? == 0 {
+        return Err(StoreError::Conflict(Taken::LinkUse));
+    }
+    Ok(())
 }
 
 /// Makes the user a member of the scope's organization and of the workspace; says
@@ -519,7 +618,7 @@ async fn let_in_as_member(
 /// workspace is held from here on: who takes them out, or makes them something else
 /// there, waits for the acceptance. The boards of the trash are held before the
 /// membership, as whoever changes a membership has them.
-async fn inviter_still(
+pub(crate) async fn inviter_still(
     scope: &mut Scope<'_>,
     link: &Invitation,
     found: Standing<'_>,
@@ -634,14 +733,14 @@ async fn forget_board_roles(
     trash::change_member_of_deleted_boards(scope, workspace_id, user_id, TrashedRoles::Forget).await
 }
 
-/// Starts the query for the live links of the scope's organization at `now`;
-/// conditions follow with `AND`.
-fn select_live(scope: &Scope<'_>, now: i64) -> Result<Sql, StoreError> {
+/// Starts the query for the live links of the scope's organization at `now`, as
+/// [`push_live_but_for`] counts them; conditions follow with `AND`.
+fn select_live(scope: &Scope<'_>, now: i64, replacing: Option<&str>) -> Result<Sql, StoreError> {
     let mut sql = scope.sql(&format!(
         "SELECT {COLUMNS_OF_I} FROM invitations AS i WHERE i.org_id = "
     ));
     sql.bind(scope.org()?);
-    push_live(&mut sql, now);
+    push_live_but_for(&mut sql, now, replacing);
     Ok(sql)
 }
 
@@ -663,21 +762,43 @@ fn select_listed(scope: &Scope<'_>, now: i64) -> Result<Sql, StoreError> {
 }
 
 /// The query for the live link of the scope's organization with the token's digest.
-fn select_live_by_token(scope: &Scope<'_>, token_hash: &str, now: i64) -> Result<Sql, StoreError> {
-    let mut sql = select_live(scope, now)?;
+fn select_live_by_token(
+    scope: &Scope<'_>,
+    token_hash: &str,
+    now: i64,
+    replacing: Option<&str>,
+) -> Result<Sql, StoreError> {
+    let mut sql = select_live(scope, now, replacing)?;
     sql.push_bind(" AND i.token_hash = ", token_hash);
     Ok(sql)
+}
+
+/// Pushes the conditions that the link `i` is live at `now`, as [`push_live`] does,
+/// for the browser whose marker has the digest `replacing`: the use a registration
+/// made from that browser took of the link does not count against it, since what the
+/// browser does next replaces that registration and gives the use back.
+pub(crate) fn push_live_but_for(sql: &mut Sql, now: i64, replacing: Option<&str>) {
+    sql.push_bind(" AND i.revoked_at = ", 0_i64)
+        .push_bind(" AND i.expires_at > ", now)
+        .push(" AND (i.max_uses IS NULL OR i.uses");
+    if let Some(browser) = replacing {
+        sql.push_bind(
+            " - (SELECT count(*) FROM signups AS s WHERE s.invitation_id = i.id \
+             AND s.invitation_org_id = i.org_id AND s.browser_hash = ",
+            browser,
+        )
+        .push(")");
+    }
+    sql.push(" < i.max_uses)");
 }
 
 /// Pushes the conditions that the link `i` is live at `now`: not revoked, not ended,
 /// and not used as often as it may be.
 pub(crate) fn push_live(sql: &mut Sql, now: i64) {
-    sql.push_bind(" AND i.revoked_at = ", 0_i64)
-        .push_bind(" AND i.expires_at > ", now)
-        .push(" AND (i.max_uses IS NULL OR i.uses < i.max_uses)");
+    push_live_but_for(sql, now, None);
 }
 
-fn invitation_from_row(row: &Row) -> Result<Invitation, StoreError> {
+pub(crate) fn invitation_from_row(row: &Row) -> Result<Invitation, StoreError> {
     let corrupt = |column: &'static str| {
         move |error: fvoci_model::UnknownRole| StoreError::Corrupt {
             column,

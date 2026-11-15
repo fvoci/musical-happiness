@@ -23,7 +23,7 @@
   import type { BoardStore, CardStore } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
-  import { autosize } from './autosize.ts';
+  import { autosize } from '$lib/components/autosize.ts';
   import { commentDoc } from './comment-doc.ts';
   import { draftOf, keepDraft } from './comment-drafts.ts';
 

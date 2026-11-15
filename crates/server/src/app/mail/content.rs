@@ -66,6 +66,24 @@ impl Content {
         Self::link(subject, intro, ending, link, language)
     }
 
+    /// The link that confirms the address of a registration, which signs its person in
+    /// as `username`: named, so that who did not sign up sees whose registration it is.
+    pub(crate) fn verification(link: &str, username: &str, language: Language) -> Self {
+        let (subject, intro, ending) = match language {
+            Language::English => (
+                "Confirm your email address for fvoci",
+                format!("Use this link to confirm your email address and sign in as {username}:"),
+                "This link expires in 24 hours and can be used once. In another browser than the one you signed up in, it asks for the password you chose. If you did not sign up, ignore this message: the sign-up is removed after seven days.",
+            ),
+            Language::Korean => (
+                "fvoci 이메일 주소 확인",
+                format!("다음 링크로 이메일 주소를 확인하고 {username}(으)로 로그인하세요:"),
+                "이 링크는 24시간 동안 한 번만 쓸 수 있습니다. 가입한 브라우저가 아닌 곳에서 열면 가입할 때 정한 비밀번호를 묻습니다. 가입한 적이 없으면 이 메일을 무시하면 됩니다. 확인하지 않은 가입은 7일 뒤 지워집니다.",
+            ),
+        };
+        Self::link(subject, &intro, ending, link, language)
+    }
+
     pub(crate) fn invitation(
         link: &str,
         language: Language,
@@ -85,12 +103,14 @@ impl Content {
             (Language::Korean, fvoci_model::WorkspaceRole::Guest) => {
                 "이 링크는 받는 분만을 위한 것으로, 보드 하나에 한 번 들어올 수 있습니다. 초대가 끝나면 함께 끝납니다."
             }
-            (Language::English, _) => {
-                "This link invites members to a workspace. It keeps its original expiry."
-            }
-            (Language::Korean, _) => {
-                "이 링크로 워크스페이스에 구성원을 초대합니다. 원래 만료일을 유지합니다."
-            }
+            (
+                Language::English,
+                fvoci_model::WorkspaceRole::Admin | fvoci_model::WorkspaceRole::Member,
+            ) => "You join as a member. The link keeps the expiry it was made with.",
+            (
+                Language::Korean,
+                fvoci_model::WorkspaceRole::Admin | fvoci_model::WorkspaceRole::Member,
+            ) => "구성원으로 참여하는 링크입니다. 원래 만료일을 유지합니다.",
         };
         Self::link(subject, intro, ending, link, language)
     }
@@ -164,6 +184,81 @@ mod tests {
             );
             assert!(content.html.contains("&quot;&lt;&amp;"));
             assert!(!content.html.contains("secret\"<&"));
+        }
+    }
+
+    #[test]
+    fn verification_messages_have_both_languages_and_name_no_workspace() {
+        for (language, subject) in [
+            (Language::English, "Confirm your email address for fvoci"),
+            (Language::Korean, "fvoci 이메일 주소 확인"),
+        ] {
+            let content =
+                Content::verification("https://example.test/verify-email#t<", "a<b", language);
+            assert_eq!(content.subject, subject);
+            assert!(
+                content
+                    .plain
+                    .contains("https://example.test/verify-email#t<")
+            );
+            assert!(content.html.contains("#t&lt;"), "{}", content.html);
+            assert!(
+                content.plain.contains("a<b"),
+                "the user name: {}",
+                content.plain
+            );
+            assert!(content.html.contains("a&lt;b"), "escaped: {}", content.html);
+            let said = match language {
+                Language::English => [
+                    "In another browser than the one you signed up in, it asks for the password you chose.",
+                    "If you did not sign up, ignore this message",
+                ],
+                Language::Korean => [
+                    "가입한 브라우저가 아닌 곳에서 열면 가입할 때 정한 비밀번호를 묻습니다.",
+                    "가입한 적이 없으면 이 메일을 무시하면 됩니다",
+                ],
+            };
+            for sentence in said {
+                assert!(content.plain.contains(sentence), "{}", content.plain);
+            }
+            assert!(
+                content
+                    .html
+                    .contains(&format!("lang=\"{}\"", language.tag()))
+            );
+            for text in [content.subject, &content.plain, &content.html] {
+                let text = text.to_lowercase();
+                for word in UNSAID {
+                    assert!(!text.contains(word), "{language:?}: {word} in {text}");
+                }
+            }
+        }
+    }
+
+    /// Words an invitation does not use: until someone has signed up and works with
+    /// others, the product does not name the workspace (the organization it may).
+    const UNSAID: [&str; 2] = ["workspace", "워크스페이스"];
+
+    #[test]
+    fn invitations_name_no_workspace_in_either_language() {
+        use fvoci_model::WorkspaceRole;
+        for language in [Language::English, Language::Korean] {
+            for role in [
+                WorkspaceRole::Admin,
+                WorkspaceRole::Member,
+                WorkspaceRole::Guest,
+            ] {
+                let content = Content::invitation("https://example.test/invite/t", language, role);
+                for text in [content.subject, &content.plain, &content.html] {
+                    let text = text.to_lowercase();
+                    for word in UNSAID {
+                        assert!(
+                            !text.contains(word),
+                            "{language:?} {role:?}: {word} in {text}"
+                        );
+                    }
+                }
+            }
         }
     }
 }

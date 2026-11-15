@@ -12,8 +12,8 @@
 //! the identifiers and from the order of the names.
 
 use fvoci_model::{
-    Block, BlockType, Board, BoardMember, BoardSearchField, BoardType, Category, SubscriberType,
-    Subscription, User, WorkspaceRole, new_id,
+    Block, BlockType, Board, BoardKinds, BoardMember, BoardSearchField, BoardType, Category,
+    SubscriberType, Subscription, User, WorkspaceRole, new_id,
 };
 use fvoci_store::{Looking, Paging, PublicBoards, Reach, Sight, Store};
 
@@ -82,7 +82,12 @@ async fn boards_come_oldest_first() {
     ];
 
     let of_workspace = store
-        .get_boards_for_user_and_workspace(&user_id, &workspace_id, PublicBoards::Include)
+        .get_boards_for_user_and_workspace(
+            &user_id,
+            &workspace_id,
+            PublicBoards::Include,
+            BoardKinds::Boards,
+        )
         .await
         .expect("the boards are read");
     assert_eq!(
@@ -97,13 +102,14 @@ async fn boards_come_oldest_first() {
             BoardSearchField::Title,
             &user_id,
             PublicBoards::Include,
+            BoardKinds::Boards,
         )
         .await
         .expect("the boards are searched");
     assert_eq!(board_ids(&found), expected, "a search of every workspace");
 
     let found_in_workspace = store
-        .search_boards_for_user_in_workspace(&workspace_id, "board", &user_id)
+        .search_boards_for_user_in_workspace(&workspace_id, "board", &user_id, BoardKinds::Boards)
         .await
         .expect("the boards are searched");
     assert_eq!(
@@ -608,7 +614,7 @@ async fn the_trash_comes_the_last_deleted_first() {
         by_id(cards.iter().map(|card| card.id.clone()).collect())
     );
     let listed: Vec<String> = store
-        .get_deleted_boards(&workspace_id, Some(&user_id), None)
+        .get_deleted_boards(&workspace_id, Some(&user_id), None, BoardKinds::Boards)
         .await
         .expect("the deleted boards")
         .into_iter()
@@ -623,6 +629,7 @@ async fn the_trash_comes_the_last_deleted_first() {
                 page: 1,
                 per_page: 2,
             }),
+            BoardKinds::Boards,
         )
         .await
         .expect("a page of the deleted boards")
@@ -631,7 +638,7 @@ async fn the_trash_comes_the_last_deleted_first() {
         .collect();
     assert_eq!(page, by_id(boards.clone())[2..], "the pages cut that order");
     let not_admin = store
-        .get_deleted_boards(&workspace_id, Some(&other_id), None)
+        .get_deleted_boards(&workspace_id, Some(&other_id), None, BoardKinds::Boards)
         .await
         .expect("the deleted boards of an editor");
     assert!(not_admin.is_empty(), "only those the user was an admin of");

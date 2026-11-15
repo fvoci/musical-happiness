@@ -6,6 +6,8 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { setLocale } from '$lib/i18n/paraglide/runtime.js';
+
 import InvitePage from '$lib/features/account/InvitePage.svelte';
 import SignInPage from '$lib/features/account/SignInPage.svelte';
 import {
@@ -76,6 +78,40 @@ describe('the page of an invitation', () => {
     expect(await screen.findByTestId('invite-summary')).toHaveTextContent(
       'Ada invited you to the board “Roadmap” of Acme',
     );
+  });
+
+  it('names the organization, never a workspace, when the workspace has no name, in both languages', async () => {
+    const cases = [
+      { locale: 'en', board: undefined, want: 'Ada invited you to their organization' },
+      {
+        locale: 'en',
+        board: 'Roadmap',
+        want: 'Ada invited you to the board “Roadmap” of their organization',
+      },
+      { locale: 'ko', board: undefined, want: 'Ada 님이 조직에 초대했습니다' },
+      { locale: 'ko', board: 'Roadmap', want: 'Ada 님이 조직의 보드 “Roadmap”에 초대했습니다' },
+    ] as const;
+    try {
+      for (const { locale, board, want } of cases) {
+        void setLocale(locale, { reload: false });
+        mount({
+          preview: () =>
+            Promise.resolve({
+              workspaceName: '',
+              inviterName: 'Ada',
+              ...(board === undefined ? {} : { boardTitle: board }),
+            }),
+        });
+        const summary = await screen.findByTestId('invite-summary');
+        expect(summary.textContent.trim()).toBe(want);
+        expect(screen.getByTestId('invite-page').textContent).not.toMatch(
+          /workspace|워크스페이스/i,
+        );
+        cleanup();
+      }
+    } finally {
+      void setLocale('en', { reload: false });
+    }
   });
 
   it('makes an account for whoever has none, lets it in, and signs it in', async () => {
@@ -212,7 +248,7 @@ describe('the page of an invitation', () => {
 
 describe('the sign-in page and who may make an account', () => {
   function signInPage(registrationOpen: boolean) {
-    const onRegister = vi.fn(() => Promise.resolve());
+    const onRegister = vi.fn(() => Promise.resolve('made' as const));
     const onSignIn = vi.fn(() => Promise.resolve());
     render(SignInPage, {
       props: { onSignIn, onRegister, optionsOf: () => Promise.resolve({ registrationOpen }) },

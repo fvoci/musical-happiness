@@ -16,38 +16,29 @@
   down"), not by dragging.
 -->
 <script lang="ts">
-  import ArrowDownIcon from '@lucide/svelte/icons/arrow-down';
-  import ArrowUpIcon from '@lucide/svelte/icons/arrow-up';
   import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
   import EllipsisIcon from '@lucide/svelte/icons/ellipsis';
   import EyeIcon from '@lucide/svelte/icons/eye';
-  import EyeOffIcon from '@lucide/svelte/icons/eye-off';
-  import FolderInputIcon from '@lucide/svelte/icons/folder-input';
   import FolderPlusIcon from '@lucide/svelte/icons/folder-plus';
-  import LayoutTemplateIcon from '@lucide/svelte/icons/layout-template';
-  import PencilIcon from '@lucide/svelte/icons/pencil';
-  import Trash2Icon from '@lucide/svelte/icons/trash-2';
 
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import ActionMenu from '$lib/components/menu/ActionMenu.svelte';
-  import type { MenuAction } from '$lib/components/menu/actions.ts';
   import { readerPointer } from '$lib/components/drag/reader-pointer.ts';
   import { Sortable } from '$lib/drag/sortable.svelte.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type { Board } from '$lib/logic/wire.ts';
   import type { Category, SidebarCategory, Workspace } from '$lib/state/index.ts';
 
-  import { exportAction } from './board-export.ts';
+  import { shownTitle } from './shown-title.ts';
   import BoardIcon from './BoardIcon.svelte';
   import { boardDragMessages } from './drag-messages.ts';
   import {
-    boardMoveOf,
-    categoryOrderAfterStep,
-    dragOrder,
-    dragZones,
-    filterSidebar,
-    moveToEnd,
-  } from './sidebar-logic.ts';
+    boardActions,
+    categoryActions,
+    categoryLabel,
+    type SidebarMenus,
+  } from './sidebar-actions.ts';
+  import { boardMoveOf, dragOrder, dragZones, filterSidebar, titleHas } from './sidebar-logic.ts';
   import SidebarBoard from './SidebarBoard.svelte';
 
   interface Props {
@@ -100,25 +91,45 @@
    */
   const more = $derived(
     filtering
-      ? found.flatMap((board) => {
-          if (board.workspaceId !== workspace.info?.id) return [board];
-          const known = workspace.boards.find((one) => one.id === board.id);
-          const listed = shown.some((entry) => entry.boards.some((one) => one.id === board.id));
-          return known && !listed ? [known] : [];
-        })
+      ? [
+          ...found.flatMap((board) => {
+            if (board.workspaceId !== workspace.info?.id) return [board];
+            const known = workspace.boards.find((one) => one.id === board.id);
+            const listed = shown.some((entry) => entry.boards.some((one) => one.id === board.id));
+            return known && !listed ? [known] : [];
+          }),
+          // The backend searches boards only: a hidden wiki is found here.
+          ...workspace.hiddenBoards.filter(
+            (board) => board.kind === 'wiki' && titleHas(board.title, query),
+          ),
+        ]
       : [],
   );
   const isHidden = (boardId: string): boolean =>
     workspace.categories.some((category) => category.hiddenBoardIds.includes(boardId));
 
-  const titleOf = (board: Board): string => board.title || m['Sidebar.untitled-board']();
+  const titleOf = shownTitle;
   const boardOf = (id: string): Board | undefined =>
     workspace.boards.find((board) => board.id === id);
-  const categoryName = (id: string): string =>
-    workspace.categories.find((category) => category.id === id)?.name ?? id;
+  const categoryName = (id: string): string => {
+    const category = workspace.categories.find((one) => one.id === id);
+    return category ? categoryLabel(category) : id;
+  };
 
   /** A guest has the boards they were invited to as they are filed: the sidebar is not theirs to arrange. */
   const guest = $derived(workspace.info?.role === 'guest');
+  /** What the menus of the categories and the boards act with (`sidebar-actions.ts`). */
+  const menus = $derived<SidebarMenus>({
+    workspace,
+    guest,
+    boardId,
+    canDeleteOpenBoard,
+    onNewCategory,
+    onRenameCategory,
+    onDeleteCategory,
+    onDeleteBoard,
+    onTemplateFromBoard,
+  });
 
   const sortable = new Sortable({
     order: () => (filtering || guest ? [] : dragOrder(workspace.sidebar)),
@@ -161,118 +172,6 @@
     if (staying === gapAt) rows.push({ kind: 'gap' });
     return rows;
   }
-
-  function stepCategory(category: Category, step: -1 | 1): void {
-    const order = categoryOrderAfterStep(
-      workspace.sidebar.map((entry) => entry.category.id),
-      category.id,
-      step,
-    );
-    if (order) void workspace.reorderCategories(order);
-  }
-
-  function categoryActions(category: Category): MenuAction[] {
-    // Its place among all the categories, not among those a search has left.
-    const at = workspace.sidebar.findIndex((entry) => entry.category.id === category.id);
-    const actions: MenuAction[] = [
-      // The default category keeps its name: the server does not change it.
-      ...(category.type === 'system'
-        ? []
-        : [
-            {
-              id: 'rename',
-              label: m['SidebarCategories.CategoryMenu.Update'](),
-              icon: PencilIcon,
-              run: () => {
-                onRenameCategory(category);
-              },
-            },
-          ]),
-      {
-        id: 'move-up',
-        label: m.shell_category_move_up(),
-        icon: ArrowUpIcon,
-        disabled: at === 0,
-        run: () => {
-          stepCategory(category, -1);
-        },
-      },
-      {
-        id: 'move-down',
-        label: m.shell_category_move_down(),
-        icon: ArrowDownIcon,
-        disabled: at === workspace.sidebar.length - 1,
-        run: () => {
-          stepCategory(category, 1);
-        },
-      },
-      {
-        id: 'new-category',
-        label: m['SidebarCategories.CategoryMenu.CreateNew'](),
-        icon: FolderPlusIcon,
-        separated: true,
-        run: onNewCategory,
-      },
-    ];
-    // The default category is the one every reader has; it cannot be deleted.
-    if (category.type !== 'system') {
-      actions.push({
-        id: 'delete',
-        label: m['SidebarCategories.CategoryMenu.Delete'](),
-        icon: Trash2Icon,
-        destructive: true,
-        separated: true,
-        run: () => {
-          onDeleteCategory(category);
-        },
-      });
-    }
-    return actions;
-  }
-
-  function boardActions(board: Board, home: Category): MenuAction[] {
-    const moves = workspace.sidebar
-      .filter((entry) => entry.category.id !== home.id)
-      .map((entry): MenuAction => ({
-        id: `move-to-${entry.category.id}`,
-        label: m.shell_board_move_to({ category: entry.category.name }),
-        icon: FolderInputIcon,
-        run: () => {
-          const move = moveToEnd(entry.category.id, board.id, workspace.sidebar);
-          if (move) void workspace.moveBoard(move.boardId, move.categoryId, move.index);
-        },
-      }));
-    if (guest) return [exportAction(workspace, board.id)];
-    return [
-      ...moves,
-      exportAction(workspace, board.id, moves.length > 0),
-      {
-        id: 'template-from-board',
-        label: m['Sidebar.template-from-board'](),
-        icon: LayoutTemplateIcon,
-        run: () => {
-          onTemplateFromBoard(board.id);
-        },
-      },
-      {
-        id: 'hide',
-        label: m['HideBoard.MenuOption'](),
-        icon: EyeOffIcon,
-        run: () => void workspace.hideBoard(board.id),
-      },
-      {
-        id: 'delete',
-        label: m['Sidebar.delete-board'](),
-        icon: Trash2Icon,
-        destructive: true,
-        separated: true,
-        disabled: board.id === boardId && !canDeleteOpenBoard,
-        run: () => {
-          onDeleteBoard(board);
-        },
-      },
-    ];
-  }
 </script>
 
 <div
@@ -305,14 +204,14 @@
             class={['size-4 shrink-0 transition-transform', open && 'rotate-90']}
             aria-hidden="true"
           />
-          <span class="min-w-0 flex-1 truncate">{category.name}</span>
+          <span class="min-w-0 flex-1 truncate">{categoryLabel(category)}</span>
         </button>
         {#if !guest}
-          <ActionMenu title={category.name} actions={categoryActions(category)}>
+          <ActionMenu title={categoryLabel(category)} actions={categoryActions(menus, category)}>
             {#snippet trigger(props: Record<string, unknown>)}
               <IconButton
                 {...props}
-                label={m.shell_category_menu({ name: category.name })}
+                label={m.shell_category_menu({ name: categoryLabel(category) })}
                 class="absolute top-0 right-0 text-muted-foreground can-hover:opacity-0 can-hover:group-focus-within/category:opacity-100 can-hover:group-hover/category:opacity-100 can-hover:aria-expanded:opacity-100"
               >
                 <EllipsisIcon />
@@ -327,7 +226,7 @@
         <ul
           class="min-h-8 roomy:min-h-touch"
           data-drag-list={filtering ? undefined : category.id}
-          aria-label={category.name}
+          aria-label={categoryLabel(category)}
         >
           {#each rows as row (row.kind === 'gap' ? ' gap' : row.board.id)}
             {#if row.kind === 'board'}
@@ -335,13 +234,14 @@
                 boardId={row.board.id}
                 title={titleOf(row.board)}
                 icon={row.board.icon}
+                kind={row.board.kind}
                 href={boardHref(row.board)}
                 current={row.board.id === boardId}
                 locale={workspace.locale}
                 draggable={!filtering}
                 lifted={drag?.itemIds.includes(row.board.id) ?? false}
                 describedBy={instructionsId}
-                actions={boardActions(row.board, category)}
+                actions={boardActions(menus, row.board, category)}
                 onOpen={() => {
                   onOpenBoard(row.board);
                 }}
@@ -355,7 +255,12 @@
                   aria-describedby={instructionsId}
                   class="flex min-h-8 items-center gap-2 rounded-md bg-sidebar-accent py-1 pr-2 pl-2 font-medium ring-2 ring-ring outline-none roomy:min-h-touch"
                 >
-                  <BoardIcon icon={lifted.icon} title={titleOf(lifted)} locale={workspace.locale} />
+                  <BoardIcon
+                    icon={lifted.icon}
+                    kind={lifted.kind}
+                    title={titleOf(lifted)}
+                    locale={workspace.locale}
+                  />
                   <span class="min-w-0 flex-1 truncate">{titleOf(lifted)}</span>
                 </div>
               </li>
@@ -388,6 +293,9 @@
             <a
               href={boardHref(board)}
               aria-current={board.id === boardId ? 'page' : undefined}
+              aria-label={board.kind === 'wiki'
+                ? m.shell_wiki_named({ title: titleOf(board) })
+                : undefined}
               class="flex min-h-8 min-w-0 flex-1 items-center gap-2 rounded-md py-1 pl-2 hover:bg-sidebar-accent roomy:min-h-touch"
               onclick={(event: MouseEvent) => {
                 if (
@@ -403,7 +311,12 @@
                 onOpenBoard(board);
               }}
             >
-              <BoardIcon icon={board.icon} title={titleOf(board)} locale={workspace.locale} />
+              <BoardIcon
+                icon={board.icon}
+                kind={board.kind}
+                title={titleOf(board)}
+                locale={workspace.locale}
+              />
               <span class="min-w-0 flex-1 truncate">{titleOf(board)}</span>
               {#if hidden}
                 <span class="shrink-0 pr-1 text-xs text-muted-foreground">
@@ -455,6 +368,9 @@
               <a
                 href={boardHref(board)}
                 aria-current={board.id === boardId ? 'page' : undefined}
+                aria-label={board.kind === 'wiki'
+                  ? m.shell_wiki_named({ title: titleOf(board) })
+                  : undefined}
                 class="flex min-h-8 min-w-0 flex-1 items-center gap-2 rounded-md py-1 pl-2 text-muted-foreground hover:bg-sidebar-accent roomy:min-h-touch"
                 onclick={(event: MouseEvent) => {
                   if (
@@ -470,7 +386,12 @@
                   onOpenBoard(board);
                 }}
               >
-                <BoardIcon icon={board.icon} title={titleOf(board)} locale={workspace.locale} />
+                <BoardIcon
+                  icon={board.icon}
+                  kind={board.kind}
+                  title={titleOf(board)}
+                  locale={workspace.locale}
+                />
                 <span class="min-w-0 flex-1 truncate">{titleOf(board)}</span>
               </a>
               <IconButton
@@ -519,7 +440,12 @@
     style:height="{drag.height}px"
     style:translate="{sortable.overlay.x}px {sortable.overlay.y}px"
   >
-    <BoardIcon icon={lifted.icon} title={titleOf(lifted)} locale={workspace.locale} />
+    <BoardIcon
+      icon={lifted.icon}
+      kind={lifted.kind}
+      title={titleOf(lifted)}
+      locale={workspace.locale}
+    />
     <span class="min-w-0 flex-1 truncate">{titleOf(lifted)}</span>
   </div>
 {/if}

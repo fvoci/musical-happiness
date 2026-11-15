@@ -7,7 +7,7 @@ use crate::common::{Setup, TEST_WORKSPACE_ID, TEST_WS};
 use crate::rooms::{give, paragraphs, table};
 use crate::websocket::{PATIENCE, QUIET, Socket, check_message, read_contract};
 
-async fn visit(socket: &mut Socket, board: &str, card: &str) {
+pub(crate) async fn visit(socket: &mut Socket, board: &str, card: &str) {
     socket
         .send(
             json!({"action":"SET_PRESENCE", "workspaceId":TEST_WORKSPACE_ID,
@@ -16,7 +16,7 @@ async fn visit(socket: &mut Socket, board: &str, card: &str) {
         .await;
 }
 
-async fn people(socket: &mut Socket, count: usize) -> Value {
+pub(crate) async fn people(socket: &mut Socket, count: usize) -> Value {
     for _ in 0..20 {
         let message = socket.next_json(PATIENCE).await.expect("presence arrives");
         assert_eq!(

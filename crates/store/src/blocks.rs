@@ -14,13 +14,16 @@ use fvoci_model::{
 use serde_json::Value;
 
 use crate::Store;
+use crate::block_derived::{self, Before};
 use crate::boards;
+use crate::body_versions::{self, BodyWrite};
 use crate::card_values::{self, NamedCards};
 use crate::comment_places;
 use crate::comment_versions::{self, EDITED_AT_COLUMN};
 use crate::db::{Id, OptId, Param, Row, Scope, Sql, now_millis};
 use crate::error::StoreError;
-use crate::file_refs::{self, NewImages};
+use crate::file_refs::NewImages;
+use crate::page_places;
 
 /// The name of every block column, in the order rows are read and written.
 pub(crate) const BLOCK_COLUMNS: &str = "id, parent_id, created_by, modified_by, \"schema\", type, title, \
@@ -356,8 +359,10 @@ impl Store {
         patch: &BlockPatch,
         user_id: &str,
     ) -> Result<(), StoreError> {
-        self.transaction(async |scope| patch_block(scope, block_id, patch, user_id).await)
-            .await
+        self.transaction(async |scope| {
+            patch_block(scope, block_id, patch, user_id, BodyWrite::Whole).await
+        })
+        .await
     }
 
     /// Gives blocks of a board the bodies in `bodies` (by block identifier; `None` for
@@ -390,7 +395,7 @@ impl Store {
                     )));
                 }
                 let block = get_block(scope, &block_id).await?;
-                file_refs::refresh(scope, &block, NewImages::Recorded).await?;
+                block_derived::refresh(scope, &block, Before::Unknown, NewImages::Recorded).await?;
             }
             Ok(())
         })
@@ -424,7 +429,7 @@ impl Store {
                     .block_patches
                     .get(index)
                     .ok_or(fvoci_model::BoardsAndBlocksError::BlockIdsAndPatchesMismatch)?;
-                patch_block(scope, block_id, patch, user_id).await?;
+                patch_block(scope, block_id, patch, user_id, BodyWrite::Whole).await?;
             }
             Ok(())
         })
@@ -657,20 +662,23 @@ pub(crate) async fn insert_block(
     block: &mut Block,
     user_id: &str,
 ) -> Result<(), StoreError> {
-    let named = insert_block_at(scope, block, user_id, None, NewImages::Recorded).await?;
+    let whole = BodyWrite::Whole;
+    let named = insert_block_at(scope, block, user_id, None, NewImages::Recorded, whole).await?;
     card_values::check_named_cards(scope, &named).await
 }
 
 /// Stores a block as created or changed at `at`, or now, once its board is held, if
-/// that is `None`. The images it shows newly are asked as `new_images` says. Returns the
-/// cards its relation values newly name, which the caller asks for once the write is
-/// stored ([`card_values::check_named_cards`]).
+/// that is `None`. The images it shows newly are asked as `new_images` says, and the
+/// versions of a card's body are kept as `body_write` says. Returns the cards its
+/// relation values newly name, which the caller asks for once the write is stored
+/// ([`card_values::check_named_cards`]).
 async fn insert_block_at(
     scope: &mut Scope<'_>,
     block: &mut Block,
     user_id: &str,
     at: Option<i64>,
     new_images: NewImages,
+    body_write: BodyWrite,
 ) -> Result<Vec<NamedCards>, StoreError> {
     let invalid = |block: &Block, source| StoreError::InvalidBlock {
         id: block.id.clone(),
@@ -684,12 +692,12 @@ async fn insert_block_at(
     }
     // One writer per board at a time, from before anything is read: the parent that is
     // found below is still there when the block is stored.
-    if !boards::lock_board(scope, &block.board_id).await? {
+    let Some(kind) = boards::lock_board_of_kind(scope, &block.board_id).await? else {
         return Err(StoreError::not_found(format_args!(
             "board ID={} of block {}",
             block.board_id, block.id
         )));
-    }
+    };
     // Asked here so that a parent that is none, or another board's, is the request's
     // mistake and not a constraint the database reports.
     let parent_type = if block.parent_id.is_empty() {
@@ -706,6 +714,7 @@ async fn insert_block_at(
     user_id.clone_into(&mut block.modified_by);
 
     let existing = find_block(scope, &block.id).await?;
+    page_places::check(block, kind, parent_type.as_ref())?;
     comment_places::check(scope, block, parent_type.as_ref(), existing.as_ref()).await?;
     let named = card_values::check_written(scope, block, existing.as_ref()).await?;
     if let Some(existing) = existing {
@@ -749,7 +758,12 @@ async fn insert_block_at(
             } else {
                 existing.edited_at
             };
-        file_refs::refresh(scope, block, new_images).await?;
+        // Before the files are put down: what the body before showed is still shown
+        // by its version.
+        if body_write == BodyWrite::Whole {
+            body_versions::record_change(scope, &existing, block, user_id).await?;
+        }
+        block_derived::refresh(scope, block, Before::Stored(&existing), new_images).await?;
     } else {
         user_id.clone_into(&mut block.created_by);
         block.create_at = now;
@@ -783,7 +797,7 @@ pub(crate) async fn insert_block_row(
     push_body(&mut sql, block.body.as_ref(), BodyColumns::List)?;
     sql.push(")");
     scope.execute(sql).await?;
-    file_refs::refresh(scope, block, new_images).await
+    block_derived::refresh(scope, block, Before::Absent, new_images).await
 }
 
 /// How [`push_body`] writes the body's columns.
@@ -840,8 +854,17 @@ pub(crate) async fn insert_blocks(
     // name each other.
     let mut named = Vec::new();
     for index in parents_first(blocks) {
+        let block = &mut blocks[index];
         named.extend(
-            insert_block_at(scope, &mut blocks[index], user_id, Some(now), new_images).await?,
+            insert_block_at(
+                scope,
+                block,
+                user_id,
+                Some(now),
+                new_images,
+                BodyWrite::Whole,
+            )
+            .await?,
         );
     }
     card_values::check_named_cards(scope, &named).await
@@ -882,11 +905,14 @@ pub(crate) fn parents_first(blocks: &[Block]) -> Vec<usize> {
     }
 }
 
+/// Applies a patch to a block; the versions of a card's body are kept as `body_write`
+/// says.
 pub(crate) async fn patch_block(
     scope: &mut Scope<'_>,
     block_id: &str,
     patch: &BlockPatch,
     user_id: &str,
+    body_write: BodyWrite,
 ) -> Result<(), StoreError> {
     // The block says which board to hold; what is patched is read under the lock, so
     // that of two patches at once the second is applied to what the first left.
@@ -921,74 +947,17 @@ pub(crate) async fn patch_block(
             update_at: stored_update_at,
         });
     }
-    insert_block(scope, &mut block, user_id).await
+    let named = insert_block_at(
+        scope,
+        &mut block,
+        user_id,
+        None,
+        NewImages::Recorded,
+        body_write,
+    )
+    .await?;
+    card_values::check_named_cards(scope, &named).await
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn block(id: &str, parent_id: &str) -> Block {
-        Block {
-            id: id.to_owned(),
-            parent_id: parent_id.to_owned(),
-            ..Block::default()
-        }
-    }
-
-    fn ids(blocks: &[Block]) -> Vec<&str> {
-        parents_first(blocks)
-            .into_iter()
-            .map(|index| blocks[index].id.as_str())
-            .collect()
-    }
-
-    #[test]
-    fn the_listed_columns_are_where_the_list_reads_them() {
-        let columns: Vec<&str> = LISTED_BLOCK_COLUMNS.split(", ").map(str::trim).collect();
-        let block_columns = BLOCK_COLUMNS.split(", ").count();
-        assert_eq!(columns[block_columns - 1], "NULL", "the body is not read");
-        assert_eq!(columns[LISTED_HAS_BODY], "body IS NOT NULL");
-        assert_eq!(columns[LISTED_TASKS_TOTAL], "body_tasks_total");
-        assert_eq!(columns[LISTED_TASKS_DONE], "body_tasks_done");
-        assert_eq!(columns.len(), LISTED_TASKS_DONE + 1);
-        assert_eq!(LISTED_LAST_COMMENT_AT, columns.len(), "read after them");
-        // The text, then the body, right after the last comment's time.
-        assert_eq!(PREVIEW_COLUMNS, "SUBSTR(body_text, 1, 201), body");
-        assert_eq!(LISTED_BODY_TEXT, LISTED_LAST_COMMENT_AT + 1);
-        assert_eq!(LISTED_BODY, LISTED_BODY_TEXT + 1);
-    }
-
-    #[test]
-    fn edited_at_is_the_column_after_the_block_columns() {
-        assert_eq!(BLOCK_COLUMNS.split(", ").count(), EDITED_AT);
-        assert!(block_read_columns().ends_with(EDITED_AT_COLUMN));
-    }
-
-    #[test]
-    fn parents_come_before_their_children_whatever_the_given_order() {
-        let blocks = [
-            block("text", "card"),
-            block("reply", "comment"),
-            block("comment", "card"),
-            block("card", ""),
-            block("view", "elsewhere"),
-        ];
-        assert_eq!(
-            ids(&blocks),
-            ["card", "view", "text", "comment", "reply"],
-            "what waits for nothing keeps its place; children follow their parents"
-        );
-    }
-
-    #[test]
-    fn blocks_in_a_cycle_of_parents_come_last_as_given() {
-        let blocks = [
-            block("a", "b"),
-            block("b", "a"),
-            block("own", "own"),
-            block("top", ""),
-        ];
-        assert_eq!(ids(&blocks), ["own", "top", "a", "b"]);
-    }
-}
+mod tests;

@@ -44,7 +44,15 @@ export interface LoginOptions {
   registrationOpen: boolean;
   /** Whether the server can deliver recovery and invitation mail. */
   mailEnabled?: boolean;
+  /** Whether a registration waits for the link mailed to its address before there is an account. */
+  emailVerification?: boolean;
 }
+
+/**
+ * What a registration made: the account, or nothing yet, as it waits for the
+ * link mailed to its address (`EmailVerification`).
+ */
+export type Registered = 'made' | 'waiting';
 
 /** What the login page may know of an organization before anybody signs in. */
 export interface LoginOrganization {
@@ -82,8 +90,12 @@ export interface SignInOrganization {
 export interface Account {
   /** `login` is the name to sign in with, or the email address. */
   signIn(login: string, password: string): Promise<void>;
-  /** Makes an account and the organization it starts. It does not sign in. */
-  register(registration: Registration): Promise<void>;
+  /**
+   * Makes an account and the organization it starts. It does not sign in.
+   * Where the server confirms addresses it makes nothing yet (`waiting`): the
+   * link mailed to the address, in `language`, does that and signs in.
+   */
+  register(registration: Registration, language?: string): Promise<Registered>;
   /**
    * What the link of an invitation shows. A link that lets nobody in (there is
    * none, it ended, it was used up or revoked) is refused with 404 and the
@@ -94,7 +106,11 @@ export interface Account {
    * Lets somebody in by the link of an invitation: whoever is signed in, or
    * the `account` it makes for somebody who is not. It does not sign in.
    */
-  acceptInvitation(token: string, account?: NewAccount): Promise<AcceptedInvitation>;
+  acceptInvitation(
+    token: string,
+    account?: NewAccount,
+    language?: string,
+  ): Promise<AcceptedInvitation | 'waiting'>;
   signOut(): Promise<void>;
   /**
    * Changes the reader's password; `oldPassword` proves they know it. Their
@@ -115,6 +131,21 @@ export interface Account {
    * tie who the provider says they are to the account they are signed in to.
    */
   startOidc(orgId: string, linkPassword?: string): Promise<string>;
+  /**
+   * For a sign-in the server holds for this browser while the organization
+   * moves to another provider (the login page's `oidc_held`): starts a sign-in
+   * through the provider the organization used before, the address the browser
+   * is then sent to. It comes back signed in to the account the reader had,
+   * with the new sign-in connected to it. 409 with `oidc_carry_over_refused`
+   * when nothing is held for this browser, or the old provider is kept no more.
+   */
+  startOidcCarryOver(orgId: string): Promise<string>;
+  /**
+   * Ends the held sign-in in a new account instead, as a first sign-in through
+   * the provider does; the session comes with the answer. 409 with the reason
+   * a first sign-in is refused with, or `oidc_carry_over_refused`.
+   */
+  finishHeldSignIn(orgId: string): Promise<void>;
   /** The sign-ins connected to the reader's account, oldest first. */
   identities(): Promise<LinkedIdentity[]>;
   /**

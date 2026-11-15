@@ -188,15 +188,32 @@ impl App {
         board_id: &str,
         body: Option<&Body>,
     ) -> Result<(), AppError> {
+        if self.has_body_files(board_id, body).await? {
+            Ok(())
+        } else {
+            Err(BlockError::ImageWithoutFile.into())
+        }
+    }
+
+    /// Whether a board has the file of every image a body shows.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if a lookup fails.
+    pub(crate) async fn has_body_files(
+        &self,
+        board_id: &str,
+        body: Option<&Body>,
+    ) -> Result<bool, AppError> {
         let Some(body) = body else {
-            return Ok(());
+            return Ok(true);
         };
         for file_id in body.file_ids() {
             if self.file_info(board_id, file_id).await?.is_none() {
-                return Err(BlockError::ImageWithoutFile.into());
+                return Ok(false);
             }
         }
-        Ok(())
+        Ok(true)
     }
 
     /// Opens a board's file for reading, or returns `None` if the board has no file of

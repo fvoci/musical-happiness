@@ -9,6 +9,7 @@
   import { Switch } from '$lib/ui/switch/index.js';
   import ConfirmDialog from '$lib/components/confirm/ConfirmDialog.svelte';
   import { oidcProblem, pendingOutcome } from './oidc-problem.ts';
+  import OrgSsoFormer from './OrgSsoFormer.svelte';
   import OrgSsoPending from './OrgSsoPending.svelte';
 
   interface Props {
@@ -20,8 +21,10 @@
     discard: () => Promise<void>;
     /** Sends the browser to sign in through the pending settings. */
     onTry: () => Promise<void>;
+    /** Ends the keeping of the former provider as it was read (`createAt`), before its time. */
+    endFormer: (createAt: number) => Promise<void>;
   }
-  let { read, save, remove, onSignIn, discard, onTry }: Props = $props();
+  let { read, save, remove, onSignIn, discard, onTry, endFormer }: Props = $props();
   const uid = $props.id();
   let provider = $state.raw<OidcProvider | undefined>(undefined);
   let loaded = $state(false);
@@ -142,6 +145,24 @@
       notice = m.org_sso_pending_discarded();
     } catch (error) {
       problem = oidcProblem(error);
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function endKeeping(createAt: number): Promise<void> {
+    if (busy) return;
+    busy = true;
+    problem = '';
+    notice = '';
+    try {
+      await endFormer(createAt);
+      accept(await read());
+      notice = m.org_sso_former_ended();
+    } catch (error) {
+      problem = oidcProblem(error);
+      // Refused because another one is kept by now: what is shown is read again.
+      await read().then(accept, () => undefined);
     } finally {
       busy = false;
     }
@@ -337,10 +358,17 @@
       {#if provider?.pending}
         <OrgSsoPending
           pending={provider.pending}
+          moves={provider.pending.issuer !== provider.issuer}
+          throughProvider={enforced || provider.canRequireSso}
           {busy}
           onTry={() => void tryPending()}
           onDiscard={() => void throwAway()}
+          onSignInAgain={() => void signIn()}
         />
+      {/if}
+      {#if provider?.former}
+        {@const former = provider.former}
+        <OrgSsoFormer {former} {busy} onEnd={() => void endKeeping(former.createAt)} />
       {/if}
       <div class="flex flex-wrap gap-2">
         <Button

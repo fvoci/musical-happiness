@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use fvoci_model::{
-    ArchiveHeader, ArchiveLine, Block, BlockType, Board, BoardMember, BoardsAndBlocks,
+    ArchiveHeader, ArchiveLine, Block, BlockType, Board, BoardKind, BoardMember, BoardsAndBlocks,
     BoardsAndBlocksError, JsonMap, WorkspaceRole, renew_boards_and_blocks_ids,
 };
 use serde_json::Value;
@@ -431,8 +431,9 @@ struct ParsedBoard {
 /// # Errors
 ///
 /// Returns a bad request if a line is malformed or of an unknown
-/// type, a block has a type that no new block has, the boards and blocks do not fit
-/// together, or a board or block is not one the store takes, with the store's message.
+/// type, a block has a type that no new block has, a board is of another kind than a
+/// board, the boards and blocks do not fit together, or a board or block is not one the
+/// store takes, with the store's message.
 async fn parse_board_jsonl(jsonl: Bytes, options: &ImportOptions) -> Result<ParsedBoard, AppError> {
     // Parsing tens of megabytes of JSON would hold up a worker of the runtime.
     let (workspace_id, modified_by) = (options.workspace_id.clone(), options.modified_by.clone());
@@ -453,6 +454,19 @@ async fn parse_board_jsonl(jsonl: Bytes, options: &ImportOptions) -> Result<Pars
             "the archive's block {}: {}",
             block.id,
             fvoci_model::BlockError::type_not_current(&block.block_type)
+        )));
+    }
+    // An archive is of boards. This is refused here and not where the board is stored,
+    // so that the boards before it in the archive are not stored first.
+    if let Some(board) = boards_and_blocks
+        .boards
+        .iter()
+        .find(|board| board.kind != BoardKind::Board)
+    {
+        return Err(AppError::bad_request(format_args!(
+            "the archive's board {} is a {}: an archive makes boards only",
+            board.id,
+            board.kind.as_str()
         )));
     }
     clear_values_of_another_kind(&mut boards_and_blocks);

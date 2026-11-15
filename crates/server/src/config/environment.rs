@@ -18,7 +18,7 @@ pub(super) enum EnvKind {
 /// example `FVOCI_SESSION_IDLE_DAYS` and `FVOCI_FILESS3CONFIG_BUCKET`. The S3 credentials
 /// have none: the S3 client reads them from the `AWS_*` variables when `accesskeyid` is
 /// empty.
-pub(super) const ENV_KEYS: [(&str, EnvKind); 60] = [
+pub(super) const ENV_KEYS: [(&str, EnvKind); 61] = [
     ("serverroot", EnvKind::Text),
     ("port", EnvKind::Number),
     ("dbtype", EnvKind::Text),
@@ -54,6 +54,7 @@ pub(super) const ENV_KEYS: [(&str, EnvKind); 60] = [
     ("authmode", EnvKind::Text),
     ("oidc_allow_private_addresses", EnvKind::Flag),
     ("oidc_extra_ca_file", EnvKind::Text),
+    ("oidc_former_provider_days", EnvKind::Number),
     ("org_creation", EnvKind::Text),
     ("websocket_ping_seconds", EnvKind::Number),
     ("public_link_connections_per_board", EnvKind::Number),
@@ -81,6 +82,11 @@ pub(super) const ENV_KEYS: [(&str, EnvKind); 60] = [
     ("password_hash_queue_seconds", EnvKind::Number),
 ];
 
+/// The value the environment's `text` for the variable `name` gives a key of `kind`.
+///
+/// # Errors
+///
+/// Returns an error naming the variable if the text is no value of that kind.
 pub(super) fn env_value(name: &str, text: &str, kind: EnvKind) -> anyhow::Result<Value> {
     Ok(match kind {
         EnvKind::Text => Value::from(text),

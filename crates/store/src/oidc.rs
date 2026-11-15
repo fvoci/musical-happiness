@@ -7,6 +7,8 @@
 //! back, which organization a login page is for) is in `directory.rs`; tying an
 //! identity to an account and removing it, in `oidc_identities.rs`.
 
+use std::time::Duration;
+
 use fvoci_model::{AuditAction, LoginOrigin, OrgRole, Session, User, WorkspaceRole, new_id};
 
 use crate::Store;
@@ -14,13 +16,14 @@ use crate::accounts::{self, Which};
 use crate::audit::{self, AuditActor, AuditEntry};
 use crate::db::{Dialect, Id, OptId, Param, Row, Scope, now_millis};
 use crate::error::StoreError;
+use crate::oidc_former::{self, Keeping};
 use crate::sessions;
 use crate::users::InstanceRole;
 
 /// The columns of a sign-in under way, in the order [`flow_from_row`] reads them.
 pub(crate) const FLOW_COLUMNS: &str = "state_hash, browser_hash, nonce, pkce_verifier, org_id, \
                                        provider_id, create_at, expires_at, link_session_id, \
-                                       pending_at, pending_by";
+                                       pending_at, pending_by, held_hash";
 
 /// The columns of a provider, in the order [`provider_from_row`] reads them.
 const PROVIDER_COLUMNS: &str = "id, org_id, issuer, client_id, client_secret, auto_join, enabled, \
@@ -130,6 +133,18 @@ pub enum FlowPurpose {
         pending_at: i64,
         /// The administrator who started it.
         user_id: String,
+        /// The session it was started from, kept in the column a link keeps its
+        /// session in: an identity nobody has is tied to the administrator's
+        /// account only for the browser that comes back with this session. Empty
+        /// for a trial started before that was kept, which ties nothing.
+        session_id: String,
+    },
+    /// To sign in through the former provider, and so tie the identity of the held
+    /// sign-in to the account the former provider vouches for (`oidc_held.rs`). It
+    /// names the organization's provider, as every sign-in does, and ends with it.
+    CarryOver {
+        /// The digest of the held sign-in it carries over.
+        held_hash: String,
     },
 }
 
@@ -181,7 +196,7 @@ impl Store {
         &self,
         provider: &StoredProvider,
     ) -> Result<StoredProvider, StoreError> {
-        self.put_provider(provider, AsRead::Whatever, None)
+        self.put_provider(provider, AsRead::Whatever, Keeping::NOTHING)
             .await?
             .ok_or(StoreError::NoRows)
     }
@@ -194,8 +209,9 @@ impl Store {
     /// identifier and the time it was first set; one with another issuer or client is
     /// another provider, under a new identifier, and the sign-ins under way through the
     /// one before end with it; with another issuer, so do the sessions made through a
-    /// provider of the organization under the issuer before. `provider.id`, `org_id`
-    /// and the times are the store's;
+    /// provider of the organization under the issuer before, and the provider before is
+    /// kept as the former one for `keep_former` (none for no time), in place of
+    /// the one kept until then. `provider.id`, `org_id` and the times are the store's;
     /// the time of a change of a provider is always later than that of the one before,
     /// and a provider removed and set again is another, so that a reading names one
     /// state of the provider.
@@ -209,9 +225,14 @@ impl Store {
         provider: &StoredProvider,
         read: Option<&StoredProvider>,
         actor_id: &str,
+        keep_former: Duration,
     ) -> Result<Option<StoredProvider>, StoreError> {
         let read = read.map(|read| (read.id.clone(), read.update_at));
-        self.put_provider(provider, AsRead::Was(read), Some(actor_id))
+        let keeping = Keeping {
+            time: keep_former,
+            actor_id: Some(actor_id),
+        };
+        self.put_provider(provider, AsRead::Was(read), keeping)
             .await
     }
 
@@ -219,7 +240,7 @@ impl Store {
         &self,
         provider: &StoredProvider,
         as_read: AsRead,
-        actor_id: Option<&str>,
+        keeping: Keeping<'_>,
     ) -> Result<Option<StoredProvider>, StoreError> {
         self.transaction(async |scope| {
             hold_provider_of_organization(scope).await?;
@@ -232,8 +253,8 @@ impl Store {
             {
                 return Ok(None);
             }
-            let written = write_provider(scope, before.as_ref(), provider).await?;
-            if let Some(actor_id) = actor_id {
+            let written = write_provider(scope, before.as_ref(), provider, keeping).await?;
+            if let Some(actor_id) = keeping.actor_id {
                 record_provider_change(scope, actor_id, before.as_ref(), &written.provider).await?;
                 if written.dropped_pending {
                     let entry = AuditEntry::new(
@@ -251,9 +272,10 @@ impl Store {
     }
 
     /// Removes the provider of the handle's organization, the sign-ins under way
-    /// through it, and the sessions made through a provider of the organization under
-    /// its issuer, unless it is the one the organization takes nothing else than
-    /// (`sso_required`): that one stays, and is released first. Asked and removed in
+    /// through it, the former provider kept beside it, and the sessions made through a
+    /// provider of the organization under its issuer, unless it is the one the
+    /// organization takes nothing else than (`sso_required`): that one stays, and is
+    /// released first. Asked and removed in
     /// one transaction that holds the provider, so that no removal passes an
     /// enforcement that is switched on beside it.
     ///
@@ -273,6 +295,7 @@ impl Store {
             sql.bind(Id(&provider.org_id));
             scope.execute(sql).await?;
             sessions::end_sessions_of_origin(scope, &provider.org_id, &provider.issuer).await?;
+            oidc_former::give_way(scope, Some(actor_id)).await?;
             let entry = AuditEntry::new(
                 "",
                 actor_id,
@@ -339,15 +362,22 @@ impl Store {
             let mut sql = scope.sql(
                 "INSERT INTO oidc_login_flows (state_hash, browser_hash, nonce, pkce_verifier, \
                  org_id, provider_id, create_at, expires_at, link_session_id, pending_at, \
-                 pending_by) SELECT ",
+                 pending_by, held_hash) SELECT ",
             );
-            let (link_session_id, pending_at, pending_by) = match &flow.purpose {
-                FlowPurpose::SignIn => ("", None, ""),
-                FlowPurpose::Link { session_id } => (session_id.as_str(), None, ""),
+            let (link_session_id, pending_at, pending_by, held_hash) = match &flow.purpose {
+                FlowPurpose::SignIn => ("", None, "", None),
+                FlowPurpose::Link { session_id } => (session_id.as_str(), None, "", None),
                 FlowPurpose::Trial {
                     pending_at,
                     user_id,
-                } => ("", Some(*pending_at), user_id.as_str()),
+                    session_id,
+                } => (
+                    session_id.as_str(),
+                    Some(*pending_at),
+                    user_id.as_str(),
+                    None,
+                ),
+                FlowPurpose::CarryOver { held_hash } => ("", None, "", Some(held_hash.clone())),
             };
             sql.bind(&flow.state_hash)
                 .push_bind(", ", &flow.browser_hash)
@@ -359,8 +389,18 @@ impl Store {
                 .push_bind(", ", OptId(link_session_id))
                 .push_bind(", ", Param::OptInt(pending_at))
                 .push_bind(", ", OptId(pending_by))
+                .push_bind(", ", Param::OptText(held_hash.clone()))
                 .push_bind(" FROM oidc_providers WHERE id = ", Id(&flow.provider_id))
                 .push_bind(" AND org_id = ", scope.org()?);
+            if let Some(held_hash) = held_hash {
+                // A sign-in to carry over a held sign-in that was taken starts nothing.
+                sql.push(
+                    " AND EXISTS (SELECT 1 FROM oidc_held_sign_ins AS held \
+                     WHERE held.provider_id = oidc_providers.id",
+                )
+                .push_bind(" AND held.held_hash = ", held_hash)
+                .push(")");
+            }
             if let Some(pending_at) = pending_at {
                 // A trial of settings that were thrown away or saved anew starts nothing.
                 sql.push(
@@ -429,7 +469,12 @@ impl Store {
     /// A new account ([`OidcAccount::New`]) is stored with no password (an empty
     /// hash, which no password matches) and no email address of its own:
     /// `provider_email`, the address the provider gave, is kept with the identity,
-    /// unchecked, and holds no account's place. `user` is updated to what was stored:
+    /// unchecked, and holds no account's place.
+    ///
+    /// A registration by a link of the organization that waits for the address the
+    /// provider vouches for is removed with the sign-in, new account or known: the
+    /// provider's word stands for the mail's there, and no second account comes of
+    /// the registration. The use it took of the link is given back. `user` is updated to what was stored:
     /// the current time as creation and modification time, not deleted, no
     /// administrator of the instance. It joins the organization and its default
     /// workspace. A known account ([`OidcAccount::Known`]) joins them if it has no
@@ -439,7 +484,8 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::Conflict`] if another account has the new account's name
-    /// in any letter case, or the identity is another account's already;
+    /// in any letter case, the identity is another account's already, or
+    /// ([`crate::Taken::Email`]) an account has the provider's address as its own by now;
     /// [`StoreError::NoOrganization`] if the handle names no organization; and
     /// [`StoreError::Database`] if a statement fails. Nothing is stored then.
     pub async fn finish_oidc_sign_in(
@@ -543,12 +589,15 @@ pub(crate) struct Written {
 /// first set; one with another issuer or client is another provider, under a new
 /// identifier, and the sign-ins under way through the one before end with it; with
 /// another issuer, so do the sessions made through a provider of the organization
-/// under the issuer before. A change of what signing in takes raises the revision and
-/// throws away the pending settings, which were saved against what signing in took.
+/// under the issuer before, and the provider before is kept as the former one as
+/// `keeping` says (`oidc_former.rs`). A change of what signing in takes raises the
+/// revision and throws away the pending settings, which were saved against what
+/// signing in took.
 pub(crate) async fn write_provider(
     scope: &mut Scope<'_>,
     before: Option<&StoredProvider>,
     provider: &StoredProvider,
+    keeping: Keeping<'_>,
 ) -> Result<Written, StoreError> {
     // Later than the change before, also within one millisecond or when the clock went
     // back: no two states of one provider have one time.
@@ -602,6 +651,7 @@ pub(crate) async fn write_provider(
         && before.issuer != stored.issuer
     {
         sessions::end_sessions_of_origin(scope, &before.org_id, &before.issuer).await?;
+        oidc_former::keep_after_move(scope, before, keeping).await?;
     }
     Ok(Written {
         provider: stored,
@@ -650,6 +700,7 @@ pub(crate) async fn admit(
             if !auto_join {
                 return Ok(Err(OidcRefusal::JoinClosed));
             }
+            accounts::take_address_from_signup(scope, provider_email).await?;
             user.password_hash = String::new();
             user.email = String::new();
             accounts::insert_account(scope, user, InstanceRole::User).await?;
@@ -662,6 +713,7 @@ pub(crate) async fn admit(
             user_id,
             password_hash,
             identity,
+            proved_email,
         } => {
             // Held, the account waits for an unlinking under way, which ends the
             // sessions of the identity: one made after it is refused here.
@@ -673,13 +725,16 @@ pub(crate) async fn admit(
             user_id.clone_into(&mut session.user_id);
             // A guest of one of its workspaces is let in as they are, and joins
             // nothing: their board is what they have there.
-            if has_place(scope, user_id).await? {
-                false
-            } else if auto_join {
-                join_as_member(scope, user_id).await?
-            } else {
+            let has_place = has_place(scope, user_id).await?;
+            if !has_place && !auto_join {
                 return Ok(Err(OidcRefusal::JoinClosed));
             }
+            // Let in: only now does a registration at the address go, its link held
+            // before the account joins anything, as an acceptance holds it.
+            if let Some(email) = proved_email {
+                accounts::discard_signup_at(scope, email).await?;
+            }
+            !has_place && join_as_member(scope, user_id).await?
         }
     }))
 }
@@ -763,6 +818,10 @@ pub enum OidcAccount<'a> {
         password_hash: &'a str,
         /// Who the provider vouches for, which must still be the account's.
         identity: Identity<'a>,
+        /// The address the provider vouches for at this sign-in, if it does: a
+        /// registration by a link of the organization that waits at it is removed.
+        /// None for a trial of pending settings, which removes nothing.
+        proved_email: Option<&'a str>,
     },
     /// A new account for the identity, with the address the provider gave.
     New {
@@ -770,7 +829,9 @@ pub enum OidcAccount<'a> {
         user: &'a mut User,
         /// Who the provider vouches for.
         identity: Identity<'a>,
-        /// The address the provider gave, unchecked.
+        /// The address the provider vouches for: the caller has seen that it reads as
+        /// one and is not called unverified. Kept with the identity, and a
+        /// registration by a link of the organization that waits at it is removed.
         provider_email: &'a str,
     },
 }
@@ -796,10 +857,15 @@ pub enum OidcRefusal {
     /// The account was deleted, given a password, or its identity unlinked, while
     /// signing in.
     AccountChanged,
-    /// A trial of the pending settings ended in another account than the one of the
-    /// administrator who started it, or that one administers the organization no
-    /// more.
+    /// A trial of the pending settings vouched for somebody who is not the
+    /// administrator who started it (an identity of another account, or one that is
+    /// nobody's where the settings do not move the organization to its issuer), or
+    /// that administrator administers the organization no more.
     NotTheTrier,
+    /// A trial of pending settings of another issuer vouched for an identity tied to
+    /// no account, and the session it was started from does not show that the trier
+    /// signed in through the provider just now: nothing is tied.
+    NotFresh,
 }
 
 /// Whether the identity is still the account's.
@@ -833,11 +899,10 @@ async fn join_as_member(scope: &mut Scope<'_>, user_id: &str) -> Result<bool, St
     Ok(true)
 }
 
-/// Whether the user is a member of the scope's organization.
 /// Whether the user has a place in the transaction's organization: a member of it, or
 /// of one of its workspaces in use (a guest of a workspace is no member of the
 /// organization), as the wall counts them.
-async fn has_place(scope: &mut Scope<'_>, user_id: &str) -> Result<bool, StoreError> {
+pub(crate) async fn has_place(scope: &mut Scope<'_>, user_id: &str) -> Result<bool, StoreError> {
     if is_member(scope, user_id).await? {
         return Ok(true);
     }
@@ -850,6 +915,7 @@ async fn has_place(scope: &mut Scope<'_>, user_id: &str) -> Result<bool, StoreEr
     Ok(scope.fetch_optional(sql).await?.is_some())
 }
 
+/// Whether the user is a member of the transaction's organization.
 async fn is_member(scope: &mut Scope<'_>, user_id: &str) -> Result<bool, StoreError> {
     let mut sql = scope.sql("SELECT 1 FROM organization_members WHERE org_id = ");
     sql.bind(scope.org()?)
@@ -907,13 +973,15 @@ pub(crate) fn flow_from_row(row: &Row) -> Result<LoginFlow, StoreError> {
         provider_id: row.id(5)?,
         create_at: row.int(6)?,
         expires_at: row.int(7)?,
-        purpose: match (row.id(8)?, row.opt_int(9)?) {
-            (session_id, _) if !session_id.is_empty() => FlowPurpose::Link { session_id },
-            (_, Some(pending_at)) => FlowPurpose::Trial {
+        purpose: match (row.id(8)?, row.opt_int(9)?, row.opt_text(11)?) {
+            (_, _, Some(held_hash)) => FlowPurpose::CarryOver { held_hash },
+            (session_id, Some(pending_at), None) => FlowPurpose::Trial {
                 pending_at,
                 user_id: row.id(10)?,
+                session_id,
             },
-            (_, None) => FlowPurpose::SignIn,
+            (session_id, None, None) if !session_id.is_empty() => FlowPurpose::Link { session_id },
+            (_, None, None) => FlowPurpose::SignIn,
         },
     })
 }

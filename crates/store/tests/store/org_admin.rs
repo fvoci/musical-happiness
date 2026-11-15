@@ -799,12 +799,18 @@ async fn the_instance_is_administered_through_its_own_organization_only() {
     test.teardown().await;
 }
 
-/// A card of the board with a body edited together: its document and a logged update.
+/// A card of the board with a body edited together: its document, a logged update, and
+/// a version kept of the body.
 async fn card_with_body(store: &Store, board_id: &str, user_id: &str) -> String {
     let mut card = Block {
         id: new_id(),
         board_id: board_id.to_owned(),
         block_type: BlockType::Card,
+        body: fvoci_model::Body::parse(serde_json::json!({
+            "type": "doc",
+            "content": [{"type": "paragraph", "content": [{"type": "text", "text": "kept"}]}],
+        }))
+        .expect("the body may be stored"),
         ..Block::default()
     };
     common::insert_blocks(store, std::slice::from_mut(&mut card), user_id).await;
@@ -813,14 +819,25 @@ async fn card_with_body(store: &Store, board_id: &str, user_id: &str) -> String 
         .await
         .expect("a document is stored");
     store
-        .append_body_updates(&card.id, &[(b"an update", user_id)], &[])
+        .append_body_updates(
+            &card.id,
+            &[(b"an update", user_id)],
+            &[],
+            &[user_id],
+            fvoci_store::BodyBefore::Leave,
+        )
         .await
         .expect("an update is logged");
+    store
+        .keep_body_version(&card.id)
+        .await
+        .expect("a version is kept");
     card.id
 }
 
-/// A workspace removed for good takes the documents of its cards' bodies, and their
-/// logs, with it, as a board removed for good does; another workspace's stay.
+/// A workspace removed for good takes the documents of its cards' bodies, their logs
+/// and the versions kept of the bodies with it, as a board removed for good does;
+/// another workspace's stay.
 #[tokio::test]
 async fn a_workspace_purged_for_good_takes_the_documents_of_its_bodies() {
     let test = common::setup().await;
@@ -850,7 +867,12 @@ async fn a_workspace_purged_for_good_takes_the_documents_of_its_bodies() {
         test.get_body_doc(&stays).await.expect("read").is_some(),
         "the other workspace's stays"
     );
-    for table in ["body_docs", "body_updates"] {
+    for table in [
+        "body_docs",
+        "body_updates",
+        "body_versions",
+        "body_version_editors",
+    ] {
         assert_eq!(
             test.count_rows(table).await.expect("counted"),
             1,
@@ -994,4 +1016,44 @@ async fn a_change_let_in_before_a_joining_was_taken_back_is_not_made() {
         "a new membership"
     );
     test.teardown().await;
+}
+
+/// A workspace that goes for good takes its boards through the trash: each is noted
+/// for the search server, which is to hold nothing of them.
+#[tokio::test]
+async fn the_boards_of_a_workspace_that_goes_for_good_are_noted_for_the_search() {
+    let test = common::setup().await;
+    test.keep_search_outbox();
+    let admin = org_member(&test, "admin", OrgRole::Admin).await;
+    let doomed = named_workspace(&test, "Doomed", &admin).await;
+    let board = private_board(&test, &doomed, &admin).await;
+    assert_eq!(
+        test.trash_workspace(&doomed, &admin)
+            .await
+            .expect("trashed"),
+        WorkspaceTrashing::Done
+    );
+    let in_the_trash = test
+        .due_search_changes(i64::MAX, 10)
+        .await
+        .expect("the list is read");
+
+    test.purge_workspace(&doomed, i64::MAX)
+        .await
+        .expect("purged");
+    let gone: Vec<(fvoci_store::SearchTarget, String)> = test
+        .due_search_changes(i64::MAX, 10)
+        .await
+        .expect("the list is read")
+        .into_iter()
+        .map(|change| (change.target, change.id))
+        .collect();
+    test.teardown().await;
+
+    assert_eq!(
+        in_the_trash,
+        [],
+        "in the trash it is there for nobody, as it is"
+    );
+    assert_eq!(gone, [(fvoci_store::SearchTarget::Board, board)]);
 }

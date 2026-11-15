@@ -97,8 +97,10 @@ fn the_contract_says_when_each_reason_comes() {
 }
 
 /// The operations that need no session at all.
-const NO_SESSION: [&str; 12] = [
+const NO_SESSION: [&str; 16] = [
+    "completeEmailVerification",
     "completePasswordReset",
+    "finishHeldOidcLogin",
     "finishOidcLogin",
     "getClientConfig",
     "getLoginOptions",
@@ -108,7 +110,9 @@ const NO_SESSION: [&str; 12] = [
     "previewInvitation",
     "ready",
     "register",
+    "requestEmailVerification",
     "requestPasswordReset",
+    "startOidcCarryOver",
     "startOidcLogin",
 ];
 /// The operations that read a shared board with its read token, and look at no session.
@@ -505,6 +509,7 @@ const ORDERS: &[(&str, &str)] = &[
         "getBoardTeams",
         "Ordered by team name in any letter case, by code point, then by identifier",
     ),
+    ("getCardBodyVersions", "The newest first"),
     ("getCards", "Oldest first; the pages cut that order"),
     ("getCategories", "by `sortOrder`, lowest first"),
     ("getCommentVersions", "The first one first"),
@@ -525,6 +530,10 @@ const ORDERS: &[(&str, &str)] = &[
     ("getOrgMembers", "the oldest member first"),
     ("getOrgWorkspaces", "the oldest first"),
     (
+        "getPageTree",
+        "By `order` as strings compare by code unit, then by `id`",
+    ),
+    (
         "getSharedBlocks",
         "Oldest first; the blocks that one request made come in the order that request had them in",
     ),
@@ -538,6 +547,7 @@ const ORDERS: &[(&str, &str)] = &[
         "ordered by name in any letter case, by code point",
     ),
     ("getTemplates", "Each of the two oldest first"),
+    ("getWikis", "Oldest first"),
     ("getWorkspaceAudit", "the newest first"),
     ("getWorkspaceBoards", "Oldest first"),
     ("getWorkspaceMembers", "The oldest membership first"),
@@ -551,6 +561,7 @@ const ORDERS: &[(&str, &str)] = &[
     ("reorderCategories", "in their new order"),
     ("reorderCategoryBoards", "in their new order"),
     ("searchWorkspaceBoards", "Oldest first"),
+    ("searchWorkspaceContent", "The best match first"),
 ];
 
 /// Whether what an operation answers is a list, or boards with their blocks.

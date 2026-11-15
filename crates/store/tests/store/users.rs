@@ -546,6 +546,7 @@ async fn a_name_or_an_address_in_another_letter_case_is_taken() {
             Taken::Identity => "the identity at the provider is taken",
             Taken::WorkspaceName => unreachable!("a user takes no workspace's name"),
             Taken::TeamName => unreachable!("a user takes no group's name"),
+            Taken::LinkUse => unreachable!("a user takes no use of a link"),
         };
         assert_eq!(error.to_string(), said, "{username} <{email}>");
         assert!(

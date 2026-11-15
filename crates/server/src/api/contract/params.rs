@@ -38,6 +38,9 @@ parameter!(MemberWorkspaceId: Path "workspaceId", String, True, "The identifier 
 parameter!(BoardId: Path "boardId", String, True, "The identifier of the board.");
 parameter!(BlockId: Path "blockId", String, True, "The identifier of the block.");
 parameter!(CardId: Path "cardId", String, True, "The identifier of the card.");
+parameter!(WikiId: Path "wikiId", String, True, "The identifier of the wiki: a board of the `kind` `wiki`. A board of another kind is 404, as an identifier of nothing is.");
+parameter!(PageId: Path "pageId", String, True, "The identifier of the page: a page of the wiki of the path. 404 for a page of another wiki.");
+parameter!(BodyVersionNumber: Path "version", i64, True, "The number of the version of the card's body, as `getCardBodyVersions` lists it.");
 parameter!(CategoryId: Path "categoryId", String, True, "The identifier of the category, one of the user's own.");
 parameter!(TeamId: Path "teamId", String, True, "The identifier of a team within this workspace.");
 parameter!(UserId: Path "userId", String, True, "The identifier of the user.");
@@ -77,4 +80,7 @@ parameter!(PerPage: Query "perPage", i64, False, "How many a page has. Left out,
 parameter!(CappedPerPage: Query "perPage", i64, False, "How many a page has, at most 200. Left out, or zero or less, 50.");
 parameter!(SearchTerm: Query "q", String, False, "What to look for. Without it nothing is found.");
 parameter!(SearchField: Query "field", String, False, "What the term is matched against: `title` (also when left out), or `property_name`, for the boards whose own `properties` object has a member named exactly as the term. Anything else is 400.");
+parameter!(ContentText: Query "q", String, False, "The words to find, at most 200 characters. Without it nothing is found.");
+parameter!(ContentKind: Query "kind", String, False, "The kind of thing to find: `card` or `page`. Left out, both. Anything else is 400.");
+parameter!(ContentLimit: Query "limit", i64, False, "How many hits to answer with at most, from 1 to 50; 20 if left out.");
 parameter!(UserSearch: Query "search", String, False, "Narrows the list to users whose name has this text in it. In the text `%` stands for any text and `_` for any one character. Whether the case of letters counts depends on the database the server runs on.");

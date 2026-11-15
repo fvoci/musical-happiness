@@ -21,25 +21,118 @@ export interface paths {
          *     exchanged for an ID token, whose signature, issuer, audience, time and nonce are
          *     checked. The person is known by the issuer and the subject: an account of theirs
          *     signs in, and somebody who has none gets one, if the organization lets newcomers in
-         *     and no account has their email address. The session comes in the `Set-Cookie`
+         *     and no account has their email address. A registration that waits for that address
+         *     to be confirmed (`register`, `acceptInvitation`) stands in nobody's way. Where the
+         *     provider vouches for the address, one made by a link of this organization is
+         *     removed with the sign-in, new account or known: the use it took of the link is
+         *     given back, and the link mailed for it confirms nothing any more. A registration
+         *     of its own, or by a link of another organization, stays, and so does any at a
+         *     trial of pending settings and at a sign-in that carries over. The session comes in the `Set-Cookie`
          *     header, and the browser goes to the web app (303). A sign-in that was started to
          *     link sets no session: the browser goes to the web app with `oidc_linked=1` in the
          *     query. A trial of the provider's pending settings (`startOidcTrial`) that ends well
          *     makes them the provider's and sets the session, made through them, and the browser
          *     goes to the organization's page (`/org/{orgId}`) with `oidc_pending=applied`; one
          *     that fails changes nothing, and goes there with `oidc_pending_error` naming the
-         *     reason as `oidc_error` does.
+         *     reason as `oidc_error` does (among them `oidc_trial_account` and
+         *     `oidc_trial_stale`).
          *
          *     Otherwise the browser goes to the login page of the organization (`/login?org=…`),
          *     with the reason of what went wrong in `oidc_error`, by the name of its problem
          *     (`oidc_state_invalid` as `oidc-state-invalid`): `oidc_state_invalid`, `oidc_denied`,
          *     `oidc_token_refused`, `oidc_token_invalid`, `oidc_email_missing`,
          *     `oidc_email_unverified`, `oidc_email_taken`, `oidc_join_closed`,
-         *     `oidc_identity_taken`, `oidc_email_mismatch` or `oidc_unavailable`.
+         *     `oidc_identity_taken`, `oidc_email_mismatch`, `oidc_carry_over_refused` or
+         *     `oidc_unavailable`.
+         *
+         *     While the organization keeps the provider it moved away from (`former` of its
+         *     provider), a sign-in that vouches for somebody who has no account makes none: what
+         *     the provider said is held for this browser for ten minutes, under a cookie of its
+         *     own, and the browser goes to the login page with `oidc_held=1`, which asks whether
+         *     the person had an account: `startOidcCarryOver` if they had, `finishHeldOidcLogin`
+         *     if not. A sign-in through the former provider, which `startOidcCarryOver` starts,
+         *     comes back here too: it sets a session only by carrying the held sign-in over.
+         *     Where nothing is carried over it goes to the login page with
+         *     `oidc_carry_over_refused`, and where the sign-in itself failed (refused by the
+         *     former provider, its token not taken, not this browser's) with that reason, as
+         *     any sign-in does.
          */
         get: operations["finishOidcLogin"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/oidc/held/carry-over": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Carry an account over through the former provider
+         * @description For the login page, after a sign-in through the provider of the organization `org`
+         *     was held for this browser (`finishOidcLogin` sent it to the login page with
+         *     `oidc_held=1`): for somebody who had an account before the organization moved to
+         *     this provider. Starts a sign-in through the organization's former provider and
+         *     answers where the page sends the browser, with the cookie of that sign-in. When
+         *     the browser comes back (`finishOidcLogin`), the former provider must vouch for an
+         *     identity tied to an account in use that has a place in the organization (a member,
+         *     or a guest of one of its workspaces in use, who joins nothing by it): the held
+         *     identity is then tied to that account, which is recorded in the organization's
+         *     audit log (`oidc_identity_carried_over`), and a session made through the
+         *     organization's provider is set. Both identities are shown by signing in, so no
+         *     email address is compared. The former provider signs nobody in otherwise: no
+         *     session is made through it.
+         *
+         *     409 with the reason `oidc_carry_over_refused` if no sign-in of the organization is
+         *     held for this browser (none, ended after ten minutes, taken already, or held for
+         *     another browser), the organization keeps no former provider any more, or `org`
+         *     names no organization that is signed in to; the same
+         *     reason comes back on the login page (`oidc_error`) when the return carried nothing
+         *     over. 409 with `oidc_unavailable` if the former provider cannot be reached; 429
+         *     when this address made too many sign-ins of late.
+         */
+        post: operations["startOidcCarryOver"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/oidc/held/sign-in": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * End a held sign-in in a new account
+         * @description For the login page, after a sign-in through the provider of the organization `org`
+         *     was held for this browser: for somebody who had no account. The held sign-in ends
+         *     as a first sign-in through the provider does: an account is made for who the
+         *     provider vouched for, a member of the organization, if the organization lets
+         *     newcomers in and no account has their email address; the session comes in the
+         *     `Set-Cookie` header. An identity that was tied to an account meanwhile (carried
+         *     over from another browser) signs in to that account, as any sign-in would. The
+         *     held sign-in is taken by this, whatever comes of it, and its cookie cleared.
+         *
+         *     409 with the reason `oidc_carry_over_refused` if no sign-in of the organization is
+         *     held for this browser, or the provider changed since; 409 with the reason a first
+         *     sign-in is refused with otherwise (`oidc_join_closed`, `oidc_email_missing`,
+         *     `oidc_email_unverified`, `oidc_email_taken`, `oidc_unavailable`); 429 when this
+         *     address made too many sign-ins of late.
+         */
+        post: operations["finishHeldOidcLogin"];
         delete?: never;
         options?: never;
         head?: never;
@@ -110,6 +203,80 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/email-verification/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm the email address of a registration
+         * @description Consumes the token of the link mailed to a registration's address, within a day of
+         *     the mail and seven days of the registration: makes the account, and the
+         *     organization and first workspace it registered with, and signs it in. The session
+         *     comes in the `Set-Cookie` header, as from `login`, and the answer says where the
+         *     account was let in. A link is used once, and a newer mail of the same registration
+         *     ends the links before it. A missing, ended, used or replaced token answers 400,
+         *     naming `token` in `errors`.
+         *
+         *     Only who registered finishes a registration, so that nobody is signed in to an
+         *     account whose password somebody else chose. In the browser the registration was
+         *     made from, which the cookie of `register` or `acceptInvitation` shows, the token is
+         *     enough. Anywhere else a token that would confirm is answered 403 with the reason
+         *     `password_required`, and the request is sent again with `password`, the password the
+         *     registration was made with: a wrong one is the 401 of `login` (`invalid_credentials`),
+         *     counted with the failed logins to the registration's user name, and too many are
+         *     429. A request that is refused so leaves the link as it was. Nothing is asked of a
+         *     token that confirms nothing, so the answers tell no more of whether a registration
+         *     waits than the token does.
+         *
+         *     On a server that takes one organization and has its first user by now,
+         *     the registration is removed and the answer is 403 with the reason
+         *     `invitation_required`. A registration made by the link of an invitation
+         *     (`acceptInvitation`) is let in as the acceptance would have let it in, and the answer
+         *     names the board of a guest's link (`boardId`); if the link lets nobody in any more
+         *     (revoked, or who made it may no longer invite), the registration is removed and the
+         *     answer is 404 with the reason `invitation_unavailable`. Requests are counted by where they come from, as
+         *     registrations are, and too many are 429.
+         */
+        post: operations["completeEmailVerification"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/email-verification/request": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mail a new confirmation link
+         * @description Answers 204 with an empty body whether or not a registration that is not confirmed
+         *     yet has the user name (or else the address), and whatever became of the message;
+         *     lookup and delivery run in the background. A new link ends the one before it. A
+         *     registration's address is sent at most `mail_reset_per_account_hour` messages an
+         *     hour, its first link counted: more requests are answered the same, send nothing
+         *     and lock nothing. Requests are limited by where they come from, with the requests
+         *     for a reset link (429). A request that names neither is 400. A server that sends no
+         *     mail answers 404; one that sends mail answers also after `emailVerification` was
+         *     turned off, for the registrations made while it was on.
+         */
+        post: operations["requestEmailVerification"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/hello": {
         parameters: {
             query?: never;
@@ -159,6 +326,22 @@ export interface paths {
          *     is made, the membership stored and the use of the link counted together or not at
          *     all, and an acceptance that changes nothing uses nothing of the link.
          *
+         *     On a server that asks for the email address of a registration to be confirmed
+         *     (`emailVerification` of `getLoginOptions`), a new `account` waits for its address,
+         *     unless the link was made for one recipient of a mailed guest link at that address,
+         *     which the mail proves: the answer is 202 with no body, nobody is let in, and the
+         *     link mailed to the address (`completeEmailVerification`) makes the account and lets
+         *     it in, as this acceptance would have, and signs it in. The 202 sets the cookie of
+         *     the browser the registration was made from, as `register` does. The registration counts as a
+         *     use of the link from the start, so a link for one guest lets nobody else in
+         *     meanwhile, and it holds its name and address as an account would. Not confirmed in
+         *     seven days, it is removed and gives the use back. A new `account` from the browser
+         *     of a registration that waits still (by this link, another, or `register`) replaces
+         *     that registration: its name and address are free for the account, and the use it
+         *     took of a link is given back, so that a link for one guest takes the same person
+         *     again with the address put right. `language` is the language of the
+         *     mail (English or Korean).
+         *
          *     A session that the link's organization does not take (it takes no password,
          *     `ssoRequired`, and the session was not made through its provider) is 401 with the
          *     reason `sso_required` and its `orgId`, and lets nobody in.
@@ -192,7 +375,9 @@ export interface paths {
          *     guest's link the title of the board (`boardTitle`).
          *
          *     A token that lets nobody in is 404 with the reason `invitation_unavailable`, as
-         *     `acceptInvitation` answers it and whatever is wrong with it. Requests are counted
+         *     `acceptInvitation` answers it and whatever is wrong with it. A link for one guest
+         *     that only the registration of this browser uses up (the cookie of `acceptInvitation`'s
+         *     202) is shown to it still, to register by again, unless it is signed in. Requests are counted
          *     by where they come from, and too many are 429.
          */
         post: operations["previewInvitation"];
@@ -221,6 +406,11 @@ export interface paths {
          *     about them, a missing password too. Attempts are counted at the name and at the
          *     email address the request gives, each for itself, and by where they come from; too
          *     many are 429. What is counted does not depend on whether there is such an account.
+         *
+         *     On a server that asks for the email address of a registration to be confirmed
+         *     (`emailVerification` of `getLoginOptions`), the right password of a registration
+         *     that is not confirmed yet is 403 with the reason `email_unverified`, and opens no
+         *     session; a wrong one is the 401 of no account.
          */
         post: operations["login"];
         delete?: never;
@@ -247,7 +437,9 @@ export interface paths {
          *
          *     `registrationOpen` says whether `register` takes somebody without an invitation:
          *     always on a server where everybody starts an organization of their own, and until the first
-         *     user registered on a server that holds one organization.
+         *     user registered on a server that holds one organization. `emailVerification` says
+         *     whether a registration waits for the link mailed to its address
+         *     (`completeEmailVerification`) before there is an account.
          */
         get: operations["getLoginOptions"];
         put?: never;
@@ -456,6 +648,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/org/{orgId}/oidc/former": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * End the keeping of an organization's former provider
+         * @description When the provider's issuer changes, the provider before is kept as the `former`
+         *     one for `oidc_former_provider_days` (30 by default): nobody signs in through it,
+         *     but somebody the new provider vouches for who has no account yet may sign in
+         *     through it once to carry their account over. This ends that before its time: from
+         *     then on nobody carries an account over from it. The body names the former
+         *     provider as it was read (`createAt`): if the organization moved again since, and
+         *     another one is kept, the request is 409, to be read and sent again. An organization
+         *     that keeps none answers 204 as well. Recorded in the organization's audit log
+         *     (`oidc_former_provider_ended`), as its keeping (`oidc_former_provider_kept`) and
+         *     its running out (`oidc_former_provider_lapsed`, the server's doing) are.
+         */
+        delete: operations["deleteOidcFormerProvider"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/org/{orgId}/oidc/pending": {
         parameters: {
             query?: never;
@@ -495,17 +716,27 @@ export interface paths {
          *     (`finishOidcLogin`) and the sign-in ends well, in the account of the administrator
          *     who started it, the pending settings become the provider's, at a new revision that the
          *     new session proves (`canRequireSso`); another issuer ends the sessions of the one
-         *     before. A sign-in that fails changes nothing; one that ends in another account (the
-         *     provider vouches for an identity that is not tied to this administrator's account,
-         *     or they administer the organization no more) is refused with
-         *     `oidc_trial_account`, and makes no account and ties no identity. So another issuer
-         *     is put in use by a trial only for an administrator whose identity there is tied to
-         *     their account already. Without one, the requirement is switched off before the
-         *     issuer is changed, which leaves an administrator only the password of their account
-         *     to sign in and link with (one made through the provider has none: the operator's
-         *     socket sets one). 409 with the reason `oidc_unavailable` if there are no pending
-         *     settings, the provider is off, or their issuer cannot be
-         *     reached; 429 when this address made too many sign-ins of late.
+         *     before, and keeps the provider before as the `former` one. A sign-in that fails
+         *     changes nothing, and no trial makes an account.
+         *
+         *     Whose account it ends in: the identity the pending settings vouch for must be tied
+         *     to the account of the administrator who started the trial. One that is another
+         *     account's, or that administrator administering the organization no more, is
+         *     refused with `oidc_trial_account`. One that is tied to no account, as an
+         *     administrator's is at an issuer the organization moves to, is tied to their own
+         *     account by the trial, in the transaction that applies the settings and recorded
+         *     (`oidc_identity_bound`), only if the trial was started from a session made through
+         *     the organization's provider as it is stored, the browser comes back with that
+         *     session, and it comes back no more than five minutes after that session was made
+         *     (`bindsIdentityUntil` of the pending settings): who only holds a session cannot
+         *     sign in through the provider again, and ties nothing. Otherwise it is refused with
+         *     `oidc_trial_stale`: sign in through the provider again (`startOidcLogin`) and
+         *     finish the trial within five minutes. Pending
+         *     settings of the same issuer tie nothing.
+         *
+         *     409 with the reason `oidc_unavailable` if there are no pending settings, the
+         *     provider is off, or their issuer cannot be reached; 429 when this address made too
+         *     many sign-ins of late.
          */
         post: operations["startOidcTrial"];
         delete?: never;
@@ -759,6 +990,21 @@ export interface paths {
          *     email address that is taken is 409 with the reason `username_taken` or
          *     `email_taken`. Registering does not sign in.
          *
+         *     On a server that asks for the email address to be confirmed (`emailVerification` of
+         *     `getLoginOptions`), registering makes no account: it answers 202 with no body, and
+         *     mails a link to the address, in the language of `language` (English or Korean), that
+         *     makes the account and the organization and signs in (`completeEmailVerification`).
+         *     Until then there is nothing of it but its name and address, which are taken as an
+         *     account's are, for seven days; a registration that is not confirmed by then is
+         *     removed, and its name and address are free again. The 202 sets a cookie that tells
+         *     the browser the registration was made from (`fvoci_signup`, `__Host-fvoci_signup`
+         *     over HTTPS; `HttpOnly`, for the seven days): no session, it reaches nothing, and
+         *     shows `completeEmailVerification` that the browser is the registrant's. A
+         *     registration from a browser that has the cookie of one that waits still replaces
+         *     that one: whoever mistyped an address registers again at once, under the same user
+         *     name, and the link mailed for the first confirms nothing any more. Without the
+         *     cookie the name and the address of a registration that waits are taken.
+         *
          *     The name and the email address must not be blank, the email address must look like
          *     one, the display name (`displayName`, may be left out) is read as `patchMe` reads it,
          *     the password must have at least 8 characters and at most 1024 bytes, and the organization
@@ -994,8 +1240,9 @@ export interface paths {
          *     user is a member of, in every organization the session opens: one that takes only
          *     sessions made through its provider leaves its boards out of another session's list.
          *     A board the user has a role on only through a team of its workspace is listed too
-         *     (`synthetic`, with the team's role in `inheritedRole`); a guest is in no team. By the
-         *     identifier of the board.
+         *     (`synthetic`, with the team's role in `inheritedRole`); a guest is in no team. A
+         *     wiki the user is on is listed as a board is, under its identifier as `boardId`. By
+         *     the identifier of the board.
          */
         get: operations["getMyMemberships"];
         put?: never;
@@ -1275,7 +1522,8 @@ export interface paths {
         /**
          * Make a board
          * @description The user becomes the board's admin, and the board is filed under the user's default
-         *     category, unless it is a template.
+         *     category, unless it is a template. A board is made here and no wiki: a `kind` other
+         *     than `board` is 400 at `/kind` (`createWiki` makes a wiki).
          */
         post: operations["createBoard"];
         delete?: never;
@@ -1300,7 +1548,7 @@ export interface paths {
          *     and to which other block. The request needs at least one board and one block; every
          *     board needs an `id`, and all boards are of one workspace. The user becomes the admin of
          *     each board, and each board that is no template is filed under the user's default
-         *     category.
+         *     category. They are boards: one whose `kind` is not `board` is 400 at its `kind`.
          */
         post: operations["createBoardsAndBlocks"];
         /**
@@ -1380,7 +1628,8 @@ export interface paths {
         /**
          * Change a board
          * @description For who may manage the board's properties. Changing `type` or `minimumRole` is for
-         *     the board's admins.
+         *     the board's admins. A wiki is changed here too, by its identifier; it takes no card
+         *     properties (400 at `/updatedCardProperties`), and nothing changes the `kind` of a board.
          */
         patch: operations["patchBoard"];
         trace?: never;
@@ -2035,6 +2284,87 @@ export interface paths {
         patch: operations["patchCard"];
         trace?: never;
     };
+    "/api/v1/w/{workspaceId}/cards/{cardId}/body-versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The versions kept of a card's body
+         * @description The server keeps the body of a card as a version each time it changed: when the
+         *     last of those who wrote it since the newest version leaves it, at an interval
+         *     while it is edited on (its setting `collab_version_minutes`, ten minutes unless
+         *     set otherwise), and before and after a write of the whole body (`patchCard` and the
+         *     block routes). The newest first, each with when it was kept and who wrote the body
+         *     up to it, without the bodies (`getCardBodyVersion`). The server keeps the newest
+         *     of them (its setting `collab_body_versions`, fifty unless set otherwise), so the
+         *     numbers may leave the lowest out. Empty for a card whose body never changed since
+         *     versions were kept. For the members of the card's board, whatever
+         *     their role; to a user who is no member of it there is no such card, and a reader by
+         *     the board's read token has no session to ask with. A card in the trash is not
+         *     there (404); its versions come back with it, and go when it is gone for good.
+         */
+        get: operations["getCardBodyVersions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/cards/{cardId}/body-versions/{version}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A version kept of a card's body
+         * @description The version with its body, as `getCard` gives a body. For whom
+         *     `getCardBodyVersions` is for. A number the card has no version of, or has none of
+         *     any more, is 404.
+         */
+        get: operations["getCardBodyVersion"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/cards/{cardId}/body-versions/{version}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Go back to a version of a card's body
+         * @description Writes the body of the version to the card again, as a write of the whole body by
+         *     the caller: those who edit the card together are sent the body as a new document
+         *     (`contracts/websocket.md`), the body it replaces is kept as a version first, with
+         *     what they typed, and the body written is the card's newest version, by the
+         *     caller. The versions before stay as they are. A card that has that body already is
+         *     left as it is. For editors of the card's board (403 for its other members); to a
+         *     user who is no member of it there is no such card. A number the card has no
+         *     version of, or has none of any more, is 404. A version whose body may not be
+         *     stored any more, or shows an image whose file the board no longer has, is 409.
+         */
+        post: operations["restoreCardBodyVersion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/w/{workspaceId}/categories": {
         parameters: {
             query?: never;
@@ -2451,6 +2781,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/w/{workspaceId}/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search what the cards and pages of a workspace say
+         * @description The cards of the boards and the pages of the wikis of the workspace that the user
+         *     has a role on, their own or a team's (an open board or wiki they have not joined is
+         *     not searched), whose title and body together hold every word of `q`. Korean is
+         *     matched by its words, whatever particles and endings they carry, and a compound by
+         *     its parts too: "환불 규정" finds "환불규정을". Comments, property values and attached
+         *     files are not searched, and neither are templates. Each hit is the card or the page
+         *     as it is now: its `kind`, its `title`, the board or the wiki it is in (`containerId`,
+         *     and `containerKind`, by which a client tells a card's address from a page's), and
+         *     `snippet`, a piece of its body in stretches of plain text, those that matched
+         *     marked; the snippet is empty for a body that changed a moment ago, or has nothing
+         *     to show. The best match first. Nothing says how many match in all: fewer than
+         *     `limit` means that no more of what the user reads matches (for a user with a role
+         *     on more than 1,000 boards and wikis: among the 10,000 best matches of the
+         *     workspace).
+         *
+         *     A `q` of more than 200 characters, a `kind` that is none and a `limit` outside 1
+         *     to 50 are 400; a `q` that is empty finds nothing. A user who searches more often
+         *     than the server lets one is told to wait (429, `Retry-After`). Where the server
+         *     has no search server (`searchEnabled` of `getClientConfig` is false) the answer is
+         *     404 with the reason `search_not_configured`, and while the search server does not
+         *     answer, 503 with the reason `search_unavailable`: nothing else of the server waits
+         *     for it.
+         */
+        get: operations["searchWorkspaceContent"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/w/{workspaceId}/subscriptions": {
         parameters: {
             query?: never;
@@ -2645,6 +3016,9 @@ export interface paths {
          *     with its identifier, its title, when it was deleted and by whom. The last deleted
          *     first; the pages cut that order. A `page` or `perPage` that is no whole number is
          *     400. For users of the workspace.
+         *
+         *     The wikis in the trash are in the same list, which go there and come back as boards
+         *     do (`deleteBoard`, `undeleteBoard`): each entry says its `kind`.
          */
         get: operations["getDeletedBoards"];
         put?: never;
@@ -2789,6 +3163,106 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/w/{workspaceId}/wikis": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The wikis of a workspace
+         * @description The wikis of the workspace that the user is a member of, and the workspace's open
+         *     wikis; a guest of the workspace gets only the former, an administrator every wiki
+         *     of the workspace (the pages of a private wiki they are no member of stay 404 to
+         *     them). Each is a board of the `kind` `wiki`. Oldest first. 404 unless the user is a
+         *     member of the workspace.
+         */
+        get: operations["getWikis"];
+        put?: never;
+        /**
+         * Make a wiki
+         * @description The user becomes the wiki's admin, and the wiki is filed under the user's default
+         *     category, as a board is. Whoever works in the workspace makes wikis in it; a guest
+         *     is refused (403). A member the request does not know is 400.
+         */
+        post: operations["createWiki"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The pages of a wiki
+         * @description Every page of the wiki without its body, for the wiki's members: each names the page
+         *     it is below (`parentId`, empty at the top of the wiki), which is how they are a
+         *     tree. By `order` as strings compare by code unit, then by `id`: the pages of one
+         *     parent are in their order when they are taken out of the list as it is.
+         */
+        get: operations["getPageTree"];
+        put?: never;
+        /**
+         * Make a page
+         * @description The server chooses the identifier, the creator, the times and the `order`. For
+         *     editors of the wiki. The page goes below `parentId`, a page of the same wiki (400 at
+         *     `/parentId` otherwise), or at the top of the wiki; among the pages of that parent it
+         *     goes right after the page `after` (400 at `/after` if that is no page of the same
+         *     parent), first if `after` is empty, and last if it is left out. Its body is written
+         *     by `patchPage`, or together in its room (`JOIN_DOC`).
+         *
+         *     The wiki's members are told with `UPDATE_BLOCK`, whose block of the `type` `page`
+         *     has the icon and the order among its `fields`.
+         */
+        post: operations["createPage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A page
+         * @description The page with its body, for the members of its wiki.
+         */
+        get: operations["getPage"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete a page
+         * @description The page goes to the trash with every page below it, for editors of the wiki. The
+         *     wiki's members are told with `UPDATE_BLOCK` of the page alone, whose `deleteAt` is
+         *     not 0, as for any block that is deleted; the pages below it went with it and are
+         *     not told of one by one.
+         */
+        delete: operations["deletePage"];
+        options?: never;
+        head?: never;
+        /**
+         * Change a page
+         * @description Its title, its icon, or its whole body, for editors of the wiki. A new body is sent
+         *     with `readAt`, the `updateAt` of the page as it was read: 409 if the page has
+         *     changed since, and nothing is changed. Where the body is being edited together, what
+         *     the editors typed is written to the page first, so a writer who read it before is
+         *     refused and reads it again. Where the page is in the tree does not change here.
+         */
+        patch: operations["patchPage"];
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -2796,6 +3270,12 @@ export interface components {
         /** @description A request to accept a link. */
         AcceptInvitation: {
             account?: components["schemas"]["NewAccount"] | null;
+            /**
+             * @description The language tag of the screen the request comes from (`ko`, `en-GB`): the
+             *     language of the mail that confirms a new account's address, where the server asks
+             *     for that (English, Korean); English for any other.
+             */
+            language?: string;
             /** @description The token of the link. */
             token: string;
         };
@@ -2823,7 +3303,7 @@ export interface components {
          * @description What a record of the audit log says was done.
          * @enum {string}
          */
-        AuditAction: "self_added_to_board" | "added_to_board" | "org_admin_joined" | "org_admin_left" | "org_admin_revoked" | "org_admin_granted" | "org_admin_removed" | "workspace_created" | "workspace_renamed" | "workspace_deleted" | "workspace_restored" | "public_links_disabled" | "public_links_enabled" | "oidc_provider_configured" | "oidc_provider_removed" | "sso_required" | "sso_released" | "oidc_provider_pending_saved" | "oidc_provider_pending_applied" | "oidc_provider_pending_discarded" | "password_reset_link_made" | "password_set_by_operator";
+        AuditAction: "self_added_to_board" | "added_to_board" | "org_admin_joined" | "org_admin_left" | "org_admin_revoked" | "org_admin_granted" | "org_admin_removed" | "workspace_created" | "workspace_renamed" | "workspace_deleted" | "workspace_restored" | "public_links_disabled" | "public_links_enabled" | "oidc_provider_configured" | "oidc_provider_removed" | "sso_required" | "sso_released" | "oidc_provider_pending_saved" | "oidc_provider_pending_applied" | "oidc_provider_pending_discarded" | "password_reset_link_made" | "password_set_by_operator" | "oidc_former_provider_kept" | "oidc_former_provider_ended" | "oidc_former_provider_lapsed" | "oidc_identity_bound" | "oidc_identity_carried_over" | "email_verified_by_operator";
         /** @description A user as a record of the audit log names them. */
         AuditPerson: {
             /** @description The name the user shows; empty for none. */
@@ -2844,8 +3324,21 @@ export interface components {
              * @description When, in milliseconds since the epoch.
              */
             createAt: number;
+            /**
+             * @description The issuer a record of a provider's move names (`oidc_former_provider_…`,
+             *     `oidc_identity_…`); `null` for the others.
+             */
+            detail: string | null;
             /** @description The record's identifier. */
             id: string;
+            /**
+             * @description Who the identity a record of `oidc_identity_bound` or
+             *     `oidc_identity_carried_over` tied is: the email address its provider gave, or
+             *     its subject where it gave none, as it was then. `null` for the others, and in
+             *     the records of a workspace: the organization's are read by its administrators
+             *     alone.
+             */
+            identity: string | null;
             subject: components["schemas"]["AuditPerson"] | null;
             /** @description What it was done to: a board, a workspace or the organization. */
             targetId: string;
@@ -2857,8 +3350,9 @@ export interface components {
         };
         /**
          * @description Who did what a record of the audit log says: a person by their account, named as it
-         *     is now (an account that is gone by its identifier alone), or the server's operator,
-         *     who acts through the local administration socket without one. `kind` says which.
+         *     is now (an account that is gone by its identifier alone), the server's operator,
+         *     who acts through the local administration socket without one, or the server
+         *     itself, for what its timers do. `kind` says which.
          */
         AuditRecordActor: (components["schemas"]["AuditPerson"] & {
             /** @enum {string} */
@@ -2866,6 +3360,9 @@ export interface components {
         }) | {
             /** @enum {string} */
             kind: "server_operator";
+        } | {
+            /** @enum {string} */
+            kind: "server";
         };
         /** @description The basic data unit of a board. */
         Block: {
@@ -2894,9 +3391,10 @@ export interface components {
             editedAt?: number;
             /**
              * @description Type-specific data, free-form: serialized, at most 64,000 characters for a card, a
-             *     comment or an attachment and 800,000 for a view or a block of another type. The
-             *     `icon` of a card is a string and its `isTemplate` a boolean, or either `null`
-             *     (400 naming `fields` otherwise).
+             *     comment, an attachment or a page and 800,000 for a view or a block of another
+             *     type. The `icon` of a card is a string and its `isTemplate` a boolean, or either
+             *     `null` (400 naming `fields` otherwise). A page has its `icon` and its `order`
+             *     here, as `Page` gives them.
              */
             fields: {
                 [key: string]: unknown;
@@ -2915,8 +3413,9 @@ export interface components {
             /** @description The display title. A title with U+0000 is refused (400 naming `title`). */
             title: string;
             /**
-             * @description The block type: `card`, `view`, `comment` or `attachment`. No request makes a
-             *     block of another type or patches one into it (400 naming `type`).
+             * @description The block type: `card`, `view`, `comment` or `attachment` on a board, and `page`
+             *     on a wiki. No request of blocks makes a block of another type or patches one
+             *     into it (400 naming `type`), nor a page: `createPage` makes those.
              */
             type: string;
             /**
@@ -2998,6 +3497,13 @@ export interface components {
             /** @description Whether the board is a template. */
             isTemplate: boolean;
             /**
+             * @description What the board is for: `board` for cards, `wiki` for pages. It is what the board
+             *     was made as and never changes; a board decoded without it is a `board`. A wiki
+             *     is no template and has no card properties, and the operations that are about
+             *     cards answer for a wiki as for a board that is not there.
+             */
+            kind: components["schemas"]["BoardKind"];
+            /**
              * @description The role a user gets who joins the board, or is added by somebody who does not
              *     manage its roles. Never empty and never admin.
              */
@@ -3031,6 +3537,12 @@ export interface components {
             /** @description The identifier of the workspace the board belongs to. */
             workspaceId: string;
         };
+        /**
+         * @description What a container of a workspace is for: a board holds cards and their views, a wiki
+         *     holds pages. A container is of one kind from when it is made and never of another.
+         * @enum {string}
+         */
+        BoardKind: "board" | "wiki";
         /** @description A user's membership of a board. */
         BoardMember: {
             /** @description The identifier of the board. */
@@ -3101,6 +3613,62 @@ export interface components {
         /** @description A document of the editor: a node of type `doc` whose `content` is its blocks. Which nodes, marks and attributes it may have, and how they nest, is the allowlist of `docs/s6-design.md` 5.7. At most 1 MiB as JSON, 32 levels deep and 20,000 nodes. */
         Body: {
             [key: string]: unknown;
+        };
+        /**
+         * @description A version kept of a card's body: the body as it was at a time, and who wrote it up
+         *     to then.
+         */
+        BodyVersion: {
+            /**
+             * @description Who wrote the body up to this version since the one before, in the order of
+             *     their identifiers: those who edited it and those who wrote it whole. Empty for
+             *     a body nobody is known to have written.
+             */
+            editors: string[];
+            /**
+             * @description Whether the body of this version is the one the card has now. Of versions
+             *     with the same body, the newest; of none while the card's editors have typed
+             *     what is not written to the card yet.
+             */
+            isCurrent: boolean;
+            /**
+             * Format: int64
+             * @description When the version was kept, in milliseconds since the Unix epoch. For a body
+             *     nobody is known to have written (one from before versions were kept, or from an
+             *     import), when the card was last changed.
+             */
+            keptAt: number;
+            /**
+             * Format: int64
+             * @description The place of the version among the card's, counted from 1. The server keeps the
+             *     newest ones: the lowest numbers go as new versions come.
+             */
+            version: number;
+        };
+        /** @description A version kept of a card's body, with the body. */
+        BodyVersionContent: {
+            body: components["schemas"]["Body"] | null;
+            /**
+             * @description Who wrote the body up to this version since the one before, in the order of
+             *     their identifiers. Empty for a body nobody is known to have written.
+             */
+            editors: string[];
+            /**
+             * @description Whether the body of this version is the one the card has now. Of versions
+             *     with the same body, the newest; of none while the card's editors have typed
+             *     what is not written to the card yet.
+             */
+            isCurrent: boolean;
+            /**
+             * Format: int64
+             * @description When the version was kept, in milliseconds since the Unix epoch.
+             */
+            keptAt: number;
+            /**
+             * Format: int64
+             * @description The place of the version among the card's, counted from 1.
+             */
+            version: number;
         };
         /** @description A card: a titled group of properties with a body on a board. */
         Card: {
@@ -3314,6 +3882,11 @@ export interface components {
              *     unless the server is configured otherwise).
              */
             maxImportSize: number;
+            /**
+             * @description Whether what cards and pages say can be searched (`searchWorkspaceContent`):
+             *     the server has a search server, and one that can hold its index.
+             */
+            searchEnabled: boolean;
             /** @description How other users' names are displayed. */
             teammateNameDisplay: string;
         };
@@ -3340,6 +3913,16 @@ export interface components {
              */
             writtenBy: string;
         };
+        CompleteEmailVerification: {
+            /**
+             * @description The password the registration was made with: needed where the link is opened in
+             *     another browser than the one the registration was made from, and not read in
+             *     that one.
+             */
+            password?: string;
+            /** @description The secret from the confirmation link's fragment. */
+            token: string;
+        };
         /** @description The identifiers of boards and blocks to delete together. */
         DeleteBoardsAndBlocks: {
             /** @description The identifiers of the blocks. */
@@ -3361,6 +3944,7 @@ export interface components {
             deletedBy: string;
             /** @description The identifier of the card or the board. */
             id: string;
+            kind?: components["schemas"]["BoardKind"] | null;
             /** @description Its title when it was deleted. */
             title: string;
         };
@@ -3369,6 +3953,21 @@ export interface components {
          * @enum {string}
          */
         Density: "auto" | "compact" | "comfortable";
+        /** @description Where a confirmed registration's account was let in. */
+        EmailVerified: {
+            /** @description For a guest's link: the board it was let onto. */
+            boardId?: string | null;
+            /**
+             * @description Whether the registration started its organization, rather than joining one by
+             *     the link of an invitation.
+             */
+            organizationStarted: boolean;
+            /**
+             * @description The workspace: the first of the organization it started, or the one its link
+             *     leads into.
+             */
+            workspaceId: string;
+        };
         /** @description A form with one file. */
         FileForm: {
             /**
@@ -3559,6 +4158,11 @@ export interface components {
         };
         /** @description What the login page shows: the organization it is for, if it is for one. */
         LoginOptions: {
+            /**
+             * @description Whether a registration opens nothing until the link mailed to its address
+             *     confirms it, which signs it in (`email_verification`).
+             */
+            emailVerification: boolean;
             /** @description Whether this server can deliver password recovery and invitation mail. */
             mailEnabled: boolean;
             organization: components["schemas"]["LoginOrganization"] | null;
@@ -3791,6 +4395,23 @@ export interface components {
             /** @description The identifier of the user, who must be able to see the board's workspace. */
             userId: string;
         };
+        /** @description A page to make. */
+        NewPage: {
+            /**
+             * @description The identifier of the page it goes right after: a page of the same parent. Empty
+             *     for the first place; left out or `null`, the last place.
+             */
+            after?: string | null;
+            /** @description The page's icon, at most one grapheme. Left out, none. */
+            icon?: string;
+            /**
+             * @description The identifier of the page it goes below: a page of the same wiki. Left out or
+             *     empty, the page is at the top of the wiki.
+             */
+            parentId?: string;
+            /** @description The page's title. Left out, empty. */
+            title?: string;
+        };
         /** @description A subscription to make. */
         NewSubscription: {
             /** @description The identifier of the block subscribed to. */
@@ -3821,11 +4442,64 @@ export interface components {
              */
             size: number;
         };
+        /** @description A wiki to make. */
+        NewWiki: {
+            /** @description The wiki's description. Left out, empty. */
+            description?: string;
+            /** @description The wiki's icon, usually one emoji. Left out, none. */
+            icon?: string;
+            /** @description The role a user gets who joins the wiki. Left out, `editor`. */
+            minimumRole?: components["schemas"]["MinimumRole"];
+            /** @description The wiki's title. Left out, empty. */
+            title?: string;
+            /**
+             * @description Whether the wiki is open (`O`), for whoever works in the workspace to find and
+             *     join, or private (`P`), for whom it is shared with.
+             */
+            type: components["schemas"]["BoardType"];
+        };
+        /**
+         * @description The provider an organization moved away from, kept for a while: nobody signs in
+         *     through it, but somebody the new provider vouches for who has no account yet may
+         *     show who they were at it, and so tie the new identity to the account they had.
+         */
+        OidcFormerProvider: {
+            /**
+             * Format: int64
+             * @description When the organization moved away from it, in milliseconds since the Unix epoch.
+             */
+            createAt: number;
+            /**
+             * Format: int64
+             * @description When it is kept no longer, in milliseconds since the Unix epoch.
+             */
+            expiresAt: number;
+            /** @description Its issuer. */
+            issuer: string;
+        };
+        /** @description Which former provider an administrator ends the keeping of: the one they read. */
+        OidcFormerProviderEnd: {
+            /**
+             * Format: int64
+             * @description The `createAt` of the former provider as it was read.
+             */
+            createAt: number;
+        };
         /**
          * @description The pending settings of an organization's provider, without the client secret:
          *     `hasClientSecret` says whether there is one.
          */
         OidcPendingProvider: {
+            /**
+             * Format: int64
+             * @description Until when a trial from the session that asks, come back by then, ties an
+             *     identity of another issuer that is nobody's yet to the administrator's own
+             *     account, in milliseconds since the Unix epoch: five minutes after the session
+             *     was made through the provider as it is stored. `null` once that has passed,
+             *     for a session that was not made so, and for pending settings of the same
+             *     issuer, which tie nothing.
+             */
+            bindsIdentityUntil: number | null;
             /** @description The client identifier. */
             clientId: string;
             /**
@@ -3864,6 +4538,7 @@ export interface components {
             createAt: number;
             /** @description Whether signing in through the provider is on. */
             enabled: boolean;
+            former: components["schemas"]["OidcFormerProvider"] | null;
             /** @description Whether a client secret is stored. */
             hasClientSecret: boolean;
             /** @description The issuer: an `https` address, exactly as the provider names itself. */
@@ -4008,6 +4683,86 @@ export interface components {
             /** @description Whether boards may be read by a public link. */
             publicLinks?: boolean | null;
         };
+        /** @description A page of a wiki. */
+        Page: {
+            body: components["schemas"]["Body"] | null;
+            /**
+             * Format: int64
+             * @description Creation time in milliseconds since the Unix epoch.
+             */
+            createAt: number;
+            /** @description The identifier of the user who made the page. */
+            createdBy: string;
+            /** @description The page's icon, at most one grapheme; empty for none. */
+            icon: string;
+            /** @description The page's identifier. */
+            id: string;
+            /** @description The identifier of the user who last changed the page. */
+            modifiedBy: string;
+            /**
+             * @description The page's place among the pages of the same parent, as in the tree
+             *     (`getPageTree`).
+             */
+            order: string;
+            /** @description The identifier of the page it is below; empty for a page at the top of its wiki. */
+            parentId: string;
+            /** @description The page's title. */
+            title: string;
+            /**
+             * Format: int64
+             * @description Last modification time in milliseconds since the Unix epoch: what `readAt` of a
+             *     change of the page names.
+             */
+            updateAt: number;
+            /** @description The identifier of the wiki the page is of. */
+            wikiId: string;
+        };
+        /** @description A page as the tree of its wiki lists it: without its body. */
+        PageNode: {
+            /**
+             * Format: int64
+             * @description Creation time in milliseconds since the Unix epoch.
+             */
+            createAt: number;
+            /** @description The page's icon, at most one grapheme; empty for none. */
+            icon: string;
+            /** @description The page's identifier. */
+            id: string;
+            /**
+             * @description The page's place among the pages of the same parent: they are listed by it as
+             *     strings compare (by code unit, not by a locale), and by `id` where two have the
+             *     same. The server makes it; a client reads it only to sort.
+             */
+            order: string;
+            /** @description The identifier of the page it is below; empty for a page at the top of its wiki. */
+            parentId: string;
+            /** @description The page's title. */
+            title: string;
+            /**
+             * Format: int64
+             * @description Last modification time in milliseconds since the Unix epoch.
+             */
+            updateAt: number;
+        };
+        /**
+         * @description What a page is changed to. A member that is left out stays as it is. Where the page
+         *     is in the tree is none of them: a member the patch does not have is refused, so
+         *     that a request to move the page does not pass for one that did.
+         */
+        PagePatch: {
+            body?: components["schemas"]["Body"] | null;
+            /** @description The new icon, at most one grapheme; empty for none. */
+            icon?: string | null;
+            /**
+             * Format: int64
+             * @description The `updateAt` of the page as the client read it: if the page has changed since,
+             *     the patch is refused with 409 and changes nothing. Needed with `body`, and
+             *     checked whenever it is sent.
+             */
+            readAt?: number | null;
+            /** @description The new title. */
+            title?: string | null;
+        };
         /**
          * @description Patches for several boards and blocks, applied together.
          *
@@ -4133,6 +4888,12 @@ export interface components {
             /** @description The email address. */
             email: string;
             /**
+             * @description The language tag of the screen the request comes from (`ko`, `en-GB`): the
+             *     language of the mail that confirms the address, where the server asks for that
+             *     (English, Korean); English for any other.
+             */
+            language?: string;
+            /**
              * @description The name of the organization the account starts, and of that organization's
              *     first workspace. Read as `organization_name` reads it.
              */
@@ -4141,6 +4902,24 @@ export interface components {
             password: string;
             /** @description The login name. */
             username: string;
+        };
+        RequestEmailVerification: {
+            /**
+             * @description The address the registration was made with, used when no registration has the
+             *     given name.
+             */
+            email?: string;
+            /**
+             * @description The requester's language tag (`ko`, `en-GB`), used when the registration's own
+             *     screen named no language the mail is written in (English, Korean); English if
+             *     neither does.
+             */
+            language?: string;
+            /**
+             * @description The user name the registration was made with; or leave it empty and give the
+             *     address.
+             */
+            username?: string;
         };
         RequestPasswordReset: {
             /** @description The account's email address. */
@@ -4151,6 +4930,30 @@ export interface components {
              */
             language?: string;
         };
+        /** @description One thing a search found: the user reads it now. */
+        SearchHit: {
+            /** @description The identifier of the board the card is on, or of the wiki the page is in. */
+            containerId: string;
+            /** @description What its container is: a board, or a wiki. */
+            containerKind: components["schemas"]["BoardKind"];
+            /** @description The identifier of the card or the page. */
+            id: string;
+            /** @description What it is. */
+            kind: components["schemas"]["SearchKind"];
+            /**
+             * @description A piece of its body around what matched, in stretches that follow one
+             *     another; empty where the body has changed since it was indexed, or has nothing
+             *     to show.
+             */
+            snippet: components["schemas"]["SnippetPart"][];
+            /** @description Its title as it is now. */
+            title: string;
+        };
+        /**
+         * @description The kind of thing a search finds.
+         * @enum {string}
+         */
+        SearchKind: "card" | "page";
         /** @description What `ping` reports about the server. */
         ServerMetadata: {
             /** @description The build date; empty unless set at build time. */
@@ -4232,6 +5035,13 @@ export interface components {
              *     working.
              */
             regenerate?: boolean | null;
+        };
+        /** @description A stretch of a snippet: text as it is in the body, never markup. */
+        SnippetPart: {
+            /** @description Whether the stretch is what the search matched. */
+            matched: boolean;
+            /** @description The text of the stretch. */
+            text: string;
         };
         /**
          * @description The kind of entity that subscribes.
@@ -4563,16 +5373,142 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description To the web app, signed in or (with `oidc_linked=1`) linked, to the login page, or to the organization's page after a trial. */
+            /** @description To the web app, signed in or (with `oidc_linked=1`) linked; to the login page, with `oidc_error` for a sign-in that failed or `oidc_held=1` for one that is held; or to the organization's page after a trial. */
             303: {
                 headers: {
                     /** @description Where the browser goes. */
                     Location?: string;
-                    /** @description The session cookie, unless the sign-in linked or failed, and the cookie of the sign-in cleared. */
+                    /** @description The session cookie, unless the sign-in linked, is held or failed; the cookie of the held sign-in, set where one is held and cleared where one was carried over or left behind; and the cookie of the sign-in cleared. */
                     "Set-Cookie"?: string;
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    startOidcCarryOver: {
+        parameters: {
+            query: {
+                /** @description The identifier of the organization whose provider the person signs in through. */
+                org: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Started: where the browser goes. */
+            200: {
+                headers: {
+                    /** @description The cookie of the sign-in. */
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OidcStart"];
+                };
+            };
+            /** @description No organization named (`org`). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Nothing to carry over, or the former provider cannot be reached. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Too many sign-ins from this address. `retryAfter`, and the `Retry-After` header, say how long to wait. */
+            429: {
+                headers: {
+                    /** @description How many seconds to wait before trying again. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    finishHeldOidcLogin: {
+        parameters: {
+            query: {
+                /** @description The identifier of the organization whose provider the person signs in through. */
+                org: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Signed in: to a new account, or to the account the held identity was tied to meanwhile. */
+            204: {
+                headers: {
+                    /** @description The session cookie, and the cookie of the held sign-in cleared. */
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No organization named (`org`). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Nothing is held, or no account is made for the person. */
+            409: {
+                headers: {
+                    /** @description The cookie of the held sign-in cleared. */
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Too many sign-ins from this address. `retryAfter`, and the `Retry-After` header, say how long to wait. */
+            429: {
+                headers: {
+                    /** @description How many seconds to wait before trying again. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
             default: {
@@ -4682,6 +5618,83 @@ export interface operations {
             };
         };
     };
+    completeEmailVerification: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CompleteEmailVerification"];
+            };
+        };
+        responses: {
+            /** @description The account was made and signed in, and was let in here. */
+            200: {
+                headers: {
+                    /** @description The session cookie. */
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmailVerified"];
+                };
+            };
+            /** @description Too many requests from where this one comes from, or too many wrong passwords at the registration's user name. */
+            429: {
+                headers: {
+                    /** @description How many seconds to wait before trying again. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    requestEmailVerification: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RequestEmailVerification"];
+            };
+        };
+        responses: {
+            /** @description If a registration waits, its address will receive a new link. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     hello: {
         parameters: {
             query?: never;
@@ -4732,6 +5745,15 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["AcceptedInvitation"];
                 };
+            };
+            /** @description A new account waits for its email address to be confirmed by the link mailed to it. */
+            202: {
+                headers: {
+                    /** @description The cookie that tells the browser the registration was made from, as from `register`; no session. */
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Too many requests from where this one comes from, or the server has too much password work to do at the moment. */
             429: {
@@ -5168,6 +6190,49 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    deleteOidcFormerProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the organization. 404 unless the user of the session administers it. */
+                orgId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OidcFormerProviderEnd"];
+            };
+        };
+        responses: {
+            /** @description The organization keeps no former provider. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Another former provider is kept than the one read. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
             default: {
@@ -5654,6 +6719,15 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["User"];
                 };
+            };
+            /** @description The registration waits for its email address to be confirmed by the link mailed to it. */
+            202: {
+                headers: {
+                    /** @description The cookie that tells the browser the registration was made from; no session. */
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Too many registrations from where this one comes from, or the server has too much password work to do at the moment. */
             429: {
@@ -8001,6 +9075,112 @@ export interface operations {
             };
         };
     };
+    getCardBodyVersions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the card. */
+                cardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The versions, the newest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BodyVersion"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getCardBodyVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the card. */
+                cardId: string;
+                /** @description The number of the version of the card's body, as `getCardBodyVersions` lists it. */
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The version. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BodyVersionContent"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    restoreCardBodyVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the card. */
+                cardId: string;
+                /** @description The number of the version of the card's body, as `getCardBodyVersions` lists it. */
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The card as it is now. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Card"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     getCategories: {
         parameters: {
             query?: never;
@@ -8606,6 +9786,45 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OnboardingStart"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    searchWorkspaceContent: {
+        parameters: {
+            query?: {
+                /** @description The words to find, at most 200 characters. Without it nothing is found. */
+                q?: string;
+                /** @description The kind of thing to find: `card` or `page`. Left out, both. Anything else is 400. */
+                kind?: string;
+                /** @description How many hits to answer with at most, from 1 to 50; 20 if left out. */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What was found. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchHit"][];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
@@ -9265,6 +10484,256 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["User"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getWikis: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The wikis. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Board"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    createWiki: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewWiki"];
+            };
+        };
+        responses: {
+            /** @description The wiki that was made. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Board"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getPageTree: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the wiki: a board of the `kind` `wiki`. A board of another kind is 404, as an identifier of nothing is. */
+                wikiId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The pages. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageNode"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    createPage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the wiki: a board of the `kind` `wiki`. A board of another kind is 404, as an identifier of nothing is. */
+                wikiId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewPage"];
+            };
+        };
+        responses: {
+            /** @description The page that was made. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getPage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the wiki: a board of the `kind` `wiki`. A board of another kind is 404, as an identifier of nothing is. */
+                wikiId: string;
+                /** @description The identifier of the page: a page of the wiki of the path. 404 for a page of another wiki. */
+                pageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    deletePage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the wiki: a board of the `kind` `wiki`. A board of another kind is 404, as an identifier of nothing is. */
+                wikiId: string;
+                /** @description The identifier of the page: a page of the wiki of the path. 404 for a page of another wiki. */
+                pageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The page is deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    patchPage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the wiki: a board of the `kind` `wiki`. A board of another kind is 404, as an identifier of nothing is. */
+                wikiId: string;
+                /** @description The identifier of the page: a page of the wiki of the path. 404 for a page of another wiki. */
+                pageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PagePatch"];
+            };
+        };
+        responses: {
+            /** @description The page as it is now. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page"];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */

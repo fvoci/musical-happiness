@@ -98,7 +98,7 @@ impl Pace {
 
     /// Waits until a message of `kind` may make an attempt, and takes that turn.
     pub(super) async fn turn(&self, kind: MailKind) {
-        let _waiting = (kind == MailKind::PasswordReset).then(|| ResetWaiting::new(self));
+        let _waiting = kind.goes_first().then(|| ResetWaiting::new(self));
         loop {
             let mut changed = pin!(self.changed.notified());
             changed.as_mut().enable();
@@ -187,7 +187,7 @@ impl Pace {
 
 impl State {
     fn wait_of(&self, kind: MailKind, now: Instant) -> Wait {
-        if kind == MailKind::Invitation {
+        if !kind.goes_first() {
             if self.resets_waiting > 0 {
                 return Wait::Others;
             }

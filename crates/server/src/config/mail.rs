@@ -12,7 +12,8 @@ use serde_json::{Map, Value};
 
 use super::smtp::SmtpSettings;
 
-pub(super) const ENV_KEYS: [(&str, super::EnvKind); 13] = [
+pub(super) const ENV_KEYS: [(&str, super::EnvKind); 14] = [
+    ("email_verification", super::EnvKind::Flag),
     ("mail_transport", super::EnvKind::Text),
     ("mail_api_endpoint", super::EnvKind::Text),
     ("cloudflare_account_id", super::EnvKind::Text),
@@ -65,6 +66,9 @@ impl MailTransport {
 #[cfg_attr(test, derive(serde::Serialize))]
 #[serde(default)]
 pub struct MailSettings {
+    /// Whether a registration opens nothing until the link mailed to its address
+    /// confirms it; needs a way of sending.
+    pub email_verification: bool,
     /// `smtp`, `cloudflare`, `ses` or `oci`; empty for SMTP when `smtp_host` is set and
     /// no mail otherwise.
     #[serde(deserialize_with = "transport_or_none")]
@@ -101,6 +105,7 @@ pub struct MailSettings {
 impl fmt::Debug for MailSettings {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("MailSettings")
+            .field("email_verification", &self.email_verification)
             .field("mail_transport", &self.mail_transport)
             .field(
                 "mail_api_endpoint",
@@ -259,7 +264,23 @@ impl MailSettings {
         ]
     }
 
-    /// The way mail leaves, or `None` for no mail, with the sender (`smtp_from`) checked
+    /// Checks the way mail leaves ([`MailSettings::way`]), and that a registration that
+    /// is to be confirmed by mail has one.
+    ///
+    /// # Errors
+    /// Returns the error of [`MailSettings::way`], or one naming `email_verification`
+    /// when it is on and no mail is sent.
+    pub fn check(&self, smtp: &SmtpSettings) -> anyhow::Result<()> {
+        if self.way(smtp)?.is_none() && self.email_verification {
+            bail!(
+                "email_verification is on, but this server sends no mail: set mail_transport \
+                 or smtp_host, or turn email_verification off"
+            );
+        }
+        Ok(())
+    }
+
+    /// The way mail leaves, or `None` for no mail, with the sender (`mail_from`) checked
     /// for every way. Contacts nothing and reads no file.
     ///
     /// # Errors
@@ -271,7 +292,7 @@ impl MailSettings {
             None if smtp.enabled() => MailTransport::Smtp,
             None => {
                 self.refuse_unused(None)?;
-                if !smtp.smtp_from.is_empty() || !smtp.smtp_user.is_empty() {
+                if !smtp.mail_from.is_empty() || !smtp.smtp_user.is_empty() {
                     bail!(
                         "smtp_host or mail_transport is required when mail settings are supplied"
                     );
@@ -280,8 +301,8 @@ impl MailSettings {
             }
         };
         self.refuse_unused(Some(transport))?;
-        if !fvoci_model::is_email_valid(&smtp.smtp_from) {
-            bail!("smtp_from must be a single email address: the sender of all mail");
+        if !fvoci_model::is_email_valid(&smtp.mail_from) {
+            bail!("mail_from must be a single email address: the sender of all mail");
         }
         if transport != MailTransport::Smtp {
             refuse_relay(smtp, transport)?;
@@ -510,7 +531,7 @@ fn secret_shaped(key: &str, value: &str) -> anyhow::Result<()> {
 
 /// The address `url` names, if it is written as an address of this machine's
 /// loopback (also one mapped into IPv6).
-fn loopback_address(url: &reqwest::Url) -> Option<IpAddr> {
+pub(super) fn loopback_address(url: &reqwest::Url) -> Option<IpAddr> {
     // A URL writes an IPv6 address in brackets, and an IPv4 one in its usual form.
     let address = url
         .host_str()?
@@ -577,21 +598,21 @@ mod tests {
             "mail_transport": "cloudflare",
             "cloudflare_account_id": "0123456789abcdef0123456789abcdef",
             "cloudflare_api_token": TOKEN,
-            "smtp_from": "sender@example.test",
+            "mail_from": "sender@example.test",
         })
     }
 
     #[test]
     fn the_transport_is_smtp_with_a_host_and_nothing_without() {
         assert!(matches!(checked(&json!({})), Ok(None)));
-        let smtp = json!({"smtp_host": "smtp.example.test", "smtp_from": "sender@example.test"});
+        let smtp = json!({"smtp_host": "smtp.example.test", "mail_from": "sender@example.test"});
         assert!(matches!(checked(&smtp), Ok(Some(Way::Smtp))));
         let mut named = smtp;
         named["mail_transport"] = Value::from("smtp");
         assert!(matches!(checked(&named), Ok(Some(Way::Smtp))));
         let empty = json!({"mail_transport": ""});
         assert!(matches!(checked(&empty), Ok(None)), "empty is unset");
-        let error = checked(&json!({"mail_transport": "smtp", "smtp_from": "sender@example.test"}))
+        let error = checked(&json!({"mail_transport": "smtp", "mail_from": "sender@example.test"}))
             .expect_err("no relay");
         assert!(error.contains("smtp_host"), "{error}");
         let error = checked(&json!({"mail_transport": "postmark"})).expect_err("unknown");
@@ -606,12 +627,32 @@ mod tests {
     }
 
     #[test]
+    fn email_verification_is_off_by_default_and_needs_a_way_of_sending() {
+        let config = Configuration::parse("{}", |_| None).expect("parse");
+        assert!(!config.mail.email_verification, "off unless turned on");
+        let error = checked(&json!({"email_verification": true})).expect_err("no mail");
+        assert!(error.contains("email_verification"), "{error}");
+        let mut smtp =
+            json!({"smtp_host": "smtp.example.test", "mail_from": "sender@example.test"});
+        smtp["email_verification"] = Value::Bool(true);
+        assert!(matches!(checked(&smtp), Ok(Some(Way::Smtp))));
+        let mut cloudflare = cloudflare();
+        cloudflare["email_verification"] = Value::Bool(true);
+        assert!(matches!(checked(&cloudflare), Ok(Some(Way::Cloudflare(_)))));
+        let mut env = BTreeMapEnv::default();
+        env.0.push(("FVOCI_EMAIL_VERIFICATION", "true"));
+        let config = Configuration::parse("{}", |name| env.get(name)).expect("parse");
+        assert!(config.mail.email_verification, "turned on by its variable");
+        assert!(config.check().is_err(), "and refused without mail");
+    }
+
+    #[test]
     fn a_provider_without_a_key_it_needs_is_refused_by_the_keys_name() {
         assert!(matches!(
             checked(&cloudflare()),
             Ok(Some(Way::Cloudflare(_)))
         ));
-        for key in ["cloudflare_account_id", "cloudflare_api_token", "smtp_from"] {
+        for key in ["cloudflare_account_id", "cloudflare_api_token", "mail_from"] {
             let mut keys = cloudflare();
             keys.as_object_mut().expect("an object").remove(key);
             let error = checked(&keys).expect_err("a missing key");
@@ -633,7 +674,7 @@ mod tests {
         }
         let smtp = json!({
             "smtp_host": "smtp.example.test",
-            "smtp_from": "sender@example.test",
+            "mail_from": "sender@example.test",
             "cloudflare_api_token": TOKEN,
         });
         let error = checked(&smtp).expect_err("a key of Cloudflare");
@@ -643,7 +684,7 @@ mod tests {
         let error = checked(&off).expect_err("a key without mail");
         assert!(error.contains("cloudflare_account_id"), "{error}");
         let mut endpoint =
-            json!({"smtp_host": "smtp.example.test", "smtp_from": "sender@example.test"});
+            json!({"smtp_host": "smtp.example.test", "mail_from": "sender@example.test"});
         endpoint["mail_api_endpoint"] = Value::from("http://127.0.0.1:9");
         let error = checked(&endpoint).expect_err("SMTP takes no endpoint");
         assert!(error.contains("mail_api_endpoint"), "{error}");
@@ -738,7 +779,7 @@ mod tests {
             "ses_region": "eu-west-2",
             "ses_access_key_id": "AKIDEXAMPLE",
             "ses_secret_access_key": SES_SECRET,
-            "smtp_from": "sender@example.test",
+            "mail_from": "sender@example.test",
         })
     }
 
@@ -795,7 +836,7 @@ mod tests {
             "oci_fingerprint": "73:61:a2:21:67:e0:df:be:7e:4b:93:1e:15:98:a5:b7",
             "oci_private_key_file": "oci_api_key.pem",
             "oci_compartment": "ocid1.compartment.oc1..aaaaaaaam3we6vgnherjq5q2idnccdflvjsnog7mlr6rtdb25gilchfeyjxa",
-            "smtp_from": "sender@example.test",
+            "mail_from": "sender@example.test",
         })
     }
 

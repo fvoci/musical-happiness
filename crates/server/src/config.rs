@@ -26,6 +26,7 @@ mod keys;
 pub mod mail;
 mod oidc_trust;
 mod scrapes;
+pub mod search;
 mod secret_key;
 pub mod smtp;
 mod upload_limits;
@@ -187,6 +188,10 @@ pub struct Configuration {
     /// A PEM file of additional certificate authorities trusted by the OIDC client.
     /// Empty to use only the system roots. Loaded when the client starts.
     pub oidc_extra_ca_file: String,
+    /// How many days the provider an organization moves away from (another issuer) is
+    /// kept, for its people to carry their accounts over to the new one. Zero keeps
+    /// none. An organization's limit: read through `App::limits`.
+    pub oidc_former_provider_days: u32,
     /// The key the server seals what it keeps secret in the database with: the client
     /// secrets of the providers. Read from `FVOCI_SECRET_KEY` only, never from the
     /// file, and never written by `Debug`. Without it no provider can be stored.
@@ -291,6 +296,9 @@ pub struct Configuration {
     /// The way mail leaves (`mail_transport`) and the keys of the providers' APIs.
     #[serde(flatten)]
     pub mail: mail::MailSettings,
+    /// The keys `search_*` (the search server of the bodies).
+    #[serde(flatten)]
+    pub search: search::SearchSettings,
     /// Whether to skip importing the built-in templates at startup. Not a configuration
     /// file key; the test harness sets it so a server that does not need templates
     /// starts quickly, as the original's `SkipTemplateInit` does.
@@ -330,6 +338,7 @@ impl Default for Configuration {
             auth_mode: "native".to_owned(),
             oidc_allow_private_addresses: false,
             oidc_extra_ca_file: String::new(),
+            oidc_former_provider_days: 30,
             secret_key: None,
             oidc_extra_root_certificates: Vec::new(),
             org_creation: ORG_CREATION_FIRST_USER_ONLY.to_owned(),
@@ -360,6 +369,7 @@ impl Default for Configuration {
             collab: collab::CollabSettings::default(),
             smtp: smtp::SmtpSettings::default(),
             mail: mail::MailSettings::default(),
+            search: search::SearchSettings::default(),
             skip_template_init: false,
         }
     }
@@ -371,6 +381,7 @@ impl std::fmt::Debug for Configuration {
         f.debug_struct("Configuration")
             .field("smtp", &self.smtp)
             .field("mail", &self.mail)
+            .field("search", &self.search)
             .field("server_root", &self.server_root)
             .field("port", &self.port)
             .field("db_type", &self.db_type)
@@ -403,6 +414,7 @@ impl std::fmt::Debug for Configuration {
                 "oidc_allow_private_addresses",
                 &self.oidc_allow_private_addresses,
             )
+            .field("oidc_former_provider_days", &self.oidc_former_provider_days)
             .field("secret_key", &self.secret_key)
             .field("org_creation", &self.org_creation)
             .field("server_lock_wait_seconds", &self.server_lock_wait_seconds)
@@ -488,11 +500,12 @@ pub const MIN_UPLOAD_PART_BYTES: u64 = 5 * 1024 * 1024;
 /// The largest part an S3 multipart upload takes, and so the largest part size.
 pub const MAX_UPLOAD_PART_BYTES: u64 = 5 * 1024 * 1024 * 1024;
 
-/// Keys of the original server's configuration that this server no longer has, each with
-/// what to do instead; a key of `filess3config` as `filess3config.<key>`. A file or an
+/// Keys this server does not read, of the original server's configuration or under an
+/// earlier name, each with what to do instead; a key of `filess3config` as
+/// `filess3config.<key>`. A file or an
 /// environment that sets one to something is refused: a server that silently ignored it
 /// would run differently from what its operator wrote.
-const REMOVED_KEYS: [(&str, &str); 10] = [
+const REMOVED_KEYS: [(&str, &str); 11] = [
     (
         "dbtableprefix",
         "tables have fixed names; to keep them apart from other tables in one PostgreSQL \
@@ -530,6 +543,10 @@ const REMOVED_KEYS: [(&str, &str); 10] = [
     (
         "filess3config.trace",
         "requests to the object store are not logged one by one",
+    ),
+    (
+        "smtp_from",
+        "the sender of all mail, whatever its way, is mail_from (FVOCI_MAIL_FROM)",
     ),
 ];
 
@@ -641,6 +658,7 @@ impl Configuration {
             .chain(collab::ENV_KEYS)
             .chain(smtp::ENV_KEYS)
             .chain(mail::ENV_KEYS)
+            .chain(search::ENV_KEYS)
         {
             let name = env_name(key);
             if let Some(text) = env(&name)
@@ -651,8 +669,11 @@ impl Configuration {
         }
 
         for (key, instead) in REMOVED_KEYS {
-            let from_env = env(&env_name(key)).is_some_and(|text| !text.trim().is_empty());
-            if from_env || value_of(&keys, key).is_some_and(|value| !is_unset(value)) {
+            let variable = env_name(key);
+            if env(&variable).is_some_and(|text| !text.trim().is_empty()) {
+                bail!("{variable}, the variable of {key}, is no longer read: {instead}");
+            }
+            if value_of(&keys, key).is_some_and(|value| !is_unset(value)) {
                 bail!("{key} is no longer a setting: {instead}");
             }
         }
@@ -671,6 +692,7 @@ impl Configuration {
         scrapes::check_token_is_text(&keys)?;
         smtp::check_password_is_text(&keys)?;
         mail::check_secrets_are_text(&keys)?;
+        search::check_secrets_are_text(&keys)?;
         let secret_key = secret_key::read(&keys, &env, is_unset)?;
         let mut config: Self = serde_json::from_value(Value::Object(keys))
             .context("a key has a value of the wrong type")?;
@@ -686,6 +708,11 @@ impl Configuration {
     /// How long after signing in a session ends, in milliseconds.
     pub fn session_max_millis(&self) -> i64 {
         i64::from(self.session_max_days).saturating_mul(MILLIS_PER_DAY)
+    }
+
+    /// How long the provider an organization moves away from is kept.
+    pub fn oidc_former_provider_kept(&self) -> std::time::Duration {
+        std::time::Duration::from_hours(u64::from(self.oidc_former_provider_days) * 24)
     }
 
     /// How long a deleted board or block stays in the trash, in milliseconds.
@@ -773,7 +800,8 @@ impl Configuration {
         }
         self.check_upload_limits()?;
         self.smtp.check()?;
-        self.mail.way(&self.smtp)?;
+        self.mail.check(&self.smtp)?;
+        self.search.server()?;
         self.metrics_address()?;
         self.check_metrics_token()?;
         match self.files_driver.as_str() {

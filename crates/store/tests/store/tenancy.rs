@@ -467,6 +467,8 @@ async fn administer(store: &Store, workspace_id: &str, user_id: &str) {
 /// too, and so joins its organization. Returns the identifiers of the card that went to
 /// the trash and of the user.
 async fn something_in_every_table(store: &Store, username: &str) -> (String, String) {
+    // As on a server that has a search server: what changes is noted for it.
+    store.keep_search_outbox();
     let user_id = common::user(store, username).await;
     let comment = crate::file_info::posted_comment(store, &user_id).await;
     let board_id = comment.board_id.clone();
@@ -556,7 +558,7 @@ async fn something_in_every_table(store: &Store, username: &str) -> (String, Str
         .delete_board(&gone[0].id, &user_id)
         .await
         .expect("a board goes to the trash");
-    sign_in_under_way(store, username).await;
+    common::sign_in_under_way(store, username).await;
     a_link_for_a_guest(store, &board, &user_id).await;
     (card.id, user_id)
 }
@@ -578,72 +580,19 @@ async fn a_link_for_a_guest(store: &Store, board: &Board, user_id: &str) {
         .expect("a link is stored");
 }
 
-/// The document of a card's body that is edited together, with an update logged.
+/// The document of a card's body that is edited together: an update logged, a version kept.
 async fn a_body_edited_together(store: &Store, board_id: &str, user_id: &str) {
     let mut edited = fvoci_model::Block {
         id: new_id(),
         board_id: board_id.to_owned(),
         block_type: BlockType::Card,
+        body: crate::body_versions::body_showing("kept", &[]),
         ..fvoci_model::Block::default()
     };
     common::insert_blocks(store, std::slice::from_mut(&mut edited), user_id).await;
-    store
-        .create_body_doc(&edited.id, b"a state", b"a digest")
-        .await
-        .expect("a document is stored");
-    store
-        .append_body_updates(&edited.id, &[(b"an update", user_id)], &[])
-        .await
-        .expect("an update is logged");
-}
-
-/// The organization's provider of sign-ins (one, whoever sets it), its pending settings,
-/// and a sign-in through it that has not come back.
-async fn sign_in_under_way(store: &Store, name: &str) {
-    let provider = store
-        .put_oidc_provider(&fvoci_store::StoredProvider {
-            id: String::new(),
-            org_id: String::new(),
-            issuer: "https://idp.example.com".to_owned(),
-            client_id: "fvoci".to_owned(),
-            sealed_client_secret: String::new(),
-            auto_join: true,
-            enabled: true,
-            create_at: 0,
-            update_at: 0,
-            sso_required: true,
-            revision: 0,
-        })
-        .await
-        .expect("a provider is stored");
-    store
-        .put_oidc_pending_provider(
-            &fvoci_store::PendingSettings {
-                issuer: "https://idp.example.com".to_owned(),
-                client_id: format!("fvoci of {name}"),
-                sealed_client_secret: String::new(),
-            },
-            &provider,
-            &provider,
-            &fvoci_model::new_id(),
-        )
-        .await
-        .expect("asked")
-        .expect("pending settings are stored");
-    store
-        .create_oidc_login_flow(&fvoci_store::LoginFlow {
-            state_hash: format!("state of {name}"),
-            browser_hash: format!("browser of {name}"),
-            nonce: String::new(),
-            pkce_verifier: String::new(),
-            org_id: provider.org_id.clone(),
-            provider_id: provider.id,
-            create_at: 0,
-            expires_at: i64::MAX,
-            purpose: fvoci_store::FlowPurpose::SignIn,
-        })
-        .await
-        .expect("a sign-in is stored");
+    let body = edited.body.clone();
+    crate::body_versions::type_body(store, &edited.id, body, user_id).await;
+    crate::body_versions::keep(store, &edited.id).await;
 }
 
 /// What two organizations store stays apart in every table of theirs, whatever the
@@ -675,9 +624,15 @@ async fn what_two_organizations_store_stays_apart_in_every_table() {
         let count = async |store: &Store| store.count_rows(table).await.expect("counted");
         let (our_rows, their_rows) = (count(ours).await, count(&theirs).await);
         assert!(our_rows > 0, "{table}: the test stores a row of ours");
-        // An organization, its provider of sign-ins and its pending settings are one
-        // of each.
-        if ["organizations", "oidc_providers", "oidc_pending_providers"].contains(&table.as_str()) {
+        // An organization, its provider of sign-ins, the one it moved away from and
+        // its pending settings are one of each.
+        let one_of_each = [
+            "organizations",
+            "oidc_providers",
+            "oidc_former_providers",
+            "oidc_pending_providers",
+        ];
+        if one_of_each.contains(&table.as_str()) {
             assert_eq!((our_rows, their_rows), (1, 1), "each reaches its own alone");
         } else {
             assert!(
@@ -923,11 +878,12 @@ fn rust_sources(directory: &Path, found: &mut Vec<std::path::PathBuf>) {
 /// organization like another to the wall: `Tenant::org(SYSTEM_ORG_ID)` is not this.)
 #[test]
 fn the_systems_reach_is_asked_for_in_few_places() {
-    const ALLOWED: [&str; 7] = [
+    const ALLOWED: [&str; 8] = [
         "store/src/lib.rs",
         "store/src/directory.rs",
         "store/src/directory/sign_in.rs",
         "store/src/operator_records.rs",
+        "store/src/signups.rs",
         "store/src/data_steps.rs",
         "store/src/visibility.rs",
         "server/src/app/housekeeping.rs",
@@ -1901,12 +1857,13 @@ async fn an_open_board_is_found_by_who_works_in_its_workspace() {
     let board_id = board(&test, &workspace_id, &member, "open to the workspace").await;
 
     let found_by = async |user_id: &str| {
+        let (open, boards) = (PublicBoards::Include, fvoci_model::BoardKinds::Boards);
         let of_the_workspace = test
-            .get_boards_for_user_and_workspace(user_id, &workspace_id, PublicBoards::Include)
+            .get_boards_for_user_and_workspace(user_id, &workspace_id, open, boards)
             .await
             .expect("the boards of the workspace are read");
         let searched = test
-            .search_boards_for_user("open", Title, user_id, PublicBoards::Include)
+            .search_boards_for_user("open", Title, user_id, open, boards)
             .await
             .expect("the boards are searched");
         (of_the_workspace.len(), searched.len())

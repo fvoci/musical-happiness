@@ -187,9 +187,11 @@ fn describe_reason(reason: Reason) -> &'static str {
              say which. Status 401 from a login. Status 400 from a change of the password, \
              whose session is good: `errors` names `/oldPassword`."
         }
-        Reason::InvitationRequired | Reason::InvitationUnavailable => {
-            describe_invitation(reason).unwrap_or_default()
-        }
+        Reason::InvitationRequired
+        | Reason::InvitationUnavailable
+        | Reason::TooManyRecipients
+        | Reason::InvitationMailLimit
+        | Reason::MailQueueFull => describe_invitation(reason).unwrap_or_default(),
         Reason::UsernameTaken => {
             "Status 409. Another user has the user name. `errors` names `/username`."
         }
@@ -231,6 +233,10 @@ fn describe_reason(reason: Reason) -> &'static str {
         | Reason::OidcIdentityTaken
         | Reason::OidcEmailMismatch
         | Reason::OidcTrialAccount
+        | Reason::OidcTrialStale
+        | Reason::OidcCarryOverRefused
+        | Reason::EmailUnverified
+        | Reason::PasswordRequired
         | Reason::PasswordNotSet
         | Reason::LastSignIn
         | Reason::SsoRequired
@@ -247,25 +253,28 @@ fn describe_reason(reason: Reason) -> &'static str {
         | Reason::DefaultWorkspace
         | Reason::LastOrgAdmin
         | Reason::PublicLinksOff => describe_organization(reason).unwrap_or_default(),
-        Reason::TooManyRecipients => {
-            "Status 400. An invitation mail request names more recipients than \
-             `invitation_mail_recipients` allows (20 unless configured), which `limit` \
-             tells. `errors` names `/recipients`. Nothing was sent: send fewer at a time."
-        }
-        Reason::InvitationMailLimit => {
-            "Status 429. The workspace queued as many invitation messages within the last \
-             hour as `invitation_mail_per_hour` allows (100 unless configured), counting the \
-             recipients of this request. Nothing of it was sent. `Retry-After` and \
-             `retryAfter` say when enough of the earlier messages are an hour old."
-        }
-        Reason::MailQueueFull => {
-            "Status 503. The server holds as many invitation messages waiting to be sent as \
-             `mail_invitation_queue` allows. Nothing of this request was sent. Try again later."
-        }
-        // The rest are the reasons of a body edited together, which the two functions
-        // below name one by one: a reason that is none of theirs fails the tests.
-        _ => describe_editing_together(reason),
+        // The rest are the reasons of the search of bodies and of a body edited together,
+        // which the functions below name one by one: a reason that is none of theirs
+        // fails the tests.
+        _ => describe_search(reason).unwrap_or_else(|| describe_editing_together(reason)),
     }
+}
+
+/// The descriptions of the reasons of the search of bodies.
+fn describe_search(reason: Reason) -> Option<&'static str> {
+    Some(match reason {
+        Reason::SearchNotConfigured => {
+            "Status 404. The server has no search server (`search_url`), or the one it has \
+             cannot hold the index: what cards and pages say is not searched. `searchEnabled` of \
+             `getClientConfig` says so beforehand."
+        }
+        Reason::SearchUnavailable => {
+            "Status 503. The search server did not answer the search within three seconds, \
+             or refused it. Nothing else of the server depends on it: what is written \
+             meanwhile is found once the search server is back. Try again later."
+        }
+        _ => return None,
+    })
 }
 
 /// The descriptions of the reasons of uploads in parts and of archives.
@@ -305,7 +314,8 @@ fn describe_transfer(reason: Reason) -> Option<&'static str> {
     })
 }
 
-/// The descriptions of the reasons somebody is not let in for.
+/// The descriptions of the reasons somebody is not let in for, and an invitation's mail is
+/// not sent for.
 fn describe_invitation(reason: Reason) -> Option<&'static str> {
     Some(match reason {
         Reason::InvitationRequired => {
@@ -318,6 +328,21 @@ fn describe_invitation(reason: Reason) -> Option<&'static str> {
              whether there never was such a link, it ended after its seven days, it was \
              used as often as it may be, it was revoked, or who made it may no longer \
              invite. Ask for a new link."
+        }
+        Reason::TooManyRecipients => {
+            "Status 400. An invitation mail request names more recipients than \
+             `invitation_mail_recipients` allows (20 unless configured), which `limit` \
+             tells. `errors` names `/recipients`. Nothing was sent: send fewer at a time."
+        }
+        Reason::InvitationMailLimit => {
+            "Status 429. The workspace queued as many invitation messages within the last \
+             hour as `invitation_mail_per_hour` allows (100 unless configured), counting the \
+             recipients of this request. Nothing of it was sent. `Retry-After` and \
+             `retryAfter` say when enough of the earlier messages are an hour old."
+        }
+        Reason::MailQueueFull => {
+            "Status 503. The server holds as many invitation messages waiting to be sent as \
+             `mail_invitation_queue` allows. Nothing of this request was sent. Try again later."
         }
         _ => return None,
     })
@@ -477,6 +502,21 @@ fn describe_rooms(reason: Reason) -> &'static str {
 /// The descriptions of the reasons of signing in through a provider.
 fn describe_sign_in(reason: Reason) -> Option<&'static str> {
     Some(match reason {
+        Reason::EmailUnverified => {
+            "Status 403 from a login whose password is right, on a server that asks a \
+             registration to confirm its email address (`email_verification`): the \
+             registration has not been confirmed, and there is no account until the link \
+             mailed to the address confirms it, within seven days. A wrong password is \
+             answered as for no account."
+        }
+        Reason::PasswordRequired => {
+            "Status 403 from `completeEmailVerification`, for a link that would confirm a \
+             registration, opened in another browser than the one it was made from: send \
+             the request again with `password`, the password the registration was made \
+             with. The link stays as it was. Only who registered finishes a registration, \
+             so that nobody is signed in to an account whose password somebody else \
+             chose; `errors` names `password`."
+        }
         Reason::SecretKeyRequired => {
             "Status 409. The server seals the client secret of a provider with its key, \
              `FVOCI_SECRET_KEY`, and has none: a provider cannot be stored until the server is \
@@ -551,12 +591,39 @@ fn describe_linking_and_enforcing(reason: Reason) -> Option<&'static str> {
         }
         Reason::OidcTrialAccount => {
             "On the organization's page, after a trial of its provider's pending settings \
-             (`startOidcTrial`): the identity the provider vouched for is not one tied \
-             to the account of the administrator who started it (another account's, or \
-             tied to none, as at another issuer), or that administrator administers the \
-             organization no more. Nothing is changed, no account is made and no \
-             identity is tied: settings no administrator signs in through are not put in \
-             use."
+             (`startOidcTrial`): the identity the provider vouched for is not the \
+             administrator's who started the trial (it is another account's, or a deleted \
+             account's, or tied to none where the settings are of the same issuer and so \
+             tie nothing), or that administrator administers the organization no more. Nothing is \
+             changed, no account is made and no identity is tied: settings no \
+             administrator signs in through are not put in use."
+        }
+        Reason::OidcTrialStale => {
+            "On the organization's page, after a trial of its provider's pending settings \
+             (`startOidcTrial`) that are of another issuer: the identity that issuer \
+             vouched for is tied to no account yet, and the trial ties it to the \
+             administrator's own only when it was started from a session made through \
+             the organization's provider, as it is stored, and the browser came back \
+             with that session no more than five minutes after it was made. Who only \
+             holds an older session, and does not sign in through the provider, ties \
+             nothing. Nothing is changed. Sign in through the organization's provider \
+             again (`startOidcLogin`), and finish the trial within five minutes \
+             (`bindsIdentityUntil` of the pending settings says until when)."
+        }
+        Reason::OidcCarryOverRefused => {
+            "Status 409 at `startOidcCarryOver` and `finishHeldOidcLogin`, and on the login \
+             page after a sign-in through the organization's former provider. While the \
+             provider an organization moved away from is kept (`former` of its provider), \
+             a sign-in of somebody who has no account is held for the browser for ten \
+             minutes, to be carried over to the account they had (by signing in through \
+             the former provider once) or to end in a new account. This is the one answer \
+             to everything that keeps that from happening: no sign-in is held for this \
+             browser, or it ended or was taken already; the former provider is kept no \
+             more; the provider changed meanwhile; the former provider vouched for nobody \
+             who has an account with a place in the organization (a member, or a guest of \
+             one of its workspaces in use); or the held identity \
+             was tied to another account meanwhile. Nothing is changed: no identity is \
+             tied and no session made. Start again from the login page."
         }
         Reason::OidcEmailMismatch => {
             "On the login page, after a sign-in through a provider that was started to \

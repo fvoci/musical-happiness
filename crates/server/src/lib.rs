@@ -15,6 +15,7 @@ pub mod metrics;
 pub mod permissions;
 pub mod problems;
 pub mod scheduler;
+pub mod search;
 pub mod storage;
 pub mod web;
 pub mod webhook;
@@ -137,6 +138,7 @@ impl Server {
         let server_lock = app.hold_server_lock(server_lock);
         // Before any request: what is left over from a run that stopped is nobody's.
         clean_up_uploads(&app).await;
+        search::settle_at_start(&app).await?;
         // The bodies of documents that a run that ended did not write to their cards,
         // in the background: each takes the worker's time, which a start does not wait
         // for.
@@ -324,6 +326,7 @@ impl Server {
         let clean_up = start_session_clean_up(&self.app);
         let purge = start_trash_purge(&self.app);
         let uploads = start_upload_clean_up(&self.app);
+        let search = search::start_upkeep(&self.app);
 
         let service = self
             .router()
@@ -392,6 +395,7 @@ impl Server {
         clean_up.cancel().await;
         purge.cancel().await;
         uploads.cancel().await;
+        search::stop_upkeep(search).await;
         served.context("serving HTTP")
     }
 
@@ -506,6 +510,7 @@ async fn send_no_referrer(request: Request, next: middleware::Next) -> Response 
 /// while it serves; this is for its tests.
 pub async fn keep_house(app: &App) {
     clean_up_sessions(app).await;
+    app.end_lapsed_former_providers().await;
     // What became of each job is the metrics' to count, where the tasks run them.
     let _ = purge_trash(app).await;
     let _ = collect_unreferenced_files(app).await;
@@ -533,6 +538,11 @@ async fn clean_up_sessions(app: &App) {
             }
         }
         Err(error) => tracing::error!(%error, "unable to clean up the sessions"),
+    }
+    match app.remove_ended_signups(now).await {
+        Ok(0) => {}
+        Ok(removed) => tracing::info!(removed, "removed registrations that were not confirmed"),
+        Err(error) => tracing::error!(%error, "unable to remove the registrations that ended"),
     }
 }
 
@@ -634,14 +644,19 @@ async fn remove_doomed_objects(app: &App) -> JobOutcome {
     }
 }
 
-/// Starts the task that deletes the sessions that have ended. It runs once at the
+/// Starts the task that deletes the sessions that have ended, the former providers
+/// whose time ran out, and the registrations that were not confirmed in their seven
+/// days. It runs once at the
 /// start, so that a server that is restarted often still gets to it, and then every
 /// interval.
 fn start_session_clean_up(app: &App) -> RecurringTask {
     let app = app.clone();
     RecurringTask::spawn_starting_now("cleanUpSessions", CLEAN_UP_SESSIONS_INTERVAL, move || {
         let app = app.clone();
-        async move { clean_up_sessions(&app).await }
+        async move {
+            clean_up_sessions(&app).await;
+            app.end_lapsed_former_providers().await;
+        }
     })
 }
 
@@ -745,7 +760,8 @@ async fn handle_websocket(
         .max_message_size(limit)
         .max_frame_size(limit)
         .on_upgrade(move |socket| async move {
-            app.ws().serve(&app, socket, identity, address).await;
+            // Boxed: what serves a connection holds its whole state, which is large.
+            Box::pin(app.ws().serve(&app, socket, identity, address)).await;
         })
 }
 

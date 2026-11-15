@@ -48,7 +48,8 @@ impl App {
     }
 
     /// Returns the boards of a workspace that a user is a member of and, if asked for, the
-    /// workspace's open boards. Templates are left out.
+    /// workspace's open boards: of the kinds the handle reaches ([`App::reaching`]).
+    /// Templates are left out.
     ///
     /// # Errors
     ///
@@ -61,7 +62,7 @@ impl App {
     ) -> Result<Vec<Board>, AppError> {
         Ok(self
             .store()
-            .get_boards_for_user_and_workspace(user_id, workspace_id, public_boards)
+            .get_boards_for_user_and_workspace(user_id, workspace_id, public_boards, self.kinds())
             .await?)
     }
 
@@ -104,6 +105,7 @@ impl App {
             // (`server/app/boards.go:234-236`).
             return Err(AppError::bad_request("new board cannot have an ID").with_field("id"));
         }
+        self.require_makes(&board)?;
         board.id = new_id();
 
         let creator = match membership {

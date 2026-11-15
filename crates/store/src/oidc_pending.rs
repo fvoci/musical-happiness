@@ -5,6 +5,8 @@
 //! provider's. Until then the provider is signed in through as it was, so that settings
 //! that do not work lock nobody out. The provider and its sign-ins are in `oidc.rs`.
 
+use std::time::Duration;
+
 use fvoci_model::{AuditAction, LoginOrigin, OrgRole, Session};
 
 use crate::Store;
@@ -12,9 +14,12 @@ use crate::audit::{self, AuditEntry};
 use crate::db::{Dialect, Id, Row, Scope, now_millis};
 use crate::error::StoreError;
 use crate::oidc::{
-    self, Newcomers, OidcAccount, OidcRefusal, StoredProvider, hold_provider_of_organization,
-    read_provider,
+    self, Identity, Newcomers, OidcAccount, OidcRefusal, StoredProvider,
+    hold_provider_of_organization, read_provider,
 };
+use crate::oidc_former::Keeping;
+use crate::oidc_held::{self, Tied, Tying};
+use crate::oidc_identities::LinkingSession;
 use crate::org_admin;
 use crate::sessions;
 
@@ -86,6 +91,20 @@ impl std::fmt::Debug for PendingSettings {
     }
 }
 
+/// A trial of the pending settings, as the sign-in that ends it names it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Trial<'a> {
+    /// The provider whose pending settings are tried.
+    pub provider_id: &'a str,
+    /// When the pending settings it tries were saved: their state.
+    pub pending_at: i64,
+    /// The administrator who started it, whose account alone it may end in.
+    pub trier_id: &'a str,
+    /// How long the provider before is kept as the former one if the trial moves
+    /// the organization to another issuer; no time keeps none.
+    pub keep_former: Duration,
+}
+
 /// What a trial of the pending settings that ended well did.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Applied {
@@ -146,7 +165,7 @@ impl Store {
                     auto_join: kept.auto_join,
                     ..before.clone()
                 };
-                provider = oidc::write_provider(scope, Some(&before), &kept)
+                provider = oidc::write_provider(scope, Some(&before), &kept, Keeping::NOTHING)
                     .await?
                     .provider;
                 oidc::record_provider_change(scope, actor_id, Some(&before), &provider).await?;
@@ -214,34 +233,46 @@ impl Store {
         .await
     }
 
-    /// Ends a trial of the pending settings saved at `pending_at` of the provider
-    /// `provider_id` of the handle's organization, started by the administrator
-    /// `trier_id`, in one transaction that holds the provider: they must still be the
-    /// provider's pending settings, it must still be on, and `account` must be the
-    /// trier's own, who must still administer the organization (no account is made by
-    /// a trial: one that ended in a newcomer or another person would put settings in
-    /// use that no administrator can sign in through). Lets `account` in as a sign-in
-    /// does (`Store::finish_oidc_sign_in`), makes
-    /// the pending settings the provider's, as a save of them would (another issuer
-    /// ends the sessions of the one before), records that as the account's doing, and
-    /// stores `session` under `token_digest`, made through the provider as it is then:
-    /// it proves it. Nothing is stored if any of it is refused.
+    /// Ends `trial`, a trial of the pending settings of the provider of the handle's
+    /// organization, in one transaction that holds the provider: they must still be
+    /// the provider's pending settings, it must still be on, and who they vouched for
+    /// (`tried`) must be the trier, who must still administer the organization. No
+    /// account is made by a trial: one that ended in a newcomer or another person
+    /// would put settings in use that no administrator can sign in through.
+    ///
+    /// An identity that is tied to the trier's account lets them in as a sign-in does
+    /// (`Store::finish_oidc_sign_in`). One that is tied to no account
+    /// ([`Tried::Unbound`]) is tied to the trier's, and that recorded, only where the
+    /// pending settings move the organization to another issuer and the trial was
+    /// started from a session of the trier's that the browser still has, made through
+    /// the provider as it is, at its revision, no earlier than
+    /// [`Binding::made_since`], a moment before the trial ends: who only holds a
+    /// session, and cannot sign in through the provider, binds nothing.
+    ///
+    /// Then the pending settings are made the provider's, as a save of them would
+    /// (another issuer ends the sessions of the one before, and keeps the provider
+    /// before as the former one), that is recorded as the trier's doing, and
+    /// `session` is stored under `token_digest`, made through the provider as it is
+    /// then: it proves it. Nothing is stored if any of it is refused: no identity
+    /// either.
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::Conflict`] if another account has the new account's name
-    /// in any letter case, or the identity is another account's already;
-    /// [`StoreError::NoOrganization`] if the handle names no organization; and
+    /// Returns [`StoreError::NoOrganization`] if the handle names no organization, and
     /// [`StoreError::Database`] if a statement fails.
     pub async fn finish_oidc_trial(
         &self,
-        provider_id: &str,
-        pending_at: i64,
-        trier_id: &str,
-        account: OidcAccount<'_>,
+        trial: Trial<'_>,
+        tried: Tried<'_>,
         session: &mut Session,
         token_digest: &str,
     ) -> Result<Result<Applied, OidcRefusal>, StoreError> {
+        let Trial {
+            provider_id,
+            pending_at,
+            trier_id,
+            keep_former,
+        } = trial;
         self.transaction(async |scope| {
             hold_provider_of_organization(scope).await?;
             let (Some(before), Some(pending)) =
@@ -256,24 +287,54 @@ impl Store {
             {
                 return Ok(Err(OidcRefusal::ProviderGone));
             }
-            let is_the_trier =
-                matches!(&account, OidcAccount::Known { user_id, .. } if *user_id == trier_id);
-            if !is_the_trier
-                || org_admin::org_role_of(scope, trier_id).await? != Some(OrgRole::Admin)
-            {
+            if org_admin::org_role_of(scope, trier_id).await? != Some(OrgRole::Admin) {
                 return Ok(Err(OidcRefusal::NotTheTrier));
             }
-            let subject = account.identity().subject.to_owned();
-            let newcomers = Newcomers::from(&before);
-            let joined = match oidc::admit(scope, account, newcomers, session).await? {
-                Ok(joined) => joined,
-                Err(refusal) => return Ok(Err(refusal)),
+            let subject = tried.identity().subject.to_owned();
+            let joined = match tried {
+                Tried::Known {
+                    user_id,
+                    password_hash,
+                    identity,
+                } => {
+                    if user_id != trier_id {
+                        return Ok(Err(OidcRefusal::NotTheTrier));
+                    }
+                    let account = OidcAccount::Known {
+                        user_id,
+                        password_hash,
+                        identity,
+                        proved_email: None,
+                    };
+                    let newcomers = Newcomers::from(&before);
+                    match oidc::admit(scope, account, newcomers, session).await? {
+                        Ok(joined) => joined,
+                        Err(refusal) => return Ok(Err(refusal)),
+                    }
+                }
+                Tried::Unbound(binding) => {
+                    let moving = Moving {
+                        before: &before,
+                        pending: &pending,
+                    };
+                    if let Err(refusal) = bind_to_trier(scope, &binding, trier_id, moving).await? {
+                        return Ok(Err(refusal));
+                    }
+                    // Nothing below refuses: what was tied is stored with the rest, or
+                    // not at all.
+                    trier_id.clone_into(&mut session.user_id);
+                    false
+                }
             };
             let mut sql = scope.sql("DELETE FROM oidc_pending_providers WHERE org_id = ");
             sql.bind(scope.org()?);
             scope.execute(sql).await?;
             let applied = pending.applied_to(&before);
-            let provider = oidc::write_provider(scope, Some(&before), &applied)
+            let keeping = Keeping {
+                time: keep_former,
+                actor_id: Some(trier_id),
+            };
+            let provider = oidc::write_provider(scope, Some(&before), &applied, keeping)
                 .await?
                 .provider;
             let entry = AuditEntry::new(
@@ -299,6 +360,154 @@ impl Store {
         })
         .await
     }
+}
+
+/// Who the pending settings vouched for at the end of a trial.
+pub enum Tried<'a> {
+    /// Somebody whose identity is tied to an account in use already: the trier's,
+    /// or the trial is refused.
+    Known {
+        /// The account of the identity.
+        user_id: &'a str,
+        /// Its password hash as it was read: empty for an account without one.
+        password_hash: &'a str,
+        /// Who the pending settings vouched for, which must still be the account's.
+        identity: Identity<'a>,
+    },
+    /// Somebody whose identity is tied to no account: bound to the trier's by a
+    /// trial started from a session made just now, or the trial is refused.
+    Unbound(Binding<'a>),
+}
+
+impl std::fmt::Debug for Tried<'_> {
+    /// Leaves out the password hash, and what [`Binding`] leaves out.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Known {
+                user_id, identity, ..
+            } => f
+                .debug_struct("Known")
+                .field("user_id", user_id)
+                .field("issuer", &identity.issuer)
+                .finish_non_exhaustive(),
+            Self::Unbound(binding) => f.debug_tuple("Unbound").field(binding).finish(),
+        }
+    }
+}
+
+impl Tried<'_> {
+    /// Who the pending settings vouched for.
+    fn identity(&self) -> Identity<'_> {
+        match self {
+            Self::Known { identity, .. } => *identity,
+            Self::Unbound(binding) => binding.identity,
+        }
+    }
+}
+
+/// An identity to tie to the account of the administrator who tries the pending
+/// settings, and what shows that it is they who try.
+#[derive(Clone, Copy)]
+pub struct Binding<'a> {
+    /// Who the pending settings vouched for: tied to no account when it was read.
+    pub identity: Identity<'a>,
+    /// The address their provider gave, unchecked; empty for none. Kept with the
+    /// identity, and compared with nothing.
+    pub provider_email: &'a str,
+    /// The session the trial was started from, as the browser brings it back.
+    pub session: LinkingSession<'a>,
+    /// The earliest time that session may have been made at, in milliseconds since
+    /// the Unix epoch: a moment before the trial comes back.
+    pub made_since: i64,
+}
+
+impl std::fmt::Debug for Binding<'_> {
+    /// Leaves out the address and the session.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Binding")
+            .field("issuer", &self.identity.issuer)
+            .field("made_since", &self.made_since)
+            .finish_non_exhaustive()
+    }
+}
+
+/// The provider of an organization and the pending settings that a trial is about to
+/// make its own.
+#[derive(Debug, Clone, Copy)]
+struct Moving<'a> {
+    before: &'a StoredProvider,
+    pending: &'a PendingProvider,
+}
+
+/// Ties the identity of `binding` to the account of the trier, in the trial's
+/// transaction, where `moving` moves the organization to another issuer, the one the
+/// identity is of, and the session the trial was started from shows that the trier
+/// signed in through the provider just now ([`is_made_just_now`]); and records it as
+/// the trier's, with who the identity is.
+async fn bind_to_trier(
+    scope: &mut Scope<'_>,
+    binding: &Binding<'_>,
+    trier_id: &str,
+    moving: Moving<'_>,
+) -> Result<Result<(), OidcRefusal>, StoreError> {
+    let Moving { before, pending } = moving;
+    // Settings of the same issuer vouch for the people the provider vouches for
+    // already: another of them is another person, not the trier under a new name.
+    if pending.issuer == before.issuer || binding.identity.issuer != pending.issuer {
+        return Ok(Err(OidcRefusal::NotTheTrier));
+    }
+    if !is_made_just_now(scope, binding, trier_id, before).await? {
+        return Ok(Err(OidcRefusal::NotFresh));
+    }
+    let tying = Tying {
+        user_id: trier_id,
+        email: binding.provider_email,
+        now: binding.session.now,
+    };
+    match oidc_held::tie_unless_taken(scope, binding.identity, tying).await? {
+        Tied::Anothers => return Ok(Err(OidcRefusal::NotTheTrier)),
+        // Tied to the trier by another way meanwhile: theirs, and nothing to record.
+        Tied::Already => {}
+        Tied::Newly => {
+            let entry =
+                AuditEntry::new("", trier_id, AuditAction::OidcIdentityBound, &before.org_id)
+                    .with_subject(trier_id)
+                    .with_detail(binding.identity.issuer)
+                    .with_identity(binding.provider_email, binding.identity.subject);
+            audit::record_entry(scope, &entry).await?;
+        }
+    }
+    Ok(Ok(()))
+}
+
+/// Whether the session a trial was started from is still there under the token the
+/// browser came back with, good, of the trier, whose account is in use and is held
+/// until the transaction ends; made through `provider` as it is (this row, at its
+/// revision); and made no earlier than `binding.made_since`.
+async fn is_made_just_now(
+    scope: &mut Scope<'_>,
+    binding: &Binding<'_>,
+    trier_id: &str,
+    provider: &StoredProvider,
+) -> Result<bool, StoreError> {
+    let session = binding.session;
+    let mut sql = scope.sql(
+        "SELECT 1 FROM sessions AS s JOIN users AS u ON u.id = s.user_id \
+         WHERE u.delete_at = 0 AND s.id = ",
+    );
+    sql.bind(Id(session.session_id))
+        .push_bind(" AND s.token_hash = ", session.token_digest)
+        .push_bind(" AND s.expires_at > ", session.now)
+        .push_bind(" AND s.last_used_at > ", session.idle_since)
+        .push_bind(" AND s.user_id = ", Id(trier_id))
+        .push_bind(" AND s.login_provider_id = ", Id(&provider.id))
+        .push_bind(" AND s.login_org_id = ", Id(&provider.org_id))
+        .push_bind(" AND s.login_revision = ", provider.revision)
+        .push_bind(" AND s.created_at >= ", binding.made_since);
+    if scope.dialect() == Dialect::Postgres {
+        sql.push(" FOR SHARE OF u");
+    }
+    Ok(scope.fetch_optional(sql).await?.is_some())
 }
 
 /// The pending settings of the transaction's organization's provider, if there are.

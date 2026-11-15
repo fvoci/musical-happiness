@@ -13,12 +13,13 @@ use super::{Collab, place};
 use crate::app::App;
 use crate::error::AppError;
 
-/// What a deletion takes to the trash, read while the card tree cannot change.
+/// What a deletion takes to the trash, read while the tree of cards and pages cannot
+/// change.
 #[derive(Debug)]
 pub(crate) enum Deletion {
     /// A block and its descendants, at any depth.
     Block(String),
-    /// Every card of these boards.
+    /// Every card of these boards, and every page of these wikis.
     Boards(Vec<String>),
 }
 
@@ -245,20 +246,24 @@ impl Deletion {
                 cards.extend(
                     blocks
                         .into_iter()
-                        .filter(|block| block.block_type == BlockType::Card)
+                        .filter(|block| block.block_type.has_room())
                         .map(|block| block.id),
                 );
             }
             Self::Boards(ids) => {
+                // A board has cards and a wiki pages: each is asked for both, as its
+                // kind is not read here.
                 for id in ids {
-                    let blocks = app
-                        .store()
-                        .get_listed_blocks(
-                            &BlockFilter::board(id).with_type(BlockType::Card),
-                            Previews::Without,
-                        )
-                        .await?;
-                    cards.extend(blocks.into_iter().map(|listed| listed.block.id));
+                    for with_room in BlockType::WITH_ROOM {
+                        let blocks = app
+                            .store()
+                            .get_listed_blocks(
+                                &BlockFilter::board(id).with_type(with_room),
+                                Previews::Without,
+                            )
+                            .await?;
+                        cards.extend(blocks.into_iter().map(|listed| listed.block.id));
+                    }
                 }
             }
         }

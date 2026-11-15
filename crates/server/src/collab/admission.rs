@@ -1,5 +1,7 @@
 //! Who is let into the room of a card's body, and how: asked when a connection
-//! comes in, and again while it is there.
+//! comes in, and again while it is there. A page of a wiki has a room as a card of a
+//! board has (`BlockType::has_room`): what is said of a card and its board here is
+//! said of a page and its wiki too.
 
 use crate::app::{App, Asker};
 use crate::error::{AppError, Reason};

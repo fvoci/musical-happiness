@@ -53,6 +53,31 @@ pub struct OidcProvider {
     /// nobody signs in through until a sign-in through them ends well; `null` for
     /// none.
     pub pending: Option<OidcPendingProvider>,
+    /// The provider the organization signed in through before its issuer changed,
+    /// while it is kept for its people to carry their accounts over; `null` for none.
+    pub former: Option<OidcFormerProvider>,
+}
+
+/// The provider an organization moved away from, kept for a while: nobody signs in
+/// through it, but somebody the new provider vouches for who has no account yet may
+/// show who they were at it, and so tie the new identity to the account they had.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct OidcFormerProvider {
+    /// Its issuer.
+    pub issuer: String,
+    /// When the organization moved away from it, in milliseconds since the Unix epoch.
+    pub create_at: i64,
+    /// When it is kept no longer, in milliseconds since the Unix epoch.
+    pub expires_at: i64,
+}
+
+/// Which former provider an administrator ends the keeping of: the one they read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct OidcFormerProviderEnd {
+    /// The `createAt` of the former provider as it was read.
+    pub create_at: i64,
 }
 
 /// The pending settings of an organization's provider, without the client secret:
@@ -68,6 +93,13 @@ pub struct OidcPendingProvider {
     pub has_client_secret: bool,
     /// When they were saved, in milliseconds since the Unix epoch.
     pub create_at: i64,
+    /// Until when a trial from the session that asks, come back by then, ties an
+    /// identity of another issuer that is nobody's yet to the administrator's own
+    /// account, in milliseconds since the Unix epoch: five minutes after the session
+    /// was made through the provider as it is stored. `null` once that has passed,
+    /// for a session that was not made so, and for pending settings of the same
+    /// issuer, which tie nothing.
+    pub binds_identity_until: Option<i64>,
 }
 
 /// What an administrator sets of the organization's provider.
@@ -285,6 +317,9 @@ pub struct LoginOptions {
     pub registration_open: bool,
     /// Whether this server can deliver password recovery and invitation mail.
     pub mail_enabled: bool,
+    /// Whether a registration opens nothing until the link mailed to its address
+    /// confirms it, which signs it in (`email_verification`).
+    pub email_verification: bool,
 }
 
 #[cfg(test)]

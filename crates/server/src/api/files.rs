@@ -29,7 +29,7 @@ use super::contract::bodies::{Binary, FileForm};
 use super::contract::params::MemberWorkspaceId;
 use super::contract::params::{BoardId, FileId};
 use super::contract::tag;
-use super::workspace::Ws;
+use super::workspace::WsModule;
 
 use super::{ApiResult, created, json_response, require_board_permission, require_granted};
 use crate::app::App;
@@ -119,7 +119,7 @@ pub(super) fn upload_routes() -> OpenApiRouter<App> {
     ),
 )]
 async fn handle_serve_file(
-    ws: Ws,
+    WsModule(ws): WsModule,
     Path((_, board_id, file_id)): Path<(String, String, String)>,
     headers: HeaderMap,
 ) -> ApiResult {
@@ -165,7 +165,7 @@ pub(super) async fn serve_board_file(
     responses((status = 200, description = "What is known about the file.", body = FileInfo)),
 )]
 async fn handle_get_file_info(
-    ws: Ws,
+    WsModule(ws): WsModule,
     Path((_, board_id, file_id)): Path<(String, String, String)>,
 ) -> ApiResult {
     require_file_reader(&ws.app, &ws.session.user_id, &board_id).await?;
@@ -207,7 +207,7 @@ pub(super) async fn board_file_info(
     responses((status = 201, description = "The file is stored.", body = UploadedFile)),
 )]
 async fn handle_upload_file(
-    ws: Ws,
+    WsModule(ws): WsModule,
     Path((_, board_id)): Path<(String, String)>,
     headers: HeaderMap,
     multipart: Result<Multipart, MultipartRejection>,

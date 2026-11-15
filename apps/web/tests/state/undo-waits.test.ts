@@ -392,6 +392,10 @@ describe('a duplicate, which reads its card before it writes (found by a review 
     vi.spyOn(backend, 'categories').mockImplementation((id) =>
       id === other.id ? Promise.resolve([]) : categories(id),
     );
+    const wikis = backend.wiki.wikis.bind(backend.wiki);
+    vi.spyOn(backend.wiki, 'wikis').mockImplementation((id) =>
+      id === other.id ? Promise.resolve([]) : wikis(id),
+    );
     const held = holdNextCardRead(backend);
     try {
       const copying = board.duplicateCard(card.id);

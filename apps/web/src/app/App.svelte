@@ -21,7 +21,6 @@
   import { setFileUrlResolver } from '$lib/editor/files.ts';
   import InvitePage from '$lib/features/account/InvitePage.svelte';
   import LinkedSignIns from '$lib/features/account/LinkedSignIns.svelte';
-  import SignInNotice from '$lib/features/account/SignInNotice.svelte';
   import SignInPage from '$lib/features/account/SignInPage.svelte';
   import SsoRequired from '$lib/features/account/SsoRequired.svelte';
   import OrgPage from '$lib/features/organization/OrgPage.svelte';
@@ -46,8 +45,7 @@
   import type { Organizations } from '$lib/state/organization.ts';
   import { Button } from '$lib/ui/button/index.js';
 
-  import { startBackend } from './backend.ts';
-  import BoardPage from './BoardPage.svelte';
+  import { resendLink, startBackend } from './backend.ts';
   import { lastWorkspace, rememberWorkspace } from './last-workspace.ts';
   import {
     browserLocale,
@@ -58,9 +56,10 @@
   } from './locale.ts';
   import NotFound from './NotFound.svelte';
   import Problems from './Problems.svelte';
-  import { keepReturn, takeReturn } from './return-to.ts';
-  import { parseRoute, type Router } from './router.svelte.ts';
-  import { signInOrganizations } from './sign-in-organizations.ts';
+  import { keepReturn, resume, takeReturn } from './return-to.ts';
+  import { placeRoute, type Router } from './router.svelte.ts';
+  import { signInOrganizations, signInWays } from './sign-in-organizations.ts';
+  import WorkspacePane from './WorkspacePane.svelte';
 
   let { router }: { router: Router } = $props();
 
@@ -94,20 +93,6 @@
     settingsOpen = true;
   }
 
-  /**
-   * Back from a provider, the browser is at the root: the reader goes on to
-   * where they were when they left for it, if that is a page of the app.
-   */
-  function resume(): void {
-    const kept = takeReturn();
-    if (cameBack.has('oidc_linked')) history.replaceState(null, '', location.pathname);
-    const { unknown, workspaceId, orgId: organization } = router.route;
-    if (kept === undefined || unknown || workspaceId || organization) return;
-    const route = parseRoute(kept, router.basePath);
-    if (route.invitation !== undefined) location.replace(router.inviteHref(route.invitation));
-    else if (!route.unknown) router.go(route, { replace: true });
-  }
-
   /** A session that is over is signing out, whatever was being asked: told, and passed on. */
   async function signedIn<T>(doing: () => Promise<T>): Promise<T> {
     try {
@@ -131,7 +116,7 @@
     signedIn(() => account?.unlinkIdentity(identity, password) ?? Promise.resolve());
 
   onMount(() => {
-    resume();
+    resume(router, cameBack);
     void startBackend().then(async (started) => {
       const { backend } = started;
       account = started.account;
@@ -143,10 +128,11 @@
           inviteLink: (token: string) => new URL(router.inviteHref(token), location.origin).href,
         });
       }
-      // The bodies of cards name their images by file; the board that is open says where they are.
-      setFileUrlResolver((fileId) =>
-        made.board ? backend.fileUrl(made.board.boardId, fileId) : undefined,
-      );
+      // The bodies of cards and pages name their images by file; the board or wiki shown has them.
+      setFileUrlResolver((fileId) => {
+        const shownId = router.route.wikiId ?? made.board?.boardId;
+        return shownId ? backend.fileUrl(shownId, fileId) : undefined;
+      });
       workspace = made;
       // On the handle of the browser tests and the console too, where there is
       // one (the backend in memory): a test undoes through it.
@@ -234,20 +220,6 @@
     }
   });
 
-  /** The workspace the address names, entered and read. */
-  const shown = $derived(
-    workspace?.entered === 'ready' && workspace.info?.id === router.route.workspaceId
-      ? workspace.info
-      : undefined,
-  );
-
-  // Without a board in the address, show the first one of the sidebar.
-  $effect(() => {
-    if (!shown || !workspace || router.route.boardId) return;
-    const first = workspace.sidebar.flatMap((entry) => entry.boards)[0];
-    if (first) router.go({ workspaceId: shown.id, boardId: first.id }, { replace: true });
-  });
-
   // Once signed in: is there an organization the reader administers? Asked once.
   let askedAdministered = false;
   $effect(() => {
@@ -321,7 +293,9 @@
     token={invitation}
     signedInAs={signedInAs && userDisplayName(signedInAs)}
     preview={(token: string) => accounts.previewInvitation(token)}
-    accept={(token: string, made?: NewAccount) => accounts.acceptInvitation(token, made)}
+    accept={(token: string, made?: NewAccount) =>
+      accounts.acceptInvitation(token, made, currentLocale())}
+    onResend={resendLink}
     onSignIn={(login: string, password: string) => accounts.signIn(login, password)}
     onSso={(orgId: string) => toProvider(orgId)}
     onJoined={(accepted: AcceptedInvitation) => {
@@ -382,13 +356,14 @@
       if (workspace) followLanguage(workspace);
     }}
     onRegister={async (registration: Registration) => {
-      await account?.register(registration);
-      registered = { username: registration.username, email: registration.email };
+      const made = (await account?.register(registration, currentLocale())) ?? 'made';
+      if (made === 'made')
+        registered = { username: registration.username, email: registration.email };
+      return made;
     }}
+    onResend={resendLink}
     forgotHref={`${router.href({}).replace(/\/$/, '')}/forgot-password`}
-    optionsOf={(orgId: string | undefined) =>
-      account?.loginOptions(orgId) ?? Promise.resolve({ registrationOpen: true })}
-    onOidcStart={(orgId: string) => toProvider(orgId)}
+    {...signInWays(account, (orgId: string) => toProvider(orgId), router.href({}))}
   />
 {:else if workspace.status === 'failed' || workspace.status === 'signedOut'}
   <main class="grid min-h-dvh place-items-center p-4">
@@ -438,9 +413,8 @@
     readRecords={organizations
       ? (workspaceId: string) => organizations?.workspaceRecords(workspaceId) ?? Promise.resolve([])
       : undefined}
-    boardId={router.route.boardId}
-    boardHref={(board: BoardPlace) =>
-      router.href({ workspaceId: board.workspaceId, boardId: board.id })}
+    boardId={router.route.boardId ?? router.route.wikiId}
+    boardHref={(board: BoardPlace) => router.href(placeRoute(board))}
     sharedHref={(boardId: string, readToken: string) => router.href({ boardId, readToken })}
     onOpenBoard={openBoard}
     {locales}
@@ -469,58 +443,18 @@
       }
     }
   >
-    {@const here = workspace.asked === router.route.workspaceId}
-    {#if refused}
-      <SignInNotice
-        problem={refused}
-        onGoOn={() => {
-          refusal = null;
-          router.go({}, { replace: true });
-        }}
-        onOpenLinked={openLinked}
-      />
-    {:else if router.route.unknown || (here && workspace.entered === 'missing')}
-      <NotFound {router} />
-    {:else if here && workspace.entered === 'sso' && workspace.closed?.orgId}
-      {@const orgId = workspace.closed.orgId}
-      {#key orgId}
-        <SsoRequired
-          name={workspace.closed.title}
-          others={openWorkspaces}
-          onContinue={() => toProvider(orgId)}
-          onOpenLinked={openLinked}
-          onGo={(workspaceId: string) => {
-            router.go({ workspaceId });
-          }}
-        />
-      {/key}
-    {:else if !router.route.workspaceId && workspace.workspaces.length === 0}
-      <div class="grid h-full place-items-center p-6 text-center">
-        <p class="text-muted-foreground">{m.app_no_boards()}</p>
-      </div>
-    {:else if here && workspace.entered === 'failed'}
-      <div class="grid h-full place-items-center p-6 text-center" data-testid="enter-failed">
-        <div>
-          <p class="text-muted-foreground" role="alert">{m.app_problem_load()}</p>
-          <Button
-            class="mt-4 roomy:min-h-touch"
-            onclick={() => {
-              if (router.route.workspaceId) void workspace?.enter(router.route.workspaceId);
-            }}>{m.app_retry()}</Button
-          >
-        </div>
-      </div>
-    {:else if !shown}
-      <div class="grid h-full place-items-center p-6">
-        <p class="text-muted-foreground" role="status">{m.app_loading()}</p>
-      </div>
-    {:else if router.route.boardId}
-      <BoardPage {workspace} {router} />
-    {:else}
-      <div class="grid h-full place-items-center p-6 text-center">
-        <p class="text-muted-foreground">{m.app_no_boards()}</p>
-      </div>
-    {/if}
+    <WorkspacePane
+      {workspace}
+      {router}
+      {refused}
+      onGoOn={() => {
+        refusal = null;
+        router.go({}, { replace: true });
+      }}
+      onOpenLinked={openLinked}
+      {openWorkspaces}
+      onSso={(orgId: string) => toProvider(orgId)}
+    />
   </AppShell>
   <Problems {workspace} />
 {/if}

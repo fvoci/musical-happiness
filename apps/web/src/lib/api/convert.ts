@@ -81,6 +81,7 @@ export function boardOf(board: Schemas['Board']): Board {
     createdBy: board.createdBy,
     modifiedBy: board.modifiedBy,
     type: board.type,
+    kind: board.kind,
     minimumRole: board.minimumRole,
     title: board.title,
     description: board.description,

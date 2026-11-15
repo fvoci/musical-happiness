@@ -20,12 +20,16 @@ import type {
   User,
 } from '../state/backend.ts';
 
+import type { Registered } from '../state/account-types.ts';
 import { BackendError } from '../state/backend.ts';
+import type { BodyVersions } from '../state/body-versions.ts';
 import type { People } from '../state/people-types.ts';
 
+import { ServerBodyVersions } from './body-versions.ts';
 import { boardOf, workspacesOf, userOf, type Schemas } from './convert.ts';
 import type { ApiPath, Http, RequestOptions } from './http.ts';
 import { ServerPeople } from './people.ts';
+import { ServerWikis } from './wikis.ts';
 
 /** A path under a workspace, as the contract writes it after `/api/v1/w/{workspaceId}`. */
 export type WorkspacePath = ApiPath extends infer P
@@ -40,6 +44,11 @@ export type WorkspacePath = ApiPath extends infer P
  */
 export function underWorkspace<P extends WorkspacePath>(path: P): `/api/v1/w/{workspaceId}${P}` {
   return `/api/v1/w/{workspaceId}${path}`;
+}
+
+/** The trash as the contract lists it: a board's `kind` where it says one. */
+function deletedItemsOf(items: readonly Schemas['DeletedItem'][]): DeletedItem[] {
+  return items.map(({ kind, ...item }) => (kind ? { ...item, kind } : item));
 }
 
 /** How many identifiers `getWorkspaceUsersById` takes at once (its `maxItems`). */
@@ -59,6 +68,10 @@ export class ServerRequests implements TrashReads {
   readonly #http: Http;
   /** Who is in a workspace, and the links that let others in. */
   readonly people: People;
+  /** The wikis and their pages, under the workspace of each wiki (`workspaceOf`). */
+  readonly wiki: ServerWikis;
+  /** The versions kept of the bodies of cards. */
+  readonly bodyVersions: BodyVersions;
   /** The workspace the reader is in (`enter`): the paths of its boards are under it. */
   #workspaceId: string | undefined;
   /**
@@ -71,6 +84,27 @@ export class ServerRequests implements TrashReads {
   constructor(http: Http) {
     this.#http = http;
     this.people = new ServerPeople(http);
+    this.bodyVersions = new ServerBodyVersions((path, params, options) =>
+      this.inWorkspace(path, params, options),
+    );
+    this.wiki = new ServerWikis(this.#inWiki.bind(this), (wikis) => {
+      this.learnPlaces(wikis);
+    });
+  }
+
+  /** A request under the workspace of the wiki `params.wikiId` names (`workspaceOf`). */
+  #inWiki<T>(
+    path: WorkspacePath,
+    params: Record<string, string>,
+    options: RequestOptions = {},
+    workspaceId?: string,
+  ): Promise<T> {
+    return this.inWorkspace<T>(
+      path,
+      { ...params, boardId: params.wikiId ?? '' },
+      options,
+      workspaceId,
+    );
   }
 
   /** The requests that name no workspace go to this one from now on. */
@@ -172,12 +206,20 @@ export class ServerRequests implements TrashReads {
     return found.flat().map(userOf);
   }
 
-  async register(registration: Registration): Promise<void> {
+  async register(registration: Registration, language = ''): Promise<Registered> {
     const request: Schemas['RegisterRequest'] = {
       ...accountOf(registration),
       organizationName: registration.organizationName,
+      // The language of the confirmation mail, where the server sends one.
+      ...(language ? { language } : {}),
     };
-    await this.#http.request('/api/v1/register', {}, { method: 'POST', json: request });
+    // 201 with the account, or 202 with nothing: the address is to be confirmed first.
+    const made = await this.#http.request<Schemas['User'] | undefined>(
+      '/api/v1/register',
+      {},
+      { method: 'POST', json: request },
+    );
+    return made === undefined ? 'waiting' : 'made';
   }
 
   /** The token goes in the body: an address would keep it in logs. */
@@ -195,16 +237,23 @@ export class ServerRequests implements TrashReads {
     };
   }
 
-  async acceptInvitation(token: string, account?: NewAccount): Promise<AcceptedInvitation> {
+  async acceptInvitation(
+    token: string,
+    account?: NewAccount,
+    language = '',
+  ): Promise<AcceptedInvitation | 'waiting'> {
     const request: Schemas['AcceptInvitation'] = {
       token,
+      ...(language ? { language } : {}),
       ...(account ? { account: accountOf(account) } : {}),
     };
-    const accepted = await this.#http.request<Schemas['AcceptedInvitation']>(
+    // 202 with nothing: the new account waits for its address to be confirmed.
+    const accepted = await this.#http.request<Schemas['AcceptedInvitation'] | undefined>(
       '/api/v1/invitations/accept',
       {},
       { method: 'POST', json: request },
     );
+    if (accepted === undefined) return 'waiting';
     return {
       workspaceId: accepted.workspaceId,
       ...(accepted.boardId ? { boardId: accepted.boardId } : {}),
@@ -221,6 +270,7 @@ export class ServerRequests implements TrashReads {
       ...(options.organization ? { organization: options.organization } : {}),
       registrationOpen: options.registrationOpen,
       mailEnabled: options.mailEnabled,
+      emailVerification: options.emailVerification,
     };
   }
 
@@ -239,6 +289,23 @@ export class ServerRequests implements TrashReads {
       { method: 'POST', query: { org: orgId }, json: body },
     );
     return started.authorizationUrl;
+  }
+
+  async startOidcCarryOver(orgId: string): Promise<string> {
+    const started = await this.#http.request<Schemas['OidcStart']>(
+      '/api/v1/auth/oidc/held/carry-over',
+      {},
+      { method: 'POST', query: { org: orgId } },
+    );
+    return started.authorizationUrl;
+  }
+
+  async finishHeldSignIn(orgId: string): Promise<void> {
+    await this.#http.request(
+      '/api/v1/auth/oidc/held/sign-in',
+      {},
+      { method: 'POST', query: { org: orgId } },
+    );
   }
 
   async identities(): Promise<LinkedIdentity[]> {
@@ -276,18 +343,21 @@ export class ServerRequests implements TrashReads {
   }
 
   async deletedCards(boardId: string, paging?: Paging): Promise<DeletedItem[]> {
-    return this.inWorkspace<Schemas['DeletedItem'][]>(
-      '/boards/{boardId}/trash/cards',
-      { boardId },
-      { query: { ...paging } },
+    return deletedItemsOf(
+      await this.inWorkspace<Schemas['DeletedItem'][]>(
+        '/boards/{boardId}/trash/cards',
+        { boardId },
+        { query: { ...paging } },
+      ),
     );
   }
 
   async deletedBoards(workspaceId: string, paging?: Paging): Promise<DeletedItem[]> {
-    return this.#http.request<Schemas['DeletedItem'][]>(
+    const items = await this.#http.request<Schemas['DeletedItem'][]>(
       underWorkspace('/trash/boards'),
       { workspaceId },
       { query: { ...paging } },
     );
+    return deletedItemsOf(items);
   }
 }

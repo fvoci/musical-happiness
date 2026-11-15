@@ -300,7 +300,7 @@ impl App {
         };
         Ok(self
             .store()
-            .live_invitation(&child, now_millis())
+            .live_invitation(&child, now_millis(), None)
             .await?
             .is_some())
     }
@@ -325,7 +325,7 @@ impl App {
             &invitation.workspace_id,
             sender,
             Inviting::Guest { board_id, role },
-            invitation.expires_at,
+            Some(invitation.expires_at),
             Some(MailedTo {
                 parent_id: &invitation.id,
                 recipient,

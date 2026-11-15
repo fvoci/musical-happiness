@@ -1,6 +1,6 @@
 <!--
-  What is in a trash, and bringing one back: the boards the reader was an
-  admin of (from the sidebar), or the cards of the open board (from its top
+  What is in a trash, and bringing one back: the boards and wikis the reader
+  was an admin of (from the sidebar; a wiki says so), or the cards of the open board (from its top
   bar, for its editors). Each row says what it was, who deleted it and when,
   and has its "Restore" button; one that is back leaves the list and shows
   where it was. Nothing is deleted for good here: the server empties its
@@ -74,10 +74,23 @@
         {#if trash.items.length > 0}
           <ul class="grid gap-1" data-testid="trash-items">
             {#each trash.items as item (item.id)}
-              {@const name = item.title || untitled}
-              <li class="flex min-h-8 items-center gap-2 roomy:min-h-touch" data-trash-item={name}>
+              {@const wiki = item.kind === 'wiki'}
+              {@const name = item.title || (wiki ? m.wiki_untitled() : untitled)}
+              <li
+                class="flex min-h-8 items-center gap-2 roomy:min-h-touch"
+                data-trash-item={name}
+                data-kind={item.kind}
+              >
                 <span class="grid min-w-0 flex-1 gap-0.5">
-                  <span class="truncate font-medium">{name}</span>
+                  <span class="flex min-w-0 items-center gap-1.5">
+                    <span class="truncate font-medium">{name}</span>
+                    {#if wiki}
+                      <span
+                        class="shrink-0 rounded-sm border px-1 text-xs text-muted-foreground"
+                        data-testid="trash-kind">{m.shell_wiki_kind()}</span
+                      >
+                    {/if}
+                  </span>
                   <span class="truncate text-xs text-muted-foreground">
                     {m.shell_trash_deleted_by({ name: nameOf(item.deletedBy) })} ·
                     <time

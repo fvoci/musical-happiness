@@ -17,6 +17,7 @@ use std::collections::BTreeSet;
 use fvoci_model::{Block, BlockError, FileInfo};
 
 use crate::Store;
+use crate::body_versions;
 use crate::comment_versions;
 use crate::db::{Dialect, Id, Scope, Sql, now_millis};
 use crate::error::StoreError;
@@ -99,7 +100,8 @@ pub enum NewImages {
 
 /// Puts down the files a block shows now, in place of those it showed, and marks the
 /// files of its board whose state that changes. A comment shows the files of its kept
-/// versions too, also while it is made a block of another type. What the images of
+/// versions too, also while it is made a block of another type, and a card or a page
+/// those of the kept versions of its body. What the images of
 /// the body newly show is asked as `new_images` says.
 pub(crate) async fn refresh(
     scope: &mut Scope<'_>,
@@ -118,9 +120,10 @@ pub(crate) async fn refresh(
         hold_new_images(scope, block, &names).await?;
     }
     // What the block shows, and what the kept versions of a comment show, also of one
-    // that is no comment for now.
+    // that is no comment for now, and those of a card's body.
     let mut shown: BTreeSet<String> = block.shown_files().into_iter().collect();
     shown.extend(comment_versions::files_of(scope, &block.id).await?);
+    shown.extend(body_versions::files_of(scope, &block.id).await?);
     for name in shown {
         let mut sql = scope.sql("INSERT INTO file_refs (block_id, board_id, name) VALUES (");
         sql.bind(Id(&block.id))

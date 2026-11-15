@@ -8,6 +8,7 @@ use fvoci_store::Tenant;
 use tokio::sync::{Mutex, OwnedMutexGuard, OwnedSemaphorePermit};
 use tokio::time::Instant;
 
+use super::versions::Versioned;
 use super::worker::CallError;
 use super::{Collab, DocChange, DocEvent, refusals, taken_from};
 use crate::app::App;
@@ -87,6 +88,11 @@ pub(super) struct OpenDoc {
     pub(super) writing_scheduled: bool,
     /// Not before when its body is written again, after a write that failed.
     pub(super) retry_at: Option<Instant>,
+    /// Whether its body is kept as a version of its card ([`super::versions`]).
+    pub(super) versioned: Versioned,
+    /// Who is known to be put down as having written the body since its newest
+    /// version: the first update of anybody else puts them down.
+    pub(super) editors: Vec<String>,
     /// Opened aside ([`Share::Aside`]), only to write its log to its card: its place
     /// in the server's share aside, given back as it is closed. `None` for a document
     /// counted in its worker's load.

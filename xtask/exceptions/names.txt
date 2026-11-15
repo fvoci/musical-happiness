@@ -125,11 +125,14 @@ crates/store/src/org_admin.rs | board_team_membership::remove_workspace_teams
 crates/server/src/app/teams.rs
 crates/server/src/app/mod.rs | teams
 crates/server/src/api/teams.rs
+crates/server/src/api/content_search.rs | a team's
+crates/server/src/search/find.rs | a team's
 crates/server/src/api/mod.rs | teams
 crates/server/src/api/contract/params.rs | Team
 crates/server/src/api/contract.rs | Team
 crates/server/src/api/contract/tests.rs | Team
 crates/server/tests/api/teams.rs
+crates/server/tests/api/content_search.rs | team
 crates/server/tests/api/main.rs | teams
 crates/server/tests/organization_boundary_round2/routes.rs | team
 crates/server/tests/organization_boundary_round2/member_operations.rs | team
@@ -163,6 +166,8 @@ crates/store/src/board_team_access.rs
 crates/server/src/api/board_teams.rs
 crates/server/src/permissions/team_table.rs
 crates/server/tests/api/board_teams.rs
+crates/server/tests/api/wiki_kinds.rs | team
+crates/store/tests/store/board_kinds.rs | team
 apps/web/src/lib/features/shell/BoardTeams.svelte
 crates/model/src/board.rs | inherited from teams
 crates/store/src/boards.rs | board_team_access::

@@ -77,8 +77,15 @@ impl Outbound for Cloudflare {
 
 /// What Cloudflare's answer makes of the attempt: by its status (its `429` carries the
 /// code `10004`; its `401` and `403` the token's and the account's refusals), and a
-/// message it took but lists among `result.permanent_bounces` refused for good.
+/// message it took but lists among `result.permanent_bounces` refused for good. Its
+/// `404` answers an account ID it cannot route to: the server's configuration, the same
+/// for every message, so the whole way is closed rather than each message refused.
 fn outcome_of(answer: &Answer, to: &str) -> Outcome {
+    if answer.status == 404 {
+        return Outcome::PathDown {
+            code: Some(answer.status),
+        };
+    }
     let outcome = super::outcome_of(answer);
     if outcome != Outcome::Sent {
         return outcome;
@@ -143,5 +150,18 @@ mod tests {
             outcome_of(&answer(401, unauthorized), "a@example.test"),
             Outcome::PathDown { code: Some(401) }
         );
+        let unrouted = r#"{"success":false,"errors":[{"code":7003,"message":"Could not route to /client/v4/accounts/0/email/sending/send, perhaps your object identifier is invalid?"}],"messages":[],"result":null}"#;
+        assert_eq!(
+            outcome_of(&answer(404, unrouted), "a@example.test"),
+            Outcome::PathDown { code: Some(404) }
+        );
+        let invalid = r#"{"success":false,"errors":[{"code":10001,"message":"email.sending.error.invalid_request_schema"}],"messages":[],"result":null}"#;
+        for status in [400, 413, 422] {
+            assert_eq!(
+                outcome_of(&answer(status, invalid), "a@example.test"),
+                Outcome::Refused { code: Some(status) },
+                "{status}"
+            );
+        }
     }
 }

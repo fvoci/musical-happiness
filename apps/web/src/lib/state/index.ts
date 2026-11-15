@@ -42,11 +42,17 @@ export {
   type User,
   type ViewDraft,
 } from './backend.ts';
+export type { Registered } from './account-types.ts';
 export { BoardStore, type CardDrop } from './board.svelte.ts';
 export { boardPresence } from './board-presence.svelte.ts';
+export type { BodyVersion, BodyVersionContent } from './body-versions.ts';
 export { CardPreviews } from './card-previews.svelte.ts';
 export { type CommentEdit, type Upload } from './card-parts.ts';
 export { CardStore } from './card.svelte.ts';
+export { PageStore } from './page.svelte.ts';
+export { createWiki, WikiStore, type PageLooks, type WikiLooks } from './wiki.svelte.ts';
+export { shownWiki } from './shown-wiki.svelte.ts';
+export type { PageDraft, WikiDraft, WikiPage, WikiPageDetail } from './wiki-types.ts';
 export { changeDisplayName } from './account.ts';
 export { whileHere } from './here.ts';
 export { administers, isGuest, peopleOf, providePeople, type PeopleAccess } from './people.ts';

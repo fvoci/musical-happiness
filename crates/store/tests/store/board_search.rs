@@ -1,0 +1,280 @@
+//! The searches for boards: the ports of the original's `testSearchBoardsForUser` and of
+//! its search in one workspace, and what its suite does not cover of the latter. They
+//! were in `boards.rs` and keep their names.
+
+use fvoci_model::{Board, BoardKinds, BoardSearchField, BoardType, new_id};
+use fvoci_store::PublicBoards;
+use serde_json::json;
+
+use crate::boards::{NOT_AN_ID, new_board, object, sorted_board_ids};
+use crate::common;
+
+/// A case of the original's `testSearchBoardsForUser` table; each is a subtest there.
+/// The original's cases also name a workspace, which the search does not take.
+struct SearchCase<'a> {
+    name: &'static str,
+    term: &'static str,
+    search_field: BoardSearchField,
+    public_boards: PublicBoards,
+    expected_boards: Vec<&'a Board>,
+}
+
+#[tokio::test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one test per test function of the original, whose subtests share a store"
+)]
+async fn search_boards_for_user() {
+    let test = common::setup().await;
+    let user_id = common::user(&test, "user").await;
+    let workspace_id_1 = common::workspace_of(&test, &[&user_id]).await;
+    let workspace_id_2 = common::workspace_of(&test, &[&user_id]).await;
+
+    // "should return empty if user is not a member of any board and there are no public
+    // boards on the workspace"
+    {
+        let boards = test
+            .search_boards_for_user(
+                "",
+                BoardSearchField::Title,
+                &user_id,
+                PublicBoards::Include,
+                BoardKinds::Boards,
+            )
+            .await
+            .expect("the search succeeds");
+        assert!(boards.is_empty(), "got {boards:?}");
+    }
+
+    let mut board1 = Board {
+        title: "Public Board with admin".to_owned(),
+        properties: object(json!({ "foo": "bar1" })),
+        ..new_board(&new_id(), &workspace_id_1, BoardType::Open)
+    };
+    test.insert_board_with_admin(&mut board1, &user_id)
+        .await
+        .expect("board 1 is inserted");
+
+    let mut board2 = Board {
+        title: "Public Board".to_owned(),
+        properties: object(json!({ "foo": "bar2" })),
+        ..new_board(&new_id(), &workspace_id_1, BoardType::Open)
+    };
+    test.insert_board(&mut board2, &user_id)
+        .await
+        .expect("board 2 is inserted");
+
+    let mut board3 = Board {
+        title: "Private Board with admin".to_owned(),
+        ..new_board(&new_id(), &workspace_id_1, BoardType::Private)
+    };
+    test.insert_board_with_admin(&mut board3, &user_id)
+        .await
+        .expect("board 3 is inserted");
+
+    let mut board4 = Board {
+        title: "Private Board".to_owned(),
+        ..new_board(&new_id(), &workspace_id_1, BoardType::Private)
+    };
+    test.insert_board(&mut board4, &user_id)
+        .await
+        .expect("board 4 is inserted");
+
+    let mut board5 = Board {
+        title: "Public Board with admin in workspace 2".to_owned(),
+        ..new_board(&new_id(), &workspace_id_2, BoardType::Open)
+    };
+    test.insert_board_with_admin(&mut board5, &user_id)
+        .await
+        .expect("board 5 is inserted");
+
+    let cases = [
+        SearchCase {
+            name: "should find all private boards that the user is a member of and public \
+                   boards with an empty term",
+            term: "",
+            search_field: BoardSearchField::Title,
+            public_boards: PublicBoards::Include,
+            expected_boards: vec![&board1, &board2, &board3, &board5],
+        },
+        SearchCase {
+            name: "should find all with term board",
+            term: "board",
+            search_field: BoardSearchField::Title,
+            public_boards: PublicBoards::Include,
+            expected_boards: vec![&board1, &board2, &board3, &board5],
+        },
+        SearchCase {
+            name: "should find all with term board where the user is member of",
+            term: "board",
+            search_field: BoardSearchField::Title,
+            public_boards: PublicBoards::Exclude,
+            expected_boards: vec![&board1, &board3, &board5],
+        },
+        SearchCase {
+            name: "should find only public as per the term, wether user is a member or not",
+            term: "public",
+            search_field: BoardSearchField::Title,
+            public_boards: PublicBoards::Include,
+            expected_boards: vec![&board1, &board2, &board5],
+        },
+        SearchCase {
+            name: "should find only private as per the term, wether user is a member or not",
+            term: "priv",
+            search_field: BoardSearchField::Title,
+            public_boards: PublicBoards::Include,
+            expected_boards: vec![&board3],
+        },
+        SearchCase {
+            name: "should find no board in workspace 2 with a non matching term",
+            term: "non-matching-term",
+            search_field: BoardSearchField::Title,
+            public_boards: PublicBoards::Include,
+            expected_boards: vec![],
+        },
+        SearchCase {
+            name: "should find all boards with a named property",
+            term: "foo",
+            search_field: BoardSearchField::PropertyName,
+            public_boards: PublicBoards::Include,
+            expected_boards: vec![&board1, &board2],
+        },
+        SearchCase {
+            name: "should find no boards with a non-existing named property",
+            term: "bogus",
+            search_field: BoardSearchField::PropertyName,
+            public_boards: PublicBoards::Include,
+            expected_boards: vec![],
+        },
+    ];
+
+    for case in cases {
+        let found = test
+            .search_boards_for_user(
+                case.term,
+                case.search_field,
+                &user_id,
+                case.public_boards,
+                BoardKinds::Boards,
+            )
+            .await
+            .expect(case.name);
+        assert_eq!(
+            sorted_board_ids(&found),
+            sorted_board_ids(case.expected_boards),
+            "{}",
+            case.name
+        );
+    }
+
+    test.teardown().await;
+}
+
+#[tokio::test]
+async fn search_boards_for_user_in_workspace() {
+    let test = common::setup().await;
+    let user_id = common::user(&test, "user").await;
+
+    // "should return empty list if there are no resutls": for a workspace that does not
+    // exist, and for text that is no identifier.
+    for workspace_id in [new_id(), NOT_AN_ID.to_owned()] {
+        let boards = test
+            .search_boards_for_user_in_workspace(&workspace_id, "", &user_id, BoardKinds::Boards)
+            .await
+            .expect("the search succeeds");
+        assert!(
+            boards.is_empty(),
+            "workspace {workspace_id}: got {boards:?}"
+        );
+    }
+
+    test.teardown().await;
+}
+
+/// `server/services/store/sqlstore/board.go:713-753`.
+#[tokio::test]
+async fn search_boards_for_user_in_workspace_finds_open_boards_and_own_private_boards() {
+    let test = common::setup().await;
+    let user_id = common::user(&test, "user").await;
+    let other_user_id = common::user(&test, "other-user").await;
+    let workspace_id_1 = common::workspace_of(&test, &[&user_id, &other_user_id]).await;
+    let workspace_id_2 = common::workspace(&test).await;
+
+    let mut open = Board {
+        title: "Open Roadmap".to_owned(),
+        ..new_board(&new_id(), &workspace_id_1, BoardType::Open)
+    };
+    test.insert_board(&mut open, &other_user_id)
+        .await
+        .expect("the board is inserted");
+    let mut own_private = Board {
+        title: "Private Roadmap".to_owned(),
+        ..new_board(&new_id(), &workspace_id_1, BoardType::Private)
+    };
+    test.insert_board_with_admin(&mut own_private, &user_id)
+        .await
+        .expect("the board is inserted");
+    let mut foreign_private = Board {
+        title: "Secret Roadmap".to_owned(),
+        ..new_board(&new_id(), &workspace_id_1, BoardType::Private)
+    };
+    test.insert_board_with_admin(&mut foreign_private, &other_user_id)
+        .await
+        .expect("the board is inserted");
+    let mut other_workspace = Board {
+        title: "Open Roadmap elsewhere".to_owned(),
+        ..new_board(&new_id(), &workspace_id_2, BoardType::Open)
+    };
+    test.insert_board(&mut other_workspace, &user_id)
+        .await
+        .expect("the board is inserted");
+    let mut template = Board {
+        title: "Roadmap template".to_owned(),
+        is_template: true,
+        ..new_board(&new_id(), &workspace_id_1, BoardType::Open)
+    };
+    test.insert_board(&mut template, &user_id)
+        .await
+        .expect("the board is inserted");
+
+    let search = async |term: &str| {
+        let boards = test
+            .search_boards_for_user_in_workspace(
+                &workspace_id_1,
+                term,
+                &user_id,
+                BoardKinds::Boards,
+            )
+            .await
+            .expect("the search succeeds");
+        sorted_board_ids(&boards)
+    };
+    let open_and_own_private = sorted_board_ids([&open, &own_private]);
+    assert_eq!(
+        search("").await,
+        open_and_own_private,
+        "an empty term matches every board the user can reach"
+    );
+    assert_eq!(
+        search("ROADMAP").await,
+        open_and_own_private,
+        "case does not matter"
+    );
+    assert_eq!(
+        search("roadmap open").await,
+        [open.id.as_str()],
+        "every word must match"
+    );
+    assert_eq!(
+        search("  private  ").await,
+        [own_private.id.as_str()],
+        "spaces around the term do not count"
+    );
+    assert_eq!(
+        search("secret").await,
+        Vec::<String>::new(),
+        "a private board of somebody else is not found"
+    );
+
+    test.teardown().await;
+}

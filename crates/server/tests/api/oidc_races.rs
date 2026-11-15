@@ -97,6 +97,7 @@ async fn callback_for(ts: &TestServer, fake: &FakeProvider, org_id: &str) -> Cal
             .to_owned(),
         issuer: None,
         session_token: None,
+        held_secret: None,
     }
 }
 
@@ -254,7 +255,7 @@ async fn changed_provider_refuses_pending_callback(change: Change, who: Who) {
             .get_session(&token_digest(token), 0, 0)
             .await
             .is_ok(),
-        Ok(FinishedLogin::Linked) | Err(_) => false,
+        Ok(FinishedLogin::Linked | FinishedLogin::Held { .. }) | Err(_) => false,
     };
     let users_after = ts
         .app

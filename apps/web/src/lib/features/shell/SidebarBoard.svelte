@@ -1,6 +1,6 @@
 <!--
-  One board in the sidebar: a link to it, and next to the link the button of
-  its menu.
+  One board or wiki in the sidebar: a link to it, and next to the link the
+  button of its menu.
 
   The link itself is what is dragged (`data-drag-item`): a press on a control
   inside an item is the control's own, so the link cannot sit inside the item,
@@ -18,6 +18,7 @@
   import ActionMenu from '$lib/components/menu/ActionMenu.svelte';
   import type { MenuAction } from '$lib/components/menu/actions.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
+  import type { BoardKind } from '$lib/logic/wire.ts';
 
   import BoardIcon from './BoardIcon.svelte';
 
@@ -26,6 +27,8 @@
     /** The title as shown: the board's own, or the words for a board without one. */
     title: string;
     icon: string | undefined;
+    /** A board when left out; a wiki says so to a screen reader too. */
+    kind?: BoardKind | undefined;
     href: string;
     /** This is the board on the page. */
     current: boolean;
@@ -44,6 +47,7 @@
     boardId,
     title,
     icon,
+    kind,
     href,
     current,
     locale,
@@ -69,22 +73,28 @@
     draggable="false"
     data-drag-item={draggable ? boardId : undefined}
     aria-current={current ? 'page' : undefined}
+    aria-label={kind === 'wiki' ? m.shell_wiki_named({ title }) : undefined}
     aria-describedby={draggable ? describedBy : undefined}
     class="flex min-h-8 items-center gap-2 rounded-md py-1 pr-9 pl-2 select-none [-webkit-touch-callout:none] hover:bg-sidebar-accent aria-[current=page]:bg-sidebar-accent aria-[current=page]:font-medium roomy:min-h-touch roomy:pr-12"
     {onclick}
   >
-    <BoardIcon {icon} {title} {locale} />
+    <BoardIcon {icon} {kind} {title} {locale} />
     <span class="min-w-0 flex-1 truncate">{title}</span>
   </a>
-  <ActionMenu {title} {actions}>
-    {#snippet trigger(props: Record<string, unknown>)}
-      <IconButton
-        {...props}
-        label={m.shell_board_menu({ name: title })}
-        class="absolute top-0 right-0 text-muted-foreground can-hover:opacity-0 can-hover:group-focus-within/board:opacity-100 can-hover:group-hover/board:opacity-100 can-hover:aria-expanded:opacity-100"
-      >
-        <EllipsisIcon />
-      </IconButton>
-    {/snippet}
-  </ActionMenu>
+  <!-- A guest's wiki has nothing in its menu (a board's has its export): no button then. -->
+  {#if actions.length > 0}
+    <ActionMenu {title} {actions}>
+      {#snippet trigger(props: Record<string, unknown>)}
+        <IconButton
+          {...props}
+          label={kind === 'wiki'
+            ? m.shell_wiki_menu({ name: title })
+            : m.shell_board_menu({ name: title })}
+          class="absolute top-0 right-0 text-muted-foreground can-hover:opacity-0 can-hover:group-focus-within/board:opacity-100 can-hover:group-hover/board:opacity-100 can-hover:aria-expanded:opacity-100"
+        >
+          <EllipsisIcon />
+        </IconButton>
+      {/snippet}
+    </ActionMenu>
+  {/if}
 </li>

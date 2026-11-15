@@ -37,7 +37,7 @@ struct Step {
 }
 
 /// Every migration, oldest first. Applied ones are never edited: add a new one.
-const STEPS: [Step; 29] = [
+const STEPS: [Step; 37] = [
     Step {
         version: 1,
         description: "baseline",
@@ -213,6 +213,56 @@ const STEPS: [Step; 29] = [
         sqlite: include_str!("../schema/sqlite/0030_invitation_recipients.sql"),
         postgres: include_str!("../schema/postgres/0030_invitation_recipients.sql"),
     },
+    Step {
+        version: 31,
+        description: "provider move",
+        sqlite: include_str!("../schema/sqlite/0031_provider_move.sql"),
+        postgres: include_str!("../schema/postgres/0031_provider_move.sql"),
+    },
+    Step {
+        version: 32,
+        description: "held sign ins",
+        sqlite: include_str!("../schema/sqlite/0032_held_sign_ins.sql"),
+        postgres: include_str!("../schema/postgres/0032_held_sign_ins.sql"),
+    },
+    Step {
+        version: 33,
+        description: "body versions",
+        sqlite: include_str!("../schema/sqlite/0033_body_versions.sql"),
+        postgres: include_str!("../schema/postgres/0033_body_versions.sql"),
+    },
+    // 34 is other work's.
+    Step {
+        version: 35,
+        description: "audit identity",
+        sqlite: include_str!("../schema/sqlite/0035_audit_identity.sql"),
+        postgres: include_str!("../schema/postgres/0035_audit_identity.sql"),
+    },
+    Step {
+        version: 36,
+        description: "board kind",
+        sqlite: include_str!("../schema/sqlite/0036_board_kind.sql"),
+        postgres: include_str!("../schema/postgres/0036_board_kind.sql"),
+    },
+    // 37 is other work's.
+    Step {
+        version: 38,
+        description: "search outbox",
+        sqlite: include_str!("../schema/sqlite/0038_search_outbox.sql"),
+        postgres: include_str!("../schema/postgres/0038_search_outbox.sql"),
+    },
+    Step {
+        version: 39,
+        description: "signups",
+        sqlite: include_str!("../schema/sqlite/0039_signups.sql"),
+        postgres: include_str!("../schema/postgres/0039_signups.sql"),
+    },
+    Step {
+        version: 40,
+        description: "signup browser",
+        sqlite: include_str!("../schema/sqlite/0040_signup_browser.sql"),
+        postgres: include_str!("../schema/postgres/0040_signup_browser.sql"),
+    },
 ];
 
 /// The migration that makes the organizations and, on PostgreSQL, puts up the wall
@@ -232,13 +282,15 @@ pub(crate) const ORG_MANAGEMENT_VERSION: i64 = 23;
 /// The tables that are no organization's: the accounts and what is true of the
 /// installation. Every other table of the schema is one of [`ORG_TABLES`].
 #[cfg(any(test, feature = "test-util"))]
-pub(crate) const GLOBAL_TABLES: [&str; 8] = [
+pub(crate) const GLOBAL_TABLES: [&str; 10] = [
     "_sqlx_migrations",
     "data_steps",
     "instance",
     "preferences",
     "password_resets",
+    "search_index_state",
     "sessions",
+    "signups",
     "user_identities",
     "users",
 ];
@@ -248,7 +300,7 @@ pub(crate) const GLOBAL_TABLES: [&str; 8] = [
 /// policy `org_wall`. A test of the store reads the catalog to see that every table of
 /// the schema is in this list or in [`GLOBAL_TABLES`], and that it is so.
 #[cfg(any(test, feature = "test-util"))]
-pub(crate) const ORG_TABLES: [&str; 29] = [
+pub(crate) const ORG_TABLES: [&str; 34] = [
     "audit_log",
     "blocks",
     "board_members",
@@ -256,6 +308,8 @@ pub(crate) const ORG_TABLES: [&str; 29] = [
     "boards",
     "body_docs",
     "body_updates",
+    "body_version_editors",
+    "body_versions",
     "categories",
     "category_boards",
     "comment_versions",
@@ -265,11 +319,14 @@ pub(crate) const ORG_TABLES: [&str; 29] = [
     "file_refs",
     "invitations",
     "loose_objects",
+    "oidc_former_providers",
+    "oidc_held_sign_ins",
     "oidc_login_flows",
     "oidc_pending_providers",
     "oidc_providers",
     "organization_members",
     "organizations",
+    "search_outbox",
     "sharing",
     "subscriptions",
     "team_members",

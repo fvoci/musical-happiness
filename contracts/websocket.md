@@ -35,9 +35,9 @@
 | `UNSUBSCRIBE_WORKSPACE` | 필요 | `workspaceId` | 그만 받는다 |
 | `SUBSCRIBE_BLOCKS` | 없어도 된다 | `workspaceId`, `readToken`, `blockIds` | 공유 보드의 블록들을 읽기 토큰으로 따라간다. `blockIds`가 모두 한 보드의 것이고 `readToken`이 그 보드의 공유 토큰이며 `workspaceId`가 그 보드의 워크스페이스여야 한다. 하나라도 어긋나면 명령 전체를 무시한다 |
 | `UNSUBSCRIBE_BLOCKS` | 없어도 된다 | 같다 | 그 블록들을 그만 따라간다. 같은 검사를 한다(저장소에서 읽지 못하면 검사 없이 그만 따라간다) |
-| `JOIN_DOC` | 필요 | `workspaceId`, `cardId` | 카드 본문을 함께 고치는 방에 들어간다(6절). 답은 `DOC_JOINED`나 `DOC_REFUSED` |
+| `JOIN_DOC` | 필요 | `workspaceId`, `cardId` | 카드나 위키 페이지의 본문을 함께 고치는 방에 들어간다(6절). `cardId`는 카드의 ID이거나 페이지의 ID다. 답은 `DOC_JOINED`나 `DOC_REFUSED` |
 | `LEAVE_DOC` | 필요 | `doc` | `DOC_JOINED`가 알려 준 번호의 방에서 나온다. 답이 없다 |
-| `SET_PRESENCE` | 읽기 토큰이면 불필요 | `workspaceId`, `boardId`, `cardId`, `readToken` | 보드 방문과 연 카드를 알린다(7절). 답이 없다 |
+| `SET_PRESENCE` | 읽기 토큰이면 불필요 | `workspaceId`, `boardId`, `cardId`, `readToken` | 보드 방문과 연 카드를, 위키 방문과 연 페이지를 알린다(7절). 답이 없다 |
 
 - 세션이 필요한 명령을 익명 연결이 보내면 무시한다(`JOIN_DOC`은 `DOC_REFUSED`로 답한다, 6절).
 - JSON이 아니거나, 멤버의 타입이 틀리거나(`workspaceId`가 수, `blockIds`가 목록이 아님 등), `action`을 모르면 그 명령만 무시하고 연결은 그대로다.
@@ -88,6 +88,7 @@
 | `undeleteBoard` | 돌아온 보드의 `UPDATE_BOARD` 하나, 그리고 보드를 사이드바에 다시 둔 사용자마다 그 사람의 연결에 `UPDATE_BOARD_CATEGORY`(그 보드의 항목 하나: 원래 카테고리, 그사이 지워졌으면 기본 카테고리)와 그 카테고리의 `REORDER_CATEGORY_BOARDS`(원래 자리로 들어가며 뒤의 보드가 밀린 순서). 비공개 보드는 다시 구성원이 된 사람에게만. **함께 돌아온 블록과 멤버의 메시지는 없다** |
 | `createBlocks`, `patchBlock`, `patchBlocks`, `createCard`, `patchCard`, `duplicateBlock`, `undeleteBlock` | 바뀌거나 생긴 블록마다 `UPDATE_BLOCK`. `undeleteBlock`은 되살린 블록 하나만 알린다(함께 돌아온 아래 블록은 알리지 않는다) |
 | `deleteBlock` | `UPDATE_BLOCK`, `block`은 `id`, `boardId`, `updateAt`, `deleteAt`(0이 아님)만 뜻이 있고 나머지는 빈 값. **지운 블록 하나만** 알린다. 함께 휴지통에 간 아래 블록(카드의 댓글·첨부)은 따로 알리지 않는다 |
+| `createWiki`, `createPage`, `patchPage`, `deletePage` | 위키는 보드의 한 종류(`kind`가 `wiki`)이고 페이지는 블록(`type`이 `page`)이어서 같은 메시지가 나간다: `createWiki`는 `createBoard`와 같고(`UPDATE_BOARD`의 `board.kind`가 `wiki`), `createPage`·`patchPage`는 그 페이지의 `UPDATE_BLOCK`(아이콘과 순서는 `fields`의 `icon`·`order`), `deletePage`는 `deleteBlock`과 같다(지운 페이지 하나만. 함께 휴지통에 간 아래 페이지는 따로 알리지 않는다). 위 표의 보드 조작 가운데 위키도 받는 것(`patchBoard`, `deleteBoard`, `undeleteBoard`, 멤버·팀)은 위키에도 같은 메시지를 낸다 |
 | `addMember`, `joinBoard`, `updateMember` | `UPDATE_MEMBER`. 이미 멤버인 사용자의 `addMember`·`joinBoard`, 멤버가 아닌 사용자의 `updateMember`는 아무것도 내지 않는다. 템플릿이 아닌 보드에 새로 든 멤버는 기본 카테고리에 들어가며 `UPDATE_BOARD_CATEGORY`도 받는다 |
 | `removeMember`, `leaveBoard` | `DELETE_MEMBER` |
 | `addTeamMember`, `removeTeamMember`, `deleteTeam`, `setBoardTeam`, `removeBoardTeam` | 역할이 바뀐 보드와 사람마다 `DELETE_MEMBER`(역할이 생기거나 오른 때에도): 받은 클라이언트는 보드의 멤버를 다시 읽는다. 사람을 넣고 빼면 그 팀이 걸린 보드마다 그 사람의 것, 팀을 지우면 그 팀이 걸린 보드마다 그 팀의 사람 모두의 것, 보드의 팀 역할을 주고 바꾸고 떼면 그 보드에서 그 팀의 사람 모두의 것이다. 팀이 이미 그 역할이었거나 뗄 역할이 없었으면, 이미 팀에 있는 사람을 넣거나 팀에 없는 사람을 빼면, 또 팀이 걸린 보드나 팀의 사람이 없으면 아무것도 내지 않는다 |
@@ -154,7 +155,7 @@
 
 ## 6. 본문의 공동 편집: 방
 
-카드의 본문을 함께 고치는 연결들이 그 카드의 **방**에 든다. 서버는 본문을 Y 문서 하나로 쥐고(`docs/configuration.md`의 "본문의 공동 편집"), 방의 연결들과 그 문서의 변경을 주고받는다. 제어는 텍스트 메시지, 문서의 내용은 Binary 프레임이다. 구독(2–3절)과 같은 연결을 쓰고, 한 연결이 방 여럿에 들 수 있다. 본문이 카드에 쓰이면 `UPDATE_BLOCK`(3절)이 지금처럼 나간다: 방에 든 연결도 워크스페이스를 구독했으면 그것을 함께 받는다.
+카드의 본문을 함께 고치는 연결들이 그 카드의 **방**에 든다. 위키의 페이지도 카드와 똑같이 방을 갖는다: 이 절의 "카드"는 페이지이기도 하고 그때 "보드"는 그 페이지의 위키이며, 멤버 `cardId`는 이름 그대로 카드의 ID나 페이지의 ID를 싣는다. 들고 쓰는 권한은 아래 "누가 드나"와 같이 위키의 역할로 가르고, 본문이 페이지에 쓰이면 카드와 같이 `UPDATE_BLOCK`(`block`의 `type`이 `page`)이 나간다. 복제·템플릿·아카이브 내보내기와 블록 하나의 되살리기는 아직 위키와 페이지에 없다: 이 절에서 그것들을 말하는 대목은 카드와 보드의 것이고, 지운 위키는 `undeleteBoard`로 페이지와 함께 돌아온다. 댓글의 본문에는 방이 없다. 서버는 본문을 Y 문서 하나로 쥐고(`docs/configuration.md`의 "본문의 공동 편집"), 방의 연결들과 그 문서의 변경을 주고받는다. 제어는 텍스트 메시지, 문서의 내용은 Binary 프레임이다. 구독(2–3절)과 같은 연결을 쓰고, 한 연결이 방 여럿에 들 수 있다. 본문이 카드에 쓰이면 `UPDATE_BLOCK`(3절)이 지금처럼 나간다: 방에 든 연결도 워크스페이스를 구독했으면 그것을 함께 받는다.
 
 ### 들어오기와 나가기
 
@@ -165,7 +166,7 @@
 | `DOC_JOINED` | `workspaceId`, `cardId`, `doc`, `epoch`, `mode` | 방에 들었다. `doc`은 이 연결에서 그 방을 가리키는 번호(1부터, 들어올 때마다 새 번호)이고 뒤의 메시지와 프레임이 모두 이 번호로 방을 가리킨다. `epoch`은 문서의 세대(아래), `mode`는 `write`나 `read`. **그 방의 다음 Binary 프레임이 문서 전체다**(sync step 2. 그 사이에 다른 방이나 구독의 메시지가 낄 수 있다) |
 | `DOC_REFUSED` | `workspaceId`, `cardId`, `reason` | 들지 못했다. `reason`은 아래 표 |
 
-- **누가 드나.** 카드의 보드에서 카드를 고칠 수 있으면(편집 역할부터) `write`, 보드를 읽을 수만 있으면(보기·댓글 역할, 열린 템플릿을 읽는 워크스페이스 구성원) `read`로 든다. 그 밖의 사용자, 세션 없는 연결(공유 보드를 읽기 토큰으로 따라가는 연결도), 비밀번호를 받지 않는 조직(`ssoRequired`)의 카드에 그 공급자로 만들지 않은 세션의 연결(HTTP의 401 `sso_required`에 해당한다), 없는 카드, 카드가 아닌 블록, `workspaceId`가 카드의 보드가 있는 워크스페이스가 아닌 것은 모두 `reason`이 `not_found`인 같은 `DOC_REFUSED`다. `workspaceId`나 `cardId`가 64바이트를 넘는 `JOIN_DOC`은 답 없이 버린다. 들 수 있는지는 카드가 어느 보드의 것인지만 읽어 가른다: 본문은 들인 뒤에 읽으므로 거절은 본문의 크기와 상관없이 같은 일을 한다.
+- **누가 드나.** 카드의 보드에서 카드를 고칠 수 있으면(편집 역할부터) `write`, 보드를 읽을 수만 있으면(보기·댓글 역할, 열린 템플릿을 읽는 워크스페이스 구성원) `read`로 든다. 그 밖의 사용자, 세션 없는 연결(공유 보드를 읽기 토큰으로 따라가는 연결도), 비밀번호를 받지 않는 조직(`ssoRequired`)의 카드에 그 공급자로 만들지 않은 세션의 연결(HTTP의 401 `sso_required`에 해당한다), 없는 카드, 카드도 페이지도 아닌 블록(보드나 위키 자체의 ID도), `workspaceId`가 카드의 보드가 있는 워크스페이스가 아닌 것은 모두 `reason`이 `not_found`인 같은 `DOC_REFUSED`다. `workspaceId`나 `cardId`가 64바이트를 넘는 `JOIN_DOC`은 답 없이 버린다. 들 수 있는지는 카드가 어느 보드의 것인지만 읽어 가른다: 본문은 들인 뒤에 읽으므로 거절은 본문의 크기와 상관없이 같은 일을 한다.
 - **클라이언트는 빈 문서로 든다.** 문서는 서버가 카드의 본문에서 만든다. 클라이언트가 본문에서 스스로 만든 문서는 서버의 것과 다른 문서여서 합치면 내용이 두 번 든다.
 - 이미 든 카드에 다시 `JOIN_DOC`을 보내면 새 번호로 새로 들고(문서 전체를 다시 받는다) 앞의 번호는 더 방이 아니다(그 번호의 기다리던 Binary 프레임은 버려진다). 거절되면 앞의 것이 그대로다.
 - `LEAVE_DOC`(`doc`)으로 나온다. 연결이 끊겨도 나온다. 나온 뒤에도 그 번호로 이미 보낸 것이 조금 더 올 수 있다: 모르는 번호의 메시지와 프레임은 버린다.
@@ -223,7 +224,7 @@ sync 종류부터 끝까지는 y-protocols의 sync 메시지 그대로다(`write
 
 ### 세대
 
-`epoch`은 문서가 몇 번째로 만들어진 것인가다(1부터). 서버는 문서가 한도 가까이 자랐을 때와 카드의 본문이 문서를 거치지 않고 통째로 쓰였을 때(HTTP의 `patchCard` 등, 가져오기, 되살리기) 카드의 본문에서 문서를 **새로 만든다**. 내용이 같아도 다른 문서다: 앞 세대의 변경은 새 문서에 얹히지 않는다.
+`epoch`은 문서가 몇 번째로 만들어진 것인가다(1부터). 서버는 문서가 한도 가까이 자랐을 때와 카드의 본문이 문서를 거치지 않고 통째로 쓰였을 때(HTTP의 `patchCard`·`patchPage` 등, 판으로 되돌리기 `restoreCardBodyVersion`, 가져오기, 되살리기) 카드의 본문에서 문서를 **새로 만든다**. 내용이 같아도 다른 문서다: 앞 세대의 변경은 새 문서에 얹히지 않는다.
 
 - 서버는 프레임마다 `epoch`을 싣고, 클라이언트도 자기가 쥔 세대를 싣는다. 방의 세대와 다른 변경은 `DOC_NACK`(`update_out_of_step`)이다.
 - 문서가 새로 만들어지면 방의 모두에게 새 `epoch`의 `DOC_RESET`과 문서 전체가 간다. 클라이언트는 **쥐고 있던 문서를 버리고** 온 것으로 새 문서를 만든다. 아직 답을 받지 못한 변경은 버려진 문서의 것이다(늦게 오는 그 답은 옛 `epoch`을 싣고 있다). 자기 `epoch`과 다른 프레임은 버린다. 새로 만들어진 때와 `DOC_RESET` 사이에 보낸 변경은 `DOC_NACK`(`update_out_of_step`)이다.
@@ -259,7 +260,9 @@ sync 종류부터 끝까지는 y-protocols의 sync 메시지 그대로다(`write
 연결당 한 보드·한 카드이며 새 명령이 앞의 것을 바꾼다. 보드의 읽기 권한은
 `App::board_access`, 세션의 조직 접근은 `enter_workspace_as`로 확인한다.
 카드가 같은 보드의 지우지 않은 카드가 아니면 카드 없이 보드에 있는 것으로 받고, 연
-카드가 나중에 지워져도 카드 없이 남는다. 식별자는 방과 같은 최대 64바이트다.
+카드가 나중에 지워져도 카드 없이 남는다. 위키도 같다: `boardId`에 위키의 ID를, `cardId`에
+그 위키의 페이지의 ID를 싣고, 명단의 `cardIds`가 연 페이지들이다. 읽기 토큰으로는 위키를
+방문하지 못한다(보드를 읽을 수 없는 명령과 같이 거절되어 앞선 방문도 끝난다). 식별자는 방과 같은 최대 64바이트다.
 명령은 `collab_frames_per_second`의 속도와 한 초의 버스트로 제한하고, 떠나기는
 항상 받는다. 읽기 토큰은 현재 서버의 43글자 비밀 값이며 모양이 틀린 명령은 무시한다.
 보드를 읽을 수 없어 거절된 명령은 그 연결의 앞선 방문도 끝낸다.

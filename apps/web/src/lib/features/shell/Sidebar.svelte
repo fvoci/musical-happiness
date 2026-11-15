@@ -34,6 +34,7 @@
     boardTrash,
     isGuest,
     peopleOf,
+    shownWiki,
     whileHere,
     type Category,
     type Trash,
@@ -42,6 +43,7 @@
   import { Input } from '$lib/ui/input/index.js';
 
   import { BoardSearch } from './board-search.svelte.ts';
+  import { shownTitle } from './shown-title.ts';
   import CategoryNameDialog from './CategoryNameDialog.svelte';
   import PeopleDialog from './PeopleDialog.svelte';
   import SidebarList from './SidebarList.svelte';
@@ -111,7 +113,9 @@
    * the sidebar does not know; there the server has the say.
    */
   const canDeleteOpenBoard = $derived(
-    workspace.board?.boardId === boardId && workspace.board?.canEdit === true,
+    (workspace.board?.boardId === boardId && workspace.board?.canEdit === true) ||
+      (shownWiki(workspace).current?.wikiId === boardId &&
+        shownWiki(workspace).current?.canManage === true),
   );
 
   // ------------------------------------------------- names of categories
@@ -146,8 +150,9 @@
   type Asked = { kind: 'board'; board: Board } | { kind: 'category'; category: Category };
   let asked = $state.raw<Asked | undefined>(undefined);
   let askOpen = $state(false);
+  const askedWiki = $derived(asked?.kind === 'board' && asked.board.kind === 'wiki');
 
-  const titleOf = (board: Board): string => board.title || m['Sidebar.untitled-board']();
+  const titleOf = shownTitle;
 
   async function deleteBoard(board: Board): Promise<void> {
     const here = await whileHere(workspace, async () => {
@@ -361,11 +366,15 @@
   bind:open={askOpen}
   title={asked?.kind === 'category'
     ? m['SidebarCategories.CategoryMenu.DeleteModal.Title']()
-    : m['DeleteBoardDialog.confirm-tite']()}
+    : askedWiki
+      ? m.shell_delete_wiki_title()
+      : m['DeleteBoardDialog.confirm-tite']()}
   description={asked?.kind === 'category'
     ? m['SidebarCategories.CategoryMenu.DeleteModal.Body']({ categoryName: asked.category.name })
     : asked?.kind === 'board'
-      ? m['DeleteBoardDialog.confirm-info']({ boardTitle: titleOf(asked.board) })
+      ? askedWiki
+        ? m.shell_delete_wiki_info({ title: titleOf(asked.board) })
+        : m['DeleteBoardDialog.confirm-info']({ boardTitle: titleOf(asked.board) })
       : undefined}
   confirmLabel={asked?.kind === 'category'
     ? m.shared_delete()

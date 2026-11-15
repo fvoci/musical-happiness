@@ -17,6 +17,7 @@ pub(super) async fn exercise(case: &mut Case) {
         .value();
     let board = case.remember(&made, "id");
     boards(case, &board).await;
+    wikis(case).await;
     let card = cards(case, &board).await;
     categories(case, &board).await;
     let audited = people(case, &board).await;
@@ -81,6 +82,50 @@ async fn boards(case: &mut Case, board: &str) {
     assert_eq!(sharing["enabled"], true, "sharing was enabled");
 }
 
+/// A wiki of the founder's, listed among the wikis and read as a board is.
+async fn wikis(case: &mut Case) {
+    let made = case
+        .run(
+            "createWiki",
+            &[],
+            json!({"title": format!("secret {} wiki", case.label), "type": "P"}),
+        )
+        .await
+        .value();
+    let wiki = case.remember(&made, "id");
+    assert_eq!(made["kind"], "wiki", "a wiki is made as one");
+    case.present("getWikis", &[], &wiki).await;
+    case.present("getBoard", &[("boardId", &wiki)], &wiki).await;
+    pages(case, &wiki).await;
+}
+
+/// Pages of the wiki, one below the other: made, listed, read, changed and deleted.
+async fn pages(case: &mut Case, wiki: &str) {
+    let at = &[("wikiId", wiki)];
+    let title = format!("secret {} page", case.label);
+    let made = case
+        .run("createPage", at, json!({"title": title}))
+        .await
+        .value();
+    let page = case.remember(&made, "id");
+    let below = case
+        .run(
+            "createPage",
+            at,
+            json!({"title": "below", "parentId": page}),
+        )
+        .await
+        .value();
+    let below = case.remember(&below, "id");
+    case.present("getPageTree", at, &page).await;
+    let of_page = &[("wikiId", wiki), ("pageId", page.as_str())];
+    case.present("getPage", of_page, &page).await;
+    case.run("patchPage", of_page, json!({"title": "changed page"}))
+        .await;
+    let of_below = &[("wikiId", wiki), ("pageId", below.as_str())];
+    case.run("deletePage", of_below, json!({})).await;
+}
+
 async fn cards(case: &mut Case, board: &str) -> String {
     let at = &[("boardId", board)];
     let made = case
@@ -98,6 +143,41 @@ async fn cards(case: &mut Case, board: &str) -> String {
         "patchCard",
         &[("cardId", &card)],
         json!({"title": "changed card"}),
+    )
+    .await;
+    let read = case
+        .run("getCard", &[("cardId", &card)], json!({}))
+        .await
+        .value();
+    case.run(
+        "patchCard",
+        &[("cardId", &card)],
+        json!({"readAt": read["updateAt"], "body": {"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "a kept body"}]}]}}),
+    )
+    .await;
+    case.present("getCardBodyVersions", &[("cardId", &card)], "\"version\":1")
+        .await;
+    case.present(
+        "getCardBodyVersion",
+        &[("cardId", &card), ("version", "1")],
+        "a kept body",
+    )
+    .await;
+    // Another body, so that the restore writes the card's.
+    let read = case
+        .run("getCard", &[("cardId", &card)], json!({}))
+        .await
+        .value();
+    case.run(
+        "patchCard",
+        &[("cardId", &card)],
+        json!({"readAt": read["updateAt"], "body": null}),
+    )
+    .await;
+    case.run(
+        "restoreCardBodyVersion",
+        &[("cardId", &card), ("version", "1")],
+        json!({}),
     )
     .await;
     let created = case

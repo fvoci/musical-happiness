@@ -13,7 +13,9 @@
  * Beside the SQLite server runs the fake OpenID Connect provider of the server's tests
  * (`cargo build -p fvoci-server --bins --examples`), on the next port, and
  * the server is started to reach it: with a key to seal its client secret,
- * private addresses allowed, and its certificate as the one it trusts.
+ * private addresses allowed, and its certificate as the one it trusts. A second
+ * one runs five ports up, for the test that moves the organization from one
+ * provider to another (`e2e-live/sso-provider-move.spec.ts`); the server trusts both.
  *
  * Where the data folder of the server on a port is, and its administration
  * socket, is written to `target/web-live/server-<port>.json` (`{ "data": …,
@@ -21,12 +23,16 @@
  * workspace) or act as the server's operator (`e2e-live/support.ts`). The
  * socket is in the system's temporary folder: a socket's path is short.
  *
+ * With `--verifying` it runs on SQLite with `email_verification` on, without the
+ * fake provider: a registration waits for the link mailed to it
+ * (`e2e-live/verify-email.spec.ts`), its fake SMTP two and three ports up.
+ *
  * When this process is asked to stop, or ends, the server is stopped too.
  * The data folder stays, with the server's log (`server.log`), for looking
  * into after a failure; each run makes a new one. A server that ends
  * without being asked ends this process with a failure.
  */
-import { spawn } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
 import { createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -37,12 +43,18 @@ const REPO_ROOT = path.resolve(WEB_ROOT, '../..');
 
 const port = Number(process.argv[2] ?? 18510);
 const organizations = process.argv.includes('--organizations');
+const verifying = process.argv.includes('--verifying');
+/** The server of the first tests signs in through the fake provider too. */
+const withProvider = !organizations && !verifying;
 const binary = process.env.FVOCI_SERVER_BIN ?? path.join(REPO_ROOT, 'target/debug/fvoci-server');
 const dist = path.join(WEB_ROOT, 'dist');
 const fakeOidc =
   process.env.FVOCI_FAKE_OIDC_BIN ?? path.join(REPO_ROOT, 'target/debug/examples/fake_oidc');
 /** The fake provider listens on the port after the server's (`e2e-live/oidc.spec.ts`). */
 const oidcPort = port + 1;
+/** The provider an organization moves to (`e2e-live/sso-provider-move.spec.ts`): the port the
+ * organizations server, four up, would give a provider if it had one. */
+const nextOidcPort = port + 5;
 /** The fake SMTP and its inbox take the next two (`e2e-live/mail.spec.ts` reads the inbox at +3); the
  * organizations server runs four ports up (`playwright.live.config.ts`), clear of these. */
 const smtpPort = port + 2;
@@ -60,7 +72,7 @@ function stop(message: string): never {
 
 if (!existsSync(binary)) stop(`no server at ${binary}: run \`cargo build -p fvoci-server\``);
 if (!existsSync(path.join(dist, 'index.html'))) stop('no build in dist/: run `pnpm run build`');
-if (!organizations && !existsSync(fakeOidc)) {
+if (withProvider && !existsSync(fakeOidc)) {
   stop(`no fake provider at ${fakeOidc}: run \`cargo build -p fvoci-server --bins --examples\``);
 }
 
@@ -118,7 +130,7 @@ writeFileSync(
       smtp_host: '127.0.0.1',
       smtp_port: smtpPort,
       smtp_tls: 'none',
-      smtp_from: 'sender@example.test',
+      mail_from: 'sender@example.test',
       port,
       localOnly: true,
       ...storage,
@@ -136,6 +148,7 @@ writeFileSync(
       // The operator's commands (`e2e-live/sso-operator.spec.ts`).
       enablelocalmode: true,
       localmodesocketlocation: socket,
+      ...(verifying ? { email_verification: true } : {}),
     },
     null,
     2,
@@ -152,14 +165,12 @@ const log = createWriteStream(path.join(data, 'server.log'));
 
 /** Whether this process is stopping, and its server and provider with it. */
 let stopping = false;
-const certificate = path.join(data, 'fake-oidc.pem');
-const provider = organizations
-  ? undefined
-  : spawn(fakeOidc, [String(oidcPort), certificate], {
-      cwd: data,
-      stdio: ['ignore', 'pipe', 'inherit'],
-    });
-if (provider)
+/** Starts a fake provider on `onPort`, which writes its certificate to `certificate`. */
+async function startProvider(onPort: number, certificate: string): Promise<ChildProcess> {
+  const provider = spawn(fakeOidc, [String(onPort), certificate], {
+    cwd: data,
+    stdio: ['ignore', 'pipe', 'inherit'],
+  });
   await new Promise<void>((started) => {
     const said = createInterface({ input: provider.stdout });
     said.on('line', (line) => {
@@ -167,9 +178,26 @@ if (provider)
       if (line.startsWith('fake-oidc:')) started();
     });
     provider.on('exit', (code) => {
-      if (!stopping) stop(`the fake provider ended (${code})`);
+      if (!stopping) stop(`the fake provider on ${onPort} ended (${code})`);
     });
   });
+  return provider;
+}
+
+/** The certificates of both providers in one file: what the server trusts. */
+const certificates = path.join(data, 'fake-oidc.pem');
+const providers: ChildProcess[] = [];
+// Before either is started: one that does not start ends this process, and the
+// other with it.
+process.on('exit', () => {
+  for (const provider of providers) provider.kill('SIGKILL');
+});
+if (withProvider) {
+  const own = [path.join(data, 'fake-oidc-1.pem'), path.join(data, 'fake-oidc-2.pem')] as const;
+  providers.push(await startProvider(oidcPort, own[0]));
+  providers.push(await startProvider(nextOidcPort, own[1]));
+  writeFileSync(certificates, own.map((file) => readFileSync(file, 'utf8')).join('\n'));
+}
 
 const smtp = spawn(fakeSmtp, [String(smtpPort), String(inboxPort)], {
   cwd: data,
@@ -194,12 +222,12 @@ const server = spawn(binary, ['--config', path.join(data, 'config.json')], {
     ...environment,
     FVOCI_LOG_FORMAT: 'json',
     NO_COLOR: '1',
-    ...(!organizations
+    ...(withProvider
       ? {
           FVOCI_SECRET_KEY: SECRET_KEY,
           FVOCI_OIDC_ALLOW_PRIVATE_ADDRESSES: 'true',
-          // Add the fake provider to the system roots on every supported TLS backend.
-          FVOCI_OIDC_EXTRA_CA_FILE: certificate,
+          // Add the fake providers to the system roots on every supported TLS backend.
+          FVOCI_OIDC_EXTRA_CA_FILE: certificates,
         }
       : {}),
   },
@@ -238,7 +266,7 @@ database?.on('exit', (code) => {
 
 const end = (): void => {
   stopping = true;
-  provider?.kill('SIGTERM');
+  for (const provider of providers) provider.kill('SIGTERM');
   smtp.kill('SIGTERM');
   server.kill('SIGTERM');
   // A server that does not stop within the time it gives its own requests is ended.
@@ -248,6 +276,5 @@ process.on('SIGTERM', end);
 process.on('SIGINT', end);
 process.on('exit', () => {
   server.kill('SIGKILL');
-  provider?.kill('SIGKILL');
   smtp.kill('SIGKILL');
 });

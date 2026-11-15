@@ -20,6 +20,8 @@
   import { whileHere, type BoardStore, type CardStore } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
+  import BodyVersions from './BodyVersions.svelte';
+  import { VersionsReading } from './body-versions.svelte.ts';
   import CardAttachments from './CardAttachments.svelte';
   import CardBody from './CardBody.svelte';
   import CardComments from './CardComments.svelte';
@@ -51,6 +53,14 @@
   let scroller = $state<HTMLElement>();
   /** The reader is deleting the card: it closes as soon as it is gone. */
   let deleting = $state(false);
+  /** The versions of the body, read anew each time their dialog opens. */
+  let versions = $state.raw<VersionsReading>();
+  let versionsOpen = $state(false);
+
+  function showVersions(): void {
+    versions = new VersionsReading(board, card);
+    versionsOpen = true;
+  }
 
   // What these two need is taken before they wait: by the time a write has
   // answered, this component may be gone (the card was deleted, or changed
@@ -93,8 +103,10 @@
   saveState={saveStateOf(card)}
   {onClose}
   onDuplicate={() => void duplicate()}
+  onVersions={showVersions}
   onDelete={() => void remove()}
 />
+<BodyVersions bind:open={versionsOpen} reading={versions} {board} />
 
 {#if deleting}
   <div class="flex-1"></div>

@@ -9,7 +9,8 @@ use crate::error::AppError;
 impl App {
     /// Returns the boards whose `search_field` matches `term`, among the boards the user
     /// is a member of and, with [`PublicBoards::Include`], the open boards. The search
-    /// spans all workspaces and leaves out templates.
+    /// spans all workspaces and leaves out templates; it finds the kinds the handle
+    /// reaches ([`App::reaching`]).
     ///
     /// # Errors
     ///
@@ -23,7 +24,7 @@ impl App {
     ) -> Result<Vec<Board>, AppError> {
         Ok(self
             .store()
-            .search_boards_for_user(term, search_field, user_id, public_boards)
+            .search_boards_for_user(term, search_field, user_id, public_boards, self.kinds())
             .await?)
     }
 
@@ -45,7 +46,7 @@ impl App {
     ) -> Result<Vec<Board>, AppError> {
         Ok(self
             .store()
-            .search_boards_for_user_in_workspace(workspace_id, term, user_id)
+            .search_boards_for_user_in_workspace(workspace_id, term, user_id, self.kinds())
             .await?)
     }
 }

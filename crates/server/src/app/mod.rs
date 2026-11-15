@@ -9,6 +9,7 @@ mod auth;
 mod blocks;
 mod boards;
 mod boards_and_blocks;
+mod body_versions;
 mod cards;
 mod category;
 mod category_boards;
@@ -23,11 +24,14 @@ mod limits;
 mod loose_objects;
 mod mail;
 mod oidc;
+mod oidc_account;
+mod oidc_carry;
 mod oidc_link;
 mod oidc_pending;
 mod oidc_settings;
 mod onboarding;
 mod org_admin;
+mod pages;
 mod password_reset;
 mod presence;
 mod readiness;
@@ -46,6 +50,7 @@ pub use slots::Slot;
 pub(crate) use startup::{open_store, prepare_store};
 mod shared_reads;
 mod sharing;
+mod signups;
 mod sso;
 mod startup;
 mod store_metrics;
@@ -67,18 +72,20 @@ pub use export::ExportedArchive;
 pub(crate) use files::FILE;
 pub use housekeeping::WorkspacesPurged;
 pub use import::Imported;
-pub use invitations::{Accepting, Inviting};
+pub use invitations::{Accepting, Admission, Inviting};
 pub use limits::OrgLimits;
 pub use loose_objects::{RemovedObjects, WRITING_GRACE_MILLIS};
 pub use oidc::{
     BackTo, CALLBACK_PATH, Callback, FinishedLogin, LOGIN_FLOW_LIFETIME_MILLIS, LoginFailure,
     Returned, StartedLogin,
 };
+pub use oidc_carry::HELD_SIGN_IN_LIFETIME_MILLIS;
 pub use oidc_settings::secret_context;
 pub use org_admin::{DEFAULT_PER_PAGE, MAX_PER_PAGE, PageAsked};
 pub use readiness::{Readiness, ReadinessCheck};
 pub use reconcile::{Found, Reconciliation, UNRECORDED_MIN_AGE_MILLIS, Unrecorded};
 pub use shared_reads::{MAX_SHARED_READ_FAILURES, SHARED_READ_WINDOW, SharedReads};
+pub use signups::{ConfirmedSignup, Registrant, SignupMarker};
 pub use sso::Asker;
 pub use uploads::{
     CLOSED_UPLOAD_GRACE_MILLIS, CleanedUp, FileToUpload, MAX_OPEN_UPLOADS, MAX_UPLOAD_NAME_CHARS,
@@ -91,7 +98,7 @@ use std::sync::Arc;
 
 use anyhow::Context as _;
 
-use fvoci_model::ClientConfig;
+use fvoci_model::{BoardKinds, ClientConfig};
 use fvoci_store::{Store, Tenant};
 use serde::Serialize;
 use tokio_util::task::TaskTracker;
@@ -104,6 +111,7 @@ use crate::collab::Collab;
 use crate::config::Configuration;
 use crate::error::{AppError, Reason};
 use crate::metrics::{Metrics, OpenUploads, Pool};
+use crate::search::Search;
 use crate::storage::FileBackend;
 use crate::web::WebRoot;
 use crate::webhook::Webhook;
@@ -127,6 +135,9 @@ pub struct App {
     /// another workspace is not there for this handle. `None` reaches every workspace
     /// of the organization.
     workspace: Option<Arc<str>>,
+    /// The kinds of board this handle reaches ([`App::reaching`]): a board of another
+    /// kind is not there for it, nor what is on one.
+    kinds: BoardKinds,
 }
 
 #[derive(Debug)]
@@ -169,6 +180,8 @@ struct Inner {
     server_lock: server_lock::Holder,
     /// The limit on reads of shared boards whose token opens nothing.
     shared_reads: SharedReads,
+    /// The search of bodies, on the search server if one is configured.
+    search: Search,
     /// Sign-ups held until as many as it counts reach the store (`App::meet_next_signups`).
     #[cfg(feature = "test-util")]
     signups_meet: std::sync::Mutex<Option<Arc<tokio::sync::Barrier>>>,
@@ -220,6 +233,7 @@ impl App {
             }
         }
         store.set_comment_versions_kept(config.max_comment_versions);
+        store.set_body_versions_kept(config.collab.collab_body_versions);
         // The authenticator reads what is no organization's (sessions), and asks the
         // directory whose a shared board is: it is given no organization to reach.
         let auth = Authenticator::new(store.scoped(Tenant::Unset), &config)?;
@@ -258,10 +272,16 @@ impl App {
         let imports = slots(config.max_concurrent_imports);
         let collab = Collab::new(&config.collab)
             .context("unable to find the executable to start the collab workers from")?;
+        let search = Search::from_config(&config.search).context("unable to set up the search")?;
+        // From before the first request: what changes is noted for the search server.
+        if search.configured() {
+            store.keep_search_outbox();
+        }
         Ok(Self {
             store,
             ws,
             workspace: None,
+            kinds: BoardKinds::Every,
             inner: Arc::new(Inner {
                 reset_limiter: LoginLimiter::new(Limits::from_config(&config)),
                 mail: mail::Mailer::new(
@@ -290,6 +310,7 @@ impl App {
                 collab,
                 server_lock: server_lock::Holder::default(),
                 shared_reads: SharedReads::default(),
+                search,
                 #[cfg(feature = "test-util")]
                 signups_meet: std::sync::Mutex::default(),
             }),
@@ -326,7 +347,25 @@ impl App {
             ws,
             store,
             workspace: None,
+            kinds: self.kinds,
         }
+    }
+
+    /// The same handle, reaching boards of `kinds` only: for an operation that is about
+    /// what a board holds (cards, views) or about what a wiki holds (pages), to which a
+    /// container of the other kind is one that is not there. A handle reaches both kinds
+    /// until it is narrowed: what is the same for a board and a wiki (who is on it, its
+    /// files, the rooms of its bodies) is asked of both.
+    #[must_use]
+    pub fn reaching(mut self, kinds: BoardKinds) -> Self {
+        self.kinds = kinds;
+        self
+    }
+
+    /// The kinds of board this handle reaches ([`App::reaching`]).
+    #[must_use]
+    pub fn kinds(&self) -> BoardKinds {
+        self.kinds
     }
 
     /// The same handle, for a request that names the workspace in its path: a board of
@@ -349,11 +388,15 @@ impl App {
             .is_none_or(|ours| ours == workspace_id)
     }
 
-    /// Whether the board is there for this handle: a built-in template always, any other
-    /// board if its workspace is ([`App::reaches_workspace`]).
+    /// Whether the board is there for this handle: one of a kind it reaches
+    /// ([`App::reaching`]) that is a built-in template or of a workspace it reaches
+    /// ([`App::reaches_workspace`]). The one place that says so: every way to a board, to
+    /// what is on it and to what is stored for it asks here, or reads a list of the
+    /// handle's kinds.
     #[must_use]
     pub fn reaches_board(&self, board: &fvoci_model::Board) -> bool {
-        board.is_builtin || self.reaches_workspace(&board.workspace_id)
+        self.kinds.holds(board.kind)
+            && (board.is_builtin || self.reaches_workspace(&board.workspace_id))
     }
 
     /// The database, as this handle reaches it.
@@ -369,6 +412,11 @@ impl App {
     /// The session and read-token checks.
     pub fn authenticator(&self) -> &Authenticator {
         &self.inner.auth
+    }
+
+    /// The search of bodies.
+    pub fn search(&self) -> &Search {
+        &self.inner.search
     }
 
     /// The limit on reads of shared boards whose token opens nothing.
@@ -543,6 +591,7 @@ impl App {
             feature_flags: config.feature_flags.clone(),
             max_file_size: limits.largest_file,
             max_import_size: limits.largest_import,
+            search_enabled: self.search().enabled(),
         }
     }
 

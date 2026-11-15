@@ -1,7 +1,8 @@
 //! The administration API: setting a user's password without knowing the old one, which
-//! also ends every session of that user, making a user an administrator of the
-//! instance, releasing an organization from taking no password, and comparing the file
-//! storage with the records.
+//! also ends every session of that user, confirming the address of a registration whose
+//! mail does not arrive, making a user an administrator of the instance, releasing an
+//! organization from taking no password, comparing the file storage with the records,
+//! and making the search index again.
 //!
 //! It is served on the local Unix socket only, never on the TCP listener, so that being
 //! able to open the socket file is the credential. There is no session and no cross-site
@@ -36,12 +37,23 @@ pub(super) fn routes() -> Router<App> {
             post(handle_admin_make_admin),
         )
         .route(
+            &format!(
+                "{}/admin/users/{{username}}/email-verification",
+                super::PREFIX
+            ),
+            post(handle_verify_email),
+        )
+        .route(
             &format!("{}/admin/files/reconcile", super::PREFIX),
             post(handle_reconcile_files),
         )
         .route(
             &format!("{}/admin/orgs/{{orgId}}/sso/release", super::PREFIX),
             post(handle_release_sso),
+        )
+        .route(
+            &format!("{}/admin/search/reindex", super::PREFIX),
+            post(handle_reindex_search),
         )
         .route_layer(middleware::from_fn(require_unix_connection))
         // The socket speaks the API's language for what it does not have as well.
@@ -96,6 +108,19 @@ async fn handle_admin_set_password(
     }
     .await;
     record_operator(Command::ResetPassword(user_id.as_deref()), result)
+}
+
+/// Confirms the address of the registration with the user name, as its mailed link
+/// would, without signing anybody in: for a person whose mail does not arrive. 204, or
+/// 404 if no registration that waits has the name. Recorded as the operator's in the
+/// organization a registration by a link for members joins, and as every command is in
+/// the log.
+async fn handle_verify_email(State(app): State<App>, Path(username): Path<String>) -> ApiResult {
+    let (user_id, result) = match app.confirm_signup_by_operator(&username).await {
+        Ok(user_id) => (Some(user_id), Ok(no_content())),
+        Err(error) => (None, Err(error)),
+    };
+    record_operator(Command::VerifyEmail(user_id.as_deref()), result)
 }
 
 /// Makes a user an administrator of the instance: the way back in when no
@@ -168,6 +193,19 @@ async fn handle_reconcile_files(State(app): State<App>, body: Bytes) -> ApiResul
     record_operator(Command::ReconcileFiles, result)
 }
 
+/// Makes the index of the search server again and lists every board of every
+/// organization to be sent to it: for an index that is thought to be wrong. Answers
+/// how many boards were listed (`boards`); they are sent by the server's upkeep in
+/// the seconds or minutes after, and until then a search finds what was sent so far.
+/// 404 (`search_not_configured`) on a server without a search server, 503 if the
+/// search server does not take the requests.
+async fn handle_reindex_search(State(app): State<App>) -> ApiResult {
+    let result = crate::search::reindex(&app)
+        .await
+        .map(|boards| json_response(&serde_json::json!({"boards": boards})));
+    record_operator(Command::ReindexSearch, result)
+}
+
 /// A command of the operator, with what it was about, as its line in the log names
 /// them.
 #[derive(Debug, Clone, Copy)]
@@ -176,11 +214,15 @@ enum Command<'a> {
     ResetPassword(Option<&'a str>),
     /// Making a user an administrator of the instance: the user, as above.
     MakeAdmin(Option<&'a str>),
+    /// Confirming the address of a registration: the account it became, if it did.
+    VerifyEmail(Option<&'a str>),
     /// Releasing an organization from taking no password: the organization, by
     /// identifier where the path held one.
     ReleaseSso(Option<&'a str>),
     /// Comparing the file storage with the records: the whole server.
     ReconcileFiles,
+    /// Making the search index again: the whole server.
+    ReindexSearch,
 }
 
 impl<'a> Command<'a> {
@@ -189,19 +231,21 @@ impl<'a> Command<'a> {
         match self {
             Self::ResetPassword(_) => "reset_password",
             Self::MakeAdmin(_) => "make_admin",
+            Self::VerifyEmail(_) => "verify_email",
             Self::ReleaseSso(_) => "release_sso",
             Self::ReconcileFiles => "reconcile_files",
+            Self::ReindexSearch => "reindex_search",
         }
     }
 
     /// The user it was about, and the organization; each empty for none.
     fn target(self) -> (&'a str, &'a str) {
         match self {
-            Self::ResetPassword(user_id) | Self::MakeAdmin(user_id) => {
-                (user_id.unwrap_or_default(), "")
-            }
+            Self::ResetPassword(user_id)
+            | Self::MakeAdmin(user_id)
+            | Self::VerifyEmail(user_id) => (user_id.unwrap_or_default(), ""),
             Self::ReleaseSso(org_id) => ("", org_id.unwrap_or_default()),
-            Self::ReconcileFiles => ("", ""),
+            Self::ReconcileFiles | Self::ReindexSearch => ("", ""),
         }
     }
 }

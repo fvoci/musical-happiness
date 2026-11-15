@@ -1,7 +1,7 @@
 //! Users and their preferences.
 
 use fvoci_model::{
-    BoardMember, Session, User, UserPreferencesPatch, UserSettings, UserSettingsPatch,
+    BoardKinds, BoardMember, Session, User, UserPreferencesPatch, UserSettings, UserSettingsPatch,
     WorkspaceRole,
 };
 use fvoci_store::{AdminChange, InstanceRole, Looking, Preference, Sight};
@@ -12,8 +12,8 @@ use crate::error::{AppError, Reason};
 use crate::permissions;
 
 impl App {
-    /// The session's user's board memberships in their live workspaces, across the
-    /// organizations the session opens: those of one that takes only another
+    /// The session's user's memberships of boards and wikis in their live workspaces,
+    /// across the organizations the session opens: those of one that takes only another
     /// provider's sessions are left out, as the others still open
     /// (`sso::require_session_opens`).
     ///
@@ -23,7 +23,11 @@ impl App {
     pub async fn board_memberships(&self, session: &Session) -> Result<Vec<BoardMember>, AppError> {
         Ok(self
             .store()
-            .board_memberships_of_user(&session.user_id, session.login_provider_id())
+            .board_memberships_of_user(
+                &session.user_id,
+                session.login_provider_id(),
+                BoardKinds::Every,
+            )
             .await?)
     }
 

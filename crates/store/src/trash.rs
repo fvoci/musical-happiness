@@ -15,13 +15,15 @@
 
 use std::collections::{HashMap, HashSet};
 
-use fvoci_model::{Block, Board, BoardMember, BoardType, Body, FileInfo, new_id};
+use fvoci_model::{Block, Board, BoardKinds, BoardMember, BoardType, Body, FileInfo, new_id};
 use serde::de::DeserializeOwned;
 
 use crate::Store;
+use crate::block_derived;
 use crate::blocks::{self, Paging, parents_first};
 use crate::boards;
 use crate::body_docs;
+use crate::body_versions;
 use crate::category_boards::{self, BoardPlace};
 use crate::comment_places;
 use crate::comment_versions;
@@ -233,11 +235,11 @@ impl Store {
         .await
     }
 
-    /// Returns the boards of a workspace that are in the trash and, with an `admin_id`,
-    /// that the user was an admin of when they were deleted (`schemeAdmin` of the
-    /// membership they had); without one, every board of the workspace in the trash. With
-    /// their memberships, the last deleted first and then by identifier: one page of them
-    /// if `paging` says so (a page size of zero is every board).
+    /// Returns the boards of `kinds` of a workspace that are in the trash and, with an
+    /// `admin_id`, that the user was an admin of when they were deleted (`schemeAdmin` of
+    /// the membership they had); without one, every such board of the workspace in the
+    /// trash. With their memberships, the last deleted first and then by identifier: one
+    /// page of them if `paging` says so (a page size of zero is every board).
     ///
     /// # Errors
     ///
@@ -247,8 +249,14 @@ impl Store {
         workspace_id: &str,
         admin_id: Option<&str>,
         paging: Option<Paging>,
+        kinds: BoardKinds,
     ) -> Result<Vec<DeletedBoard>, StoreError> {
         self.with_conn(async |scope| {
+            // A board that went to the trash before boards had a kind says none: a board.
+            let kind = match scope.dialect() {
+                Dialect::Sqlite => " AND COALESCE(json_extract(board, '$.kind'), 'board') = ",
+                Dialect::Postgres => " AND COALESCE(board->>'kind', 'board') = ",
+            };
             // The memberships are the JSON array of the board's members when it went.
             let was_admin = match scope.dialect() {
                 Dialect::Sqlite => {
@@ -266,6 +274,9 @@ impl Store {
             sql.bind(Id(workspace_id));
             if let Some(admin_id) = admin_id {
                 sql.push_bind(was_admin, admin_id).push(")");
+            }
+            if let Some(only) = kinds.only() {
+                sql.push_bind(kind, only.as_str());
             }
             sql.push(" ORDER BY deleted_at DESC, id");
             push_paging(&mut sql, paging);
@@ -392,6 +403,7 @@ pub(crate) async fn remove_what_they_left(scope: &mut Scope<'_>) -> Result<u64, 
     // among them had go with them.
     comment_versions::forget_gone_comments(scope).await?;
     body_docs::forget_gone_blocks(scope).await?;
+    body_versions::forget_gone_blocks(scope).await?;
     file_refs::forget_gone_blocks(scope).await?;
     file_refs::mark(scope, None).await?;
     Ok(records)
@@ -554,6 +566,7 @@ pub(crate) async fn delete_block(
     }
 
     put_blocks_in_trash(scope, &doomed, &new_id(), now_millis(), user_id).await?;
+    block_derived::trashed(scope, &doomed).await?;
 
     // One statement for parents and children: the reference from a block to its parent
     // is checked when the statement is done.
@@ -736,6 +749,7 @@ pub(crate) async fn delete_board(
     scope.execute(sql).await?;
 
     crate::board_team_trash::keep(scope, board_id).await?;
+    block_derived::board_trashed(scope, board_id).await?;
 
     // The blocks first: a board does not go while it has any. With the board go its
     // memberships, its sharing, its file records and where users filed it (kept above).

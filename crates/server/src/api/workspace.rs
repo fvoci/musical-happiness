@@ -11,7 +11,7 @@ use axum::extract::rejection::RawPathParamsRejection;
 use axum::extract::{FromRequestParts, Path, RawPathParams, RawQuery, State};
 use axum::http::request::Parts;
 use fvoci_model::{
-    AuditRecord, Board, OrgRole, Session, User, UserWorkspace, Workspace, WorkspaceRole,
+    AuditRecord, Board, BoardKinds, OrgRole, Session, User, UserWorkspace, Workspace, WorkspaceRole,
 };
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
@@ -133,12 +133,23 @@ impl Ws {
             .await?
             .ok_or_else(workspace_not_found)?;
         Ok(Self {
-            app: entered.app.in_workspace(&workspace_id),
+            // What a route under a workspace is about is a board's, unless its extractor
+            // says otherwise (`WsWiki`, `WsModule`).
+            app: entered
+                .app
+                .in_workspace(&workspace_id)
+                .reaching(BoardKinds::Boards),
             session,
             workspace_id,
             role: entered.role,
             org_role: entered.org_role,
         })
+    }
+
+    /// The same workspace, reaching boards of `kinds`.
+    fn reaching(mut self, kinds: BoardKinds) -> Self {
+        self.app = self.app.reaching(kinds);
+        self
     }
 
     /// What the user is in the workspace and its organization: the facts of what they
@@ -206,6 +217,48 @@ impl FromRequestParts<App> for TextWs {
 
     async fn from_request_parts(parts: &mut Parts, app: &App) -> Result<Self, Self::Rejection> {
         Ws::extract(parts, app, malformed_path).await.map(Self)
+    }
+}
+
+/// A workspace as an operation on a wiki and its pages enters it: [`Ws`] that reaches
+/// wikis and no board. A board named where a wiki is meant is not there.
+#[derive(Debug)]
+pub(crate) struct WsWiki(pub(crate) Ws);
+
+impl FromRequestParts<App> for WsWiki {
+    type Rejection = AppError;
+
+    async fn from_request_parts(parts: &mut Parts, app: &App) -> Result<Self, Self::Rejection> {
+        let ws = Ws::from_request_parts(parts, app).await?;
+        Ok(Self(ws.reaching(BoardKinds::Wikis)))
+    }
+}
+
+/// A workspace as an operation enters it that is the same for a board and a wiki (the
+/// container itself, who is on it, its sharing, its files, its place in the sidebar and
+/// in the trash): [`Ws`] that reaches both kinds.
+#[derive(Debug)]
+pub(crate) struct WsModule(pub(crate) Ws);
+
+impl FromRequestParts<App> for WsModule {
+    type Rejection = AppError;
+
+    async fn from_request_parts(parts: &mut Parts, app: &App) -> Result<Self, Self::Rejection> {
+        let ws = Ws::from_request_parts(parts, app).await?;
+        Ok(Self(ws.reaching(BoardKinds::Every)))
+    }
+}
+
+/// [`WsModule`] with the malformed-path answer of [`TextWs`].
+#[derive(Debug)]
+pub(crate) struct TextWsModule(pub(crate) Ws);
+
+impl FromRequestParts<App> for TextWsModule {
+    type Rejection = AppError;
+
+    async fn from_request_parts(parts: &mut Parts, app: &App) -> Result<Self, Self::Rejection> {
+        let TextWs(ws) = TextWs::from_request_parts(parts, app).await?;
+        Ok(Self(ws.reaching(BoardKinds::Every)))
     }
 }
 

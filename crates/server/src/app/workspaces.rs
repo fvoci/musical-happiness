@@ -4,7 +4,7 @@
 
 use std::collections::HashSet;
 
-use fvoci_model::{Board, OrgRole, Session, UserWorkspace, Workspace, WorkspaceRole};
+use fvoci_model::{Board, BoardKinds, OrgRole, Session, UserWorkspace, Workspace, WorkspaceRole};
 use fvoci_store::{PublicBoards, Tenant};
 
 use super::{App, Asker, as_managed, sso};
@@ -124,8 +124,9 @@ impl App {
     }
 
     /// The application as the holder of a board's read token reaches the board: behind
-    /// the wall of the board's own organization, whichever the request came in for.
-    /// `None` if the token opens nothing, or is empty.
+    /// the wall of the board's own organization, whichever the request came in for, and
+    /// reaching boards only. `None` if the token opens nothing, or is empty; the token
+    /// of a wiki opens nothing (`Store::org_of_shared_board`).
     ///
     /// # Errors
     ///
@@ -145,7 +146,7 @@ impl App {
             .org_of_read_token(board_id, read_token)
             .await?;
         org_id
-            .map(|org_id| self.in_organization(&org_id))
+            .map(|org_id| Ok(self.in_organization(&org_id)?.reaching(BoardKinds::Boards)))
             .transpose()
     }
 
@@ -199,10 +200,11 @@ impl App {
             .await?)
     }
 
-    /// The boards of a workspace as the user lists them: an administrator of the
-    /// workspace every board of it, those they do not read without their description and
-    /// properties ([`as_managed`]); whoever else those they are a member of and the open
-    /// ones ([`App::readable_workspace_boards`]). Templates are left out. Oldest first.
+    /// The boards of a workspace as the user lists them, of the kinds the handle reaches
+    /// ([`App::reaching`]): an administrator of the workspace every one of it, those they
+    /// do not read without their description and properties ([`as_managed`]); whoever
+    /// else those they are a member of and the open ones
+    /// ([`App::readable_workspace_boards`]). Templates are left out. Oldest first.
     ///
     /// The handle is the one a member entered the workspace with
     /// ([`App::enter_workspace`]).
@@ -224,7 +226,10 @@ impl App {
         }
         // What the administrator does not read is listed as who only manages it sees it.
         let read: HashSet<String> = readable.into_iter().map(|board| board.id).collect();
-        let every = self.store().get_boards_of_workspace(workspace_id).await?;
+        let every = self
+            .store()
+            .get_boards_of_workspace(workspace_id, self.kinds())
+            .await?;
         Ok(every
             .into_iter()
             .map(|board| {
@@ -238,8 +243,8 @@ impl App {
     }
 
     /// The boards of a workspace that the user is a member of and, unless the user is a
-    /// guest of the workspace, its open boards: what an archive of the workspace holds
-    /// for the user. Templates are left out. Oldest first.
+    /// guest of the workspace, its open boards, of the kinds the handle reaches: what an
+    /// archive of the workspace holds for the user. Templates are left out. Oldest first.
     ///
     /// # Errors
     ///

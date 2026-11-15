@@ -4,14 +4,15 @@
 //! ```sh
 //! FVOCI_MAIL_SMOKE_MAIL_TRANSPORT=ses FVOCI_MAIL_SMOKE_SES_REGION=… \
 //! FVOCI_MAIL_SMOKE_SES_ACCESS_KEY_ID=… FVOCI_MAIL_SMOKE_SES_SECRET_ACCESS_KEY=… \
-//! FVOCI_MAIL_SMOKE_SMTP_FROM=sender@your.domain FVOCI_MAIL_SMOKE_TO=you@your.domain \
+//! FVOCI_MAIL_SMOKE_MAIL_FROM=sender@your.domain FVOCI_MAIL_SMOKE_TO=you@your.domain \
 //! cargo test -p fvoci-server --test api -- --ignored mail_smoke --nocapture
 //! ```
 //!
 //! Each key of the configuration is read as `FVOCI_MAIL_SMOKE_<KEY>` instead of
-//! `FVOCI_<KEY>` (`MAIL_TRANSPORT`, the provider's keys, `SMTP_*`); `FVOCI_MAIL_SMOKE_TO`
-//! is the one recipient. An invitation to the test's workspace is mailed there, and
-//! the test passes when the way took it: nothing given up, the way not closed.
+//! `FVOCI_<KEY>` (`MAIL_TRANSPORT`, `MAIL_FROM`, the provider's keys, `SMTP_*`);
+//! `FVOCI_MAIL_SMOKE_TO` is the one recipient. An invitation to the test's workspace is
+//! mailed there, and the test passes when the way took it: nothing given up, the way
+//! not closed.
 
 use std::time::Duration;
 

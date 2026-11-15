@@ -10,6 +10,7 @@ use fvoci_model::{
 use crate::Store;
 use crate::blocks::{self, BlockFilter, DuplicateAs};
 use crate::boards;
+use crate::body_versions::BodyWrite;
 use crate::card_values;
 use crate::db::{Dialect, Scope};
 use crate::error::StoreError;
@@ -254,7 +255,7 @@ pub(crate) async fn patch_boards_and_blocks(
             .block_patches
             .get(index)
             .ok_or(BoardsAndBlocksError::BlockIdsAndPatchesMismatch)?;
-        blocks::patch_block(scope, block_id, patch, user_id).await?;
+        blocks::patch_block(scope, block_id, patch, user_id, BodyWrite::Whole).await?;
         result
             .blocks
             .push(blocks::get_block(scope, block_id).await?);

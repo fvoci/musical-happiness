@@ -41,6 +41,28 @@ describe('presence in memory', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it('a wiki is visited as a board is, and its page as a card', async () => {
+    vi.useFakeTimers();
+    const { backend, other, world } = setup();
+    const wiki = await backend.wiki.createWiki(world.workspace.id, {
+      title: 'Handbook',
+      type: 'P',
+    });
+    const page = await backend.wiki.createPage(wiki.id, { title: 'Welcome' });
+    await backend.addMember(wiki.id, other.userId, 'editor');
+    const place = { workspaceId: wiki.workspaceId, boardId: wiki.id };
+    const heard: PresenceSnapshot[] = [];
+    const stop = backend.presence.watchPresence(wiki.id, (snapshot) => heard.push(snapshot));
+    backend.presence.setPresence(place);
+    other.presence.setPresence({ ...place, cardId: page.id });
+    await vi.advanceTimersByTimeAsync(250);
+    expect(heard.at(-1)?.people.find((p) => p.userId === other.userId)?.cardIds).toEqual([page.id]);
+    other.presence.setPresence(null);
+    backend.presence.setPresence(null);
+    await vi.advanceTimersByTimeAsync(250);
+    stop();
+  });
+
   it('an uninvited user cannot enter and a removed member disappears', async () => {
     vi.useFakeTimers();
     const { backend, other, world } = setup();

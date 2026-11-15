@@ -19,7 +19,7 @@ file 2727 crates/server/tests/api/blocks.rs
 file 3262 crates/server/tests/api/boards.rs
 file 2827 crates/server/tests/api/sidebar.rs
 file 4159 crates/store/tests/store/blocks.rs
-file 4393 crates/store/tests/store/boards.rs
+file 4167 crates/store/tests/store/boards.rs
 function 114 crates/server/src/api/blocks.rs handle_post_blocks
 function 117 crates/server/src/app/import.rs App::import_archive
 function 322 crates/server/tests/regression/blocks.rs blocks

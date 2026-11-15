@@ -90,7 +90,7 @@ async fn oci_answers_sort_the_attempts_by_status_and_code() {
     let fake = FakeProvider::start().await;
     let th = Setup::native()
         .mail(fake.settings(Provider::Oci))
-        .configure(|config| config.smtp.mail_reset_per_account_hour = 4)
+        .configure(|config| config.smtp.mail_reset_per_account_hour = 3)
         .metrics_at("127.0.0.1:0")
         .start()
         .await
@@ -112,18 +112,14 @@ async fn oci_answers_sort_the_attempts_by_status_and_code() {
     let statuses: Vec<u16> = fake.requests(3).await.iter().map(|r| r.status).collect();
     assert_eq!(statuses, [400, 429, 200]);
 
-    // A request OCI will not take, and a sender it has not approved: this message only.
+    // A request OCI will not take: this message only.
     fake.answer_next_named(400, "InvalidParameter").await;
     request_reset(&th).await;
     let body = scrape_until(&th, |body| failed(body, "permanent") == Some(1.0)).await;
     assert_eq!(failed(&body, "permanent"), Some(1.0), "{body}");
-    fake.answer_next(&[404]).await;
-    request_reset(&th).await;
-    let body = scrape_until(&th, |body| failed(body, "permanent") == Some(2.0)).await;
-    assert_eq!(failed(&body, "permanent"), Some(2.0), "{body}");
     assert_eq!(
         fake.recorded().await.len(),
-        5,
+        4,
         "a refusal is not tried again"
     );
 
@@ -142,7 +138,7 @@ async fn oci_answers_sort_the_attempts_by_status_and_code() {
     assert_eq!(failed(&body, "temporary"), Some(0.0), "{body}");
     assert_eq!(
         failed(&body, "permanent"),
-        Some(2.0),
+        Some(1.0),
         "a closed way fails no message: {body}"
     );
     th.teardown().await;

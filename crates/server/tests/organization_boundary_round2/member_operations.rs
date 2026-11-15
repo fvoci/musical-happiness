@@ -20,6 +20,9 @@ struct Named {
     workspace: String,
     board: String,
     card: String,
+    /// A wiki for everybody in the workspace, which the member joined, and a page of it.
+    wiki: String,
+    page: String,
     file: String,
     upload: String,
     category: String,
@@ -34,9 +37,10 @@ struct Named {
 /// too, for what the sweep names: one board and one card for every operation. Any
 /// other 404 fails the test, as an answer of the second organization equal to a
 /// wrong first one would hide a lookup in another organization.
-const NOT_THERE_FOR_A_MEMBER: [&str; 26] = [
+const NOT_THERE_FOR_A_MEMBER: [&str; 28] = [
     // The organization's own routes are its administrators'.
     "createOrgWorkspace",
+    "deleteOidcFormerProvider",
     "deleteOidcPending",
     "deleteOidcProvider",
     "deleteOrgWorkspace",
@@ -67,6 +71,8 @@ const NOT_THERE_FOR_A_MEMBER: [&str; 26] = [
     "completeUpload",
     "putUploadPart",
     "importArchive",
+    // The server of this test has no search server.
+    "searchWorkspaceContent",
 ];
 
 /// The operations the contract publishes: method, path and identifier, in its order.
@@ -92,6 +98,7 @@ fn operations() -> Vec<(String, String, String)> {
         "leaveBoard"
         | "deleteBoard"
         | "deleteBlock"
+        | "deletePage"
         | "deleteBoardsAndBlocks"
         | "deleteUpload"
         | "deleteCategory"
@@ -112,6 +119,8 @@ impl Named {
             .replace("{boardId}", &self.board)
             .replace("{cardId}", &self.card)
             .replace("{blockId}", &self.card)
+            .replace("{wikiId}", &self.wiki)
+            .replace("{pageId}", &self.page)
             .replace("{fileId}", &self.file)
             .replace("{uploadId}", &self.upload)
             .replace("{userId}", &self.member_id)
@@ -120,6 +129,7 @@ impl Named {
             .replace("{invitationId}", &self.invitation_id)
             .replace("{teamId}", &self.team)
             .replace("{partNumber}", "1")
+            .replace("{version}", "1")
     }
 
     fn body(&self, operation: &str) -> Value {
@@ -160,6 +170,18 @@ impl Named {
     }
 }
 
+/// Writes a body to the card: a version of it, which the member reads.
+async fn write_a_body(founder: &Client, at: &str, card: &Value) {
+    founder
+        .patch(
+            &format!("{at}/cards/{}", text(card, "id")),
+            &json!({"readAt": card["updateAt"], "body": {"type": "doc", "content": [
+                {"type": "paragraph", "content": [{"type": "text", "text": "a body"}]}]}}),
+        )
+        .await
+        .check_ok();
+}
+
 /// Signs up `name` with an organization of that name, and makes, as its founder, what the sweep
 /// names; then lets a plain member in by a link for members.
 async fn organization(server: &TestServer, name: &str) -> Named {
@@ -183,6 +205,8 @@ async fn organization(server: &TestServer, name: &str) -> Named {
         )
         .await
         .value();
+    let (wiki, page) = wiki_with_a_page(&founder, &at, name).await;
+    write_a_body(&founder, &at, &card).await;
     let file = Client::send(
         founder
             .request(Method::POST, &format!("{at}/boards/{board}/files"))
@@ -215,11 +239,13 @@ async fn organization(server: &TestServer, name: &str) -> Named {
         )
         .await
         .value();
-    // On the board, the member asks what its members are asked.
-    member
-        .post(&format!("{at}/boards/{board}/join"), &json!({}))
-        .await
-        .check_ok();
+    // On the board and the wiki, the member asks what their members are asked.
+    for joined in [&board, &wiki] {
+        member
+            .post(&format!("{at}/boards/{joined}/join"), &json!({}))
+            .await
+            .check_ok();
+    }
     let card_id = text(&card, "id");
     member
         .post(
@@ -251,8 +277,31 @@ async fn organization(server: &TestServer, name: &str) -> Named {
         org,
         workspace,
         board,
+        wiki,
+        page,
         team,
     }
+}
+
+/// A wiki of the workspace at `at` for everybody in it, with a page: the identifiers
+/// of both.
+async fn wiki_with_a_page(founder: &Client, at: &str, name: &str) -> (String, String) {
+    let wiki = founder
+        .post(
+            &format!("{at}/wikis"),
+            &json!({"title": format!("{name} wiki"), "type": "O"}),
+        )
+        .await
+        .value();
+    let wiki = text(&wiki, "id");
+    let page = founder
+        .post(
+            &format!("{at}/wikis/{wiki}/pages"),
+            &json!({"title": format!("{name} page")}),
+        )
+        .await
+        .value();
+    (wiki, text(&page, "id"))
 }
 
 /// The member of the workspace `workspace` asks as a plain member: no administrator of
@@ -361,6 +410,11 @@ async fn every_contract_operation_answers_a_plain_member_alike_in_both_organizat
         "getBlocks",
         "getCards",
         "getCard",
+        "getWikis",
+        "getPageTree",
+        "getPage",
+        "getCardBodyVersions",
+        "getCardBodyVersion",
         "getUpload",
         "getSharedBoard",
         "getSharedCards",

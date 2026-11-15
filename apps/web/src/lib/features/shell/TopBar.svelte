@@ -1,5 +1,5 @@
 <!--
-  The top row of the pane: which board this is, who is on it, sharing it
+  The top row of the pane: which board (or wiki) this is, who is on it, sharing it
   (for its admins), and undo and redo, which pulse (or fade, with less
   motion) while one asked for waits for a write.
 
@@ -34,6 +34,7 @@
   import BoardIcon from './BoardIcon.svelte';
   import BoardTitle from './BoardTitle.svelte';
   import ShareDialog from './ShareDialog.svelte';
+  import { shownTitle } from './shown-title.ts';
   import TrashDialog from './TrashDialog.svelte';
 
   interface Props {
@@ -90,8 +91,18 @@
 
   {#if board}
     <div class="flex min-w-0 shrink items-center gap-1.5 pl-1">
-      <BoardIcon icon={board.icon} title={board.title} locale={workspace.locale} />
-      <h1 class="flex min-w-0 shrink text-base font-semibold @columns/pane:text-lg">
+      <BoardIcon
+        icon={board.icon}
+        kind={board.kind}
+        title={board.title}
+        locale={workspace.locale}
+      />
+      <h1
+        class="flex min-w-0 shrink text-base font-semibold @columns/pane:text-lg"
+        aria-label={board.kind === 'wiki'
+          ? m.shell_wiki_named({ title: shownTitle(board) })
+          : undefined}
+      >
         {#if store?.canEdit}
           {#key board.id}
             <BoardTitle
@@ -103,7 +114,7 @@
         {:else}
           <span data-testid="board-title-text" class="min-w-0 truncate px-1.5">
             <!-- The name of a board without one is the same wherever a name is shown; the field's placeholder is the other message. -->
-            {board.title || m['Sidebar.untitled-board']()}
+            {shownTitle(board)}
           </span>
         {/if}
       </h1>

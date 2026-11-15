@@ -11,7 +11,9 @@
 use fvoci_model::{BlockPatch, BlockType, Body, BodyChange};
 
 use crate::Store;
+use crate::block_derived::{self, Before};
 use crate::blocks;
+use crate::body_versions::{self, BodyBefore, BodyWrite};
 use crate::db::{Id, OptId, Param, Row, Scope, now_millis};
 use crate::error::StoreError;
 use crate::file_refs::{self, NewImages};
@@ -37,6 +39,9 @@ pub struct StoredDoc {
     pub last_writer: String,
     /// The updates after `state_seq`, in the order they were taken.
     pub updates: Vec<LoggedUpdate>,
+    /// Who is put down as having written the body since the block's newest version
+    /// ([`Store::append_body_updates`]): none once a version holds what they wrote.
+    pub unkept_editors: Vec<String>,
 }
 
 /// An update a document took.
@@ -53,9 +58,10 @@ pub struct LoggedUpdate {
 }
 
 impl Store {
-    /// The board a card is on; `None` for no block of that identifier, and for a block
-    /// that is no card. Nothing else of the card is read: who asks whether somebody
-    /// may come to the card's body is answered in the same time whatever the body is.
+    /// The board a card is on, or the wiki a page is in; `None` for no block of that
+    /// identifier, and for a block whose body has no room ([`BlockType::has_room`]).
+    /// Nothing else of the block is read: who asks whether somebody may come to its
+    /// body is answered in the same time whatever the body is.
     ///
     /// # Errors
     ///
@@ -67,8 +73,8 @@ impl Store {
             let Some(row) = scope.fetch_optional(sql).await? else {
                 return Ok(None);
             };
-            let is_card = BlockType::from(row.text(0)?) == BlockType::Card;
-            Ok(if is_card { Some(row.id(1)?) } else { None })
+            let has_room = BlockType::from(row.text(0)?).has_room();
+            Ok(if has_room { Some(row.id(1)?) } else { None })
         })
         .await
     }
@@ -113,6 +119,7 @@ impl Store {
                 epoch: row.int(5)?,
                 last_writer: row.id(6)?,
                 updates,
+                unkept_editors: body_versions::unkept_editors(scope, block_id).await?,
             }))
         })
         .await
@@ -158,7 +165,11 @@ impl Store {
     /// with them: those the block does not show yet are asked of its board and held as
     /// a write of its body holds them ([`crate::NewImages::Recorded`]), and the block
     /// shows them from now on, so that the files are not collected before the body is
-    /// written to it.
+    /// written to it. `new_editors` are those of the senders who are not yet put down
+    /// as having written the body since its newest version
+    /// ([`Store::keep_body_version`]), as far as the caller knows: putting one down
+    /// again changes nothing. With [`BodyBefore::Keep`] the body the block holds is
+    /// kept as a version first, by those put down before.
     ///
     /// # Errors
     ///
@@ -169,11 +180,17 @@ impl Store {
         block_id: &str,
         updates: &[(&[u8], &str)],
         images: &[String],
+        new_editors: &[&str],
+        body_before: BodyBefore,
     ) -> Result<Vec<i64>, StoreError> {
         self.transaction(async |scope| {
+            if body_before == BodyBefore::Keep {
+                body_versions::keep_held(scope, block_id).await?;
+            }
             if !images.is_empty() {
                 file_refs::show_images(scope, block_id, images).await?;
             }
+            body_versions::note_editors(scope, block_id, new_editors).await?;
             let now = now_millis();
             let mut seqs = Vec::with_capacity(updates.len());
             for (bytes, written_by) in updates {
@@ -298,10 +315,12 @@ impl Store {
         self.transaction(async |scope| {
             match body {
                 // The block holds the body; what it shows is put down again all the
-                // same, in place of the images the log showed meanwhile.
+                // same, in place of the images the log showed meanwhile. Nothing else
+                // that follows from the block changes: it is as it was stored.
                 None => {
                     let block = blocks::get_block(scope, block_id).await?;
-                    file_refs::refresh(scope, &block, NewImages::Unchecked).await?;
+                    block_derived::refresh(scope, &block, Before::Unchanged, NewImages::Unchecked)
+                        .await?;
                 }
                 Some(body) => {
                     let patch = BlockPatch {
@@ -309,7 +328,9 @@ impl Store {
                         read_at: Some(read_at),
                         ..BlockPatch::default()
                     };
-                    blocks::patch_block(scope, block_id, &patch, user_id).await?;
+                    // No version: the server keeps one when it is due.
+                    let projected = BodyWrite::Projected;
+                    blocks::patch_block(scope, block_id, &patch, user_id, projected).await?;
                 }
             }
             let mut sql = scope.sql("UPDATE body_docs SET projected_seq = ");
@@ -369,14 +390,15 @@ impl Store {
         .await
     }
 
-    /// The documents whose block does not hold their body yet, with the organization
-    /// of each: what a server that ended before it wrote them has to write. Blocks in
-    /// the trash are left out; theirs is written when they are opened again.
+    /// The documents whose block does not hold their body yet, or is a card or a page that
+    /// holds a body its editors wrote since its newest version, with the organization of each: what a
+    /// server that ended before it wrote and kept them has to. Blocks in the trash
+    /// are left out; theirs is written when they are opened again.
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if the query fails.
-    pub async fn unwritten_body_docs(&self) -> Result<Vec<(String, String)>, StoreError> {
+    pub async fn unfinished_body_docs(&self) -> Result<Vec<(String, String)>, StoreError> {
         self.with_conn(async |scope| {
             let statement = [
                 "SELECT d.block_id, w.org_id FROM body_docs d \
@@ -386,7 +408,14 @@ impl Store {
                 &scope.same_organization(&[("o", "b")]),
                 " JOIN workspaces w ON w.id = o.workspace_id",
                 &scope.same_organization(&[("w", "o")]),
-                " WHERE d.projected_seq < d.log_end ORDER BY d.block_id",
+                // Only the body of a card or a page is kept: of a block that is one no
+                // more, the names stay put down, and nothing is to see to.
+                " WHERE d.projected_seq < d.log_end OR (",
+                &body_versions::with_room_sql("b.type"),
+                " AND EXISTS (SELECT 1 FROM body_version_editors e WHERE e.block_id = d.block_id",
+                &format!(" AND e.version = {}", body_versions::PENDING),
+                &scope.same_organization(&[("e", "d")]),
+                ")) ORDER BY d.block_id",
             ]
             .concat();
             let sql = scope.sql(&statement);

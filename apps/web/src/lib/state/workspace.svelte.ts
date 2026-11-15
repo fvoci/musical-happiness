@@ -317,7 +317,7 @@ export class Workspace {
     const begun = this.#sidebarWrites.begun;
     try {
       const [boards, categories] = await Promise.all([
-        this.backend.boards(workspace.id),
+        entry.modulesOf(this.backend, workspace.id),
         this.backend.categories(workspace.id),
       ]);
       // Superseded, or another workspace was entered meanwhile.
@@ -481,14 +481,13 @@ export class Workspace {
   }
 
   /** The templates a board can be made from; none when they cannot be read (told). */
-  async templates(): Promise<Board[]> {
-    if (!this.info) return [];
-    try {
-      return await this.backend.templates(this.info.id);
-    } catch (error) {
-      this.report('load', error);
-      return [];
-    }
+  templates(): Promise<Board[]> {
+    return entry.templatesOf(this);
+  }
+
+  /** A board or a wiki as the backend just answered it: in the sidebar at once (`createWiki`). */
+  receiveBoard(board: Board): void {
+    this.#apply({ kind: 'board', board });
   }
 
   /** Makes a board from a template; it keeps the template's title, views and cards. */

@@ -19,6 +19,11 @@ fn empty_object_gives_the_defaults() {
     assert_eq!(config.session_idle_millis(), 14 * 24 * 60 * 60 * 1000);
     assert_eq!(config.session_max_millis(), 90 * 24 * 60 * 60 * 1000);
     assert_eq!(config.trash_retention_days, 30);
+    assert_eq!(config.oidc_former_provider_days, 30);
+    assert_eq!(
+        config.oidc_former_provider_kept(),
+        std::time::Duration::from_hours(30 * 24)
+    );
     assert_eq!(config.upload_part_bytes, 8 * 1024 * 1024);
     assert_eq!(config.max_file_size, 100 * 1024 * 1024);
     assert_eq!(config.max_pending_upload_bytes, 2 * 1024 * 1024 * 1024);
@@ -224,6 +229,32 @@ fn a_removed_key_is_refused_when_it_is_set_to_something() {
         no_env,
     )
     .expect("a removed key that says nothing is not in the way");
+}
+
+#[test]
+fn the_old_name_of_the_sender_is_refused_with_the_new_one() {
+    let error = Configuration::parse(r#"{"smtp_from": "sender@example.test"}"#, no_env)
+        .expect_err("the sender under its old name is not passed over")
+        .to_string();
+    assert!(error.contains("smtp_from"), "{error}");
+    assert!(error.contains("mail_from"), "{error}");
+    assert!(error.contains("FVOCI_MAIL_FROM"), "{error}");
+    assert!(!error.contains("sender@example.test"), "{error}");
+    let env = |name: &str| (name == "FVOCI_SMTP_FROM").then(|| "sender@example.test".to_owned());
+    let error = Configuration::parse("{}", env)
+        .expect_err("its variable too")
+        .to_string();
+    assert!(
+        error.contains("FVOCI_SMTP_FROM"),
+        "the variable is named: {error}"
+    );
+    assert!(error.contains("mail_from"), "{error}");
+    let config = Configuration::parse(r#"{"mail_from": "sender@example.test"}"#, no_env)
+        .expect("the sender under its name");
+    assert_eq!(config.smtp.mail_from, "sender@example.test");
+    let env = |name: &str| (name == "FVOCI_MAIL_FROM").then(|| "env@example.test".to_owned());
+    let config = Configuration::parse("{}", env).expect("its variable");
+    assert_eq!(config.smtp.mail_from, "env@example.test");
 }
 
 #[test]
@@ -570,6 +601,7 @@ fn the_configuration_document_lists_every_key() {
         .chain(&super::collab::ENV_KEYS)
         .chain(&super::smtp::ENV_KEYS)
         .chain(&super::mail::ENV_KEYS)
+        .chain(&super::search::ENV_KEYS)
         .map(|(key, _)| ((*key).to_owned(), env_name(key)))
         .collect();
     assert_eq!(
@@ -655,4 +687,24 @@ fn the_example_configuration_files_are_read() {
             .unwrap_or_else(|error| panic!("{path} is accepted: {error:#}"));
         assert!(warnings.is_empty(), "{path} gives no warning: {warnings:?}");
     }
+}
+
+/// How long a former provider is kept is read from the file and the environment; no
+/// days keep none, and a number that is no count of days is refused.
+#[test]
+fn the_days_a_former_provider_is_kept_are_read() {
+    let from_file = Configuration::parse(r#"{"oidc_former_provider_days": 7}"#, no_env);
+    let env = |name: &str| (name == "FVOCI_OIDC_FORMER_PROVIDER_DAYS").then(|| "0".to_owned());
+    let from_env = Configuration::parse(r#"{"oidc_former_provider_days": 7}"#, env);
+    let negative = Configuration::parse(r#"{"oidc_former_provider_days": -1}"#, no_env);
+
+    assert_eq!(from_file.expect("valid").oidc_former_provider_days, 7);
+    assert!(
+        from_env
+            .expect("valid")
+            .oidc_former_provider_kept()
+            .is_zero(),
+        "the environment's zero keeps none"
+    );
+    assert!(negative.is_err(), "a negative number of days is refused");
 }

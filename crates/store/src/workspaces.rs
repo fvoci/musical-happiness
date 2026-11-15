@@ -4,11 +4,13 @@
 //! ([`Tenant::Org`](crate::Tenant::Org)). SQLite has no policy that would keep the
 //! workspaces of the system organization out of an answer.
 
-use fvoci_model::{Block, Board, BoardType, GuestInvitationsChange, Workspace, WorkspaceRole};
+use fvoci_model::{
+    Block, Board, BoardKinds, BoardType, GuestInvitationsChange, Workspace, WorkspaceRole,
+};
 
 use crate::db::{Bound, Id, OptId, Param, Row, Scope, Sql, now_millis};
 use crate::error::StoreError;
-use crate::{Store, blocks, boards, members};
+use crate::{Store, blocks, board_kinds, board_search, boards, members, signups};
 
 const WORKSPACE_COLUMNS: &str = "id, name, settings, modified_by, update_at, guest_invitations";
 
@@ -46,6 +48,10 @@ impl Store {
         modified_by: &str,
     ) -> Result<Workspace, StoreError> {
         self.transaction(async |scope| {
+            // Turned off, the workspace's guest links are held all at once.
+            if !change.enabled {
+                signups::hold_several_links(scope).await?;
+            }
             let now = now_millis();
             // The workspace before its links, as whoever takes somebody out of it has
             // them, and so that a link made meanwhile waits and finds it turned off.
@@ -204,15 +210,16 @@ impl Store {
         workspace_id: &str,
         term: &str,
         user_id: &str,
+        kinds: BoardKinds,
     ) -> Result<Vec<Board>, StoreError> {
         self.with_conn(async |scope| {
-            search_boards_for_user_in_workspace(scope, workspace_id, term, user_id).await
+            search_boards_for_user_in_workspace(scope, workspace_id, term, user_id, kinds).await
         })
         .await
     }
 
-    /// Returns every board of a workspace that is no template, whoever is a member of
-    /// it, oldest first: what the workspace's administrators list.
+    /// Returns every board of `kinds` of a workspace that is no template, whoever is a
+    /// member of it, oldest first: what the workspace's administrators list.
     ///
     /// # Errors
     ///
@@ -220,8 +227,9 @@ impl Store {
     pub async fn get_boards_of_workspace(
         &self,
         workspace_id: &str,
+        kinds: BoardKinds,
     ) -> Result<Vec<Board>, StoreError> {
-        self.with_conn(async |scope| every_board(scope, workspace_id, Kind::Boards).await)
+        self.with_conn(async |scope| every_board(scope, workspace_id, Listed::Boards(kinds)).await)
             .await
     }
 
@@ -236,33 +244,36 @@ impl Store {
         &self,
         workspace_id: &str,
     ) -> Result<Vec<Board>, StoreError> {
-        self.with_conn(async |scope| every_board(scope, workspace_id, Kind::Templates).await)
+        self.with_conn(async |scope| every_board(scope, workspace_id, Listed::Templates).await)
             .await
     }
 }
 
 /// Which boards of a workspace [`every_board`] reads.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Kind {
-    /// The boards that are no template.
-    Boards,
-    /// The templates.
+enum Listed {
+    /// Those of the kinds that are no template.
+    Boards(BoardKinds),
+    /// The templates: boards all of them, since a wiki is none.
     Templates,
 }
 
-/// Every board of the workspace of the kind, oldest first.
+/// Every board of the workspace that is listed, oldest first.
 async fn every_board(
     scope: &mut Scope<'_>,
     workspace_id: &str,
-    kind: Kind,
+    listed: Listed,
 ) -> Result<Vec<Board>, StoreError> {
     let mut sql = scope.sql(&format!(
         "SELECT {} FROM boards AS b WHERE b.is_template = ",
         boards::board_select_list("b.")
     ));
-    sql.bind(kind == Kind::Templates)
-        .push_bind(" AND b.workspace_id = ", Id(workspace_id))
-        .push(boards::OLDEST_BOARD_FIRST);
+    sql.bind(listed == Listed::Templates)
+        .push_bind(" AND b.workspace_id = ", Id(workspace_id));
+    if let Listed::Boards(kinds) = listed {
+        board_kinds::push_kinds(&mut sql, "b.kind", kinds);
+    }
+    sql.push(boards::OLDEST_BOARD_FIRST);
     boards::fetch_boards(scope, sql).await
 }
 
@@ -271,6 +282,7 @@ async fn search_boards_for_user_in_workspace(
     workspace_id: &str,
     term: &str,
     user_id: &str,
+    kinds: BoardKinds,
 ) -> Result<Vec<Board>, StoreError> {
     let mut sql = scope.sql(&format!(
         "SELECT DISTINCT {} FROM boards AS b LEFT JOIN board_members AS bm ON b.id = bm.board_id \
@@ -278,8 +290,9 @@ async fn search_boards_for_user_in_workspace(
         boards::board_select_list("b.")
     ));
     sql.bind(false)
-        .push_bind(" AND b.workspace_id = ", Id(workspace_id))
-        .push_bind(" AND (b.type = ", BoardType::Open.as_str())
+        .push_bind(" AND b.workspace_id = ", Id(workspace_id));
+    board_kinds::push_kinds(&mut sql, "b.kind", kinds);
+    sql.push_bind(" AND (b.type = ", BoardType::Open.as_str())
         .push_bind(" OR (b.type = ", BoardType::Private.as_str())
         .push_bind(" AND bm.user_id = ", Id(user_id))
         .push(members::BM_HAS_A_ROLE)
@@ -287,38 +300,41 @@ async fn search_boards_for_user_in_workspace(
     crate::board_team_access::push_has_team_role(&mut sql, scope, user_id);
     sql.push(")");
     sql.push(boards::OLDEST_BOARD_FIRST);
-    Ok(boards::with_title_words(
+    Ok(board_search::with_title_words(
         boards::fetch_boards(scope, sql).await?,
         term,
     ))
 }
 
 impl Store {
-    /// The block with the identifier, if its board is of the workspace or a built-in
-    /// template, in one query: a block of another workspace is found as one that does
-    /// not exist is, and costs the same.
+    /// The block with the identifier, if its board is of `kinds` and, where a workspace
+    /// is named, of that workspace or a built-in template, in one query: a block of
+    /// another workspace, or of a board of another kind, is found as one that does not
+    /// exist is, and costs the same.
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::NotFound`] if there is no such block and
     /// [`StoreError::Database`] if the query fails.
-    pub async fn get_block_in_workspace(
+    pub async fn get_block_within(
         &self,
         block_id: &str,
-        workspace_id: &str,
+        workspace_id: Option<&str>,
+        kinds: BoardKinds,
     ) -> Result<Block, StoreError> {
         self.with_conn(async |scope| {
             let mut sql = blocks::select_blocks(scope);
             sql.push_bind(" WHERE id = ", Id(block_id))
                 // The block's own board, by its key: what the query costs is the same
-                // whether the block is of the workspace or not.
-                .push_bind(
-                    " AND EXISTS (SELECT 1 FROM boards AS b WHERE b.id = blocks.board_id \
-                     AND (b.workspace_id = ",
-                    Id(workspace_id),
-                )
-                .push_bind(" OR b.is_builtin = ", true)
-                .push("))");
+                // whether the block is within reach or not.
+                .push(" AND EXISTS (SELECT 1 FROM boards AS b WHERE b.id = blocks.board_id");
+            board_kinds::push_kinds(&mut sql, "b.kind", kinds);
+            if let Some(workspace_id) = workspace_id {
+                sql.push_bind(" AND (b.workspace_id = ", Id(workspace_id))
+                    .push_bind(" OR b.is_builtin = ", true)
+                    .push(")");
+            }
+            sql.push(")");
             blocks::fetch_blocks(scope, sql)
                 .await?
                 .into_iter()

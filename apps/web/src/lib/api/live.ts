@@ -31,6 +31,7 @@ import { isBackendError, type Change, type ChangeListener } from '../state/backe
 import { attachmentOf, boardOf, cardOfBlock, commentOf, viewOf, type Schemas } from './convert.ts';
 import { LivePresence } from './live-presence.ts';
 import { LiveRooms } from './live-rooms.ts';
+import { pageOfBlock } from './wikis.ts';
 
 type Members = Extract<Change, { kind: 'members' }>['members'];
 type ChangedBlock = Extract<Change, { kind: 'blocks' }>['blocks'][number];
@@ -308,6 +309,11 @@ export class LiveChanges {
           { kind: 'blocksDeleted', boardId: block.boardId, blockIds: [block.id] },
           false,
         );
+        return;
+      }
+      if (block.type === 'page') {
+        const pages = [pageOfBlock(block)];
+        this.#tellBoard(block.boardId, { kind: 'pages', boardId: block.boardId, pages }, false);
         return;
       }
       const changed = changedBlock(block);
