@@ -1,0 +1,164 @@
+/**
+ * The wikis and their pages on the server (`Backend.wiki`): the operations
+ * under `/w/{workspaceId}/wikis` (`getWikis`, `createWiki`, `getPageTree`,
+ * `createPage`, `getPage`, `patchPage`, `deletePage`). What a wiki shares
+ * with a board (reading it, changing, deleting and bringing it back, its
+ * members, joining it, the sidebar) goes by the board's operations.
+ */
+import type { Board } from '../logic/wire.ts';
+import type {
+  PageDraft,
+  PagePatch,
+  WikiDraft,
+  WikiPage,
+  WikiPageDetail,
+  Wikis,
+} from '../state/wiki-types.ts';
+
+import { bodyOf, boardOf, wireBody, type Schemas } from './convert.ts';
+import type { RequestOptions } from './http.ts';
+import type { WorkspacePath } from './requests.ts';
+
+/**
+ * A request under the workspace of the wiki `params.wikiId` names (the one it
+ * was read in), or under `workspaceId`, or the one the reader is in.
+ */
+export type WikiRequest = <T>(
+  path: WorkspacePath,
+  params: Record<string, string>,
+  options?: RequestOptions,
+  workspaceId?: string,
+) => Promise<T>;
+
+/** A page of the tree as the screens have it; `wikiId` is the wiki it was read from. */
+export function pageOf(node: Schemas['PageNode'], wikiId: string): WikiPage {
+  return {
+    id: node.id,
+    wikiId,
+    parentId: node.parentId === wikiId ? '' : node.parentId,
+    title: node.title,
+    icon: node.icon,
+    order: node.order,
+    createAt: node.createAt,
+    updateAt: node.updateAt,
+  };
+}
+
+export function pageDetailOf(page: Schemas['Page']): WikiPageDetail {
+  return {
+    ...pageOf(page, page.wikiId),
+    body: bodyOf(page.body),
+    createdBy: page.createdBy,
+    modifiedBy: page.modifiedBy,
+  };
+}
+
+/**
+ * A page as a change message brings it: a block of the type `page`, whose
+ * icon and place are among its `fields`. A page at the top of its wiki may
+ * name the wiki as its parent.
+ */
+export function pageOfBlock(block: Schemas['Block']): WikiPage {
+  const fields = block.fields as { icon?: unknown; order?: unknown };
+  return pageOf(
+    {
+      id: block.id,
+      parentId: block.parentId,
+      title: block.title,
+      icon: typeof fields.icon === 'string' ? fields.icon : '',
+      order: typeof fields.order === 'string' ? fields.order : '',
+      createAt: block.createAt,
+      updateAt: block.updateAt,
+    },
+    block.boardId,
+  );
+}
+
+function newWikiOf(draft: WikiDraft): Schemas['NewWiki'] {
+  return {
+    title: draft.title,
+    type: draft.type,
+    ...(draft.description ? { description: draft.description } : {}),
+    ...(draft.icon ? { icon: draft.icon } : {}),
+    ...(draft.minimumRole ? { minimumRole: draft.minimumRole } : {}),
+  };
+}
+
+function pagePatchOf(patch: PagePatch): Schemas['PagePatch'] {
+  const body = patch.body === undefined ? {} : { body: patch.body && wireBody(patch.body) };
+  return {
+    ...(patch.title === undefined ? {} : { title: patch.title }),
+    ...(patch.icon === undefined ? {} : { icon: patch.icon }),
+    ...body,
+    ...(patch.readAt === undefined ? {} : { readAt: patch.readAt }),
+  };
+}
+
+export class ServerWikis implements Wikis {
+  readonly #request: WikiRequest;
+  /** Keeps the workspace of each wiki read, for the paths under it. */
+  readonly #learn: (wikis: readonly Schemas['Board'][]) => void;
+
+  constructor(request: WikiRequest, learn: (wikis: readonly Schemas['Board'][]) => void) {
+    this.#request = request;
+    this.#learn = learn;
+  }
+
+  async wikis(workspaceId: string): Promise<Board[]> {
+    const wikis = await this.#request<Schemas['Board'][]>('/wikis', {}, {}, workspaceId);
+    this.#learn(wikis);
+    return wikis.map(boardOf);
+  }
+
+  async createWiki(workspaceId: string, draft: WikiDraft): Promise<Board> {
+    const wiki = await this.#request<Schemas['Board']>(
+      '/wikis',
+      {},
+      { method: 'POST', json: newWikiOf(draft) },
+      workspaceId,
+    );
+    this.#learn([wiki]);
+    return boardOf(wiki);
+  }
+
+  async pages(wikiId: string): Promise<WikiPage[]> {
+    const nodes = await this.#request<Schemas['PageNode'][]>('/wikis/{wikiId}/pages', { wikiId });
+    return nodes.map((node) => pageOf(node, wikiId));
+  }
+
+  async page(wikiId: string, pageId: string): Promise<WikiPageDetail> {
+    return pageDetailOf(
+      await this.#request<Schemas['Page']>('/wikis/{wikiId}/pages/{pageId}', { wikiId, pageId }),
+    );
+  }
+
+  async createPage(wikiId: string, draft: PageDraft): Promise<WikiPageDetail> {
+    const request: Schemas['NewPage'] = {
+      ...(draft.title ? { title: draft.title } : {}),
+      ...(draft.icon ? { icon: draft.icon } : {}),
+      ...(draft.parentId ? { parentId: draft.parentId } : {}),
+      ...(draft.after === undefined ? {} : { after: draft.after }),
+    };
+    return pageDetailOf(
+      await this.#request<Schemas['Page']>(
+        '/wikis/{wikiId}/pages',
+        { wikiId },
+        { method: 'POST', json: request },
+      ),
+    );
+  }
+
+  async patchPage(wikiId: string, pageId: string, patch: PagePatch): Promise<WikiPageDetail> {
+    return pageDetailOf(
+      await this.#request<Schemas['Page']>(
+        '/wikis/{wikiId}/pages/{pageId}',
+        { wikiId, pageId },
+        { method: 'PATCH', json: pagePatchOf(patch) },
+      ),
+    );
+  }
+
+  async deletePage(wikiId: string, pageId: string): Promise<void> {
+    await this.#request('/wikis/{wikiId}/pages/{pageId}', { wikiId, pageId }, { method: 'DELETE' });
+  }
+}

@@ -1,4 +1,5 @@
 /** Reading the trash, part of the data boundary (`backend.ts`). */
+import type { BoardKind } from '../logic/wire.ts';
 
 /** A card or a board in the trash: enough to decide whether to bring it back. */
 export interface DeletedItem {
@@ -8,6 +9,8 @@ export interface DeletedItem {
   deletedAt: number;
   /** Who deleted it, who may no longer exist; empty if not known. */
   deletedBy: string;
+  /** In the trash of boards: a board or a wiki (a board when left out). */
+  kind?: BoardKind;
 }
 
 /** A page of a list: `page` counts from 0, and a `perPage` of zero or less is all of it. */
@@ -19,8 +22,8 @@ export interface Paging {
 /** What the backend lists of the trash, for whoever may bring it back. */
 export interface TrashReads {
   /**
-   * The workspace's boards in the trash that the reader was an admin of (who may
-   * bring them back): a page, the last deleted first.
+   * The workspace's boards and wikis in the trash that the reader was an admin
+   * of (who may bring them back): a page, the last deleted first.
    */
   deletedBoards(workspaceId: string, paging?: Paging): Promise<DeletedItem[]>;
   /**

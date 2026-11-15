@@ -2,10 +2,11 @@
  * The icons of a card detail: an emoji to give a card that has none, and the
  * small picture that goes with each kind of property.
  *
- * "Add icon" gives the card one emoji at random, as the original did. The
- * list is this file's own and is short on purpose: a picker over the full
- * emoji list is being built elsewhere, and when it is there the card opens
- * it instead (CardTitle.svelte is the one place that asks for an emoji).
+ * "Add icon" gives the card one emoji at random, as the original did, from a
+ * short list a page of a wiki draws from too (`logic/random-emoji.ts`): a
+ * picker over the full emoji list is being built elsewhere, and when it is
+ * there the card opens it instead (CardTitle.svelte is the one place that asks
+ * for an emoji).
  */
 import AtSignIcon from '@lucide/svelte/icons/at-sign';
 import CalendarIcon from '@lucide/svelte/icons/calendar';
@@ -26,27 +27,7 @@ import type { Component } from 'svelte';
 
 import type { PropertyType } from '$lib/logic/wire.ts';
 
-/**
- * Things, plants, food and weather: nothing that reads as a judgement on the
- * card. Every one is drawn in colour without a variation selector.
- */
-// prettier-ignore
-export const CARD_EMOJI: readonly string[] = [
-  '🌱', '🌿', '🍀', '🌵', '🌲', '🌳', '🌴', '🌻', '🌼', '🌷',
-  '🍁', '🍂', '🍄', '🌊', '🌙', '⭐', '🌈', '🔥', '⚡', '⛄',
-  '🍎', '🍊', '🍋', '🍉', '🍇', '🍓', '🍒', '🍑', '🥝', '🥑',
-  '🥕', '🌽', '🍞', '🧀', '🍪', '🍰', '🍵', '☕', '🍙', '🍜',
-  '🎈', '🎁', '🎨', '🎬', '🎧', '🎹', '🎸', '🎲', '🎯', '🏆',
-  '⚽', '🏀', '🎾', '🏓', '🚲', '🚗', '🚀', '⛵', '🏠', '⛺',
-  '📌', '📎', '📐', '📚', '📖', '📝', '📦', '📫', '📷', '💡',
-  '🔑', '🔔', '🔍', '🔧', '🧭', '🧩', '🧪', '🧵', '🧺', '🪴',
-];
-
-/** One emoji of the list. `random` is a number from 0 up to, not including, 1. */
-export function randomEmoji(random: number = Math.random()): string {
-  const at = Math.min(CARD_EMOJI.length - 1, Math.max(0, Math.floor(random * CARD_EMOJI.length)));
-  return CARD_EMOJI[at] ?? '📌';
-}
+export { CARD_EMOJI, randomEmoji } from '$lib/logic/random-emoji.ts';
 
 type Icon = Component<{ class?: string }>;
 

@@ -33,6 +33,10 @@ function twoWorkspaces(made: Setup = setup()): Setup & {
   vi.spyOn(backend, 'categories').mockImplementation((id) =>
     id === OTHER.id ? Promise.resolve([]) : categories(id),
   );
+  const wikis = backend.wiki.wikis.bind(backend.wiki);
+  vi.spyOn(backend.wiki, 'wikis').mockImplementation((id) =>
+    id === OTHER.id ? Promise.resolve([]) : wikis(id),
+  );
   return { ...made, first, readBoards };
 }
 

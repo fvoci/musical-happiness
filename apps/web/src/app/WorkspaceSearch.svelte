@@ -24,8 +24,7 @@
   import { SearchSwitch } from '$lib/features/search/search-switch.svelte.ts';
   import SearchDialog from '$lib/features/search/SearchDialog.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
-  import { afterOwnSteps, overlayOpen } from '$lib/layout/back.svelte.ts';
-  import { buildUrl } from '$lib/logic/urls.ts';
+  import { overlayOpen } from '$lib/layout/back.svelte.ts';
   import type { Workspace } from '$lib/state/index.ts';
   import type { SearchHit } from '$lib/state/content-search.ts';
 
@@ -119,10 +118,13 @@
     };
   }
 
+  /** The route of a page: its wiki's address. */
+  function pageRoute(hit: SearchHit): Partial<Route> {
+    return { workspaceId: workspace.info?.id, wikiId: hit.containerId, pageId: hit.id };
+  }
+
   function hrefOf(hit: SearchHit): string {
-    if (hit.kind === 'card') return router.href(cardRoute(hit));
-    const parts = ['w', workspace.info?.id ?? '', 'wikis', hit.containerId, hit.id];
-    return buildUrl(`/${parts.map(encodeURIComponent).join('/')}`, router.basePath);
+    return router.href(hit.kind === 'card' ? cardRoute(hit) : pageRoute(hit));
   }
 
   /**
@@ -130,23 +132,22 @@
    * entry of the history back: the history is then as if the hit was opened
    * from the page. A card of the board shown opens over its view, in place of
    * a card open there; a card of another board opens over that board, as a
-   * board chosen in the sidebar. The router knows no wiki yet: a page is gone
-   * to as a new page load.
+   * board chosen in the sidebar. A page of the wiki shown is opened as one of
+   * its tree; a page of another wiki over that wiki, as a wiki chosen in the
+   * sidebar.
    */
   async function go(hit: SearchHit): Promise<void> {
-    const route = cardRoute(hit);
-    const href = hrefOf(hit);
+    const route = hit.kind === 'card' ? cardRoute(hit) : pageRoute(hit);
     session?.close();
     open = false;
     await tick();
-    if (hit.kind === 'page') {
-      afterOwnSteps(() => {
-        location.assign(href);
-      });
-    } else if (route.viewId !== ANY_VIEW) {
+    if (hit.kind === 'page' && router.route.wikiId === hit.containerId) {
+      router.openPage(hit.id);
+    } else if (hit.kind === 'card' && route.viewId !== ANY_VIEW) {
       router.openCard(hit.id);
     } else {
-      router.openBoard({ id: hit.containerId, workspaceId: workspace.info?.id ?? '' });
+      const kind = hit.kind === 'page' ? 'wiki' : 'board';
+      router.openBoard({ id: hit.containerId, workspaceId: workspace.info?.id ?? '', kind });
       router.go(route, { replace: true });
     }
   }
@@ -154,7 +155,8 @@
   function containerOf(hit: SearchHit): string {
     const container = workspace.boards.find((board) => board.id === hit.containerId);
     if (!container) return '';
-    return container.title || m['Sidebar.untitled-board']();
+    if (container.title) return container.title;
+    return container.kind === 'wiki' ? m.wiki_untitled() : m['Sidebar.untitled-board']();
   }
 </script>
 
