@@ -673,12 +673,12 @@ impl App {
             .await
             .map_err(|error| logged(&error, "looking up an identity"))?;
         if let Some(user) = found {
-            let found = FoundAccount {
+            let account = FoundAccount {
                 user: &user,
                 identity,
                 proved_email: proved_address(claims),
             };
-            return self.let_in(found, stored, ending, session, digest).await;
+            return self.let_in(account, stored, ending, session, digest).await;
         }
         // The identity of an account that is deleted: not let in, and not made anew.
         let of_a_deleted_account = self
