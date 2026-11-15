@@ -780,9 +780,9 @@ async fn a_copy_of_a_card_that_shows_an_image_begins_with_one_version() {
             .is_some_and(|files| files.len() == 1 && files[0] != file_id),
         "the copy shows a copy of the file: {shown:?}"
     );
-    let kept = crate::body_versions::versions(&th.client, copy).await;
+    let of_copy = crate::body_versions::versions(&th.client, copy).await;
     assert_eq!(
-        crate::body_versions::said(&kept),
+        crate::body_versions::said(&of_copy),
         [(1, Vec::<&str>::new(), true)],
         "one version, the copy's body"
     );

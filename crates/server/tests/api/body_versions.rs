@@ -399,13 +399,13 @@ async fn a_body_written_whole_is_a_version_and_so_is_the_one_before() {
         .find(|block| block["type"] == json!("card"))
         .and_then(|block| block["id"].as_str())
         .expect("the copy of the card");
-    let kept = versions(&th.client, copy).await;
+    let of_copy = versions(&th.client, copy).await;
     assert_eq!(
-        said(&kept),
+        said(&of_copy),
         [(1, Vec::<&str>::new(), true)],
         "a copy begins with one version, its own"
     );
-    assert_eq!(lines(&th.client, copy, &kept[0]).await, ["second"]);
+    assert_eq!(lines(&th.client, copy, &of_copy[0]).await, ["second"]);
     th.teardown().await;
 }
 
