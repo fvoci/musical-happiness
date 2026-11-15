@@ -152,7 +152,8 @@ impl Store {
                     Some(browser) => Some((browser, link_locks::take_turn(scope).await?)),
                     None => None,
                 };
-                remove_ended(scope, now, replacing.map(|(_, turn)| turn)).await?;
+                let turn = replacing.map(|(_, turn)| turn);
+                remove_ended(scope, now, turn, BTreeSet::new()).await?;
                 if let Some((browser, turn)) = replacing {
                     discard_of_browser(scope, browser, turn).await?;
                 }
@@ -346,10 +347,33 @@ impl Store {
     pub async fn remove_ended_signups(&self, now: i64) -> Result<u64, StoreError> {
         self.system()
             .transaction(async |scope| {
-                let removed = remove_ended(scope, now, None).await?;
+                // The registrations by links whose mail's link ended are written too,
+                // which a deletion of their links deletes: after their organizations'
+                // rows. One by a link of another organization, made meanwhile, waits
+                // for the next clean-up.
+                let mut sql = scope.sql(
+                    "SELECT DISTINCT invitation_org_id FROM signups WHERE token_expires_at <= ",
+                );
+                sql.bind(now).push(" AND invitation_org_id IS NOT NULL");
+                let mailed: BTreeSet<String> = scope
+                    .fetch_all(sql)
+                    .await?
+                    .iter()
+                    .map(|row| row.id(0))
+                    .collect::<Result<_, _>>()?;
+                let removed = remove_ended(scope, now, None, mailed.clone()).await?;
                 let mut links =
                     scope.sql("UPDATE signups SET token_hash = NULL, token_expires_at = NULL");
-                links.push_bind(" WHERE token_expires_at <= ", now);
+                links
+                    .push_bind(" WHERE token_expires_at <= ", now)
+                    .push(" AND (invitation_org_id IS NULL");
+                if !mailed.is_empty() {
+                    links
+                        .push(" OR invitation_org_id IN (")
+                        .bind_list(mailed.iter().map(|org_id| Id(org_id)))
+                        .push(")");
+                }
+                links.push(")");
                 scope.execute(links).await?;
                 Ok(removed)
             })
@@ -615,13 +639,15 @@ async fn set_wall(scope: &mut Scope<'_>, reach: &str) -> Result<(), StoreError> 
 /// Removes the registrations that ended by `now`, giving back the uses of the links
 /// they were made by first; returns how many. Needs the system's reach: the links are
 /// of every organization, and a statement the wall hides them from changes nothing.
-/// The links are held under the `turn`, which is taken here if the caller holds none,
-/// after the rows of their organizations: a clean-up holds the registrations of a
-/// link's board or workspace too, which their deletion deletes.
+/// The links are held after the rows of their organizations, and of the organizations
+/// `more` names, whose registrations the caller writes after: a clean-up holds the
+/// registrations of a link's board or workspace too, which their deletion deletes.
+/// Under the `turn` if the caller holds it; taken here for more than one organization.
 async fn remove_ended(
     scope: &mut Scope<'_>,
     now: i64,
     turn: Option<Turn>,
+    more: BTreeSet<String>,
 ) -> Result<u64, StoreError> {
     // Those made by a link one by one, each link held before its registration goes, as
     // a registration by it is made and confirmed: a use goes back only with the
@@ -637,13 +663,12 @@ async fn remove_ended(
         .iter()
         .map(signup_from_row)
         .collect::<Result<Vec<_>, _>>()?;
-    if !held.is_empty() {
-        let turn = match turn {
-            Some(turn) => turn,
-            None => link_locks::take_turn(scope).await?,
-        };
-        hold_organizations_of(scope, turn, &held).await?;
-    }
+    let mut organizations = more;
+    organizations.extend(held.iter().filter_map(|signup| match &signup.start {
+        SignupStart::Invitation { org_id, .. } => Some(org_id.clone()),
+        SignupStart::Organization(_) => None,
+    }));
+    hold_organizations(scope, turn, &organizations).await?;
     let mut removed = 0;
     for signup in &held {
         // Its organization's row is held already.
@@ -661,23 +686,20 @@ async fn remove_ended(
     Ok(removed + scope.execute(sql).await?)
 }
 
-/// Holds under the turn the row of each organization a link of `signups` is of, once,
-/// in the order of the organizations.
-async fn hold_organizations_of(
+/// Holds the row of each of `organizations`, in their order: under the `turn` if the
+/// caller holds it, and taken here for more than one; one organization's row alone
+/// keeps its links in order (`link_locks`).
+async fn hold_organizations(
     scope: &mut Scope<'_>,
-    turn: Turn,
-    signups: &[Signup],
+    turn: Option<Turn>,
+    organizations: &BTreeSet<String>,
 ) -> Result<(), StoreError> {
-    let organizations: BTreeSet<&str> = signups
-        .iter()
-        .filter_map(|signup| match &signup.start {
-            SignupStart::Invitation { org_id, .. } => Some(org_id.as_str()),
-            SignupStart::Organization(_) => None,
-        })
-        .collect();
+    if turn.is_none() && organizations.len() > 1 {
+        link_locks::take_turn(scope).await?;
+    }
     for org_id in organizations {
         let wall = open_wall(scope, org_id).await?;
-        link_locks::hold_organization(scope, turn, org_id).await?;
+        link_locks::hold_organization(scope, org_id).await?;
         close_wall(scope, wall).await?;
     }
     Ok(())
@@ -696,8 +718,8 @@ async fn hold_link_of(
         (&signup.start, scope.dialect())
     {
         let wall = open_wall(scope, org_id).await?;
-        if let Some(turn) = turn {
-            link_locks::hold_organization(scope, turn, org_id).await?;
+        if turn.is_some() {
+            link_locks::hold_organization(scope, org_id).await?;
         }
         let mut sql = scope.sql("SELECT id FROM invitations WHERE id = ");
         sql.bind(Id(id))

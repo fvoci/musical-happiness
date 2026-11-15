@@ -200,13 +200,7 @@ impl Store {
                 )
                 .push(&format!(") RETURNING {COLUMNS}"));
             // An insert that returns no row has failed already.
-            let row = scope
-                .fetch_optional(sql)
-                .await?
-                .ok_or(StoreError::Corrupt {
-                    column: "id",
-                    reason: "a stored link was not returned".to_owned(),
-                })?;
+            let row = scope.fetch_optional(sql).await?.ok_or(StoreError::NoRows)?;
             invitation_from_row(&row)
         })
         .await

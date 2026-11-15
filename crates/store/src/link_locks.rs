@@ -4,25 +4,28 @@
 //! PostgreSQL ends one of them (`40P01`).
 //!
 //! 1. The turn of several links ([`take_turn`]): first, by a transaction that may hold
-//!    the links of more than one organization, and so their rows in an order of its
-//!    own.
-//! 2. The organization's row ([`org_admin::hold_organization_row`]), before any link
-//!    of it that is held with another, or with anything a deletion holds; under the
-//!    turn, the row of each organization whose link is held ([`hold_organization`]).
-//!    Two transactions that hold several links of one organization wait for each other
-//!    here.
+//!    the links of more than one organization. Under it, the steps below go per
+//!    organization, and one organization's after another's in any order: two
+//!    transactions that span organizations take turns.
+//! 2. The organization's row ([`org_admin::hold_organization_row`], or
+//!    [`hold_organization`] of another), before any link of it that is held with
+//!    another, or with anything a deletion holds or deletes. Two transactions that hold
+//!    several links of one organization wait for each other here.
 //! 3. The workspace.
 //! 4. The board.
-//! 5. The links, a link before the links made like it for the recipients of its mail.
+//! 5. The links, a link before the links made like it for the recipients of its mail,
+//!    and then the registrations made by them.
 //!
-//! A step may be left out, never taken after a later one: a new link holds its
-//! workspace, its board and the link it is made like ([`hold_for_new_link`]). Deleting a board or a
-//! workspace holds the organization's row and then the board or the workspace, and the
-//! schema's cascades then delete the links and the registrations made by them in an
-//! order of the database's own: whoever holds more than one link, or a link and then
-//! anything such a deletion holds or deletes, holds the organization's row first. A
-//! transaction that holds a single link, and after it nothing a deletion holds or
-//! deletes, may hold it alone: a deletion waits for it.
+//! A step may be left out, never taken after a later one of the same organization: a
+//! new link holds its workspace, its board and the link it is made like
+//! ([`hold_for_new_link`]). Deleting a board or a workspace holds the organization's
+//! row and then the board or the workspace, and the schema's cascades then delete the
+//! links and the registrations made by them in an order of the database's own:
+//! whoever holds more than one link, or a link and then anything such a deletion holds
+//! or deletes, holds the organization's row first. A transaction that holds a single
+//! link, and after it nothing a deletion holds or deletes but what it reaches through
+//! that link (a registration made by it), may hold it alone: a deletion waits for
+//! it.
 //!
 //! SQLite's writers wait for each other already: nothing here holds anything there.
 
@@ -60,13 +63,13 @@ pub(crate) async fn hold_links_of_organization(scope: &mut Scope<'_>) -> Result<
     org_admin::hold_organization_row(scope).await
 }
 
-/// Holds the row of the organization `org_id` under the turn, before a link of it, as
-/// [`org_admin::hold_organization_row`] holds the handle's: whichever organization the
-/// handle names, if any. The row is reached past the wall, which the caller opens for
+/// Holds the row of the organization `org_id` before a link of it, as
+/// [`org_admin::hold_organization_row`] holds the handle's, whichever organization the
+/// handle names, if any: under the turn, or as the one organization whose links the
+/// transaction holds. The row is reached past the wall, which the caller opens for
 /// another organization's.
 pub(crate) async fn hold_organization(
     scope: &mut Scope<'_>,
-    _turn: Turn,
     org_id: &str,
 ) -> Result<(), StoreError> {
     if scope.dialect() == Dialect::Postgres {
