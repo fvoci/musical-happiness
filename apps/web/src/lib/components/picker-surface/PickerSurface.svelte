@@ -51,6 +51,8 @@
   }: Props = $props();
 
   let popover = $state<HTMLElement | null>(null);
+  /** What opened the sheet, for the focus to come back to: Safari does not focus a pressed button. */
+  let opener: HTMLElement | null = null;
 
   function focusMarked(event: Event): void {
     // Under a finger the focus stays out of the field: the keyboard comes up
@@ -72,13 +74,14 @@
     props: {
       'aria-haspopup': 'dialog',
       'aria-expanded': open,
-      onclick: () => {
+      onclick: (event: MouseEvent) => {
+        opener = event.currentTarget as HTMLElement;
         open = true;
         onOpenChange?.(true);
       },
     },
   })}
-  <BottomSheet bind:open {title} {onOpenChange}>
+  <BottomSheet bind:open {title} {onOpenChange} returnFocus={() => opener}>
     <div class={cn('px-2 pb-2', className)}>
       {@render children()}
     </div>

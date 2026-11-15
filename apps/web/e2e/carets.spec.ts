@@ -16,7 +16,7 @@ import path from 'node:path';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { boardPath } from './address.ts';
-import { documentBoundary, lineBoundary, primaryKey } from './keyboard.support.ts';
+import { documentBoundary, engineOf, lineBoundary, primaryKey } from './keyboard.support.ts';
 import { scrollTo, uncovered } from './carets.support.ts';
 import { screensDir } from './screens.ts';
 
@@ -82,7 +82,11 @@ async function twoTabs(
     await page.keyboard.press(await primaryKey(page, 'a'));
     await page.keyboard.press('Delete');
     for (const [index, line] of body.entries()) {
-      if (index > 0) await page.keyboard.press('Enter');
+      if (index > 0) {
+        await page.keyboard.press('Enter');
+        // WebKit takes text sent at once after Enter into the line it left.
+        await expect(mine.locator('p')).toHaveCount(index + 1);
+      }
       await page.keyboard.insertText(line);
     }
     await expect(mine.locator('p')).toHaveText(body);
@@ -257,6 +261,11 @@ test('a caret never blinks, and its name does not fade for a reader who asked fo
 test('a syllable being composed is kept while the other moves and writes in the same line', async ({
   page,
 }) => {
+  const engine = engineOf(page);
+  test.skip(
+    engine !== 'chromium',
+    `an input method is driven through Chromium's protocol; ${engine ?? 'this browser'} has none`,
+  );
   const { mine, theirs, other } = await twoTabs(page, ['가나다 라마바', 'Below.']);
   const ime = await page.context().newCDPSession(page);
   const compose = (text: string): Promise<unknown> =>

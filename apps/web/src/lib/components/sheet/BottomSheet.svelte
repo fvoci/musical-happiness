@@ -72,9 +72,9 @@
     }}
     onCloseAutoFocus={(event: Event) => {
       const back = returnFocus?.();
-      if (!back) return;
+      if (!back?.isConnected) return;
       event.preventDefault();
-      back.focus();
+      back.focus({ preventScroll: true });
     }}
   >
     <Sheet.Header class="shrink-0 flex-row items-center gap-2 py-2 pr-2 pl-4">
