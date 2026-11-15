@@ -1055,8 +1055,9 @@ export interface paths {
         /**
          * The blocks of a shared board
          * @description What `getBlocks` gives of the board, with the same parameters, read with its read
-         *     token as `getSharedBoard` is; a wiki's token reads no blocks (404). No block names a user: `createdBy` and `modifiedBy`
-         *     are empty, so is the `userId` of every mention in a body, and so is each user that
+         *     token as `getSharedBoard` is; a wiki's token reads no blocks (404). No block names a
+         *     user: `createdBy` and `modifiedBy` are empty, so is the `userId` of every mention in
+         *     a body, and so is each user that
          *     the board's person properties (`person`, `multiPerson`, `createdBy`, `updatedBy`)
          *     name in a card's `fields.properties` and in the clauses of a view's `fields.filter`;
          *     a list keeps its length, so how many people a card has still shows. A card's values
