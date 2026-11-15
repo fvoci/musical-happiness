@@ -56,6 +56,7 @@
     onBlur,
     uploadImage,
     placeholder = '',
+    readPlaceholder = '',
     class: className,
     label,
     toolbar,
@@ -141,10 +142,11 @@
       });
     };
 
-  /** What binds the editor to a shared document, and keeps the reader's moves through what the others do. */
+  /** What binds the editor to a shared document, keeps the reader's moves through what the others do, and shows their carets. */
   const sharing = (shared: NonNullable<BodyEditorProps['collab']>) => [
     Collaboration.configure({ document: shared, field: BODY_FIELD }),
     MovesKept.configure({ readsFirst }),
+    ...(carets ? [caretsOf({ ...carets, nameOf })] : []),
   ];
 
   onMount(() => {
@@ -170,10 +172,10 @@
         : { content: first ?? emptyDoc() }),
       extensions: [
         ...(shared ? sharing(shared) : []),
-        ...(shared && carets ? [caretsOf({ ...carets, nameOf })] : []),
         ...bodyExtensions({
           history: !shared,
           placeholder,
+          readPlaceholder,
           mention: {
             search: (query) => {
               const wanted = query.toLowerCase();

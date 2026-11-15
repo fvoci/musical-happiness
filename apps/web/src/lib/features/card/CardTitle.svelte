@@ -25,7 +25,7 @@
   import type { BoardStore, CardSummary } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
-  import { autosize } from './autosize.ts';
+  import { autosize } from '$lib/components/autosize.ts';
   import { randomEmoji } from './icons.ts';
 
   interface Props {

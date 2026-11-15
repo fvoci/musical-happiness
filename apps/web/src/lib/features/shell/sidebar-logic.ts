@@ -7,6 +7,11 @@ import type { Destination, ListOrder } from '$lib/logic/drop-target.ts';
 import { foldCase } from '$lib/logic/text.ts';
 import type { Category, SidebarCategory } from '$lib/state/index.ts';
 
+/** Whether a title has what was typed into the search of the sidebar, whatever the case. */
+export function titleHas(title: string, query: string): boolean {
+  return foldCase(title).includes(foldCase(query.trim()));
+}
+
 /**
  * The sidebar with only the boards whose title has `query` in it, whatever
  * the case. A category that is left without a board is left out. An empty
@@ -21,7 +26,7 @@ export function filterSidebar(
   return sidebar
     .map((entry) => ({
       category: entry.category,
-      boards: entry.boards.filter((board) => foldCase(board.title).includes(wanted)),
+      boards: entry.boards.filter((board) => titleHas(board.title, query)),
     }))
     .filter((entry) => entry.boards.length > 0);
 }

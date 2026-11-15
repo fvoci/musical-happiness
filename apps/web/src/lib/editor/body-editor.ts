@@ -40,7 +40,10 @@ export interface BodyEditorProps {
   onBlur?: () => void;
   /** Uploads a pasted or dropped image and gives its file identifier. Without it images cannot be added. */
   uploadImage?: (file: File) => Promise<string>;
+  /** What an empty body says while it can be written. */
   placeholder?: string;
+  /** What an empty body says while it can only be read; nothing unless given. */
+  readPlaceholder?: string;
   /** Classes for the text field itself, next to `doc-body`. */
   class?: string;
 

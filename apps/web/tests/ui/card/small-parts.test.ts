@@ -6,7 +6,7 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { autosize, fitHeight } from '$lib/features/card/autosize.ts';
+import { autosize, fitHeight } from '$lib/components/autosize.ts';
 import { FRAME_CLASS } from '$lib/features/card/frame.ts';
 import { CARD_EMOJI, propertyTypeIcon, randomEmoji } from '$lib/features/card/icons.ts';
 import { propertyTypeName } from '$lib/features/card/property-names.ts';

@@ -24,3 +24,27 @@ export function rememberWorkspace(userId: string, workspaceId: string): void {
     // Without storage the choice lasts for the visit.
   }
 }
+
+const PLACE_KEY = 'fvoci:last-place:';
+
+/**
+ * The board or the wiki each user was last on in a workspace on this
+ * browser: the workspace's address alone takes them back to it, if the
+ * sidebar still has it (`WorkspacePane.svelte`).
+ */
+export function lastPlace(userId: string, workspaceId: string): string | undefined {
+  try {
+    return localStorage.getItem(`${PLACE_KEY}${userId}:${workspaceId}`) ?? undefined;
+  } catch {
+    // No storage here: the first of the sidebar then.
+    return undefined;
+  }
+}
+
+export function rememberPlace(userId: string, workspaceId: string, boardId: string): void {
+  try {
+    localStorage.setItem(`${PLACE_KEY}${userId}:${workspaceId}`, boardId);
+  } catch {
+    // Without storage the place lasts for the visit.
+  }
+}

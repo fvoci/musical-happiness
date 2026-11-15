@@ -57,7 +57,7 @@ import { ROOM_LIMITS } from '../../logic/doc-room.ts';
 
 import { leftByWriters, roomWrote, typedBy, writersLeft } from './body-versions.ts';
 import { roleOn } from './comments.ts';
-import { imageFileIds, LIMITS, wireOf } from './shapes.ts';
+import { changeOf, imageFileIds, LIMITS } from './shapes.ts';
 import { MemoryCarets } from './room-carets.ts';
 import type { Room, RoomUser, Seat, TabMessage } from './room-seats.ts';
 import { bodyOf, documentOf, sameBody, tabKey } from './room-docs.ts';
@@ -196,7 +196,7 @@ export class MemoryRooms {
 
   #card(boardId: string, cardId: string): StoredCard | undefined {
     const block = this.#world.blocks.get(cardId);
-    if (block?.type !== 'card' || block.boardId !== boardId) return undefined;
+    if ((block?.type !== 'card' && block?.type !== 'page') || block.boardId !== boardId) return;
     return block as StoredCard;
   }
 
@@ -405,11 +405,7 @@ export class MemoryRooms {
     card.body = body;
     card.updateAt = this.#world.now();
     card.modifiedBy = room.lastWriter ?? card.modifiedBy;
-    this.#world.tellBoard(room.boardId, {
-      kind: 'blocks',
-      boardId: room.boardId,
-      blocks: [wireOf(card)],
-    });
+    this.#world.tellBoard(room.boardId, changeOf(room.boardId, card));
     roomWrote(this.#world, card);
   }
 
