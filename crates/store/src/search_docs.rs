@@ -1,12 +1,13 @@
 //! What the search server is to hold of the blocks: a document for each card and each
-//! page that is on a board or in a wiki, which is no template. One read says so, for the worker that sends the
+//! page that is on a board or in a wiki, which is no template, and is no card template
+//! of its board. One read says so, for the worker that sends the
 //! documents and for the search that checks each of the search server's answers
 //! against it: what is not read here is not found.
 
 use fvoci_model::{BlockType, BoardKind, SearchKind};
 
 use crate::Store;
-use crate::db::{Id, Row, Scope, Sql};
+use crate::db::{Dialect, Id, Row, Scope, Sql};
 use crate::error::StoreError;
 
 /// Bounded parameters however many identifiers are asked for.
@@ -39,13 +40,19 @@ const DOCUMENT_COLUMNS: &str = "b.id, w.org_id, bo.workspace_id, b.board_id, b.t
 
 /// Starts the statement that reads the blocks that have a document, with their
 /// boards and workspaces: the cards and the pages of the boards and wikis that are no
-/// templates. What is in the trash is no block, and has none. More `AND` conditions
-/// on `b` may follow.
+/// templates, but the cards that are templates of their boards (`isTemplate`; a
+/// block without the field, as a page, is none). What is in the trash is no block,
+/// and has none. More `AND` conditions on `b` may follow.
 fn select_documents(scope: &Scope<'_>) -> Sql {
+    let no_card_template = match scope.dialect() {
+        Dialect::Sqlite => "COALESCE(json_extract(b.fields, '$.isTemplate'), 0) <> 1",
+        Dialect::Postgres => "COALESCE(b.fields->>'isTemplate', 'false') <> 'true'",
+    };
     let mut sql = scope.sql(&format!(
         "SELECT {DOCUMENT_COLUMNS} FROM blocks AS b JOIN boards AS bo ON bo.id = b.board_id{} \
          JOIN workspaces AS w ON w.id = bo.workspace_id{} \
-         WHERE bo.is_template = false AND bo.is_builtin = false AND b.type IN (",
+         WHERE bo.is_template = false AND bo.is_builtin = false AND {no_card_template} \
+         AND b.type IN (",
         scope.same_organization(&[("bo", "b")]),
         scope.same_organization(&[("w", "bo")]),
     ));
