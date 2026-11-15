@@ -1274,6 +1274,8 @@ async fn messages_match_the_websocket_contract() {
         )
         .await;
     contract_check.hear(&mut socket, "UPDATE_PRESENCE").await;
+    socket.send(json!({"action": "PING"})).await;
+    contract_check.hear(&mut socket, "PONG").await;
 
     // Every message of the contract was heard; those of the bodies edited together
     // are heard by `rooms_contract`.

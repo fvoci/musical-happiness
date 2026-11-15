@@ -259,7 +259,7 @@ async fn a_search_answers_a_card_as_the_database_has_it() {
         definition["settings"]["analysis"]["tokenizer"]["fvoci_nori"]["type"],
         "nori_tokenizer"
     );
-    assert_eq!(definition["mappings"]["_meta"]["fvoci"]["version"], 3);
+    assert_eq!(definition["mappings"]["_meta"]["fvoci"]["version"], 4);
 }
 
 /// The organization a filter names: some identifier, and not none.
@@ -652,7 +652,7 @@ async fn an_index_made_from_another_definition_is_made_again() {
     th.teardown().await;
 
     assert_eq!(config["searchEnabled"], true, "{config}");
-    assert_eq!(definition["mappings"]["_meta"]["fvoci"]["version"], 3);
+    assert_eq!(definition["mappings"]["_meta"]["fvoci"]["version"], 4);
     let path = format!("/{INDEX}");
     assert_eq!(
         requests,

@@ -23,6 +23,12 @@
  * workspace) or act as the server's operator (`e2e-live/support.ts`). The
  * socket is in the system's temporary folder: a socket's path is short.
  *
+ * Beside that server too runs the tests' fake search server
+ * (`target/debug/examples/fake_search`, built with the examples), nine ports up, and
+ * the server searches the bodies of cards and pages through it (`FVOCI_SEARCH_URL`).
+ * It finds by the letters, knowing no language; a test drives it under `/_fake`
+ * (`e2e-live/content-search.spec.ts`).
+ *
  * With `--verifying` it runs on SQLite with `email_verification` on, without the
  * fake provider: a registration waits for the link mailed to it
  * (`e2e-live/verify-email.spec.ts`), its fake SMTP two and three ports up.
@@ -59,6 +65,10 @@ const nextOidcPort = port + 5;
  * organizations server runs four ports up (`playwright.live.config.ts`), clear of these. */
 const smtpPort = port + 2;
 const inboxPort = port + 3;
+/** The fake search server: nine up, between the ports of the other two servers' SMTP. */
+const searchPort = port + 9;
+const fakeSearch =
+  process.env.FVOCI_FAKE_SEARCH_BIN ?? path.join(REPO_ROOT, 'target/debug/examples/fake_search');
 const fakeSmtp = path.join(REPO_ROOT, 'target/debug/examples/fake_smtp');
 /** The key the server seals client secrets with: a test's, kept nowhere else. */
 const SECRET_KEY = Buffer.alloc(32, 7).toString('base64');
@@ -74,6 +84,9 @@ if (!existsSync(binary)) stop(`no server at ${binary}: run \`cargo build -p fvoc
 if (!existsSync(path.join(dist, 'index.html'))) stop('no build in dist/: run `pnpm run build`');
 if (withProvider && !existsSync(fakeOidc)) {
   stop(`no fake provider at ${fakeOidc}: run \`cargo build -p fvoci-server --bins --examples\``);
+}
+if (withProvider && !existsSync(fakeSearch)) {
+  stop(`no fake search server at ${fakeSearch}: run \`cargo build -p fvoci-server --examples\``);
 }
 
 const stamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -184,13 +197,35 @@ async function startProvider(onPort: number, certificate: string): Promise<Child
   return provider;
 }
 
+/** Starts the fake search server, and answers its address once it listens. */
+async function startSearch(): Promise<string> {
+  const child = spawn(fakeSearch, [String(searchPort)], {
+    cwd: data,
+    stdio: ['ignore', 'pipe', 'inherit'],
+  });
+  children.push(child);
+  return new Promise<string>((started) => {
+    const said = createInterface({ input: child.stdout });
+    said.on('line', (line) => {
+      log.write(`${line}\n`);
+      if (line.startsWith('fake-search: ')) started(line.slice('fake-search: '.length));
+    });
+    child.on('error', (error) => stop(`the fake search server could not start: ${error.message}`));
+    child.on('exit', (code) => {
+      if (!stopping) stop(`the fake search server on ${searchPort} ended (${code})`);
+    });
+  });
+}
+
 /** The certificates of both providers in one file: what the server trusts. */
 const certificates = path.join(data, 'fake-oidc.pem');
 const providers: ChildProcess[] = [];
+/** The fake search server, while it runs. */
+const children: ChildProcess[] = [];
 // Before either is started: one that does not start ends this process, and the
 // other with it.
 process.on('exit', () => {
-  for (const provider of providers) provider.kill('SIGKILL');
+  for (const child of [...providers, ...children]) child.kill('SIGKILL');
 });
 if (withProvider) {
   const own = [path.join(data, 'fake-oidc-1.pem'), path.join(data, 'fake-oidc-2.pem')] as const;
@@ -198,6 +233,7 @@ if (withProvider) {
   providers.push(await startProvider(nextOidcPort, own[1]));
   writeFileSync(certificates, own.map((file) => readFileSync(file, 'utf8')).join('\n'));
 }
+const searchUrl = withProvider ? await startSearch() : undefined;
 
 const smtp = spawn(fakeSmtp, [String(smtpPort), String(inboxPort)], {
   cwd: data,
@@ -230,6 +266,7 @@ const server = spawn(binary, ['--config', path.join(data, 'config.json')], {
           SSL_CERT_FILE: certificates,
         }
       : {}),
+    ...(searchUrl ? { FVOCI_SEARCH_URL: searchUrl } : {}),
   },
 });
 
@@ -266,7 +303,7 @@ database?.on('exit', (code) => {
 
 const end = (): void => {
   stopping = true;
-  for (const provider of providers) provider.kill('SIGTERM');
+  for (const child of [...providers, ...children]) child.kill('SIGTERM');
   smtp.kill('SIGTERM');
   server.kill('SIGTERM');
   // A server that does not stop within the time it gives its own requests is ended.
