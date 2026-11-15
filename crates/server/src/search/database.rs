@@ -10,7 +10,7 @@
 //! time is stopped in the database and answered with a 503.
 
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use fvoci_model::{SearchHit, SearchKind};
 use fvoci_store::{Store, TextFound, TextSearch};
@@ -26,6 +26,43 @@ use crate::error::AppError;
 /// databases bind: a user who reads more is searched for in the whole workspace, a page
 /// after another, and what comes back is checked the same.
 pub(super) const MAX_BOUND_CONTAINERS: usize = 10_000;
+
+/// How long before the time of a page its statement is stopped: what has not answered
+/// by the time of the page is then still waiting for its connection, and is told
+/// apart in the log.
+const STATEMENT_ENDS_BEFORE: Duration = Duration::from_millis(100);
+
+/// Why a page of a search in the database was not answered in its time. The answer is
+/// a 503 all the same; the log tells them apart.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Late {
+    /// Every search of the database that may run at once ran until the time.
+    Turn,
+    /// The pool gave no connection in time.
+    Connection,
+    /// The database did not finish the statement in time, and stopped it.
+    Statement,
+}
+
+impl Late {
+    /// What the log says of it.
+    const fn said(self) -> &'static str {
+        match self {
+            Self::Turn => "a search of the database got no turn among those at once in its time",
+            Self::Connection => "a search of the database got no connection in its time",
+            Self::Statement => "a search of the database did not end in its time",
+        }
+    }
+}
+
+/// A page of what the database finds.
+#[derive(Debug)]
+enum Page {
+    /// The identifiers found, the best first.
+    Ids(Vec<String>),
+    /// None by the time.
+    Late(Late),
+}
 
 /// The words of what was typed, each once, in the order typed.
 fn words(text: &str) -> Vec<String> {
@@ -48,8 +85,9 @@ struct Asking {
 
 impl Asking {
     /// A page of what the database finds, `size` past the `from` best, by `by`: once
-    /// one of the searches of the database that may run at once is free, and
-    /// [`TextFound::OutOfTime`] if none is by then.
+    /// one of the searches of the database that may run at once is free, and late if
+    /// none is by then, if the pool gives no connection by then, or if the statement
+    /// does not end a moment before ([`STATEMENT_ENDS_BEFORE`]).
     ///
     /// Asked in a task of its own, which runs to its end however soon the request is
     /// given up (a browser drops the search of every word typed before the last):
@@ -62,11 +100,12 @@ impl Asking {
         from: i64,
         size: i64,
         by: Instant,
-    ) -> Result<TextFound, AppError> {
+    ) -> Result<Page, AppError> {
         let turn = Arc::clone(&search.database_searches);
         let Ok(Ok(turn)) = tokio::time::timeout_at(by.into(), turn.acquire_owned()).await else {
-            return Ok(TextFound::OutOfTime);
+            return Ok(Page::Late(Late::Turn));
         };
+        let statement_by = by.checked_sub(STATEMENT_ENDS_BEFORE).unwrap_or(by);
         let store = store.clone();
         let workspace_id = self.workspace_id.clone();
         let containers = self.containers.clone();
@@ -80,20 +119,23 @@ impl Asking {
                 kind,
                 words: &words,
             };
-            store.search_text(&search, from, size, by).await
+            store.search_text(&search, from, size, statement_by).await
         });
-        // Getting a connection is waited for within the time too. The task keeps its turn
-        // until it has one, and then asks for nothing but its transaction, which it ends.
+        // Getting a connection is waited for within the time too: a statement is stopped
+        // before it, so what has not answered by then has no connection yet. The task
+        // keeps its turn until it has one, and then asks for nothing but its
+        // transaction, which it ends.
         let Ok(page) = tokio::time::timeout_at(by.into(), page).await else {
-            return Ok(TextFound::OutOfTime);
+            return Ok(Page::Late(Late::Connection));
         };
         match page
             .map_err(|error| AppError::internal(format_args!("the search task failed: {error}")))?
         {
-            // A pool that gave no connection in its own time, shorter than the search's:
-            // as late as one that gives none in the search's.
-            Err(error) if error.is_pool_timeout() => Ok(TextFound::OutOfTime),
-            page => page.map_err(AppError::from),
+            Ok(TextFound::Ids(ids)) => Ok(Page::Ids(ids)),
+            Ok(TextFound::OutOfTime) => Ok(Page::Late(Late::Statement)),
+            // A pool that gave no connection in its own time, shorter than the search's.
+            Err(error) if error.is_pool_timeout() => Ok(Page::Late(Late::Connection)),
+            Err(error) => Err(AppError::from(error)),
         }
     }
 }
@@ -120,15 +162,15 @@ impl App {
         let mut found = Vec::new();
         let mut from = 0_i64;
         loop {
-            let TextFound::Ids(ids) = asking
+            let ids = match asking
                 .page(self.search(), self.store(), from, size, pages.by)
                 .await?
-            else {
-                tracing::warn!(
-                    words = words.len(),
-                    "a search of the database did not end in its time"
-                );
-                return Err(unavailable());
+            {
+                Page::Ids(ids) => ids,
+                Page::Late(late) => {
+                    tracing::warn!(words = words.len(), "{}", late.said());
+                    return Err(unavailable());
+                }
             };
             let more_may_match = ids.len() == pages.size;
             let kept = self.check_hits(check, ids, |id| id).await?;
@@ -159,5 +201,18 @@ mod tests {
             ["환불", "규정", "API"]
         );
         assert_eq!(words("   "), Vec::<String>::new());
+    }
+
+    #[test]
+    fn each_way_of_being_late_is_said_otherwise() {
+        let said = [Late::Turn, Late::Connection, Late::Statement].map(Late::said);
+        assert_eq!(
+            said[1],
+            "a search of the database got no connection in its time"
+        );
+        assert!(
+            said[0] != said[1] && said[1] != said[2] && said[0] != said[2],
+            "{said:?}"
+        );
     }
 }
