@@ -9,14 +9,55 @@
  * typed with the body before as a version. What could not be sent in time
  * (no connection) is dropped with the document the restore replaces, and
  * said lost as for any body written whole.
+ *
+ * A wiki's page has versions of its body as a card has: read the same way
+ * (`pageVersions`), with the wiki in place of the board.
  */
 import {
   isBackendError,
   type BoardStore,
   type BodyVersion,
   type BodyVersionContent,
+  type BodyVersions,
   type CardStore,
+  type PageStore,
 } from '$lib/state/index.ts';
+
+/** Whose versions a reading reads: one card's, or one page's. */
+export interface VersionsSource {
+  readonly workspace: BoardStore['workspace'];
+  readonly versions: BodyVersions;
+  /** The board, or the wiki. */
+  readonly ownerId: string;
+  /** The card, or the page. */
+  readonly itemId: string;
+  /** Sends what the reader typed to the room (`CardStore.settleBody`). */
+  settle(): Promise<void>;
+}
+
+/** The versions of a card's body. */
+export function cardVersions(board: BoardStore, card: CardStore): VersionsSource {
+  return {
+    workspace: board.workspace,
+    versions: board.workspace.backend.bodyVersions,
+    ownerId: board.boardId,
+    itemId: card.cardId,
+    settle: () => card.settleBody(),
+  };
+}
+
+/** The versions of a page's body, for a backend that has wikis. */
+export function pageVersions(page: PageStore): VersionsSource {
+  const wikis = page.wiki.workspace.backend.wiki;
+  if (!wikis) throw new Error('this backend has no wikis');
+  return {
+    workspace: page.wiki.workspace,
+    versions: wikis.bodyVersions,
+    ownerId: page.wiki.wikiId,
+    itemId: page.pageId,
+    settle: () => page.settleBody(),
+  };
+}
 
 /**
  * Why a version was not restored: the card has it no more (`gone`), it
@@ -38,26 +79,24 @@ export class VersionsReading {
   restoring = $state(false);
   refusal = $state<RestoreRefusal>();
 
-  readonly #board: BoardStore;
-  readonly #card: CardStore;
+  readonly #source: VersionsSource;
 
-  constructor(board: BoardStore, card: CardStore) {
-    this.#board = board;
-    this.#card = card;
+  constructor(source: VersionsSource) {
+    this.#source = source;
     void this.read();
   }
 
-  get #versions(): BoardStore['workspace']['backend']['bodyVersions'] {
-    return this.#board.workspace.backend.bodyVersions;
+  get #versions(): BodyVersions {
+    return this.#source.versions;
   }
 
   /** Reads the list (again). */
   async read(): Promise<void> {
     this.status = 'loading';
     try {
-      await this.#card.settleBody();
-      const list = await this.#versions.list(this.#board.boardId, this.#card.cardId);
-      await this.#board.workspace.learnUsers(list.flatMap((one) => one.editors));
+      await this.#source.settle();
+      const list = await this.#versions.list(this.#source.ownerId, this.#source.itemId);
+      await this.#source.workspace.learnUsers(list.flatMap((one) => one.editors));
       this.versions = list;
       this.status = 'ready';
     } catch {
@@ -77,8 +116,8 @@ export class VersionsReading {
     this.refusal = undefined;
     try {
       const content = await this.#versions.read(
-        this.#board.boardId,
-        this.#card.cardId,
+        this.#source.ownerId,
+        this.#source.itemId,
         version.version,
       );
       if (this.chosen !== version) return;
@@ -105,8 +144,8 @@ export class VersionsReading {
     this.restoring = true;
     this.refusal = undefined;
     try {
-      await this.#card.settleBody();
-      await this.#versions.restore(this.#board.boardId, this.#card.cardId, version.version);
+      await this.#source.settle();
+      await this.#versions.restore(this.#source.ownerId, this.#source.itemId, version.version);
       return true;
     } catch (error) {
       const status = statusOf(error);
