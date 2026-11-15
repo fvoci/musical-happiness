@@ -10,7 +10,7 @@ use fvoci_model::{OrgRole, User, Workspace, WorkspaceRole, new_id};
 
 use crate::Store;
 use crate::db::{Id, Scope, Sql, now_millis};
-use crate::error::StoreError;
+use crate::error::{StoreError, Taken};
 use crate::users::{self, InstanceRole};
 use crate::{signups, workspaces};
 
@@ -215,6 +215,45 @@ pub(crate) async fn insert_account(
     user.delete_at = 0;
     user.is_admin = role == InstanceRole::Administrator;
     users::insert_user_row(scope, user).await
+}
+
+/// Removes the registration that waits at `email`, the address the organization's
+/// provider vouches for as it signs somebody in, if it was made by a link of the
+/// organization: its name is free, and the use it took of the link given back.
+pub(crate) async fn discard_signup_at(
+    scope: &mut Scope<'_>,
+    email: &str,
+) -> Result<(), StoreError> {
+    if let Some(signup_id) = signups::discard_at_address(scope, email).await? {
+        tracing::info!(
+            signup_id,
+            org_id = scope.org_id(),
+            "a registration that waited went with a sign-in through the provider"
+        );
+    }
+    Ok(())
+}
+
+/// Makes way for the account of a person the organization's provider vouches for at
+/// `email`: the registration that waits at the address by a link of the organization
+/// goes, and the address is asked of the accounts once the names are held, where a
+/// registration confirmed a moment ago is one. The registration before the names, as
+/// its confirmation takes them.
+///
+/// # Errors
+///
+/// Returns [`StoreError::Conflict`] with [`Taken::Email`] if an account has the
+/// address as its own.
+pub(crate) async fn take_address_from_signup(
+    scope: &mut Scope<'_>,
+    email: &str,
+) -> Result<(), StoreError> {
+    discard_signup_at(scope, email).await?;
+    signups::claim_account_names(scope).await?;
+    if users::has_address(scope, email).await? {
+        return Err(StoreError::Conflict(Taken::Email));
+    }
+    Ok(())
 }
 
 /// Makes the user a member of the scope's organization in `role`, unless they are one,

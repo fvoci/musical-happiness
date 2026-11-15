@@ -13,9 +13,9 @@
    * organization it started (its tour), the board of a guest's link, or the
    * workspace. The token leaves the address and the history.
    */
-  async function complete(token: string): Promise<Confirmed> {
+  async function complete(token: string, password?: string): Promise<Confirmed> {
     const client = await verification;
-    const confirmed = await client.complete(token);
+    const confirmed = await client.complete(token, password);
     history.replaceState(null, '', location.pathname);
     let boardId = confirmed.boardId;
     if (confirmed.organizationStarted) {
@@ -37,10 +37,16 @@
     confirming = confirmFromAddress();
   }
 
+  /** Confirms again by the token in the address, with the registration's password. */
+  function onPassword(password: string): void {
+    const token = location.hash.slice(1);
+    confirming = token ? complete(token, password) : undefined;
+  }
+
   async function resend(email: string): Promise<void> {
     await (await verification).resend({ email }, getLocale());
   }
 </script>
 
 <svelte:window {onhashchange} />
-<VerifyEmailPage {confirming} homeHref={router.href({})} {resend} />
+<VerifyEmailPage {confirming} homeHref={router.href({})} {resend} {onPassword} />
