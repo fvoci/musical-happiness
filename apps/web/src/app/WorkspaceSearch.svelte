@@ -70,34 +70,49 @@
         enabled.turnOff();
         open = false;
       },
+      onRefused: (error) => {
+        workspace.report('load', error);
+      },
     });
     open = true;
   }
 
   /**
-   * ⌘K and Ctrl+K. Open, they go back to the field. Over a drawer, a sheet or
-   * another dialog they open nothing: going somewhere from the search would
-   * leave that open over the new page, and its entry of the history with it.
-   * A card is no such thing: the search opens over it.
+   * Whether a drawer, a sheet or a dialog other than a card's is open: all are
+   * modal (`aria-modal`), and those the back button closes say so too.
+   */
+  function otherOverlayOpen(): boolean {
+    return (
+      overlayOpen() ||
+      document.querySelector('[aria-modal="true"]:not([data-card-dialog])') !== null
+    );
+  }
+
+  /**
+   * ⌘K and Ctrl+K. Open, they go back to the field (held down, they do
+   * nothing more). Over a drawer, a sheet or another dialog they open
+   * nothing: going somewhere from the search would leave that open over the
+   * new page, and its entry of the history with it. A card is no such thing:
+   * the search opens over it.
    */
   function onkeydown(event: KeyboardEvent): void {
     if (!enabled.on || !opensSearch(event)) return;
     if (open) {
       event.preventDefault();
-      dialog?.focusField();
+      if (!event.repeat) dialog?.focusField();
       return;
     }
-    if (overlayOpen() || !workspace.info?.id) return;
+    if (event.repeat || otherOverlayOpen() || !workspace.info?.id) return;
     event.preventDefault();
     openSearch();
   }
 
   /** The route of a card: over the view shown where its board is shown, else over any. */
   function cardRoute(hit: SearchHit): Partial<Route> {
-    const { workspaceId, boardId, viewId } = router.route;
+    const { boardId, viewId } = router.route;
     const here = boardId === hit.containerId && viewId !== undefined && viewId !== ANY_VIEW;
     return {
-      workspaceId,
+      workspaceId: workspace.info?.id,
       boardId: hit.containerId,
       viewId: here ? viewId : ANY_VIEW,
       cardId: hit.id,
@@ -106,7 +121,7 @@
 
   function hrefOf(hit: SearchHit): string {
     if (hit.kind === 'card') return router.href(cardRoute(hit));
-    const parts = ['w', router.route.workspaceId ?? '', 'wikis', hit.containerId, hit.id];
+    const parts = ['w', workspace.info?.id ?? '', 'wikis', hit.containerId, hit.id];
     return buildUrl(`/${parts.map(encodeURIComponent).join('/')}`, router.basePath);
   }
 
@@ -131,7 +146,7 @@
     } else if (route.viewId !== ANY_VIEW) {
       router.openCard(hit.id);
     } else {
-      router.openBoard({ id: hit.containerId, workspaceId: router.route.workspaceId ?? '' });
+      router.openBoard({ id: hit.containerId, workspaceId: workspace.info?.id ?? '' });
       router.go(route, { replace: true });
     }
   }

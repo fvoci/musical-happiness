@@ -8,8 +8,9 @@
  * dropped, and so is everything that arrives after the session is closed.
  *
  * Told to wait (429), it says so and asks once more when the server said it
- * may; a search server that does not answer (503) is said so, with the way
- * to try again. A server that has no search server (404
+ * may; told again, it says so with the way to try again, as for a search
+ * server that does not answer (503). A session that ended (401) is passed on
+ * (`onRefused`) as well as said. A server that has no search server (404
  * `search_not_configured`) had its settings changed: the session ends, and
  * whoever opened it is told (`onGone`).
  */
@@ -39,6 +40,8 @@ export type SearchStatus =
   | 'none'
   /** Too many searches: it tries again in a moment. */
   | 'limited'
+  /** Too many searches still, after trying again once: the reader tries again. */
+  | 'stillLimited'
   /** The search server does not answer. */
   | 'unavailable'
   /** Anything else went wrong. */
@@ -49,6 +52,8 @@ export interface SearchSessionOptions {
   find: (ask: SearchAsk) => Promise<SearchHit[]>;
   /** The server has no search server any more. */
   onGone: () => void;
+  /** A refusal that is not the search's alone (a session that ended), for the page to tell. */
+  onRefused?: (error: unknown) => void;
 }
 
 export class SearchSession {
@@ -64,6 +69,8 @@ export class SearchSession {
   #turn = 0;
   #timer: ReturnType<typeof setTimeout> | undefined;
   #closed = false;
+  /** Who waits for the answer to the request of `#turn` (`answered`). */
+  #waiting: ((hits: SearchHit[] | undefined) => void)[] = [];
 
   constructor(options: SearchSessionOptions) {
     this.#options = options;
@@ -91,6 +98,24 @@ export class SearchSession {
     this.#closed = true;
     this.#turn += 1;
     clearTimeout(this.#timer);
+    this.#settle(undefined);
+  }
+
+  /**
+   * What the search for the words in the field finds, once it answers: the
+   * hits shown now where there is no search on its way. Nothing (`undefined`)
+   * where the words change before it answers, it is refused, or the session
+   * closes: what was waited for is no more.
+   */
+  answered(): Promise<SearchHit[] | undefined> {
+    if (this.status !== 'searching') return Promise.resolve(this.hits);
+    return new Promise((resolve) => {
+      this.#waiting.push(resolve);
+    });
+  }
+
+  #settle(hits: SearchHit[] | undefined): void {
+    for (const resolve of this.#waiting.splice(0)) resolve(hits);
   }
 
   /**
@@ -101,6 +126,7 @@ export class SearchSession {
     if (this.#closed) return;
     clearTimeout(this.#timer);
     const turn = (this.#turn += 1);
+    if (again) this.#settle(undefined);
     if (this.query.trim() === '') {
       this.status = 'empty';
       this.hits = [];
@@ -117,8 +143,10 @@ export class SearchSession {
       if (turn !== this.#turn) return;
       this.hits = hits;
       this.status = hits.length > 0 ? 'found' : 'none';
+      this.#settle(hits);
     } catch (error) {
       if (turn !== this.#turn) return;
+      this.#settle(undefined);
       this.#refused(error, again);
     }
   }
@@ -134,12 +162,13 @@ export class SearchSession {
       return;
     }
     if (error.status === 429) {
-      this.status = 'limited';
+      this.status = again ? 'limited' : 'stillLimited';
       if (!again) return;
       const seconds = Math.min(LONGEST_WAIT, Math.max(DEFAULT_WAIT, error.retryAfter ?? 0));
       this.#schedule(seconds * 1000, false);
       return;
     }
     this.status = error.status === 503 ? 'unavailable' : 'failed';
+    if (error.status === 401) this.#options.onRefused?.(error);
   }
 }

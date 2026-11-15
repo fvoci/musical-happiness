@@ -8,7 +8,16 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { ON_A_CARD, ON_A_VIEW, placeOf } from './address.ts';
-import { openApp, showSidebar, sidebar, strip, topBar } from './shell.support.ts';
+import {
+  boardMenu,
+  chooseFromMenu,
+  openApp,
+  showSidebar,
+  sidebar,
+  stageOf,
+  strip,
+  topBar,
+} from './shell.support.ts';
 
 /** What the page's development handle offers this test (src/app/backend.ts). Only what is used. */
 interface Dev {
@@ -79,13 +88,19 @@ async function refuseNext(page: Page, status: number, extra: object = {}): Promi
   );
 }
 
+/** Opens the app, once its search is known to be there (the button shows it). */
+async function openWithSearch(page: Page): Promise<void> {
+  await openApp(page);
+  await expect(topBar(page).getByTestId('open-search')).toBeVisible();
+}
+
 async function search(page: Page, words: string): Promise<void> {
   await field(page).fill(words);
 }
 
 test.describe('the search of cards and pages', () => {
   test('⌘K and Ctrl+K open it, Escape closes it and the focus goes back', async ({ page }) => {
-    await openApp(page);
+    await openWithSearch(page);
     const open = topBar(page).getByTestId('open-search');
     await expect(open).toBeVisible();
     for (const keys of ['Meta+k', 'Control+k']) {
@@ -108,7 +123,7 @@ test.describe('the search of cards and pages', () => {
   test('finds a card by a word of its body and opens it, by the keyboard alone', async ({
     page,
   }) => {
-    await openApp(page);
+    await openWithSearch(page);
     const cardId = await cardWith(page, 'Quarterly review', 'The zephyrquokka migration is due');
     await page.keyboard.press('Control+k');
     await search(page, 'zephyrquokka');
@@ -132,7 +147,7 @@ test.describe('the search of cards and pages', () => {
   });
 
   test('the arrows choose among what was found, around the ends', async ({ page }) => {
-    await openApp(page);
+    await openWithSearch(page);
     await cardWith(page, 'First cassowary', 'one');
     await cardWith(page, 'Second cassowary', 'two');
     await page.keyboard.press('Control+k');
@@ -149,7 +164,7 @@ test.describe('the search of cards and pages', () => {
   });
 
   test('finds one kind at a time', async ({ page }) => {
-    await openApp(page);
+    await openWithSearch(page);
     await cardWith(page, 'Platypus plan', 'a body');
     await page.keyboard.press('Control+k');
     await search(page, 'platypus');
@@ -165,7 +180,7 @@ test.describe('the search of cards and pages', () => {
   test('an earlier answer that comes late does not take the place of the last one', async ({
     page,
   }) => {
-    await openApp(page);
+    await openWithSearch(page);
     await cardWith(page, 'Ocelot one', 'first');
     await cardWith(page, 'Ocelot two', 'second');
     // Each search waits until the test lets it answer, in the order the test chooses.
@@ -202,7 +217,7 @@ test.describe('the search of cards and pages', () => {
   test('a card gone to from another card takes its place: closing it shows the board', async ({
     page,
   }) => {
-    await openApp(page);
+    await openWithSearch(page);
     await cardWith(page, 'Heron first', 'egret one');
     await cardWith(page, 'Heron second', 'egret two');
     await goTo(page, 'egret one', 'Heron first');
@@ -218,7 +233,7 @@ test.describe('the search of cards and pages', () => {
   test('a card of another board opens over that board, and closing it leaves the board', async ({
     page,
   }) => {
-    await openApp(page);
+    await openWithSearch(page);
     await cardWith(page, 'Lemur here', 'tamarin near');
     const there = await cardWith(page, 'Lemur there', 'tamarin far', 'Roadmap');
     await goTo(page, 'tamarin near', 'Lemur here');
@@ -235,7 +250,7 @@ test.describe('the search of cards and pages', () => {
   });
 
   test('the keys open nothing over a drawer or another dialog', async ({ page }) => {
-    await openApp(page);
+    await openWithSearch(page);
     if (await strip(page).isVisible()) {
       await strip(page).getByTestId('strip-open-settings').click();
     } else {
@@ -248,26 +263,51 @@ test.describe('the search of cards and pages', () => {
     await expect(page.getByTestId('settings-dialog')).toBeVisible();
   });
 
-  test('Enter while newer words are being searched for goes nowhere', async ({ page }) => {
-    await openApp(page);
-    await cardWith(page, 'Gecko', 'iguana');
+  test('Enter while newer words are searched for goes to what they find, not to the older list', async ({
+    page,
+  }) => {
+    await openWithSearch(page);
+    await cardWith(page, 'Gecko older', 'iguana');
+    await cardWith(page, 'Gecko newer', 'iguana basilisk');
     await page.keyboard.press('Control+k');
     await search(page, 'iguana');
-    await expect(hits(page)).toHaveCount(1);
-    // The next search does not answer until the test lets it.
+    await expect(hits(page)).toHaveCount(2);
+    // The next search answers when the test lets it.
     await page.evaluate(() => {
       const { backend } = (window as unknown as { fvociDev: Dev }).fvociDev;
-      backend.search.find = () => new Promise(() => undefined);
+      const find = backend.search.find.bind(backend.search);
+      backend.search.find = (workspaceId, ask) =>
+        new Promise((resolve, reject) => {
+          Object.assign(window, {
+            letSearchAnswer: () => find(workspaceId, ask).then(resolve, reject),
+          });
+        });
     });
-    await search(page, 'iguana gecko');
+    await search(page, 'iguana basilisk');
     await expect(dialog(page)).toHaveAttribute('data-status', 'searching');
+    await expect.poll(() => page.evaluate(() => 'letSearchAnswer' in window)).toBe(true);
     await page.keyboard.press('Enter');
     await expect(dialog(page)).toBeVisible();
     await expect(page.getByTestId('card-dialog')).toHaveCount(0);
+    await page.evaluate(async () => {
+      await (window as unknown as { letSearchAnswer: () => Promise<void> }).letSearchAnswer();
+    });
+    await expect(dialog(page)).toHaveCount(0);
+    await expect(page.getByTestId('card-dialog')).toContainText('Gecko newer');
+  });
+
+  test('the keys open nothing over a confirmation', async ({ page }) => {
+    await openWithSearch(page);
+    test.skip((await stageOf(page)) !== 'expanded', 'a sidebar beside the board, no drawer');
+    await chooseFromMenu(page, boardMenu(page, 'Meeting Agenda'), 'delete');
+    await expect(page.getByTestId('confirm-dialog')).toBeVisible();
+    await page.keyboard.press('Control+k');
+    await expect(dialog(page)).toHaveCount(0);
+    await expect(page.getByTestId('confirm-dialog')).toBeVisible();
   });
 
   test('what a body says is shown as text, the matched words marked', async ({ page }) => {
-    await openApp(page);
+    await openWithSearch(page);
     await cardWith(page, 'Markup', 'before <script>alert(1)</script> wombat <b>after</b>');
     await page.keyboard.press('Control+k');
     await search(page, 'wombat');
@@ -278,7 +318,7 @@ test.describe('the search of cards and pages', () => {
   });
 
   test('each state of the search says what it is', async ({ page }) => {
-    await openApp(page);
+    await openWithSearch(page);
     await cardWith(page, 'Narwhal notes', 'body');
     await page.keyboard.press('Control+k');
     // Not available: said, with a way to try again.
@@ -304,7 +344,7 @@ test.describe('the search of cards and pages', () => {
   test('a server that no longer has a search server closes it, and the button goes', async ({
     page,
   }) => {
-    await openApp(page);
+    await openWithSearch(page);
     await page.keyboard.press('Control+k');
     await page.evaluate(() => {
       (window as unknown as { fvociDev: Dev }).fvociDev.backend.world.searchEnabled = false;
@@ -327,13 +367,13 @@ test.describe('the search of cards and pages', () => {
 
   test('390 pixels wide, the button is there and the dialog fills the screen', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
-    await openApp(page);
+    await openWithSearch(page);
     await cardWith(page, 'Axolotl', 'small screens');
     await topBar(page).getByTestId('open-search').click();
     await expect(dialog(page)).toHaveAttribute('data-compact', 'true');
-    const box = await dialog(page).boundingBox();
-    expect(box?.width).toBe(390);
-    expect(box?.x).toBe(0);
+    // Once it has opened: it zooms in from a little smaller.
+    await expect.poll(async () => (await dialog(page).boundingBox())?.width).toBe(390);
+    expect((await dialog(page).boundingBox())?.x).toBe(0);
     await search(page, 'axolotl');
     await hits(page).first().click();
     await expect(page.getByTestId('card-dialog')).toBeVisible();

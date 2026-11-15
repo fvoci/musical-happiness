@@ -1213,6 +1213,7 @@
   "search_found": "Found: {count}",
   "search_none": "Nothing found.",
   "search_limited": "Too many searches at once. Searching again in a moment.",
+  "search_still_limited": "Still too many searches. Try again in a moment.",
   "search_unavailable": "Search is not available right now.",
   "search_failed": "Could not search.",
   "search_hit_card": "Card:",

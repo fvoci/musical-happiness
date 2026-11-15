@@ -1213,6 +1213,7 @@
   "search_found": "찾은 것 {count}개",
   "search_none": "찾은 것이 없습니다.",
   "search_limited": "검색이 너무 잦습니다. 잠시 뒤 다시 찾습니다.",
+  "search_still_limited": "검색이 아직 너무 잦습니다. 잠시 뒤 다시 시도하세요.",
   "search_unavailable": "지금 검색을 쓸 수 없습니다.",
   "search_failed": "검색하지 못했습니다.",
   "search_hit_card": "카드:",

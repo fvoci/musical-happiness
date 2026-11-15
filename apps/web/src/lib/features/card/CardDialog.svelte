@@ -146,6 +146,7 @@
     bind:ref={content}
     showCloseButton={false}
     data-testid="card-dialog"
+    data-card-dialog
     data-frame={frame}
     class={['@container/card flex flex-col gap-0 overflow-hidden p-0', FRAME_CLASS[frame]]}
     onOpenAutoFocus={focusOnOpen}

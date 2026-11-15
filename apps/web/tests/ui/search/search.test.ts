@@ -120,11 +120,14 @@ describe('a search session', () => {
     expect(asked).toHaveLength(1);
     await vi.advanceTimersByTimeAsync(1);
     expect(asked).toHaveLength(2);
-    // Told again: it says so, and waits for the reader.
+    // Told again: it says so, and waits for the reader to try again.
     asked[1]?.refuse(new BackendError(429, { retryAfter: 1 }));
     await vi.runAllTimersAsync();
-    expect(search.status).toBe('limited');
+    expect(search.status).toBe('stillLimited');
     expect(asked).toHaveLength(2);
+    search.retry();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(asked).toHaveLength(3);
   });
 
   it('typing while it waits to ask again asks for the new words instead', async () => {
@@ -164,6 +167,44 @@ describe('a search session', () => {
     expect(asked).toHaveLength(1);
   });
 
+  it('gives what the words in the field find to who waits for it, and nothing for words changed', async () => {
+    const { session: search, asked } = session();
+    search.type('one');
+    const forOne = search.answered();
+    search.type('two');
+    const forTwo = search.answered();
+    await vi.advanceTimersByTimeAsync(TYPING_PAUSE);
+    asked[0]?.answer([hit('two')]);
+    expect(await forOne).toBeUndefined();
+    expect(await forTwo).toEqual([hit('two')]);
+    // Found already: what is shown.
+    expect(await search.answered()).toEqual([hit('two')]);
+    search.type('three');
+    const forThree = search.answered();
+    search.close();
+    expect(await forThree).toBeUndefined();
+  });
+
+  it('passes a session that ended on to the page', async () => {
+    const refused = vi.fn();
+    const asked: Asked[] = [];
+    const search = new SearchSession({
+      find: (ask) =>
+        new Promise((resolve, reject) => {
+          asked.push({ ask, answer: resolve, refuse: reject });
+        }),
+      onGone: () => undefined,
+      onRefused: refused,
+    });
+    search.type('word');
+    await vi.advanceTimersByTimeAsync(TYPING_PAUSE);
+    const ended = new BackendError(401, {});
+    asked[0]?.refuse(ended);
+    await vi.runAllTimersAsync();
+    expect(search.status).toBe('failed');
+    expect(refused).toHaveBeenCalledWith(ended);
+  });
+
   it('fails other refusals, and what is no refusal', async () => {
     const { session: search, asked } = session();
     search.type('word');
@@ -198,6 +239,10 @@ describe('the keys of the search', () => {
     expect(opensSearch(press({ key: 't', code: 'KeyK', ctrlKey: true }))).toBe(false);
   });
 
+  it('takes a held key, for whoever listens to take its repeats', () => {
+    expect(opensSearch(press({ key: 'k', code: 'KeyK', metaKey: true, repeat: true }))).toBe(true);
+  });
+
   it('leaves a press something took already, or one of an input method', () => {
     const taken = press({ key: 'k', code: 'KeyK', metaKey: true, cancelable: true });
     taken.preventDefault();
@@ -205,6 +250,8 @@ describe('the keys of the search', () => {
     expect(opensSearch(press({ key: 'k', code: 'KeyK', metaKey: true, isComposing: true }))).toBe(
       false,
     );
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- the only mark Safari leaves
+    expect(opensSearch(press({ key: 'k', code: 'KeyK', metaKey: true, keyCode: 229 }))).toBe(false);
   });
 
   it('moves in the list, and goes, but not while letters are put together', () => {

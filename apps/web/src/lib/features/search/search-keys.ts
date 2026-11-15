@@ -5,23 +5,19 @@
  *
  * A press something under it already took (`defaultPrevented`: an editor
  * whose own ⌘K makes a link of what is chosen) is left to it, and so is one
- * while letters are being put together by an input method.
+ * while letters are being put together by an input method (`isComposing`).
  */
 import { isComposing } from '$lib/components/keys.ts';
-
-type KeyPress = Pick<
-  KeyboardEvent,
-  'key' | 'code' | 'ctrlKey' | 'metaKey' | 'shiftKey' | 'altKey' | 'defaultPrevented'
-> &
-  Partial<Pick<KeyboardEvent, 'isComposing' | 'repeat'>>;
 
 /**
  * Whether a key press opens the search. By the letter the key gives; a key
  * that gives a letter of another script (a Korean layout gives ㅏ) by where
- * it is, the K of a Latin keyboard.
+ * it is, the K of a Latin keyboard. A key held down asks again: the one who
+ * listens takes the repeats too while the search is open, or the browser's
+ * own Ctrl+K gets them.
  */
-export function opensSearch(event: KeyPress): boolean {
-  if (event.defaultPrevented || event.isComposing === true || event.repeat === true) return false;
+export function opensSearch(event: KeyboardEvent): boolean {
+  if (event.defaultPrevented || isComposing(event)) return false;
   if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return false;
   const key = event.key.toLowerCase();
   if (key === 'k') return true;

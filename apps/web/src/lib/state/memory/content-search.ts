@@ -9,6 +9,10 @@
  * and no card that is a template of its board. The snippet is one piece of
  * the body around the first word it holds, about as long as the server's,
  * every word in it marked; of a body that holds none, its beginning.
+ *
+ * A body is read as its room has it, written into the card first
+ * (`bodyFlushed`): the words just typed are found at once. The server finds
+ * them once it has written the body and sent it to its search server.
  */
 import { plainText } from '../../editor/schema.ts';
 import { BackendError, problemOf } from '../backend.ts';

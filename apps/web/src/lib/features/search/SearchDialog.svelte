@@ -13,6 +13,7 @@
 <script lang="ts">
   import RotateCwIcon from '@lucide/svelte/icons/rotate-cw';
   import SearchIcon from '@lucide/svelte/icons/search';
+  import XIcon from '@lucide/svelte/icons/x';
 
   import { arrowChoice } from '$lib/components/arrow-choice.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
@@ -23,7 +24,7 @@
   import * as Dialog from '$lib/ui/dialog/index.js';
 
   import { listMove } from './search-keys.ts';
-  import type { SearchSession } from './search-session.svelte.ts';
+  import type { SearchSession, SearchStatus } from './search-session.svelte.ts';
   import SearchHitRow from './SearchHitRow.svelte';
 
   interface Props {
@@ -82,6 +83,8 @@
         return m.search_none();
       case 'limited':
         return m.search_limited();
+      case 'stillLimited':
+        return m.search_still_limited();
       case 'unavailable':
         return m.search_unavailable();
       case 'failed':
@@ -116,12 +119,25 @@
     field?.select();
   }
 
+  /** The states that end in what went wrong and the way to try again. */
+  const RETRIED: SearchStatus[] = ['unavailable', 'failed', 'stillLimited'];
+
   /**
    * The keys of the list act on what the words in the field found: not while
    * a search for newer words is on its way, whose list is still the last one.
+   * Enter pressed then goes to the first of what those words find, once they
+   * are found (a new tab cannot be opened after a wait: a browser blocks it).
    */
   function onkeydown(event: KeyboardEvent): void {
     const move = listMove(event);
+    if (move === 'go' && session.status === 'searching') {
+      event.preventDefault();
+      void session.answered().then((found) => {
+        const first = found?.[0];
+        if (first && open) go(first);
+      });
+      return;
+    }
     if (move === undefined || session.status !== 'found' || hits.length === 0) return;
     event.preventDefault();
     const hit = hits[activeIndex];
@@ -138,11 +154,11 @@
     data-testid="search-dialog"
     data-status={session.status}
     data-compact={compact}
-    showCloseButton={compact}
+    showCloseButton={false}
     class={[
       'flex flex-col gap-3 p-3',
       compact
-        ? 'inset-0 h-dvh max-w-none translate-x-0 translate-y-0 rounded-none pt-[calc(var(--safe-top)+0.75rem)] pr-[calc(var(--safe-right)+0.75rem)] pb-(--safe-bottom) pl-[calc(var(--safe-left)+0.75rem)] ring-0'
+        ? 'inset-0 h-[calc(100dvh-var(--keyboard))] max-w-none translate-x-0 translate-y-0 rounded-none pt-[calc(var(--safe-top)+0.75rem)] pr-[calc(var(--safe-right)+0.75rem)] pb-(--safe-bottom) pl-[calc(var(--safe-left)+0.75rem)] ring-0'
         : 'top-[12dvh] max-h-[76dvh] translate-y-0 sm:max-w-xl',
     ]}
     onOpenAutoFocus={(event: Event) => {
@@ -156,6 +172,22 @@
     }}
   >
     <Dialog.Title class="sr-only">{m.search_title()}</Dialog.Title>
+    {#if compact}
+      <!-- Inside the edges the device keeps, as the field is. -->
+      <Dialog.Close>
+        {#snippet child({ props })}
+          <Button
+            variant="ghost"
+            size="icon"
+            class="absolute top-[calc(var(--safe-top)+0.75rem)] right-[calc(var(--safe-right)+0.5rem)] roomy:size-touch"
+            {...props}
+          >
+            <XIcon aria-hidden="true" />
+            <span class="sr-only">{m.ui_close()}</span>
+          </Button>
+        {/snippet}
+      </Dialog.Close>
+    {/if}
     <Dialog.Description class="sr-only">{m.search_description()}</Dialog.Description>
 
     <div class={['relative', compact && 'pr-10']}>
@@ -247,11 +279,9 @@
         <p class="px-2 py-3 text-muted-foreground" aria-hidden="true">{m.search_none()}</p>
       {:else if session.status === 'limited'}
         <p class="px-2 py-3 text-muted-foreground" aria-hidden="true">{m.search_limited()}</p>
-      {:else if session.status === 'unavailable' || session.status === 'failed'}
+      {:else if RETRIED.includes(session.status)}
         <div class="grid justify-items-center gap-2 px-2 py-4 text-center">
-          <p aria-hidden="true">
-            {session.status === 'unavailable' ? m.search_unavailable() : m.search_failed()}
-          </p>
+          <p aria-hidden="true">{said}</p>
           <Button
             variant="outline"
             class="roomy:min-h-touch"

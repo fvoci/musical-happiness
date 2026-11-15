@@ -458,6 +458,15 @@ async fn a_card_that_becomes_a_template_or_stops_being_one_is_noted() {
         [(SearchTarget::Block, card.id.clone())],
         "a template became a card"
     );
+    settle_all(store).await;
+    patch(store, &card.id, &flag(json!(true)), &user_id).await;
+    settle_all(store).await;
+    patch(store, &card.id, &flag(json!(false)), &user_id).await;
+    assert_eq!(
+        listed(store).await,
+        [(SearchTarget::Block, card.id.clone())],
+        "a template that says it is none became a card"
+    );
     test.teardown().await;
 }
 

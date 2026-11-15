@@ -94,6 +94,8 @@ test('a card is found by a word of its body and opened; what the reader cannot r
 
   await page.goto('/');
   await signInOnPage(page, owner);
+  // The keys open the search once the server is known to have one: the button says so.
+  await expect(page.getByTestId('open-search')).toBeVisible();
   await page.keyboard.press('Control+k');
   await page.getByTestId('search-field').fill(word);
   await expect(dialog(page)).toHaveAttribute('data-status', 'found');
