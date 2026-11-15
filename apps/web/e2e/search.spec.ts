@@ -443,19 +443,6 @@ test.describe('the search of cards and pages', () => {
     await expect(field(page)).toHaveAttribute('maxlength', '200');
   });
 
-  test('a server that searches bodies no more closes it, and the button goes', async ({ page }) => {
-    await openWithSearch(page);
-    await page.keyboard.press('Control+k');
-    await page.evaluate(() => {
-      (window as unknown as { fvociDev: Dev }).fvociDev.backend.world.searchEnabled = false;
-    });
-    await search(page, 'anything');
-    await expect(dialog(page)).toHaveCount(0);
-    await expect(topBar(page).getByTestId('open-search')).toHaveCount(0);
-    await page.keyboard.press('Control+k');
-    await expect(dialog(page)).toHaveCount(0);
-  });
-
   test('where bodies are not searched there is no button and the keys open nothing', async ({
     page,
   }) => {

@@ -10,7 +10,8 @@
 //! time is stopped in the database and answered with a 503.
 
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Instant;
 
 use fvoci_model::{SearchHit, SearchKind};
 use fvoci_store::{Store, TextFound, TextSearch};
@@ -27,11 +28,6 @@ use crate::error::AppError;
 /// after another, and what comes back is checked the same.
 pub(super) const MAX_BOUND_CONTAINERS: usize = 10_000;
 
-/// How long before the time of a page its statement is stopped: what has not answered
-/// by the time of the page is then still waiting for its connection, and is told
-/// apart in the log.
-const STATEMENT_ENDS_BEFORE: Duration = Duration::from_millis(100);
-
 /// Why a page of a search in the database was not answered in its time. The answer is
 /// a 503 all the same; the log tells them apart.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -45,6 +41,16 @@ enum Late {
 }
 
 impl Late {
+    /// What a page late in the database was late for: its statement once it was sent
+    /// with time left ([`TextSearch::begun`]), and its connection before.
+    fn after(begun: &AtomicBool) -> Self {
+        if begun.load(Ordering::Acquire) {
+            Self::Statement
+        } else {
+            Self::Connection
+        }
+    }
+
     /// What the log says of it.
     const fn said(self) -> &'static str {
         match self {
@@ -87,7 +93,7 @@ impl Asking {
     /// A page of what the database finds, `size` past the `from` best, by `by`: once
     /// one of the searches of the database that may run at once is free, and late if
     /// none is by then, if the pool gives no connection by then, or if the statement
-    /// does not end a moment before ([`STATEMENT_ENDS_BEFORE`]).
+    /// does not end by then.
     ///
     /// Asked in a task of its own, which runs to its end however soon the request is
     /// given up (a browser drops the search of every word typed before the last):
@@ -105,7 +111,8 @@ impl Asking {
         let Ok(Ok(turn)) = tokio::time::timeout_at(by.into(), turn.acquire_owned()).await else {
             return Ok(Page::Late(Late::Turn));
         };
-        let statement_by = by.checked_sub(STATEMENT_ENDS_BEFORE).unwrap_or(by);
+        let begun = Arc::new(AtomicBool::new(false));
+        let sent = Arc::clone(&begun);
         let store = store.clone();
         let workspace_id = self.workspace_id.clone();
         let containers = self.containers.clone();
@@ -118,21 +125,21 @@ impl Asking {
                 containers: containers.as_deref(),
                 kind,
                 words: &words,
+                begun: &sent,
             };
-            store.search_text(&search, from, size, statement_by).await
+            store.search_text(&search, from, size, by).await
         });
-        // Getting a connection is waited for within the time too: a statement is stopped
-        // before it, so what has not answered by then has no connection yet. The task
-        // keeps its turn until it has one, and then asks for nothing but its
-        // transaction, which it ends.
+        let late = || Late::after(&begun);
+        // Getting a connection is waited for within the time too. The task keeps its turn
+        // until it has one, and then asks for nothing but its transaction, which it ends.
         let Ok(page) = tokio::time::timeout_at(by.into(), page).await else {
-            return Ok(Page::Late(Late::Connection));
+            return Ok(Page::Late(late()));
         };
         match page
             .map_err(|error| AppError::internal(format_args!("the search task failed: {error}")))?
         {
             Ok(TextFound::Ids(ids)) => Ok(Page::Ids(ids)),
-            Ok(TextFound::OutOfTime) => Ok(Page::Late(Late::Statement)),
+            Ok(TextFound::OutOfTime) => Ok(Page::Late(late())),
             // A pool that gave no connection in its own time, shorter than the search's.
             Err(error) if error.is_pool_timeout() => Ok(Page::Late(Late::Connection)),
             Err(error) => Err(AppError::from(error)),
@@ -201,6 +208,12 @@ mod tests {
             ["환불", "규정", "API"]
         );
         assert_eq!(words("   "), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_page_is_late_for_its_statement_once_it_was_sent_and_for_its_connection_before() {
+        assert_eq!(Late::after(&AtomicBool::new(true)), Late::Statement);
+        assert_eq!(Late::after(&AtomicBool::new(false)), Late::Connection);
     }
 
     #[test]

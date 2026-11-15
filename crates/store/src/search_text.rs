@@ -9,6 +9,7 @@
 //! the caller checks each against what the user reads, as it checks what a search
 //! server answers.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
 use fvoci_model::SearchKind;
@@ -29,6 +30,9 @@ pub struct TextSearch<'a> {
     pub kind: Option<SearchKind>,
     /// The words, none empty: each is in the title or the body of what is found.
     pub words: &'a [String],
+    /// Set once the statement is sent with time left: a search late after that was
+    /// late in the database, and one late before it, for a connection.
+    pub begun: &'a AtomicBool,
 }
 
 /// What came of a search by the letters.
@@ -107,6 +111,9 @@ impl Store {
         };
         self.with_conn(async |scope| {
             let sql = statement(scope, &search, offset, limit);
+            if Instant::now() < by {
+                search.begun.store(true, Ordering::Release);
+            }
             let Some(rows) = scope.fetch_all_by(sql, by).await? else {
                 return Ok(TextFound::OutOfTime);
             };

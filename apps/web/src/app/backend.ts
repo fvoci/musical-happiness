@@ -126,7 +126,7 @@ async function startMemory(): Promise<StartedBackend> {
   const { world, readerId } = seedWorld(await loadTemplates());
   // The tabs of this browser edit their bodies together, as through one server.
   world.shareRooms = 'fvoci:memory-rooms';
-  // `?search=0` is a server whose search server cannot hold its index: no search of the bodies.
+  // `?search=0` is a client configuration that says bodies are not searched: no search box.
   world.searchEnabled = new URLSearchParams(location.search).get('search') !== '0';
   const backend = new MemoryBackend(world, readerId);
   // Long enough to see that a change shows before it is answered.
