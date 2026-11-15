@@ -772,5 +772,39 @@ async fn a_patch_that_names_a_kind_is_refused() {
             .await
             .check_done();
     }
+    // Who does not see the board is told it is not there, whatever the patch names.
+    let unseen = client
+        .post(&format!("{ROOT_WS}/boards"), &json!({"type": "P"}))
+        .await;
+    unseen.check_done();
+    let unseen = format!("{ROOT_WS}/boards/{}", text(&unseen.value(), "id"));
+    let (with_kind, without) = (
+        world
+            .ts
+            .client2
+            .patch(&unseen, &json!({"kind": "wiki"}))
+            .await,
+        world
+            .ts
+            .client2
+            .patch(&unseen, &json!({"title": "x"}))
+            .await,
+    );
+    with_kind.check_not_found();
+    assert_eq!(with_kind.problem(), without.problem());
+    // Nor is a kind changed with blocks.
+    let together = client
+        .patch(
+            &format!("{ROOT_WS}/boards-and-blocks"),
+            &json!({
+                "boardIds": [board.container],
+                "boardPatches": [{"kind": "wiki"}],
+                "blockIds": [],
+                "blockPatches": [],
+            }),
+        )
+        .await;
+    together.check_bad_request();
+    assert_eq!(together.refused_at(), "/boardPatches/0/kind");
     world.ts.teardown().await;
 }

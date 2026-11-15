@@ -186,7 +186,8 @@ fn new_block_problem(block: &Block, board_ids: &HashSet<&str>) -> Option<(&'stat
 /// Applies a patch to each of several boards of one workspace and to blocks of those
 /// boards, all or none. The request names at least one board, and every block it names
 /// is on one of its boards: blocks alone are not changed this way. Each board needs
-/// what `patchBoard` needs, each block what `patchBlock` needs.
+/// what `patchBoard` needs, each block what `patchBlock` needs; a board's patch that
+/// names a `kind` is 400 at `/boardPatches/{index}/kind`.
 #[utoipa::path(
     patch,
     path = "/w/{workspaceId}/boards-and-blocks",
@@ -206,9 +207,16 @@ async fn handle_patch_boards_and_blocks(ws: Ws, body: Bytes) -> ApiResult {
     // original, not while decoding.
     let (mut patches, (invalid_members, changes)): (PatchBoardsAndBlocks, _) =
         decode_object_with(&body, |body| {
-            let invalid: Vec<Option<InvalidBoardMember>> = objects_mut(body, "boardPatches")
-                .map(|patch| patch.and_then(take_invalid_patch_members))
-                .collect();
+            let invalid: Vec<(Option<InvalidBoardMember>, bool)> =
+                objects_mut(body, "boardPatches")
+                    .map(|patch| match patch {
+                        Some(patch) => (
+                            take_invalid_patch_members(patch),
+                            patch.contains_key("kind"),
+                        ),
+                        None => (None, false),
+                    })
+                    .collect();
             (
                 invalid,
                 take_patch_bodies(objects_mut(body, "blockPatches"), Some(PATCHES)),
@@ -227,7 +235,8 @@ async fn handle_patch_boards_and_blocks(ws: Ws, body: Bytes) -> ApiResult {
     {
         board_ids.insert(board_id.as_str());
 
-        if let Some(invalid) = invalid_members.get(index).copied().flatten() {
+        let (invalid, names_a_kind) = invalid_members.get(index).copied().unwrap_or_default();
+        if let Some(invalid) = invalid {
             return Err(invalid.into_error());
         }
         require_board_permission(
@@ -238,6 +247,11 @@ async fn handle_patch_boards_and_blocks(ws: Ws, body: Bytes) -> ApiResult {
             "access denied to modifying board properties",
         )
         .await?;
+        // As `patchBoard`: the kind of a board never changes.
+        if names_a_kind {
+            return Err(AppError::bad_request("the kind of a board never changes")
+                .with_pointer(format!("/boardPatches/{index}/kind")));
+        }
         if patch.board_type.is_some() || patch.minimum_role.is_some() {
             require_board_permission(
                 &ws.app,

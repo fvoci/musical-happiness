@@ -6,9 +6,12 @@
 //! commenter, viewer), a member of the workspace without a role on it and on an open
 //! one, a guest invited to it and one on an open one, the workspace's administrator
 //! who only manages it, the organization's administrator who is not in the workspace,
-//! and a member of another workspace on an open one. Another organization is the
-//! comparison of two organizations' (PostgreSQL only). Every answer is asked of a
-//! container as it was made: one that an answer changed is made anew.
+//! and a member of another workspace on an open one, who asks under the workspace they
+//! work in. The two who are not in the workspace are answered exactly as for nothing:
+//! their cells say so (`=`), compared with the same question about identifiers of
+//! nothing. Another organization is asked with real identifiers in the comparison of
+//! two organizations (`organization_boundary_round2`, PostgreSQL only). Every answer is
+//! asked of a container as it was made: one that an answer changed is made anew.
 //!
 //! A board and a wiki answer alike but where an open wiki is read without joining it
 //! ([`the_wiki_differs_from_the_board_only_where_an_open_wiki_is_read`]).
@@ -25,7 +28,7 @@ use reqwest::multipart::{Form, Part};
 use serde_json::{Value, json};
 
 use crate::common::{
-    ApiResponse, Client, Setup, TEST_WORKSPACE_ID, TEST_WS, TestServer, UNKNOWN_ID,
+    ApiResponse, Client, ROOT_WS, Setup, TEST_WORKSPACE_ID, TEST_WS, TestServer, UNKNOWN_ID,
 };
 
 /// A board, or a wiki.
@@ -145,6 +148,18 @@ fn container_ops() -> Vec<Op> {
             "/boards/{c}",
             Json(|things, _| json!({"type": things.scope.wire()})),
         ),
+        op(
+            "container: change type",
+            Method::PATCH,
+            "/boards/{c}",
+            Json(|things, _| {
+                let other = match things.scope {
+                    Scope::Invited => Scope::Open,
+                    Scope::Open => Scope::Invited,
+                };
+                json!({"type": other.wire()})
+            }),
+        ),
         op("container: delete", Method::DELETE, "/boards/{c}", None),
         Op {
             prepare: Prepare::DeleteContainer,
@@ -257,6 +272,12 @@ fn holding_ops() -> Vec<Op> {
             None,
         ),
         op("references: to", Method::GET, "/references/to/{p}", None),
+        op(
+            "references: resolve",
+            Method::POST,
+            "/references/resolve",
+            Json(|things, _| json!([things.block])),
+        ),
     ]
 }
 
@@ -295,6 +316,18 @@ fn board_ops() -> Vec<Op> {
             None,
         ),
         op("cards: trash", Method::GET, "/boards/{c}/trash/cards", None),
+        op(
+            "board: duplicate",
+            Method::POST,
+            "/boards/{c}/duplicate",
+            Json(|_, _| json!({})),
+        ),
+        op(
+            "board: export",
+            Method::GET,
+            "/boards/{c}/archive/export",
+            None,
+        ),
     ]
 }
 
@@ -556,10 +589,10 @@ async fn prepare(people: &People, op: &Op, things: &Things) {
     }
 }
 
-/// The category of the test workspace that `client` files boards under; an
+/// The category of the workspace at `at` that `client` files boards under; an
 /// identifier of nothing for who has none there.
-async fn category_of(client: &Client) -> String {
-    let categories = client.get(&format!("{TEST_WS}/categories")).await;
+async fn category_of(client: &Client, at: &str) -> String {
+    let categories = client.get(&format!("{at}/categories")).await;
     categories.value()[0]["id"]
         .as_str()
         .map_or_else(|| UNKNOWN_ID.to_owned(), str::to_owned)
@@ -569,6 +602,7 @@ async fn category_of(client: &Client) -> String {
 async fn ask(
     op: &Op,
     client: &Client,
+    at: &str,
     things: &Things,
     people: &People,
     category: &str,
@@ -582,7 +616,7 @@ async fn ask(
         .replace("{viewer}", &people.viewer)
         .replace("{commenter}", &people.commenter)
         .replace("{category}", category);
-    let request = client.request(op.method.clone(), &format!("{TEST_WS}{path}"));
+    let request = client.request(op.method.clone(), &format!("{at}{path}"));
     Client::send(match op.body {
         Body::None => request,
         Body::Json(body) => request.json(&body(things, people)),
@@ -594,19 +628,52 @@ async fn ask(
     .await
 }
 
-/// What one answer is in the table: its status, and for the trash whether it lists the
-/// container (`+`) or not (`-`).
-fn cell(op: &Op, answer: &ApiResponse, things: &Things) -> String {
+/// What one answer is in the table: its status; for the trash whether it lists the
+/// container (`+`) or not (`-`), and for references whether they name the block; and
+/// `=` after an answer that is to the letter the one about identifiers of nothing.
+fn cell(op: &Op, answer: &ApiResponse, things: &Things, nothing: Option<&ApiResponse>) -> String {
     let status = answer.status.as_u16();
-    if op.row == "trash: list" && answer.status.is_success() {
-        let listed = if answer.text().contains(&things.container) {
+    let named = match op.row {
+        "trash: list" => Some(&things.container),
+        "references: resolve" => Some(&things.block),
+        _ => None,
+    };
+    if let Some(named) = named.filter(|_| answer.status.is_success()) {
+        let listed = if answer.text().contains(named.as_str()) {
             "+"
         } else {
             "-"
         };
         return format!("{status}{listed}");
     }
-    status.to_string()
+    match nothing {
+        Some(nothing)
+            if nothing.status == answer.status && nothing.problem() == answer.problem() =>
+        {
+            format!("{status}=")
+        }
+        _ => status.to_string(),
+    }
+}
+
+/// Identifiers of nothing, in place of what is made for a question.
+fn nothing(scope: Scope) -> Things {
+    Things {
+        scope,
+        container: UNKNOWN_ID.to_owned(),
+        block: UNKNOWN_ID.to_owned(),
+        second: UNKNOWN_ID.to_owned(),
+        file: "missing-file".to_owned(),
+    }
+}
+
+/// The workspace a column asks under: who works in another asks under theirs.
+fn place_of(who: Who) -> &'static str {
+    if who == Who::OtherWorkspace {
+        ROOT_WS
+    } else {
+        TEST_WS
+    }
 }
 
 /// The table of `kind`: for each row, the cells in the order of [`COLUMNS`].
@@ -617,7 +684,7 @@ async fn table(people: &People, kind: Kind) -> Vec<(&'static str, Vec<String>)> 
     };
     let mut categories = BTreeMap::new();
     for (name, who, _) in COLUMNS {
-        categories.insert(name, category_of(people.client(who)).await);
+        categories.insert(name, category_of(people.client(who), place_of(who)).await);
     }
     let mut rows = Vec::new();
     for op in shared_ops().into_iter().chain(own) {
@@ -631,12 +698,19 @@ async fn table(people: &People, kind: Kind) -> Vec<(&'static str, Vec<String>)> 
             }
             let things = &made[&scope];
             let client = people.client(who);
-            let answer = ask(&op, client, things, people, &categories[name]).await;
-            cells.push(cell(&op, &answer, things));
+            let (at, category) = (place_of(who), &categories[name]);
+            let answer = ask(&op, client, at, things, people, category).await;
+            // Who is not in the workspace is compared with a question about nothing.
+            let of_nothing = if matches!(who, Who::OtherWorkspace | Who::OrgAdmin) {
+                Some(ask(&op, client, at, &nothing(scope), people, category).await)
+            } else {
+                None
+            };
+            cells.push(cell(&op, &answer, things, of_nothing.as_ref()));
             if answer.status.is_success() {
                 let given: Value = serde_json::from_slice(&answer.body).unwrap_or(Value::Null);
                 if let Some(upload) = given["uploadId"].as_str() {
-                    drop(client.delete(&format!("{TEST_WS}/uploads/{upload}")).await);
+                    done(&client.delete(&format!("{at}/uploads/{upload}")).await);
                 }
                 if op.method != Method::GET {
                     made.remove(&scope);
@@ -747,6 +821,7 @@ async fn the_wiki_differs_from_the_board_only_where_an_open_wiki_is_read() {
         "files: get",
         "files: info",
         "references: to",
+        "references: resolve",
         "pages: tree",
         "pages: get",
     ];
@@ -768,7 +843,8 @@ async fn the_wiki_differs_from_the_board_only_where_an_open_wiki_is_read() {
         );
     }
     assert_eq!(row_of(&board, "references: to")[unjoined], "404");
-    // What is not a change of the wiki: joining it, leaving it (as nothing), and what
+    // What is not a change of the wiki: joining it, leaving it (who reads it may leave
+    // it, and leaving a container one is no member of changes nothing, 204), and what
     // the reader keeps of it in their own sidebar and trash.
     let not_a_change = [
         "members: join",
@@ -795,7 +871,10 @@ async fn the_wiki_differs_from_the_board_only_where_an_open_wiki_is_read() {
         let index = column(name);
         for rows in [&board, &wiki] {
             for (row, cells) in rows {
-                assert_eq!(cells[index], "404", "{name}: {row}");
+                // What lists of their own answer has nothing of it (`-`); anything else
+                // is to the letter what is answered about nothing.
+                let cell = cells[index].as_str();
+                assert!(cell == "404=" || cell == "200-", "{name}: {row}: {cell}");
             }
         }
     }

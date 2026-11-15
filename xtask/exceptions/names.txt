@@ -168,6 +168,7 @@ crates/server/src/permissions/team_table.rs
 crates/server/tests/api/board_teams.rs
 crates/server/tests/api/wiki_kinds.rs | team
 crates/server/tests/api/role_table.rs | team
+crates/server/tests/api/role_table/*.txt | teams:
 crates/store/tests/store/board_kinds.rs | team
 apps/web/src/lib/features/shell/BoardTeams.svelte
 crates/model/src/board.rs | inherited from teams
