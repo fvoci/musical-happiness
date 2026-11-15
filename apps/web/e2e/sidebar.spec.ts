@@ -293,11 +293,11 @@ test.describe('boards in the sidebar', () => {
     await expect(sidebar(page).getByRole('link')).toHaveCount(2);
     await expect(boardLink(page, 'Personal Goals')).toBeVisible();
     await expect(boardLink(page, 'Company Goals & OKRs')).toBeVisible();
-    expect(await categories(page)).toEqual(['Personal', 'Boards']);
+    expect(await categories(page)).toEqual(['Personal', 'General']);
 
     await search.fill('no such board');
     await expect(sidebar(page).getByRole('link')).toHaveCount(0);
-    await expect(sidebar(page).getByText('No board has that in its title.')).toBeVisible();
+    await expect(sidebar(page).getByText('No board or wiki has that in its title.')).toBeVisible();
 
     // The first Escape empties the field and leaves the drawer, if it is one, open.
     await search.press('Escape');
@@ -558,7 +558,7 @@ test.describe('boards in the sidebar', () => {
     await expect(sidebar(page).getByRole('link')).toHaveCount(14);
     await expect(boardLink(page, '(Untitled Board)')).toHaveAttribute('aria-current', 'page');
     // A board nobody filed is shown in the default category.
-    expect(await boardsIn(page, 'Boards')).toContain('(Untitled Board)');
+    expect(await boardsIn(page, 'General')).toContain('(Untitled Board)');
   });
 });
 
@@ -587,7 +587,7 @@ test.describe('categories', () => {
   test('a category is made, renamed, moved, filled and deleted', async ({ page }) => {
     await openApp(page);
     await showSidebar(page);
-    expect(await categories(page)).toEqual(['Team', 'Research', 'Personal', 'Boards']);
+    expect(await categories(page)).toEqual(['Team', 'Research', 'Personal', 'General']);
     const dialog = page.getByTestId('category-dialog');
     const name = dialog.getByRole('textbox', { name: 'Category name' });
 
@@ -599,8 +599,8 @@ test.describe('categories', () => {
     await expect(dialog).toBeHidden();
     await expect
       .poll(() => categories(page))
-      .toEqual(['Ideas', 'Team', 'Research', 'Personal', 'Boards']);
-    await expect(category(page, 'Ideas').getByText('No boards inside')).toBeVisible();
+      .toEqual(['Ideas', 'Team', 'Research', 'Personal', 'General']);
+    await expect(category(page, 'Ideas').getByText('No boards or wikis inside')).toBeVisible();
 
     // Renamed: the field starts with the name as it is.
     await chooseFromMenu(page, categoryMenu(page, 'Ideas'), 'rename');
@@ -609,17 +609,17 @@ test.describe('categories', () => {
     await dialog.getByRole('button', { name: 'Update' }).click();
     await expect
       .poll(() => categories(page))
-      .toEqual(['Later', 'Team', 'Research', 'Personal', 'Boards']);
+      .toEqual(['Later', 'Team', 'Research', 'Personal', 'General']);
 
     // Moved down and up again; the first one cannot go further up.
     await chooseFromMenu(page, categoryMenu(page, 'Later'), 'move-down');
     await expect
       .poll(() => categories(page))
-      .toEqual(['Team', 'Later', 'Research', 'Personal', 'Boards']);
+      .toEqual(['Team', 'Later', 'Research', 'Personal', 'General']);
     await chooseFromMenu(page, categoryMenu(page, 'Later'), 'move-up');
     await expect
       .poll(() => categories(page))
-      .toEqual(['Later', 'Team', 'Research', 'Personal', 'Boards']);
+      .toEqual(['Later', 'Team', 'Research', 'Personal', 'General']);
     await categoryMenu(page, 'Later').click();
     await expect(page.locator('[data-action="move-up"]')).toBeDisabled();
     await page.keyboard.press('Escape');
@@ -636,14 +636,14 @@ test.describe('categories', () => {
     await expect(confirm).toContainText('Delete this category?');
     await expect(confirm).toContainText('Later');
     await confirm.getByRole('button', { name: 'Delete' }).click();
-    await expect.poll(() => categories(page)).toEqual(['Team', 'Research', 'Personal', 'Boards']);
-    await expect.poll(() => boardsIn(page, 'Boards')).toContain('Roadmap');
+    await expect.poll(() => categories(page)).toEqual(['Team', 'Research', 'Personal', 'General']);
+    await expect.poll(() => boardsIn(page, 'General')).toContain('Roadmap');
   });
 
   test('the default category cannot be deleted or renamed', async ({ page }) => {
     await openApp(page);
     await showSidebar(page);
-    await categoryMenu(page, 'Boards').click();
+    await categoryMenu(page, 'General').click();
     await expect(page.locator('[data-action="move-up"]')).toBeVisible();
     await expect(page.locator('[data-action="delete"]')).toHaveCount(0);
     // The server keeps its name whatever is sent.

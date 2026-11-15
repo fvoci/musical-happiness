@@ -1,7 +1,7 @@
 /**
  * What bodies name, by each backend: the one in memory answers as the server
- * does (a card is told to who is on its board and to nobody else, whatever
- * is asked), the server backend asks the three operations under the
+ * does (a card is told to who is on its board, a page to who is on its wiki,
+ * and nobody else, whatever is asked), the server backend asks the three operations under the
  * workspace, and a reader by a public link is told of the link's board alone
  * and asks the server nothing more for it.
  */
@@ -80,6 +80,24 @@ describe('references, in memory', () => {
     expect(await other.references.search(workspaceId, 'alpha')).toEqual([]);
     expect((await rejection(other.references.to(workspaceId, alpha.id))).status).toBe(404);
     expect((await rejection(other.references.to(workspaceId, UNKNOWN))).status).toBe(404);
+  });
+
+  it('resolves and finds the pages of a wiki the reader is on, and tells nothing of them to the rest', async () => {
+    const { backend, other, workspaceId } = world();
+    const wiki = await backend.wiki.createWiki(workspaceId, { title: 'Handbook', type: 'P' });
+    const page = await backend.wiki.createPage(wiki.id, { title: 'Road plan' });
+    const told = { id: page.id, kind: 'page', title: 'Road plan', icon: '', boardId: wiki.id };
+    expect(await backend.references.resolve(workspaceId, [page.id])).toEqual([
+      { ...told, boardKind: 'wiki' },
+    ]);
+    expect(await backend.references.search(workspaceId, 'road')).toEqual([
+      { ...told, boardKind: 'wiki' },
+    ]);
+    expect(await backend.references.to(workspaceId, page.id)).toEqual([]);
+    // Not on the private wiki: the page is as nothing is.
+    expect(await other.references.resolve(workspaceId, [page.id])).toEqual([]);
+    expect(await other.references.search(workspaceId, 'road')).toEqual([]);
+    expect((await rejection(other.references.to(workspaceId, page.id))).status).toBe(404);
   });
 
   it('takes no more identifiers at once than the server, and no other workspace', async () => {

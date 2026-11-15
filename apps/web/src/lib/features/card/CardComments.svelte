@@ -26,7 +26,7 @@
   import type { BoardStore, CardStore } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
-  import { autosize } from './autosize.ts';
+  import { autosize } from '$lib/components/autosize.ts';
   import { bodyReferences } from './body-references.ts';
   import { commentDoc, commentText } from './comment-doc.ts';
   import CommentHistory from './CommentHistory.svelte';

@@ -289,7 +289,10 @@ function insertAt(
 }
 
 export interface BodyExtensionOptions {
+  /** What an empty body says while it can be written. */
   placeholder?: string;
+  /** What an empty body says while it can only be read; nothing unless given. */
+  readPlaceholder?: string;
   /**
    * The editor's own history of changes (`UndoRedo`); true unless given. A
    * body edited together has the shared document's instead, which takes
@@ -335,7 +338,12 @@ export function bodyExtensions(options: BodyExtensionOptions = {}): AnyExtension
     ...(options.history === false ? [] : [UndoRedo]),
     Dropcursor,
     Gapcursor,
-    Placeholder.configure({ placeholder: options.placeholder ?? '' }),
+    // Chosen as it is drawn: whether the editor can be written now decides.
+    Placeholder.configure({
+      placeholder: ({ editor }) =>
+        editor.isEditable ? (options.placeholder ?? '') : (options.readPlaceholder ?? ''),
+      showOnlyWhenEditable: false,
+    }),
     EmojiSuggestion.configure(options.emoji ?? {}),
     EditingPlace,
   ];

@@ -33,14 +33,10 @@
 
   let { workspace, router }: { workspace: Workspace; router: Router } = $props();
 
-  // Where the references in the bodies of this workspace lead: the address bar is here.
+  // Where the references in the bodies of this workspace lead, by the app's one router:
+  // the board page and the wiki page each say so, and neither takes it back.
   $effect.pre(() => {
-    const titles = referenceTitles(workspace);
-    const places = referencePlaces(router);
-    titles.places = places;
-    return () => {
-      if (titles.places === places) titles.places = undefined;
-    };
+    referenceTitles(workspace).places = referencePlaces(router);
   });
 
   // Open the board the address names.

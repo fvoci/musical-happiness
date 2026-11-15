@@ -1,8 +1,9 @@
 /**
  * The address bar: which workspace, board, view and card are shown.
  *
- * The addresses are `/w/<workspace>/boards/<board>/<view>/<card>`, each part
- * optional from the right (`/w/<workspace>` alone is the workspace), and
+ * The addresses are `/w/<workspace>/boards/<board>/<view>/<card>` and
+ * `/w/<workspace>/wikis/<wiki>/<page>`, each part optional from the right
+ * (`/w/<workspace>` alone is the workspace), and
  * `/org/<organization>`, the screen of its administrators, under
  * the base path the server serves the app at. The link of an invitation is an
  * address of its own, `/invite/<token>`, which the app reads and never writes. A board's public link is
@@ -34,6 +35,9 @@ export interface Route {
   boardId: string | undefined;
   viewId: string | undefined;
   cardId: string | undefined;
+  /** A wiki of the workspace, in place of a board, and the page of it shown. */
+  wikiId?: string | undefined;
+  pageId?: string | undefined;
   /**
    * The token of an invitation: the address is the link of one
    * (`/invite/<token>`), and names nothing else.
@@ -104,11 +108,14 @@ export function parseRoute(pathname: string, basePath: string, search = ''): Rou
       ? { ...NOWHERE, orgId: segments[1] }
       : { ...NOWHERE, unknown: true };
   }
-  const [w, workspaceId, boards, boardId, viewId, cardId, ...rest] = segments;
+  const [w, workspaceId, section, boardId, viewId, cardId, ...rest] = segments;
+  if (section === 'wikis' && boardId !== undefined && cardId === undefined && w === 'w') {
+    return { ...NOWHERE, workspaceId, wikiId: boardId, pageId: viewId };
+  }
   if (
     w !== 'w' ||
     workspaceId === undefined ||
-    (boards !== undefined && boards !== 'boards') ||
+    (section !== undefined && section !== 'boards') ||
     rest.length > 0
   ) {
     return { ...NOWHERE, unknown: true };
@@ -150,6 +157,9 @@ function settled(route: Partial<Route>): Route {
   if (route.orgId) return { ...NOWHERE, orgId: route.orgId };
   const readToken = route.readToken || undefined;
   const workspaceId = (!readToken && route.workspaceId) || undefined;
+  // A wiki is the workspace's alone (no public link reads one yet: W4), and no board is with it.
+  const wikiId = (workspaceId && route.wikiId) || undefined;
+  if (wikiId) return { ...NOWHERE, workspaceId, wikiId, pageId: route.pageId || undefined };
   const boardId = ((workspaceId || readToken) && route.boardId) || undefined;
   const viewId = (boardId && route.viewId) || undefined;
   const cardId = (viewId && route.cardId) || undefined;
@@ -158,21 +168,30 @@ function settled(route: Partial<Route>): Route {
   return { workspaceId, boardId, viewId, cardId, unknown: false };
 }
 
+/** The route of a board, or of a wiki where it is one (`kind`). */
+export function placeRoute(board: BoardPlace): Partial<Route> {
+  return board.kind === 'wiki'
+    ? { workspaceId: board.workspaceId, wikiId: board.id }
+    : { workspaceId: board.workspaceId, boardId: board.id };
+}
+
 /** The address of a route, from the root of the site. */
 export function routePath(route: Partial<Route>, basePath: string): string {
   if (route.orgId) return buildUrl(`/org/${encodeURIComponent(route.orgId)}`, basePath);
-  const { workspaceId, boardId, viewId, cardId, readToken } = settled(route);
+  const { workspaceId, boardId, viewId, cardId, readToken, wikiId, pageId } = settled(route);
   if (readToken && boardId) {
     const parts = [boardId, viewId, cardId].filter((part) => part !== undefined);
     const path = ['shared', ...parts.map((part) => encodeURIComponent(part))].join('/');
     return `${buildUrl(`/${path}`, basePath)}?r=${encodeURIComponent(readToken)}`;
   }
   if (!workspaceId) return buildUrl('/', basePath);
-  const named = [boardId, viewId, cardId].filter((part) => part !== undefined);
+  const named = (wikiId ? [wikiId, pageId] : [boardId, viewId, cardId]).filter(
+    (part) => part !== undefined,
+  );
   const path = [
     'w',
     encodeURIComponent(workspaceId),
-    ...(named.length > 0 ? ['boards'] : []),
+    ...(named.length > 0 ? [wikiId ? 'wikis' : 'boards'] : []),
     ...named.map((part) => encodeURIComponent(part)),
   ];
   return buildUrl(`/${path.join('/')}`, basePath);
@@ -210,6 +229,8 @@ export class Router {
         next.boardId === now.boardId &&
         next.viewId === now.viewId &&
         next.cardId === now.cardId &&
+        next.wikiId === now.wikiId &&
+        next.pageId === now.pageId &&
         next.invitation === now.invitation &&
         next.readToken === now.readToken &&
         next.shared === now.shared &&
@@ -279,10 +300,20 @@ export class Router {
     this.route = next;
   }
 
-  /** Shows a board, at the address of its own workspace; its first view is chosen by the page. */
+  /**
+   * Shows a board, at the address of its own workspace; its first view is
+   * chosen by the page. A wiki (`kind`) is shown at a wiki's address, its
+   * first page chosen by its page.
+   */
   openBoard(board: BoardPlace): void {
     this.#cardEntered = false;
-    this.go({ workspaceId: board.workspaceId, boardId: board.id });
+    this.go(placeRoute(board));
+  }
+
+  /** Shows a page of the wiki shown. `replace`: in place of the address there. */
+  openPage(pageId: string | undefined, options: { replace?: boolean } = {}): void {
+    const { workspaceId, wikiId } = this.route;
+    if (wikiId) this.go({ workspaceId, wikiId, pageId }, options);
   }
 
   openView(viewId: string): void {

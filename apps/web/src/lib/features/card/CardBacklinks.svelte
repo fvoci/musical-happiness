@@ -1,38 +1,35 @@
 <!--
-  What names the card: the cards and pages whose body, or a comment on which,
-  has a reference to it, as far as the reader may see them, the oldest first.
-  What names it from where the reader does not read is no part of the answer,
-  and nothing says how much of that there is.
+  What names a card or a page of a wiki: the cards and pages whose body, or a
+  comment on which, has a reference to it, as far as the reader may see them,
+  the oldest first. What names it from where the reader does not read is no
+  part of the answer, and nothing says how much of that there is.
 
-  Read when the card is opened, a page at a time. While nothing names the
-  card this takes no room at all: no heading, no empty list. A card that is
-  renamed meanwhile shows its new title, and one that goes leaves the list
-  (`referenceTitles`).
+  Read when it is opened, a page at a time. While nothing names it this takes
+  no room at all: no heading, no empty list. A card that is renamed meanwhile
+  shows its new title, and one that goes leaves the list (`referenceTitles`).
 -->
 <script lang="ts">
   import { onMount } from 'svelte';
 
   import { m } from '$lib/i18n/paraglide/messages.js';
-  import {
-    referenceTitles,
-    type BoardStore,
-    type CardStore,
-    type LinkedBlock,
-  } from '$lib/state/index.ts';
+  import { referenceTitles, type LinkedBlock, type Workspace } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
   interface Props {
-    board: BoardStore;
-    card: CardStore;
+    workspace: Workspace;
+    /** The card, or the page of a wiki, that is named. */
+    blockId: string;
+    /** Which it is, for the heading. */
+    of?: 'card' | 'page';
   }
 
-  let { board, card }: Props = $props();
+  let { workspace, blockId, of = 'card' }: Props = $props();
 
   /** How many are read at a time (the server's own page). */
   const AT_ONCE = 50;
 
   const uid = $props.id();
-  const titles = $derived(referenceTitles(board.workspace));
+  const titles = $derived(referenceTitles(workspace));
 
   let read = $state.raw<LinkedBlock[]>([]);
   /** The last page was full: there may be more. */
@@ -45,7 +42,7 @@
     if (reading) return;
     reading = true;
     try {
-      const found = await titles.to(card.cardId, { page: pages, perPage: AT_ONCE });
+      const found = await titles.to(blockId, { page: pages, perPage: AT_ONCE });
       if (!here) return;
       pages += 1;
       const known = new Set(read.map((linked) => linked.id));
@@ -90,7 +87,7 @@
     data-testid="card-backlinks"
   >
     <h3 id="{uid}-heading" class="font-semibold">
-      {m.card_backlinks()}
+      {of === 'page' ? m.page_backlinks() : m.card_backlinks()}
       <span class="font-normal text-muted-foreground">{naming.length}{more ? '+' : ''}</span>
     </h3>
     <ul class="flex flex-col gap-1">

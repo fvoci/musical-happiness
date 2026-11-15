@@ -157,16 +157,17 @@ export class ReferenceTitles {
   /**
    * What may be named whose title has the words of `term`. Asked once the
    * typing rests, and only the last term typed is: an earlier one is answered
-   * as the last. Before anything is typed, the cards of `board` changed last.
+   * as the last. Before anything is typed, the cards of `board` changed last;
+   * without a board (in a page of a wiki), what the server has changed last.
    * What is offered is known from then on: taken, it is drawn without asking.
    */
-  search(term: string, board?: BoardStore): Promise<LinkedBlock[]> {
+  search(term: string, board?: Pick<BoardStore, 'realCards'>): Promise<LinkedBlock[]> {
     this.#searches += 1;
     const mine = this.#searches;
     const workspaceId = this.#here();
     const found = (async (): Promise<LinkedBlock[]> => {
-      if (term.trim() === '') {
-        const recent = board ? recentOf(board) : [];
+      if (term.trim() === '' && board) {
+        const recent = recentOf(board);
         this.#learn(workspaceId, recent, this.#tick());
         return recent;
       }
@@ -353,7 +354,7 @@ export class ReferenceTitles {
 }
 
 /** The cards of the board that were changed last, as references show them; templates left out. */
-function recentOf(board: BoardStore): LinkedBlock[] {
+function recentOf(board: Pick<BoardStore, 'realCards'>): LinkedBlock[] {
   return [...board.realCards]
     .sort((a, b) => b.updateAt - a.updateAt || a.id.localeCompare(b.id))
     .slice(0, OFFERED_UNASKED)

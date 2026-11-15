@@ -1,0 +1,170 @@
+/**
+ * The menus of the sidebar's categories and of its boards and wikis, apart
+ * from the list (`SidebarList.svelte`), which is long.
+ *
+ * A wiki's menu is a board's without what is only a board's: saving it as an
+ * archive (the server exports boards) and making a template of it.
+ */
+import ArrowDownIcon from '@lucide/svelte/icons/arrow-down';
+import ArrowUpIcon from '@lucide/svelte/icons/arrow-up';
+import EyeOffIcon from '@lucide/svelte/icons/eye-off';
+import FolderInputIcon from '@lucide/svelte/icons/folder-input';
+import FolderPlusIcon from '@lucide/svelte/icons/folder-plus';
+import LayoutTemplateIcon from '@lucide/svelte/icons/layout-template';
+import PencilIcon from '@lucide/svelte/icons/pencil';
+import Trash2Icon from '@lucide/svelte/icons/trash-2';
+
+import type { MenuAction } from '$lib/components/menu/actions.ts';
+import { m } from '$lib/i18n/paraglide/messages.js';
+import type { Board } from '$lib/logic/wire.ts';
+import type { Category, Workspace } from '$lib/state/index.ts';
+
+import { exportAction } from './board-export.ts';
+import { categoryOrderAfterStep, moveToEnd } from './sidebar-logic.ts';
+
+/**
+ * The name a category is shown under. The default one is every reader's and
+ * holds boards and wikis alike: it is named in the reader's language, not by
+ * the name the server stored for it.
+ */
+export function categoryLabel(category: Pick<Category, 'type' | 'name'>): string {
+  return category.type === 'system' ? m.shell_default_category() : category.name;
+}
+
+/** What the menus act with. */
+export interface SidebarMenus {
+  workspace: Workspace;
+  /** A guest has the boards they were invited to as they are filed: theirs to save, not to arrange. */
+  guest: boolean;
+  /** The board or wiki on the page. */
+  boardId: string | undefined;
+  /** Whether the reader may delete the board on the page. Of the others the sidebar does not know. */
+  canDeleteOpenBoard: boolean;
+  onNewCategory: () => void;
+  onRenameCategory: (category: Category) => void;
+  onDeleteCategory: (category: Category) => void;
+  onDeleteBoard: (board: Board) => void;
+  onTemplateFromBoard: (boardId: string) => void;
+}
+
+function stepCategory(menus: SidebarMenus, category: Category, step: -1 | 1): void {
+  const order = categoryOrderAfterStep(
+    menus.workspace.sidebar.map((entry) => entry.category.id),
+    category.id,
+    step,
+  );
+  if (order) void menus.workspace.reorderCategories(order);
+}
+
+export function categoryActions(menus: SidebarMenus, category: Category): MenuAction[] {
+  const { sidebar } = menus.workspace;
+  // Its place among all the categories, not among those a search has left.
+  const at = sidebar.findIndex((entry) => entry.category.id === category.id);
+  const actions: MenuAction[] = [
+    // The default category keeps its name: the server does not change it.
+    ...(category.type === 'system'
+      ? []
+      : [
+          {
+            id: 'rename',
+            label: m['SidebarCategories.CategoryMenu.Update'](),
+            icon: PencilIcon,
+            run: () => {
+              menus.onRenameCategory(category);
+            },
+          },
+        ]),
+    {
+      id: 'move-up',
+      label: m.shell_category_move_up(),
+      icon: ArrowUpIcon,
+      disabled: at === 0,
+      run: () => {
+        stepCategory(menus, category, -1);
+      },
+    },
+    {
+      id: 'move-down',
+      label: m.shell_category_move_down(),
+      icon: ArrowDownIcon,
+      disabled: at === sidebar.length - 1,
+      run: () => {
+        stepCategory(menus, category, 1);
+      },
+    },
+    {
+      id: 'new-category',
+      label: m['SidebarCategories.CategoryMenu.CreateNew'](),
+      icon: FolderPlusIcon,
+      separated: true,
+      run: menus.onNewCategory,
+    },
+  ];
+  // The default category is the one every reader has; it cannot be deleted.
+  if (category.type !== 'system') {
+    actions.push({
+      id: 'delete',
+      label: m['SidebarCategories.CategoryMenu.Delete'](),
+      icon: Trash2Icon,
+      destructive: true,
+      separated: true,
+      run: () => {
+        menus.onDeleteCategory(category);
+      },
+    });
+  }
+  return actions;
+}
+
+export function boardActions(menus: SidebarMenus, board: Board, home: Category): MenuAction[] {
+  const { workspace } = menus;
+  const wiki = board.kind === 'wiki';
+  const moves = workspace.sidebar
+    .filter((entry) => entry.category.id !== home.id)
+    .map((entry): MenuAction => ({
+      id: `move-to-${entry.category.id}`,
+      label: m.shell_board_move_to({ category: categoryLabel(entry.category) }),
+      icon: FolderInputIcon,
+      run: () => {
+        const move = moveToEnd(entry.category.id, board.id, workspace.sidebar);
+        if (move) void workspace.moveBoard(move.boardId, move.categoryId, move.index);
+      },
+    }));
+  const saving = wiki ? [] : [exportAction(workspace, board.id, moves.length > 0)];
+  if (menus.guest) return saving;
+  return [
+    ...moves,
+    ...saving,
+    ...(wiki
+      ? []
+      : [
+          {
+            id: 'template-from-board',
+            label: m['Sidebar.template-from-board'](),
+            icon: LayoutTemplateIcon,
+            run: () => {
+              menus.onTemplateFromBoard(board.id);
+            },
+          },
+        ]),
+    {
+      id: 'hide',
+      label: wiki ? m.shell_hide_wiki() : m['HideBoard.MenuOption'](),
+      icon: EyeOffIcon,
+      separated: wiki && moves.length > 0,
+      run: () => void workspace.hideBoard(board.id),
+    },
+    {
+      id: 'delete',
+      label: wiki ? m.shell_delete_wiki() : m['Sidebar.delete-board'](),
+      icon: Trash2Icon,
+      destructive: true,
+      separated: true,
+      // Of the board or wiki on the page the sidebar knows; of the others the server has the say.
+      disabled: board.id === menus.boardId && !menus.canDeleteOpenBoard,
+      run: () => {
+        menus.onDeleteBoard(board);
+      },
+    },
+  ];
+}

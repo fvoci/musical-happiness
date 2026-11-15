@@ -55,6 +55,7 @@
     onBlur,
     uploadImage,
     placeholder = '',
+    readPlaceholder = '',
     class: className,
     label,
     toolbar,
@@ -184,6 +185,7 @@
         ...bodyExtensions({
           history: !shared,
           placeholder,
+          readPlaceholder,
           mention,
           reference,
           emoji: {

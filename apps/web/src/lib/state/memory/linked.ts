@@ -1,8 +1,8 @@
 /**
  * What bodies name, for the backend in memory, as the server answers it
  * (`resolveReferences`, `getReferencesTo`, `searchReferences`): a card is told
- * to whoever has a role on its board, and to nobody else, whatever is asked.
- * The world in memory has no pages.
+ * to whoever has a role on its board, a page to whoever has one on its wiki,
+ * and neither to anybody else, whatever is asked.
  */
 import type { DocNode } from '../../editor/schema.ts';
 import { REFERENCES_AT_ONCE, type LinkedBlock, type References } from '../references.ts';
@@ -50,14 +50,16 @@ export class MemoryReferences implements References {
     this.#enter = enter;
   }
 
-  /** The card as a reference shows it, if the reader is on its board. */
+  /** The card or the page as a reference shows it, if the reader is on its board or its wiki. */
   #shown(block: StoredBlock | undefined): LinkedBlock | undefined {
     const { world, userId } = this.#asker;
-    if (block?.type !== 'card') return undefined;
+    if (block?.type !== 'card' && block?.type !== 'page') return undefined;
     if (roleOn(world.members.get(block.boardId) ?? [], userId) === '') return undefined;
     const icon = typeof block.fields.icon === 'string' ? block.fields.icon : '';
     const { id, title, boardId } = block;
-    return { id, kind: 'card', title, icon, boardId, boardKind: 'board' };
+    return block.type === 'page'
+      ? { id, kind: 'page', title, icon, boardId, boardKind: 'wiki' }
+      : { id, kind: 'card', title, icon, boardId, boardKind: 'board' };
   }
 
   #check(workspaceId: string): void {
@@ -82,7 +84,7 @@ export class MemoryReferences implements References {
     const naming = new Map<string, StoredBlock>();
     for (const block of blocks.values()) {
       if (!namedIn(block.body).includes(blockId)) continue;
-      // What a comment names, the card it is on names.
+      // What a comment names, the card or the page it is on names.
       const source = block.type === 'comment' ? blocks.get(block.parentId) : block;
       if (source && source.id !== blockId) naming.set(source.id, source);
     }

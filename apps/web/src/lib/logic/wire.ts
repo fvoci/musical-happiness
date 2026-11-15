@@ -20,12 +20,11 @@ import type { MemberRole } from './board-members.ts';
 export type { BoardMember, MemberRole } from './board-members.ts';
 import { parseCalendarDate, type CalendarDate, type DatePoint, type DateValue } from './dates.ts';
 import { diagnostics } from './diagnostics.ts';
+import { encodeBase32 } from './base32.ts';
+export { encodeBase32 } from './base32.ts';
 import { optionalViewFields, type OptionalViewFields } from './view-members.ts';
 
 // ------------------------------------------------------------ identifiers
-
-/** z-base-32: no characters that are easily confused when read aloud. */
-const ID_ALPHABET = 'ybndrfg8ejkmcpqxot1uwisza345h769';
 
 export type IdKind =
   'none' | 'workspace' | 'board' | 'card' | 'view' | 'session' | 'user' | 'token' | 'block';
@@ -41,24 +40,6 @@ const ID_PREFIX: Record<IdKind, string> = {
   token: 'k',
   block: 'a',
 };
-
-/** Base32 with the alphabet above; `pad` fills the last group with `=`. */
-export function encodeBase32(data: Uint8Array, pad = false): string {
-  let bits = 0;
-  let value = 0;
-  let output = '';
-  for (const byte of data) {
-    value = (value << 8) | byte;
-    bits += 8;
-    while (bits >= 5) {
-      output += ID_ALPHABET.charAt((value >>> (bits - 5)) & 31);
-      bits -= 5;
-    }
-  }
-  if (bits > 0) output += ID_ALPHABET.charAt((value << (5 - bits)) & 31);
-  if (pad) while (output.length % 8 !== 0) output += '=';
-  return output;
-}
 
 /** A new identifier: one letter for the kind and 26 characters of 128 random bits. */
 export function createId(kind: IdKind): string {
@@ -102,6 +83,7 @@ export const BLOCK_TYPES = [
   'view',
   'card',
   'comment',
+  'page',
   'unknown',
 ] as const;
 
@@ -493,6 +475,8 @@ export function remapBlockReferences(block: Block, idMap: Readonly<Record<string
 export const BOARD_TYPE_OPEN = 'O';
 export const BOARD_TYPE_PRIVATE = 'P';
 export type BoardType = typeof BOARD_TYPE_OPEN | typeof BOARD_TYPE_PRIVATE;
+/** What a board is for: `board` for cards and views, `wiki` for pages. It never changes. */
+export type BoardKind = 'board' | 'wiki';
 
 export type PropertyType =
   | 'text'
@@ -535,6 +519,8 @@ export interface Board {
   createdBy: string;
   modifiedBy: string;
   type: BoardType;
+  /** Absent: a board, as the server reads one stored without it. */
+  kind?: BoardKind;
   minimumRole: MemberRole;
   title: string;
   description: string;
