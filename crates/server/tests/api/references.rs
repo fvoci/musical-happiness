@@ -4,7 +4,9 @@
 //! workspace or organization, a guest who was not invited, no member of what is for the
 //! invited only, an administrator who only manages it, or without a session.
 
-use fvoci_model::{Block, BlockType, Board, BoardKind, BoardMember, BoardType, NewPage};
+use fvoci_model::{
+    Block, BlockType, Board, BoardKind, BoardMember, BoardType, NewPage, PageLimits,
+};
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
@@ -440,9 +442,10 @@ async fn what_is_of_another_organization_is_resolved_as_nothing() {
         ..NewPage::default()
     };
     let page = theirs
-        .create_page(&wiki.id, &new_page, &owner)
+        .create_page(&wiki.id, &new_page, PageLimits::default(), &owner)
         .await
-        .expect("their page is stored");
+        .expect("their page is stored")
+        .page;
 
     let their_ids = [card.id.as_str(), page.id.as_str(), their_board.as_str()];
     check_as_nothing(&th.client, TEST_WS, &their_ids, &here.card, "another's").await;

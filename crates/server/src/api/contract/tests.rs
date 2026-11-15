@@ -521,6 +521,10 @@ const ORDERS: &[(&str, &str)] = &[
         "getDeletedCards",
         "The last deleted first; the pages cut that order",
     ),
+    (
+        "getDeletedPages",
+        "The last deleted first; the pages cut that order",
+    ),
     ("getInvitations", "The newest first"),
     ("getMembers", "By the identifier of the user"),
     ("getMyIdentities", "Oldest first"),

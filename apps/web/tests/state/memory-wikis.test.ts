@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest';
 
 import { comparePlaces, pageTree } from '$lib/logic/page-tree.ts';
 import { BackendError, type Change, type WikiPage } from '$lib/state/index.ts';
-import { orderBetween } from '$lib/state/memory/page-order.ts';
+import { orderBetween } from '$lib/logic/page-order.ts';
 
 import { settle, setup, text } from './support.ts';
 

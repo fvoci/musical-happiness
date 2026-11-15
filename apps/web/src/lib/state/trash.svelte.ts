@@ -1,7 +1,8 @@
 /**
  * A list of what is in the trash, and bringing one back: the boards of the
- * workspace the reader was an admin of (`boardTrash`), or the cards of a board
- * (`cardTrash`, for its editors). Nothing is deleted for good here: the
+ * workspace the reader was an admin of (`boardTrash`), the cards of a board
+ * (`cardTrash`, for its editors), or the pages of a wiki (`pageTrash`, for its
+ * editors). Nothing is deleted for good here: the
  * server empties its trash after a while by itself.
  *
  * The list is read in pages, the last deleted first. Bringing one back takes
@@ -10,6 +11,7 @@
  */
 import { isBackendError, type DeletedItem, type Paging } from './backend.ts';
 import type { BoardStore } from './board.svelte.ts';
+import type { WikiStore } from './wiki.svelte.ts';
 import type { Workspace } from './workspace.svelte.ts';
 import { take } from './write.ts';
 
@@ -132,6 +134,15 @@ export function cardTrash(board: BoardStore): Trash {
     board.workspace,
     (paging) => board.workspace.backend.deletedCards(board.boardId, paging),
     (cardId) => restoreCard(board, cardId),
+  );
+}
+
+/** The pages of a wiki in the trash, for its editors. One that comes back shows in its tree. */
+export function pageTrash(wiki: WikiStore): Trash {
+  return new Trash(
+    wiki.workspace,
+    (paging) => wiki.deletedPages(paging),
+    (pageId) => wiki.restorePage(pageId),
   );
 }
 

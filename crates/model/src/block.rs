@@ -271,6 +271,19 @@ pub enum BlockError {
     /// The page a new page is to go right after is no page of the same parent.
     #[error("the page to go after is no page of the same parent")]
     AfterNotSibling,
+    /// A page would be deeper in its wiki than the limit: a page at the top is at
+    /// depth 1 ([`crate::PageLimits`]).
+    #[error("the page would be deeper in its wiki than {limit}")]
+    PageTooDeep {
+        /// The deepest a page may be.
+        limit: u32,
+    },
+    /// The wiki would have more pages than it may, those in the trash not counted.
+    #[error("the wiki would have more than {limit} pages")]
+    TooManyPages {
+        /// The most pages the wiki may have.
+        limit: u32,
+    },
 }
 
 /// The fields of a page whose value has one kind, as [`CARD_FIELD_KINDS`] has a card's.

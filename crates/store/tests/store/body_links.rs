@@ -2,7 +2,8 @@
 //! again, they outlive the trash, and they go with what is gone for good.
 
 use fvoci_model::{
-    Block, BlockPatch, BlockType, Board, BoardKind, BoardType, Body, BodyChange, NewPage, new_id,
+    Block, BlockPatch, BlockType, Board, BoardKind, BoardType, Body, BodyChange, NewPage,
+    PageLimits, new_id,
 };
 use fvoci_store::Store;
 use serde_json::json;
@@ -224,9 +225,10 @@ async fn cards_pages_and_comments_name_each_other_across_a_board_and_a_wiki() {
     let wiki = container(store, &workspace_id, &user, BoardKind::Wiki).await;
     let card = card_with(store, &board, None).await;
     let page = store
-        .create_page(&wiki.id, &NewPage::default(), &user)
+        .create_page(&wiki.id, &NewPage::default(), PageLimits::default(), &user)
         .await
         .expect("the page is made")
+        .page
         .id;
 
     write_body(store, &card, body_naming("see the page", &[&page]), &user).await;

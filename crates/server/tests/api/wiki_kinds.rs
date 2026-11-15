@@ -93,6 +93,10 @@ const REACHED: &[(&str, Reaches)] = &[
     ("getPage", Reaches::Wikis),
     ("patchPage", Reaches::Wikis),
     ("deletePage", Reaches::Wikis),
+    ("movePage", Reaches::Wikis),
+    ("duplicatePage", Reaches::Wikis),
+    ("getDeletedPages", Reaches::Wikis),
+    ("undeletePage", Reaches::Wikis),
     // What names a card or a page from a body: a card and a page name each other.
     ("getReferencesTo", Reaches::Both),
     // What the holder of a read token reads.
@@ -300,6 +304,13 @@ impl World {
             "undeleteBlock" => {
                 let block = format!("{at}/blocks/{}", things.block);
                 self.ts.client.delete(&block).await
+            }
+            "undeletePage" => {
+                let page = format!(
+                    "{ROOT_WS}/wikis/{}/pages/{}",
+                    things.container, things.block
+                );
+                self.ts.client.delete(&page).await
             }
             _ => return,
         };

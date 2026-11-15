@@ -3306,8 +3306,15 @@ export interface paths {
          *     parent), first if `after` is empty, and last if it is left out. Its body is written
          *     by `patchPage`, or together in its room (`JOIN_DOC`).
          *
+         *     The tree is held to the organization's limits: a page deeper than its depth is 400
+         *     at `/parentId` with the reason `page_too_deep`, and one more page than a wiki may
+         *     have (those in the trash not counted) is 400 with the reason `too_many_pages`, each
+         *     with the `limit`.
+         *
          *     The wiki's members are told with `UPDATE_BLOCK`, whose block of the `type` `page`
-         *     has the icon and the order among its `fields`.
+         *     has the icon and the order among its `fields`. Where the pages of the parent had no
+         *     room left between them (two of one order, or orders grown long), they are numbered
+         *     anew, and each that changed is told of too.
          */
         post: operations["createPage"];
         delete?: never;
@@ -3349,6 +3356,124 @@ export interface paths {
          *     refused and reads it again. Where the page is in the tree does not change here.
          */
         patch: operations["patchPage"];
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/duplicate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Duplicate a page
+         * @description Copies the page with every page below it, within its wiki, for editors of the wiki:
+         *     the copy goes right after the page among its siblings, titled `title` if given
+         *     (the page's own title otherwise; a client names it in its reader's language), and
+         *     the pages below it are copied below it as they are, with their titles, icons,
+         *     places and bodies, what is typed in them now included. The images in the bodies get
+         *     files of their own, as a card's duplicate's do. The versions of the bodies and the
+         *     comments are not copied. The tree is held to the organization's limits: 400 with the
+         *     reason `page_too_deep` or `too_many_pages` (with the `limit`) if the copies would be
+         *     deeper, or the wiki larger, than they let it be; 400 at `/title` for a title longer
+         *     than 16383 characters. Nothing is changed then.
+         *
+         *     The wiki's members are told with `UPDATE_BLOCK` of each copy, a page before those
+         *     below it, and of each page of the parent numbered anew to leave the copy room.
+         */
+        post: operations["duplicatePage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move a page
+         * @description The page goes, with every page below it, below `parentId` (a page of the same wiki;
+         *     left out or empty, the top of the wiki), right after the page `after` among the
+         *     pages there, first if `after` is empty, and last if it is left out, as for
+         *     `createPage`. For editors of the wiki. A page moves within its wiki only. 400 at
+         *     `/parentId` if the parent is no page of the wiki or is the page itself or a page
+         *     below it, and with the reason `page_too_deep` (and the `limit`) if a page would be
+         *     deeper than the organization's limit; 400 at `/after` if that is no other page of
+         *     the parent. Nothing is changed then.
+         *
+         *     The wiki's members are told with `UPDATE_BLOCK` of the page, and of every page of
+         *     the parent numbered anew to leave it room; the pages below it keep their parents
+         *     and are not told of.
+         */
+        post: operations["movePage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/undelete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Bring back a page
+         * @description The page comes back from the wiki's trash with every page that was deleted along
+         *     with it, for editors of the wiki: below the page it was below, at the place it had
+         *     (right after the pages before it there, if a page made since has that place), or,
+         *     that page gone (in the trash, or gone for good), last at the top of the wiki.
+         *     The tree is held to the organization's limits: 400 with the reason `page_too_deep`
+         *     or `too_many_pages` (with the `limit`) if the pages would be deeper, or the wiki
+         *     larger, than they let it be. A page that is not in this wiki's trash, or went there
+         *     with the page it was below (it comes back with that page), is 404. The
+         *     wiki's members are told with `UPDATE_BLOCK` of each page that came back, a page
+         *     before those below it, and of each page numbered anew to leave it room.
+         */
+        post: operations["undeletePage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/wikis/{wikiId}/trash/pages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The deleted pages of a wiki
+         * @description One page of the wiki's pages that are in the trash, each with its identifier, its
+         *     title and icon, the page it was below, when it was deleted, by whom, and how many
+         *     pages below it went with it; `undeletePage` brings one back with those until the
+         *     trash is emptied of it (`trash_retention_days`, as for a board's cards). A page that
+         *     went with the page it was below comes back with that page, and is not listed. For
+         *     the wiki's editors. The last deleted first; the pages cut that order. A `page` or
+         *     `perPage` that is no whole number is 400.
+         */
+        get: operations["getDeletedPages"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
 }
@@ -4034,6 +4159,35 @@ export interface components {
             id: string;
             kind?: components["schemas"]["BoardKind"] | null;
             /** @description Its title when it was deleted. */
+            title: string;
+        };
+        /**
+         * @description A page in the trash, at the top of what went with it, as the trash of a wiki lists
+         *     it: `undeletePage` brings it back with the pages below it.
+         */
+        DeletedPage: {
+            /**
+             * Format: int32
+             * @description How many pages below it went with it, and come back with it.
+             */
+            below: number;
+            /**
+             * Format: int64
+             * @description When it was deleted, in milliseconds since the Unix epoch.
+             */
+            deletedAt: number;
+            /** @description Who deleted it, who may no longer exist; empty if not known. */
+            deletedBy: string;
+            /** @description The page's icon when it was deleted; empty for none. */
+            icon: string;
+            /** @description The page's identifier. */
+            id: string;
+            /**
+             * @description The page it was below; empty for one at the top of the wiki. It may be gone: the
+             *     page then comes back at the top.
+             */
+            parentId: string;
+            /** @description The page's title when it was deleted. */
             title: string;
         };
         /**
@@ -4824,6 +4978,31 @@ export interface components {
             updateAt: number;
             /** @description The identifier of the wiki the page is of. */
             wikiId: string;
+        };
+        /**
+         * @description What a copy of a page, with every page below it, is given: its title, for the copy
+         *     of the page asked for alone (the pages below it keep theirs).
+         */
+        PageDuplicate: {
+            /**
+             * @description The copy's title; left out or `null`, the page's own. A client names the copy
+             *     in its reader's language (" (copy)"): the server does not.
+             */
+            title?: string | null;
+        };
+        /** @description Where a page moves to, with every page below it: within its wiki. */
+        PageMove: {
+            /**
+             * @description The identifier of the page it goes right after: another page of that parent.
+             *     Empty for the first place; left out or `null`, the last place.
+             */
+            after?: string | null;
+            /**
+             * @description The identifier of the page it goes below: a page of the same wiki, neither the
+             *     page itself nor one below it. Left out or empty, the page goes to the top of the
+             *     wiki.
+             */
+            parentId?: string;
         };
         /** @description A page as the tree of its wiki lists it: without its body. */
         PageNode: {
@@ -10954,6 +11133,161 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    duplicatePage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the wiki: a board of the `kind` `wiki`. A board of another kind is 404, as an identifier of nothing is. */
+                wikiId: string;
+                /** @description The identifier of the page: a page of the wiki of the path. 404 for a page of another wiki. */
+                pageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PageDuplicate"];
+            };
+        };
+        responses: {
+            /** @description The copy of the page. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    movePage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the wiki: a board of the `kind` `wiki`. A board of another kind is 404, as an identifier of nothing is. */
+                wikiId: string;
+                /** @description The identifier of the page: a page of the wiki of the path. 404 for a page of another wiki. */
+                pageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PageMove"];
+            };
+        };
+        responses: {
+            /** @description The page where it is now. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    undeletePage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the wiki: a board of the `kind` `wiki`. A board of another kind is 404, as an identifier of nothing is. */
+                wikiId: string;
+                /** @description The identifier of the page: a page of the wiki of the path. 404 for a page of another wiki. */
+                pageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The page as it is again. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getDeletedPages: {
+        parameters: {
+            query?: {
+                /** @description The page, counted from 0. Left out, the first one. */
+                page?: number;
+                /** @description How many a page has. Left out, 100. Zero or less asks for all of them. */
+                perPage?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the wiki: a board of the `kind` `wiki`. A board of another kind is 404, as an identifier of nothing is. */
+                wikiId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The deleted pages of the wiki. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeletedPage"][];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
