@@ -102,7 +102,9 @@ test('a connection that goes quiet is let go after its PING is not answered, and
   await expect.poll(() => letGo, { timeout: 60_000 }).toBeDefined();
   const noticed = (letGo ?? 0) - wentQuiet;
   expect(noticed).toBeGreaterThan(14_000);
-  expect(noticed).toBeLessThan(50_000);
+  // At most: twenty seconds to the PING, fifteen for it, once more if its wait ran
+  // late on a busy machine, and some time for that machine.
+  expect(noticed).toBeLessThan(65_000);
   // Asked once (once more only if the page's timer ran late), and not answered.
   expect(pings.filter((at) => at >= wentQuiet && at <= (letGo ?? 0)).length).toBeGreaterThan(0);
   // Let go, the body can be read and not written, until the line is back.

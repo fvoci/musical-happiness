@@ -15,15 +15,20 @@
  * An answer comes only once a whole message has: on a slow link a large one
  * (a body's whole document) can take longer than the wait. So the wait of
  * the connections of one page doubles each time one was let go unanswered,
- * up to two minutes, and is the first again once one is answered.
+ * up to a minute (the server closes a connection it heard nothing from for
+ * ninety seconds), and is the first again once one is answered.
  */
 
 /** How long after the connection opened, or the last answer, the next `PING` goes, in milliseconds. */
 export const PING_EVERY = 20_000;
 /** How long a `PING` first waits for anything from the server, in milliseconds. */
 export const PONG_WAIT = 15_000;
-/** The longest a `PING` waits, after connections were let go unanswered, in milliseconds. */
-export const LONGEST_PONG_WAIT = 120_000;
+/**
+ * The longest a `PING` waits, after connections were let go unanswered, in
+ * milliseconds: with the twenty seconds before it, within the ninety the
+ * server waits for anything from the page.
+ */
+export const LONGEST_PONG_WAIT = 60_000;
 /** A wait that ends more than this late was a page held back, in milliseconds. */
 const LATE = 1000;
 

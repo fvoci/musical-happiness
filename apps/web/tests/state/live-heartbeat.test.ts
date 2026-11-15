@@ -171,7 +171,7 @@ describe('a connection that may have died', () => {
     expect(again.closed).toBe(true);
   });
 
-  it('waits two minutes at the longest', async () => {
+  it('waits a minute at the longest', async () => {
     const { socket } = await connected();
     let current = socket;
     let wait = PONG_WAIT;

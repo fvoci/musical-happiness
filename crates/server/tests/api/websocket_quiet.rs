@@ -3,7 +3,7 @@
 //! that has sent nothing for the quiet limit, which takes it out of its rooms.
 //!
 //! The limit is ninety seconds (`ws/inbound.rs`, whose tests hold it to that); these
-//! tests shorten it.
+//! tests shorten it once what they need is set up.
 
 use std::time::{Duration, Instant};
 
@@ -14,15 +14,13 @@ use crate::rooms::{Incoming, PATIENCE, Peer, awareness, paragraphs, two_in_a_roo
 use crate::websocket::{Event, Socket};
 
 /// The quiet limit of these tests.
-const LIMIT: Duration = Duration::from_secs(2);
+const LIMIT: Duration = Duration::from_secs(3);
 
 /// More than a loaded machine takes to close a connection once its limit has passed.
-const LEEWAY: Duration = Duration::from_secs(8);
+const LEEWAY: Duration = Duration::from_secs(10);
 
 async fn server() -> TestServer {
-    let th = Setup::native().start().await.init_basic().await;
-    th.app.ws().set_quiet_limit(LIMIT);
-    th
+    Setup::native().start().await.init_basic().await
 }
 
 /// Reads until a `PONG` comes, passing over what else does; how long it took.
@@ -77,6 +75,8 @@ async fn a_ping_is_answered_with_a_pong() {
 async fn a_connection_that_sends_nothing_is_closed_and_goes_from_its_room() {
     let th = server().await;
     let (_table, mut quiet, mut other) = two_in_a_room(&th, &paragraphs(&["first"])).await;
+    // From here on: the room was made under the server's own limit.
+    th.app.ws().set_quiet_limit(LIMIT);
     let place = |clock: u64| json!({"type": null, "tname": null, "item": {"client": 7, "clock": clock}, "assoc": 0});
     let caret = json!({"user": {}, "cursor": {"anchor": place(1), "head": place(4)}});
     // Before the last thing it sends: the server hears it after this.
@@ -157,13 +157,25 @@ async fn a_pong_to_the_servers_ping_keeps_a_connection() {
 async fn a_member_held_by_a_check_is_answered_and_kept() {
     let th = server().await;
     let (table, _owner, mut member) = two_in_a_room(&th, &paragraphs(&["first"])).await;
+    th.app.ws().set_quiet_limit(LIMIT);
     let user = th.client2.me().await.id;
     let (reached, go) = th.app.collab().pause_next_access_read();
     let demote = async {
         crate::rooms::give(&th, &table.board_id, &user, "commenter").await;
     };
     let held = async {
-        reached.notified().await;
+        // The member pings while the change of their role makes its way to the
+        // check, however long a loaded machine takes.
+        let reached = reached.notified();
+        tokio::pin!(reached);
+        loop {
+            tokio::select! {
+                () = &mut reached => break,
+                () = tokio::time::sleep(LIMIT / 3) => {
+                    pong(&mut member).await;
+                }
+            }
+        }
         // Held: the change waits for the check, and what is sent after it too.
         member.write("while held").await;
         let answered = pong(&mut member).await;

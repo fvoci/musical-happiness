@@ -100,13 +100,9 @@ impl Hub {
 }
 
 impl Hub {
-    /// Has the connections opened from now on closed after `limit` of sending
-    /// nothing, in place of the ninety seconds of `ws/inbound.rs`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if a thread panicked while it held the limit.
+    /// Has the connections closed after `limit` of sending nothing, in place of the
+    /// ninety seconds of `ws/inbound.rs`: those open now from their next wait on.
     pub fn set_quiet_limit(&self, limit: std::time::Duration) {
-        *self.inner.quiet_limit.lock().expect("lock poisoned") = Some(limit);
+        self.inner.quiet_limit.set(limit);
     }
 }

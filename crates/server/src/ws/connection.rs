@@ -35,7 +35,7 @@ impl Hub {
     ) {
         let (sink, stream) = socket.split();
         let (outbox, inbox) = mpsc::channel::<Utf8Bytes>(OUTBOX_CAPACITY);
-        let mut inbound = Inbound::new(stream, outbox.clone(), self.quiet_limit());
+        let mut inbound = Inbound::new(stream, outbox.clone(), self.inner.quiet_limit.clone());
         let closed = CancellationToken::new();
         let closed_because = Arc::new(OnceLock::new());
         let mut who = subscribe::Who::of(identity);
@@ -169,16 +169,6 @@ impl Hub {
                 return Disconnect::ClientClosed;
             }
         }
-    }
-
-    /// How long a connection may send nothing: [`super::inbound::QUIET_LIMIT`], or
-    /// what a test set.
-    fn quiet_limit(&self) -> Duration {
-        #[cfg(feature = "test-util")]
-        if let Some(limit) = *self.inner.quiet_limit.lock().expect("lock poisoned") {
-            return limit;
-        }
-        super::inbound::QUIET_LIMIT
     }
 
     /// Returns once the session of `token` has ended, looked up every `period`; never

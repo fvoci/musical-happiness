@@ -360,9 +360,8 @@ struct HubInner {
     subscription_pause: Mutex<Option<SubscriptionPause>>,
     #[cfg(feature = "test-util")]
     dispatch_pause: Mutex<Option<SubscriptionPause>>,
-    /// The quiet limit in place of [`inbound::QUIET_LIMIT`], for the tests of it.
-    #[cfg(feature = "test-util")]
-    quiet_limit: Mutex<Option<Duration>>,
+    /// How long its connections may send nothing ([`inbound::QUIET_LIMIT`]).
+    quiet_limit: inbound::QuietLimit,
 }
 
 impl Hub {
@@ -374,10 +373,14 @@ impl Hub {
         ping_interval: Option<Duration>,
         metrics: Metrics,
     ) -> Self {
-        if ping_interval.is_none_or(|period| period > inbound::QUIET_LIMIT / 3) {
+        // The browser's Pong to a Ping is what keeps a page whose timers are stopped;
+        // it needs some time to come back within the quiet limit.
+        let answered_in_time = inbound::QUIET_LIMIT.saturating_sub(Duration::from_secs(30));
+        if ping_interval.is_none_or(|period| period >= answered_in_time) {
             tracing::warn!(
                 ping = ?ping_interval,
-                "websocket_ping_seconds is 0 or more than a third of the 90 seconds a connection may send nothing: pages whose timers are stopped (a frozen tab) are closed after those 90 seconds, and connect again"
+                quiet_limit = ?inbound::QUIET_LIMIT,
+                "websocket_ping_seconds is 0 or too long for the quiet limit of a connection: pages whose timers are stopped (a frozen tab) are closed after it, and connect again"
             );
         }
         Self {
@@ -391,8 +394,7 @@ impl Hub {
                 subscription_pause: Mutex::default(),
                 #[cfg(feature = "test-util")]
                 dispatch_pause: Mutex::default(),
-                #[cfg(feature = "test-util")]
-                quiet_limit: Mutex::default(),
+                quiet_limit: inbound::QuietLimit::default(),
             }),
             audience,
         }

@@ -171,9 +171,12 @@ impl Collab {
     /// a little before (it is tried again after [`REMAKE_RETRY`]); whether it was made
     /// again. A document that could not be made again is closed: the store holds it.
     pub(super) async fn remake_and_tell(&self, app: &App, card_id: &str, slot: &mut Held) -> bool {
-        if slot
-            .remake_failed_at
-            .is_some_and(|at| at.elapsed() < REMAKE_RETRY)
+        // Not by a process that lost the lock of the server: making it again empties
+        // the log, as a fold does.
+        if !app.holds_server_lock()
+            || slot
+                .remake_failed_at
+                .is_some_and(|at| at.elapsed() < REMAKE_RETRY)
         {
             return false;
         }

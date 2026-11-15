@@ -557,6 +557,9 @@ impl Collab {
         }
         for slot in &slots {
             let closed = tokio::time::timeout_at(deadline, async {
+                // In the order of the gate and then the slot, as everything else.
+                let tenant = slot.lock().await.tenant;
+                let _gate = self.reading(tenant).await;
                 let mut slot = Arc::clone(slot).lock_owned().await;
                 self.forget(&mut slot).await;
                 self.retire(&mut slot);
@@ -620,18 +623,16 @@ impl Collab {
                     continue;
                 }
             };
-            match (
-                self.close_after_open(&app.scoped(tenant), &card_id).await,
-                left,
-            ) {
-                (Ok(()), Leftover::Unfinished) => {
+            if let Err(error) = self.close_after_open(&app.scoped(tenant), &card_id).await {
+                tracing::error!(%error, card_id, "cannot open, write or fold a document a server that ended had left");
+                continue;
+            }
+            match left {
+                Leftover::Unfinished => {
                     tracing::info!(card_id, "saw to a body a server that ended had left");
                 }
-                (Ok(()), Leftover::Unfolded) => {
+                Leftover::Unfolded => {
                     tracing::debug!(card_id, "saw to a log a server that ended had left");
-                }
-                (Err(error), _) => {
-                    tracing::error!(%error, card_id, "cannot open, write or fold a document a server that ended had left");
                 }
             }
         }

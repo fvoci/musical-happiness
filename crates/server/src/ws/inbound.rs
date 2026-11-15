@@ -15,6 +15,8 @@
 use std::borrow::Cow;
 use std::collections::VecDeque;
 use std::pin::pin;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use axum::extract::ws::{Message, Utf8Bytes};
@@ -35,6 +37,35 @@ use crate::metrics::Disconnect;
 /// without a word stays in its rooms (its seat counted against the limits of the room
 /// and of its user) is this at most.
 pub(super) const QUIET_LIMIT: Duration = Duration::from_secs(90);
+
+/// The quiet limit of a hub's connections: [`QUIET_LIMIT`], unless a test shortened
+/// it, which the connections that wait see from their next wait on. Cloning is cheap;
+/// every clone is the same limit.
+#[derive(Debug, Clone)]
+pub(super) struct QuietLimit(Arc<AtomicU64>);
+
+impl Default for QuietLimit {
+    fn default() -> Self {
+        Self(Arc::new(AtomicU64::new(millis(QUIET_LIMIT))))
+    }
+}
+
+impl QuietLimit {
+    fn get(&self) -> Duration {
+        Duration::from_millis(self.0.load(Ordering::Relaxed))
+    }
+
+    /// Has the connections closed after `limit` of sending nothing, from their next
+    /// wait on.
+    #[cfg(feature = "test-util")]
+    pub(super) fn set(&self, limit: Duration) {
+        self.0.store(millis(limit), Ordering::Relaxed);
+    }
+}
+
+fn millis(limit: Duration) -> u64 {
+    u64::try_from(limit.as_millis()).unwrap_or(u64::MAX)
+}
 
 /// How many messages are read ahead while the server does what the connection asked:
 /// a minute of typing as a page sends it (at most 33 frames a second) is about two
@@ -80,7 +111,7 @@ pub(super) struct Inbound<S> {
     ahead_bytes: usize,
     /// When the client last sent anything.
     heard: Instant,
-    quiet_limit: Duration,
+    quiet_limit: QuietLimit,
 }
 
 impl<S> Inbound<S>
@@ -89,7 +120,7 @@ where
 {
     /// The reading side of `stream`, answering `PING` on `outbox`; a connection that
     /// sends nothing for `quiet_limit` ends.
-    pub(super) fn new(stream: S, outbox: mpsc::Sender<Utf8Bytes>, quiet_limit: Duration) -> Self {
+    pub(super) fn new(stream: S, outbox: mpsc::Sender<Utf8Bytes>, quiet_limit: QuietLimit) -> Self {
         Self {
             stream,
             outbox,
@@ -109,12 +140,12 @@ where
                 self.ahead_bytes = self.ahead_bytes.saturating_sub(payload_len(&read));
                 read
             } else {
-                let deadline = self.heard + self.quiet_limit;
+                let deadline = self.heard + self.quiet_limit.get();
                 let Ok(read) = tokio::time::timeout_at(deadline, self.stream.next()).await else {
                     return Err(Disconnect::Quiet);
                 };
                 self.heard = Instant::now();
-                if self.answered(&read) {
+                if self.answer_if_ping(&read) {
                     continue;
                 }
                 read
@@ -148,7 +179,7 @@ where
                 }
                 read = self.stream.next(), if room => {
                     self.heard = Instant::now();
-                    if !self.answered(&read) && !is_beat(&read) {
+                    if !self.answer_if_ping(&read) && !is_beat(&read) {
                         self.ahead_bytes += payload_len(&read);
                         self.ahead.push_back(read);
                     }
@@ -167,7 +198,7 @@ where
     /// Answers `read` if it is a `PING`; whether it was one. An answer that finds the
     /// connection's messages full is not sent: the page lets go of the connection
     /// for that, and the hub closes it at the next message it cannot queue.
-    fn answered(&self, read: &Read) -> bool {
+    fn answer_if_ping(&self, read: &Read) -> bool {
         let Some(Ok(Message::Text(text))) = read else {
             return false;
         };
@@ -217,7 +248,7 @@ mod tests {
         let stream: Feeding = Box::pin(stream::unfold(received, async |mut received| {
             received.recv().await.map(|message| (message, received))
         }));
-        let inbound = Inbound::new(stream, outbox, QUIET_LIMIT);
+        let inbound = Inbound::new(stream, outbox, QuietLimit::default());
         (inbound, feed, answers)
     }
 
@@ -243,6 +274,8 @@ mod tests {
     /// The limit the contract says (`contracts/websocket.md` 3, "죽은 연결"): past
     /// what a page in the background sends, a `PING` a minute or so apart, with
     /// thirty seconds for a slow network.
+    /// It restates the constant on purpose: the contract and the page's waits are
+    /// written for this number.
     #[test]
     fn the_limit_is_ninety_seconds() {
         assert_eq!(QUIET_LIMIT, Duration::from_secs(90));
@@ -342,7 +375,7 @@ mod tests {
         let mut inbound = Inbound::new(
             stream::iter(messages).chain(stream::pending()),
             outbox,
-            QUIET_LIMIT,
+            QuietLimit::default(),
         );
         inbound
             .meanwhile(tokio::time::sleep(Duration::from_secs(1)))

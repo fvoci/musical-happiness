@@ -18,15 +18,17 @@ use crate::rooms::{Peer, paragraphs, table};
 /// rows the log has.
 async fn stored(e: &Editing) -> (i64, i64, i64, usize) {
     let store = e.app.store();
+    // The rows first: a fold that comes between the two reads is then seen whole in
+    // the second (it changes the state and the log in one transaction).
+    let rows = store
+        .logged_body_updates(&e.card_id)
+        .await
+        .expect("counted");
     let stored = store
         .get_body_doc(&e.card_id)
         .await
         .expect("read")
         .expect("a document");
-    let rows = store
-        .logged_body_updates(&e.card_id)
-        .await
-        .expect("counted");
     (
         stored.state_seq,
         stored.log_end,
