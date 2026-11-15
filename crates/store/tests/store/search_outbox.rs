@@ -412,6 +412,55 @@ async fn a_card_template_of_a_board_has_no_document() {
     test.teardown().await;
 }
 
+/// A card that becomes a template of its board is taken out of the index, and one that
+/// stops being one is put back: what a search would find of it changed.
+#[tokio::test]
+async fn a_card_that_becomes_a_template_or_stops_being_one_is_noted() {
+    let test = common::setup().await;
+    let store = &test.store;
+    store.keep_search_outbox();
+    let (board, user_id) = board(store).await;
+    let card = card(store, &board.id, &user_id).await;
+    settle_all(store).await;
+    let flag = |value: serde_json::Value| BlockPatch {
+        updated_fields: json!({"isTemplate": value})
+            .as_object()
+            .expect("an object")
+            .clone(),
+        ..BlockPatch::default()
+    };
+
+    patch(store, &card.id, &flag(json!(true)), &user_id).await;
+    assert_eq!(
+        listed(store).await,
+        [(SearchTarget::Block, card.id.clone())],
+        "a card became a template"
+    );
+    assert_eq!(
+        store
+            .search_documents(std::slice::from_ref(&card.id))
+            .await
+            .expect("read"),
+        [],
+        "a template has no document"
+    );
+    settle_all(store).await;
+    patch(store, &card.id, &flag(json!(true)), &user_id).await;
+    assert_eq!(listed(store).await, [], "a template stays one");
+
+    let unflag = BlockPatch {
+        deleted_fields: vec!["isTemplate".to_owned()],
+        ..BlockPatch::default()
+    };
+    patch(store, &card.id, &unflag, &user_id).await;
+    assert_eq!(
+        listed(store).await,
+        [(SearchTarget::Block, card.id.clone())],
+        "a template became a card"
+    );
+    test.teardown().await;
+}
+
 #[tokio::test]
 async fn a_row_noted_again_while_it_was_sent_stays() {
     let test = common::setup().await;

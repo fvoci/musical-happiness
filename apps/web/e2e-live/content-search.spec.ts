@@ -61,6 +61,12 @@ async function foundBy(api: APIRequestContext, workspaceId: string, words: strin
 
 const dialog = (page: Page) => page.getByTestId('search-dialog');
 
+// The search server is up again after each test, passed or failed: the tests after
+// these share it.
+test.afterEach(async ({ baseURL }) => {
+  await fake(baseURL ?? '', 'up');
+});
+
 test('a card is found by a word of its body and opened; what the reader cannot read is not found', async ({
   page,
   baseURL,
@@ -74,16 +80,17 @@ test('a card is found by a word of its body and opened; what the reader cannot r
   const theirs = await signedIn(base, stranger);
   const word = `quokka${Date.now().toString(36)}`;
   const board = await makeBoard(api, { title: 'Field notes' });
+  // The template first: the server sends what was written in the order it was written,
+  // so by the time the card is found the template has been looked at.
+  await cardWithBody(api, board, 'Survey template', `A ${word} form`, true);
   const card = await cardWithBody(api, board, 'Island survey', `The ${word} count is up`);
-  const template = await cardWithBody(api, board, 'Survey template', `A ${word} form`, true);
   const other = await makeBoard(theirs, { title: 'Private notes' });
   const strangers = await cardWithBody(theirs, other, 'Their survey', `Their ${word} too`);
 
   // Each finds their own card once the server has sent it to the search server,
   // and neither a template nor what is not theirs.
-  await expect.poll(() => foundBy(api, board.workspaceId, word)).toEqual([card]);
   await expect.poll(() => foundBy(theirs, other.workspaceId, word)).toEqual([strangers]);
-  expect(template).not.toBe(card);
+  await expect.poll(() => foundBy(api, board.workspaceId, word)).toEqual([card]);
 
   await page.goto('/');
   await signInOnPage(page, owner);
@@ -98,7 +105,7 @@ test('a card is found by a word of its body and opened; what the reader cannot r
   await page.keyboard.press('Enter');
   await expect(page.getByTestId('card-dialog')).toBeVisible();
   await expect(page.getByTestId('card-dialog')).toContainText('Island survey');
-  expect(page.url()).toContain(`/boards/${board.boardId}/${board.viewId}/${card}`);
+  await expect(page).toHaveURL(new RegExp(`/boards/${board.boardId}/${board.viewId}/${card}$`));
   await api.dispose();
   await theirs.dispose();
   expect(errors).toEqual([]);
@@ -123,13 +130,10 @@ test('a search server that is down is said so, and searched again once it is up'
   await signInOnPage(page, owner);
   await page.getByTestId('open-search').click();
   await fake(base, 'down');
-  try {
-    await page.getByTestId('search-field').fill(word);
-    await expect(dialog(page)).toHaveAttribute('data-status', 'unavailable');
-    await expect(dialog(page)).toContainText('Search is not available right now.');
-  } finally {
-    await fake(base, 'up');
-  }
+  await page.getByTestId('search-field').fill(word);
+  await expect(dialog(page)).toHaveAttribute('data-status', 'unavailable');
+  await expect(dialog(page)).toContainText('Search is not available right now.');
+  await fake(base, 'up');
   await page.getByTestId('search-retry').click();
   await expect(dialog(page)).toHaveAttribute('data-status', 'found');
   await expect(dialog(page).getByRole('option')).toHaveCount(1);

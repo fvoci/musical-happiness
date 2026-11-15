@@ -40,13 +40,14 @@ const DOCUMENT_COLUMNS: &str = "b.id, w.org_id, bo.workspace_id, b.board_id, b.t
 
 /// Starts the statement that reads the blocks that have a document, with their
 /// boards and workspaces: the cards and the pages of the boards and wikis that are no
-/// templates, but the cards that are templates of their boards (`isTemplate`; a
-/// block without the field, as a page, is none). What is in the trash is no block,
+/// templates, but the cards that are templates of their boards (`isTemplate` is
+/// `true`; a block without the field, as a page, is none). What is in the trash is no block,
 /// and has none. More `AND` conditions on `b` may follow.
 fn select_documents(scope: &Scope<'_>) -> Sql {
+    // Only the JSON `true`, as `block_derived` reads it: not `1`, nor `"true"`.
     let no_card_template = match scope.dialect() {
-        Dialect::Sqlite => "COALESCE(json_extract(b.fields, '$.isTemplate'), 0) <> 1",
-        Dialect::Postgres => "COALESCE(b.fields->>'isTemplate', 'false') <> 'true'",
+        Dialect::Sqlite => "json_type(b.fields, '$.isTemplate') IS NOT 'true'",
+        Dialect::Postgres => "(b.fields->'isTemplate')::text IS DISTINCT FROM 'true'",
     };
     let mut sql = scope.sql(&format!(
         "SELECT {DOCUMENT_COLUMNS} FROM blocks AS b JOIN boards AS bo ON bo.id = b.board_id{} \
