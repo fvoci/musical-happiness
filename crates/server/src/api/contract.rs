@@ -212,7 +212,10 @@ enum Members {
 /// [`document`], so that a new type is looked at once.
 const SCHEMAS: &[(&str, Members)] = &[
     // What the server answers with.
-    ("AcceptedInvitation", Members::AllBut(&["boardId"])),
+    (
+        "AcceptedInvitation",
+        Members::AllBut(&["boardId", "boardKind"]),
+    ),
     ("EmailVerified", Members::AllBut(&["boardId"])),
     ("Block", Members::AllBut(&["editedAt"])),
     ("Body", Members::AsWritten),
@@ -249,7 +252,10 @@ const SCHEMAS: &[(&str, Members)] = &[
             "token",
         ]),
     ),
-    ("InvitationPreview", Members::AllBut(&["boardTitle"])),
+    (
+        "InvitationPreview",
+        Members::AllBut(&["boardTitle", "boardKind"]),
+    ),
     ("LoginOptions", Members::All),
     ("OidcStart", Members::All),
     ("LoginOrganization", Members::All),

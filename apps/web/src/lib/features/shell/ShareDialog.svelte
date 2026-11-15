@@ -1,16 +1,17 @@
 <!--
-  Sharing a board, for its admins: who of the workspace may find and join it and
-  with which role, its members and their roles, adding people of the workspace,
-  and the public link (read only, for anyone who has it).
+  Sharing a board or a wiki, for its admins: who of the workspace may find and
+  join it (read an open wiki unjoined) and with which role, its members and
+  their roles, adding people of the workspace, and the public link (read only,
+  for anyone who has it).
 
-  Every change is sent at once through the board store, which shows it and
+  Every change is sent at once through its store, which shows it and
   takes it back when the server refuses it. The people offered to add are
   the workspace's oldest ten until something is typed, then the ten the server
   finds by name (D2); members are left out. The public link is read when the
   dialog opens. The reader's own role is not changed here: that is another
   admin's to do, so that nobody locks themselves out by a slip.
 
-  A reader who is no admin of the board sees its members alone, with their roles,
+  A reader who is no admin sees its members and teams alone, with their roles,
   and changes nothing (`readOnly`). Opened at the members (`at`, from the number
   of members at the head of the board), the dialog begins at that section.
 -->
@@ -35,7 +36,7 @@
     isGuest,
     peopleOf,
     type BoardRole,
-    type BoardStore,
+    type Shareable,
     type Sharing,
     type User,
     type Workspace,
@@ -48,16 +49,18 @@
   import GuestInvite from './GuestInvite.svelte';
   import BoardTeams from './BoardTeams.svelte';
   import { ROLE_ORDER, roleOfMember } from './share-logic.ts';
+  import { shareWords } from './share-words.ts';
 
   interface Props {
     open: boolean;
     workspace: Workspace;
-    board: BoardStore;
-    /** The whole address of the board's public link with a read token. */
+    board: Shareable;
+    /** The whole address of the public link with a read token. */
     linkOf: (readToken: string) => string;
     /**
-     * The members alone: for a board the reader manages without reading it, whose
-     * openness and public link are not theirs to change or read.
+     * The members alone: for a board or a wiki the reader manages without reading
+     * it, or reads without being its admin, whose openness and public link are not
+     * theirs to change or read.
      */
     membersOnly?: boolean;
     /** The members are shown, not changed: for a reader who is no admin of the board. */
@@ -77,6 +80,7 @@
   }: Props = $props();
 
   const workspaceName = $derived(workspace.info?.title || m.shell_workspace_unnamed());
+  const words = $derived(shareWords(board.board?.kind));
 
   const uid = $props.id();
   const compact = $derived(page.stage === 'compact');
@@ -233,7 +237,7 @@
   >
     <Dialog.Header class="shrink-0 flex-row items-center gap-2 border-b py-2 pr-2 pl-4">
       <Dialog.Title class="min-w-0 flex-1 text-base font-semibold">
-        {readOnly ? m.share_members_title() : m['ShareBoard.Title']()}
+        {readOnly ? m.share_members_title() : words.title()}
       </Dialog.Title>
       <Dialog.Close>
         {#snippet child({ props }: { props: Record<string, unknown> })}
@@ -257,7 +261,7 @@
           </h3>
           <label class="flex min-h-8 items-center gap-3 roomy:min-h-touch">
             <span class="min-w-0 flex-1 text-muted-foreground"
-              >{m.share_workspace_open({ workspace: workspaceName })}</span
+              >{words.workspaceOpen({ workspace: workspaceName })}</span
             >
             <Switch
               checked={isOpen}
@@ -285,7 +289,7 @@
       {/if}
 
       {#if access && !readOnly && !isGuest(workspace) && !board.board?.isTemplate}
-        <GuestInvite {workspace} {access} boardId={board.boardId} />
+        <GuestInvite {workspace} {access} boardId={board.boardId} kind={board.board?.kind} />
       {/if}
 
       <!-- The members. -->
@@ -390,7 +394,7 @@
       </section>
 
       {#if access?.people.teams && !isGuest(workspace)}
-        <BoardTeams {workspace} {board} teams={access.people.teams} />
+        <BoardTeams {workspace} {board} teams={access.people.teams} {readOnly} />
       {/if}
 
       <!-- The public link. -->

@@ -90,6 +90,7 @@
       onEditWiki={() => undefined}
       onDeleteWiki={() => undefined}
       onOpenTrash={() => undefined}
+      onShare={() => undefined}
     >
       {#snippet missingPage()}
         <p>{m.app_problem_load()}</p>

@@ -262,7 +262,8 @@ async fn what_is_in_the_trash_is_resolved_as_nothing() {
 }
 
 /// To a member of the workspace, what is for the invited only is nothing until they
-/// are invited, and what is for everybody nothing until they join it.
+/// are invited, and an open board nothing until they join it; an open wiki they read
+/// without joining it.
 #[tokio::test]
 async fn what_a_member_is_not_on_is_resolved_as_nothing() {
     let th = Setup::native().start().await.init_basic().await;
@@ -272,24 +273,31 @@ async fn what_a_member_is_not_on_is_resolved_as_nothing() {
     let member = &th.client2;
     let member_id = member.me().await.id;
 
-    let hidden = [private.both(), open.both()].concat();
+    let hidden = [private.card.as_str(), &private.page, &open.card];
     check_as_nothing(member, TEST_WS, &hidden, &own.card, "no member").await;
+    assert_eq!(
+        named(&resolved(member, TEST_WS, &[&open.page]).await),
+        [open.page.as_str()],
+        "the page of an open wiki, unjoined"
+    );
 
-    // Joined, and invited: each is told from then on, and the others stay nothing.
+    // Joined, and invited: each is told from then on, and the other stays nothing.
     member
         .post(&format!("{TEST_WS}/boards/{}/join", open.board), &json!({}))
         .await
         .check_ok();
     let_read(&th.client, &private.wiki, &member_id).await;
+    let asked = [private.both(), open.both()].concat();
     assert_eq!(
-        named(&resolved(member, TEST_WS, &hidden).await),
-        [private.page.as_str(), open.card.as_str()]
+        named(&resolved(member, TEST_WS, &asked).await),
+        [private.page.as_str(), &open.card, &open.page]
     );
-    let still = [private.card.as_str(), open.page.as_str()];
-    let nothing = [UNKNOWN_ID, UNKNOWN_ID];
-    for (ids, as_ids) in [(still, nothing), ([still[1], still[0]], nothing)] {
+    // What stays nothing is nothing wherever it is among what is asked.
+    let other = made(&th.client, TEST_WS, "P", HIDDEN).await;
+    let still = [private.card.as_str(), other.card.as_str()];
+    for ids in [still, [still[1], still[0]]] {
         let known = [own.card.as_str(), ids[0], ids[1]];
-        let unknown = [own.card.as_str(), as_ids[0], as_ids[1]];
+        let unknown = [own.card.as_str(), UNKNOWN_ID, UNKNOWN_ID];
         assert_eq!(
             resolved(member, TEST_WS, &known).await.text(),
             resolved(member, TEST_WS, &unknown).await.text()
@@ -309,7 +317,7 @@ async fn what_a_member_is_not_on_is_resolved_as_nothing() {
 }
 
 /// A guest of the workspace is told what is on the boards and wikis they were invited
-/// to, and nothing of what is for everybody who works there.
+/// to, and nothing of what is for everybody who works there: an open wiki among it.
 #[tokio::test]
 async fn a_guest_is_told_what_it_was_invited_to_and_nothing_else() {
     let th = Setup::native().start().await.init_basic().await;

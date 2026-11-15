@@ -54,14 +54,14 @@ describe('an open wiki', () => {
     expect(store.status).toBe('failed');
   });
 
-  it('offers an open wiki to join, then reads it', async () => {
+  it('reads an open wiki unjoined and offers it to join, to write in it', async () => {
     const made = await openWiki('O');
     // The other person's workspace over the same world.
     const otherWorkspace = new Workspace({ backend: made.other, locale: () => 'en' });
     await otherWorkspace.load();
     const store = new WikiStore(otherWorkspace, made.wikiId);
     await store.load();
-    expect([store.joinable, store.missing, store.status]).toEqual([true, false, 'failed']);
+    expect([store.joinable, store.missing, store.status]).toEqual([true, false, 'ready']);
     expect(await store.join()).toBe(true);
     expect([store.joinable, store.status, store.role]).toEqual([false, 'ready', 'editor']);
     store.close();

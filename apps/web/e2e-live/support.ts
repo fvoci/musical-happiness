@@ -14,7 +14,7 @@ import { request as httpRequest } from 'node:http';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
-import { expect, request, type APIRequestContext, type Page } from '@playwright/test';
+import { expect, request, type APIRequestContext, type Browser, type Page } from '@playwright/test';
 
 import { addressOf, placeOf } from '../e2e/address.ts';
 import { screensDir } from '../e2e/screens.ts';
@@ -155,6 +155,40 @@ export async function shot(page: Page, name: string): Promise<void> {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({ path: path.join(folder, `${name}-390.png`) });
   await page.setViewportSize(wide);
+}
+
+/**
+ * Pictures what `page` shows, in Korean, wide and 390 pixels wide: the same
+ * account in a browser of that language, `show` bringing up what is pictured.
+ * Only with `FVOCI_SCREENS` set; they go to `target/screens/<area>/`.
+ */
+export async function koreanShots(
+  browser: Browser,
+  page: Page,
+  area: string,
+  name: string,
+  show: (seen: Page) => Promise<void>,
+): Promise<void> {
+  if (!process.env.FVOCI_SCREENS) return;
+  const context = await browser.newContext({
+    locale: 'ko-KR',
+    storageState: await page.context().storageState(),
+  });
+  const seen = await context.newPage();
+  const errors = watchErrors(seen);
+  const folder = screensDir(area);
+  for (const size of [
+    { width: 1280, height: 800, label: 'wide' },
+    { width: 390, height: 844, label: '390' },
+  ]) {
+    await seen.setViewportSize(size);
+    await seen.goto(page.url());
+    await expect(seen.locator('html')).toHaveAttribute('lang', 'ko');
+    await show(seen);
+    await seen.screenshot({ path: `${folder}/${name}-${size.label}.png`, animations: 'disabled' });
+  }
+  expect(errors).toEqual([]);
+  await context.close();
 }
 
 /** Fails the test on anything the page throws. Call before the page loads. */

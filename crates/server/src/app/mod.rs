@@ -65,7 +65,7 @@ mod workspace_members;
 mod workspaces;
 
 pub use access::{BoardAccess, DeletedBoardAccess, as_managed};
-pub use audience::{Audience, UnsaidByLink};
+pub use audience::{Audience, Former, UnsaidByLink};
 pub use blocks::ChangeNotification;
 pub use cards::CardPreviews;
 pub use category_boards::DEFAULT_CATEGORY_BOARDS;

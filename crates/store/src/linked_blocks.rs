@@ -95,16 +95,18 @@ impl Store {
         .await
     }
 
-    /// Which of the identifiers name a card that is on the board now: what a body of
-    /// the board may name to whoever reads the board alone, by its link. Asked some at
-    /// a time, as a board's bodies may name more than one statement binds.
+    /// Which of the identifiers name a block of the type that is on the board now (in
+    /// the trash a block is not among them): a card of a board, or a page of a wiki,
+    /// what a body may name to whoever reads the board or the wiki alone, by its link.
+    /// Asked some at a time, as bodies may name more than one statement binds.
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if a query fails.
-    pub async fn cards_on_board_among(
+    pub async fn blocks_on_board_among(
         &self,
         board_id: &str,
+        block_type: BlockType,
         ids: &[&str],
     ) -> Result<HashSet<String>, StoreError> {
         if ids.is_empty() {
@@ -115,7 +117,7 @@ impl Store {
             for some in ids.chunks(ASKED_AT_ONCE) {
                 let mut sql = scope.sql("SELECT id FROM blocks WHERE board_id = ");
                 sql.bind(Id(board_id))
-                    .push_bind(" AND type = ", BlockType::Card.as_str())
+                    .push_bind(" AND type = ", block_type.as_str())
                     .push(" AND id IN (")
                     .bind_list(some.iter().map(|id| Id(id)))
                     .push(")");

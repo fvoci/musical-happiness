@@ -391,8 +391,8 @@ async fn who_only_manages_a_wiki_reads_none_of_its_pages() {
 }
 
 /// On a wiki a member does what their role lets them, as on a board: off a wiki for
-/// the invited only there is no wiki, a wiki for everybody in the workspace is seen by
-/// who did not join it and read by who did, a viewer and a commenter read, and an
+/// the invited only there is no wiki, a wiki for everybody in the workspace is read by
+/// who did not join it and written in by who did, a viewer and a commenter read, and an
 /// editor writes.
 #[tokio::test]
 async fn the_pages_of_a_wiki_are_for_each_role_what_the_role_is_let_do() {
@@ -414,15 +414,15 @@ async fn the_pages_of_a_wiki_are_for_each_role_what_the_role_is_let_do() {
         listed(&th.client2, TEST_WS).await,
         std::slice::from_ref(&open)
     );
-    // A wiki for everybody in the workspace is seen by who did not join it, and read
-    // by who did: until then its pages are refused, as a board's cards are.
+    // A wiki for everybody in the workspace is read by who did not join it, and written
+    // in by who did: until then its pages are read, and every change is refused.
     assert_eq!(
         asked(&th.client2, TEST_WS, &open, &open_page).await,
-        [403; 5],
+        READ_ONLY,
         "a member of the workspace who did not join the open wiki"
     );
     let door = at_the_door(&th.client2, TEST_WORKSPACE_ID, &open_page).await;
-    assert_eq!(door, "not_found");
+    assert_eq!(door, "read");
     th.client2
         .post(&format!("{TEST_WS}/boards/{open}/join"), &json!({}))
         .await

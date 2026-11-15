@@ -18,6 +18,7 @@ import type {
   User,
 } from '../backend.ts';
 
+import { reads } from './board-access.ts';
 import type { KeptOfCard } from './body-versions.ts';
 import type { BoardPlace } from './trash.ts';
 
@@ -68,6 +69,8 @@ interface Watcher {
   boardId: string | undefined;
   userId: string;
   listener: ChangeListener;
+  /** Of a wiki: whether the watcher reads it, as of the last change told. */
+  reads?: boolean;
 }
 
 export class World {
@@ -148,15 +151,32 @@ export class World {
   }
 
   watch(watcher: Watcher): () => void {
+    if (watcher.boardId !== undefined) watcher.reads = reads(this, watcher.userId, watcher.boardId);
     this.#watchers.add(watcher);
     return () => {
       this.#watchers.delete(watcher);
     };
   }
 
-  /** Tells everybody who watches the board. */
+  /**
+   * Tells everybody who watches the board. Of a wiki, as the server tells it:
+   * its readers are told the change; who stopped reading it with this change
+   * (made private, or taken off it) is told that it is gone for them, once;
+   * who does not read it is told nothing.
+   */
   tellBoard(boardId: string, change: Change): void {
-    this.#tell((watcher) => watcher.boardId === boardId, change);
+    if (this.boards.get(boardId)?.kind !== 'wiki') {
+      this.#tell((watcher) => watcher.boardId === boardId, change);
+      return;
+    }
+    const watching = [...this.#watchers].filter((watcher) => watcher.boardId === boardId);
+    const before = new Map(watching.map((watcher) => [watcher, watcher.reads === true]));
+    for (const watcher of watching) watcher.reads = reads(this, watcher.userId, boardId);
+    this.#tell((watcher) => watcher.boardId === boardId && watcher.reads === true, change);
+    this.#tell((watcher) => before.get(watcher) === true && watcher.reads !== true, {
+      kind: 'boardDeleted',
+      boardId,
+    });
   }
 
   /** Tells the given users, wherever they are. */
@@ -165,6 +185,11 @@ export class World {
       (watcher) => watcher.boardId === undefined && userIds.includes(watcher.userId),
       change,
     );
+  }
+
+  /** Tells the user, wherever they are, that a board is gone for them, unless they still read it (an open wiki). */
+  tellGone(userId: string, boardId: string): void {
+    if (!reads(this, userId, boardId)) this.tellUsers([userId], { kind: 'boardDeleted', boardId });
   }
 
   #tell(wanted: (watcher: Watcher) => boolean, change: Change): void {

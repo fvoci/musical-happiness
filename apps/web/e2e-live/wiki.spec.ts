@@ -22,6 +22,7 @@ import {
 
 import {
   boardPath,
+  koreanShots,
   makeBoard,
   person,
   register,
@@ -55,9 +56,12 @@ test('a wiki is made, filed among the boards, and kept apart from them', async (
   const wikis = (await (
     await api.get(`/api/v1/w/${workspaceId}/wikis`)
   ).json()) as Schemas['Board'][];
-  expect(wikis.map((wiki) => [wiki.id, wiki.kind, wiki.title, wiki.type])).toEqual([
+  // Among the wikis alone; others' open ones of the shared workspace are listed beside it.
+  const mine = wikis.filter((wiki) => wiki.id === wikiId);
+  expect(mine.map((wiki) => [wiki.id, wiki.kind, wiki.title, wiki.type])).toEqual([
     [wikiId, 'wiki', 'Handbook', 'O'],
   ]);
+  expect(wikis.every((wiki) => wiki.kind === 'wiki')).toBe(true);
   const boards = (await (
     await api.get(`/api/v1/w/${workspaceId}/boards`)
   ).json()) as Schemas['Board'][];
@@ -289,7 +293,7 @@ test('a wiki is renamed and described, deleted from its menu, and restored from 
   await api.dispose();
 });
 
-test('an open wiki is listed to whoever works in the workspace, joined first, then read', async ({
+test('an open wiki is listed to and read by whoever works in the workspace, and written once joined', async ({
   browser,
   baseURL,
 }) => {
@@ -312,13 +316,23 @@ test('an open wiki is listed to whoever works in the workspace, joined first, th
   const errors = watchErrors(page);
   await page.goto(`/w/${workspaceId}/wikis/${wiki.id}`);
   await signInOnPage(page, colleague);
-  // Listed to them, its pages not theirs to read until they join.
+  // Listed to them and read as its viewers read it; written once they join.
   await expect(sidebar(page).getByRole('link', { name: 'Open notes, wiki' })).toBeVisible();
-  const join = page.getByTestId('wiki-join');
-  await expect(join).toContainText('Open notes');
-  await join.getByRole('button').click();
   await expect(page).toHaveURL(`/w/${workspaceId}/wikis/${wiki.id}/${first.id}`);
-  await expect(page.getByTestId('page-title')).toHaveValue('Hello');
+  await expect(page.locator('h1[data-testid="page-title"]')).toHaveText('Hello');
+  const join = page.getByTestId('wiki-join');
+  await expect(join).toContainText('Join it to write in it');
+  // What its members write reaches them unjoined.
+  await api.patch(`${inWorkspace}/wikis/${wiki.id}/pages/${first.id}`, {
+    data: { title: 'Hello all' },
+  });
+  await expect(page.locator('h1[data-testid="page-title"]')).toHaveText('Hello all');
+  await koreanShots(browser, page, 'wiki-people', 'read-before-joining', async (seen) => {
+    await expect(seen.getByTestId('wiki-join')).toBeVisible();
+  });
+  await join.getByRole('button').click();
+  await expect(join).toHaveCount(0);
+  await expect(page.getByTestId('page-title')).toHaveValue('Hello all');
   expect(errors).toEqual([]);
   await page.context().close();
   await api.dispose();

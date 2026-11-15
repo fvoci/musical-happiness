@@ -32,7 +32,7 @@ enum Reaches {
 /// Every operation whose path names a board, a wiki, or something that is of one (a
 /// block, a file, an upload), and the kinds it reaches: the extractor of its handler
 /// (`Ws` for boards, `WsWiki` for wikis, `WsModule` for both; the token of a shared
-/// board opens boards). What names one in its body or its query is asked in
+/// board or wiki opens its own kind's routes). What names one in its body or its query is asked in
 /// [`what_names_a_wiki_in_a_body_or_a_query_is_refused_as_what_names_nothing`].
 const REACHED: &[(&str, Reaches)] = &[
     // The container itself, in the trash too.
@@ -50,7 +50,7 @@ const REACHED: &[(&str, Reaches)] = &[
     ("getBoardTeams", Reaches::Both),
     ("setBoardTeam", Reaches::Both),
     ("removeBoardTeam", Reaches::Both),
-    // Its sharing: kept for a wiki as for a board, though the link opens boards only.
+    // Its sharing: a board's link reads its cards, a wiki's its pages.
     ("getSharing", Reaches::Both),
     ("setSharing", Reaches::Both),
     // Its files.
@@ -109,11 +109,13 @@ const REACHED: &[(&str, Reaches)] = &[
     // What names a card or a page from a body: a card and a page name each other.
     ("getReferencesTo", Reaches::Both),
     // What the holder of a read token reads.
-    ("getSharedBoard", Reaches::Boards),
+    ("getSharedBoard", Reaches::Both),
     ("getSharedBlocks", Reaches::Boards),
     ("getSharedCards", Reaches::Boards),
-    ("getSharedFile", Reaches::Boards),
-    ("getSharedFileInfo", Reaches::Boards),
+    ("getSharedFile", Reaches::Both),
+    ("getSharedFileInfo", Reaches::Both),
+    ("getSharedPageTree", Reaches::Wikis),
+    ("getSharedPage", Reaches::Wikis),
 ];
 
 /// The parameters of a path that name a board or a wiki, or something that is of one.
@@ -627,7 +629,8 @@ async fn every_list_is_of_its_kinds() {
 }
 
 /// What names a board in a body or a query takes no wiki: the answer is the one for an
-/// identifier of nothing, and nothing is made or changed.
+/// identifier of nothing, and nothing is made or changed. The board a guest is
+/// invited to may be a wiki.
 #[tokio::test]
 async fn what_names_a_wiki_in_a_body_or_a_query_is_refused_as_what_names_nothing() {
     let world = World::start().await;
@@ -659,8 +662,7 @@ async fn what_names_a_wiki_in_a_body_or_a_query_is_refused_as_what_names_nothing
     }
     assert_eq!(ids(&client.get(&format!("{ROOT_WS}/wikis")).await).len(), 1);
 
-    // What changes or deletes boards together, the source of copied blocks, and the
-    // board a guest is invited to.
+    // What changes or deletes boards together, and the source of copied blocks.
     let same = async |method: Method, path: &str, body: &dyn Fn(&str) -> Value| {
         let send = async |id: &str| {
             Client::send(client.request(method.clone(), path).json(&body(id))).await
@@ -713,12 +715,14 @@ async fn what_names_a_wiki_in_a_body_or_a_query_is_refused_as_what_names_nothing
         )
         .await
         .check_done();
-    same(
-        Method::POST,
-        &format!("{ROOT_WS}/invitations"),
-        &|id| json!({"role": "guest", "boardId": id}),
-    )
-    .await;
+    // A guest is invited to a wiki as to a board.
+    client
+        .post(
+            &format!("{ROOT_WS}/invitations"),
+            &json!({"role": "guest", "boardId": wiki.container}),
+        )
+        .await
+        .check_done();
 
     // The wiki is as it was, and so is the board's card.
     let read = client
@@ -771,5 +775,72 @@ async fn the_audit_names_a_wiki_as_it_names_a_board() {
             .collect();
         assert_eq!(named, [&json!(title)], "the records about {title}");
     }
+    world.ts.teardown().await;
+}
+
+/// Nothing changes the kind of a board or a wiki: a patch that names a kind, its own
+/// too, is refused at `/kind` and changes nothing; a member a patch does not know is
+/// left out, as it was.
+#[tokio::test]
+async fn a_patch_that_names_a_kind_is_refused() {
+    let world = World::start().await;
+    let client = &world.ts.client;
+    let (board, wiki) = (
+        world.make(Reaches::Boards).await,
+        world.make(Reaches::Wikis).await,
+    );
+    for (things, own) in [(&board, "board"), (&wiki, "wiki")] {
+        let at = format!("{ROOT_WS}/boards/{}", things.container);
+        for kind in ["board", "wiki", "page", ""] {
+            let refused = client
+                .patch(&at, &json!({"kind": kind, "title": "changed"}))
+                .await;
+            refused.check_bad_request();
+            assert_eq!(refused.refused_at(), "/kind", "{own} as {kind:?}");
+        }
+        let read = client.get(&at).await.value();
+        assert_eq!(
+            (read["kind"].as_str(), read["title"].as_str()),
+            (Some(own), Some(""))
+        );
+        client
+            .patch(&at, &json!({"unknown": true, "title": "changed"}))
+            .await
+            .check_done();
+    }
+    // Who does not see the board is told it is not there, whatever the patch names.
+    let unseen = client
+        .post(&format!("{ROOT_WS}/boards"), &json!({"type": "P"}))
+        .await;
+    unseen.check_done();
+    let unseen = format!("{ROOT_WS}/boards/{}", text(&unseen.value(), "id"));
+    let (with_kind, without) = (
+        world
+            .ts
+            .client2
+            .patch(&unseen, &json!({"kind": "wiki"}))
+            .await,
+        world
+            .ts
+            .client2
+            .patch(&unseen, &json!({"title": "x"}))
+            .await,
+    );
+    with_kind.check_not_found();
+    assert_eq!(with_kind.problem(), without.problem());
+    // Nor is a kind changed with blocks.
+    let together = client
+        .patch(
+            &format!("{ROOT_WS}/boards-and-blocks"),
+            &json!({
+                "boardIds": [board.container],
+                "boardPatches": [{"kind": "wiki"}],
+                "blockIds": [],
+                "blockPatches": [],
+            }),
+        )
+        .await;
+    together.check_bad_request();
+    assert_eq!(together.refused_at(), "/boardPatches/0/kind");
     world.ts.teardown().await;
 }

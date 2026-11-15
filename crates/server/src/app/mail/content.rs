@@ -98,10 +98,10 @@ impl Content {
         };
         let ending = match (language, role) {
             (Language::English, fvoci_model::WorkspaceRole::Guest) => {
-                "This link is yours alone: it brings you to one board and can be used once. It ends when the invitation does."
+                "This link is yours alone: it brings you to one board or wiki and can be used once. It ends when the invitation does."
             }
             (Language::Korean, fvoci_model::WorkspaceRole::Guest) => {
-                "이 링크는 받는 분만을 위한 것으로, 보드 하나에 한 번 들어올 수 있습니다. 초대가 끝나면 함께 끝납니다."
+                "이 링크는 받는 분만을 위한 것으로, 보드나 위키 하나에 한 번 들어올 수 있습니다. 초대가 끝나면 함께 끝납니다."
             }
             (
                 Language::English,

@@ -171,6 +171,8 @@ crates/server/src/api/board_teams.rs
 crates/server/src/permissions/team_table.rs
 crates/server/tests/api/board_teams.rs
 crates/server/tests/api/wiki_kinds.rs | team
+crates/server/tests/api/role_table.rs | team
+crates/server/tests/api/role_table/*.txt | teams:
 crates/store/tests/store/board_kinds.rs | team
 apps/web/src/lib/features/shell/BoardTeams.svelte
 crates/model/src/board.rs | inherited from teams
@@ -183,6 +185,7 @@ crates/server/src/permissions.rs | team_role
 crates/server/src/permissions.rs | mod team_table
 crates/server/src/permissions.rs | highest team role
 crates/server/src/permissions/table.rs | team_role
+crates/server/src/permissions/wiki_table.rs | team_role
 crates/server/src/permissions/workspace_table.rs | team_role
 crates/server/src/app/access.rs | team_role
 crates/server/tests/api/rooms_access.rs | losing_the_team_role
@@ -193,6 +196,8 @@ crates/server/tests/api/rooms_access.rs | team.id
 crates/server/tests/api/rooms_access.rs | through a team
 crates/server/tests/api/rooms_access.rs | the team member left
 apps/web/src/lib/features/shell/ShareDialog.svelte | team
+apps/web/src/lib/features/shell/share-words.ts | team
+apps/web/src/lib/state/member-writes.ts | boardteams
 
 # Team membership is reusable across workspace modules; board effects live on the board side.
 crates/model/src/board_teams.rs

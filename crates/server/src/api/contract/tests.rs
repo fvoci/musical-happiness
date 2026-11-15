@@ -116,12 +116,14 @@ const NO_SESSION: [&str; 16] = [
     "startOidcLogin",
 ];
 /// The operations that read a shared board with its read token, and look at no session.
-const READ_TOKEN: [&str; 5] = [
+const READ_TOKEN: [&str; 7] = [
     "getSharedBlocks",
     "getSharedBoard",
     "getSharedCards",
     "getSharedFile",
     "getSharedFileInfo",
+    "getSharedPage",
+    "getSharedPageTree",
 ];
 /// The operations that take a session and do without one: the acceptance of an
 /// invitation, which makes an account for whoever has none.
@@ -164,7 +166,7 @@ fn what_needs_no_session_says_so() {
     );
     assert_eq!(
         read_token, READ_TOKEN,
-        "these read a shared board with its token, and are all under /shared"
+        "these read a shared board or wiki with its token, and are all under /shared"
     );
     assert_eq!(
         session_or_none, SESSION_OR_NONE,
@@ -546,6 +548,10 @@ const ORDERS: &[(&str, &str)] = &[
         "Oldest first; the blocks that one request made come in the order that request had them in",
     ),
     ("getSharedCards", "Oldest first; the pages cut that order"),
+    (
+        "getSharedPageTree",
+        "By `order` as strings compare by code unit, then by `id`",
+    ),
     (
         "getSubscriptions",
         "Oldest first, and by the identifier of the block",

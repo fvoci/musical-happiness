@@ -386,9 +386,9 @@ impl App {
         };
         let workspace = app.workspace(&invitation.workspace_id).await?;
         let inviter = app.user(&invitation.created_by).await?;
-        let board_title = match &invitation.board_id {
+        let board = match &invitation.board_id {
             Some(board_id) => match app.store().get_board(board_id).await {
-                Ok(board) => Some(board.title),
+                Ok(board) => Some(board),
                 // Gone since the link was read: with it the link.
                 Err(error) if error.is_not_found() => {
                     return Err(AppError::invitation_unavailable());
@@ -404,7 +404,8 @@ impl App {
             } else {
                 inviter.display_name
             },
-            board_title,
+            board_kind: board.as_ref().map(|board| board.kind),
+            board_title: board.map(|board| board.title),
         })
     }
 
@@ -480,9 +481,23 @@ impl App {
             used = accepted.used,
             "an invitation was accepted"
         );
+        // Which address the guest goes to: a board gone meanwhile has none, and the
+        // board's address tells them so.
+        let board_kind = match &accepted.board_id {
+            Some(board_id) => match app.store().get_board(board_id).await {
+                Ok(board) => Some(board.kind),
+                Err(error) if error.is_not_found() => None,
+                Err(error) => {
+                    tracing::warn!(%board_id, %error, "the kind of an accepted invitation's board was not read");
+                    None
+                }
+            },
+            None => None,
+        };
         Ok(Admission::LetIn(AcceptedInvitation {
             workspace_id: accepted.workspace_id,
             board_id: accepted.board_id,
+            board_kind,
         }))
     }
 

@@ -45,3 +45,32 @@ it('takes a team off the board by the × named after it', async () => {
   await fireEvent.click(remove);
   expect(unassign).toHaveBeenCalledWith('w1', 'b1', 't1');
 });
+
+it('shows the teams and their roles, unchanged, to a reader who changes nothing', async () => {
+  const teams = {
+    list: vi.fn<Teams['list']>(() => Promise.resolve([DESIGN])),
+    onBoard: vi.fn<Teams['onBoard']>(() => Promise.resolve([{ team: DESIGN, role: 'viewer' }])),
+  } as Partial<Teams> as Teams;
+  const workspace = { info: { id: 'w1' } } as unknown as Workspace;
+  const board = { boardId: 'b1', members: [] } as unknown as BoardStore;
+  render(BoardTeams, { workspace, board, teams, readOnly: true });
+  expect(await screen.findByText('Design')).toBeInTheDocument();
+  expect(screen.getByText('Viewer')).toBeInTheDocument();
+  expect(screen.queryByRole('combobox')).toBeNull();
+  expect(screen.queryByRole('button', { name: /Remove/ })).toBeNull();
+});
+
+it('leaves out an empty list of teams for a reader who changes nothing', async () => {
+  const onBoard = vi.fn<Teams['onBoard']>(() => Promise.resolve([]));
+  const teams = {
+    list: vi.fn<Teams['list']>(() => Promise.resolve([DESIGN])),
+    onBoard,
+  } as Partial<Teams> as Teams;
+  const workspace = { info: { id: 'w1' } } as unknown as Workspace;
+  const board = { boardId: 'b1', members: [] } as unknown as BoardStore;
+  render(BoardTeams, { workspace, board, teams, readOnly: true });
+  await waitFor(() => {
+    expect(onBoard).toHaveBeenCalled();
+  });
+  expect(screen.queryByTestId('board-teams')).toBeNull();
+});

@@ -5,7 +5,7 @@ import {
   type PresenceSnapshot,
   type PresenceVisit,
 } from '../presence.ts';
-import { roleOn } from './comments.ts';
+import { reads } from './board-access.ts';
 import type { World } from './world.ts';
 
 interface Visit {
@@ -57,7 +57,7 @@ export class MemoryPresence implements Presence {
   #valid(place: PresenceVisit, userId: string): boolean {
     const board = this.#world.boards.get(place.boardId);
     if (board?.workspaceId !== place.workspaceId) return false;
-    if (!roleOn(this.#world.members.get(board.id) ?? [], userId)) return false;
+    if (!reads(this.#world, userId, board.id)) return false;
     if (!place.cardId) return true;
     const card = this.#world.blocks.get(place.cardId);
     // A wiki's page is visited as a card is.

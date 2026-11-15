@@ -1,6 +1,6 @@
 <!--
   The menu at the head of a page: what can be done with the page shown. For
-  now its versions, which every member of the wiki reads (`onVersions`).
+  now its versions, which whoever reads the wiki reads (`onVersions`).
 -->
 <script lang="ts">
   import EllipsisIcon from '@lucide/svelte/icons/ellipsis';
