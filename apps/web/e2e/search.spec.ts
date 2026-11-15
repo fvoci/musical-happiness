@@ -2,8 +2,8 @@
  * The search of what cards and pages say, on the backend in memory: its keys
  * and button, finding by a word of a body and going there by the keyboard
  * alone, going to a page of a wiki, the kinds, an earlier answer that comes
- * late, what the dialog says of each state of the search, and a server
- * whose search server cannot hold its index (`?search=0`).
+ * late, what the dialog says of each state of the search, and a client
+ * configuration that says bodies are not searched (`?search=0`).
  */
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
@@ -26,7 +26,6 @@ import {
 /** What the page's development handle offers this test (src/app/backend.ts). Only what is used. */
 interface Dev {
   backend: {
-    world: { searchEnabled: boolean };
     latency: number;
     workspaces(): Promise<{ id: string }[]>;
     boards(workspaceId: string): Promise<{ id: string; title: string }[]>;
