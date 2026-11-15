@@ -320,7 +320,7 @@ async fn a_stale_index_shows_nobody_a_page_they_do_not_read() {
     let owner = hits(&th.client, TEST_WS, "").await;
     let other = hits(&th.client2, TEST_WS, "").await;
     let in_root = hits(&th.client, ROOT_WS, "").await;
-    let asked = fake.recorded_at("/_search").len();
+    let asked = fake.searches().len();
     th.teardown().await;
 
     let mut read_by_owner = vec![read.id.clone(), open_page.clone()];

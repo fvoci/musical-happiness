@@ -367,7 +367,7 @@ async fn a_stale_index_shows_nobody_what_they_do_not_read_now() {
     }
 
     let answers = ask(&th, &world).await;
-    let asked = fake.recorded_at("/_search").len();
+    let asked = fake.searches().len();
     th.teardown().await;
 
     each_found_what_they_read(&world, &answers);

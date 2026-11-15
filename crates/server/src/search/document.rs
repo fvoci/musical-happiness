@@ -28,10 +28,11 @@ pub(crate) fn digest(title: &str, text: &str) -> String {
     digest
 }
 
-/// The document of a card or a page: what the mapping of the index names, and
-/// nothing else.
-pub(crate) fn source(document: &SearchDocument) -> Value {
+/// The document of a card or a page, written with `version`: what the mapping of the
+/// index names, and nothing else.
+pub(crate) fn source(document: &SearchDocument, version: i64) -> Value {
     json!({
+        "sent": version,
         "orgId": document.org_id,
         "workspaceId": document.workspace_id,
         "containerId": document.container_id,
@@ -61,7 +62,7 @@ mod tests {
             title: "제목".to_owned(),
             text: "본문".to_owned(),
         };
-        let source = source(&document);
+        let source = source(&document, 7);
         let definition = index::definition();
         let mapped = definition["mappings"]["properties"]
             .as_object()
@@ -72,6 +73,7 @@ mod tests {
         assert_eq!(source["kind"], "card");
         assert_eq!(source["containerId"], "b");
         assert_eq!(source["digest"], digest("제목", "본문"));
+        assert_eq!(source["sent"], 7);
     }
 
     #[test]

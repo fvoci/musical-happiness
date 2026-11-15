@@ -118,36 +118,52 @@ pub(crate) enum IndexFound {
     Foreign,
 }
 
-/// A write of one document.
+/// A write of one document, of what was read from the database at `version`
+/// ([`super::version::Versions`]). The search server does it unless it did a write of
+/// the same document of a higher version: then it refuses it (409,
+/// `version_conflict_engine_exception`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Operation {
     /// The document is put, in place of what the search server holds of its card or
     /// page.
-    Put(SearchDocument),
+    Put {
+        document: SearchDocument,
+        version: i64,
+    },
     /// The document of the card of this identifier is removed, if there is one.
-    Remove(String),
+    Remove { id: String, version: i64 },
 }
 
 impl Operation {
     /// The lines of the operation in a `_bulk` request.
     fn lines(&self) -> String {
         match self {
-            Self::Put(put) => format!(
+            Self::Put { document, version } => format!(
                 "{}\n{}\n",
-                json!({"index": {"_id": put.id}}),
-                document::source(put)
+                json!({"index": versioned(&document.id, *version)}),
+                document::source(document, *version)
             ),
-            Self::Remove(id) => format!("{}\n", json!({"delete": {"_id": id}})),
+            Self::Remove { id, version } => {
+                format!("{}\n", json!({"delete": versioned(id, *version)}))
+            }
         }
     }
 
     /// The member of an item of the answer that says what became of the operation.
     fn answered_under(&self) -> &'static str {
         match self {
-            Self::Put(_) => "index",
-            Self::Remove(_) => "delete",
+            Self::Put { .. } => "index",
+            Self::Remove { .. } => "delete",
         }
     }
+}
+
+/// What a line of `_bulk` says of the document it writes: its identifier and its
+/// version. `external_gte` and not `external`: a removal by query
+/// ([`Client::remove_documents`]) leaves a document's version one past the one it was
+/// written with, and what is put after it, read later, may have just that one.
+fn versioned(id: &str, version: i64) -> Value {
+    json!({"_id": id, "version": version, "version_type": "external_gte"})
 }
 
 /// What a search found of one document.
@@ -408,7 +424,8 @@ impl Client {
             .map(|(operation, item)| {
                 let outcome = &item[operation.answered_under()];
                 let status = outcome["status"].as_u64().unwrap_or(0);
-                let removed_nothing = matches!(operation, Operation::Remove(_)) && status == 404;
+                let removed_nothing =
+                    matches!(operation, Operation::Remove { .. }) && status == 404;
                 if (200..300).contains(&status) || removed_nothing {
                     None
                 } else {
@@ -459,6 +476,36 @@ impl Client {
     /// The name of the index.
     pub(crate) fn index(&self) -> &str {
         &self.index
+    }
+
+    /// The highest version a document of the index was written with (`sent`), if it
+    /// holds one.
+    ///
+    /// # Errors
+    ///
+    /// Returns why the search server did not say.
+    pub(crate) async fn highest_version(&self) -> Result<Option<i64>, ClientError> {
+        let request = self.http.post(self.url("/_search")).json(&json!({
+            "size": 0,
+            "track_total_hits": false,
+            "aggs": {"sent": {"max": {"field": "sent"}}},
+        }));
+        let answer = self.send(request, INDEX_TIMEOUT).await?;
+        if let Some(refusal) = answer.refusal() {
+            return Err(refusal);
+        }
+        let highest = &answer.body["aggregations"]["sent"]["value"];
+        if highest.is_null() {
+            return Ok(None);
+        }
+        // Both answer the maximum as a JSON number, a float for a long: a version, a
+        // whole number of microseconds, is well within a float's whole numbers, and is
+        // read rounded up so that what follows it is past it.
+        let highest = highest.as_f64().ok_or(ClientError::Unreadable)?.ceil();
+        format!("{highest:.0}")
+            .parse::<i64>()
+            .map(Some)
+            .map_err(|_| ClientError::Unreadable)
     }
 
     /// Finds up to `size` documents of `scope` by `text`, past the `from` that match

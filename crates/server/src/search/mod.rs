@@ -25,6 +25,7 @@ mod limit;
 mod query;
 mod snippet;
 mod upkeep;
+mod version;
 mod worker;
 
 use std::sync::{Arc, Mutex};
@@ -36,6 +37,7 @@ pub(crate) use upkeep::{settle_at_start, start_upkeep, stop_upkeep};
 
 use client::{Client, ClientError};
 use limit::Limiter;
+use version::Versions;
 
 use crate::config::search::SearchSettings;
 
@@ -83,6 +85,8 @@ pub(crate) struct Engine {
     index: Mutex<IndexState>,
     /// Held by the upkeep while it runs: one at a time.
     upkeep: tokio::sync::Mutex<Pause>,
+    /// The versions documents are written with.
+    versions: Versions,
     /// When a search that the search server did not answer was last said in the log,
     /// and why it was not answered.
     search_failure_said: Mutex<Option<(Instant, ClientError)>>,
@@ -149,6 +153,7 @@ impl Search {
                 client: Client::new(&server)?,
                 index: Mutex::new(IndexState::Unknown),
                 upkeep: tokio::sync::Mutex::default(),
+                versions: Versions::default(),
                 search_failure_said: Mutex::new(None),
             }),
             None => None,

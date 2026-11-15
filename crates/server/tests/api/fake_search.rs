@@ -67,6 +67,10 @@ struct Index {
     /// not see them, as on a real search server. (A search here does: a real one
     /// refreshes by itself within a second.)
     unrefreshed: std::collections::BTreeSet<String>,
+    /// The version of every document written, of those removed too: a write of a lower
+    /// version is refused, as both search servers refuse one while they remember the
+    /// removal (`index.gc_deletes`; here, for ever).
+    versions: BTreeMap<String, i64>,
 }
 
 struct State {
@@ -263,6 +267,7 @@ impl FakeSearch {
                 uuid,
                 documents: BTreeMap::new(),
                 unrefreshed: std::collections::BTreeSet::new(),
+                versions: BTreeMap::new(),
             },
         );
     }
@@ -293,6 +298,21 @@ impl FakeSearch {
             .into_iter()
             .filter(|request| request.path.ends_with(suffix))
             .collect()
+    }
+
+    /// The searches the fake was sent: what asked `_search` for documents, and not for
+    /// the highest version of the index alone.
+    pub(crate) fn searches(&self) -> Vec<Recorded> {
+        self.recorded_at("/_search")
+            .into_iter()
+            .filter(|request| request.body["aggs"].is_null())
+            .collect()
+    }
+
+    /// The version the index holds of the document `id`, or remembers of its removal.
+    pub(crate) fn version_of(&self, index: &str, id: &str) -> Option<i64> {
+        let indices = self.state.indices.lock().expect("the indices");
+        indices.get(index)?.versions.get(id).copied()
     }
 }
 
@@ -382,6 +402,7 @@ async fn answer(
                 None => no_such_index(name),
             }
         }
+        ("GET", [name, "_doc", id]) => document_of(&state, name, id),
         ("POST", [name, "_search"]) => search(&state, name, &recorded_body),
         ("POST", [name, "_bulk"]) => bulk(&state, name, &text),
         ("POST", [name, "_refresh"]) => {
@@ -489,6 +510,7 @@ fn create(state: &State, name: &str, definition: Value) -> Response {
             uuid: state.next_uuid(),
             documents: BTreeMap::new(),
             unrefreshed: std::collections::BTreeSet::new(),
+            versions: BTreeMap::new(),
         },
     );
     axum::Json(json!({"acknowledged": true, "shards_acknowledged": true, "index": name}))
@@ -550,6 +572,20 @@ fn search(state: &State, name: &str, request: &Value) -> Response {
     let Some(index) = indices.get(name) else {
         return no_such_index(name);
     };
+    if !request["aggs"].is_null() {
+        let highest = index
+            .documents
+            .values()
+            .filter_map(|document| document["sent"].as_i64())
+            .max();
+        return axum::Json(json!({
+            "took": 1, "timed_out": false,
+            "_shards": {"total": 1, "successful": 1, "skipped": 0, "failed": 0},
+            "hits": {"max_score": null, "hits": []},
+            "aggregations": {"sent": {"value": highest}},
+        }))
+        .into_response();
+    }
     let query = &request["query"]["bool"];
     let asked = query["must"][0]["bool"]["should"][0]["match"]["all"]["query"]
         .as_str()
@@ -587,6 +623,26 @@ fn search(state: &State, name: &str, request: &Value) -> Response {
     .into_response()
 }
 
+/// A document and its version, as `GET /{index}/_doc/{id}` answers.
+fn document_of(state: &State, name: &str, id: &str) -> Response {
+    let indices = state.indices.lock().expect("the indices");
+    let Some(index) = indices.get(name) else {
+        return no_such_index(name);
+    };
+    match index.documents.get(id) {
+        Some(source) => axum::Json(json!({
+            "_index": name, "_id": id, "found": true,
+            "_version": index.versions.get(id).copied().unwrap_or(1), "_source": source,
+        }))
+        .into_response(),
+        None => (
+            StatusCode::NOT_FOUND,
+            axum::Json(json!({"_index": name, "_id": id, "found": false})),
+        )
+            .into_response(),
+    }
+}
+
 fn bulk(state: &State, name: &str, text: &str) -> Response {
     let mut indices = state.indices.lock().expect("the indices");
     // As both search servers do unless they are told otherwise: an index that is not
@@ -600,6 +656,7 @@ fn bulk(state: &State, name: &str, text: &str) -> Response {
                 uuid: state.next_uuid(),
                 documents: BTreeMap::new(),
                 unrefreshed: std::collections::BTreeSet::new(),
+                versions: BTreeMap::new(),
             },
         );
     }
@@ -635,11 +692,20 @@ fn bulk(state: &State, name: &str, text: &str) -> Response {
                 left.checked_sub(1)
             })
             .is_ok();
+        let version = action[operation]["version"].as_i64();
+        let held = index.versions.get(&id).copied();
         let item = if failing {
             errors = true;
             json!({"_index": name, "_id": id, "status": 429, "error": {
                 "type": "es_rejected_execution_exception",
                 "reason": "rejected execution of coordinating operation",
+            }})
+        } else if let Some(conflict) = version.zip(held).filter(|(version, held)| version < held) {
+            errors = true;
+            let (version, held) = conflict;
+            json!({"_index": name, "_id": id, "status": 409, "error": {
+                "type": "version_conflict_engine_exception",
+                "reason": format!("[{id}]: version conflict, current version [{held}] is higher than the one provided [{version}]"),
             }})
         } else if operation == "index" {
             let Some(source) = source else {
@@ -650,6 +716,9 @@ fn bulk(state: &State, name: &str, text: &str) -> Response {
                 );
             };
             index.unrefreshed.insert(id.clone());
+            index
+                .versions
+                .insert(id.clone(), version.unwrap_or(held.unwrap_or(0) + 1));
             let created = index.documents.insert(id.clone(), source).is_none();
             let (result, status) = if created {
                 ("created", 201)
@@ -658,8 +727,14 @@ fn bulk(state: &State, name: &str, text: &str) -> Response {
             };
             json!({"_index": name, "_id": id, "result": result, "status": status})
         } else if index.documents.remove(&id).is_some() {
+            index
+                .versions
+                .insert(id.clone(), version.unwrap_or(held.unwrap_or(0) + 1));
             json!({"_index": name, "_id": id, "result": "deleted", "status": 200})
         } else {
+            if let Some(version) = version {
+                index.versions.insert(id.clone(), version);
+            }
             json!({"_index": name, "_id": id, "result": "not_found", "status": 404})
         };
         items.push(json!({operation: item}));
@@ -673,12 +748,20 @@ fn delete_by_query(state: &State, name: &str, request: &Value) -> Response {
         return no_such_index(name);
     };
     let filter = &request["query"]["bool"]["filter"];
-    let before = index.documents.len();
     let unrefreshed = std::mem::take(&mut index.unrefreshed);
-    index
+    let removed: Vec<String> = index
         .documents
-        .retain(|id, document| unrefreshed.contains(id) || !passes(document, filter));
-    let deleted = before - index.documents.len();
+        .iter()
+        .filter(|(id, document)| !unrefreshed.contains(*id) && passes(document, filter))
+        .map(|(id, _)| id.clone())
+        .collect();
+    // As both search servers do: a document removed by query has a version one past
+    // the one it was written with.
+    for id in &removed {
+        index.documents.remove(id);
+        *index.versions.entry(id.clone()).or_insert(0) += 1;
+    }
+    let deleted = removed.len();
     axum::Json(json!({
         "took": 1, "timed_out": false, "total": deleted, "deleted": deleted,
         "version_conflicts": 0, "failures": [],

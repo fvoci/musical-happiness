@@ -221,7 +221,7 @@ async fn a_search_answers_a_card_as_the_database_has_it() {
     let config = th.anonymous().get("/client-config").await.value();
     let answer = search(&th.client, TEST_WS, "환불").await;
     let empty = search(&th.client, TEST_WS, "  ").await;
-    let searches = fake.recorded_at("/_search");
+    let searches = fake.searches();
     let definition = fake.index_definition(INDEX);
     th.teardown().await;
 
@@ -265,7 +265,7 @@ async fn a_search_answers_a_card_as_the_database_has_it() {
         definition["settings"]["analysis"]["tokenizer"]["fvoci_nori"]["type"],
         "nori_tokenizer"
     );
-    assert_eq!(definition["mappings"]["_meta"]["fvoci"]["version"], 4);
+    assert_eq!(definition["mappings"]["_meta"]["fvoci"]["version"], 5);
 }
 
 /// The organization a filter names: some identifier, and not none.
@@ -404,7 +404,7 @@ async fn an_index_made_from_another_definition_is_made_again() {
     th.teardown().await;
 
     assert_eq!(config["searchEnabled"], true, "{config}");
-    assert_eq!(definition["mappings"]["_meta"]["fvoci"]["version"], 4);
+    assert_eq!(definition["mappings"]["_meta"]["fvoci"]["version"], 5);
     let path = format!("/{INDEX}");
     assert_eq!(
         requests,
@@ -472,7 +472,7 @@ async fn what_a_search_asks_for_is_checked_before_anything_is_asked() {
         .await
         .expect("the user leaves the test workspace");
     let outside = search(&stranger, TEST_WS, "x").await;
-    let asked = fake.recorded_at("/_search");
+    let asked = fake.searches();
     th.teardown().await;
 
     long.check_bad_request();
@@ -507,8 +507,11 @@ async fn a_user_searches_only_so_often() {
 
     // One a second, and two at once after a pause: of eight sent at once, some are
     // answered and some are not, however slowly the machine gets through them.
+    let sent = Instant::now();
     let answers =
         futures_util::future::join_all((0..8).map(|_| search(&th.client, TEST_WS, "환불"))).await;
+    // Two at once, and one more for every second the eight took.
+    let most = 2 + usize::try_from(sent.elapsed().as_secs()).expect("seconds") + 1;
     let other = search(&th.client2, TEST_WS, "환불").await;
     th.teardown().await;
 
@@ -516,6 +519,11 @@ async fn a_user_searches_only_so_often() {
         answers.iter().any(|answer| answer.status == StatusCode::OK),
         "some were answered"
     );
+    let answered = answers
+        .iter()
+        .filter(|answer| answer.status == StatusCode::OK)
+        .count();
+    assert!(answered <= most, "{answered} answered, of at most {most}");
     let limited: Vec<&ApiResponse> = answers
         .iter()
         .filter(|answer| answer.status == StatusCode::TOO_MANY_REQUESTS)
@@ -560,7 +568,7 @@ async fn a_user_of_more_boards_than_a_request_lists_is_searched_for_in_the_works
     plant_claiming(&th, &fake, &their_card, &theirs.id);
 
     let answer = search_with(&th.client, TEST_WS, &[("q", "환불"), ("limit", "7")]).await;
-    let asked = fake.recorded_at("/_search");
+    let asked = fake.searches();
     th.teardown().await;
 
     assert_eq!(found(&answer), [mine.id]);

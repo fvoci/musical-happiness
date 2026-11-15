@@ -108,12 +108,20 @@ async fn sync_index(store: &Store, engine: &Engine) -> Result<Synced, Stopped> {
 /// organization. Returns how many rows of the list it looked at.
 async fn run(app: &App, engine: &Engine) -> Result<usize, Stopped> {
     if engine.index_state() == IndexState::Unknown {
-        if sync_index(app.store(), engine).await? == Synced::Refused {
-            return Err(Stopped::Search(ClientError::NoIndex));
+        match sync_index(app.store(), engine).await? {
+            Synced::Refused => return Err(Stopped::Search(ClientError::NoIndex)),
+            // Past every version the index holds, whatever the clock says now. An
+            // index just made holds none.
+            Synced::Kept => {
+                if let Some(highest) = engine.client.highest_version().await? {
+                    engine.versions.past(highest);
+                }
+            }
+            Synced::Made { .. } => {}
         }
         engine.set_index_state(IndexState::Ready);
     }
-    worker::work_off(app.store(), &engine.client, app.metrics()).await
+    worker::work_off(app.store(), &engine.client, &engine.versions, app.metrics()).await
 }
 
 /// Turns the search off for as long as the server runs: the search server cannot

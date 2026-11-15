@@ -12,8 +12,17 @@ use serde_json::{Value, json};
 /// The version of what the index holds. An index made from another is made again,
 /// and every document sent again: raise it with every change of [`definition`], and
 /// of which blocks have a document (2: the pages of wikis beside the cards; 3: the
-/// highlighter reads a whole body; 4: no card that is a template of its board).
-pub(crate) const VERSION: i64 = 4;
+/// highlighter reads a whole body; 4: no card that is a template of its board; 5:
+/// documents are written with versions of their own, kept in `sent`, and removals are
+/// remembered longer).
+pub(crate) const VERSION: i64 = 5;
+
+/// How long the search server remembers the version of a document it removed: a put
+/// of a lower version that lands within that time is refused, and one that lands later
+/// would put the document back. Longer than a write may be late by: one that ran out of
+/// its thirty seconds and waited in the search server's queue. Both search servers keep
+/// sixty seconds by default.
+const REMOVALS_KEPT: &str = "10m";
 
 /// How many characters of a text the highlighter reads to find the piece it shows:
 /// more than the longest body there is (a megabyte as it is stored). Both search
@@ -45,7 +54,10 @@ fn text_field(copy_to: Option<&str>) -> Value {
 pub(crate) fn definition() -> Value {
     json!({
         "settings": {
-            "index": {"highlight": {"max_analyzed_offset": HIGHLIGHTED_CHARS}},
+            "index": {
+                "highlight": {"max_analyzed_offset": HIGHLIGHTED_CHARS},
+                "gc_deletes": REMOVALS_KEPT,
+            },
             "analysis": {
                 "tokenizer": {
                     "fvoci_nori": {
@@ -75,6 +87,9 @@ pub(crate) fn definition() -> Value {
                 "kind": {"type": "keyword"},
                 // Of the title and the text as they were indexed: kept, not searched.
                 "digest": {"type": "keyword", "index": false, "doc_values": false},
+                // The version the document was written with: its highest is where a
+                // server that starts begins its versions.
+                "sent": {"type": "long", "index": false},
                 "title": text_field(Some("all")),
                 "text": text_field(Some("all")),
                 // The title and the text together: what a search must match.

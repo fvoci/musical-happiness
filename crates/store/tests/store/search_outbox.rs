@@ -263,7 +263,11 @@ async fn keeping_a_version_of_a_body_notes_nothing() {
     let second = store.keep_body_version(&card.id).await.expect("kept");
     let versions = store.body_versions(&card.id).await.expect("the versions");
 
-    assert_eq!((first, second), (Some(1), Some(2)), "two versions were kept");
+    assert_eq!(
+        (first, second),
+        (Some(1), Some(2)),
+        "two versions were kept"
+    );
     assert_eq!(versions.len(), 1, "and the first forgotten: {versions:?}");
     assert_eq!(listed(store).await, [], "and nothing is noted for it");
     test.teardown().await;
