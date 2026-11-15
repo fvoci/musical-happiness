@@ -1215,7 +1215,7 @@
   "search_limited": "Too many searches at once. Searching again in a moment.",
   "search_unavailable": "Search is not available right now.",
   "search_failed": "Could not search.",
-  "search_card": "Card",
-  "search_page": "Page",
+  "search_hit_card": "Card:",
+  "search_hit_page": "Page:",
   "search_untitled_page": "Untitled page"
 }

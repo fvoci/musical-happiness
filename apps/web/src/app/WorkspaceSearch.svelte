@@ -14,6 +14,8 @@
   wiki of a hit is the one the sidebar knows, none where it does not.
 -->
 <script lang="ts">
+  import { tick } from 'svelte';
+
   import SearchIcon from '@lucide/svelte/icons/search';
 
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
@@ -22,7 +24,7 @@
   import { SearchSwitch } from '$lib/features/search/search-switch.svelte.ts';
   import SearchDialog from '$lib/features/search/SearchDialog.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
-  import { releaseOverlayEntries } from '$lib/layout/back.svelte.ts';
+  import { afterOwnSteps, overlayOpen } from '$lib/layout/back.svelte.ts';
   import { buildUrl } from '$lib/logic/urls.ts';
   import type { Workspace } from '$lib/state/index.ts';
   import type { SearchHit } from '$lib/state/content-search.ts';
@@ -40,18 +42,27 @@
 
   let open = $state(false);
   let session = $state.raw<SearchSession | undefined>(undefined);
-  let returnTo = $state.raw<HTMLElement | undefined>(undefined);
+  let dialog = $state<{ focusField: () => void }>();
+  /** What had the focus when the search opened: it gets it back. */
+  let opener: HTMLElement | undefined;
 
   /** Asked of each backend the workspace has (one, for the life of the page). */
   const enabled = $derived(new SearchSwitch(workspace.backend.search));
 
   const keys = searchKeysLabel(navigator.userAgent);
 
-  function openSearch(): void {
+  /** Where the focus goes back to: where it was, or the page where that is gone (the button, after a 404). */
+  function returnTo(): HTMLElement | undefined {
+    if (opener?.isConnected && opener !== document.body) return opener;
+    return document.querySelector('main') ?? undefined;
+  }
+
+  /** Opens the search, from `from` (the button: Safari does not focus a button clicked). */
+  function openSearch(from?: HTMLElement): void {
     const workspaceId = workspace.info?.id;
     if (!enabled.on || !workspaceId) return;
     const focused = document.activeElement;
-    returnTo = focused instanceof HTMLElement ? focused : undefined;
+    opener = from ?? (focused instanceof HTMLElement ? focused : undefined);
     session?.close();
     session = new SearchSession({
       find: (ask) => workspace.backend.search.find(workspaceId, ask),
@@ -63,22 +74,28 @@
     open = true;
   }
 
+  /**
+   * ⌘K and Ctrl+K. Open, they go back to the field. Over a drawer, a sheet or
+   * another dialog they open nothing: going somewhere from the search would
+   * leave that open over the new page, and its entry of the history with it.
+   * A card is no such thing: the search opens over it.
+   */
   function onkeydown(event: KeyboardEvent): void {
     if (!enabled.on || !opensSearch(event)) return;
-    event.preventDefault();
-    if (!open) {
-      openSearch();
+    if (open) {
+      event.preventDefault();
+      dialog?.focusField();
       return;
     }
-    const field = document.querySelector<HTMLInputElement>('[data-testid="search-field"]');
-    field?.focus();
-    field?.select();
+    if (overlayOpen() || !workspace.info?.id) return;
+    event.preventDefault();
+    openSearch();
   }
 
   /** The route of a card: over the view shown where its board is shown, else over any. */
   function cardRoute(hit: SearchHit): Partial<Route> {
     const { workspaceId, boardId, viewId } = router.route;
-    const here = boardId === hit.containerId && viewId !== undefined;
+    const here = boardId === hit.containerId && viewId !== undefined && viewId !== ANY_VIEW;
     return {
       workspaceId,
       boardId: hit.containerId,
@@ -94,22 +111,29 @@
   }
 
   /**
-   * Goes to a hit, then closes: the new address takes the place of the
-   * dialog's entry of the history, as the router does it from the drawer.
-   * The router knows no wiki yet: a page is gone to as a new page load.
+   * Closes the search, then goes to a hit, once the dialog has given its
+   * entry of the history back: the history is then as if the hit was opened
+   * from the page. A card of the board shown opens over its view, in place of
+   * a card open there; a card of another board opens over that board, as a
+   * board chosen in the sidebar. The router knows no wiki yet: a page is gone
+   * to as a new page load.
    */
-  function go(hit: SearchHit): void {
-    if (hit.kind === 'card') {
-      const route = cardRoute(hit);
-      if (route.viewId === router.route.viewId) router.openCard(hit.id);
-      else router.go(route);
-    } else if (releaseOverlayEntries() > 0) {
-      location.replace(hrefOf(hit));
-    } else {
-      location.assign(hrefOf(hit));
-    }
+  async function go(hit: SearchHit): Promise<void> {
+    const route = cardRoute(hit);
+    const href = hrefOf(hit);
     session?.close();
     open = false;
+    await tick();
+    if (hit.kind === 'page') {
+      afterOwnSteps(() => {
+        location.assign(href);
+      });
+    } else if (route.viewId !== ANY_VIEW) {
+      router.openCard(hit.id);
+    } else {
+      router.openBoard({ id: hit.containerId, workspaceId: router.route.workspaceId ?? '' });
+      router.go(route, { replace: true });
+    }
   }
 
   function containerOf(hit: SearchHit): string {
@@ -128,7 +152,9 @@
     data-testid="open-search"
     aria-haspopup="dialog"
     aria-keyshortcuts="Meta+K Control+K"
-    onclick={openSearch}
+    onclick={(event: MouseEvent & { currentTarget: HTMLButtonElement }) => {
+      openSearch(event.currentTarget);
+    }}
   >
     <SearchIcon />
   </IconButton>
@@ -146,7 +172,8 @@
     {session}
     {containerOf}
     {hrefOf}
-    onGo={go}
+    bind:this={dialog}
+    onGo={(hit: SearchHit) => void go(hit)}
     {returnTo}
   />
 {/if}

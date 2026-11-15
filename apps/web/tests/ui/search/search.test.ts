@@ -12,6 +12,7 @@ import {
   SearchSession,
   TYPING_PAUSE,
 } from '$lib/features/search/search-session.svelte.ts';
+import { RETRY_SECONDS, SearchSwitch } from '$lib/features/search/search-switch.svelte.ts';
 import SearchHitRow from '$lib/features/search/SearchHitRow.svelte';
 import { BackendError, type SearchAsk, type SearchHit } from '$lib/state/backend.ts';
 
@@ -286,5 +287,55 @@ describe('a row of what was found', () => {
     expect(onGo).toHaveBeenCalledOnce();
     expect(newTab.defaultPrevented).toBe(false);
     expect(container.querySelector('[data-hit-container]')).toBeNull();
+  });
+});
+
+describe('whether the search is there', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const searchAnswering = (answers: (boolean | Error)[]) => {
+    const enabled = vi.fn(() => {
+      const answer = answers.shift() ?? new Error('no more answers');
+      return answer instanceof Error ? Promise.reject(answer) : Promise.resolve(answer);
+    });
+    return { enabled, find: vi.fn() };
+  };
+
+  it('is off until the backend says, and as it says', async () => {
+    const search = searchAnswering([true]);
+    const shown = new SearchSwitch(search);
+    expect(shown.on).toBe(false);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(shown.on).toBe(true);
+    shown.turnOff();
+    expect(shown.on).toBe(false);
+  });
+
+  it('asks again after a failure, waiting longer each time, and then no more', async () => {
+    const search = searchAnswering([new Error('offline'), new Error('offline'), true]);
+    const shown = new SearchSwitch(search);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(shown.on).toBe(false);
+    await vi.advanceTimersByTimeAsync(RETRY_SECONDS[0] * 1000);
+    expect(search.enabled).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(RETRY_SECONDS[1] * 1000);
+    expect(shown.on).toBe(true);
+    const failing = searchAnswering([]);
+    new SearchSwitch(failing);
+    await vi.runAllTimersAsync();
+    expect(failing.enabled).toHaveBeenCalledTimes(RETRY_SECONDS.length + 1);
+  });
+
+  it('stays off once turned off, whatever an answer late says', async () => {
+    const search = searchAnswering([true]);
+    const shown = new SearchSwitch(search);
+    shown.turnOff();
+    await vi.runAllTimersAsync();
+    expect(shown.on).toBe(false);
   });
 });

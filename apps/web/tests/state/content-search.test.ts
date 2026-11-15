@@ -165,6 +165,15 @@ describe('the snippet of a body', () => {
     ]);
   });
 
+  it('is not moved by letters whose small form is longer', () => {
+    const body = `${'İ'.repeat(100)} middle target ${'x'.repeat(300)}`;
+    const joined = snippetOf(body, ['target'])
+      .map((part) => part.text)
+      .join('');
+    // Forty characters before the word, as for any other letters.
+    expect(joined.startsWith(`${'İ'.repeat(32)} middle target`)).toBe(true);
+  });
+
   it('is empty for an empty body', () => {
     expect(snippetOf('', ['a'])).toEqual([]);
   });

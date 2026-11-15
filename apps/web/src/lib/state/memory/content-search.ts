@@ -48,16 +48,19 @@ function escaped(word: string): string {
   return word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+/** What finds any of the words, whatever the case; the longest first, so that a word holding another is found whole. */
+function patternOf(words: readonly string[]): RegExp {
+  const longestFirst = [...words].sort((first, second) => second.length - first.length);
+  return new RegExp(longestFirst.map(escaped).join('|'), 'giu');
+}
+
 /** The pieces of `text`, the stretches that are one of the words marked. */
 export function markedParts(text: string, words: readonly string[]): SnippetPart[] {
   if (text === '') return [];
   if (words.length === 0) return [{ text, matched: false }];
-  // The longest first: of two words where one holds the other, the whole of it is marked.
-  const longestFirst = [...words].sort((first, second) => second.length - first.length);
-  const pattern = new RegExp(longestFirst.map(escaped).join('|'), 'giu');
   const parts: SnippetPart[] = [];
   let at = 0;
-  for (const match of text.matchAll(pattern)) {
+  for (const match of text.matchAll(patternOf(words))) {
     if (match.index > at) parts.push({ text: text.slice(at, match.index), matched: false });
     parts.push({ text: match[0], matched: true });
     at = match.index + match[0].length;
@@ -69,13 +72,10 @@ export function markedParts(text: string, words: readonly string[]): SnippetPart
 /** The snippet of a body for the words: around the first one it holds, else its beginning. */
 export function snippetOf(text: string, words: readonly string[]): SnippetPart[] {
   const chars = Array.from(text);
-  const lower = text.toLowerCase();
-  const found = words
-    .map((word) => lower.indexOf(word.toLowerCase()))
-    .filter((index) => index >= 0);
-  if (found.length === 0) return markedParts(chars.slice(0, SNIPPET_CHARS).join(''), []);
+  const found = words.length === 0 ? null : patternOf(words).exec(text);
+  if (found === null) return markedParts(chars.slice(0, SNIPPET_CHARS).join(''), []);
   // In characters, not code units: a piece never cuts a character in two.
-  const first = Array.from(text.slice(0, Math.min(...found))).length;
+  const first = Array.from(text.slice(0, found.index)).length;
   const start = Math.max(0, Math.min(first - BEFORE_MATCH, chars.length - SNIPPET_CHARS));
   return markedParts(chars.slice(start, start + SNIPPET_CHARS).join(''), words);
 }

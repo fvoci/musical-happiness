@@ -330,8 +330,10 @@
     />
   </div>
 
+  <!-- Focusable by a script: where the focus goes when what had it is gone. -->
   <main
-    class="@container/pane flex min-w-0 flex-1 flex-col"
+    class="@container/pane flex min-w-0 flex-1 flex-col outline-none"
+    tabindex="-1"
     inert={drawerOut}
     {@attach pane.attach}
   >

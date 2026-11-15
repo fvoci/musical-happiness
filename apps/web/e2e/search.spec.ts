@@ -7,8 +7,8 @@
  */
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
-import { ON_A_CARD } from './address.ts';
-import { openApp, topBar } from './shell.support.ts';
+import { ON_A_CARD, ON_A_VIEW, placeOf } from './address.ts';
+import { openApp, showSidebar, sidebar, strip, topBar } from './shell.support.ts';
 
 /** What the page's development handle offers this test (src/app/backend.ts). Only what is used. */
 interface Dev {
@@ -33,19 +33,35 @@ const paragraph = (text: string): object => ({
   content: [{ type: 'paragraph', content: [{ type: 'text', text }] }],
 });
 
-/** Makes a card on the first board of the seed, with a title and a body. */
-async function cardWith(page: Page, title: string, body: string): Promise<string> {
+/** Makes a card on a board of the seed (the first, unless named), with a title and a body. */
+async function cardWith(
+  page: Page,
+  title: string,
+  body: string,
+  boardTitle = 'Project Tasks',
+): Promise<string> {
   return page.evaluate(
-    async ({ title, body }) => {
+    async ({ title, body, boardTitle }) => {
       const { backend } = (window as unknown as { fvociDev: Dev }).fvociDev;
       const [workspace] = await backend.workspaces();
       const boards = await backend.boards(workspace?.id ?? '');
-      const board = boards.find((each) => each.title.startsWith('Project Tasks'));
-      if (!board) throw new Error('no board of tasks');
+      const board = boards.find((each) => each.title.startsWith(boardTitle));
+      if (!board) throw new Error(`no board ${boardTitle}`);
       return (await backend.createCard(board.id, { title, body })).id;
     },
-    { title, body: paragraph(body) },
+    { title, body: paragraph(body), boardTitle },
   );
+}
+
+/** Opens the search by its keys, finds the one card the words find, and goes to it. */
+async function goTo(page: Page, words: string, title: string): Promise<void> {
+  await page.keyboard.press('Control+k');
+  await search(page, words);
+  await expect(dialog(page)).toHaveAttribute('data-status', 'found');
+  await expect(hits(page).locator('[data-hit-title]')).toHaveText([title]);
+  await page.keyboard.press('Enter');
+  await expect(dialog(page)).toHaveCount(0);
+  await expect(page.getByTestId('card-dialog')).toContainText(title);
 }
 
 /** Makes the next search refused with this status (and `Retry-After`, for 429). */
@@ -181,6 +197,73 @@ test.describe('the search of cards and pages', () => {
     await answer(0);
     await expect(hits(page)).toHaveCount(1);
     await expect(hits(page).locator('[data-hit-title]')).toHaveText('Ocelot two');
+  });
+
+  test('a card gone to from another card takes its place: closing it shows the board', async ({
+    page,
+  }) => {
+    await openApp(page);
+    await cardWith(page, 'Heron first', 'egret one');
+    await cardWith(page, 'Heron second', 'egret two');
+    await goTo(page, 'egret one', 'Heron first');
+    await goTo(page, 'egret two', 'Heron second');
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('card-dialog')).toHaveCount(0);
+    await expect(page).toHaveURL(ON_A_VIEW);
+    // The page before the first card is still a step back: no card is left in between.
+    await page.goBack();
+    await expect(page.getByTestId('card-dialog')).toHaveCount(0);
+  });
+
+  test('a card of another board opens over that board, and closing it leaves the board', async ({
+    page,
+  }) => {
+    await openApp(page);
+    await cardWith(page, 'Lemur here', 'tamarin near');
+    const there = await cardWith(page, 'Lemur there', 'tamarin far', 'Roadmap');
+    await goTo(page, 'tamarin near', 'Lemur here');
+    const before = placeOf(page.url());
+    await goTo(page, 'tamarin far', 'Lemur there');
+    await expect(page).toHaveURL(ON_A_CARD);
+    const shown = placeOf(page.url());
+    expect(shown.cardId).toBe(there);
+    expect(shown.boardId).not.toBe(before.boardId);
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('card-dialog')).toHaveCount(0);
+    await expect(page).toHaveURL(ON_A_VIEW);
+    expect(placeOf(page.url()).boardId).toBe(shown.boardId);
+  });
+
+  test('the keys open nothing over a drawer or another dialog', async ({ page }) => {
+    await openApp(page);
+    if (await strip(page).isVisible()) {
+      await strip(page).getByTestId('strip-open-settings').click();
+    } else {
+      await showSidebar(page);
+      await sidebar(page).getByTestId('open-settings').click();
+    }
+    await expect(page.getByTestId('settings-dialog')).toBeVisible();
+    await page.keyboard.press('Control+k');
+    await expect(dialog(page)).toHaveCount(0);
+    await expect(page.getByTestId('settings-dialog')).toBeVisible();
+  });
+
+  test('Enter while newer words are being searched for goes nowhere', async ({ page }) => {
+    await openApp(page);
+    await cardWith(page, 'Gecko', 'iguana');
+    await page.keyboard.press('Control+k');
+    await search(page, 'iguana');
+    await expect(hits(page)).toHaveCount(1);
+    // The next search does not answer until the test lets it.
+    await page.evaluate(() => {
+      const { backend } = (window as unknown as { fvociDev: Dev }).fvociDev;
+      backend.search.find = () => new Promise(() => undefined);
+    });
+    await search(page, 'iguana gecko');
+    await expect(dialog(page)).toHaveAttribute('data-status', 'searching');
+    await page.keyboard.press('Enter');
+    await expect(dialog(page)).toBeVisible();
+    await expect(page.getByTestId('card-dialog')).toHaveCount(0);
   });
 
   test('what a body says is shown as text, the matched words marked', async ({ page }) => {

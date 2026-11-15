@@ -1215,7 +1215,7 @@
   "search_limited": "검색이 너무 잦습니다. 잠시 뒤 다시 찾습니다.",
   "search_unavailable": "지금 검색을 쓸 수 없습니다.",
   "search_failed": "검색하지 못했습니다.",
-  "search_card": "카드",
-  "search_page": "페이지",
+  "search_hit_card": "카드:",
+  "search_hit_page": "페이지:",
   "search_untitled_page": "제목 없는 페이지"
 }

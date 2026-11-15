@@ -109,6 +109,11 @@ export function closeOnBack(isOpen: () => boolean, close: () => void): void {
   });
 }
 
+/** Whether something that the back button closes is open: a drawer, a sheet, a dialog. */
+export function overlayOpen(): boolean {
+  return opened.length > 0;
+}
+
 /**
  * Lets go of the entries of everything that is open, and says how many there
  * were. The router calls this when it goes somewhere else while a drawer or

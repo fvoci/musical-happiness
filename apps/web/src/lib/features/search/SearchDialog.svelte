@@ -35,7 +35,7 @@
     /** Goes to a hit in this tab. The dialog closes. */
     onGo: (hit: SearchHit) => void;
     /** Where the focus goes back to when the dialog closes without going anywhere. */
-    returnTo: HTMLElement | undefined;
+    returnTo: () => HTMLElement | undefined;
   }
 
   let { open = $bindable(), session, containerOf, hrefOf, onGo, returnTo }: Props = $props();
@@ -110,9 +110,19 @@
     onGo(hit);
   }
 
+  /** Puts the focus in the field, what it holds chosen: ⌘K again while the dialog is open. */
+  export function focusField(): void {
+    field?.focus();
+    field?.select();
+  }
+
+  /**
+   * The keys of the list act on what the words in the field found: not while
+   * a search for newer words is on its way, whose list is still the last one.
+   */
   function onkeydown(event: KeyboardEvent): void {
     const move = listMove(event);
-    if (move === undefined || !listed) return;
+    if (move === undefined || session.status !== 'found' || hits.length === 0) return;
     event.preventDefault();
     const hit = hits[activeIndex];
     if (move === 'next') choose((activeIndex + 1) % hits.length);
@@ -142,7 +152,7 @@
     }}
     onCloseAutoFocus={(event: Event) => {
       event.preventDefault();
-      if (!went && returnTo?.isConnected) returnTo.focus();
+      if (!went) returnTo()?.focus();
     }}
   >
     <Dialog.Title class="sr-only">{m.search_title()}</Dialog.Title>
