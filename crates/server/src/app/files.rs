@@ -7,7 +7,7 @@
 //! of its record: whoever may read one board cannot fetch another board's file by
 //! knowing its name. A file without a record is given out through no board.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use fvoci_model::{
     Block, BlockError, BlockPatch, BlockPatchBatch, Board, Body, FileInfo, JsonMap, new_id,
@@ -235,8 +235,8 @@ impl App {
         Ok(Some(self.files().read(&info.path, None).await?))
     }
 
-    /// Copies the files that duplicated attachment blocks refer to and points
-    /// each block at its copy.
+    /// Copies the files that duplicated blocks show or attach, and points each block at
+    /// its copies.
     ///
     /// `board_id` is the board the blocks were copied from; `blocks` are the copies, as
     /// they are stored already, and are changed along with what is stored. A block whose
@@ -266,7 +266,7 @@ impl App {
         };
         let not_written = |error| {
             AppError::from(error).context(format_args!(
-                "could not patch file IDs while duplicating board {board_id}"
+                "could not point copies at their files, of blocks of board {board_id}"
             ))
         };
 
@@ -328,8 +328,7 @@ impl App {
                 .map_err(not_written)?;
             // The patch moved `updateAt` on: the caller's copies are what is answered and
             // announced, and a client edits them with that `updateAt` as `readAt`.
-            let patched: std::collections::HashSet<&str> =
-                batch.block_ids.iter().map(String::as_str).collect();
+            let patched: HashSet<&str> = batch.block_ids.iter().map(String::as_str).collect();
             for block in blocks.iter_mut() {
                 if patched.contains(block.id.as_str()) {
                     *block = self.store().get_block(&block.id).await?;

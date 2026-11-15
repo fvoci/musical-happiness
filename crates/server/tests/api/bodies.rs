@@ -800,6 +800,14 @@ async fn a_copy_that_shows_an_image_begins_without_versions() {
                 Vec::<Value>::new(),
                 "a card of a copy of the board begins without versions"
             );
+            let answered = block["body"]["content"][1]["attrs"]["fileId"].as_str();
+            let stored = card(&th.client, id).await;
+            assert_eq!(
+                stored.body.as_ref().map(fvoci_model::Body::file_ids),
+                answered.map(|name| vec![name]),
+                "the stored copy shows the copied file it was answered with"
+            );
+            assert_ne!(answered, Some(file_id.as_str()), "a copy of the file");
         }
     }
     assert_eq!(cards, 2, "both cards of the board were copied");
