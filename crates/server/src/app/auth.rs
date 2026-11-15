@@ -329,7 +329,7 @@ impl App {
         // comes from like one. The turn is held until the user is stored.
         let _attempt = self.admit_registration(address)?;
         let name = &request.organization_name;
-        let mut user = self.new_account(&request.account()).await?;
+        let mut user = self.new_account(&request.account(), None).await?;
         let mut stored = if self.store().is_bootstrapped().await? {
             Err(StoreError::NotFirstUser)
         } else {
@@ -407,22 +407,31 @@ impl App {
 
     /// The account `account` asks for, not stored yet: under a new identifier, with
     /// the hash of its password. The caller has checked and tidied the request
-    /// (`NewAccount::validate`, `NewAccount::tidied`).
+    /// (`NewAccount::validate`, `NewAccount::tidied`). `replacing` is the digest of the
+    /// marker of the registration this account replaces, whose name and address are
+    /// its own to take again.
     ///
     /// # Errors
     ///
     /// Returns a conflict error if the name or the email address is taken, in any letter
     /// case, and a 429 if the server has too much password work to do.
-    pub(crate) async fn new_account(&self, account: &NewAccount) -> Result<User, AppError> {
+    pub(crate) async fn new_account(
+        &self,
+        account: &NewAccount,
+        replacing: Option<&str>,
+    ) -> Result<User, AppError> {
         // Asked first so that a taken name costs no hash. Two registrations at once
         // both pass these, and then the unique indexes decide: the same conflict.
         // A registration whose address is not confirmed yet holds its name and address
         // as an account does, and is told as one.
+        let held_by_another = |signup: Option<fvoci_store::Signup>| {
+            signup.is_some_and(|signup| Some(signup.browser_hash.as_str()) != replacing)
+        };
         if self
             .find_user_for_login(Lookup::Username(&account.username))
             .await?
             .is_some()
-            || self.find_signup(&account.username, "").await?.is_some()
+            || held_by_another(self.find_signup(&account.username, "").await?)
         {
             return Err(username_taken());
         }
@@ -430,7 +439,7 @@ impl App {
             .find_user_for_login(Lookup::Email(&account.email))
             .await?
             .is_some()
-            || self.find_signup("", &account.email).await?.is_some()
+            || held_by_another(self.find_signup("", &account.email).await?)
         {
             return Err(email_taken());
         }
@@ -555,18 +564,45 @@ impl App {
             .login_limiter()
             .admit_login(&[&user.username], address, Instant::now())
             .map_err(|RetryAfter(wait)| AppError::rate_limited(wait))?;
-        let right = password.len() <= MAXIMUM_PASSWORD_BYTES
-            && self.verify(&user.password_hash, password).await? != Verdict::Mismatch;
-        if !right {
+        let holder = PasswordHolder {
+            username: &user.username,
+            password_hash: &user.password_hash,
+        };
+        if !self.is_password_of(holder, password, attempt).await? {
             tracing::debug!(user_id = %user.id, "invalid password for user");
-            attempt.failed(Instant::now());
             return Err(AppError::bad_request(wrong.words)
                 .with_reason(Reason::InvalidCredentials)
                 .with_field(wrong.field));
         }
-        attempt.succeeded(&user.username);
         Ok(())
     }
+
+    /// Whether `password` is the one of `holder`, which ends `attempt`, admitted at its
+    /// name: a wrong one is a failure at the name, a right one ends the failures there.
+    pub(super) async fn is_password_of(
+        &self,
+        holder: PasswordHolder<'_>,
+        password: &str,
+        attempt: crate::auth::limiter::Attempt,
+    ) -> Result<bool, AppError> {
+        let right = password.len() <= MAXIMUM_PASSWORD_BYTES
+            && self.verify(holder.password_hash, password).await? != Verdict::Mismatch;
+        if right {
+            attempt.succeeded(holder.username);
+        } else {
+            attempt.failed(Instant::now());
+        }
+        Ok(right)
+    }
+}
+
+/// Whose password is asked for: an account's, or a registration's that waits.
+#[derive(Clone, Copy)]
+pub(super) struct PasswordHolder<'a> {
+    /// The name its failed attempts are counted at.
+    pub(super) username: &'a str,
+    /// An Argon2id PHC string.
+    pub(super) password_hash: &'a str,
 }
 
 /// What a login looks a user up by.
@@ -606,7 +642,7 @@ impl Drop for LoginEnding<'_> {
 }
 
 /// The refusal of a login, whatever was wrong.
-fn incorrect_login() -> AppError {
+pub(super) fn incorrect_login() -> AppError {
     AppError::unauthorized("incorrect login").with_reason(Reason::InvalidCredentials)
 }
 

@@ -300,7 +300,7 @@ impl App {
         };
         Ok(self
             .store()
-            .live_invitation(&child, now_millis())
+            .live_invitation(&child, now_millis(), None)
             .await?
             .is_some())
     }

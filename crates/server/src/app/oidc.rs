@@ -14,13 +14,14 @@
 use std::net::IpAddr;
 use std::time::Instant;
 
-use fvoci_model::{LoginOptions, Session, User, is_email_valid, new_id};
+use fvoci_model::{LoginOptions, Session, is_email_valid, new_id};
 use fvoci_store::{
     Applied, FlowPurpose, Identity, LoginFlow, OidcAccount, OidcRefusal, PendingProvider,
     StoreError, StoredProvider, Tried,
 };
 
 use super::App;
+use super::oidc_account::{FoundAccount, proved_address};
 use super::oidc_carry::carry_over_refused;
 use super::oidc_settings::secret_context;
 use crate::auth::limiter::RetryAfter;
@@ -672,9 +673,12 @@ impl App {
             .await
             .map_err(|error| logged(&error, "looking up an identity"))?;
         if let Some(user) = found {
-            return self
-                .let_in(&user, identity, stored, ending, session, digest)
-                .await;
+            let account = FoundAccount {
+                user: &user,
+                identity,
+                proved_email: proved_address(claims),
+            };
+            return self.let_in(account, stored, ending, session, digest).await;
         }
         // The identity of an account that is deleted: not let in, and not made anew.
         let of_a_deleted_account = self
@@ -726,20 +730,26 @@ impl App {
     }
 
     /// Signs in to the account of the identity, which joins the handle's organization
-    /// if it is no member and the provider lets newcomers in.
+    /// if it is no member and the provider lets newcomers in. A registration that
+    /// waits at the address the provider vouches for is removed with it.
     pub(super) async fn let_in(
         &self,
-        user: &User,
-        identity: Identity<'_>,
+        found: FoundAccount<'_>,
         stored: &StoredProvider,
         ending: Ending<'_>,
         session: &mut Session,
         digest: &str,
     ) -> Result<Option<Applied>, LoginFailure> {
+        let FoundAccount {
+            user,
+            identity,
+            proved_email,
+        } = found;
         let account = OidcAccount::Known {
             user_id: &user.id,
             password_hash: &user.password_hash,
             identity,
+            proved_email,
         };
         let (joined, applied) = self
             .finish_in_store(stored, ending, account, session, digest)
@@ -774,6 +784,7 @@ impl App {
                     user_id,
                     password_hash,
                     identity,
+                    ..
                 } = account
                 else {
                     return Ok(Err(OidcRefusal::NotTheTrier));

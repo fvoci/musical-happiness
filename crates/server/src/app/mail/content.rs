@@ -73,12 +73,12 @@ impl Content {
             Language::English => (
                 "Confirm your email address for fvoci",
                 format!("Use this link to confirm your email address and sign in as {username}:"),
-                "This link expires in 24 hours and can be used once. If you did not sign up, ignore this message: the sign-up is removed after seven days.",
+                "This link expires in 24 hours and can be used once. In another browser than the one you signed up in, it asks for the password you chose. If you did not sign up, ignore this message: the sign-up is removed after seven days.",
             ),
             Language::Korean => (
                 "fvoci 이메일 주소 확인",
                 format!("다음 링크로 이메일 주소를 확인하고 {username}(으)로 로그인하세요:"),
-                "이 링크는 24시간 동안 한 번만 쓸 수 있습니다. 가입하지 않았다면 이 메일을 무시하세요. 확인하지 않은 가입은 7일 뒤 지워집니다.",
+                "이 링크는 24시간 동안 한 번만 쓸 수 있습니다. 가입한 브라우저가 아닌 곳에서 열면 가입할 때 정한 비밀번호를 묻습니다. 가입한 적이 없으면 이 메일을 무시하면 됩니다. 확인하지 않은 가입은 7일 뒤 지워집니다.",
             ),
         };
         Self::link(subject, &intro, ending, link, language)
@@ -208,6 +208,19 @@ mod tests {
                 content.plain
             );
             assert!(content.html.contains("a&lt;b"), "escaped: {}", content.html);
+            let said = match language {
+                Language::English => [
+                    "In another browser than the one you signed up in, it asks for the password you chose.",
+                    "If you did not sign up, ignore this message",
+                ],
+                Language::Korean => [
+                    "가입한 브라우저가 아닌 곳에서 열면 가입할 때 정한 비밀번호를 묻습니다.",
+                    "가입한 적이 없으면 이 메일을 무시하면 됩니다",
+                ],
+            };
+            for sentence in said {
+                assert!(content.plain.contains(sentence), "{}", content.plain);
+            }
             assert!(
                 content
                     .html

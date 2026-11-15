@@ -218,7 +218,24 @@ impl LoginLimiter {
         accounts.dedup();
         let address = address.map(AddressKey::from);
         let mut records = self.records();
+        self.wait_at(&records, &accounts, address, now)?;
+        self.count_against_address(&mut records, address, now)?;
+        Ok(Attempt {
+            limiter: self.clone(),
+            accounts,
+            address,
+        })
+    }
 
+    /// Refuses, with the longest of the waits and counting its limit, if one of
+    /// `accounts` is locked at `now` or `address` is made to wait at one of them.
+    fn wait_at(
+        &self,
+        records: &Records,
+        accounts: &[AccountKey],
+        address: Option<AddressKey>,
+        now: Instant,
+    ) -> Result<(), RetryAfter> {
         let waits = accounts.iter().flat_map(|account| {
             let locked = records
                 .accounts
@@ -232,20 +249,15 @@ impl LoginLimiter {
         });
         // The longest wait is the one answered, and the limit counted; of two as long,
         // the lock of the account.
-        if let Some((until, limit)) = waits
+        let Some((until, limit)) = waits
             .flatten()
             .filter(|(until, _)| *until > now)
             .max_by_key(|(until, limit)| (*until, *limit == LoginLimit::AccountLock))
-        {
-            self.metrics.login_refused(limit);
-            return Err(RetryAfter(until - now));
-        }
-        self.count_against_address(&mut records, address, now)?;
-        Ok(Attempt {
-            limiter: self.clone(),
-            accounts,
-            address,
-        })
+        else {
+            return Ok(());
+        };
+        self.metrics.login_refused(limit);
+        Err(RetryAfter(until - now))
     }
 
     /// Asks whether a registration from `address` may go ahead at `now`: a registration
@@ -357,6 +369,22 @@ impl LoginLimiter {
 }
 
 impl Attempt {
+    /// Makes an attempt that named no account one at the password of `name`, where a
+    /// request admitted by its address alone turns out to try one: the same turn of
+    /// the address, counted once.
+    ///
+    /// # Errors
+    ///
+    /// Returns how long to wait if the name is locked at `now` or the address is made
+    /// to wait at it, as [`LoginLimiter::admit_login`] does; the turn is given up.
+    pub fn at_account(mut self, name: &str, now: Instant) -> Result<Self, RetryAfter> {
+        let accounts = vec![account_key(name)];
+        let limiter = self.limiter.clone();
+        limiter.wait_at(&limiter.records(), &accounts, self.address, now)?;
+        self.accounts = accounts;
+        Ok(self)
+    }
+
     /// The attempt failed: the password was wrong, or there is no such account. It
     /// counts at every name the attempt gave.
     pub fn failed(self, now: Instant) {

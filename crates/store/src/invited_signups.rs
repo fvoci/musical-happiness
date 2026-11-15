@@ -12,7 +12,7 @@ use crate::db::{Dialect, Id, Scope};
 use crate::error::StoreError;
 use crate::invitations::{
     COLUMNS_OF_I, count_uses, hold_live_link, invitation_from_row, inviter_still, let_in,
-    push_invites,
+    push_invites, take_use,
 };
 use crate::signups::{self, Confirmed, Proof, Signup, SignupStart};
 use crate::users::InstanceRole;
@@ -42,23 +42,40 @@ impl Store {
     /// registration's start is set to the link. Acceptances at once of one link wait
     /// for each other.
     ///
+    /// The registration made before from the same browser, whose marker has the
+    /// digest `replacing`, is removed with it: its name and address are free for this
+    /// one, and the use of the link it was made by is given back, of this link too, so
+    /// that a link for one guest takes the same person again. A registration that is
+    /// refused replaces nothing.
+    ///
     /// # Errors
     ///
-    /// Returns [`StoreError::Conflict`] if an account or a registration holds the name
-    /// or the address; [`StoreError::NoOrganization`] if the handle names none; and
-    /// [`StoreError::Database`] if a statement fails. Nothing is stored then.
+    /// Returns [`StoreError::Conflict`] if an account or another registration holds
+    /// the name or the address, or ([`crate::Taken::LinkUse`]) the link was used as
+    /// often as it may be after all; [`StoreError::NoOrganization`] if the handle
+    /// names none; and [`StoreError::Database`] if a statement fails. Nothing is
+    /// stored or removed then.
     pub async fn reserve_invitation(
         &self,
         token_hash: &str,
         signup: &Signup,
+        replacing: Option<&str>,
         now: i64,
         inviter: Inviter<'_>,
     ) -> Result<Acceptance, StoreError> {
         self.transaction(async |scope| {
-            let link = match hold_live_link(scope, token_hash, now, inviter.standing).await? {
+            if replacing.is_some() {
+                // The link of what is replaced may be another than this one.
+                signups::hold_several_links(scope).await?;
+            }
+            let held = hold_live_link(scope, token_hash, now, inviter.standing, replacing);
+            let link = match held.await? {
                 Ok(link) => link,
                 Err(refused) => return Ok(refused),
             };
+            if let Some(browser) = replacing {
+                signups::discard_of_browser(scope, browser).await?;
+            }
             let org_id = scope.org_id().ok_or(StoreError::NoOrganization)?;
             let signup = Signup {
                 start: SignupStart::Invitation {
@@ -68,7 +85,7 @@ impl Store {
                 ..signup.clone()
             };
             signups::hold_names(scope, &signup).await?;
-            count_uses(scope, &link.id, 1).await?;
+            take_use(scope, &link.id).await?;
             Ok(Acceptance::Accepted(Accepted {
                 user_id: signup.id,
                 workspace_id: link.workspace_id,

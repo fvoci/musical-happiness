@@ -20,10 +20,11 @@ use fvoci_model::{
 };
 use fvoci_store::{
     Acceptance, Accepted, Acceptor, Inviter, InviterOfBoard, MailedTo, NewLink, Signup, Standing,
-    StoreError,
+    StoreError, Taken,
 };
 
 use super::auth::account_error;
+use super::signups::SignupMarker;
 use super::{App, Asker, BoardAccess};
 use crate::auth::now_millis;
 use crate::auth::secret::{new_secret, token_digest};
@@ -73,6 +74,9 @@ pub enum Accepting<'a> {
         account: &'a NewAccount,
         /// The language tag of the screen, for the mail that confirms its address.
         language: &'a str,
+        /// The secret of the browser's cookie, if it has one of a registration that
+        /// waits ([`SignupMarker`]): this account replaces that registration.
+        browser: Option<&'a str>,
     },
 }
 
@@ -281,16 +285,19 @@ impl App {
     /// The live link `token` is of, with the application behind the wall of the
     /// link's organization; `None` if the token is of no link that lets anybody in:
     /// no link at all, one that ended, was used up or revoked, or one whose maker may
-    /// no longer invite.
+    /// no longer invite. A link that only the registration of the browser of
+    /// `replacing` (the digest of its marker) uses up lets that browser in still: what
+    /// it does next replaces the registration.
     async fn usable_invitation(
         &self,
         token: &str,
+        replacing: Option<&str>,
     ) -> Result<Option<(Self, Invitation, Maker)>, AppError> {
         let token_hash = token_digest(token);
         let now = now_millis();
         let Some(org_id) = self
             .store()
-            .org_of_live_invitation(&token_hash, now)
+            .org_of_live_invitation(&token_hash, now, replacing)
             .await?
         else {
             return Ok(None);
@@ -300,7 +307,8 @@ impl App {
                 "the organization of an invitation as the store has it is no identifier",
             ));
         };
-        let Some(invitation) = app.store().live_invitation(&token_hash, now).await? else {
+        let live = app.store().live_invitation(&token_hash, now, replacing);
+        let Some(invitation) = live.await? else {
             return Ok(None);
         };
         let Some(maker) = app.inviter_who_may_still_invite(&invitation).await? else {
@@ -355,7 +363,10 @@ impl App {
     /// board, and nothing else of any of them.
     ///
     /// `address` is where the request comes from: a look at a link is counted against
-    /// it as an acceptance is, so that tokens are not tried without end.
+    /// it as an acceptance is, so that tokens are not tried without end. `browser` is
+    /// the secret of the browser's cookie of a registration that waits, if it has one:
+    /// a link that only that registration uses up is shown to it still, to register
+    /// by again.
     ///
     /// # Errors
     ///
@@ -364,10 +375,13 @@ impl App {
     pub async fn preview_invitation(
         &self,
         token: &str,
+        browser: Option<&str>,
         address: Option<IpAddr>,
     ) -> Result<InvitationPreview, AppError> {
         let _attempt = self.admit_registration(address)?;
-        let Some((app, invitation, _)) = self.usable_invitation(token).await? else {
+        let replacing = self.replaced_by(browser);
+        let usable = self.usable_invitation(token, replacing.as_deref());
+        let Some((app, invitation, _)) = usable.await? else {
             return Err(AppError::invitation_unavailable());
         };
         let workspace = app.workspace(&invitation.workspace_id).await?;
@@ -402,6 +416,11 @@ impl App {
     /// The maker of the link is looked at again where the acceptance is written, once
     /// the link is held: a link whose maker was taken out of the workspace while the
     /// acceptance waited lets nobody in, as a look at it says by then.
+    ///
+    /// A new account from the browser of a registration that waits for its address
+    /// replaces that registration, in the same transaction: its name and address are
+    /// free for the account, and the use it took of a link is given back, of this link
+    /// too. An acceptance that is refused replaces nothing.
     ///
     /// `address` is where the request comes from: acceptances are counted against it
     /// as registrations are, and one of an address is under way at a time.
@@ -440,7 +459,7 @@ impl App {
         let Some((app, accepted, waiting)) = settled else {
             return Err(AppError::invitation_unavailable());
         };
-        if let Some(signup) = waiting {
+        if let Some((signup, browser)) = waiting {
             tracing::info!(
                 signup_id = %signup.id,
                 workspace_id = %accepted.workspace_id,
@@ -448,7 +467,7 @@ impl App {
             );
             let app = self.clone();
             self.spawn_background(async move { app.mail_signup_link(&signup, None).await });
-            return Ok(Admission::Waiting);
+            return Ok(Admission::Waiting(browser));
         }
         if new_user.is_some() {
             self.metrics().registered();
@@ -475,7 +494,13 @@ impl App {
         accepting: Accepting<'_>,
         new_user: &mut Option<User>,
     ) -> Result<Tried, AppError> {
-        let Some((app, invitation, maker)) = self.usable_invitation(token).await? else {
+        let replacing = match accepting {
+            Accepting::NewAccount { browser, .. } => self.replaced_by(browser),
+            Accepting::SignedIn(_) => None,
+        };
+        let replacing = replacing.as_deref();
+        let usable = self.usable_invitation(token, replacing);
+        let Some((app, invitation, maker)) = usable.await? else {
             return Err(AppError::invitation_unavailable());
         };
         let inviter = maker.inviter(&invitation.created_by);
@@ -493,23 +518,29 @@ impl App {
                     .accept_invitation(&digest, acceptor, now, inviter)
                     .await
             }
-            Accepting::NewAccount { account, language } => {
+            Accepting::NewAccount {
+                account, language, ..
+            } => {
                 let user = match new_user {
                     Some(user) => user,
-                    empty => empty.insert(app.new_account(account).await?),
+                    empty => empty.insert(app.new_account(account, replacing).await?),
                 };
                 if self.verifies_email() && !mailed_to(&invitation, &user.email) {
+                    let browser = SignupMarker::new();
                     let signup = app
-                        .signup_by_link(user, &invitation.id, language, now)
+                        .signup_by_link(user, &invitation.id, language, &browser, now)
                         .await?;
                     let reserved = app
                         .store()
-                        .reserve_invitation(&digest, &signup, now, inviter)
+                        .reserve_invitation(&digest, &signup, replacing, now, inviter)
                         .await;
-                    waiting = Some(signup);
+                    waiting = Some((signup, browser));
                     reserved
                 } else {
-                    let acceptor = Acceptor::NewAccount(user);
+                    let acceptor = match replacing {
+                        Some(browser) => Acceptor::Replacing { user, browser },
+                        None => Acceptor::NewAccount(user),
+                    };
                     app.store()
                         .accept_invitation(&digest, acceptor, now, inviter)
                         .await
@@ -517,6 +548,8 @@ impl App {
             }
         }
         .map_err(|error| match error {
+            // Used up after all, by the time the acceptance was written.
+            StoreError::Conflict(Taken::LinkUse) => AppError::invitation_unavailable(),
             error @ StoreError::Conflict(_) => account_error(error),
             error => AppError::from(error).context("unable to accept an invitation"),
         })?;
@@ -592,13 +625,14 @@ fn mailed_to(invitation: &Invitation, email: &str) -> bool {
 }
 
 /// Where an acceptance let somebody in, or that it waits for an address.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum Admission {
     /// Somebody was let in, here.
     LetIn(AcceptedInvitation),
     /// A registration waits for its address to be confirmed by the link mailed to it:
-    /// nobody is let in until then.
-    Waiting,
+    /// nobody is let in until then. The marker is for the cookie of the browser it was
+    /// made from.
+    Waiting(SignupMarker),
 }
 
 /// An acceptance that was written.
@@ -606,8 +640,9 @@ struct Settled {
     /// The application behind the wall of the link's organization.
     app: App,
     accepted: Accepted,
-    /// The registration that waits for its address, where a new account waits.
-    waiting: Option<Signup>,
+    /// The registration that waits for its address, where a new account waits, and
+    /// the marker of the browser it was made from.
+    waiting: Option<(Signup, SignupMarker)>,
 }
 
 /// What an attempt to accept came to.

@@ -1,8 +1,9 @@
 //! The account of somebody who signs in through a provider for the first time: made
-//! under a user name of what the provider says, a member of the organization. The
-//! sign-in it ends is in `oidc.rs`.
+//! under a user name of what the provider says, a member of the organization; and
+//! what a sign-in knows of the account it ends in, with the address the provider
+//! vouches for. The sign-in is in `oidc.rs`.
 
-use fvoci_model::{Session, User, display_name, new_id};
+use fvoci_model::{Session, User, display_name, is_email_valid, new_id};
 use fvoci_store::{Applied, Identity, OidcAccount, StoreError, StoredProvider, Taken};
 
 use super::App;
@@ -78,9 +79,17 @@ impl App {
                         .await
                         .map_err(|error| logged(&error, "looking up an identity"))?
                         .ok_or(Reason::OidcUnavailable)?;
-                    return self
-                        .let_in(&user, identity, stored, ending, session, digest)
-                        .await;
+                    let found = FoundAccount {
+                        user: &user,
+                        identity,
+                        proved_email: Some(email),
+                    };
+                    return self.let_in(found, stored, ending, session, digest).await;
+                }
+                // A registration at the address was confirmed while the person was
+                // at the provider: the account is theirs to sign in to and link.
+                Err(StoreError::Conflict(Taken::Email)) => {
+                    return Err(Reason::OidcEmailTaken.into());
                 }
                 Err(error) => return Err(logged(&error, "storing a new account")),
             }
@@ -88,6 +97,27 @@ impl App {
         tracing::warn!("no free user name was found for a new account");
         Err(Reason::OidcUnavailable.into())
     }
+}
+
+/// The account a sign-in through a provider ends in, as it was found.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct FoundAccount<'a> {
+    /// The account of the identity.
+    pub(super) user: &'a User,
+    /// Who the provider vouches for.
+    pub(super) identity: Identity<'a>,
+    /// The address the provider vouches for at this sign-in, if it does.
+    pub(super) proved_email: Option<&'a str>,
+}
+
+/// The address a provider vouches for: one it gives, that reads as an address, and
+/// that it does not say is unverified.
+pub(super) fn proved_address(claims: &IdClaims) -> Option<&str> {
+    claims
+        .email
+        .as_deref()
+        .map(str::trim)
+        .filter(|email| is_email_valid(email) && claims.email_verified != Some(false))
 }
 
 /// The user name of a new account, before it is seen to be free: what the provider
@@ -124,6 +154,29 @@ mod tests {
             name: None,
             preferred_username: preferred.map(str::to_owned),
         }
+    }
+
+    #[test]
+    fn a_provider_vouches_for_an_address_it_gives_and_does_not_call_unverified() {
+        let said = |email: Option<&str>, verified: Option<bool>| IdClaims {
+            email: email.map(str::to_owned),
+            email_verified: verified,
+            ..claims(None)
+        };
+        let vouched = |claims: &IdClaims| proved_address(claims).map(str::to_owned);
+        assert_eq!(
+            vouched(&said(Some(" a@b.test "), Some(true))).as_deref(),
+            Some("a@b.test")
+        );
+        assert_eq!(
+            vouched(&said(Some("a@b.test"), None)).as_deref(),
+            Some("a@b.test"),
+            "said, and not called unverified"
+        );
+        assert_eq!(vouched(&said(Some("a@b.test"), Some(false))), None);
+        assert_eq!(vouched(&said(Some("no address"), Some(true))), None);
+        assert_eq!(vouched(&said(Some(""), Some(true))), None);
+        assert_eq!(vouched(&said(None, Some(true))), None);
     }
 
     #[test]
