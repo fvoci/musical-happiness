@@ -23,6 +23,7 @@
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { closeOnBack } from '$lib/layout/back.svelte.ts';
   import { pane } from '$lib/layout/room.svelte.ts';
+  import type { PagePlace } from '$lib/logic/page-moves.ts';
   import { ancestorsOf } from '$lib/logic/page-tree.ts';
   import {
     whileHere,
@@ -33,6 +34,7 @@
   } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
+  import MovePageDialog from './MovePageDialog.svelte';
   import PageTree from './PageTree.svelte';
   import WikiHeader from './WikiHeader.svelte';
   import PageView from './PageView.svelte';
@@ -131,6 +133,15 @@
 
   /** A page is being made: a second click does not make another. */
   let creating = $state(false);
+  /** The page "Move…" asks a place for. */
+  let moving = $state<WikiPage | undefined>(undefined);
+  let movingOpen = $state(false);
+
+  /** Moves a page; the page it goes below unfolds, so that it stays in sight. */
+  function move(pageId: string, to: PagePlace): Promise<boolean> {
+    if (to.parentId !== '') open.set([to.parentId, ...ancestorsOf(wiki.pages, to.parentId)]);
+    return wiki.movePage(pageId, to);
+  }
 
   async function create(draft: PageDraft): Promise<void> {
     if (creating) return;
@@ -237,6 +248,10 @@
       onOpenPage={show}
       onCreate={(draft: PageDraft) => void create(draft)}
       {onDelete}
+      onMove={move}
+      onMoveTo={(chosen: WikiPage) => {
+        [moving, movingOpen] = [chosen, true];
+      }}
       busy={creating}
     />
   </div>
@@ -300,3 +315,10 @@
     {/if}
   </div>
 </div>
+
+<MovePageDialog
+  bind:open={movingOpen}
+  {wiki}
+  page={moving}
+  onMove={(pageId: string, to: PagePlace) => void move(pageId, to)}
+/>

@@ -1252,5 +1252,15 @@
   "wiki_body_not_opened": "The page could not be opened for editing.",
   "wiki_body_lost_reset": "The page was replaced elsewhere, and what you just wrote was removed with the old text.",
   "wiki_body_lost_image": "An image you added was not put in: the page was sent again meanwhile. Add it once more.",
-  "wiki_body_lost_formula": "What you were writing in a formula was not put into the page: the editor it was open in went away. Write it once more."
+  "wiki_body_lost_formula": "What you were writing in a formula was not put into the page: the editor it was open in went away. Write it once more.",
+  "wiki_move_page": "Move…",
+  "wiki_move_up": "Move up",
+  "wiki_move_down": "Move down",
+  "wiki_move_title": "Move “{title}”",
+  "wiki_move_description": "Choose the page to put it below, or the top of the wiki. The pages below it go along.",
+  "wiki_move_top": "Top of the wiki",
+  "wiki_move_confirm": "Move",
+  "wiki_move_drop_hint": "Drop to put the page here",
+  "app_problem_page_too_deep": "Pages go no more than {limit} levels deep. Nothing was changed.",
+  "app_problem_too_many_pages": "A wiki holds no more than {limit} pages. Nothing was changed."
 }

@@ -11,19 +11,18 @@
  * takes them off itself.
  *
  * Writes show at once and go back when the backend refuses them, told
- * (`workspace.report`). Renaming a page, changing its icon, making one and
- * changing the wiki can be undone; deleting a page cannot (nothing brings one
- * back yet).
+ * (`workspace.report`). Renaming a page, changing its icon, making one,
+ * moving one and changing the wiki can be undone; deleting a page cannot
+ * (nothing brings one back yet).
  */
-import { isEmptyDoc } from '../editor/schema.ts';
-import { pageTree, withDescendants } from '../logic/page-tree.ts';
+import type { PagePlace } from '../logic/page-moves.ts';
+import { pageTree } from '../logic/page-tree.ts';
 import type { Board, BoardMember, MemberRole } from '../logic/wire.ts';
 
 import {
   isBackendError,
   type Change,
   type PageDraft,
-  type WikiDraft,
   type WikiPage,
   type WikiPageDetail,
   type Wikis,
@@ -32,6 +31,8 @@ import { boardOfWorkspace, roleOf } from './board-parts.ts';
 import { BoardPresence } from './board-presence.svelte.ts';
 import { orderMembers } from './order.ts';
 import { PageStore } from './page.svelte.ts';
+import { TreeWrites } from './tree-writes.ts';
+import { unlessGone } from './wiki-parts.ts';
 import { memberId } from './user-names.ts';
 import type { LoadStatus, Workspace } from './workspace.svelte.ts';
 import { reread, take } from './write.ts';
@@ -92,11 +93,29 @@ export class WikiStore {
 
   /** Who else is on the wiki, and on which page: started while it is shown (`start`). */
   readonly presence: BoardPresence;
+  /** Making, moving and deleting pages (`tree-writes.ts`). */
+  readonly #writes: TreeWrites;
 
   constructor(workspace: Workspace, wikiId: string) {
     this.workspace = workspace;
     this.wikiId = wikiId;
     this.presence = new BoardPresence({ workspace, boardId: wikiId });
+    this.#writes = new TreeWrites({
+      wikiId,
+      workspace,
+      wikis: () => this.#wikis,
+      pages: () => this.pages,
+      setPages: (pages) => {
+        this.pages = pages;
+      },
+      openPage: () => this.openPage,
+      takePage: (page) => {
+        this.#takePage(page);
+      },
+      reread: () => {
+        void this.#refresh();
+      },
+    });
   }
 
   get #wikis(): Wikis {
@@ -231,7 +250,7 @@ export class WikiStore {
         for (const page of change.pages) this.#takePage(page);
         break;
       case 'blocksDeleted':
-        this.#forget(change.blockIds, 'others');
+        this.#writes.forget(change.blockIds, 'others');
         break;
       case 'members':
         if (change.boardId !== this.wikiId) break;
@@ -251,41 +270,6 @@ export class WikiStore {
     if (page.wikiId !== this.wikiId) return;
     this.pages = take(this.pages, page);
     if (this.openPage?.pageId === page.id) this.openPage.pageChanged(page);
-  }
-
-  /**
-   * Pages deleted, with every page below them. The page shown among them is
-   * told so, unless the deletion is the reader's and not answered yet (`held`).
-   */
-  #forget(pageIds: readonly string[], by: 'others' | 'reader' | 'held'): void {
-    const gone = pageIds.flatMap((pageId) => [...withDescendants(this.pages, pageId)]);
-    const shown = this.openPage;
-    // The reader's own deletion, heard back before its answer: the reader's still.
-    const own = pageIds.find((pageId) => this.#deleting.has(pageId));
-    const title = own === undefined ? this.page(shown?.pageId)?.title : this.#deleting.get(own);
-    this.pages = this.pages.filter((page) => !gone.includes(page.id));
-    if (by === 'held' || !shown || !gone.includes(shown.pageId)) return;
-    shown.gone(own === undefined ? by : 'reader', title ?? '');
-  }
-
-  /** The pages the reader is deleting, each with the title of the page shown when it began. */
-  // eslint-disable-next-line svelte/prefer-svelte-reactivity -- consulted, never shown
-  readonly #deleting = new Map<string, string>();
-
-  /** Deletes a page as the reader, its echo known for theirs (`#forget`). */
-  async #deletePage(
-    pageId: string,
-    title = this.page(this.openPage?.pageId)?.title ?? '',
-  ): Promise<void> {
-    this.#deleting.set(pageId, title);
-    try {
-      await this.#wikis.deletePage(this.wikiId, pageId);
-    } finally {
-      // After the echo, which comes before the answer or not at all.
-      setTimeout(() => {
-        this.#deleting.delete(pageId);
-      }, 0);
-    }
   }
 
   /**
@@ -324,50 +308,19 @@ export class WikiStore {
   /**
    * Makes a page (`PageDraft`: below a page, after one, or last at the top)
    * and gives it, shown in the tree; undefined when it was refused (told).
-   * Undoing it deletes it.
    */
-  async createPage(draft: PageDraft): Promise<WikiPageDetail | undefined> {
-    /** The page an undo kept (written in, or with pages below): done again, it is that page. */
-    let kept: WikiPageDetail | undefined;
-    try {
-      return await this.workspace.undo.perform(
-        async () => {
-          if (kept) {
-            const again = kept;
-            kept = undefined;
-            return again;
-          }
-          const made = await this.#wikis.createPage(this.wikiId, draft);
-          this.#takePage(made);
-          return made;
-        },
-        async (made) => {
-          // Written in since, or with pages below it: kept, for undo would lose them for good.
-          if (await this.#grownSince(made.id)) {
-            kept = made;
-            return;
-          }
-          await unlessGone(() => this.#deletePage(made.id));
-          this.#forget([made.id], 'reader');
-        },
-        'createPage',
-      );
-    } catch (error) {
-      this.workspace.report('save', error);
-      return undefined;
-    }
+  createPage(draft: PageDraft): Promise<WikiPageDetail | undefined> {
+    return this.#writes.createPage(draft);
   }
 
-  /** Whether a page has pages below it now, or a body: undoing its making would delete them. */
-  async #grownSince(pageId: string): Promise<boolean> {
-    if (this.pages.some((page) => page.parentId === pageId)) return true;
-    try {
-      const { body } = await this.#wikis.page(this.wikiId, pageId);
-      return body !== null && !isEmptyDoc(body);
-    } catch (error) {
-      if (isBackendError(error) && error.status === 404) return false;
-      throw error;
-    }
+  /** Moves a page with the pages below it where `to` says; false when it was refused (told). */
+  movePage(pageId: string, to: PagePlace): Promise<boolean> {
+    return this.#writes.movePage(pageId, to);
+  }
+
+  /** Deletes a page and every page below it; false when it was refused (told). */
+  deletePage(pageId: string): Promise<boolean> {
+    return this.#writes.deletePage(pageId);
   }
 
   /** Changes the title or the icon of a page: shown at once, undone as one step. */
@@ -406,30 +359,6 @@ export class WikiStore {
     }
   }
 
-  /**
-   * Deletes a page and every page below it: they are taken off the tree at
-   * once and come back if the backend refuses. Not undone: nothing brings a
-   * page back yet.
-   */
-  async deletePage(pageId: string): Promise<boolean> {
-    const before = this.pages;
-    const gone = withDescendants(before, pageId);
-    const title = this.page(this.openPage?.pageId)?.title ?? '';
-    this.#forget([pageId], 'held');
-    try {
-      await this.#deletePage(pageId, title);
-    } catch (error) {
-      // Not gone already (somebody else deleted it): it comes back as it was.
-      if (!isBackendError(error) || error.status !== 404) {
-        this.pages = before;
-        this.workspace.report('save', error);
-        return false;
-      }
-    }
-    if (this.openPage && gone.has(this.openPage.pageId)) this.openPage.gone('reader', title);
-    return true;
-  }
-
   /** Changes the wiki's title, description or icon: shown at once, undone as one step. */
   async changeWiki(looks: WikiLooks): Promise<void> {
     const before = this.wiki;
@@ -459,35 +388,5 @@ export class WikiStore {
     } catch (error) {
       this.workspace.report('save', error);
     }
-  }
-}
-
-/** A step of undo on a page deleted since (by the reader too): nothing is left to do. */
-async function unlessGone(step: () => Promise<void>): Promise<void> {
-  try {
-    await step();
-  } catch (error) {
-    if (!isBackendError(error) || error.status !== 404) throw error;
-  }
-}
-
-/**
- * Makes a wiki in the workspace shown, in the sidebar at once; undefined when
- * it was refused (told) or the backend has no wikis.
- */
-export async function createWiki(
-  workspace: Workspace,
-  draft: WikiDraft,
-): Promise<Board | undefined> {
-  const wikis = workspace.backend.wiki;
-  const shown = workspace.info;
-  if (!wikis || !shown) return undefined;
-  try {
-    const made = await wikis.createWiki(shown.id, draft);
-    workspace.receiveBoard(made);
-    return made;
-  } catch (error) {
-    workspace.report('save', error);
-    return undefined;
   }
 }

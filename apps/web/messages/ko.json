@@ -1252,5 +1252,15 @@
   "wiki_body_not_opened": "본문을 고치려고 열지 못했습니다.",
   "wiki_body_lost_reset": "본문이 다른 곳에서 통째로 바뀌어, 방금 쓴 것이 옛 글과 함께 지워졌습니다.",
   "wiki_body_lost_image": "그사이 본문이 새로 와서 올린 이미지를 넣지 못했습니다. 다시 넣어 주세요.",
-  "wiki_body_lost_formula": "수식 상자가 열려 있던 편집기가 사라져 수식에 쓰던 것을 본문에 넣지 못했습니다. 다시 써 주세요."
+  "wiki_body_lost_formula": "수식 상자가 열려 있던 편집기가 사라져 수식에 쓰던 것을 본문에 넣지 못했습니다. 다시 써 주세요.",
+  "wiki_move_page": "옮기기…",
+  "wiki_move_up": "위로",
+  "wiki_move_down": "아래로",
+  "wiki_move_title": "“{title}” 옮기기",
+  "wiki_move_description": "어느 페이지 아래에 둘지, 또는 위키의 맨 위를 고르세요. 아래 페이지도 함께 옮겨집니다.",
+  "wiki_move_top": "위키의 맨 위",
+  "wiki_move_confirm": "옮기기",
+  "wiki_move_drop_hint": "놓으면 이 자리로 옮겨집니다",
+  "app_problem_page_too_deep": "페이지는 {limit}단계까지만 들어갈 수 있습니다. 아무것도 바뀌지 않았습니다.",
+  "app_problem_too_many_pages": "위키 하나에는 페이지를 {limit}개까지 둘 수 있습니다. 아무것도 바뀌지 않았습니다."
 }

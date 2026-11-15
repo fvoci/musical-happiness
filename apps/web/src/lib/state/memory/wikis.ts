@@ -16,6 +16,7 @@ import { createBoard, type Board, type BoardKind } from '../../logic/wire.ts';
 import { BackendError } from '../backend.ts';
 import type {
   PageDraft,
+  PageMove,
   PagePatch,
   WikiDraft,
   WikiPage,
@@ -25,7 +26,7 @@ import type {
 
 import { memberRole } from './board-access.ts';
 import { checkedWhole } from './bodies.ts';
-import { orderBetween } from './page-order.ts';
+import { DEFAULT_LIMITS, PageTree, type PageLimits, type Place } from './page-tree.ts';
 import { fail } from './refuse.ts';
 import { copy, memberOf, orderOf, pageOf, scramble } from './shapes.ts';
 import { deletion } from './trash.ts';
@@ -43,14 +44,6 @@ export interface WikiHost {
 export const PAGE_TITLE_MAX = 16_383;
 
 const isWiki = (board: Board | undefined): board is Board => board?.kind === 'wiki';
-
-/** The order of a page among its siblings: by `order` as code units compare, then by `id`. */
-const byPlace = (first: StoredBlock, second: StoredBlock): number => {
-  const [one, other] = [orderOf(first), orderOf(second)];
-  if (one !== other) return one < other ? -1 : 1;
-  if (first.id === second.id) return 0;
-  return first.id < second.id ? -1 : 1;
-};
 
 function detailOf(block: StoredBlock): WikiPageDetail {
   return {
@@ -79,6 +72,8 @@ function checkedTitle(title: string): string {
 export class MemoryWikis implements Wikis {
   readonly #host: WikiHost;
   readonly #failures = new Map<keyof Wikis, BackendError>();
+  /** The limits of the tree: the server's defaults, lowered by a test to reach them. */
+  limits: PageLimits = DEFAULT_LIMITS;
 
   constructor(host: WikiHost) {
     this.#host = host;
@@ -196,20 +191,29 @@ export class MemoryWikis implements Wikis {
     return detailOf(this.#page(wikiId, pageId));
   }
 
-  /** The place of a new page below `parentId`, as `after` asks (`PageDraft.after`). */
-  #placeFor(wikiId: string, parentId: string, after: string | undefined): string {
-    const siblings = this.#pagesOf(wikiId)
-      .filter((block) => block.parentId === parentId)
-      .sort(byPlace);
-    const orderAt = (at: number): string | undefined => {
-      const sibling = siblings[at];
-      return sibling && orderOf(sibling);
-    };
-    if (after === undefined) return orderBetween(orderAt(siblings.length - 1), undefined);
-    if (after === '') return orderBetween(undefined, orderAt(0));
-    const at = siblings.findIndex((block) => block.id === after);
-    if (at < 0) fail(400, 'no page of the same parent', { field: 'after' });
-    return orderBetween(orderAt(at), orderAt(at + 1));
+  /** The pages of the wiki as a tree, for its decisions (`page-tree.ts`). */
+  #tree(wikiId: string): PageTree {
+    return new PageTree(
+      this.#pagesOf(wikiId).map((block) => ({
+        id: block.id,
+        parentId: block.parentId,
+        order: orderOf(block),
+      })),
+    );
+  }
+
+  /** Gives `page` the order of `place`, and its siblings theirs: those numbered anew, changed. */
+  #writePlace(page: StoredBlock, place: Place): StoredBlock[] {
+    const now = this.#world.now();
+    const renumbered = place.renumbered.flatMap(([id, order]) => {
+      const sibling = this.#world.blocks.get(id);
+      if (!sibling) return [];
+      sibling.fields = { ...sibling.fields, order };
+      [sibling.updateAt, sibling.modifiedBy] = [now, this.#host.userId];
+      return [sibling];
+    });
+    page.fields = { ...page.fields, order: place.order };
+    return renumbered;
   }
 
   async createPage(wikiId: string, draft: PageDraft): Promise<WikiPageDetail> {
@@ -225,7 +229,9 @@ export class MemoryWikis implements Wikis {
         fail(400, 'the parent is no page of the wiki', { field: 'parentId' });
       }
     }
-    const order = this.#placeFor(wikiId, parentId, draft.after);
+    const tree = this.#tree(wikiId);
+    tree.checkRoom(parentId, 1, 1, this.limits);
+    const place = tree.place(parentId, draft.after);
     const now = this.#world.now();
     const userId = this.#host.userId;
     const page: StoredBlock = {
@@ -237,14 +243,31 @@ export class MemoryWikis implements Wikis {
       schema: 1,
       type: 'page',
       title,
-      fields: { icon, order },
+      fields: { icon },
       body: null,
       createAt: now,
       updateAt: now,
       deleteAt: 0,
     };
+    const renumbered = this.#writePlace(page, place);
     this.#world.blocks.set(page.id, page);
-    this.#tellPages(wikiId, [page]);
+    this.#tellPages(wikiId, [...renumbered, page]);
+    return detailOf(page);
+  }
+
+  async movePage(wikiId: string, pageId: string, to: PageMove): Promise<WikiPageDetail> {
+    await this.#enter('movePage');
+    this.#mayWrite(wikiId);
+    const page = this.#page(wikiId, pageId);
+    const parentId = to.parentId === wikiId ? '' : (to.parentId ?? '');
+    const tree = this.#tree(wikiId);
+    tree.checkMove(pageId, parentId, this.limits);
+    const place = tree.place(parentId, to.after, pageId);
+    const renumbered = this.#writePlace(page, place);
+    page.parentId = parentId;
+    page.updateAt = this.#world.now();
+    page.modifiedBy = this.#host.userId;
+    this.#tellPages(wikiId, [...renumbered, page]);
     return detailOf(page);
   }
 

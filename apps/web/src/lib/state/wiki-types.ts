@@ -61,6 +61,16 @@ export interface PageDraft {
   after?: string;
 }
 
+/**
+ * Where a page moves to, with every page below it, within its wiki: below
+ * `parentId` (a page of it; left out or empty, the top), at the place
+ * `after` says, as `PageDraft.after`.
+ */
+export interface PageMove {
+  parentId?: string;
+  after?: string;
+}
+
 /** What a page is changed to; what is left out stays. Where it is in the tree is not changed here. */
 export interface PagePatch {
   title?: string;
@@ -87,6 +97,13 @@ export interface Wikis {
    * editors. The wiki's listeners are told of the page alone (`blocksDeleted`).
    */
   deletePage(wikiId: string, pageId: string): Promise<void>;
+  /**
+   * Moves the page with every page below it, for the wiki's editors: below
+   * itself, below a page below it or deeper than the limit (`page_too_deep`)
+   * is 400 at `parentId`, an `after` that is no other page there 400 at
+   * `after`. Siblings numbered anew to leave it room are told (`pages`).
+   */
+  movePage(wikiId: string, pageId: string, to: PageMove): Promise<WikiPageDetail>;
 }
 
 /** Where a backend keeps its wikis. One by a public link has none (W4). */

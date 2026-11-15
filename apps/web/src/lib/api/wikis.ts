@@ -1,13 +1,14 @@
 /**
  * The wikis and their pages on the server (`Backend.wiki`): the operations
  * under `/w/{workspaceId}/wikis` (`getWikis`, `createWiki`, `getPageTree`,
- * `createPage`, `getPage`, `patchPage`, `deletePage`). What a wiki shares
+ * `createPage`, `getPage`, `patchPage`, `deletePage`, `movePage`). What a wiki shares
  * with a board (reading it, changing, deleting and bringing it back, its
  * members, joining it, the sidebar) goes by the board's operations.
  */
 import type { Board } from '../logic/wire.ts';
 import type {
   PageDraft,
+  PageMove,
   PagePatch,
   WikiDraft,
   WikiPage,
@@ -160,5 +161,19 @@ export class ServerWikis implements Wikis {
 
   async deletePage(wikiId: string, pageId: string): Promise<void> {
     await this.#request('/wikis/{wikiId}/pages/{pageId}', { wikiId, pageId }, { method: 'DELETE' });
+  }
+
+  async movePage(wikiId: string, pageId: string, to: PageMove): Promise<WikiPageDetail> {
+    const request: Schemas['PageMove'] = {
+      ...(to.parentId ? { parentId: to.parentId } : {}),
+      ...(to.after === undefined ? {} : { after: to.after }),
+    };
+    return pageDetailOf(
+      await this.#request<Schemas['Page']>(
+        '/wikis/{wikiId}/pages/{pageId}/move',
+        { wikiId, pageId },
+        { method: 'POST', json: request },
+      ),
+    );
   }
 }
