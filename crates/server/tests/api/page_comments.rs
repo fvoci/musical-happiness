@@ -138,8 +138,8 @@ async fn each_role_of_the_wiki_does_to_the_comments_of_a_page_what_it_does_to_a_
 }
 
 /// Who is not on the wiki, and who names it under another workspace, is answered as for
-/// a wiki that is nowhere; an open wiki not joined is refused to who works in the
-/// workspace.
+/// a wiki that is nowhere; who works in the workspace reads an open wiki without
+/// joining it, its comments as a viewer does, and writes none.
 #[tokio::test]
 async fn who_may_not_read_the_wiki_is_answered_of_its_comments_as_of_none() {
     let th = Setup::native().start().await.init_basic().await;
@@ -162,8 +162,8 @@ async fn who_may_not_read_the_wiki_is_answered_of_its_comments_as_of_none() {
     let open_one = written(&th.client, &open, &open_page, "open").await;
     assert_eq!(
         on_theirs(&th.client2, TEST_WS, &open, &open_page, &open_one).await,
-        [403; 5],
-        "who did not join the open wiki"
+        [200, 403, 200, 403, 403],
+        "who did not join the open wiki, as a viewer"
     );
     th.teardown().await;
 }
