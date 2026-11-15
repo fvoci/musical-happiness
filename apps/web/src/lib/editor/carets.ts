@@ -81,6 +81,23 @@ function place(view: EditorView, caret: HTMLElement, nameOf: (userId: string) =>
   name.style.setProperty('--moved', `${String(-moved)}px`);
 }
 
+/**
+ * Calls `again` whenever where a name fits may be elsewhere: the body is
+ * another width (the window, the card's frame), or the body's box or the
+ * window scrolled, so that what is seen above a name is something else.
+ * Returns what stops it.
+ */
+function watch(body: HTMLElement, again: () => void): () => void {
+  const resized = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(again);
+  resized?.observe(body);
+  const page = body.ownerDocument;
+  page.addEventListener('scroll', again, { capture: true, passive: true });
+  return () => {
+    resized?.disconnect();
+    page.removeEventListener('scroll', again, { capture: true });
+  };
+}
+
 /** The line of a caret of `userId`, with their name to be shown beside it. */
 function draw(options: CaretsOptions, userId: string): HTMLElement {
   const caret = document.createElement('span');
@@ -169,21 +186,13 @@ export function caretsOf(options: CaretsOptions): Extension {
           view: (editorView) => {
             view = editorView;
             awareness.on('change', changed);
-            // The body is another width (the window, the card's frame): the edges are elsewhere.
-            const resized =
-              typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(placeSoon);
-            resized?.observe(editorView.dom);
-            // Scrolled (the body's box, the window): what is seen above a name that shows is something else.
-            const page = editorView.dom.ownerDocument;
-            const scrolled = (): void => {
+            const unwatch = watch(editorView.dom, () => {
               if (named.size > 0) placeSoon();
-            };
-            page.addEventListener('scroll', scrolled, { capture: true, passive: true });
+            });
             return {
               update: placeSoon,
               destroy: () => {
-                resized?.disconnect();
-                page.removeEventListener('scroll', scrolled, { capture: true });
+                unwatch();
                 awareness.off('change', changed);
                 for (const timer of named.values()) clearTimeout(timer);
                 named.clear();
