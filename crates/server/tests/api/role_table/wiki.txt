@@ -36,3 +36,12 @@ pages: duplicate                 201         201         403         403        
 pages: delete                    204         204         403         403         404         403         204         404         404        404=        404=
 pages: trash                     200         200         403         403         404         403         200         404         404        404=        404=
 pages: undelete                  200         200         403         403         404         403         200         404         404        404=        404=
+page comments: list              200         200         200         200         404         200         200         404         404        404=        404=
+page comments: write             201         201         201         403         404         403         201         404         404        404=        404=
+page comments: versions          200         200         200         200         404         200         200         404         404        404=        404=
+page comments: change            200         403         403         403         404         403         403         404         404        404=        404=
+page comments: delete            204         403         403         403         404         403         403         404         404        404=        404=
+page comments: undelete          200         403         403         403         404         403         403         404         404        404=        404=
+page versions: list              200         200         200         200         404         200         200         404         404        404=        404=
+page versions: get               200         200         200         200         404         200         200         404         404        404=        404=
+page versions: restore           200         200         403         403         404         403         200         404         404        404=        404=
