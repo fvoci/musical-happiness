@@ -75,17 +75,21 @@ export function drawReference(element: HTMLElement, drawing: ReferenceDrawing | 
   const page = element.ownerDocument;
   if (!shown) {
     element.removeAttribute('data-kind');
+    // Waiting, the chip is a picture with a name: the dots are not words.
     if (state === 'pending') {
       element.setAttribute('aria-busy', 'true');
+      element.setAttribute('role', 'img');
       element.setAttribute('aria-label', m.editor_reference_pending());
     } else {
       element.removeAttribute('aria-busy');
+      element.removeAttribute('role');
       element.removeAttribute('aria-label');
     }
     element.replaceChildren(state === 'pending' ? '…' : m.editor_reference_unseen());
     return;
   }
   element.removeAttribute('aria-busy');
+  element.removeAttribute('role');
   element.removeAttribute('aria-label');
   element.dataset.kind = shown.kind;
   const parts = [

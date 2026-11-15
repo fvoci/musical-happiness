@@ -17,6 +17,12 @@ fn is_searched(block: &Block) -> bool {
     SearchKind::of_block(&block.block_type).is_some()
 }
 
+/// What only this module makes: what [`file_refs::refresh`] and [`body_links::refresh`]
+/// take, so that no other way of writing a block can put down one of the things that
+/// follow from it and leave the others as they were. Its field is this module's alone.
+#[derive(Debug)]
+pub(crate) struct Refreshing(());
+
 /// What is known of a block as it was stored before a write of it.
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum Before<'a> {
@@ -44,8 +50,8 @@ pub(crate) async fn refresh(
     before: Before<'_>,
     new_images: NewImages,
 ) -> Result<(), StoreError> {
-    file_refs::refresh(scope, block, new_images).await?;
-    body_links::refresh(scope, block).await?;
+    file_refs::refresh(scope, block, new_images, Refreshing(())).await?;
+    body_links::refresh(scope, block, Refreshing(())).await?;
     let told = match before {
         Before::Absent | Before::Unknown => is_searched(block),
         Before::Unchanged => false,
@@ -87,53 +93,4 @@ pub(crate) async fn trashed(scope: &mut Scope<'_>, blocks: &[Block]) -> Result<(
 /// [`refresh`].
 pub(crate) async fn board_trashed(scope: &mut Scope<'_>, board_id: &str) -> Result<(), StoreError> {
     search_outbox::note_board(scope, board_id).await
-}
-
-#[cfg(test)]
-mod tests {
-    use std::fs;
-    use std::path::{Path, PathBuf};
-
-    /// The calls that put down what follows from a block, which only [`super::refresh`]
-    /// makes: a write of a body that made one of them itself would leave the others as
-    /// they were.
-    const ONLY_HERE: [&str; 2] = ["file_refs::refresh(", "body_links::refresh("];
-
-    /// Every Rust file under `directory`, those of its folders too.
-    fn sources(directory: &Path) -> Vec<PathBuf> {
-        let mut found = Vec::new();
-        for entry in fs::read_dir(directory).expect("the folder of the sources is read") {
-            let path = entry.expect("an entry of the folder").path();
-            if path.is_dir() {
-                found.extend(sources(&path));
-            } else if path.extension().is_some_and(|extension| extension == "rs") {
-                found.push(path);
-            }
-        }
-        found
-    }
-
-    #[test]
-    fn only_this_module_puts_down_what_follows_from_a_block() {
-        let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-        let here = src.join("block_derived.rs");
-        let mut elsewhere = Vec::new();
-        for path in sources(&src) {
-            let text = fs::read_to_string(&path).expect("a source is read");
-            // This module's own tests name the calls without making them.
-            let code = match text.split_once("#[cfg(test)]") {
-                Some((code, _)) if path == here => code,
-                _ => text.as_str(),
-            };
-            for call in ONLY_HERE {
-                let calls = code.matches(call).count();
-                if path == here {
-                    assert_eq!(calls, 1, "{call} is made once, by refresh");
-                } else if calls > 0 {
-                    elsewhere.push(format!("{} makes {call}", path.display()));
-                }
-            }
-        }
-        assert!(elsewhere.is_empty(), "{elsewhere:#?}");
-    }
 }

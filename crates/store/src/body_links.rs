@@ -14,6 +14,7 @@ use std::collections::BTreeSet;
 
 use fvoci_model::Block;
 
+use crate::block_derived::Refreshing;
 use crate::db::{Id, Scope};
 use crate::error::StoreError;
 
@@ -23,8 +24,13 @@ const BATCH: usize = 300;
 
 /// Puts down the blocks the body of `block` names now, in place of those it named:
 /// only the rows that differ are written, as a body is written far more often than
-/// what it names changes.
-pub(crate) async fn refresh(scope: &mut Scope<'_>, block: &Block) -> Result<(), StoreError> {
+/// what it names changes. Only [`crate::block_derived::refresh`] makes it, with the rest
+/// of what follows from a block.
+pub(crate) async fn refresh(
+    scope: &mut Scope<'_>,
+    block: &Block,
+    _: Refreshing,
+) -> Result<(), StoreError> {
     let named: BTreeSet<&str> = block
         .body
         .as_ref()

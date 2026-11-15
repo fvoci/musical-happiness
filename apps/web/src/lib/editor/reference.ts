@@ -14,6 +14,7 @@
  */
 import { mergeAttributes, Node } from '@tiptap/core';
 import { Plugin, PluginKey, type EditorState, type Transaction } from '@tiptap/pm/state';
+import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
 import type { EditorView } from '@tiptap/pm/view';
 import { Suggestion, type SuggestionMatch, type Trigger } from '@tiptap/suggestion';
 
@@ -166,11 +167,23 @@ function inCode(state: EditorState): boolean {
   return Boolean($from.parent.type.spec.code) || $from.marks().some((mark) => mark.type.spec.code);
 }
 
+/** Whether any of `from`–`to` is code, a block of it or a mark of it. */
+function codeBetween(doc: ProseMirrorNode, from: number, to: number): boolean {
+  if (doc.resolve(from).parent.type.spec.code) return true;
+  let code = false;
+  doc.nodesBetween(from, to, (node) => {
+    if (node.marks.some((mark) => mark.type.spec.code)) code = true;
+  });
+  return code;
+}
+
 /**
  * The pasted address of a card or a page of the workspace is put as the text
  * it is, and becomes a reference where it is then, once it is known that the
  * reader may see what it names; the text is followed through what is typed
- * meanwhile, and stays text if it was changed or the reader may not see it.
+ * meanwhile, and stays text if it was changed, was made code, or the reader
+ * may not see it. A change of a collaborator that rewrites the block it is in
+ * leaves it text too: the text is still the address, and a link.
  */
 function pastedAddresses(name: string, options: ReferenceOptions): Plugin<PastedAddress[]> {
   const settle = (view: EditorView, pasted: PastedAddress, seen: boolean): void => {
@@ -180,7 +193,11 @@ function pastedAddresses(name: string, options: ReferenceOptions): Plugin<Pasted
     if (!now) return;
     const tr = view.state.tr.setMeta(pasteKey, { done: now } satisfies PasteMeta);
     const { schema, doc } = view.state;
-    const whole = now.to <= doc.content.size && doc.textBetween(now.from, now.to) === now.text;
+    const whole =
+      now.from < now.to &&
+      now.to <= doc.content.size &&
+      doc.textBetween(now.from, now.to) === now.text &&
+      !codeBetween(doc, now.from, now.to);
     if (seen && whole) {
       tr.replaceWith(now.from, now.to, [schema.node(name, { id: now.id }), schema.text(' ')]);
     }

@@ -245,6 +245,25 @@ describe('a pasted address', () => {
     expect(made.getText()).toBe(`See ${ADDRESS.slice(0, -2)}`);
   });
 
+  it('stays the address it was if it was made code before the answer', async () => {
+    vi.stubGlobal('ClipboardEvent', class extends Event {});
+    let answer: (seen: boolean) => void = () => undefined;
+    const made = create(doc(paragraph(text('See '))), {
+      ...given(references({ [SEEN]: plan })),
+      seen: () => new Promise((resolve) => (answer = resolve)),
+    });
+    made.view.dispatch(made.state.tr.setSelection(Selection.atEnd(made.state.doc)));
+    expect(paste(made, ADDRESS)).toBe(true);
+    const { schema, doc: now } = made.state;
+    const code = schema.marks.code;
+    if (!code) throw new Error('no code mark');
+    made.view.dispatch(made.state.tr.addMark(5, now.content.size - 1, code.create()));
+    answer(true);
+    await settle();
+    expect(chips(made.view.dom)).toHaveLength(0);
+    expect(made.getText()).toBe(`See ${ADDRESS}`);
+  });
+
   it('is left to the editor over a selection, among other words, and in code', () => {
     const known = references({ [SEEN]: plan });
     const made = create(doc(paragraph(text('See this'))), given(known));

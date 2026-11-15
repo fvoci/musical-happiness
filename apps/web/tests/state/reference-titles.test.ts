@@ -119,20 +119,97 @@ describe('the titles of what references name', () => {
     }
   });
 
-  it('ask again what is held of a workspace that is entered again', async () => {
-    const { backend, workspace, alpha, titles } = await opened();
+  it('ask again together all that failed while a try was waited for', async () => {
+    const { backend, alpha, beta, titles } = await opened();
+    const asked = vi
+      .spyOn(backend.references, 'resolve')
+      .mockRejectedValueOnce(new BackendError(503))
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.useFakeTimers();
+    try {
+      titles.of(alpha.id);
+      await vi.advanceTimersByTimeAsync(0);
+      titles.of(beta.id);
+      await vi.advanceTimersByTimeAsync(0);
+      expect([titles.of(alpha.id), titles.of(beta.id)]).toEqual([null, null]);
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(asked).toHaveBeenCalledTimes(3);
+      expect(asked.mock.calls[2]?.[1]).toEqual([alpha.id, beta.id]);
+      expect([titles.of(alpha.id)?.title, titles.of(beta.id)?.title]).toEqual(['Alpha', 'Beta']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('do not ask again what the server refused', async () => {
+    const { backend, alpha, titles } = await opened();
+    const asked = vi
+      .spyOn(backend.references, 'resolve')
+      .mockRejectedValueOnce(new BackendError(404));
+    vi.useFakeTimers();
+    try {
+      titles.of(alpha.id);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(titles.of(alpha.id)).toBeNull();
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(asked).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('put a change heard while an identifier is asked before the answer', async () => {
+    const { backend, other, board, alpha, beta, titles } = await opened();
+    // The board is followed already, through what else is drawn.
+    titles.of(beta.id);
+    await settle();
+    titles.of(beta.id);
+    await settle();
+    const stale = (await backend.references.resolve(board.workspace.info?.id ?? '', [alpha.id]))[0];
+    let answer: () => void = () => undefined;
+    vi.spyOn(backend.references, 'resolve').mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          answer = () => {
+            resolve(stale ? [stale] : []);
+          };
+        }),
+    );
     titles.of(alpha.id);
     await settle();
+    await other.patchCard(board.boardId, alpha.id, { title: 'Renamed' });
+    await settle();
+    answer();
+    await settle();
+    expect(titles.of(alpha.id)?.title).toBe('Renamed');
+  });
+
+  it('ask again what is held of a workspace that is entered again, and follow none of the one left', async () => {
+    const { backend, workspace, alpha, titles } = await opened();
+    const watch = backend.watchBoard.bind(backend);
+    const stops: ReturnType<typeof vi.fn>[] = [];
+    vi.spyOn(backend, 'watchBoard').mockImplementation((boardId, listener) => {
+      const stop = vi.fn(watch(boardId, listener));
+      stops.push(stop);
+      return stop;
+    });
+    titles.of(alpha.id);
+    await settle();
+    titles.of(alpha.id);
+    await settle();
+    expect(stops).toHaveLength(1);
     const info = workspace.info;
     if (!info) throw new Error('no workspace');
-    const asked = vi.spyOn(backend.references, 'resolve');
     workspace.info = { ...info, id: 'elsewhere' };
     titles.of(alpha.id);
     await settle();
+    expect(stops[0]).toHaveBeenCalledOnce();
+    const asked = vi.spyOn(backend.references, 'resolve');
     workspace.info = info;
-    expect(titles.of(alpha.id)?.title).toBe('Alpha');
+    titles.of(alpha.id);
     await settle();
-    expect(asked.mock.calls.map((call) => call[1])).toContainEqual([alpha.id]);
+    expect(asked.mock.calls).toContainEqual([info.id, [alpha.id]]);
   });
 
   it('say whether the reader may see what an identifier names', async () => {

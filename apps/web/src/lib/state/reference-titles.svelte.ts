@@ -82,6 +82,9 @@ export class ReferenceTitles {
   readonly #changedAt = new Map<string, number>();
   #retryWait = RETRY_FIRST_MS;
   #retry: ReturnType<typeof setTimeout> | undefined;
+  /** What could not be asked, by workspace and identifier, for the next try. */
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity -- nothing that is drawn reads it
+  readonly #unanswered = new Set<string>();
 
   constructor(workspace: Workspace) {
     this.#workspace = workspace;
@@ -121,7 +124,7 @@ export class ReferenceTitles {
     }
     const linked = this.#known.get(key);
     // What is drawn follows its board, from out of the drawing that reads it.
-    if (linked && !this.#watched.has(linked.boardId)) {
+    if (linked?.boardKind === 'board' && !this.#watched.has(linked.boardId)) {
       const { boardId } = linked;
       queueMicrotask(() => {
         this.#watch(boardId);
@@ -261,7 +264,9 @@ export class ReferenceTitles {
       this.#retryWait = RETRY_FIRST_MS;
     } catch (error) {
       this.#failed(error);
-      this.#notAnswered(workspaceId, ids.slice(start));
+      // A refusal is the server's answer about the workspace, and the same next time.
+      const again = !isBackendError(error) || error.status >= 500;
+      this.#notAnswered(workspaceId, ids.slice(start), again);
     } finally {
       for (const id of ids) this.#pending.delete(`${workspaceId}/${id}`);
     }
@@ -269,21 +274,28 @@ export class ReferenceTitles {
 
   /**
    * What could not be asked: shown as what the reader may not see (no title,
-   * no link) rather than waited for, and asked again a while later, a longer
-   * while each time it fails again.
+   * no link) rather than waited for, and, when the server or the way to it
+   * failed (`again`), asked again a while later with whatever else failed
+   * meanwhile, a longer while each time it fails again.
    */
-  #notAnswered(workspaceId: string, ids: readonly string[]): void {
+  #notAnswered(workspaceId: string, ids: readonly string[], again: boolean): void {
     const asked = this.#tick();
     for (const id of ids) {
       const key = `${workspaceId}/${id}`;
       if (!this.#known.has(key)) this.#set(workspaceId, id, null, asked);
+      if (again) this.#unanswered.add(key);
     }
-    if (this.#retry !== undefined) return;
+    if (!again || this.#retry !== undefined) return;
     const wait = this.#retryWait;
     this.#retryWait = Math.min(wait * 2, RETRY_LONGEST_MS);
     this.#retry = setTimeout(() => {
       this.#retry = undefined;
-      if (this.#here() === workspaceId) void this.#ask(ids);
+      const prefix = `${this.#here()}/`;
+      const ids = [...this.#unanswered]
+        .filter((key) => key.startsWith(prefix))
+        .map((key) => key.slice(prefix.length));
+      this.#unanswered.clear();
+      void this.#ask(ids);
     }, wait);
   }
 
@@ -313,7 +325,7 @@ export class ReferenceTitles {
     if (change.kind === 'blocks') {
       for (const block of change.blocks) {
         const key = `${workspaceId}/${block.id}`;
-        if (!this.#known.has(key) || !isCardBlock(block)) continue;
+        if (!this.#held(key) || !isCardBlock(block)) continue;
         const { id, title, boardId } = block;
         const icon = cardIcon(block);
         this.#changedAt.set(key, this.#tick());
@@ -328,8 +340,13 @@ export class ReferenceTitles {
     }
   }
 
+  /** Whether the entry is known or being asked: a change of it is newer than an answer on the way. */
+  #held(key: string): boolean {
+    return this.#known.has(key) || this.#pending.has(key);
+  }
+
   #unsee(key: string): void {
-    if (!this.#known.get(key)) return;
+    if (!this.#held(key) || this.#known.get(key) === null) return;
     this.#changedAt.set(key, this.#tick());
     this.#known.set(key, null);
   }

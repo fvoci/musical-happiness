@@ -81,6 +81,7 @@ describe('a reference as it is drawn', () => {
     drawReference(element, drawing());
     expect(element.dataset.state).toBe('pending');
     expect(element.getAttribute('aria-busy')).toBe('true');
+    expect(element.getAttribute('role')).toBe('img');
     expect(element.getAttribute('aria-label')).toBe('Loading link');
     expect(element.textContent).not.toContain('see');
   });
