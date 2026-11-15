@@ -7,6 +7,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
+import type { DocNode } from '$lib/editor/schema.ts';
 import { pageRows, pageTree } from '$lib/logic/page-tree.ts';
 import { BackendError, pageTrash, WikiStore, type WikiPage } from '$lib/state/index.ts';
 
@@ -257,5 +258,72 @@ describe('a page copied with the pages below it', () => {
     await settle();
     expect(titles(made.store.pages)).toEqual(['A', '  B', 'A (copy)', '  B']);
     expect(made.workspace.problems).toEqual([]);
+  });
+
+  it('copies the icon and the body, and is done again as it is when brought back meanwhile', async () => {
+    const made = await openWiki();
+    const wikis = made.backend.wiki;
+    const a = await made.page('A');
+    const read = await wikis.page(made.wikiId, a);
+    const body: DocNode = {
+      type: 'doc',
+      content: [{ type: 'paragraph', content: [{ type: 'text', text: 'hello' }] }],
+    };
+    await wikis.patchPage(made.wikiId, a, { icon: '📘', body, readAt: read.updateAt });
+    await made.store.load();
+    const copy = await made.store.duplicatePage(a, 'A (copy)');
+    if (!copy) throw new Error('no copy');
+    expect(copy.icon).toBe('📘');
+    expect((await wikis.page(made.wikiId, copy.id)).body).toEqual(body);
+    await made.workspace.undoLast();
+    await wikis.undeletePage(made.wikiId, copy.id);
+    await made.workspace.redoLast();
+    await settle();
+    expect(made.workspace.problems).toEqual([]);
+    expect(titles(made.store.pages)).toEqual(['A', 'A (copy)']);
+  });
+
+  it('tells a refused copy once and leaves nothing to undo', async () => {
+    const made = await openWiki();
+    const a = await made.page('A');
+    await made.store.load();
+    made.backend.wiki.limits = { depth: 10, pages: 1 };
+    expect(await made.store.duplicatePage(a, 'A (copy)')).toBeUndefined();
+    expect(made.workspace.problems.map((problem) => problem.action)).toEqual(['save']);
+    expect(titles(made.store.pages)).toEqual(['A']);
+    expect(made.workspace.canUndo).toBe(false);
+  });
+
+  it('keeps out the copies below a copy undone before they were heard', async () => {
+    const made = await openWiki();
+    const a = await made.page('A');
+    await made.page('B', a);
+    await made.store.load();
+    // The copies are heard, and the tree read anew, only once the copy is undone.
+    const wikis = made.backend.wiki;
+    const read = wikis.pages.bind(wikis);
+    let release = (): void => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    wikis.pages = async (wikiId) => {
+      const pages = await read(wikiId);
+      await held;
+      return pages;
+    };
+    const tell = made.world.tellBoard.bind(made.world);
+    const late: Parameters<typeof tell>[] = [];
+    made.world.tellBoard = (...told) => {
+      if (told[1].kind === 'pages') late.push(told);
+      else tell(...told);
+    };
+    await made.store.duplicatePage(a, 'A (copy)');
+    await made.workspace.undoLast();
+    made.world.tellBoard = tell;
+    for (const told of late) tell(...told);
+    release();
+    await settle();
+    await settle();
+    expect(titles(made.store.pages)).toEqual(['A', '  B']);
   });
 });

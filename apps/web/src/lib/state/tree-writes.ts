@@ -58,7 +58,12 @@ export class TreeWrites {
   forget(pageIds: readonly string[], by: 'others' | 'reader' | 'held'): void {
     const gone = pageIds.flatMap((pageId) => [...withDescendants(this.#host.pages(), pageId)]);
     this.#forgettings += 1;
-    for (const pageId of [...pageIds, ...gone]) this.#forgottenAt.set(pageId, this.#forgettings);
+    for (const pageId of [...pageIds, ...gone]) {
+      // The version it was shown at, or, gone already (its echo), the one kept then.
+      const shownAt = this.#page(pageId)?.updateAt ?? -Infinity;
+      const updateAt = Math.max(shownAt, this.#forgottenAt.get(pageId)?.updateAt ?? -Infinity);
+      this.#forgottenAt.set(pageId, { at: this.#forgettings, updateAt });
+    }
     const shown = this.#host.openPage();
     // The reader's own deletion, heard back before its answer: the reader's still.
     const own = pageIds.find((pageId) => this.#deleting.has(pageId));
@@ -78,8 +83,8 @@ export class TreeWrites {
 
   /** Deletions taken off the tree so far (`forget`), counted. */
   #forgettings = 0;
-  /** Each page taken off, with the count of deletions taken off then. */
-  readonly #forgottenAt = new Map<string, number>();
+  /** Each page taken off, with the count of deletions taken off then and its version then. */
+  readonly #forgottenAt = new Map<string, { at: number; updateAt: number }>();
 
   /** A mark of the deletions taken off so far: a reading begun now is told what went since. */
   get forgettings(): number {
@@ -88,7 +93,47 @@ export class TreeWrites {
 
   /** Whether the page was taken off the tree after `mark` (`forgettings`): a reading begun then still has it. */
   forgottenSince(mark: number, pageId: string): boolean {
-    return (this.#forgottenAt.get(pageId) ?? 0) > mark;
+    return (this.#forgottenAt.get(pageId)?.at ?? 0) > mark;
+  }
+
+  /**
+   * Whether a page heard of is to be shown: not when the page it is below was
+   * taken off the tree, which the backend tells alone (a copy undone at once,
+   * its copies below heard after); it is then taken off too, and so are the
+   * pages below it heard later; nor a page taken off itself, heard as it was
+   * then (an echo come late). Brought back, a page is newer. A page shown is
+   * no longer taken off.
+   */
+  admits(page: WikiPage): boolean {
+    const forgotten = this.#forgottenAt.get(page.id);
+    if (forgotten && page.updateAt <= forgotten.updateAt) return false;
+    if (page.parentId !== '' && this.#forgottenAt.has(page.parentId)) {
+      this.#forgottenAt.set(page.id, { at: this.#forgettings, updateAt: page.updateAt });
+      return false;
+    }
+    this.#forgottenAt.delete(page.id);
+    return true;
+  }
+
+  /** The pages of a reading begun at `mark` that are to be shown, parents before what is below them. */
+  admitted(pages: readonly WikiPage[], mark: number): WikiPage[] {
+    const byId = new Map(pages.map((page) => [page.id, page]));
+    const gone = (page: WikiPage): boolean => {
+      const seen = new Set<string>();
+      for (
+        let at: WikiPage | undefined = page;
+        at && !seen.has(at.id);
+        at = byId.get(at.parentId)
+      ) {
+        seen.add(at.id);
+        if (this.forgottenSince(mark, at.id)) return true;
+        if (at.parentId !== '' && !byId.has(at.parentId) && this.#forgottenAt.has(at.parentId)) {
+          return true;
+        }
+      }
+      return false;
+    };
+    return pages.filter((page) => !gone(page));
   }
 
   /** Deletes a page as the reader, its echo known for theirs (`forget`). */
@@ -207,7 +252,8 @@ export class TreeWrites {
       return await this.#host.workspace.undo.perform(
         async () => {
           if (copied) {
-            await this.restorePage(copied.id);
+            // Brought back meanwhile (the trash, somebody else), or gone for good: as it is.
+            await unlessGone(() => this.restorePage(copied?.id ?? ''));
             return copied;
           }
           copied = await this.#host.wikis().duplicatePage(this.#host.wikiId, pageId, title);

@@ -1271,6 +1271,7 @@
   "wiki_move_target": "{title}, level {level}",
   "wiki_duplicate_page": "Duplicate",
   "wiki_page_copy": "{title} (copy)",
+  "wiki_page_copied": "Made “{title}” right after it",
   "wiki_trash": "Deleted pages",
   "wiki_trash_description": "Pages deleted from this wiki; the pages below one come back with it. The trash is emptied after a while."
 }

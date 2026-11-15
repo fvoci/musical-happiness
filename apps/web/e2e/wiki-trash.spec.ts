@@ -115,6 +115,21 @@ test.describe('the trash of a wiki’s pages at a phone’s width', () => {
   });
 });
 
+test.describe('a page copied at a phone’s width', () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
+
+  test('from its menu in the drawer of the tree, the copy shown', async ({ page }) => {
+    await openApp(page);
+    await wikiWithPages(page);
+    await pageAction(page, 'Policies', 'duplicate');
+    await expect(page.getByTestId('page-title')).toHaveValue('Policies (copy)');
+    await showTree(page);
+    await expect
+      .poll(() => treeShape(page))
+      .toEqual(['Welcome', '  Getting started', 'Policies', 'Policies (copy)']);
+  });
+});
+
 test.describe('a page copied', () => {
   test('from its menu with those below it, right after it, shown, and undone', async ({ page }) => {
     await openApp(page);

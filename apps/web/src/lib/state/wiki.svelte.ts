@@ -274,7 +274,7 @@ export class WikiStore {
 
   /** A page made or changed: the newer of the two is kept, and the open page is told. */
   #takePage(page: WikiPage): void {
-    if (page.wikiId !== this.wikiId) return;
+    if (page.wikiId !== this.wikiId || !this.#writes.admits(page)) return;
     this.pages = take(this.pages, page);
     const shown = this.openPage;
     if (shown?.pageId !== page.id) return;
@@ -304,7 +304,7 @@ export class WikiStore {
       const shown = this.openPage;
       const title = (shown && this.page(shown.pageId)?.title) ?? '';
       // What was taken off while it was read is gone, though the reading has it.
-      const read = pages.filter((page) => !this.#writes.forgottenSince(mark, page.id));
+      const read = this.#writes.admitted(pages, mark);
       this.pages = reread(this.pages, read, before, (page) => this.#writes.receive(page));
       // The reader's own deletion under way tells of itself.
       if (shown && !this.page(shown.pageId)) {

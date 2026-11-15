@@ -14,6 +14,7 @@
  * the top (`crates/store/src/page_trash.rs`).
  */
 import type { DocNode } from '../../editor/schema.ts';
+import { PAGE_TITLE_MAX } from '../../logic/page-tree.ts';
 import { createBoard, type Board, type BoardKind } from '../../logic/wire.ts';
 import { BackendError, type DeletedItem, type Paging } from '../backend.ts';
 import type {
@@ -41,9 +42,6 @@ export interface WikiHost {
   /** Milliseconds every call waits before it answers. */
   readonly latency: number;
 }
-
-/** The most characters of a page's title, as the server takes a block's (`BLOCK_TITLE_MAX_CHARS`). */
-export const PAGE_TITLE_MAX = 16_383;
 
 const isWiki = (board: Board | undefined): board is Board => board?.kind === 'wiki';
 
@@ -286,6 +284,8 @@ export class MemoryWikis implements Wikis {
     tree.checkRoom(page.parentId, tree.height(pageId), family.length, this.limits);
     const place = tree.place(page.parentId, pageId);
     const world = this.#world;
+    // What is typed in the bodies now is copied too.
+    for (const id of family) world.bodyFlushed?.(id);
     const now = world.now();
     const userId = this.#host.userId;
     const ids = new Map(family.map((id) => [id, world.newId()]));

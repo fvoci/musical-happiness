@@ -24,7 +24,7 @@
   import { closeOnBack } from '$lib/layout/back.svelte.ts';
   import { pane } from '$lib/layout/room.svelte.ts';
   import type { PagePlace } from '$lib/logic/page-moves.ts';
-  import { ancestorsOf } from '$lib/logic/page-tree.ts';
+  import { ancestorsOf, PAGE_TITLE_MAX } from '$lib/logic/page-tree.ts';
   import {
     whileHere,
     type PageDraft,
@@ -146,15 +146,24 @@
     return wiki.movePage(pageId, to);
   }
 
-  /** Copies a page with those below it, and shows the copy, right after it, open as the page is. */
-  async function duplicate(source: WikiPage): Promise<void> {
+  /**
+   * Copies a page with those below it, and shows the copy, right after it,
+   * open if the page is (the copies below it folded). Gives the copy's title,
+   * to be told; undefined when it was refused (told).
+   */
+  async function duplicate(source: WikiPage): Promise<string | undefined> {
     const copying = wiki;
-    const title = m.wiki_page_copy({ title: source.title || m.wiki_page_untitled() });
+    // The longest title cut to leave the words of a copy room.
+    const room = PAGE_TITLE_MAX - Array.from(m.wiki_page_copy({ title: '' })).length;
+    const base = Array.from(source.title || m.wiki_page_untitled())
+      .slice(0, room)
+      .join('');
+    const title = m.wiki_page_copy({ title: base });
     const copy = await whileHere(copying.workspace, () => copying.duplicatePage(source.id, title));
-    if (!copy || wiki !== copying) return;
-    // Open as the page is, its pages below in sight as below it.
+    if (!copy || wiki !== copying) return undefined;
     if (open.has(source.id)) open.set([copy.id]);
     show(copy.id);
+    return copy.title;
   }
 
   async function create(draft: PageDraft): Promise<void> {
@@ -266,7 +275,7 @@
       onMoveTo={(chosen: WikiPage) => {
         [moving, movingOpen] = [chosen.id, true];
       }}
-      onDuplicate={(source: WikiPage) => void duplicate(source)}
+      onDuplicate={duplicate}
       busy={creating}
     />
   </div>

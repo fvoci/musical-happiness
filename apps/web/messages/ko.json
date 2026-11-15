@@ -1271,6 +1271,7 @@
   "wiki_move_target": "{title}, {level}단계",
   "wiki_duplicate_page": "복제",
   "wiki_page_copy": "{title} (사본)",
+  "wiki_page_copied": "바로 아래에 사본을 만들었습니다: “{title}”",
   "wiki_trash": "지운 페이지",
   "wiki_trash_description": "이 위키에서 지운 페이지입니다. 하위 페이지도 함께 되살아납니다. 휴지통은 일정 기간이 지나면 비워집니다."
 }

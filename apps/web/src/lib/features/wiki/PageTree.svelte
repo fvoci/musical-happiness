@@ -58,8 +58,8 @@
     onMove?: ((pageId: string, to: PagePlace) => Promise<unknown>) | undefined;
     /** Asks where to move a page ("Move…"). */
     onMoveTo?: ((page: WikiPage) => void) | undefined;
-    /** Copies a page with the pages below it; left out where pages are not copied here. */
-    onDuplicate?: ((page: WikiPage) => void) | undefined;
+    /** Copies a page with the pages below it, giving the copy's title (none: refused); left out where pages are not copied here. */
+    onDuplicate?: ((page: WikiPage) => Promise<string | undefined>) | undefined;
     /** A page is being made: no other is asked for meanwhile. */
     busy?: boolean;
   }
@@ -286,7 +286,9 @@
         label: m.wiki_duplicate_page(),
         icon: CopyIcon,
         run: () => {
-          copy(row.page);
+          void copy(row.page).then((title) => {
+            if (title !== undefined) said = m.wiki_page_copied({ title });
+          });
         },
       });
     }
