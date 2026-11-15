@@ -242,6 +242,22 @@ async fn a_comment_is_reached_through_its_own_page_only() {
             .await;
         made.check_not_found();
     }
+    // Nor is a page's comment one of a board's blocks, under a board the user has.
+    let blocks = format!("{TEST_WS}/boards/{board}/blocks");
+    let block = format!("{blocks}/{}", id(&comment));
+    let patched = json!({"blockIds": [id(&comment)], "blockPatches": [{"title": "x"}]});
+    for refused in [
+        client.patch(&block, &json!({"title": "x"})).await,
+        client.patch(&blocks, &patched).await,
+        client.delete(&block).await,
+        client.get(&format!("{block}/versions")).await,
+        client.post(&format!("{block}/undelete"), &json!({})).await,
+        client
+            .get(&format!("{blocks}?blockId={}", id(&comment)))
+            .await,
+    ] {
+        refused.check_not_found();
+    }
     // The comment is still there, as it was.
     let listed = client
         .get(&comments_of(TEST_WS, &wiki, &page))
@@ -284,12 +300,20 @@ async fn a_comment_is_a_text_written_over_what_was_read() {
         .patch(&at, &json!({"body": text("late"), "readAt": stale}))
         .await;
     assert_eq!(conflict.status.as_u16(), 409, "{}", conflict.text());
-    for refused in [
-        json!({"body": text("x")}),
-        json!({"body": null, "readAt": comment["updateAt"]}),
-        json!({"body": text("x"), "readAt": comment["updateAt"], "parentId": page}),
+    for (refused, place) in [
+        (json!({"body": text("x")}), Some("/readAt")),
+        (
+            json!({"body": null, "readAt": comment["updateAt"]}),
+            Some("/body"),
+        ),
+        (
+            json!({"body": text("x"), "readAt": comment["updateAt"], "parentId": page}),
+            None,
+        ),
     ] {
-        client.patch(&at, &refused).await.check_bad_request();
+        let patched = client.patch(&at, &refused).await;
+        patched.check_bad_request();
+        assert_eq!(patched.refused_place().as_deref(), place, "{refused}");
     }
     let listed = client.get(&comments).await.value();
     assert_eq!(listed[0]["body"], text("first"));

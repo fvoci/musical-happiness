@@ -212,7 +212,7 @@ pub enum BlockError {
     /// A change of type that would leave a comment off a card or a page: a block with
     /// blocks below it becomes a comment, a block off a card becomes a comment where it
     /// stands, or a card with comments becomes another type.
-    #[error("the type would leave a comment off a card")]
+    #[error("the type would leave a comment off a card or a page")]
     TypeStrandsComments,
     /// The title is longer than [`BLOCK_TITLE_MAX_CHARS`].
     #[error("block title size limit exceeded")]

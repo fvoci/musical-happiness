@@ -219,7 +219,7 @@ async fn a_comment_is_on_a_card_and_has_nothing_below_it() {
             .await;
         response.check_error(
             StatusCode::BAD_REQUEST,
-            "the type would leave a comment off a card",
+            "the type would leave a comment off a card or a page",
         );
         assert_eq!(response.refused_at(), "/type", "{to}");
     }

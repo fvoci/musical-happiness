@@ -20,12 +20,11 @@ pub(crate) fn check(
     let below_page = parent_type.is_none_or(|parent| *parent == BlockType::Page);
     let refused = match (kind, &block.block_type) {
         (BoardKind::Board, BlockType::Page) => BlockError::PageOffWiki,
-        (BoardKind::Board, _) => return Ok(()),
+        // Where a comment goes, on a page of the wiki, is `comment_places`' to say, as for
+        // a comment of a board: its parent is what a request gets wrong.
+        (BoardKind::Board, _) | (BoardKind::Wiki, BlockType::Comment) => return Ok(()),
         (BoardKind::Wiki, BlockType::Page) if below_page => return Ok(()),
         (BoardKind::Wiki, BlockType::Page) => BlockError::PageNotBelowPage,
-        (BoardKind::Wiki, BlockType::Comment) if parent_type == Some(&BlockType::Page) => {
-            return Ok(());
-        }
         (BoardKind::Wiki, _) => BlockError::NotPageOnWiki,
     };
     Err(StoreError::InvalidBlock {

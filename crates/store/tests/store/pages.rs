@@ -96,19 +96,15 @@ async fn a_page_is_a_block_of_a_wiki_and_a_wiki_has_no_other() {
         ),
         BlockError::PageOffWiki
     );
-    // What a board has, on a wiki: at its top and below a page; and a comment at the
-    // top, which is on a page only.
+    // What a board has, on a wiki: at its top and below a page. A comment is on a page
+    // (`a_comment_of_a_wiki_is_on_a_page_and_goes_to_the_trash_with_it`).
     for block_type in [
         BlockType::Card,
         BlockType::View,
         BlockType::Attachment,
-        BlockType::Comment,
         BlockType::from("text"),
     ] {
         for parent in ["", on_wiki.as_str()] {
-            if block_type == BlockType::Comment && !parent.is_empty() {
-                continue;
-            }
             let mut stray = block(&wiki.id, parent, block_type.clone());
             assert_eq!(
                 refusal(test.insert_block(&mut stray, &user_id).await),
@@ -527,6 +523,12 @@ async fn a_comment_of_a_wiki_is_on_a_page_and_goes_to_the_trash_with_it() {
     test.insert_block(&mut comment, &user_id)
         .await
         .expect("a comment on a page is stored");
+    // At the top of the wiki: its parent is what is wrong, as on a board.
+    let mut on_top = block(&wiki.id, "", BlockType::Comment);
+    assert_eq!(
+        refusal(test.insert_block(&mut on_top, &user_id).await),
+        BlockError::CommentNotOnCardOrPage
+    );
     // On a page of another wiki, and as a board's on a wiki's page.
     for (board_id, parent) in [(&wiki.id, &elsewhere), (&board.id, &on_wiki)] {
         let mut stray = block(board_id, parent, BlockType::Comment);
@@ -543,7 +545,7 @@ async fn a_comment_of_a_wiki_is_on_a_page_and_goes_to_the_trash_with_it() {
     };
     assert_eq!(
         refusal(test.patch_block(&comment.id, &moved(""), &user_id).await),
-        BlockError::NotPageOnWiki
+        BlockError::CommentNotOnCardOrPage
     );
     test.patch_block(&comment.id, &moved(&below), &user_id)
         .await
@@ -551,7 +553,7 @@ async fn a_comment_of_a_wiki_is_on_a_page_and_goes_to_the_trash_with_it() {
     let mut reply = block(&wiki.id, &comment.id, BlockType::Comment);
     assert_eq!(
         refusal(test.insert_block(&mut reply, &user_id).await),
-        BlockError::NotPageOnWiki
+        BlockError::CommentNotOnCardOrPage
     );
     // The tree has the pages only.
     let tree = test.get_page_tree(&wiki.id).await.expect("the tree");
