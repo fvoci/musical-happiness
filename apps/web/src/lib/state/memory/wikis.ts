@@ -8,12 +8,14 @@
  * a page of the same wiki or at its top, among its siblings where `after`
  * says (`orderBetween`); its pages are for the wiki's members, written by its
  * editors; a body is written with the `updateAt` it was read at (409 when the
- * page changed since, what its room took counted first); deleting a page
- * takes every page below it along, and tells of the page alone.
+ * page changed since, what its room took counted first) and kept as a
+ * version around the write, as a card's is; deleting a page takes every page
+ * below it along, and their comments, and tells of the page alone. The
+ * comments on a page are `page-comments.ts`'.
  */
 import type { DocNode } from '../../editor/schema.ts';
 import { createBoard, type Board, type BoardKind } from '../../logic/wire.ts';
-import { BackendError } from '../backend.ts';
+import { BackendError, type BodyWrite, type Comment, type CommentVersion } from '../backend.ts';
 import type {
   PageDraft,
   PagePatch,
@@ -25,11 +27,13 @@ import type {
 
 import { memberRole } from './board-access.ts';
 import { checkedWhole } from './bodies.ts';
+import { MemoryBodyVersions, writtenWhole } from './body-versions.ts';
+import * as comments from './page-comments.ts';
 import { orderBetween } from './page-order.ts';
 import { fail } from './refuse.ts';
 import { copy, memberOf, orderOf, pageOf, scramble } from './shapes.ts';
 import { deletion } from './trash.ts';
-import type { StoredBlock, World } from './world.ts';
+import type { StoredBlock, StoredCard, World } from './world.ts';
 
 /** What the wikis share with the backend they are of. */
 export interface WikiHost {
@@ -79,6 +83,8 @@ function checkedTitle(title: string): string {
 export class MemoryWikis implements Wikis {
   readonly #host: WikiHost;
   readonly #failures = new Map<keyof Wikis, BackendError>();
+  /** Made when first asked: the host's world is not there yet while this is made. */
+  #bodyVersions: MemoryBodyVersions | undefined;
 
   constructor(host: WikiHost) {
     this.#host = host;
@@ -86,6 +92,16 @@ export class MemoryWikis implements Wikis {
 
   get #world(): World {
     return this.#host.world;
+  }
+
+  get bodyVersions(): MemoryBodyVersions {
+    this.#bodyVersions ??= new MemoryBodyVersions(
+      this.#world,
+      this.#host.userId,
+      () => this.#enter('bodyVersions'),
+      'page',
+    );
+    return this.#bodyVersions;
   }
 
   /** Makes the next call of `method` reject with `error`, once. */
@@ -264,11 +280,16 @@ export class MemoryWikis implements Wikis {
     if (patch.readAt !== undefined && patch.readAt !== page.updateAt) {
       throw new BackendError(409, { detail: 'the page changed since it was read' });
     }
-    if (title !== undefined) page.title = title;
-    if (icon !== undefined) page.fields = { ...page.fields, icon };
-    if (body !== undefined) page.body = body;
-    page.updateAt = this.#world.now();
-    page.modifiedBy = this.#host.userId;
+    const write = (): void => {
+      if (title !== undefined) page.title = title;
+      if (icon !== undefined) page.fields = { ...page.fields, icon };
+      if (body !== undefined) page.body = body;
+      page.updateAt = this.#world.now();
+      page.modifiedBy = this.#host.userId;
+    };
+    // A body written whole is kept as a version, after the one it is written over.
+    if (body === undefined) write();
+    else writtenWhole(this.#world, page as StoredCard, body, this.#host.userId, write);
     if (body !== undefined) this.#world.bodyWritten?.(pageId);
     this.#tellPages(wikiId, [page]);
     return detailOf(page);
@@ -279,10 +300,8 @@ export class MemoryWikis implements Wikis {
     this.#mayWrite(wikiId);
     const page = this.#page(wikiId, pageId);
     const gone = [page];
-    // Each page found brings the pages below it: the list grows as it is walked.
-    for (const above of gone) {
-      gone.push(...this.#pagesOf(wikiId).filter((block) => block.parentId === above.id));
-    }
+    // Each page found brings the pages and the comments below it: the list grows as it is walked.
+    for (const above of gone) gone.push(...this.#world.childrenOf(above.id));
     this.#world.deletedBlocks.set(pageId, {
       boardId: wikiId,
       blocks: gone,
@@ -290,5 +309,43 @@ export class MemoryWikis implements Wikis {
     });
     for (const block of gone) this.#world.blocks.delete(block.id);
     this.#world.tellBoard(wikiId, { kind: 'blocksDeleted', boardId: wikiId, blockIds: [pageId] });
+  }
+
+  #on(wikiId: string, pageId: string): comments.OnPage {
+    return { world: this.#world, userId: this.#host.userId, wikiId, pageId };
+  }
+
+  async comments(wikiId: string, pageId: string): Promise<Comment[]> {
+    await this.#enter('comments');
+    return comments.commentsOf(this.#on(wikiId, pageId));
+  }
+
+  async createComment(wikiId: string, pageId: string, body: DocNode): Promise<Comment> {
+    await this.#enter('createComment');
+    return comments.createComment(this.#on(wikiId, pageId), body);
+  }
+
+  async patchComment(
+    wikiId: string,
+    pageId: string,
+    commentId: string,
+    write: BodyWrite,
+  ): Promise<Comment> {
+    await this.#enter('patchComment');
+    return comments.patchComment(this.#on(wikiId, pageId), commentId, write);
+  }
+
+  async deleteComment(wikiId: string, pageId: string, commentId: string): Promise<void> {
+    await this.#enter('deleteComment');
+    comments.deleteComment(this.#on(wikiId, pageId), commentId);
+  }
+
+  async commentVersions(
+    wikiId: string,
+    pageId: string,
+    commentId: string,
+  ): Promise<CommentVersion[]> {
+    await this.#enter('commentVersions');
+    return comments.versionsOf(this.#on(wikiId, pageId), commentId);
   }
 }

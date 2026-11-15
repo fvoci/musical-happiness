@@ -11,13 +11,21 @@
 
   The page's body is the card's kind of body (`CardBody`), edited together in
   the page's room; while the wiki is shown the reader is on it, and on the
-  page shown (the wiki's presence), as on a board and its card.
+  page shown (the wiki's presence), as on a board and its card. Below the body
+  are the page's comments, the card's (`CardComments`, `CommentComposer`),
+  and the page's menu opens the versions of its body, the card's dialog
+  (`BodyVersions`).
 -->
 <script lang="ts">
   import { untrack } from 'svelte';
 
   import ConfirmDialog from '$lib/components/confirm/ConfirmDialog.svelte';
+  import BodyVersions from '$lib/features/card/BodyVersions.svelte';
+  import { pageVersions, VersionsReading } from '$lib/features/card/body-versions.svelte.ts';
   import CardBody from '$lib/features/card/CardBody.svelte';
+  import CardComments from '$lib/features/card/CardComments.svelte';
+  import CommentComposer from '$lib/features/card/CommentComposer.svelte';
+  import PageMenu from '$lib/features/wiki/PageMenu.svelte';
   import WikiSettingsDialog from '$lib/features/wiki/WikiSettingsDialog.svelte';
   import WikiJoin from '$lib/features/wiki/WikiJoin.svelte';
   import WikiScreen from '$lib/features/wiki/WikiScreen.svelte';
@@ -104,6 +112,9 @@
   const below = $derived(deleting && wiki ? withDescendants(wiki.pages, deleting.id).size - 1 : 0);
   let settingsOpen = $state(false);
   let deleteWikiOpen = $state(false);
+  /** The versions of the page shown, read anew each time their dialog opens. */
+  let versions = $state.raw<VersionsReading>();
+  let versionsOpen = $state(false);
 
   /** Deletes the wiki; the page goes on to the first board or wiki of the sidebar. */
   async function deleteWiki(store: WikiStore): Promise<void> {
@@ -177,8 +188,37 @@
     {#snippet body(page: PageStore)}
       <!-- The page's body is edited together as a card's is, in the page's own room. -->
       <CardBody board={wiki} card={page} of="page" testId="page-body" />
+      {#if page.status === 'ready'}
+        {@const comments = page.comments}
+        <CardComments
+          board={comments}
+          card={comments}
+          readVersions={(commentId: string) => comments.commentVersions(commentId)}
+        />
+        {#if comments.canComment}
+          <CommentComposer
+            board={comments}
+            card={comments}
+            draftKey={page.pageId}
+            placement="inline"
+          />
+        {/if}
+      {/if}
+    {/snippet}
+    {#snippet pageActions(page: PageStore)}
+      {@const shown = wiki.page(page.pageId)}
+      {#if shown}
+        <PageMenu
+          page={shown}
+          onVersions={() => {
+            versions = new VersionsReading(pageVersions(page));
+            versionsOpen = true;
+          }}
+        />
+      {/if}
     {/snippet}
   </WikiScreen>
+  <BodyVersions bind:open={versionsOpen} reading={versions} board={wiki} of="page" />
   {@const store = wiki}
   {@const title = deleting?.title || m.wiki_page_untitled()}
   <ConfirmDialog

@@ -10,6 +10,10 @@
   place, and a back arrow (and the back button) returns to it. The focus
   follows: to the arrow when the list gives way, and back to the version
   that was read.
+
+  A wiki's page has versions of its body as a card has: they are shown by
+  this too (`of="page"`), with the wiki in place of the board, in the page's
+  own words.
 -->
 <script lang="ts">
   import { tick } from 'svelte';
@@ -36,10 +40,28 @@
     open: boolean;
     /** Made when the dialog opens: a new reading each time. */
     reading: VersionsReading | undefined;
-    board: BoardStore;
+    /** The board, or the wiki: who may go back to a version. */
+    board: Pick<BoardStore, 'workspace' | 'canEdit'>;
+    /** Whose body it is, for the words it says: a card's, or a wiki's page's. */
+    of?: 'card' | 'page';
   }
 
-  let { open = $bindable(), reading, board }: Props = $props();
+  let { open = $bindable(), reading, board, of = 'card' }: Props = $props();
+
+  /** What is said of the card, or of the page. */
+  const words = $derived(
+    of === 'page'
+      ? {
+          noBody: m.page_version_no_body,
+          isCurrent: m.page_version_is_current,
+          restoreDescription: m.page_version_restore_description,
+        }
+      : {
+          noBody: m.card_version_no_body,
+          isCurrent: m.card_version_is_current,
+          restoreDescription: m.card_version_restore_description,
+        },
+  );
 
   /** How many faces a version shows of those who wrote it. */
   const FACES = 3;
@@ -237,7 +259,7 @@
               {:else}
                 <BodyView doc={reading.content?.body ?? null} {resolveUser} class="text-base">
                   {#snippet empty()}
-                    <p class="text-muted-foreground">{m.card_version_no_body()}</p>
+                    <p class="text-muted-foreground">{words.noBody()}</p>
                   {/snippet}
                   {#snippet invalid()}
                     <p class="text-muted-foreground" role="alert">{m.card_body_invalid()}</p>
@@ -258,7 +280,7 @@
                 {/if}
                 {#if current}
                   <p class="text-sm text-muted-foreground" data-testid="body-version-is-current">
-                    {m.card_version_is_current()}
+                    {words.isCurrent()}
                   </p>
                 {:else}
                   <Button
@@ -285,7 +307,7 @@
 <ConfirmDialog
   bind:open={asking}
   title={m.card_version_restore_title()}
-  description={chosen ? m.card_version_restore_description({ when: whenKept(chosen) }) : undefined}
+  description={chosen ? words.restoreDescription({ when: whenKept(chosen) }) : undefined}
   confirmLabel={m.card_version_restore_confirm()}
   onConfirm={() => void restore()}
 />

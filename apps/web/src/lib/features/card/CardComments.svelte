@@ -6,10 +6,14 @@
 
   The text of a comment is changed in place (the same plain field as a new
   comment: lines are paragraphs) by whom the server lets (`canEditComment`),
-  and deleted the same way; "Undo" in the card's menu brings a deleted one
+  and deleted the same way; on a card, "Undo" in its menu brings a deleted one
   back. A changed comment says who changed it and when, and any member can
   open what it said before (`CommentHistory`). The field for a new comment is not here: it is pinned to the
   bottom edge of the card (CommentComposer).
+
+  A wiki's page has comments of the same kind: they are shown by this too,
+  with the page's comments (`PageComments`) in place of both the board and
+  the card.
 -->
 <script lang="ts">
   import HistoryIcon from '@lucide/svelte/icons/history';
@@ -23,7 +27,7 @@
   import BodyView from '$lib/editor/BodyView.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { displayDateTime, relativeTime } from '$lib/logic/format.ts';
-  import type { BoardStore, CardStore } from '$lib/state/index.ts';
+  import type { BoardStore, CardStore, CommentVersion } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
   import { autosize } from '$lib/components/autosize.ts';
@@ -31,11 +35,18 @@
   import CommentHistory from './CommentHistory.svelte';
 
   interface Props {
-    board: BoardStore;
-    card: CardStore;
+    /** The board, or the page's comments: who may do what, and who the names are. */
+    board: Pick<
+      BoardStore,
+      'workspace' | 'canEditComment' | 'canDeleteComment' | 'canReadCommentHistory'
+    >;
+    /** The card, or the page's comments: the comments and their changes. */
+    card: Pick<CardStore, 'comments' | 'comment' | 'editComment' | 'deleteComment'>;
+    /** What a comment said before (`CommentHistory`). */
+    readVersions: (commentId: string) => Promise<CommentVersion[]>;
   }
 
-  let { board, card }: Props = $props();
+  let { board, card, readVersions }: Props = $props();
 
   const uid = $props.id();
   const workspace = $derived(board.workspace);
@@ -238,7 +249,7 @@
           {#if historyOf === comment.id && comment.editedAt && board.canReadCommentHistory}
             <CommentHistory
               id="{uid}-history-{comment.id}"
-              {board}
+              read={readVersions}
               commentId={comment.id}
               editedAt={comment.editedAt}
               {context}

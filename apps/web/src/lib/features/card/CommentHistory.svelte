@@ -7,10 +7,11 @@
   import BodyView from '$lib/editor/BodyView.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { displayDateTime, type DisplayContext } from '$lib/logic/format.ts';
-  import type { BoardStore, CommentVersion } from '$lib/state/index.ts';
+  import type { CommentVersion } from '$lib/state/index.ts';
 
   interface Props {
-    board: BoardStore;
+    /** Reads what a comment said before, with its writers known by name. */
+    read: (commentId: string) => Promise<CommentVersion[]>;
     commentId: string;
     /** When the comment was last changed: a new change reads the texts again. */
     editedAt: number;
@@ -19,16 +20,13 @@
     id: string;
   }
 
-  let { board, commentId, editedAt, context, resolveUser, id }: Props = $props();
+  let { read, commentId, editedAt, context, resolveUser, id }: Props = $props();
 
   /** The texts as of the comment's last change: a newer one reads them again. */
   const versions = $derived(versionsAsOf(commentId, editedAt));
 
-  async function versionsAsOf(comment: string, _changedAt: number): Promise<CommentVersion[]> {
-    const workspace = board.workspace;
-    const list = await workspace.backend.commentVersions(board.boardId, comment);
-    await workspace.learnUsers(list.map((version) => version.writtenBy).filter((id) => id !== ''));
-    return list;
+  function versionsAsOf(comment: string, _changedAt: number): Promise<CommentVersion[]> {
+    return read(comment);
   }
 </script>
 

@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
 
 import { SharedBackend } from '$lib/api/shared-backend.ts';
-import { VersionsReading } from '$lib/features/card/body-versions.svelte.ts';
+import { cardVersions, VersionsReading } from '$lib/features/card/body-versions.svelte.ts';
 import type { BodyDoc, BodyDocHears } from '$lib/state/backend.ts';
 import { BackendError } from '$lib/state/index.ts';
 import { VERSION_EVERY, VERSIONS_KEPT } from '$lib/state/memory/body-versions.ts';
@@ -389,7 +389,7 @@ describe('the reading of the versions of an open card', () => {
     const open = await made.board.showCard(card.id);
     const learned = vi.spyOn(made.workspace, 'learnUsers');
     const settled = vi.spyOn(open, 'settleBody');
-    const versions = new VersionsReading(made.board, open);
+    const versions = new VersionsReading(cardVersions(made.board, open));
     await vi.waitFor(() => {
       expect(versions.status).toBe('ready');
     });

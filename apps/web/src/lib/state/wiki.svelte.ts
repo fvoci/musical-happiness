@@ -6,7 +6,8 @@
  * The wiki is read as a board of the kind `wiki`: at the address of a board it
  * is not there, and a board is not there at a wiki's. Changes are heard as
  * the board's are (`watchBoard`): the wiki renamed or deleted, its members,
- * and its pages made, changed and deleted (`pages`, `blocksDeleted`). A page
+ * its pages made, changed and deleted (`pages`, `blocksDeleted`), and the
+ * comments on the page shown (`blocks`, handed to `PageStore.comments`). A page
  * deleted takes the pages below it along, and only it is told: the store
  * takes them off itself.
  *
@@ -29,6 +30,7 @@ import {
   type Wikis,
 } from './backend.ts';
 import { boardOfWorkspace, roleOf } from './board-parts.ts';
+import { isCommentBlock } from './changes.ts';
 import { BoardPresence } from './board-presence.svelte.ts';
 import { orderMembers } from './order.ts';
 import { PageStore } from './page.svelte.ts';
@@ -230,8 +232,13 @@ export class WikiStore {
       case 'pages':
         for (const page of change.pages) this.#takePage(page);
         break;
+      case 'blocks':
+        for (const block of change.blocks)
+          if (isCommentBlock(block)) this.openPage?.comments.receive(block);
+        break;
       case 'blocksDeleted':
         this.#forget(change.blockIds, 'others');
+        this.openPage?.comments.forget(change.blockIds);
         break;
       case 'members':
         if (change.boardId !== this.wikiId) break;

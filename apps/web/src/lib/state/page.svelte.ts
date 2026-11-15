@@ -10,11 +10,13 @@
  * the reader sees and writes, and the server writes the page's body from it.
  * `body` is the body as the page was last read, shown until the room's
  * document has arrived, and read again when the page changes while no room's
- * document is held.
+ * document is held. The comments on the page are `comments`
+ * (`page-comments.svelte.ts`), read with it.
  */
 import type { DocNode } from '../editor/schema.ts';
 import { isBackendError, type BodyDoc, type BodyDocState, type WikiPage } from './backend.ts';
 import { REJOIN_SPACING, afterPutOut } from './card-parts.ts';
+import { PageComments } from './page-comments.svelte.ts';
 import type { WikiStore } from './wiki.svelte.ts';
 import type { LoadStatus } from './workspace.svelte.ts';
 
@@ -52,9 +54,13 @@ export class PageStore {
   /** The page was shown (read once): its going is told, whoever finds out first. */
   #shown = false;
 
+  /** The comments on the page. */
+  readonly comments: PageComments;
+
   constructor(wiki: WikiStore, pageId: string) {
     this.wiki = wiki;
     this.pageId = pageId;
+    this.comments = new PageComments(wiki, pageId);
   }
 
   get #wikiId(): string {
@@ -69,12 +75,16 @@ export class PageStore {
 
   async load(): Promise<void> {
     this.status = 'loading';
-    await this.#readBody(true);
+    await Promise.all([this.#readBody(true), this.comments.read(true)]);
   }
 
-  /** Reads the body again after changes may have been missed (the wiki's `resync`). */
+  /** Reads the body and the comments again after changes may have been missed (the wiki's `resync`). */
   async refresh(): Promise<void> {
-    if (this.status === 'ready' && !this.#busy()) await this.#readBody(false);
+    if (this.status !== 'ready') return;
+    await Promise.all([
+      this.#busy() ? undefined : this.#readBody(false),
+      this.comments.read(false),
+    ]);
   }
 
   async #readBody(first: boolean): Promise<void> {
@@ -100,6 +110,7 @@ export class PageStore {
 
   close(): void {
     this.#closed = true;
+    this.comments.close();
     this.closeBody();
   }
 
@@ -189,6 +200,11 @@ export class PageStore {
 
   retryBody(): void {
     this.#bodyDoc?.retry();
+  }
+
+  /** Sends what the reader wrote at once; settles when the server has it, or cannot now. */
+  settleBody(): Promise<void> {
+    return this.#bodyDoc?.settle() ?? Promise.resolve();
   }
 
   sayLost(why: string): void {

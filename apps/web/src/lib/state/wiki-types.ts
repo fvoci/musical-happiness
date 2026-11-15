@@ -7,10 +7,14 @@
  * the board's operations. What only a wiki has is here: its pages, a tree
  * (each names the page it is below), each with a title, an icon and a body.
  * The body is written together in the page's room, as a card's is
- * (`Backend.openDoc` with the page in place of the card).
+ * (`Backend.openDoc` with the page in place of the card). A page has
+ * comments and versions of its body as a card has, by the card's rules.
  */
 import type { DocNode } from '../editor/schema.ts';
 import type { Board, BoardType, MemberRole } from '../logic/wire.ts';
+
+import type { BodyWrite, Comment, CommentVersion } from './backend.ts';
+import type { BodyVersions } from './body-versions.ts';
 
 /** A page as the tree of its wiki lists it: without its body. */
 export interface WikiPage {
@@ -87,6 +91,34 @@ export interface Wikis {
    * editors. The wiki's listeners are told of the page alone (`blocksDeleted`).
    */
   deletePage(wikiId: string, pageId: string): Promise<void>;
+
+  // The comments on a page, as a card's (`Backend.comments` and the rest).
+  /** In no promised order. For the wiki's members; a page that is not there is 404. */
+  comments(wikiId: string, pageId: string): Promise<Comment[]>;
+  /** For the wiki's commenters and up. A comment has a text: an empty one is 400. */
+  createComment(wikiId: string, pageId: string, body: DocNode): Promise<Comment>;
+  /**
+   * Replaces the text of a comment: its author's, from the commenter's role,
+   * and anyone's for the wiki's admins. 409 when it changed since `readAt`.
+   */
+  patchComment(
+    wikiId: string,
+    pageId: string,
+    commentId: string,
+    write: BodyWrite,
+  ): Promise<Comment>;
+  /**
+   * Moves a comment to the trash, by whom may change it. Nothing brings one
+   * back yet: a page brought back has the comments that went with it.
+   */
+  deleteComment(wikiId: string, pageId: string, commentId: string): Promise<void>;
+  /** What a comment said before each change, the first text first. For the wiki's members. */
+  commentVersions(wikiId: string, pageId: string, commentId: string): Promise<CommentVersion[]>;
+  /**
+   * The versions of a page's body, as a card's: with the wiki in place of the
+   * board and the page in place of the card. Restored by the wiki's editors.
+   */
+  readonly bodyVersions: BodyVersions;
 }
 
 /** Where a backend keeps its wikis. One by a public link has none (W4). */

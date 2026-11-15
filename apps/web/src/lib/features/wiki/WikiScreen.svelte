@@ -45,8 +45,10 @@
     onOpenPage: (pageId: string) => void;
     /** What a page that is not there shows. */
     missingPage: Snippet;
-    /** The body of the page shown. */
+    /** The body of the page shown, and what goes below it. */
     body: Snippet<[PageStore]>;
+    /** What the head of the page shown offers to do with it, beside who is on it. */
+    pageActions?: Snippet<[PageStore]> | undefined;
     /** Asks to delete a page; left out where pages are not deleted here. */
     onDelete?: ((page: WikiPage) => void) | undefined;
     /** Asks to edit the wiki's name, description and icon (its managers'). */
@@ -67,6 +69,7 @@
     onOpenPage,
     missingPage,
     body,
+    pageActions,
     onDelete,
     onEditWiki,
     onDeleteWiki,
@@ -295,7 +298,14 @@
       {@render missingPage()}
     {:else if page && shown}
       {#key page}
-        <PageView {wiki} store={page} page={shown} autofocus={made === page.pageId} {body} />
+        <PageView
+          {wiki}
+          store={page}
+          page={shown}
+          autofocus={made === page.pageId}
+          {body}
+          actions={pageActions}
+        />
       {/key}
     {/if}
   </div>
