@@ -88,3 +88,52 @@ pub(crate) async fn trashed(scope: &mut Scope<'_>, blocks: &[Block]) -> Result<(
 pub(crate) async fn board_trashed(scope: &mut Scope<'_>, board_id: &str) -> Result<(), StoreError> {
     search_outbox::note_board(scope, board_id).await
 }
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::path::{Path, PathBuf};
+
+    /// The calls that put down what follows from a block, which only [`super::refresh`]
+    /// makes: a write of a body that made one of them itself would leave the others as
+    /// they were.
+    const ONLY_HERE: [&str; 2] = ["file_refs::refresh(", "body_links::refresh("];
+
+    /// Every Rust file under `directory`, those of its folders too.
+    fn sources(directory: &Path) -> Vec<PathBuf> {
+        let mut found = Vec::new();
+        for entry in fs::read_dir(directory).expect("the folder of the sources is read") {
+            let path = entry.expect("an entry of the folder").path();
+            if path.is_dir() {
+                found.extend(sources(&path));
+            } else if path.extension().is_some_and(|extension| extension == "rs") {
+                found.push(path);
+            }
+        }
+        found
+    }
+
+    #[test]
+    fn only_this_module_puts_down_what_follows_from_a_block() {
+        let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let here = src.join("block_derived.rs");
+        let mut elsewhere = Vec::new();
+        for path in sources(&src) {
+            let text = fs::read_to_string(&path).expect("a source is read");
+            // This module's own tests name the calls without making them.
+            let code = match text.split_once("#[cfg(test)]") {
+                Some((code, _)) if path == here => code,
+                _ => text.as_str(),
+            };
+            for call in ONLY_HERE {
+                let calls = code.matches(call).count();
+                if path == here {
+                    assert_eq!(calls, 1, "{call} is made once, by refresh");
+                } else if calls > 0 {
+                    elsewhere.push(format!("{} makes {call}", path.display()));
+                }
+            }
+        }
+        assert!(elsewhere.is_empty(), "{elsewhere:#?}");
+    }
+}
