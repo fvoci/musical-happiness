@@ -81,6 +81,13 @@ pub(super) fn unavailable() -> AppError {
         .with_reason(Reason::SearchUnavailable)
 }
 
+/// The 503 of a search server that cannot hold the index (why was said in the log when
+/// it was found), until it is put right and the server started again.
+pub(super) fn index_refused() -> AppError {
+    AppError::service_unavailable("the search server cannot hold the index")
+        .with_reason(Reason::SearchUnavailable)
+}
+
 impl App {
     /// Finds the cards and the pages of a workspace whose title or body holds the
     /// words asked for, among those the user reads, the best match first. For a handle
@@ -99,9 +106,9 @@ impl App {
     ///
     /// # Errors
     ///
-    /// Returns a 404 with the reason `search_not_configured` where the search server
-    /// cannot hold the index, a 429 for a user who searches too often, a 503 with the
-    /// reason `search_unavailable` if the search server or the database does not
+    /// Returns a 429 for a user who searches too often, a 503 with the reason
+    /// `search_unavailable` if the search server cannot hold the index, or if it or the
+    /// database does not
     /// answer in time (three seconds), and the store's error if a fact cannot be read.
     pub async fn search_workspace(
         &self,
@@ -110,9 +117,10 @@ impl App {
         asked: &Asked,
     ) -> Result<Vec<SearchHit>, AppError> {
         let search = self.search();
-        let way = search.way().ok_or_else(|| {
-            AppError::not_found("search").with_reason(Reason::SearchNotConfigured)
-        })?;
+        let Some(way) = search.way() else {
+            self.metrics().search_asked(SearchAsked::Unavailable);
+            return Err(index_refused());
+        };
         search
             .limiter
             .take(user_id, Instant::now())

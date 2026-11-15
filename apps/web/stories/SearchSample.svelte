@@ -57,7 +57,6 @@
         }
         return Promise.resolve(kind === 'none' ? [] : HITS);
       },
-      onGone: () => undefined,
     });
     if (kind !== 'empty') session.type('refund');
     return session;

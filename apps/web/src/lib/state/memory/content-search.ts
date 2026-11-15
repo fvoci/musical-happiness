@@ -18,7 +18,6 @@ import { plainText } from '../../editor/schema.ts';
 import { BackendError, problemOf } from '../backend.ts';
 import {
   MAX_SEARCH_CHARS,
-  SEARCH_NOT_CONFIGURED,
   type ContentSearch,
   type SearchAsk,
   type SearchHit,
@@ -104,9 +103,6 @@ export class MemoryContentSearch implements ContentSearch {
   async find(workspaceId: string, ask: SearchAsk): Promise<SearchHit[]> {
     await this.#enter();
     const world = this.#world;
-    if (!world.searchEnabled) {
-      fail(404, 'the search server holds no index', { reason: SEARCH_NOT_CONFIGURED });
-    }
     if (workspaceId !== world.workspace.id) fail(404, 'no such workspace');
     const query = ask.query.trim();
     if (Array.from(query).length > MAX_SEARCH_CHARS)

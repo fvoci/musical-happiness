@@ -126,15 +126,10 @@ describe('the search in memory', () => {
     expect((elsewhere as BackendError).status).toBe(404);
   });
 
-  it('is off where the search server holds no index, and says so as the server does', async () => {
+  it('says whether bodies are searched as the world says', async () => {
     const off = world();
     off.searchEnabled = false;
-    const backend = new MemoryBackend(off, 'reader');
-    expect(await backend.search.enabled()).toBe(false);
-    await expect(backend.search.find('w', { query: 'kangaroo' })).rejects.toMatchObject({
-      status: 404,
-      reason: 'search_not_configured',
-    });
+    expect(await new MemoryBackend(off, 'reader').search.enabled()).toBe(false);
     expect(await new MemoryBackend(world(), 'reader').search.enabled()).toBe(true);
   });
 

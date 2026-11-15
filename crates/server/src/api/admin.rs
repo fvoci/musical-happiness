@@ -197,8 +197,9 @@ async fn handle_reconcile_files(State(app): State<App>, body: Bytes) -> ApiResul
 /// organization to be sent to it: for an index that is thought to be wrong. Answers
 /// how many boards were listed (`boards`); they are sent by the server's upkeep in
 /// the seconds or minutes after, and until then a search finds what was sent so far.
-/// 404 (`search_not_configured`) on a server without a search server, 503 if the
-/// search server does not take the requests.
+/// 404 (`search_not_configured`) on a server without a search server, 503
+/// (`search_unavailable`) if the search server cannot hold the index or does not take
+/// the requests.
 async fn handle_reindex_search(State(app): State<App>) -> ApiResult {
     let result = crate::search::reindex(&app)
         .await

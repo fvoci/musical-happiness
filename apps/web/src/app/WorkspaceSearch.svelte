@@ -3,11 +3,11 @@
   its button (in the top bar), its keys (⌘K, Ctrl+K), its dialog, and going
   to what it found by the router.
 
-  Only where the server searches bodies (`searchEnabled`: every server but
-  one whose search server cannot hold its index): until that is known, and
-  on such a server, there is no button and the keys are the browser's. A
-  search answered with 404 `search_not_configured` means that its search
-  server stopped holding the index: the dialog closes and the button goes.
+  Only where the server says it searches bodies (`searchEnabled`, which
+  every server does: on its search server, or on its database): until that
+  is known there is no button and the keys are the browser's. A search
+  server that does not answer, or cannot hold its index, answers each search
+  503, which the dialog says.
 
   A card opens over the view of its board that is shown, or else over the
   board's first view; a page at its wiki's address. The name of the board or
@@ -50,7 +50,7 @@
 
   const keys = searchKeysLabel(navigator.userAgent);
 
-  /** Where the focus goes back to: where it was, or the page where that is gone (the button, after a 404). */
+  /** Where the focus goes back to: where it was, or the page where that is gone. */
   function returnTo(): HTMLElement | undefined {
     if (opener?.isConnected && opener !== document.body) return opener;
     return document.querySelector('main') ?? undefined;
@@ -72,10 +72,6 @@
     session?.close();
     session = new SearchSession({
       find: (ask) => workspace.backend.search.find(workspaceId, ask),
-      onGone: () => {
-        enabled.turnOff();
-        open = false;
-      },
       onRefused: (error) => {
         workspace.report('load', error);
       },

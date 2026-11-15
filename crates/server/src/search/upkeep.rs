@@ -15,6 +15,7 @@ use anyhow::Context as _;
 use fvoci_store::{SearchIndexMark, Store};
 
 use super::client::{ClientError, IndexFound};
+use super::find::index_refused;
 use super::worker::{self, Stopped};
 use super::{Engine, IndexState, Pause, index};
 use crate::app::App;
@@ -241,14 +242,17 @@ pub async fn tend(app: &App) {
 ///
 /// # Errors
 ///
-/// Returns a 404 with the reason `search_not_configured` where bodies cannot be
-/// searched, or cannot be any more because the search server holds something else
-/// under the name; a 503 if this process does not hold the lock of the server or the
-/// search server does not take the requests (reason `search_unavailable`); and the
-/// store's error if the database cannot be asked.
+/// Returns a 404 with the reason `search_not_configured` on a server without a search
+/// server; a 503 with the reason `search_unavailable` where the search server cannot
+/// hold the index, or does not take the requests; a 503 if this process does not hold
+/// the lock of the server; and the store's error if the database cannot be asked.
 pub async fn reindex(app: &App) -> Result<u64, AppError> {
-    let not_configured = || AppError::not_found("search").with_reason(Reason::SearchNotConfigured);
-    let engine = app.search().engine().ok_or_else(not_configured)?;
+    let Some(engine) = app.search().engine.as_ref() else {
+        return Err(AppError::not_found("search").with_reason(Reason::SearchNotConfigured));
+    };
+    if engine.index_state() == IndexState::Refused {
+        return Err(index_refused());
+    }
     let mut pause = engine.upkeep.lock().await;
     let app = app.housekeeping();
     app.require_server_lock()?;
@@ -264,7 +268,7 @@ pub async fn reindex(app: &App) -> Result<u64, AppError> {
         Ok(Synced::Kept) => Err(AppError::internal("an index kept for no list")),
         Ok(Synced::Refused) => {
             refuse(&app, engine, &mut pause).await;
-            Err(not_configured())
+            Err(index_refused())
         }
         Err(Stopped::Store(error)) => Err(error),
         Err(error) => {

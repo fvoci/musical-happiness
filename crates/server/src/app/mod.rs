@@ -593,7 +593,9 @@ impl App {
             feature_flags: config.feature_flags.clone(),
             max_file_size: limits.largest_file,
             max_import_size: limits.largest_import,
-            search_enabled: self.search().enabled(),
+            // Every server searches bodies: on its search server, or on its database
+            // where none is configured. One that cannot hold the index answers 503.
+            search_enabled: true,
         }
     }
 

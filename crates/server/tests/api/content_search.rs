@@ -345,7 +345,7 @@ async fn a_search_server_that_is_down_or_slow_is_a_503_and_holds_nothing_else() 
 }
 
 #[tokio::test]
-async fn a_search_server_without_nori_leaves_the_server_up_and_the_search_off() {
+async fn a_search_server_without_nori_leaves_the_server_up_and_the_search_unavailable() {
     let fake = FakeSearch::start_as(Flavor::Elasticsearch).await;
     fake.without_nori();
     let th = started(&fake).await;
@@ -353,13 +353,22 @@ async fn a_search_server_without_nori_leaves_the_server_up_and_the_search_off() 
     let config = th.anonymous().get("/client-config").await.value();
     let answer = search(&th.client, TEST_WS, "환불").await;
     let me = th.client.get("/users/me").await;
+    let reindexed = fvoci_server::search::reindex(&th.app)
+        .await
+        .map_err(|error| {
+            (
+                error.status(),
+                error.reason().map(fvoci_server::error::Reason::as_str),
+            )
+        });
     let made = fake.index_definition(INDEX);
     th.teardown().await;
 
-    assert_eq!(config["searchEnabled"], false, "{config}");
-    answer.check_status(StatusCode::NOT_FOUND);
-    assert_eq!(answer.check_problem()["reason"], "search_not_configured");
+    assert_eq!(config["searchEnabled"], true, "the box is there: {config}");
+    answer.check_status(StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(answer.check_problem()["reason"], "search_unavailable");
     me.check_ok();
+    assert_eq!(reindexed, Err((503, Some("search_unavailable"))));
     assert_eq!(made, None, "no index without the analyser");
 }
 
@@ -376,8 +385,8 @@ async fn an_index_the_server_did_not_make_is_left_as_it_is() {
     let requests = fake.recorded();
     th.teardown().await;
 
-    assert_eq!(config["searchEnabled"], false, "{config}");
-    answer.check_status(StatusCode::NOT_FOUND);
+    assert_eq!(config["searchEnabled"], true, "{config}");
+    answer.check_status(StatusCode::SERVICE_UNAVAILABLE);
     assert_eq!(left, Some(theirs), "the index is as it was");
     assert!(
         requests.iter().all(|request| request.method == "GET"),
@@ -621,7 +630,7 @@ async fn an_index_a_newer_server_made_is_left_as_it_is() {
     let requests = fake.recorded();
     th.teardown().await;
 
-    assert_eq!(config["searchEnabled"], false, "{config}");
+    assert_eq!(config["searchEnabled"], true, "{config}");
     assert_eq!(left, Some(theirs), "the index is as it was");
     assert!(
         requests.iter().all(|request| request.method == "GET"),

@@ -14,7 +14,7 @@
 //! Without `search_url` the database is searched instead (`database`): by the
 //! letters of the titles and the bodies, behind the same API and the same check, and
 //! nothing is noted. A search server that is configured is never stood in for: while
-//! it does not answer, a search is a 503.
+//! it does not answer, and where it cannot hold the index, a search is a 503.
 
 mod client;
 mod database;
@@ -166,13 +166,6 @@ impl Search {
         })
     }
 
-    /// Whether bodies can be searched on this server: in the database, or on a search
-    /// server that has not turned out to be unable to hold the index.
-    #[must_use]
-    pub fn enabled(&self) -> bool {
-        self.way().is_some()
-    }
-
     /// Whether the configuration names a search server, whatever became of it.
     pub(crate) fn configured(&self) -> bool {
         self.engine.is_some()
@@ -186,8 +179,9 @@ impl Search {
     }
 
     /// Where a search is asked: the search server that is configured, or the database
-    /// where none is. `None` for a search server that cannot hold the index: then bodies
-    /// are not searched at all, and the database does not stand in for it.
+    /// where none is. `None` for a search server that cannot hold the index: then every
+    /// search is a 503, as while it does not answer, and the database does not stand in
+    /// for it.
     fn way(&self) -> Option<Way<'_>> {
         match &self.engine {
             None => Some(Way::Database),

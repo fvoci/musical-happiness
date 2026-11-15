@@ -2904,11 +2904,11 @@ export interface paths {
          *
          *     A `q` of more than 200 characters, a `kind` that is none and a `limit` outside 1
          *     to 50 are 400; a `q` that is empty finds nothing. A user who searches more often
-         *     than the server lets one is told to wait (429, `Retry-After`). Where the server's
-         *     search server cannot hold its index (`searchEnabled` of `getClientConfig` is
-         *     false) the answer is 404 with the reason `search_not_configured`; while the search
-         *     server does not answer, or a search takes more than three seconds, 503 with the
-         *     reason `search_unavailable`: nothing else of the server waits for it.
+         *     than the server lets one is told to wait (429, `Retry-After`). While the search
+         *     server does not answer, where it cannot hold its index, or where a search takes more
+         *     than three seconds, the answer is 503 with the reason `search_unavailable`: nothing
+         *     else of the server waits for it, and the database does not stand in for a search
+         *     server.
          */
         get: operations["searchWorkspaceContent"];
         put?: never;
@@ -4292,8 +4292,9 @@ export interface components {
             maxImportSize: number;
             /**
              * @description Whether what cards and pages say can be searched (`searchWorkspaceContent`):
-             *     on a server without a search server always (the database is searched), and on
-             *     one with a search server unless it cannot hold the index.
+             *     always, on this server. It searches its search server, or its database where none
+             *     is configured; a search server that does not answer, or cannot hold the index,
+             *     answers each search 503 (`search_unavailable`).
              */
             searchEnabled: boolean;
             /** @description How other users' names are displayed. */
