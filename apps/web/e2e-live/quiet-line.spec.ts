@@ -99,7 +99,8 @@ test('a connection that goes quiet is let go after its PING is not answered, and
   await first.keyboard.type('Ada while it was quiet.');
   // Her next PING (twenty seconds after the last answer at most) waits fifteen for
   // nothing: the page closes the connection, and opens another.
-  await expect.poll(() => letGo, { timeout: 60_000 }).toBeDefined();
+  // Longer than the bound below, so that the bound is what a slow page fails on.
+  await expect.poll(() => letGo, { timeout: 70_000 }).toBeDefined();
   const noticed = (letGo ?? 0) - wentQuiet;
   expect(noticed).toBeGreaterThan(14_000);
   // At most: twenty seconds to the PING, fifteen for it, once more if its wait ran

@@ -38,6 +38,11 @@ use crate::metrics::Disconnect;
 /// and of its user) is this at most.
 pub(super) const QUIET_LIMIT: Duration = Duration::from_secs(90);
 
+/// The part of [`QUIET_LIMIT`] kept for a browser's Pong to the server's Ping to come
+/// back over a slow network: a Ping period this much shorter than the limit keeps a
+/// page whose timers are stopped.
+pub(super) const PONG_MARGIN: Duration = Duration::from_secs(30);
+
 /// The quiet limit of a hub's connections: [`QUIET_LIMIT`], unless a test shortened
 /// it, which the connections that wait see from their next wait on. Cloning is cheap;
 /// every clone is the same limit.

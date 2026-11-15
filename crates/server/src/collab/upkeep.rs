@@ -171,8 +171,8 @@ impl Collab {
     /// a little before (it is tried again after [`REMAKE_RETRY`]); whether it was made
     /// again. A document that could not be made again is closed: the store holds it.
     pub(super) async fn remake_and_tell(&self, app: &App, card_id: &str, slot: &mut Held) -> bool {
-        // Not by a process that lost the lock of the server: making it again empties
-        // the log, as a fold does.
+        // A process that lost the lock of the server would be refused by `remake_from`;
+        // it does not try, and so logs no failure.
         if !app.holds_server_lock()
             || slot
                 .remake_failed_at
@@ -289,7 +289,9 @@ impl Collab {
     /// worker, and stores it in place of the one before and its log. The one before is
     /// closed first, so that a worker that holds as many documents as it may has room
     /// for it; whatever fails, `open` is no document to go on with: the caller closes
-    /// it (its number is the new one's once that is open).
+    /// it (its number is the new one's once that is open). Refused to a process that
+    /// lost the lock of the server: making a document again empties its log, as a fold
+    /// does, and the log may hold what the server that took the lock wrote since.
     pub(super) async fn remake_from(
         &self,
         app: &App,
@@ -297,6 +299,9 @@ impl Collab {
         open: &mut OpenDoc,
         body: Option<&Body>,
     ) -> Result<(), Opening> {
+        if !app.holds_server_lock() {
+            return Err(Opening::Refused(super::refusals::unavailable()));
+        }
         self.close_number(open.worker, open.generation, open.number)
             .await;
         let number = self.next_number();

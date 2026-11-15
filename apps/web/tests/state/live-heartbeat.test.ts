@@ -190,6 +190,12 @@ describe('a connection that may have died', () => {
     expect(wait).toBe(LONGEST_PONG_WAIT);
   });
 
+  it('sends its next PING before the server would close the connection as quiet', () => {
+    // The server closes a connection that sends nothing for 90 seconds
+    // (`QUIET_LIMIT` in crates/server/src/ws/inbound.rs).
+    expect(PING_EVERY + LONGEST_PONG_WAIT).toBeLessThan(90_000);
+  });
+
   it('asks nothing once nobody listens', async () => {
     const { socket } = await connected();
     for (const stop of stops) stop();
