@@ -14,11 +14,13 @@
 # files under /run/secrets, not variables of the containers. compose refuses to start
 # while one is not set, naming it; an empty one stops the service that needs it, which
 # names its file. fvoci's entry (docker/fvoci/entrypoint.sh) reads them into the
-# variables the server reads.
+# variables the server reads. A container holds the secrets it was made with: after
+# changing one, `up -d --force-recreate fvoci search` (roles and migrate run anyway).
 #
 # PostgreSQL, database fvoci. Its superuser postgres (POSTGRES_PASSWORD, set when the
 # volume is new) owns the tables. At every `up` the one-shot service `roles`
-# (postgres/fvoci-role.sh) makes the role fvoci what it must be, with FVOCI_DB_PASSWORD:
+# (postgres/fvoci-role.sh) makes the role fvoci what it must be, with FVOCI_DB_PASSWORD
+# (a changed one: recreate fvoci too, above):
 # it owns nothing and may only use the tables. Then `migrate` brings the schema up to
 # date as postgres (fvoci-server --migrate), and fvoci starts once both have succeeded.
 # A server that is broken into cannot turn the row-level security between
@@ -30,7 +32,8 @@
 # The search server is OpenSearch with nori and its security plugin; fvoci reaches it as
 # https://search:9200 and trusts the authority it made (volume search-ca) beside the
 # system's. Its certificates are made when the volume search-tls is new; its user fvoci,
-# the user's role and password are set at every start of the service.
+# the user's role and password are set at every start of the service (a changed
+# password: recreate search and fvoci, above).
 #
 # Profiles: `s3` keeps files in SeaweedFS instead of the volume fvoci-data (set
 # FVOCI_FILESDRIVER=amazons3 and the S3 lines of .env); `mail` is Mailpit, a mail relay
