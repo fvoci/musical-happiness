@@ -374,6 +374,12 @@ impl Hub {
         ping_interval: Option<Duration>,
         metrics: Metrics,
     ) -> Self {
+        if ping_interval.is_none_or(|period| period > inbound::QUIET_LIMIT / 3) {
+            tracing::warn!(
+                ping = ?ping_interval,
+                "websocket_ping_seconds is 0 or more than a third of the 90 seconds a connection may send nothing: pages whose timers are stopped (a frozen tab) are closed after those 90 seconds, and connect again"
+            );
+        }
         Self {
             inner: Arc::new(HubInner {
                 listeners: Mutex::new(Listeners::default()),

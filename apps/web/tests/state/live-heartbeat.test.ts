@@ -6,8 +6,9 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { PING_EVERY, PONG_WAIT } from '$lib/api/live-heartbeat.ts';
+import { LONGEST_PONG_WAIT, PING_EVERY, PONG_WAIT } from '$lib/api/live-heartbeat.ts';
 import { LiveChanges } from '$lib/api/live.ts';
+import { SharedPresence } from '$lib/api/shared-presence.ts';
 import type { Change } from '$lib/state/index.ts';
 
 class FakeSocket extends EventTarget {
@@ -152,6 +153,43 @@ describe('a connection that may have died', () => {
     expect(socket.closed).toBe(true);
   });
 
+  it('waits twice as long on the connection after one let go unanswered, and as first once answered', async () => {
+    const { socket } = await connected();
+    // Let go unanswered: a large message on a slow link looks so too.
+    await vi.advanceTimersByTimeAsync(PING_EVERY + PONG_WAIT);
+    expect(socket.closed).toBe(true);
+    await vi.advanceTimersByTimeAsync(500);
+    const again = FakeSocket.made[1];
+    if (!again) throw new Error('no second socket');
+    again.open();
+    await vi.advanceTimersByTimeAsync(PING_EVERY + PONG_WAIT);
+    expect(again.closed).toBe(false);
+    await vi.advanceTimersByTimeAsync(PONG_WAIT - 1000);
+    again.message(PONG);
+    // Answered: the next waits as the first did.
+    await vi.advanceTimersByTimeAsync(PING_EVERY + PONG_WAIT);
+    expect(again.closed).toBe(true);
+  });
+
+  it('waits two minutes at the longest', async () => {
+    const { socket } = await connected();
+    let current = socket;
+    let wait = PONG_WAIT;
+    for (let cut = 1; cut <= 5; cut += 1) {
+      await vi.advanceTimersByTimeAsync(PING_EVERY + wait - 1);
+      expect(current.closed).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(current.closed).toBe(true);
+      await vi.advanceTimersByTimeAsync(30_000);
+      const next = FakeSocket.made.at(-1);
+      if (!next || next === current) throw new Error('no new socket');
+      next.open();
+      current = next;
+      wait = Math.min(wait * 2, LONGEST_PONG_WAIT);
+    }
+    expect(wait).toBe(LONGEST_PONG_WAIT);
+  });
+
   it('asks nothing once nobody listens', async () => {
     const { socket } = await connected();
     for (const stop of stops) stop();
@@ -160,5 +198,22 @@ describe('a connection that may have died', () => {
     await vi.advanceTimersByTimeAsync(PING_EVERY * 5);
     expect(socket.pings()).toBe(0);
     expect(FakeSocket.made).toHaveLength(1);
+  });
+});
+
+describe('the visit of a shared board', () => {
+  it('lets go of a connection nothing answers, and opens another', async () => {
+    const presence = new SharedPresence('', 'shared-board', 'read-token');
+    presence.setPresence({ workspaceId: 'shared', boardId: 'shared-board', cardId: '' });
+    const first = FakeSocket.made[0];
+    if (!first) throw new Error('a visit opens a socket');
+    first.open();
+    await vi.advanceTimersByTimeAsync(PING_EVERY);
+    expect(first.pings()).toBe(1);
+    await vi.advanceTimersByTimeAsync(PONG_WAIT);
+    expect(first.closed).toBe(true);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(FakeSocket.made).toHaveLength(2);
+    presence.setPresence(null);
   });
 });

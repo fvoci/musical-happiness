@@ -1,6 +1,6 @@
 /** A public-link visit announces only its token and never subscribes to names or changes. */
 import type { Presence, PresenceVisit } from '../state/presence.ts';
-import { Heartbeat, PING } from './live-heartbeat.ts';
+import { Heartbeat, Patience, PING } from './live-heartbeat.ts';
 import { LivePresence } from './live-presence.ts';
 
 export class SharedPresence implements Presence {
@@ -9,6 +9,7 @@ export class SharedPresence implements Presence {
   readonly #live: LivePresence;
   #socket: WebSocket | undefined;
   #heartbeat: Heartbeat | undefined;
+  readonly #patience = new Patience();
   #retry: ReturnType<typeof setTimeout> | undefined;
   #wait = 500;
 
@@ -49,11 +50,15 @@ export class SharedPresence implements Presence {
           this.#closed(socket);
           socket.close();
         },
+        this.#patience,
       );
       this.#live.up();
     });
     socket.addEventListener('message', () => {
-      if (this.#socket === socket) this.#heartbeat?.heard();
+      if (this.#socket !== socket) return;
+      // It carried: the waits before opening again start from the first.
+      this.#wait = 500;
+      this.#heartbeat?.heard();
     });
     socket.addEventListener('close', () => {
       this.#closed(socket);

@@ -79,16 +79,19 @@ async fn a_connection_that_sends_nothing_is_closed_and_goes_from_its_room() {
     let (_table, mut quiet, mut other) = two_in_a_room(&th, &paragraphs(&["first"])).await;
     let place = |clock: u64| json!({"type": null, "tname": null, "item": {"client": 7, "clock": clock}, "assoc": 0});
     let caret = json!({"user": {}, "cursor": {"anchor": place(1), "head": place(4)}});
+    // Before the last thing it sends: the server hears it after this.
+    let went_quiet = Instant::now();
     quiet
         .send_caret(&awareness(quiet.client(), 1, &caret))
         .await;
     let shown = other.caret().await;
-    let went_quiet = Instant::now();
 
-    // The other pings at a third of the limit for three limits: it is heard, and
-    // stays; it hears the quiet one's caret go.
+    // The other pings at a third of the limit for three limits at least: it is
+    // heard, and stays; it hears the quiet one's caret go.
     let mut gone = None;
-    while went_quiet.elapsed() < LIMIT * 3 {
+    while went_quiet.elapsed() < LIMIT * 3
+        || (gone.is_none() && went_quiet.elapsed() < LIMIT + LEEWAY)
+    {
         pong(&mut other).await;
         let wait = LIMIT / 3;
         let began = Instant::now();

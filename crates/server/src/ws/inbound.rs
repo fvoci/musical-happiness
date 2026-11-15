@@ -12,6 +12,7 @@
 //! be done next, up to [`AHEAD_MESSAGES`] messages or [`AHEAD_BYTES`]. The quiet limit
 //! runs only while the server waits for the client.
 
+use std::borrow::Cow;
 use std::collections::VecDeque;
 use std::pin::pin;
 use std::time::Duration;
@@ -35,12 +36,19 @@ use crate::metrics::Disconnect;
 /// and of its user) is this at most.
 pub(super) const QUIET_LIMIT: Duration = Duration::from_secs(90);
 
-/// How many messages are read ahead while the server does what the connection asked.
+/// How many messages are read ahead while the server does what the connection asked:
+/// a minute of typing as a page sends it (at most 33 frames a second) is about two
+/// thousand, and an empty message costs its place in the queue all the same.
 const AHEAD_MESSAGES: usize = 4096;
 
 /// How many bytes of messages are read ahead while the server does what the connection
-/// asked: a minute of typing, as a page sends it, is a few hundred KiB.
+/// asked: a minute of typing, as a page sends it, is a few hundred KiB. The message
+/// that passes it is kept too, and then no more is read until the work is done.
 const AHEAD_BYTES: usize = 1024 * 1024;
+
+/// The longest text that is looked at as a `PING`: `{"action":"PING"}` with room for
+/// spaces.
+const LONGEST_PING: usize = 64;
 
 /// The answer to a `PING`.
 const PONG: &str = r#"{"action":"PONG"}"#;
@@ -49,10 +57,11 @@ const PONG: &str = r#"{"action":"PONG"}"#;
 #[derive(Deserialize)]
 struct Action<'text> {
     #[serde(borrow, default)]
-    action: &'text str,
+    action: Cow<'text, str>,
 }
 
 /// What came from the client that is no `PING`, Ping or Pong.
+#[derive(Debug)]
 pub(super) enum Came {
     Text(Utf8Bytes),
     Binary(axum::body::Bytes),
@@ -97,7 +106,7 @@ where
     pub(super) async fn next(&mut self) -> Result<Came, Disconnect> {
         loop {
             let read = if let Some(read) = self.ahead.pop_front() {
-                self.ahead_bytes = self.ahead_bytes.saturating_sub(size_of(&read));
+                self.ahead_bytes = self.ahead_bytes.saturating_sub(payload_len(&read));
                 read
             } else {
                 let deadline = self.heard + self.quiet_limit;
@@ -140,7 +149,7 @@ where
                 read = self.stream.next(), if room => {
                     self.heard = Instant::now();
                     if !self.answered(&read) && !is_beat(&read) {
-                        self.ahead_bytes += size_of(&read);
+                        self.ahead_bytes += payload_len(&read);
                         self.ahead.push_back(read);
                     }
                 }
@@ -156,8 +165,8 @@ where
     }
 
     /// Answers `read` if it is a `PING`; whether it was one. An answer that finds the
-    /// connection's messages full is not sent: a connection that does not read them
-    /// is closed for that.
+    /// connection's messages full is not sent: the page lets go of the connection
+    /// for that, and the hub closes it at the next message it cannot queue.
     fn answered(&self, read: &Read) -> bool {
         let Some(Ok(Message::Text(text))) = read else {
             return false;
@@ -172,7 +181,8 @@ where
 
 /// Whether `text` is the command `PING`.
 fn is_ping(text: &str) -> bool {
-    serde_json::from_str::<Action<'_>>(text).is_ok_and(|command| command.action == "PING")
+    text.len() <= LONGEST_PING
+        && serde_json::from_str::<Action<'_>>(text).is_ok_and(|command| command.action == "PING")
 }
 
 /// Whether `read` is the websocket's own Ping or Pong: heard, and nothing to do.
@@ -180,7 +190,7 @@ fn is_beat(read: &Read) -> bool {
     matches!(read, Some(Ok(Message::Ping(_) | Message::Pong(_))))
 }
 
-fn size_of(read: &Read) -> usize {
+fn payload_len(read: &Read) -> usize {
     match read {
         Some(Ok(Message::Text(text))) => text.len(),
         Some(Ok(Message::Binary(frame))) => frame.len(),
@@ -230,13 +240,25 @@ mod tests {
         tokio::time::timeout(after, inbound.next()).await.is_err()
     }
 
-    /// Past what a page in the background sends (a `PING` a minute or so apart) with
-    /// time for a slow network, and past the server's own Ping, whose Pong the browser
-    /// sends whatever its timers do.
+    /// The limit the contract says (`contracts/websocket.md` 3, "죽은 연결"): past
+    /// what a page in the background sends, a `PING` a minute or so apart, with
+    /// thirty seconds for a slow network.
     #[test]
-    fn the_limit_is_past_a_minute_of_a_slowed_page_and_the_default_ping() {
-        assert!(QUIET_LIMIT >= Duration::from_secs(60) + Duration::from_secs(30));
-        assert!(QUIET_LIMIT > Duration::from_mins(1));
+    fn the_limit_is_ninety_seconds() {
+        assert_eq!(QUIET_LIMIT, Duration::from_secs(90));
+    }
+
+    /// A `PING` whose action is written with an escape is one; a longer text is not
+    /// looked at, and neither is another action.
+    #[test]
+    fn a_ping_is_its_action() {
+        assert!(is_ping(r#"{"action":"PING"}"#));
+        assert!(is_ping(r#"{ "action" : "PI\u004eG" }"#));
+        assert!(!is_ping(r#"{"action":"PONG"}"#));
+        assert!(!is_ping(&format!(
+            r#"{{"action":"PING","pad":"{}"}}"#,
+            " ".repeat(64)
+        )));
     }
 
     #[tokio::test(start_paused = true)]

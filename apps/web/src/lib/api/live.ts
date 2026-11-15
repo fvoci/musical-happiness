@@ -32,7 +32,7 @@
 import { isBackendError, type Change, type ChangeListener } from '../state/backend.ts';
 
 import { attachmentOf, boardOf, cardOfBlock, commentOf, viewOf, type Schemas } from './convert.ts';
-import { Heartbeat, PING, PONG } from './live-heartbeat.ts';
+import { Heartbeat, Patience, PING, PONG } from './live-heartbeat.ts';
 import { LivePresence } from './live-presence.ts';
 import { LiveRooms } from './live-rooms.ts';
 import { pageOfBlock } from './wikis.ts';
@@ -79,6 +79,8 @@ export class LiveChanges {
   #socket: WebSocket | undefined;
   /** Whether `#socket` still carries, once it opened. */
   #heartbeat: Heartbeat | undefined;
+  /** How long the connections' `PING`s wait. */
+  readonly #patience = new Patience();
   /** Whether `#socket` has opened and subscribed. */
   #subscribed = false;
   /** The workspace entered: the one subscribed to. */
@@ -237,6 +239,7 @@ export class LiveChanges {
         () => {
           this.#letGo(socket);
         },
+        this.#patience,
       );
       // A connection that is closed as soon as it opens does not count as held.
       this.#steady = setTimeout(() => {

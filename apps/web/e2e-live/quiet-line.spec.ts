@@ -56,12 +56,18 @@ test('a connection that goes quiet is let go after its PING is not answered, and
   const second = await (await browser.newContext({ locale: 'en-US' })).newPage();
   const watched = [first, second].map((page) => watchErrors(page));
   // Bora's sockets go through here. The first one goes quiet when told: nothing
-  // passes either way though the connection stands. Those after it pass all.
+  // passes either way though the connection stands. While `away`, a new one is
+  // closed at once; after that they pass all.
   let quiet = false;
+  let away = false;
   let sockets = 0;
   let letGo: number | undefined;
   const pings: number[] = [];
   await second.routeWebSocket(/\/ws$/, (socket) => {
+    if (away) {
+      void socket.close();
+      return;
+    }
     sockets += 1;
     const deaf = sockets === 1;
     const server = socket.connectToServer();
@@ -72,8 +78,9 @@ test('a connection that goes quiet is let go after its PING is not answered, and
     server.onMessage((message) => {
       if (!(deaf && quiet)) socket.send(message);
     });
-    socket.onClose(() => {
+    socket.onClose((code, reason) => {
       if (deaf) letGo = Date.now();
+      void server.close({ code, reason });
     });
   });
   await second.goto(address);
@@ -86,6 +93,7 @@ test('a connection that goes quiet is let go after its PING is not answered, and
 
   // The line goes quiet: nothing says so to Bora's page, and Ada writes on.
   quiet = true;
+  away = true;
   const wentQuiet = Date.now();
   await first.keyboard.press('Enter');
   await first.keyboard.type('Ada while it was quiet.');
@@ -97,8 +105,13 @@ test('a connection that goes quiet is let go after its PING is not answered, and
   expect(noticed).toBeLessThan(50_000);
   // Asked once (once more only if the page's timer ran late), and not answered.
   expect(pings.filter((at) => at >= wentQuiet && at <= (letGo ?? 0)).length).toBeGreaterThan(0);
+  // Let go, the body can be read and not written, until the line is back.
   const body = second.getByTestId('card-body');
-  await expect.poll(() => sockets, { timeout: 15_000 }).toBe(2);
+  await expect(body).toHaveAttribute('data-room', 'offline');
+  await expect(body.locator('[contenteditable="true"]')).toHaveCount(0);
+  await expect(second.getByTestId('body-room-note')).toContainText('The connection is lost');
+  away = false;
+  await expect.poll(() => sockets, { timeout: 30_000 }).toBe(2);
   await expect(body).toHaveAttribute('data-editor', 'ready', { timeout: 30_000 });
   const together = ['Before the quiet.', 'Ada while it was quiet.'];
   await expect(editor(second).locator('p')).toHaveText(together, { timeout: 15_000 });
