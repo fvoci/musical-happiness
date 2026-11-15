@@ -290,7 +290,6 @@
 {:else if invitation !== undefined && account}
   {@const signedInAs = workspace.status === 'ready' ? workspace.me : undefined}
   {@const accounts = account}
-  {@const backend = workspace.backend}
   <InvitePage
     token={invitation}
     signedInAs={signedInAs && userDisplayName(signedInAs)}
@@ -304,9 +303,7 @@
       // Loaded afresh where the invitation let the reader in: what the page
       // has in memory is of whoever was, or was not, signed in before. In
       // place of the link, whose token is not to stay in the history.
-      void acceptedRoute(backend, accepted).then((route) => {
-        router.restart(route, { replace: true });
-      });
+      router.restart(acceptedRoute(accepted), { replace: true });
     }}
     onSessionEnded={() => {
       location.reload();

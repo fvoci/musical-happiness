@@ -148,6 +148,13 @@ test.describe('a wiki looked after', () => {
     await expect(join).toHaveCount(0);
     await expect(page.getByTestId('page-title')).toHaveValue('Hello');
     await expect(wikiScreen(page)).toBeFocused();
+    // Its page is now the reader's to write: the body's room let them in to write.
+    await hideTree(page);
+    const body = pageBody(page);
+    await expect(body).toHaveAttribute('contenteditable', 'true');
+    await body.click();
+    await page.keyboard.type('Written after joining');
+    await expect(body).toContainText('Written after joining');
   });
 
   test('a wiki is shared from its head: closed and opened to the workspace, and a member added', async ({
@@ -161,7 +168,7 @@ test.describe('a wiki looked after', () => {
     await expect(dialog.getByRole('heading', { name: 'Share wiki' })).toBeVisible();
     // Made open, as "New wiki" makes it; closed and opened again.
     const open = dialog.getByTestId('share-open');
-    await expect(dialog).toContainText('can read this wiki, and join it to write in it');
+    await expect(dialog).toContainText('can read this wiki and join it');
     await expect(open).toBeChecked();
     await open.click();
     await expect(open).not.toBeChecked();
@@ -169,6 +176,8 @@ test.describe('a wiki looked after', () => {
     await expect(open).toBeChecked();
     await dialog.getByTestId('share-candidates').getByRole('button').first().click();
     await expect(dialog.getByTestId('share-members').locator('li')).toHaveCount(2);
+    // A wiki's public link is not offered: it would open nothing.
+    await expect(dialog.getByTestId('share-public')).toHaveCount(0);
   });
 
   for (const role of ['viewer', 'commenter']) {

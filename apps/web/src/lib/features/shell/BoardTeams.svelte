@@ -1,6 +1,7 @@
 <!--
   The teams of a board or a wiki: one row per team, shaped as a member's row;
-  direct memberships remain in the people list.
+  direct memberships remain in the people list. Shown, not changed, to a
+  reader who is no admin of it (`readOnly`).
 -->
 <script lang="ts">
   import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
@@ -15,8 +16,14 @@
 
   import { shareWords } from './share-words.ts';
 
-  let { workspace, board, teams }: { workspace: Workspace; board: Shareable; teams: Teams } =
-    $props();
+  interface Props {
+    workspace: Workspace;
+    board: Shareable;
+    teams: Teams;
+    readOnly?: boolean;
+  }
+
+  let { workspace, board, teams, readOnly = false }: Props = $props();
   const words = $derived(shareWords(board.board?.kind));
   const id = $props.id();
   const place = $derived(workspace.info?.id);
@@ -112,36 +119,42 @@
             {/each}
           </ul>
         </details>
-        <div class="flex min-h-8 items-center gap-2 roomy:min-h-touch">
-          <select
-            class="h-8 rounded-md border border-input-border bg-background px-2 disabled:opacity-60 roomy:h-touch"
-            aria-label={m.share_role_of({ name: item.team.name })}
-            value={item.role}
-            disabled={busy}
-            onchange={(event) => {
-              const select = event.currentTarget;
-              void change(item.team.id, select.value as TeamRole).then((done) => {
-                // A refused role is not left showing as if it were the team's.
-                if (!done) select.value = item.role;
-              });
-            }}
-          >
-            {#each roles as option (option)}<option value={option}>{labels[option]()}</option
-              >{/each}
-          </select>
-          <IconButton
-            label={words.teamRemove({ name: item.team.name })}
-            class="text-muted-foreground"
-            disabled={busy}
-            onclick={() => void change(item.team.id, undefined)}
-          >
-            <XIcon />
-          </IconButton>
-        </div>
+        {#if readOnly}
+          <span class="flex min-h-8 shrink-0 items-center text-muted-foreground roomy:min-h-touch">
+            {labels[item.role]()}
+          </span>
+        {:else}
+          <div class="flex min-h-8 items-center gap-2 roomy:min-h-touch">
+            <select
+              class="h-8 rounded-md border border-input-border bg-background px-2 disabled:opacity-60 roomy:h-touch"
+              aria-label={m.share_role_of({ name: item.team.name })}
+              value={item.role}
+              disabled={busy}
+              onchange={(event) => {
+                const select = event.currentTarget;
+                void change(item.team.id, select.value as TeamRole).then((done) => {
+                  // A refused role is not left showing as if it were the team's.
+                  if (!done) select.value = item.role;
+                });
+              }}
+            >
+              {#each roles as option (option)}<option value={option}>{labels[option]()}</option
+                >{/each}
+            </select>
+            <IconButton
+              label={words.teamRemove({ name: item.team.name })}
+              class="text-muted-foreground"
+              disabled={busy}
+              onclick={() => void change(item.team.id, undefined)}
+            >
+              <XIcon />
+            </IconButton>
+          </div>
+        {/if}
       </li>
     {/each}
   </ul>
-  {#if candidates.length > 0}
+  {#if candidates.length > 0 && !readOnly}
     <form
       class="flex flex-wrap gap-2"
       onsubmit={(event) => {

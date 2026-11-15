@@ -141,23 +141,18 @@ describe('a wiki shared by its admins', () => {
 });
 
 describe('an invitation accepted', () => {
-  it('leads to its wiki at a wiki’s address, and to its board at a board’s', async () => {
-    const made = await wikiOf('P');
-    const [board] = await made.backend.boards(made.workspaceId);
-    const { workspaceId, wikiId } = made;
-    expect(await acceptedRoute(made.backend, { workspaceId, boardId: wikiId })).toEqual({
+  it('leads to its wiki at a wiki’s address, and to its board at a board’s', () => {
+    const workspaceId = 'w';
+    expect(acceptedRoute({ workspaceId, boardId: 'a', boardKind: 'wiki' })).toEqual({
       workspaceId,
-      wikiId,
+      wikiId: 'a',
     });
-    expect(await acceptedRoute(made.backend, { workspaceId, boardId: board?.id })).toEqual({
+    expect(acceptedRoute({ workspaceId, boardId: 'b', boardKind: 'board' })).toEqual({
       workspaceId,
-      boardId: board?.id,
+      boardId: 'b',
     });
-    // Not read: asked for at a board's address, which says what there is to say.
-    expect(await acceptedRoute(made.backend, { workspaceId, boardId: 'gone' })).toEqual({
-      workspaceId,
-      boardId: 'gone',
-    });
-    expect(await acceptedRoute(made.backend, { workspaceId })).toEqual({ workspaceId });
+    // An answer that does not say: a board's address, which says what there is to say.
+    expect(acceptedRoute({ workspaceId, boardId: 'c' })).toEqual({ workspaceId, boardId: 'c' });
+    expect(acceptedRoute({ workspaceId })).toEqual({ workspaceId });
   });
 });

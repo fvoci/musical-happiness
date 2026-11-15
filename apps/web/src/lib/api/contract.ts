@@ -3500,6 +3500,7 @@ export interface components {
         AcceptedInvitation: {
             /** @description For a guest: the board or the wiki they were invited to. */
             boardId?: string | null;
+            boardKind?: components["schemas"]["BoardKind"] | null;
             /** @description The workspace. */
             workspaceId: string;
         };
@@ -4361,6 +4362,7 @@ export interface components {
         };
         /** @description What a link shows of where it leads, to whoever holds it. */
         InvitationPreview: {
+            boardKind?: components["schemas"]["BoardKind"] | null;
             /** @description For a guest: the title of the board or the wiki they are invited to. */
             boardTitle?: string | null;
             /**

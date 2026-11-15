@@ -176,6 +176,7 @@
     {#if wiki.joinable}
       <WikiJoin
         joining={wiki.joining}
+        role={wiki.wiki?.minimumRole}
         onJoin={() => {
           void store.join().then((done) => {
             joined = done;

@@ -1,7 +1,8 @@
 <!--
   Sharing a board or a wiki, for its admins: who of the workspace may find and
-  join it (read an open wiki unjoined) and with which role, its members and their roles, adding people of the workspace,
-  and the public link (read only, for anyone who has it).
+  join it (read an open wiki unjoined) and with which role, its members and
+  their roles, adding people of the workspace, and a board's public link (read
+  only, for anyone who has it).
 
   Every change is sent at once through its store, which shows it and
   takes it back when the server refuses it. The people offered to add are
@@ -10,7 +11,7 @@
   dialog opens. The reader's own role is not changed here: that is another
   admin's to do, so that nobody locks themselves out by a slip.
 
-  A reader who is no admin of the board sees its members alone, with their roles,
+  A reader who is no admin sees its members and teams alone, with their roles,
   and changes nothing (`readOnly`). Opened at the members (`at`, from the number
   of members at the head of the board), the dialog begins at that section.
 -->
@@ -57,8 +58,9 @@
     /** The whole address of the public link with a read token. */
     linkOf: (readToken: string) => string;
     /**
-     * The members alone: for a board the reader manages without reading it, whose
-     * openness and public link are not theirs to change or read.
+     * The members alone: for a board or a wiki the reader manages without reading
+     * it, or reads without being its admin, whose openness and public link are not
+     * theirs to change or read.
      */
     membersOnly?: boolean;
     /** The members are shown, not changed: for a reader who is no admin of the board. */
@@ -152,6 +154,8 @@
   /** Asking before a new link stops the old one. */
   let confirmOpen = $state(false);
 
+  /** The public link: a board's, for its admins (a wiki's opens nothing yet). */
+  const publicLink = $derived(!membersOnly && board.board?.kind !== 'wiki');
   const link = $derived(sharing?.enabled && sharing.token ? linkOf(sharing.token) : '');
 
   async function readSharing(): Promise<void> {
@@ -194,7 +198,7 @@
     untrack(() => {
       query = '';
       found = [];
-      if (!membersOnly) void readSharing();
+      if (publicLink) void readSharing();
     });
   }
 
@@ -392,11 +396,11 @@
       </section>
 
       {#if access?.people.teams && !isGuest(workspace)}
-        <BoardTeams {workspace} {board} teams={access.people.teams} />
+        <BoardTeams {workspace} {board} teams={access.people.teams} {readOnly} />
       {/if}
 
       <!-- The public link. -->
-      {#if !membersOnly}
+      {#if publicLink}
         <section class="grid gap-2 border-t pt-4" aria-labelledby="{uid}-public">
           <h3 id="{uid}-public" class="font-medium">{m['ShareBoard.PublishTitle']()}</h3>
           <label class="flex min-h-8 items-center gap-3 roomy:min-h-touch">

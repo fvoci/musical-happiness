@@ -93,7 +93,11 @@ export class WikiStore {
   );
   /** Whether the reader writes pages: the wiki's admins and editors. */
   readonly canEdit = $derived(this.role === 'admin' || this.role === 'editor');
-  /** Whether the reader changes and deletes the wiki itself: its admins. */
+  /**
+   * Whether the reader changes and deletes the wiki itself: its admins. An
+   * administrator of the workspace who manages an open wiki without being its
+   * member joins it first, as on an open board.
+   */
   readonly canManage = $derived(this.role === 'admin');
   /**
    * The wiki is open and the reader no member of it: they read it, and join it
@@ -153,6 +157,7 @@ export class WikiStore {
     this.missing = false;
     this.#readings += 1;
     const reading = this.#readings;
+    const membersTold = this.#people.told;
     try {
       // Listen first: a change made while the lists are being read is not lost.
       this.#stopWatching?.();
@@ -167,7 +172,9 @@ export class WikiStore {
       ]);
       if (this.#closed || reading !== this.#readings) return;
       void this.workspace.learnUsers(members.map(memberId), { members: true });
-      [this.wiki, this.pages, this.members] = [wiki, pages, members];
+      [this.wiki, this.pages] = [wiki, pages];
+      // Members told meanwhile are newer than this reading.
+      if (membersTold === this.#people.told) this.members = members;
       this.status = 'ready';
     } catch (error) {
       if (this.#closed || reading !== this.#readings) return;

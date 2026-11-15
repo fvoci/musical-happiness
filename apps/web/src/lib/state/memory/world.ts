@@ -69,6 +69,8 @@ interface Watcher {
   boardId: string | undefined;
   userId: string;
   listener: ChangeListener;
+  /** Of a wiki: whether the watcher reads it, as of the last change told. */
+  reads?: boolean;
 }
 
 export class World {
@@ -144,6 +146,7 @@ export class World {
   }
 
   watch(watcher: Watcher): () => void {
+    if (watcher.boardId !== undefined) watcher.reads = reads(this, watcher.userId, watcher.boardId);
     this.#watchers.add(watcher);
     return () => {
       this.#watchers.delete(watcher);
@@ -151,18 +154,21 @@ export class World {
   }
 
   /**
-   * Tells everybody who watches the board. Who watches a wiki they no longer
-   * read (made private, or taken off it) is told, as the server tells them,
-   * that it is gone for them.
+   * Tells everybody who watches the board. Of a wiki, as the server tells it:
+   * its readers are told the change; who stopped reading it with this change
+   * (made private, or taken off it) is told that it is gone for them, once;
+   * who does not read it is told nothing.
    */
   tellBoard(boardId: string, change: Change): void {
     if (this.boards.get(boardId)?.kind !== 'wiki') {
       this.#tell((watcher) => watcher.boardId === boardId, change);
       return;
     }
-    const readers = (watcher: Watcher): boolean => reads(this, watcher.userId, boardId);
-    this.#tell((watcher) => watcher.boardId === boardId && readers(watcher), change);
-    this.#tell((watcher) => watcher.boardId === boardId && !readers(watcher), {
+    const watching = [...this.#watchers].filter((watcher) => watcher.boardId === boardId);
+    const before = new Map(watching.map((watcher) => [watcher, watcher.reads === true]));
+    for (const watcher of watching) watcher.reads = reads(this, watcher.userId, boardId);
+    this.#tell((watcher) => watcher.boardId === boardId && watcher.reads === true, change);
+    this.#tell((watcher) => before.get(watcher) === true && watcher.reads !== true, {
       kind: 'boardDeleted',
       boardId,
     });

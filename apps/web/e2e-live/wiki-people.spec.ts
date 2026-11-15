@@ -193,7 +193,7 @@ test('a guest comes in by a link to one wiki, and writes in it with nothing else
   const guestPage = await context.newPage();
   const guestErrors = watchErrors(guestPage);
   await guestPage.goto(link);
-  await expect(guestPage.getByTestId('invite-summary')).toContainText(title);
+  await expect(guestPage.getByTestId('invite-summary')).toContainText(`the wiki “${title}”`);
   const guest = person('wiki-guest');
   const form = guestPage.getByTestId('invite-register-form');
   await form.getByLabel(/^user name$/i).fill(guest.username);

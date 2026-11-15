@@ -9,7 +9,7 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 
 use crate::auth::NewAccount;
-use crate::board::BoardRole;
+use crate::board::{BoardKind, BoardRole};
 use crate::organization::WorkspaceRole;
 use crate::serde_util::null_as_default;
 
@@ -122,6 +122,9 @@ pub struct InvitationPreview {
     /// For a guest: the title of the board or the wiki they are invited to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub board_title: Option<String>,
+    /// For a guest: which of the two it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub board_kind: Option<BoardKind>,
 }
 
 /// A request to accept a link.
@@ -159,6 +162,9 @@ pub struct AcceptedInvitation {
     /// For a guest: the board or the wiki they were invited to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub board_id: Option<String>,
+    /// For a guest: which of the two it is, so that they are sent to its own address.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub board_kind: Option<BoardKind>,
 }
 
 /// A request to email an existing invitation to one or more recipients.
