@@ -1,19 +1,19 @@
 //! Registrations made by the link of an invitation, on a server that confirms addresses:
 //! the link counts one as a use when it is made, as it counts an account it lets in,
 //! and lets its account in once it is confirmed; one that ends unconfirmed gives the
-//! use back. Their links are held in the order acceptances hold them: the
-//! organization's row and the board of a guest's link, the link, then the registration.
+//! use back. Their links are held in the order acceptances hold them: what the link
+//! hangs from (`link_locks::hold_for_letting_in`), the link, then the registration.
 
 use fvoci_model::{AuditAction, Invitation, WorkspaceRole};
 
 use crate::audit::{self, AuditActor, AuditEntry};
-use crate::boards::lock_board;
 use crate::db::{Dialect, Id, Scope};
 use crate::error::StoreError;
 use crate::invitations::{
     COLUMNS_OF_I, count_uses, hold_live_link, invitation_from_row, inviter_still, let_in,
     push_invites, take_use,
 };
+use crate::link_locks;
 use crate::signups::{self, Confirmed, Proof, Signup, SignupStart};
 use crate::users::InstanceRole;
 use crate::{Acceptance, Accepted, Inviter, Store, accounts};
@@ -64,17 +64,18 @@ impl Store {
         inviter: Inviter<'_>,
     ) -> Result<Acceptance, StoreError> {
         self.transaction(async |scope| {
-            if replacing.is_some() {
-                // The link of what is replaced may be another than this one.
-                signups::hold_several_links(scope).await?;
-            }
+            // The link of what is replaced may be another than this one.
+            let replacing = match replacing {
+                Some(browser) => Some((browser, link_locks::take_turn(scope).await?)),
+                None => None,
+            };
             let held = hold_live_link(scope, token_hash, now, inviter.standing, replacing);
             let link = match held.await? {
                 Ok(link) => link,
                 Err(refused) => return Ok(refused),
             };
-            if let Some(browser) = replacing {
-                signups::discard_of_browser(scope, browser).await?;
+            if let Some((browser, turn)) = replacing {
+                signups::discard_of_browser(scope, browser, turn).await?;
             }
             let org_id = scope.org_id().ok_or(StoreError::NoOrganization)?;
             let signup = Signup {
@@ -199,9 +200,8 @@ async fn link_by_id(
         .transpose()
 }
 
-/// Holds the link with the identifier against its acceptances, after the
-/// organization's row and its board for a guest's link, as an acceptance holds them;
-/// the link, if it is there.
+/// Holds the link with the identifier against its acceptances, after what it hangs
+/// from, as an acceptance holds them; the link, if it is there.
 async fn hold_link(
     scope: &mut Scope<'_>,
     invitation_id: &str,
@@ -209,12 +209,9 @@ async fn hold_link(
     let Some(link) = link_by_id(scope, invitation_id).await? else {
         return Ok(None);
     };
-    if let Some(board_id) = &link.board_id {
-        crate::org_admin::hold_organization_row(scope).await?;
-        // A board that is gone took its links along.
-        if !lock_board(scope, board_id).await? {
-            return Ok(None);
-        }
+    // A board that is gone took its links along.
+    if !link_locks::hold_for_letting_in(scope, &link, None).await? {
+        return Ok(None);
     }
     let mut sql = scope.sql("SELECT i.id FROM invitations AS i WHERE i.id = ");
     sql.bind(Id(invitation_id))

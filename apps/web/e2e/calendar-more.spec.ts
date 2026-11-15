@@ -6,10 +6,13 @@
  *
  * The same welcome board, moment and projects as e2e/calendar.spec.ts.
  */
+import { primaryKey, menuTo, tabKey } from './keyboard.support.ts';
 import { expect, test } from '@playwright/test';
 
 import {
   CALENDAR_PAGE,
+  CROWD,
+  crowdable,
   dayButton,
   dueOf,
   focused,
@@ -17,9 +20,8 @@ import {
   openCalendar,
   setDates,
   tabTo,
-  wide,
 } from './calendar.support.ts';
-import { fitPane, touch } from './kanban.support.ts';
+import { touch } from './kanban.support.ts';
 
 test.use(CALENDAR_PAGE);
 
@@ -36,7 +38,7 @@ test('a card without a date is given one from "No date" with the keys alone, and
   await page.keyboard.press('Enter');
   const set = page.locator('[data-action="change-date"]');
   await expect(set).toHaveText('Set date');
-  await tabTo(page, set);
+  await menuTo(page, set);
   await page.keyboard.press('Enter');
 
   const picker = page.getByTestId('day-picker');
@@ -53,7 +55,7 @@ test('a card without a date is given one from "No date" with the keys alone, and
   await expect(button).toHaveAccessibleName('No date: 5');
   await expect(focused(page)).toHaveAccessibleName(/^Tuesday, November 17, 2 cards/);
 
-  await page.keyboard.press('Control+z');
+  await page.keyboard.press(await primaryKey(page, 'z'));
   await expect.poll(() => dueOf(page, 'Add new properties')).toBeNull();
   await expect(button).toHaveAccessibleName('No date: 6');
   // "Share a board" stays: the 12th to the 24th.
@@ -64,17 +66,10 @@ test('"+N" opens every card of its day, each with its "…", reached by the keys
   page,
 }, info) => {
   await openCalendar(page, info);
-  if (!wide(info)) await fitPane(page, 700);
+  await crowdable(page, info);
   const lanes = Number(await grid(page).getAttribute('data-lanes'));
-  const crowd = [
-    'Manage tasks with cards',
-    'Create your own board',
-    'Share cards on Channels',
-    'Create a new view',
-    'Add new properties',
-    '@mention teammates',
-  ].slice(0, lanes);
-  // The crowd has six cards: a cell of more rows would not overflow.
+  const crowd = CROWD.slice(0, lanes);
+  // A cell of more rows than the crowd has cards would not overflow.
   expect(crowd).toHaveLength(lanes);
   await setDates(page, Object.fromEntries(crowd.map((title) => [title, { from: '2026-11-12' }])));
   const more = grid(page).locator('[data-more="2026-11-12"]');
@@ -86,7 +81,7 @@ test('"+N" opens every card of its day, each with its "…", reached by the keys
   // Under a finger the day is the button, "+N" a picture in it. With a mouse "+N" is a
   // button of its own and a stop of the Tab key, right after the day's.
   if (!touch(info)) {
-    await page.keyboard.press('Tab');
+    await page.keyboard.press(await tabKey(page));
     await expect(more).toBeFocused();
   }
   await page.keyboard.press('Enter');

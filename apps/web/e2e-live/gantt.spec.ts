@@ -19,6 +19,7 @@ import {
   type Response,
 } from '@playwright/test';
 
+import { primaryKey } from '../e2e/keyboard.support.ts';
 import {
   boardPath,
   type MadeBoard,
@@ -370,6 +371,8 @@ test('a bar dragged on the page, and an end of it, change the card on the server
    * the change it makes to `cardId` answered by the server.
    */
   const dragBy = async (target: Locator, days: number, cardId: string): Promise<void> => {
+    // Wait for the bar to be stable and hittable before taking its coordinates.
+    await target.hover();
     const box = await target.boundingBox();
     if (!box) throw new Error('nothing to drag');
     const from = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
@@ -395,7 +398,7 @@ test('a bar dragged on the page, and an end of it, change the card on the server
   // One undo takes the last drag back, on the server too: once the page has
   // taken the answer to the last drag in as a step to undo (`data-settling`).
   await expect(page.locator('[data-settling]')).toHaveCount(0);
-  await answered(cider, () => page.keyboard.press('Control+z'));
+  await answered(cider, async () => page.keyboard.press(await primaryKey(page, 'z')));
   expect(await dueOf(cider)).toEqual({ from: '2026-11-15', to: '2026-11-20' });
   await page.reload();
   await expect(bar(page, 'Press cider')).toHaveAccessibleName(

@@ -7,6 +7,7 @@
  *
  * The chart is at the zoom of weeks: a day is 0.75rem, 12 pixels.
  */
+import { menuTo } from './keyboard.support.ts';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { viewIdOf } from './address.ts';
@@ -77,6 +78,7 @@ async function settled(page: Page): Promise<void> {
 
 /** Scrolls the days so that `target` is in the middle of what is in sight of them. */
 async function centre(page: Page, target: Locator): Promise<void> {
+  await target.scrollIntoViewIfNeeded();
   const box = await target.boundingBox();
   const titles = await gantt(page).locator('[data-gantt-corner]').boundingBox();
   const sight = await scroller(page).boundingBox();
@@ -93,6 +95,8 @@ async function centre(page: Page, target: Locator): Promise<void> {
 
 /** Presses on `target`, moves `days` days across in steps, and lets go. */
 async function dragBy(page: Page, target: Locator, days: number, beforeUp?: () => Promise<void>) {
+  // Hover waits for a stable, hittable bar before the coordinate-driven gesture.
+  await target.hover();
   const { width } = await dayScale(page);
   const from = await pointOn(target);
   await page.mouse.move(from.x, from.y);
@@ -254,6 +258,8 @@ test.describe('a mouse', () => {
     const lastBefore = (await gantt(page).getAttribute('data-last')) ?? '';
     const box = await scroller(page).boundingBox();
     if (!box) throw new Error('no chart');
+    // Hover waits for a stable, hittable bar before the coordinate-driven gesture.
+    await bar(page, 'Drag cards').hover();
     const from = await pointOn(bar(page, 'Drag cards'));
     await page.mouse.move(from.x, from.y);
     await page.mouse.down();
@@ -286,6 +292,8 @@ test.describe('a finger', () => {
     const finger = await Finger.on(page);
     const { width } = await dayScale(page);
 
+    // Start in the visible days: the initial bar can extend past a phone's right edge.
+    await centre(page, bar(page, 'Share a board'));
     // A swipe across a bar scrolls the chart and moves nothing.
     const left = await scroller(page).evaluate((element) => element.scrollLeft);
     const ended = await scrollEnd(page);
@@ -419,7 +427,7 @@ test('with the keys: Shift+F10 on a bar opens the card’s “…”, whose “C
   await page.keyboard.press('Shift+F10');
   const change = page.locator('[data-action="change-date"]');
   await expect(change).toHaveText('Change date');
-  await tabTo(page, change);
+  await menuTo(page, change);
   await page.keyboard.press('Enter');
 
   const picker = page.getByTestId('day-picker');

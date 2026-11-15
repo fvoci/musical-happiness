@@ -14,8 +14,17 @@
 import path from 'node:path';
 
 import { expect, test, type Locator, type Page } from '@playwright/test';
+
 import { ON_A_CARD, boardPath, viewAddress } from './address.ts';
 import { screensDir } from './screens.ts';
+import {
+  clipboardPermissions,
+  primaryKey,
+  primaryName,
+  documentBoundary,
+} from './keyboard.support.ts';
+import { scrollTo } from './scroll.support.ts';
+import { pressInBar } from './shell.support.ts';
 
 // The longer tests here take a dozen steps each. On a machine that is busy with
 // other work they have run past the default of thirty seconds without anything
@@ -274,6 +283,21 @@ test('closing: Escape and the button for a panel or a dialog, the arrow for a fu
   await page.mouse.click(20, 300);
   await expect(dialog(page)).toBeHidden();
   await expect(page).toHaveURL(board);
+});
+
+test('the menu of a card, put away without a choice, gives the focus back to its button', async ({
+  page,
+}) => {
+  await openTaskCard(page);
+  const button = page.getByTestId('card-menu');
+  // A press, not the keyboard: Safari does not focus a button it presses.
+  await button.click();
+  const line = page.locator('[data-action="delete"]');
+  await expect(line).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(line).toHaveCount(0);
+  await expect(dialog(page)).toBeVisible();
+  await expect(button).toBeFocused();
 });
 
 test('opened from the board: the dialog has the focus, back closes it, and the focus returns to the card', async ({
@@ -603,7 +627,7 @@ test('the body is sent as it is typed, and is there when the card is opened agai
   await expect(saveState(page)).toHaveText('');
 
   await editor.click();
-  await page.keyboard.press('Control+Home');
+  await documentBoundary(page, 'start');
   await page.keyboard.type('Typed and kept. ');
   await expect(saveState(page)).toHaveText('Saving…');
   await expect(saveState(page)).toHaveText('Saved');
@@ -633,10 +657,10 @@ test('two tabs edit one body together: each sees what the other types, and both 
   const theirs = await bodyEditor(other);
 
   await editor.click();
-  await page.keyboard.press('Control+Home');
+  await documentBoundary(page, 'start');
   await page.keyboard.type('From the first tab. ');
   await theirs.click();
-  await other.keyboard.press('Control+End');
+  await documentBoundary(other, 'end');
   await other.keyboard.type(' From the second tab.');
 
   for (const shown of [editor, theirs]) {
@@ -663,7 +687,7 @@ test('a body written whole elsewhere while the reader types: the new text shows,
 
   // The editor takes typing again, and it is kept.
   await (await bodyEditor(page)).click();
-  await page.keyboard.press('Control+End');
+  await documentBoundary(page, 'end');
   await page.keyboard.type(' and mine after');
   await expect(saveState(page)).toHaveText('Saved');
   await expect
@@ -680,7 +704,7 @@ test('somebody else changes only a property while the reader writes: both are ke
     window.fvociDev.backend.latency = 1000;
   });
   await editor.click();
-  await page.keyboard.press('Control+Home');
+  await documentBoundary(page, 'start');
   await page.keyboard.type('Written meanwhile. ');
   await page.evaluate(async ({ boardId, cardId }) => {
     await window.fvociDev.someoneElse().patchCard(boardId, cardId, { title: 'Renamed by them' });
@@ -707,7 +731,7 @@ test('the reader stays in the body when the room sends it anew, with the caret w
   const place = await openTaskCard(page);
   const editor = await bodyEditor(page);
   await editor.click();
-  await page.keyboard.press('Control+Home');
+  await documentBoundary(page, 'start');
   await page.keyboard.type('Mine ');
   // In the card already: what follows loses nothing.
   await expect.poll(async () => textOf((await stored(page, place)).body)).toContain('Mine ');
@@ -755,7 +779,7 @@ async function replacedWhileTyping(page: Page, place: Place, editor: Locator): P
     window.fvociDev.backend.latency = 1500;
   });
   await editor.click();
-  await page.keyboard.press('Control+Home');
+  await documentBoundary(page, 'start');
   await page.keyboard.type('Mine. ');
   await writtenWholeElsewhere(page, place, paragraph('Theirs'));
   await expect(page.getByTestId('body-lost')).toBeVisible({ timeout: 15_000 });
@@ -768,6 +792,7 @@ async function replacedWhileTyping(page: Page, place: Place, editor: Locator): P
 
 test('the window changes size under an open card: the text, the caret, the focus and the scroll position stay', async ({
   page,
+  browserName,
 }) => {
   const SIZES = [
     { width: 360, height: 780, frame: 'full' },
@@ -786,7 +811,7 @@ test('the window changes size under an open card: the text, the caret, the focus
   // A comment that is being written, then the caret in the middle of what was typed into the body.
   await commentField(page).fill('half a comment');
   await editor.click();
-  await page.keyboard.press('Control+Home');
+  await documentBoundary(page, 'start');
   await page.keyboard.type('ABCDEF ');
   for (let step = 0; step < 4; step += 1) await page.keyboard.press('ArrowLeft');
   await expect(editor).toContainText('ABCDEF');
@@ -812,10 +837,13 @@ test('the window changes size under an open card: the text, the caret, the focus
   const scrollTop = (): Promise<number> => scroller(page).evaluate((element) => element.scrollTop);
   const scrollMax = (): Promise<number> =>
     scroller(page).evaluate((element) => element.scrollHeight - element.clientHeight);
-  await scroller(page).evaluate((element) => {
-    element.scrollTop = 120;
-  });
+  await scrollTo(scroller(page), 0, 120);
   expect(await scrollTop()).toBe(120);
+  // WebKit's scroll anchoring moves the place when the frame changes (styles/app.css, `webkit:`);
+  // the other engines keep theirs.
+  expect(await scroller(page).evaluate((element) => getComputedStyle(element).overflowAnchor)).toBe(
+    browserName === 'webkit' ? 'none' : 'auto',
+  );
 
   // Round the sizes with the caret in the body. A letter typed after each change lands at the caret.
   let typed = '';
@@ -907,10 +935,22 @@ test('comments: written with the button and with Ctrl+Enter, lines become paragr
     ],
   });
 
+  const modifier = await primaryName(page);
+  await expect(commentField(page)).toHaveAttribute(
+    'title',
+    modifier === 'Meta' ? '⌘Enter sends' : 'Ctrl+Enter sends',
+  );
+  await expect(commentField(page)).toHaveAttribute('aria-keyshortcuts', `${modifier}+Enter`);
+  await commentField(page).fill('The other modifier does not send');
+  await commentField(page).press(`${modifier === 'Meta' ? 'Control' : 'Meta'}+Enter`);
+  await expect(list).toHaveCount(count + 1);
+  await expect(commentField(page)).not.toHaveValue('');
   await commentField(page).fill('With the keyboard');
-  await commentField(page).press('Control+Enter');
+  await commentField(page).press(await primaryKey(page, 'Enter'));
   await expect(list).toHaveCount(count + 2);
   await expect(list.last()).toContainText('With the keyboard');
+  // Sent after the other modifier was pressed, and alone: that press sent nothing.
+  await expect(list.filter({ hasText: 'The other modifier does not send' })).toHaveCount(0);
   // The newest comment is in sight.
   await expect(list.last()).toBeInViewport();
 
@@ -1215,12 +1255,12 @@ test('the menu deletes the card without asking, the card closes, and undo brings
   await expect(onBoard).toHaveCount(0);
   await expect(page).toHaveURL(viewAddress(place.boardId, place.viewId));
 
-  await page.getByRole('button', { name: 'Undo' }).click();
+  await pressInBar(page, 'undo');
   await expect(onBoard).toHaveCount(1);
 });
 
-test('the menu copies the link to the card', async ({ page, context }) => {
-  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+test('the menu copies the link to the card', async ({ page, context, browserName }) => {
+  await context.grantPermissions(clipboardPermissions(browserName));
   const place = await openTaskCard(page);
   await cardMenu(page, 'copy-link');
   await expect(saveState(page)).toHaveText('Copied!');

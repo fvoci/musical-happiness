@@ -6,6 +6,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { boardPath } from './address.ts';
+import { documentBoundary } from './keyboard.support.ts';
 import { openApp } from './shell.support.ts';
 import {
   goInside,
@@ -57,7 +58,7 @@ const offered = (page: Page): Locator => page.locator('[data-suggestions="refere
 /** Puts a reference at the end of `body` to what `[[` finds for `title`. */
 async function name(page: Page, body: Locator, title: string): Promise<void> {
   await body.click();
-  await page.keyboard.press('ControlOrMeta+End');
+  await documentBoundary(page, 'end');
   await page.keyboard.type(` [[${title.toLowerCase()}`);
   const option = offered(page).getByRole('option', { name: new RegExp(title) });
   await expect(option).toHaveCount(1);

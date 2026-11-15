@@ -4,6 +4,8 @@
  * one's message has the sidebar read between them): it is not shown, and the
  * sidebar is read again once the last write has ended.
  */
+import type { Category } from './backend.ts';
+
 export class SidebarWrites {
   /** Writes ever begun: a reading begun before one of them is older than it. */
   begun = 0;
@@ -14,6 +16,14 @@ export class SidebarWrites {
   /** `readAgain` reads the sidebar anew. */
   constructor(readAgain: () => void) {
     this.#readAgain = readAgain;
+  }
+
+  /** Earlier echoes wait while a write is pending, just as a reading does. */
+  accepts(categories: readonly Category[], workspaceId: string | undefined): boolean {
+    return (
+      categories.every((one) => one.workspaceId === workspaceId) &&
+      this.reading(this.begun) === 'show'
+    );
   }
 
   begin(): void {

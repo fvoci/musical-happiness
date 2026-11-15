@@ -19,6 +19,8 @@ import {
   bars,
   calendar,
   CALENDAR_PAGE,
+  CROWD,
+  crowdable,
   day,
   dayList,
   grid,
@@ -29,6 +31,7 @@ import {
   wide,
 } from './calendar.support.ts';
 import { boardPage, dialog, fitPane, openView, touch } from './kanban.support.ts';
+import { tabKey } from './keyboard.support.ts';
 import { screensDir } from './screens.ts';
 
 test.use(CALENDAR_PAGE);
@@ -122,17 +125,10 @@ test('a day with more cards than rows says "+N", and the day lists them all', as
   page,
 }, info) => {
   await openCalendar(page, info);
-  if (!wide(info)) await fitPane(page, 700);
+  await crowdable(page, info);
   // As many more cards as the cells have rows: two cards on the day are already there.
   const lanes = Number(await grid(page).getAttribute('data-lanes'));
-  const crowd = [
-    'Manage tasks with cards',
-    'Create your own board',
-    'Share cards on Channels',
-    'Create a new view',
-    'Add new properties',
-    '@mention teammates',
-  ].slice(0, lanes);
+  const crowd = CROWD.slice(0, lanes);
   expect(crowd).toHaveLength(lanes);
   await setDates(page, Object.fromEntries(crowd.map((title) => [title, { from: '2026-11-12' }])));
   const more = grid(page).locator('[data-more="2026-11-12"]');
@@ -233,7 +229,7 @@ test('the days are one stop of Tab, and the arrows walk them into the next month
   // From the last button of the row above, one Tab is on the picked day: the other days
   // are not stops (bars are stops of their own; the first week has none here).
   await page.getByTestId('calendar-undated').focus();
-  await page.keyboard.press('Tab');
+  await page.keyboard.press(await tabKey(page));
   await expect(page.locator(':focus')).toHaveAccessibleName(/Tuesday, November 10/);
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press('ArrowRight');
@@ -322,8 +318,8 @@ test('the cards without a date are counted in the row and listed on asking (C16)
     await expect(page.getByTestId('day-popover')).toHaveCount(0);
     await expect(panel).toBeVisible();
     // Shift+Tab out of the column into the grid it covers closes it.
-    await page.keyboard.press('Shift+Tab');
-    await page.keyboard.press('Shift+Tab');
+    await page.keyboard.press(await tabKey(page, true));
+    await page.keyboard.press(await tabKey(page, true));
     await expect(panel).toHaveCount(0);
   }
   // A card given a date leaves the list; one opened from it gives the focus back to "No date".

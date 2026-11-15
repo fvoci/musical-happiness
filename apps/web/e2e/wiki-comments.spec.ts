@@ -14,7 +14,8 @@ import path from 'node:path';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { screensDir } from './screens.ts';
-import { openApp, topBar } from './shell.support.ts';
+import { primaryKey } from './keyboard.support.ts';
+import { openApp, pressInBar } from './shell.support.ts';
 import {
   goInside,
   letSomebodyElseIn,
@@ -143,7 +144,7 @@ test('a comment is written below the page, changed, read as it was, and deleted'
   await row.locator('[data-action="edit"]').click();
   const field = row.getByRole('textbox', { name: 'Comment text' });
   await field.fill('A second thought');
-  await field.press('Control+Enter');
+  await field.press(await primaryKey(page, 'Enter'));
   await expect(row).toContainText('A second thought');
   await expect(row.getByTestId('comment-edited')).toBeVisible();
   await row.locator('[data-action="history"]').click();
@@ -151,7 +152,7 @@ test('a comment is written below the page, changed, read as it was, and deleted'
   // Deleted at once, as a card's; "Undo" brings it back, as it was.
   await row.getByRole('button', { name: /^Delete the comment from/ }).click();
   await expect(commentRows(page)).toHaveCount(0);
-  await topBar(page).getByTestId('undo').click();
+  await pressInBar(page, 'undo');
   await expect(commentRows(page)).toHaveCount(1);
   await expect(commentRows(page).first()).toContainText('A second thought');
   await expect(commentRows(page).first().getByTestId('comment-edited')).toBeVisible();

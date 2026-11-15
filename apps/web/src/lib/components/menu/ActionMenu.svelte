@@ -41,6 +41,8 @@
   }: Props = $props();
 
   const shown = $derived(presentation ?? overlayPresentation(page.stage));
+  /** What opened the sheet, for the focus to come back to: Safari does not focus a pressed button. */
+  let opener: HTMLElement | null = null;
 
   function choose(action: MenuAction): void {
     open = false;
@@ -52,11 +54,15 @@
   {@render trigger({
     'aria-haspopup': 'dialog',
     'aria-expanded': open,
+    // In the capture phase: a trigger may put its own `onclick` in place of this one's.
+    onclickcapture: (event: MouseEvent) => {
+      opener = event.currentTarget as HTMLElement;
+    },
     onclick: () => {
       open = true;
     },
   })}
-  <BottomSheet bind:open {title} {subtitle}>
+  <BottomSheet bind:open {title} {subtitle} returnFocus={() => opener}>
     <ul class="px-2 pb-2" role="menu" aria-label={title}>
       {#each actions as action (action.id)}
         {@const Icon = action.icon}

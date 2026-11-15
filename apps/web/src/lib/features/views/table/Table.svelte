@@ -16,7 +16,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
 
-  import { isComposing } from '$lib/components/keys.ts';
+  import { isComposing, primaryModifier } from '$lib/keys.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type { CalculationOption } from '$lib/logic/properties.ts';
   import { TITLE_COLUMN_ID } from '$lib/logic/wire.ts';
@@ -107,12 +107,14 @@
       }
       return;
     }
-    if (event.altKey || event.metaKey || event.shiftKey) return;
+    if (event.altKey || event.shiftKey) return;
+    const primary = primaryModifier(event);
+    if ((event.ctrlKey || event.metaKey) && !primary) return;
     if (isMoveKey(event.key)) {
       event.preventDefault();
-      const next = grid.next(cell, event.key, event.ctrlKey);
+      const next = grid.next(cell, event.key, primary);
       if (next && next !== cell) grid.focus(next);
-    } else if (event.ctrlKey) {
+    } else if (primary) {
       return;
     } else if (event.key === 'Enter' || event.key === 'F2') {
       event.preventDefault();
@@ -175,7 +177,7 @@
     data-drag-scroll={columnDrag ? 'x' : 'y'}
     data-dragging={(rowDrag ?? columnDrag)?.mode}
     class={[
-      'group/table h-full scroll-py-9 overflow-auto overscroll-contain [--table-title:10rem] @columns/pane:[--table-title:14rem] @header/pane:[--table-title:22rem] roomy:scroll-py-11',
+      'group/table h-full scroll-py-9 overflow-auto overscroll-contain [--table-title:10rem] @columns/pane:[--table-title:14rem] @header/pane:[--table-title:22rem] webkit:[overflow-anchor:none] roomy:scroll-py-11',
       (rowDrag ?? columnDrag)?.mode === 'pointer' && 'cursor-grabbing',
     ]}
     style:--table-columns={table.template}

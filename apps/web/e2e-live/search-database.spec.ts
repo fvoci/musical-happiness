@@ -7,6 +7,8 @@
  */
 import { expect, test, type APIRequestContext } from '@playwright/test';
 
+import { primaryKey } from '../e2e/keyboard.support.ts';
+
 import { apiClient, makeBoard, person, signInOnPage, watchErrors, type Person } from './support.ts';
 import type { Schemas } from './support.ts';
 
@@ -71,7 +73,7 @@ test('without a search server a card is found by the letters of its body and ope
   await page.goto('/');
   await signInOnPage(page, owner);
   await expect(page.getByTestId('open-search')).toBeVisible();
-  await page.keyboard.press('Control+k');
+  await page.keyboard.press(await primaryKey(page, 'k'));
   await page.getByTestId('search-field').fill(word);
   const dialog = page.getByTestId('search-dialog');
   await expect(dialog).toHaveAttribute('data-status', 'found');

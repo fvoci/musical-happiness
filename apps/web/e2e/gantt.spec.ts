@@ -23,6 +23,7 @@ import {
   type Dev,
 } from './gantt.support.ts';
 import { dialog, openView } from './kanban.support.ts';
+import { tabKey } from './keyboard.support.ts';
 import { screensDir } from './screens.ts';
 
 test.use({ timezoneId: 'Asia/Seoul', locale: 'en-US' });
@@ -202,9 +203,9 @@ test('the bars are one stop of Tab, the arrows walk them, and a bar opens its ca
   await expect(stops).toHaveCount(1);
   // From the last button of the row above, Tab goes to the one bar and then out of the chart.
   await page.getByTestId('gantt-undated').focus();
-  await page.keyboard.press('Tab');
+  await page.keyboard.press(await tabKey(page));
   await expect(bars(page).first()).toBeFocused();
-  await page.keyboard.press('Tab');
+  await page.keyboard.press(await tabKey(page));
   await expect(scroller(page).locator(':focus')).toHaveCount(0);
   // The titles are for a pointer: none is in the order of Tab.
   await expect(gantt(page).locator('[data-row-title]:not([tabindex="-1"])')).toHaveCount(0);
@@ -257,7 +258,7 @@ test('the title of a row opens its card, and gives the focus back without scroll
   await expect(title).toBeFocused();
   expect(await scroller(page).evaluate((element) => element.scrollLeft)).toBe(before);
   // Tab goes on from the row: to its bar.
-  await page.keyboard.press('Tab');
+  await page.keyboard.press(await tabKey(page));
   await expect(bar(page, 'Filter and sort cards')).toBeFocused();
 });
 

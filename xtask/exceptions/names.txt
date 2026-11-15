@@ -210,7 +210,7 @@ crates/store/src/board_membership.rs | team_role
 crates/store/src/board_membership.rs | board_team_access::
 crates/store/src/invitations.rs | team_role
 crates/store/src/invitations.rs | board_team_access::
-crates/store/src/invitations.rs | team changes hold
+crates/store/src/link_locks.rs | team changes hold
 crates/store/src/observe.rs | TeamSelfJoining
 crates/server/src/error.rs | teamselfjoining
 crates/server/src/error.rs | team_self_joining

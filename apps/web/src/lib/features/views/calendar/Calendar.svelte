@@ -35,6 +35,7 @@
 
   import { faceProperties } from '$lib/components/card-face/face.ts';
   import BottomSheet from '$lib/components/sheet/BottomSheet.svelte';
+  import { focusAdrift } from '$lib/layout/focus.ts';
   import { overlayPresentation } from '$lib/layout/presentation.ts';
   import { fingerPointer, page, PaneRoom } from '$lib/layout/room.svelte.ts';
   import {
@@ -220,7 +221,7 @@
     });
     // A card given a date leaves "No date", and the focus on its line with it.
     await tick();
-    if (document.activeElement === document.body) undated.button?.focus();
+    if (focusAdrift(undated.button)) undated.button?.focus();
   }
 
   /**
@@ -449,6 +450,7 @@
 {#if sheet}
   <BottomSheet
     bind:open={undated.open}
+    returnFocus={() => undated.button}
     title={m.calendar_undated_count({ count: placed.undated.length })}
   >
     <Undated {...rows} onOpenCard={(cardId: string) => void undated.openCard(cardId)} />

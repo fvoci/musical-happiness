@@ -18,7 +18,7 @@
   import { onDestroy } from 'svelte';
 
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
-  import { isComposing } from '$lib/components/keys.ts';
+  import { isComposing } from '$lib/keys.ts';
   import ActionMenu from '$lib/components/menu/ActionMenu.svelte';
   import type { MenuAction } from '$lib/components/menu/actions.ts';
   import { PickerPresentation } from '$lib/components/picker-surface/default-presentation.svelte.ts';

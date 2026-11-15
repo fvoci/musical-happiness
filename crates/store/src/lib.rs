@@ -38,6 +38,7 @@ mod file_refs;
 mod invitations;
 mod invited_signups;
 mod joinings;
+mod link_locks;
 mod linked_blocks;
 mod loose_objects;
 mod members;

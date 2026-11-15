@@ -5,59 +5,8 @@
  */
 import { expect, test, type Page } from '@playwright/test';
 
+import { othersArrive, type Dev } from './presence.support.ts';
 import { boardLink, openApp, READ_ONLY_BOARD, showSidebar, topBar } from './shell.support.ts';
-
-interface Dev {
-  workspace: {
-    me?: { id: string };
-    board: {
-      boardId: string;
-      board: { workspaceId: string };
-      members: { userId: string }[];
-      addMember(userId: string, role: string): Promise<void>;
-    };
-  };
-  backend: {
-    world: { users: Map<string, Record<string, unknown>> };
-    as(userId: string): {
-      presence: { setPresence(visit: { workspaceId: string; boardId: string } | null): void };
-    };
-  };
-}
-
-/**
- * Makes `count` other users (made in the world where it has too few) members of the
- * open board and has them come onto it; the number of its members then.
- */
-async function othersArrive(page: Page, count: number): Promise<number> {
-  return page.evaluate(async (wanted) => {
-    const dev = (window as unknown as { fvociDev: Dev }).fvociDev;
-    const { users } = dev.backend.world;
-    for (let made = users.size; made <= wanted; made += 1) {
-      const id = crypto.randomUUID();
-      users.set(id, {
-        id,
-        username: `visitor${String(made)}`,
-        email: `visitor${String(made)}@example.com`,
-        createAt: 0,
-        updateAt: 0,
-        deleteAt: 0,
-      });
-    }
-    const store = dev.workspace.board;
-    const others = [...users.keys()].filter((id) => id !== dev.workspace.me?.id).slice(0, wanted);
-    for (const id of others) {
-      if (!store.members.some((member) => member.userId === id))
-        await store.addMember(id, 'editor');
-    }
-    // Kept on the page: a visit lasts as long as its presence is not let go of.
-    const visits = others.map((id) => dev.backend.as(id).presence);
-    for (const presence of visits)
-      presence.setPresence({ workspaceId: store.board.workspaceId, boardId: store.boardId });
-    Object.assign(window, { visits });
-    return store.members.length;
-  }, count);
-}
 
 const people = (page: Page) => topBar(page).getByTestId('board-people');
 const presence = (page: Page) => topBar(page).getByTestId('board-presence');
@@ -72,6 +21,7 @@ test('alone, the head of the board shows nobody here and the number of members',
   const members = await page.evaluate(
     () => (window as unknown as { fvociDev: Dev }).fvociDev.workspace.board.members.length,
   );
+  // In a narrow pane the button shows a figure and the number; its name is the same.
   await expect(topBar(page).getByTestId('board-members-count')).toHaveAccessibleName(
     `Members ${members}`,
   );
@@ -96,14 +46,30 @@ test('five faces in a wide pane and two in a narrow one, then the rest as a numb
   );
   await expect(faces(page)).toHaveCount(5);
   await expect(plus(page)).toHaveText('+2');
-  await expect(topBar(page).getByTestId('board-members-count')).toHaveAccessibleName(
-    `Members ${members}`,
-  );
+  const count = topBar(page).getByTestId('board-members-count');
+  await expect(count).toHaveText(`Members ${members}`, { useInnerText: true });
+  // Wide, the members have their own button: the list of who is here does not end in them
+  // again (it opens outside the pane, where the pane's container queries do not reach).
+  await presence(page).click();
+  await expect(page.getByTestId('presence-list')).toBeVisible();
+  await expect(page.getByTestId('presence-members')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('presence-list')).toHaveCount(0);
 
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(faces(page)).toHaveCount(2);
   await expect(plus(page)).toHaveText('+5');
-  await expect(topBar(page).getByTestId('board-members-count')).toBeVisible();
+  // Narrow, with others here, the faces alone keep the title its room; their list ends in
+  // the members, which open the sharing dialog at its members.
+  await expect(count).toBeHidden();
+  await presence(page).click();
+  await page.getByTestId('presence-members').click();
+  await expect(page.getByTestId('share-dialog')).toBeVisible();
+  // Once the list's sheet has gone too: it gives the focus back to the faces as it goes, which
+  // must not pull it out of the dialog.
+  await expect(page.getByTestId('presence-list')).toHaveCount(0);
+  await expect(page.getByTestId('bottom-sheet')).toHaveCount(0);
+  await expect(page.getByTestId('share-members-title')).toBeFocused();
 });
 
 test('the number of members opens the sharing dialog at its members', async ({ page }) => {

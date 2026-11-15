@@ -5,6 +5,7 @@
  * editor and in the read-only view of somebody who may only look.
  */
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { documentBoundary } from '../e2e/keyboard.support.ts';
 
 import {
   boardPath,
@@ -257,7 +258,7 @@ test('an image going up lands where it was put while somebody else writes above 
 
     // Meanwhile the other writes two lines above it.
     await editorOf(second).click();
-    await second.keyboard.press('Control+Home');
+    await documentBoundary(second, 'start');
     await second.keyboard.type('Day one');
     await second.keyboard.press('Enter');
     await second.keyboard.type('Day two');

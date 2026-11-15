@@ -502,3 +502,53 @@ async fn across_organizations(th: &TestServer, smtp: &FakeSmtp, org: &Org) {
     confirmed.check_status(StatusCode::OK);
     assert_eq!(confirmed.value()["organizationStarted"], true, "its own");
 }
+
+/// Previews the link of `token` as a browser that sends a session and a registration's marker, while
+/// the table of the sessions is out of the store's reach: a lookup of the session fails.
+async fn preview_without_sessions(th: &TestServer, token: &str, session: &str) -> ApiResponse {
+    let rename = async |from: &str, to: &str| {
+        th.app
+            .store()
+            .execute_unchecked(&format!("ALTER TABLE {from} RENAME TO {to}"))
+            .await
+            .expect("the table of the sessions is renamed");
+    };
+    let cookie = format!("{SESSION_COOKIE}={session}; {SIGNUP_COOKIE}=a-marker");
+    let request = th
+        .anonymous()
+        .request(Method::POST, "/invitations/preview")
+        .header("Cookie", cookie)
+        .json(&json!({"token": token}));
+    rename("sessions", "sessions_away").await;
+    let response = Client::send(request).await;
+    rename("sessions_away", "sessions").await;
+    response
+}
+
+/// A server that confirms no address replaces no registration: the preview of a link
+/// does not look the session up, whatever cookies come with it. With the sessions out
+/// of reach it is shown as ever.
+#[tokio::test]
+async fn a_preview_on_a_server_that_confirms_no_address_asks_for_no_session() {
+    let th = Setup::native().start().await.init_basic().await;
+    let token = th.member_link().await;
+    let response = preview_without_sessions(&th, &token, &th.client.token).await;
+    response.check_status(StatusCode::OK);
+    th.teardown().await;
+}
+
+/// On a server that confirms addresses the preview asks who is signed in of a browser
+/// with a registration's marker. A store that fails then is an error of the server,
+/// not a browser without a session: answered as one, the link would be shown to
+/// register by while the browser holds a session.
+#[tokio::test]
+async fn a_preview_whose_session_cannot_be_looked_up_is_an_error_of_the_server() {
+    let smtp = FakeSmtp::start_on(0).await;
+    let th = verifying(&smtp).await;
+    let org = Org::found(&th, &smtp, "ada").await;
+    let token = org.member_link().await.token.expect("the link's token");
+    let response = preview_without_sessions(&th, &token, &org.founder.token).await;
+    response.check_error(StatusCode::INTERNAL_SERVER_ERROR, "internal server error");
+    th.teardown().await;
+    smtp.stop().await;
+}

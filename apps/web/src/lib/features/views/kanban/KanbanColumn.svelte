@@ -19,7 +19,7 @@
 
   import CardFace from '$lib/components/card-face/CardFace.svelte';
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
-  import { isComposing } from '$lib/components/keys.ts';
+  import { isComposing } from '$lib/keys.ts';
   import OptionChip from '$lib/components/option-chip/OptionChip.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type { BoardGroup } from '$lib/logic/group.ts';

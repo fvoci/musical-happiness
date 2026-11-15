@@ -264,7 +264,7 @@ impl App {
             } else {
                 Addresses::PublicOnly
             },
-            &config.oidc_extra_root_certificates,
+            &config.oidc_trusted_roots()?,
         )
         .context("unable to set up the client of the providers")?;
         let part_memory = uploads::part_memory_kib(config.upload_part_bytes);

@@ -16,6 +16,7 @@ import path from 'node:path';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { boardPath } from './address.ts';
+import { documentBoundary, engineOf, lineBoundary } from './keyboard.support.ts';
 import { scrollTo, uncovered } from './carets.support.ts';
 import { screensDir } from './screens.ts';
 
@@ -77,11 +78,17 @@ async function twoTabs(
   await other.goto(boardPath(place.boardId, place.viewId, place.cardId));
   const theirs = await bodyEditor(other);
   if (body) {
-    await mine.click();
-    await page.keyboard.press('Control+A');
+    // Chosen whole by the page, not by a key: with an iPhone's or iPad's identity on Linux's
+    // WebKit the editor reads Apple from the User-Agent and touch, and takes Ctrl+A for the
+    // start of the line, while the platform (and so the key pressed) says Linux.
+    await mine.selectText();
     await page.keyboard.press('Delete');
     for (const [index, line] of body.entries()) {
-      if (index > 0) await page.keyboard.press('Enter');
+      if (index > 0) {
+        await page.keyboard.press('Enter');
+        // WebKit takes text sent at once after Enter into the line it left.
+        await expect(mine.locator('p')).toHaveCount(index + 1);
+      }
       await page.keyboard.insertText(line);
     }
     await expect(mine.locator('p')).toHaveText(body);
@@ -147,12 +154,12 @@ test("each tab shows where the other is, with the reader's name for a while afte
   await expect(nameOf(mine)).toHaveCSS('opacity', '0');
   await expect(caret(mine)).toHaveCount(1);
   // They write: the caret follows, and the name is back.
-  await other.keyboard.press('End');
+  await lineBoundary(other, 'end');
   await other.keyboard.type(' More.');
   await expect(mine.locator('p').nth(1)).toHaveText('The second line. More.');
   await expect(caret(mine)).toHaveAttribute('data-named', '');
   // A selection of theirs is tinted.
-  await other.keyboard.press('Shift+Home');
+  await lineBoundary(other, 'start', { select: true });
   await expect(mine.locator('.doc-caret-selection').first()).toBeVisible();
 
   // Both ways: the first tab's caret shows in the second.
@@ -173,17 +180,17 @@ test('a name is not cut off at the edges: under the first line, and moved left a
   const { mine, theirs, other } = await twoTabs(page, ['W'.repeat(400), 'Below.']);
   // At the very start of the body: nothing above to draw on.
   await theirs.locator('p').first().click();
-  await other.keyboard.press('Control+Home');
+  await documentBoundary(other, 'start');
   await expect(caret(mine)).toHaveAttribute('data-below', '');
   await inside(mine);
   // One letter before the end of the first row of the word: at the right edge. (The very end
   // of a row is the start of the next, where a caret is drawn.)
-  await other.keyboard.press('End');
+  await lineBoundary(other, 'end');
   await other.keyboard.press('ArrowLeft');
   await inside(mine);
   await expect.poll(() => moved(mine)).toBeLessThan(0);
   // In the line below there is room above, once it is in sight.
-  await other.keyboard.press('Control+End');
+  await documentBoundary(other, 'end');
   // (On a phone the long word's rows take it out of sight: it is scrolled back into it.)
   await mine.locator('p').nth(1).scrollIntoViewIfNeeded();
   await expect(caret(mine)).not.toHaveAttribute('data-below', '');
@@ -199,13 +206,13 @@ test('a name is not cut off at the top of a body scrolled in its card, drawn or 
   // The first tab's body is scrolled until the thirtieth line is the first one seen.
   expect(await scrollTo(mine.locator('p').nth(29))).toBe(true);
   await theirs.locator('p').nth(29).click();
-  await other.keyboard.press('End');
+  await lineBoundary(other, 'end');
   await expect(caret(mine)).toHaveAttribute('data-named', '');
   await expect(caret(mine)).toHaveAttribute('data-below', '');
   await expect.poll(() => uncovered(mine)).toBe(true);
   // Drawn above a line in sight, the name goes under it as that line is scrolled to the top.
   await theirs.locator('p').nth(33).click();
-  await other.keyboard.press('End');
+  await lineBoundary(other, 'end');
   await expect(caret(mine)).not.toHaveAttribute('data-below', '');
   await expect(caret(mine)).toHaveAttribute('data-named', '');
   expect(await scrollTo(mine.locator('p').nth(33))).toBe(true);
@@ -218,14 +225,14 @@ test('a name finds its place again when the window is another width', async ({ p
   const { mine, theirs, other } = await twoTabs(page, ['Short.', 'Below.']);
   await page.setViewportSize({ width: 1280, height: 800 });
   await theirs.locator('p').first().click();
-  await other.keyboard.press('End');
+  await lineBoundary(other, 'end');
   await expect(caret(mine)).toHaveAttribute('data-named', '');
   // Wide, there is room to the right of a short line; narrow, there is none, and the name
   // is moved left as far as it takes, never past the left edge.
   await expect.poll(() => moved(mine)).toBe(0);
   for (const width of [390, 150]) {
     await page.setViewportSize({ width, height: 800 });
-    await other.keyboard.press('End');
+    await lineBoundary(other, 'end');
     await inside(mine);
   }
   await expect.poll(() => moved(mine)).toBeLessThan(0);
@@ -256,6 +263,11 @@ test('a caret never blinks, and its name does not fade for a reader who asked fo
 test('a syllable being composed is kept while the other moves and writes in the same line', async ({
   page,
 }) => {
+  const engine = engineOf(page);
+  test.skip(
+    engine !== 'chromium',
+    `an input method is driven through Chromium's protocol; ${engine ?? 'this browser'} has none`,
+  );
   const { mine, theirs, other } = await twoTabs(page, ['가나다 라마바', 'Below.']);
   const ime = await page.context().newCDPSession(page);
   const compose = (text: string): Promise<unknown> =>
@@ -268,7 +280,7 @@ test('a syllable being composed is kept while the other moves and writes in the 
 
   // The reader composes at the end of the first line: ㅎ, 하.
   await mine.locator('p').first().click();
-  await page.keyboard.press('End');
+  await lineBoundary(page, 'end');
   await compose('ㅎ');
   await compose('하');
   await expect(mine.locator('p').first()).toHaveText('가나다 라마바하');
@@ -276,12 +288,12 @@ test('a syllable being composed is kept while the other moves and writes in the 
   // Meanwhile the other comes into the same line (their caret is told at once; the editor
   // draws it into the line being composed when it can).
   await theirs.locator('p').first().click();
-  await other.keyboard.press('Home');
+  await lineBoundary(other, 'start');
   await other.keyboard.press('ArrowRight');
   // They write there, and in another line. Neither is in the reader's body while the syllable
   // is being composed (each stroke says it still is).
   await other.keyboard.type('앞에 ');
-  await other.keyboard.press('Control+End');
+  await documentBoundary(other, 'end');
   await other.keyboard.type(' 아래.');
   await expect(theirs.locator('p')).toHaveText(['가앞에 나다 라마바하', 'Below. 아래.']);
   await compose('한');
@@ -289,7 +301,7 @@ test('a syllable being composed is kept while the other moves and writes in the 
   // have not been. A caret is not held back, and what the room says is heard in its order:
   // once that caret is in the reader's page, all they wrote has come, and waits.
   await expect(other.getByTestId('card-body')).not.toHaveAttribute('data-pending');
-  await other.keyboard.press('Home');
+  await lineBoundary(other, 'start');
   await expect.poll(() => ahead(mine.locator('p').nth(1))).toBe('');
   await expect(mine.locator('p')).toHaveText(['가나다 라마바한', 'Below.']);
 
@@ -305,7 +317,7 @@ test('a syllable being composed is kept while the other moves and writes in the 
     await expect(body.locator('p')).toHaveText(['가앞에 나다 라마바한글', 'Below. 아래.']);
   }
   // The other's caret is where they go, also behind what waited when it was written.
-  await other.keyboard.press('End');
+  await lineBoundary(other, 'end');
   await expect.poll(() => ahead(mine.locator('p').nth(1))).toBe('Below. 아래.');
   await other.close();
 });
@@ -313,7 +325,7 @@ test('a syllable being composed is kept while the other moves and writes in the 
 test('a move of the caret by a key is kept while the other writes and moves', async ({ page }) => {
   const { mine, theirs, other } = await twoTabs(page, ['a'.repeat(24), 'Below.']);
   await theirs.locator('p').nth(1).click();
-  await other.keyboard.press('End');
+  await lineBoundary(other, 'end');
   await mine.locator('p').first().click();
 
   // The other writes without a pause: every letter changes the body and moves their caret,
@@ -328,7 +340,7 @@ test('a move of the caret by a key is kept while the other writes and moves', as
   try {
     // While they write, and no fewer than these.
     for (let round = 0; round < 12 || (still.writing && round < 60); round += 1) {
-      await page.keyboard.press('Home');
+      await lineBoundary(page, 'start');
       for (let step = 0; step < 20; step += 1) await page.keyboard.press('ArrowRight');
       expect(await page.evaluate(() => getSelection()?.anchorOffset)).toBe(20);
     }
@@ -361,15 +373,15 @@ test('the pictures of the carets', async ({ page }, testInfo) => {
         });
       };
       await theirs.locator('p').nth(1).click();
-      await other.keyboard.press('Home');
-      await other.keyboard.press('Shift+End');
+      await lineBoundary(other, 'start');
+      await lineBoundary(other, 'end', { select: true });
       await shot('selection');
-      await other.keyboard.press('Control+Home');
-      await other.keyboard.press('End');
+      await documentBoundary(other, 'start');
+      await lineBoundary(other, 'end');
       await other.keyboard.press('ArrowLeft');
       await expect.poll(() => moved(mine)).toBeLessThan(0);
       await shot('right-edge');
-      await other.keyboard.press('Control+Home');
+      await documentBoundary(other, 'start');
       await expect(caret(mine)).toHaveAttribute('data-below', '');
       await shot('first-line');
       await other.close();

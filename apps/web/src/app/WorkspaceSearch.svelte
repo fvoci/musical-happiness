@@ -1,6 +1,6 @@
 <!--
   The search of the workspace's cards and pages, where the features meet:
-  its button (in the top bar), its keys (⌘K, Ctrl+K), its dialog, and going
+  its button (in the top bar), its keys (⌘K on Apple's devices, Ctrl+K elsewhere), its dialog, and going
   to what it found by the router.
 
   Only where the server says it searches bodies (`searchEnabled`, which
@@ -19,7 +19,11 @@
   import SearchIcon from '@lucide/svelte/icons/search';
 
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
-  import { opensSearch, searchKeysLabel } from '$lib/features/search/search-keys.ts';
+  import {
+    opensSearch,
+    searchKeysLabel,
+    searchKeysNames,
+  } from '$lib/features/search/search-keys.ts';
   import { SearchSession } from '$lib/features/search/search-session.svelte.ts';
   import { SearchSwitch } from '$lib/features/search/search-switch.svelte.ts';
   import SearchDialog from '$lib/features/search/SearchDialog.svelte';
@@ -48,7 +52,7 @@
   /** Asked of each backend the workspace has (one, for the life of the page). */
   const enabled = $derived(new SearchSwitch(workspace.backend.search));
 
-  const keys = searchKeysLabel(navigator.userAgent);
+  const keys = searchKeysLabel();
 
   /** Where the focus goes back to: where it was, or the page where that is gone. */
   function returnTo(): HTMLElement | undefined {
@@ -92,7 +96,7 @@
   }
 
   /**
-   * ⌘K and Ctrl+K. Open, they go back to the field (held down, they do
+   * ⌘K, or Ctrl+K off Apple's devices. Open, they go back to the field (held down, they do
    * nothing more). Over a drawer, a sheet or another dialog they open
    * nothing: going somewhere from the search would leave that open over the
    * new page, and its entry of the history with it. A card is no such thing:
@@ -186,7 +190,7 @@
     title={m.search_open_keys({ keys })}
     data-testid="open-search"
     aria-haspopup="dialog"
-    aria-keyshortcuts="Meta+K Control+K"
+    aria-keyshortcuts={searchKeysNames()}
     onclick={(event: MouseEvent & { currentTarget: HTMLButtonElement }) => {
       openSearch(event.currentTarget);
     }}

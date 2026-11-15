@@ -262,8 +262,8 @@ const server = spawn(binary, ['--config', path.join(data, 'config.json')], {
       ? {
           FVOCI_SECRET_KEY: SECRET_KEY,
           FVOCI_OIDC_ALLOW_PRIVATE_ADDRESSES: 'true',
-          // The fake providers' certificates are the ones the server trusts.
-          SSL_CERT_FILE: certificates,
+          // Add the fake providers to the system roots on every supported TLS backend.
+          FVOCI_OIDC_EXTRA_CA_FILE: certificates,
         }
       : {}),
     ...(searchUrl ? { FVOCI_SEARCH_URL: searchUrl } : {}),

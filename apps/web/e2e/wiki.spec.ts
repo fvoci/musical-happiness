@@ -11,6 +11,7 @@ import {
   boardsIn,
   FIRST_BOARD,
   openApp,
+  pressInBar,
   showSidebar,
   sidebar,
   stageOf,
@@ -168,12 +169,12 @@ test.describe('the pages of a wiki', () => {
     await showTree(page);
     await expect(treeItem(page, 'Hello')).toBeVisible();
     await hideTree(page);
-    await page.getByTestId('undo').click();
+    await pressInBar(page, 'undo');
     await expect(title).toHaveValue('Welcome');
     await showTree(page);
     await expect(treeItem(page, 'Welcome')).toBeVisible();
     await hideTree(page);
-    await page.getByTestId('undo').click();
+    await pressInBar(page, 'undo');
     await expect(page.getByTestId('page-add-icon')).toBeVisible();
     await expect(page.getByTestId('page-icon')).toHaveCount(0);
   });

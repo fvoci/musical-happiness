@@ -8,6 +8,7 @@ import path from 'node:path';
 
 import { expect, test, type Page } from '@playwright/test';
 
+import { primaryKey, primaryName } from './keyboard.support.ts';
 import { boardPath } from './address.ts';
 import {
   boardLink,
@@ -16,6 +17,7 @@ import {
   hideSidebar,
   openApp,
   pane,
+  pressInBar,
   READ_ONLY_BOARD,
   shell,
   showSidebar,
@@ -23,17 +25,28 @@ import {
   stageOf,
   strip,
   topBar,
+  undoInBar,
 } from './shell.support.ts';
 import { screensDir } from './screens.ts';
 
 test('the app starts and requests only hashed, compressed files', async ({ page }) => {
   const errors: string[] = [];
   page.on('console', (message) => {
+    // WebKit, where it reads the viewport tag (iOS, and Linux's WebKit always), calls a key it
+    // does not know an error: `interactive-widget` is for Chromium's on-screen keyboard.
+    if (message.text().startsWith('Viewport argument key "interactive-widget" not recognized'))
+      return;
     if (message.type() === 'error') errors.push(message.text());
   });
   page.on('pageerror', (error) => errors.push(error.message));
 
-  const responses: { url: string; status: number; cache: string; encoding: string }[] = [];
+  const responses: {
+    url: string;
+    status: number;
+    cache: string;
+    encoding: string;
+    accepted: Promise<string | null>;
+  }[] = [];
   page.on('response', (response) => {
     const headers = response.headers();
     responses.push({
@@ -41,6 +54,7 @@ test('the app starts and requests only hashed, compressed files', async ({ page 
       status: response.status(),
       cache: headers['cache-control'] ?? '',
       encoding: headers['content-encoding'] ?? '',
+      accepted: response.request().headerValue('accept-encoding'),
     });
   });
 
@@ -55,7 +69,12 @@ test('the app starts and requests only hashed, compressed files', async ({ page 
   for (const asset of assets) {
     expect(asset.status, asset.url).toBe(200);
     expect(asset.cache, asset.url).toContain('immutable');
-    if (/\.(js|css)$/.test(asset.url)) expect(asset.encoding, asset.url).toBe('br');
+    if (/\.(js|css)$/.test(asset.url)) {
+      const offered = (await asset.accepted)?.split(',').map((coding) => coding.trim()) ?? [];
+      const preferred = ['br', 'zstd', 'gzip'].find((coding) => offered.includes(coding));
+      expect(preferred, `a compressed representation is offered for ${asset.url}`).toBeDefined();
+      expect(asset.encoding, asset.url).toBe(preferred);
+    }
   }
 });
 
@@ -99,12 +118,19 @@ test.describe('the top bar', () => {
     expect((board?.y ?? 0) + (board?.height ?? 0)).toBe(page.viewportSize()?.height);
     expect(board?.width).toBe(bar?.width);
 
-    // Presence remains available on every width; the description needs the full header.
+    // Presence is said on every width; nobody else here, a narrow pane (under 544, two
+    // columns) folds the button of no faces away for the title. The description needs
+    // the full header.
     const width = (await pane(page).boundingBox())?.width ?? 0;
     const presence = topBar(page).getByTestId('board-presence');
     const description = topBar(page).getByText('Use this template to stay on top');
-    await expect(presence).toBeVisible();
-    await expect(presence).toHaveAccessibleName('People viewing this board: 0');
+    await expect(topBar(page).getByTestId('board-people')).toHaveAccessibleName(
+      /^People viewing this board: 0, members: \d+$/,
+    );
+    if (width >= 544) {
+      await expect(presence).toBeVisible();
+      await expect(presence).toHaveAccessibleName('People viewing this board: 0');
+    } else await expect(presence).toBeHidden();
     if (width >= 992) await expect(description).toBeVisible();
     else await expect(description).toBeHidden();
   });
@@ -160,33 +186,56 @@ test.describe('the top bar', () => {
     await title.press('Enter');
     await expect(undo).toBeEnabled();
 
-    await undo.click();
+    await pressInBar(page, 'undo');
     await expect(title).toHaveValue(FIRST_BOARD);
     await expect(redo).toBeEnabled();
-    await redo.click();
+    await pressInBar(page, 'redo');
     await expect(title).toHaveValue('One');
 
     // The keys, pressed outside of any field.
-    await undo.focus();
-    await page.keyboard.press('Control+z');
+    await undoInBar(page).focus();
+    await page.keyboard.press(await primaryKey(page, 'z'));
     await expect(title).toHaveValue(FIRST_BOARD);
-    await page.keyboard.press('Control+Shift+z');
+    await page.keyboard.press(await primaryKey(page, 'Shift+z'));
     await expect(title).toHaveValue('One');
-    await undo.focus();
-    await page.keyboard.press('Meta+z');
+    // The other platform's modifier never changes the board: each is pressed before the
+    // right key, which then takes the one step it would alone.
+    const modifier = await primaryName(page);
+    const other = modifier === 'Meta' ? 'Control' : 'Meta';
+    await title.fill('Two');
+    await title.press('Enter');
+    await undoInBar(page).focus();
+    await page.keyboard.press(`${other}+z`);
+    await page.keyboard.press(await primaryKey(page, 'z'));
+    await expect(title).toHaveValue('One');
+    await expect(redo).toBeEnabled();
+    await page.keyboard.press(`${other}+Shift+z`);
+    await page.keyboard.press(await primaryKey(page, 'z'));
     await expect(title).toHaveValue(FIRST_BOARD);
-    await page.keyboard.press('Meta+Shift+z');
+    await page.keyboard.press(await primaryKey(page, 'Shift+z'));
     await expect(title).toHaveValue('One');
+    await page.keyboard.press(await primaryKey(page, 'Shift+z'));
+    await expect(title).toHaveValue('Two');
+    await expect(redo).toBeDisabled();
+    await expect(undo).toHaveAttribute(
+      'title',
+      modifier === 'Meta' ? 'Undo (⌘Z)' : 'Undo (Ctrl+Z)',
+    );
+    await expect(redo).toHaveAttribute(
+      'title',
+      modifier === 'Meta' ? 'Redo (⇧⌘Z)' : 'Redo (Ctrl+Shift+Z)',
+    );
+    await expect(undo).toHaveAttribute('aria-keyshortcuts', `${modifier}+Z`);
 
     // In a field they are the field's: what was typed is undone, not the board.
     await title.focus();
     await page.keyboard.press('End');
     await page.keyboard.type('x');
-    await expect(title).toHaveValue('Onex');
-    await page.keyboard.press('Control+z');
+    await expect(title).toHaveValue('Twox');
+    await page.keyboard.press(await primaryKey(page, 'z'));
     await expect(redo).toBeDisabled();
     await title.press('Escape');
-    await expect(title).toHaveValue('One');
+    await expect(title).toHaveValue('Two');
   });
 
   test('a board that can only be read says so and offers no changes', async ({ page }) => {

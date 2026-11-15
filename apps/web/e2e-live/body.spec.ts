@@ -13,6 +13,7 @@ import {
   type WebSocketRoute,
   type WebSocket,
 } from '@playwright/test';
+import { documentBoundary } from '../e2e/keyboard.support.ts';
 
 import {
   boardPath,
@@ -283,7 +284,7 @@ test('a connection that drops leaves the body read-only, and once back the reade
   await expect(body).toHaveAttribute('data-editor', 'ready');
   await expect(page.getByTestId('body-room-note')).toHaveCount(0);
   await editor(page).click();
-  await page.keyboard.press('Control+End');
+  await documentBoundary(page, 'end');
   await page.keyboard.type(' After it.');
   await expect
     .poll(async () => lines((await stored(api, board, cardId)).body), { timeout: 15_000 })
@@ -328,7 +329,7 @@ test('a body written whole by another client of the API takes the place of the o
   // Nothing of the reader's was waiting: nothing is said lost.
   await expect(page.getByTestId('body-lost')).toHaveCount(0);
   await editor(page).click();
-  await page.keyboard.press('Control+End');
+  await documentBoundary(page, 'end');
   await page.keyboard.type(', and mine');
   await expect
     .poll(async () => lines((await stored(api, board, cardId)).body), { timeout: 15_000 })

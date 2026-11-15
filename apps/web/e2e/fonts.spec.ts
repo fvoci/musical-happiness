@@ -11,8 +11,8 @@ import { expect, test, type Page } from '@playwright/test';
  * and nothing else: the main one, and the `@font-face` rules of every family,
  * which is what the app has loaded once the browser has been idle.
  *
- * A browser that has the families installed requests nothing; the machine
- * the tests run on has none of them.
+ * Local fonts are excluded from this download probe so installed families
+ * cannot bypass the files and byte counts it verifies.
  */
 const STATIC = path.resolve(import.meta.dirname, '../dist/static');
 const sheets = readdirSync(STATIC).filter((file) => /^(index|faces)-.*\.css$/.test(file));
@@ -41,6 +41,11 @@ async function fontsFor(page: Page, language: string, text: string): Promise<Fon
         <body><p>${text}</p><p><strong>${text}</strong></p></body></html>`,
     }),
   );
+  await page.route('**/static/*.css', async (route) => {
+    const response = await route.fetch();
+    const body = (await response.text()).replace(/local\([^)]*\),?/g, '');
+    await route.fulfill({ response, body });
+  });
   const requests: FontRequests = { files: [], bytes: 0 };
   page.on('response', (response) => {
     const file = new URL(response.url()).pathname.replace(/^.*\//, '');
@@ -110,12 +115,17 @@ test.describe('font files of a first screen', () => {
   }) => {
     const familyOf = async (language: string): Promise<string> => {
       await fontsFor(page, language, '…');
-      return page.evaluate(() => getComputedStyle(document.body).fontFamily.split(',')[0] ?? '');
+      return page.evaluate(() =>
+        (getComputedStyle(document.body).fontFamily.split(',')[0] ?? '').replace(
+          /^['"]|['"]$/g,
+          '',
+        ),
+      );
     };
     expect(await familyOf('ko')).toContain('Noto Sans KR');
     expect(await familyOf('ja')).toContain('Noto Sans JP');
-    expect(await familyOf('en')).toBe('"Noto Sans"');
-    expect(await familyOf('zh-Hans')).toBe('"Noto Sans"');
+    expect(await familyOf('en')).toBe('Noto Sans');
+    expect(await familyOf('zh-Hans')).toBe('Noto Sans');
   });
 
   test.afterAll(() => {

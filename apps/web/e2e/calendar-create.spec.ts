@@ -9,6 +9,7 @@
  */
 import { expect, test, type Page } from '@playwright/test';
 
+import { primaryKey, tabKey } from './keyboard.support.ts';
 import {
   calendar,
   CALENDAR_PAGE,
@@ -41,7 +42,7 @@ test('a card is made on an empty day with the keys alone, and one undo takes it 
   const before = await cardCount(page);
   await expect(dayButton(page, '2026-11-25')).toHaveAccessibleName(/^Wednesday, November 25$/);
   await page.getByTestId('calendar-undated').focus();
-  await page.keyboard.press('Tab');
+  await page.keyboard.press(await tabKey(page));
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press('ArrowRight');
@@ -75,7 +76,7 @@ test('a card is made on an empty day with the keys alone, and one undo takes it 
 
   // Back on the new bar with a mouse; elsewhere, on the day, where the card has no bar to go to.
   await expect(focused(page)).toHaveAccessibleName(/November 25/);
-  await page.keyboard.press('Control+z');
+  await page.keyboard.press(await primaryKey(page, 'z'));
   await expect.poll(() => cardCount(page)).toBe(before);
   await expect(dayButton(page, '2026-11-25')).toHaveAccessibleName(/^Wednesday, November 25$/);
 });
