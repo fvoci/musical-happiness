@@ -7,8 +7,8 @@
 use axum::body::Bytes;
 use axum::extract::{Path, RawQuery};
 use fvoci_model::{
-    Block, BlockType, Board, BoardKind, BoardType, DeletedPage, MinimumRole, NewPage, Page,
-    PageDuplicate, PageMove, PageNode, PagePatch,
+    Block, Board, BoardKind, BoardType, DeletedPage, MinimumRole, NewPage, Page, PageDuplicate,
+    PageMove, PageNode, PagePatch,
 };
 use serde::Deserialize;
 use utoipa::ToSchema;
@@ -140,14 +140,8 @@ async fn page_with_permission(
     permission: BoardPermission,
     denial: &str,
 ) -> Result<Block, AppError> {
-    const WHAT: &str = "page";
     require_board_permission(&ws.app, &ws.session.user_id, wiki_id, permission, denial).await?;
-    match ws.app.block(page_id).await {
-        Ok(block) if block.board_id == wiki_id && block.block_type == BlockType::Page => Ok(block),
-        Ok(_) => Err(AppError::not_found(WHAT)),
-        Err(error) if error.is_not_found() => Err(AppError::not_found(WHAT)),
-        Err(error) => Err(error),
-    }
+    ws.app.page_of(wiki_id, page_id).await
 }
 
 /// The pages of a wiki

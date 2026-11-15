@@ -5,7 +5,8 @@
  * Somebody signed in reads it the same way. A wrong token, and the link
  * turned off, show "not found". A wiki is read by its link the same way: its
  * tree and its pages, naming nobody. Pictures, wide and at 390 pixels, go to
- * `target/screens/shared/` when `FVOCI_SCREENS` is set.
+ * `target/screens/shared/` (a wiki's, in Korean, to `target/screens/wiki-people/`)
+ * when `FVOCI_SCREENS` is set.
  */
 import { expect, test, type Page } from '@playwright/test';
 
@@ -258,6 +259,9 @@ test('a wiki is read by its public link without signing in: its tree and pages, 
     ).json()) as Schemas['Page'];
   const planting = await made('Planting');
   const harvest = await made('Harvest', planting.id);
+  // Enough pages after them that the tree is longer than a phone's screen.
+  const notes = Array.from({ length: 30 }, (_, at) => `Note ${String(at + 1).padStart(2, '0')}`);
+  for (const title of notes) await made(title);
   const ownerId = ((await (await api.get('/api/v1/users/me')).json()) as Schemas['User']).id;
   const body = {
     type: 'doc',
@@ -296,6 +300,7 @@ test('a wiki is read by its public link without signing in: its tree and pages, 
   await expect(reader.getByTestId('shared-page-tree').getByRole('link')).toHaveText([
     'Planting',
     'Harvest',
+    ...notes,
   ]);
   await expect(reader.getByTestId('page-body')).toContainText('Sow in rows, then see');
   // Nobody named, nothing to write, nothing of the workspace.
@@ -311,6 +316,10 @@ test('a wiki is read by its public link without signing in: its tree and pages, 
   // At 390 pixels the tree is a list that opens above the page.
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(reader.getByTestId('shared-page-tree')).toHaveCount(0);
+  await reader.getByRole('button', { name: 'Pages' }).click();
+  // The last page of a long tree is reached by scrolling the list.
+  await reader.getByTestId('shared-page-tree').getByRole('link', { name: 'Note 30' }).click();
+  await expect(reader.getByTestId('page-title')).toHaveText('Note 30');
   await reader.getByRole('button', { name: 'Pages' }).click();
   await reader.getByTestId('shared-page-tree').getByRole('link', { name: 'Planting' }).click();
   await expect(reader.getByTestId('page-title')).toHaveText('Planting');

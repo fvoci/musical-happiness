@@ -2,7 +2,9 @@
 //! page is a block, and is changed and deleted as one ([`App::patch_block`],
 //! [`App::delete_block`]).
 
-use fvoci_model::{Block, BlockError, DeletedPage, NewPage, Page, PageMove, PageNode, PageTree};
+use fvoci_model::{
+    Block, BlockError, BlockType, DeletedPage, NewPage, Page, PageMove, PageNode, PageTree,
+};
 use fvoci_store::{PageCopies, PageRestore, PageWrite, StoreError};
 
 use super::App;
@@ -11,6 +13,26 @@ use super::cards::CardRange;
 use crate::error::{AppError, Reason};
 
 impl App {
+    /// The page of the wiki, its block read once: a block that is no page of this wiki
+    /// is no page, whatever else it is, and one in the trash is not there. Whether
+    /// the asker may read the wiki is the caller's to have asked.
+    ///
+    /// # Errors
+    ///
+    /// Returns a not-found error for anything but a live page of the wiki, and the
+    /// store's error if the block cannot be read.
+    pub async fn page_of(&self, wiki_id: &str, page_id: &str) -> Result<Block, AppError> {
+        const WHAT: &str = "page";
+        match self.block(page_id).await {
+            Ok(block) if block.board_id == wiki_id && block.block_type == BlockType::Page => {
+                Ok(block)
+            }
+            Ok(_) => Err(AppError::not_found(WHAT)),
+            Err(error) if error.is_not_found() => Err(AppError::not_found(WHAT)),
+            Err(error) => Err(error),
+        }
+    }
+
     /// The pages of the wiki without their bodies, as their tree lists them.
     ///
     /// # Errors

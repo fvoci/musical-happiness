@@ -1155,8 +1155,8 @@ export interface paths {
         /**
          * The pages of a shared wiki
          * @description What `getPageTree` gives of the wiki, read with its read token as `getSharedBoard`
-         *     is: every page without its body, naming nobody. A board's token reads no pages
-         *     (404).
+         *     is: every page without its body, naming nobody. By `order` as strings compare by
+         *     code unit, then by `id`. A board's token reads no pages (404).
          */
         get: operations["getSharedPageTree"];
         put?: never;

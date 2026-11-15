@@ -21,9 +21,7 @@ use axum::extract::rejection::RawPathParamsRejection;
 use axum::extract::{FromRequestParts, Path, RawPathParams, RawQuery};
 use axum::http::HeaderMap;
 use axum::http::request::Parts;
-use fvoci_model::{
-    Block, BlockType, Board, BoardKind, Card, FileInfo, Page, PageNode, PersonProperties,
-};
+use fvoci_model::{Block, Board, BoardKind, Card, FileInfo, Page, PageNode, PersonProperties};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
@@ -106,9 +104,10 @@ fn not_shared() -> AppError {
 }
 
 impl SharedBoard {
-    /// What the link opens, if it is of `kind`: a wiki's link reads no blocks or cards,
-    /// a board's no pages, which are as not there (404) as anything not shared.
-    fn of(&self, kind: BoardKind) -> Result<(), AppError> {
+    /// Whether what the link opens is of `kind`: a wiki's link reads no blocks or cards,
+    /// a board's no pages, which are as not there (404) as anything not shared. Every
+    /// route but the board itself and its files asks it.
+    fn require_kind(&self, kind: BoardKind) -> Result<(), AppError> {
         if self.app.kinds().holds(kind) {
             Ok(())
         } else {
@@ -151,8 +150,9 @@ async fn handle_get_shared_board(shared: SharedBoard) -> ApiResult {
 /// The blocks of a shared board
 ///
 /// What `getBlocks` gives of the board, with the same parameters, read with its read
-/// token as `getSharedBoard` is; a wiki's token reads no blocks (404). No block names a user: `createdBy` and `modifiedBy`
-/// are empty, so is the `userId` of every mention in a body, and so is each user that
+/// token as `getSharedBoard` is; a wiki's token reads no blocks (404). No block names a
+/// user: `createdBy` and `modifiedBy` are empty, so is the `userId` of every mention in
+/// a body, and so is each user that
 /// the board's person properties (`person`, `multiPerson`, `createdBy`, `updatedBy`)
 /// name in a card's `fields.properties` and in the clauses of a view's `fields.filter`;
 /// a list keeps its length, so how many people a card has still shows. A card's values
@@ -173,7 +173,7 @@ async fn handle_get_shared_board(shared: SharedBoard) -> ApiResult {
     responses((status = 200, description = "The blocks.", body = Vec<Block>)),
 )]
 async fn handle_get_shared_blocks(shared: SharedBoard, RawQuery(query): RawQuery) -> ApiResult {
-    shared.of(BoardKind::Board)?;
+    shared.require_kind(BoardKind::Board)?;
     let board = shared.board().await?;
     let mut blocks = asked_blocks(&shared.app, &shared.board_id, query.as_deref()).await?;
     let people = board.person_properties();
@@ -205,7 +205,7 @@ async fn handle_get_shared_blocks(shared: SharedBoard, RawQuery(query): RawQuery
     responses((status = 200, description = "The cards of the page.", body = Vec<Card>)),
 )]
 async fn handle_get_shared_cards(shared: SharedBoard, RawQuery(query): RawQuery) -> ApiResult {
-    shared.of(BoardKind::Board)?;
+    shared.require_kind(BoardKind::Board)?;
     let board = shared.board().await?;
     let mut cards = cards_page(&shared.app, &shared.board_id, query.as_deref()).await?;
     let people = board.person_properties();
@@ -264,8 +264,8 @@ async fn handle_get_shared_file_info(
 /// The pages of a shared wiki
 ///
 /// What `getPageTree` gives of the wiki, read with its read token as `getSharedBoard`
-/// is: every page without its body, naming nobody. A board's token reads no pages
-/// (404).
+/// is: every page without its body, naming nobody. By `order` as strings compare by
+/// code unit, then by `id`. A board's token reads no pages (404).
 #[utoipa::path(
     get,
     path = "/shared/{boardId}/pages",
@@ -276,7 +276,7 @@ async fn handle_get_shared_file_info(
     responses((status = 200, description = "The pages.", body = Vec<PageNode>)),
 )]
 async fn handle_get_shared_page_tree(shared: SharedBoard) -> ApiResult {
-    shared.of(BoardKind::Wiki)?;
+    shared.require_kind(BoardKind::Wiki)?;
     Ok(json_response(
         &shared.app.page_tree(&shared.board_id).await?,
     ))
@@ -304,16 +304,8 @@ async fn handle_get_shared_page(
     shared: SharedBoard,
     Path((_, page_id)): Path<(String, String)>,
 ) -> ApiResult {
-    const WHAT: &str = "page";
-    shared.of(BoardKind::Wiki)?;
-    let mut page = match shared.app.block(&page_id).await {
-        Ok(block) if block.board_id == shared.board_id && block.block_type == BlockType::Page => {
-            block
-        }
-        Ok(_) => return Err(AppError::not_found(WHAT)),
-        Err(error) if error.is_not_found() => return Err(AppError::not_found(WHAT)),
-        Err(error) => return Err(error),
-    };
+    shared.require_kind(BoardKind::Wiki)?;
+    let mut page = shared.app.page_of(&shared.board_id, &page_id).await?;
     let shown = shared
         .app
         .pages_named_on(&shared.board_id, page.body.as_ref())

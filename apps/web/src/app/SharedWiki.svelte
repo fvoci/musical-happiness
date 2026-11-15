@@ -22,6 +22,7 @@
     type WikiPage,
     type WikiPageDetail,
   } from '$lib/state/index.ts';
+  import { Button } from '$lib/ui/button/index.js';
 
   import NotFound from './NotFound.svelte';
   import type { Router } from './router.svelte.ts';
@@ -34,11 +35,18 @@
 
   let { backend, wikiId, router }: Props = $props();
 
+  /** The tree: being read, read, or not read (to try again). */
   let status = $state<'loading' | 'ready' | 'failed'>('loading');
   let pages = $state.raw<WikiPage[]>([]);
   /** The page shown, read with its body; `null` for one that is not there. */
   let shown = $state.raw<WikiPageDetail | null | undefined>(undefined);
+  /** The page shown could not be read (and was not found missing): to try again. */
+  let pageFailed = $state(false);
   let treeOpen = $state(false);
+  /** Readings begun of the tree and of a page: the latest of each is the one that counts. */
+  let treeReadings = 0;
+  let pageReadings = 0;
+  const uid = $props.id();
 
   const pageId = $derived(router.route.viewId);
   const rows = $derived(pageRows(pageTree(pages), () => true));
@@ -56,24 +64,40 @@
     },
   };
 
-  // The tree, once.
-  $effect(() => {
+  async function readTree(): Promise<void> {
     const wikis = backend.wiki;
     if (!wikis) return;
-    let left = false;
-    void wikis.pages(wikiId).then(
-      (read) => {
-        if (left) return;
-        pages = read;
-        status = 'ready';
-      },
-      () => {
-        if (!left) status = 'failed';
-      },
-    );
-    return () => {
-      left = true;
-    };
+    treeReadings += 1;
+    const reading = treeReadings;
+    status = 'loading';
+    try {
+      const read = await wikis.pages(wikiId);
+      if (reading !== treeReadings) return;
+      [pages, status] = [read, 'ready'];
+    } catch {
+      if (reading === treeReadings) status = 'failed';
+    }
+  }
+
+  async function readPage(id: string): Promise<void> {
+    const wikis = backend.wiki;
+    if (!wikis) return;
+    pageReadings += 1;
+    const reading = pageReadings;
+    [shown, pageFailed] = [undefined, false];
+    try {
+      const page = await wikis.page(wikiId, id);
+      if (reading === pageReadings) shown = page;
+    } catch (error) {
+      if (reading !== pageReadings) return;
+      if (isBackendError(error) && error.status === 404) shown = null;
+      else pageFailed = true;
+    }
+  }
+
+  // The tree, once.
+  $effect(() => {
+    void readTree();
   });
 
   // Without a page in the address: the first one, in place of the wiki's address.
@@ -85,24 +109,8 @@
 
   // The page of the address, read with its body.
   $effect(() => {
-    const wikis = backend.wiki;
     const id = pageId;
-    if (!wikis || !id) return;
-    let left = false;
-    shown = undefined;
-    void wikis.page(wikiId, id).then(
-      (page) => {
-        if (!left) shown = page;
-      },
-      (error: unknown) => {
-        if (left) return;
-        if (isBackendError(error) && error.status === 404) shown = null;
-        else status = 'failed';
-      },
-    );
-    return () => {
-      left = true;
-    };
+    if (id) void readPage(id);
   });
 
   // The visit: counted on the wiki and its page, anonymously.
@@ -114,8 +122,22 @@
   });
 </script>
 
+{#snippet problem(retry: () => void)}
+  <div class="grid h-full place-items-center p-6 text-center">
+    <div>
+      <p class="text-muted-foreground" role="alert">{m.app_problem_load()}</p>
+      <Button class="mt-4 roomy:min-h-touch" onclick={retry}>{m.app_retry()}</Button>
+    </div>
+  </div>
+{/snippet}
+
 {#snippet tree()}
-  <nav aria-label={m.wiki_pages()} data-testid="shared-page-tree">
+  <nav
+    id="{uid}-tree"
+    aria-label={m.wiki_pages()}
+    class={[narrow && 'max-h-[50dvh] overflow-y-auto overscroll-contain']}
+    data-testid="shared-page-tree"
+  >
     <ul class="grid gap-0.5 p-2">
       {#each rows as row (row.page.id)}
         <li style:padding-left="{row.depth * 0.75}rem">
@@ -144,9 +166,7 @@
     <p class="text-muted-foreground" role="status">{m.app_loading()}</p>
   </div>
 {:else if status === 'failed'}
-  <div class="grid h-full place-items-center p-6 text-center">
-    <p class="text-muted-foreground" role="alert">{m.app_problem_load()}</p>
-  </div>
+  {@render problem(() => void readTree())}
 {:else}
   <div class={['flex min-h-0 flex-1', narrow && 'flex-col']} data-testid="shared-wiki">
     {#if narrow}
@@ -155,6 +175,7 @@
           type="button"
           class="flex min-h-touch w-full items-center gap-2 px-4 text-sm text-muted-foreground"
           aria-expanded={treeOpen}
+          aria-controls="{uid}-tree"
           onclick={() => {
             treeOpen = !treeOpen;
           }}
@@ -172,12 +193,15 @@
         <p class="text-muted-foreground">{m.wiki_no_pages()}</p>
       {:else if shown === null}
         <NotFound {router} />
+      {:else if pageFailed && pageId}
+        {@const id = pageId}
+        {@render problem(() => void readPage(id))}
       {:else if shown}
         <div class="mx-auto max-w-3xl">
-          <h1 class="mb-4 text-2xl font-semibold break-words" data-testid="page-title">
+          <h2 class="mb-4 text-2xl font-semibold break-words" data-testid="page-title">
             {#if shown.icon}<span aria-hidden="true">{shown.icon} </span>{/if}{shown.title ||
               m.wiki_page_untitled()}
-          </h1>
+          </h2>
           <div data-testid="page-body">
             <BodyView doc={shown.body} {references}>
               {#snippet empty()}

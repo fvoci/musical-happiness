@@ -15,7 +15,7 @@
   import { pane } from '$lib/layout/room.svelte.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type { BoardKind } from '$lib/logic/wire.ts';
-  import { Workspace, type Backend } from '$lib/state/index.ts';
+  import { isBackendError, Workspace, type Backend } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
   import { startShared } from './backend.ts';
@@ -30,8 +30,14 @@
 
   let workspace = $state.raw<Workspace | undefined>(undefined);
   let backend = $state.raw<Backend | undefined>(undefined);
-  /** What the link opens, once read: a board's screen or a wiki's. */
-  let kind = $state<BoardKind | undefined>(undefined);
+  /**
+   * What the link opens, once read: a board's screen or a wiki's; `missing` for
+   * nothing (a wrong token, a link turned off), `failed` for a reading that did
+   * not come, to try again.
+   */
+  let kind = $state<BoardKind | 'missing' | 'failed' | undefined>(undefined);
+  /** Reads what the link opens (again, after a reading that failed). */
+  let readKind: (() => Promise<void>) | undefined;
   /** The title at the head of the page: the board's, as its screen reads it, or the wiki's. */
   let wiki = $state.raw<{ title: string; icon: string } | undefined>(undefined);
   let place = '';
@@ -60,11 +66,19 @@
         workspace = made;
         backend = read;
         await made.load(place);
-        // Which screen: a link that opens nothing shows the board's "not found".
-        const opened = await read.board(boardId).catch(() => undefined);
-        if (isLeft()) return;
-        kind = opened?.kind ?? 'board';
-        if (opened?.kind === 'wiki') wiki = { title: opened.title, icon: opened.icon ?? '' };
+        readKind = async () => {
+          kind = undefined;
+          try {
+            const opened = await read.board(boardId);
+            if (isLeft()) return;
+            kind = opened.kind ?? 'board';
+            if (opened.kind === 'wiki') wiki = { title: opened.title, icon: opened.icon ?? '' };
+          } catch (error) {
+            if (isLeft()) return;
+            kind = isBackendError(error) && error.status === 404 ? 'missing' : 'failed';
+          }
+        };
+        await readKind();
       },
       () => {
         if (!left) unstarted = true;
@@ -107,6 +121,17 @@
         <div>
           <p class="text-muted-foreground" role="alert">{m.app_problem_load()}</p>
           <Button class="mt-4 roomy:min-h-touch" onclick={() => void workspace?.load(place)}>
+            {m.app_retry()}
+          </Button>
+        </div>
+      </div>
+    {:else if kind === 'missing'}
+      <NotFound {router} />
+    {:else if kind === 'failed'}
+      <div class="grid h-full place-items-center p-6 text-center">
+        <div>
+          <p class="text-muted-foreground" role="alert">{m.app_problem_load()}</p>
+          <Button class="mt-4 roomy:min-h-touch" onclick={() => void readKind?.()}>
             {m.app_retry()}
           </Button>
         </div>

@@ -25,6 +25,8 @@ struct SharedWiki {
     token: String,
     page: String,
     other_page: String,
+    /// A page of the wiki in the trash.
+    gone: String,
     file: String,
     /// The identifiers no answer may hold: the writers, the workspace, what is
     /// elsewhere.
@@ -68,7 +70,7 @@ async fn shared_wiki(th: &TestServer) -> SharedWiki {
         elsewhere.page.clone(),
         elsewhere.card.clone(),
         mine.card.clone(),
-        gone,
+        gone.clone(),
         UNKNOWN_ID.to_owned(),
     ];
     let mut named = vec![other_page.as_str()];
@@ -102,6 +104,7 @@ async fn shared_wiki(th: &TestServer) -> SharedWiki {
         wiki,
         page: mine.page,
         other_page,
+        gone,
         file: uploaded["fileId"].as_str().expect("a file").to_owned(),
         secrets,
         kept,
@@ -186,7 +189,12 @@ async fn a_wiki_link_reads_no_blocks_or_cards_and_a_board_link_no_pages() {
             .await
             .check_not_found();
     }
-    for page in [board.page.as_str(), board.card.as_str(), UNKNOWN_ID] {
+    for page in [
+        board.page.as_str(),
+        board.card.as_str(),
+        shared.gone.as_str(),
+        UNKNOWN_ID,
+    ] {
         anonymous
             .get(&shared.at(&format!("/pages/{page}")))
             .await
@@ -275,6 +283,61 @@ async fn a_visit_by_a_wiki_link_is_counted_anonymously_and_told_nothing() {
     assert!(
         reader.next_json(QUIET).await.is_none(),
         "a reader by the link hears nothing"
+    );
+    th.teardown().await;
+}
+
+/// The blocks a link follows over the websocket are a board's: a wiki's token follows
+/// none of its pages, and is told nothing when one changes.
+#[tokio::test]
+async fn a_wiki_link_follows_no_blocks_over_the_websocket() {
+    let th = Setup::local_mode().start().await.init_basic().await;
+    let shared = shared_wiki(&th).await;
+    let mut reader = Socket::connect(&th).await;
+    reader
+        .send(json!({
+            "action": "SUBSCRIBE_BLOCKS", "workspaceId": TEST_WORKSPACE_ID,
+            "readToken": shared.token, "blockIds": [shared.page],
+        }))
+        .await;
+    let path = format!("{TEST_WS}/wikis/{}/pages/{}", shared.wiki, shared.page);
+    let read_at = th.client.get(&path).await.value()["updateAt"].clone();
+    th.client
+        .patch(&path, &json!({"readAt": read_at, "title": "renamed"}))
+        .await
+        .check_ok();
+    assert!(
+        reader.next_json(QUIET).await.is_none(),
+        "a wiki's token follows no page"
+    );
+    th.teardown().await;
+}
+
+/// A visit by a wiki's link ends when its token is made anew: it is counted no more.
+#[tokio::test]
+async fn a_visit_by_a_wiki_link_ends_with_its_token() {
+    let th = Setup::local_mode().start().await.init_basic().await;
+    let shared = shared_wiki(&th).await;
+    let mut member = Socket::connect_as(&th.client).await;
+    visit(&mut member, &shared.wiki, "").await;
+    let _ = people(&mut member, 1).await;
+    let mut reader = Socket::connect(&th).await;
+    reader
+        .send(json!({"action": "SET_PRESENCE", "boardId": shared.wiki,
+            "cardId": shared.page, "readToken": shared.token}))
+        .await;
+    assert_eq!(people(&mut member, 1).await["anonymousCount"], 1);
+    th.client
+        .post(
+            &format!("{TEST_WS}/boards/{}/sharing", shared.wiki),
+            &json!({"enabled": true, "regenerate": true}),
+        )
+        .await
+        .check_ok();
+    assert_eq!(
+        people(&mut member, 1).await["anonymousCount"],
+        0,
+        "the old token's visit ended"
     );
     th.teardown().await;
 }

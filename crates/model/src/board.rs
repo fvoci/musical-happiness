@@ -123,7 +123,7 @@ impl BoardKinds {
     }
 }
 
-/// The one kind.
+/// The kinds that are `kind` alone: what reaches a board reaches no wiki.
 impl From<BoardKind> for BoardKinds {
     fn from(kind: BoardKind) -> Self {
         match kind {

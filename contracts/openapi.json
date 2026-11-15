@@ -6944,7 +6944,7 @@
     },
     "/api/v1/shared/{boardId}/pages": {
       "get": {
-        "description": "What `getPageTree` gives of the wiki, read with its read token as `getSharedBoard`\nis: every page without its body, naming nobody. A board's token reads no pages\n(404).",
+        "description": "What `getPageTree` gives of the wiki, read with its read token as `getSharedBoard`\nis: every page without its body, naming nobody. By `order` as strings compare by\ncode unit, then by `id`. A board's token reads no pages (404).",
         "operationId": "getSharedPageTree",
         "parameters": [
           {
