@@ -318,7 +318,7 @@ pub(super) struct Check<'a> {
 /// again by the upkeep.
 fn search_failed(engine: &Engine, error: &ClientError) -> AppError {
     // Said now and then: while the search server is away, every search fails so.
-    if engine.search_failure_is_news(Instant::now()) {
+    if engine.search_failure_is_news(Instant::now(), error) {
         tracing::warn!(%error, "a search was not answered by the search server");
     }
     if error.is_missing_index() {

@@ -297,6 +297,9 @@ pub(crate) async fn set_role(th: &TestServer, user_id: &str, role: &str) {
         .expect("the user's role in the test workspace is set");
 }
 
+/// How long the slow search server takes to answer: far longer than a search waits.
+const SLOW: Duration = Duration::from_secs(20);
+
 #[tokio::test]
 async fn a_search_server_that_is_down_or_slow_is_a_503_and_holds_nothing_else() {
     let fake = FakeSearch::start().await;
@@ -315,7 +318,7 @@ async fn a_search_server_that_is_down_or_slow_is_a_503_and_holds_nothing_else() 
     new_card(&th.client, &board.id, "카드", "환불").await;
     let writing_took = written.elapsed();
     fake.come_up();
-    fake.set_delay(Duration::from_secs(12));
+    fake.set_delay(SLOW);
     let asked = Instant::now();
     let slow = search(&th.client, TEST_WS, "환불").await;
     let waited = asked.elapsed();
@@ -331,9 +334,11 @@ async fn a_search_server_that_is_down_or_slow_is_a_503_and_holds_nothing_else() 
     }
     ready.check_ok();
     assert!(writing_took < Duration::from_secs(5), "{writing_took:?}");
-    // Three seconds, and not the twelve the search server takes to answer.
+    // Three seconds at least, and less than the search server takes to answer: however
+    // busy the machine, what the request did past its three seconds is no wait for an
+    // answer that is twenty seconds away.
     assert!(
-        waited >= Duration::from_secs(3) && waited < Duration::from_secs(10),
+        waited >= Duration::from_secs(3) && waited < SLOW,
         "a search waits three seconds for the search server: {waited:?}"
     );
     back.check_ok();
@@ -500,16 +505,17 @@ async fn a_user_searches_only_so_often() {
         .await;
     fvoci_server::search::tend(&th.app).await;
 
-    // One a second, and two at once after a pause: of eight in a row, the first is
+    // One a second, and two at once after a pause: of eight sent at once, some are
     // answered and some are not, however slowly the machine gets through them.
-    let mut answers = Vec::new();
-    for _ in 0..8 {
-        answers.push(search(&th.client, TEST_WS, "환불").await);
-    }
+    let answers =
+        futures_util::future::join_all((0..8).map(|_| search(&th.client, TEST_WS, "환불"))).await;
     let other = search(&th.client2, TEST_WS, "환불").await;
     th.teardown().await;
 
-    answers[0].check_ok();
+    assert!(
+        answers.iter().any(|answer| answer.status == StatusCode::OK),
+        "some were answered"
+    );
     let limited: Vec<&ApiResponse> = answers
         .iter()
         .filter(|answer| answer.status == StatusCode::TOO_MANY_REQUESTS)

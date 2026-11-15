@@ -107,6 +107,17 @@ mod tests {
     }
 
     #[test]
+    fn the_highlighter_reads_more_than_the_longest_body() {
+        // A body's text has no more characters than the body stored has bytes.
+        let highlighted = usize::try_from(HIGHLIGHTED_CHARS).expect("a count of characters");
+        assert!(
+            highlighted > fvoci_model::BODY_MAX_BYTES,
+            "{highlighted} characters read, a body of up to {} bytes",
+            fvoci_model::BODY_MAX_BYTES
+        );
+    }
+
+    #[test]
     fn every_text_is_read_as_korean_and_as_the_standard_analyser_reads_it() {
         let definition = definition();
         for field in ["title", "text", "all"] {

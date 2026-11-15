@@ -44,7 +44,8 @@ use crate::config::search::SearchSettings;
 const FIRST_PAUSE: Duration = Duration::from_secs(1);
 /// See [`FIRST_PAUSE`].
 const LONGEST_PAUSE: Duration = Duration::from_secs(60);
-/// How often the log says that searches are not answered, while they are not.
+/// How often the log says that searches are not answered, while they are not for the
+/// same reason.
 const FAILURES_SAID_EVERY: Duration = Duration::from_secs(30);
 
 /// The search of bodies, as the server is configured: on a search server, or in the
@@ -75,8 +76,9 @@ pub(crate) struct Engine {
     index: Mutex<IndexState>,
     /// Held by the upkeep while it runs: one at a time.
     upkeep: tokio::sync::Mutex<Pause>,
-    /// When a search that the search server did not answer was last said in the log.
-    search_failure_said: Mutex<Option<Instant>>,
+    /// When a search that the search server did not answer was last said in the log,
+    /// and why it was not answered.
+    search_failure_said: Mutex<Option<(Instant, ClientError)>>,
 }
 
 /// What is known of the index on the search server.
@@ -189,16 +191,19 @@ impl Engine {
             .expect("the lock of the index state is not poisoned")
     }
 
-    /// Whether a search that failed at `now` is to be said in the log: the first, and
-    /// then one every [`FAILURES_SAID_EVERY`].
-    pub(super) fn search_failure_is_news(&self, now: Instant) -> bool {
+    /// Whether a search that failed at `now` for `error` is to be said in the log: the
+    /// first, one that failed otherwise than the one said last, and then one every
+    /// [`FAILURES_SAID_EVERY`].
+    pub(super) fn search_failure_is_news(&self, now: Instant, error: &ClientError) -> bool {
         let mut said = self
             .search_failure_said
             .lock()
             .expect("the lock of the failures said is not poisoned");
-        let news = said.is_none_or(|last| now.duration_since(last) >= FAILURES_SAID_EVERY);
+        let news = said.as_ref().is_none_or(|(at, last)| {
+            last != error || now.duration_since(*at) >= FAILURES_SAID_EVERY
+        });
         if news {
-            *said = Some(now);
+            *said = Some((now, error.clone()));
         }
         news
     }
@@ -247,5 +252,38 @@ mod tests {
             pause.failed(start, down());
         }
         assert!(pause.is_over(start + LONGEST_PAUSE), "never longer");
+    }
+
+    #[test]
+    fn a_failed_search_is_said_at_once_when_it_failed_otherwise() {
+        let settings = SearchSettings {
+            search_url: "http://127.0.0.1:9".to_owned(),
+            ..SearchSettings::default()
+        };
+        let search = Search::from_config(&settings).expect("a search server");
+        let engine = search.engine.as_ref().expect("configured");
+        let start = Instant::now();
+        let down = ClientError::Unreachable(client::NoAnswer::Connection);
+        assert!(engine.search_failure_is_news(start, &down), "the first");
+        assert!(
+            !engine.search_failure_is_news(start + Duration::from_secs(1), &down),
+            "the same again"
+        );
+        assert!(
+            engine.search_failure_is_news(start + Duration::from_secs(2), &ClientError::Partial),
+            "another failure, at once"
+        );
+        assert!(
+            engine.search_failure_is_news(start + Duration::from_secs(3), &down),
+            "and back to the first"
+        );
+        assert!(
+            !engine.search_failure_is_news(start + Duration::from_secs(32), &down),
+            "the same within the time"
+        );
+        assert!(
+            engine.search_failure_is_news(start + Duration::from_secs(33), &down),
+            "the same, once the time is past"
+        );
     }
 }

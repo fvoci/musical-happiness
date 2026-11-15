@@ -222,6 +222,39 @@ async fn a_write_that_is_undone_notes_nothing() {
 }
 
 #[tokio::test]
+async fn keeping_a_version_of_a_body_notes_nothing() {
+    let test = common::setup().await;
+    let store = &test.store;
+    store.keep_search_outbox();
+    let (board, user_id) = board(store).await;
+    let card = card(store, &board.id, &user_id).await;
+    // Written as a room writes what its editors typed: with no version of its own.
+    store
+        .create_body_doc(&card.id, b"a state", b"a digest")
+        .await
+        .expect("a document is stored");
+    store
+        .project_body(
+            &card.id,
+            Some(Some(body("환불규정을 따른다"))),
+            card.update_at,
+            1,
+            b"a digest",
+            &user_id,
+        )
+        .await
+        .expect("the room's body is written to the card");
+    settle_all(store).await;
+
+    // A version is a copy of what the card holds: nothing a search finds changes.
+    let kept = store.keep_body_version(&card.id).await.expect("kept");
+
+    assert!(kept.is_some(), "a version of the body was kept");
+    assert_eq!(listed(store).await, [], "and nothing is noted for it");
+    test.teardown().await;
+}
+
+#[tokio::test]
 async fn the_trash_and_the_way_back_are_noted() {
     let test = common::setup().await;
     let store = &test.store;
