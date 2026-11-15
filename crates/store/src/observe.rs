@@ -93,6 +93,7 @@ impl Outcome {
             StoreError::Database(_)
             | StoreError::Corrupt { .. }
             | StoreError::Schema(_)
+            | StoreError::SchemaNotOwned { .. }
             | StoreError::Config(_)
             | StoreError::InvalidPath(_)
             | StoreError::NoOrganization => Self::Failed,

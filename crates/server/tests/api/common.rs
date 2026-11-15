@@ -16,7 +16,7 @@ use fvoci_server::collab::worker::WorkerCommand;
 use fvoci_server::config::Configuration;
 use fvoci_server::config::collab::CollabSettings;
 use fvoci_server::{Server, TlsFiles};
-use fvoci_store::testing::TestDatabase;
+use fvoci_store::testing::{TableOwner, TestDatabase};
 use fvoci_store::{SharingChange, Store};
 use reqwest::{Method, StatusCode};
 use serde::Serialize;
@@ -82,6 +82,9 @@ enum DatabaseRole {
     HeldByTheWall,
     /// A superuser, whom no policy holds.
     Superuser,
+    /// The role of the tests, using tables that another role owns and brought up to
+    /// date before the server starts.
+    NotTheOwner(TableOwner),
 }
 
 /// What is in the database of a test server when it starts.
@@ -93,6 +96,23 @@ enum Database {
     Seeded,
     /// Nothing: as a server finds it at its first start.
     Empty,
+}
+
+/// The database of a test server, as `role` connects to it.
+async fn test_database(role: DatabaseRole, directory: &Path) -> TestDatabase {
+    match role {
+        DatabaseRole::HeldByTheWall => TestDatabase::create(directory).await,
+        DatabaseRole::Superuser => TestDatabase::create_as_superuser(directory).await,
+        DatabaseRole::NotTheOwner(owner) => {
+            let database = TestDatabase::create_owned_apart(directory, owner).await;
+            Store::connect(database.db_type(), database.owner_dbconfig())
+                .await
+                .expect("the owner brings the schema up to date")
+                .close()
+                .await;
+            database
+        }
+    }
 }
 
 /// How a test server differs from the default one.
@@ -146,6 +166,17 @@ impl Setup {
     /// of a role that the wall between organizations does not hold.
     pub(crate) fn connecting_as_superuser(mut self) -> Self {
         self.database_role = DatabaseRole::Superuser;
+        self
+    }
+
+    /// Connects to PostgreSQL as the role of the tests, using tables that `owner` owns
+    /// and migrated before the server starts: as a server installed apart from the
+    /// administrator of its database.
+    pub(crate) fn connecting_as_a_role_that_does_not_own_the_tables(
+        mut self,
+        owner: TableOwner,
+    ) -> Self {
+        self.database_role = DatabaseRole::NotTheOwner(owner);
         self
     }
 
@@ -240,10 +271,7 @@ impl Setup {
         let web_path = directory.join("web");
         write_test_web_app(&web_path);
 
-        let database = match self.database_role {
-            DatabaseRole::HeldByTheWall => TestDatabase::create(&directory).await,
-            DatabaseRole::Superuser => TestDatabase::create_as_superuser(&directory).await,
-        };
+        let database = test_database(self.database_role, &directory).await;
         let mut config = Configuration {
             db_type: database.db_type().as_str().to_owned(),
             db_config: database.dbconfig().to_owned(),

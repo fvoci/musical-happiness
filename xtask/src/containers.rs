@@ -27,16 +27,18 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 /// The pause between two readiness probes.
 const PROBE_INTERVAL: Duration = Duration::from_millis(500);
 
-/// Test-only credentials of the PostgreSQL container. This user is the one the image
-/// makes, a superuser: it prepares the database and the tests do not connect as it.
-const POSTGRES_USER: &str = "fvoci";
+/// Test-only credentials of the PostgreSQL container. This user is the image's own
+/// superuser, as a database's administrator is: it prepares the database, and the tests
+/// connect as it only to show what the server makes of such a role, and to own tables
+/// that the role of the tests uses.
+const POSTGRES_USER: &str = "postgres";
 const POSTGRES_PASSWORD: &str = "fvoci-test";
 const POSTGRES_DATABASE: &str = "fvoci";
 
 /// The role the tests connect as: no superuser and not exempt from row-level security,
 /// so that the policies of the schema hold for it as they do for a server in use. A
 /// superuser passes every policy, and a test run as one would show nothing of them.
-const POSTGRES_TEST_ROLE: &str = "fvoci_app";
+const POSTGRES_TEST_ROLE: &str = "fvoci";
 
 /// The connections the PostgreSQL container takes. The tests run side by side, a test
 /// server's pool and the connection that holds its server's lock each; the image's 100
@@ -59,7 +61,7 @@ pub(crate) struct Container {
 }
 
 impl Container {
-    /// The PostgreSQL container: `fvoci-test-pg` on 127.0.0.1:15433 unless
+    /// The PostgreSQL container: `fvoci-test-postgres` on 127.0.0.1:15434 unless
     /// `FVOCI_TEST_PG_CONTAINER` and `FVOCI_TEST_PG_PORT` say otherwise.
     ///
     /// # Errors
@@ -67,8 +69,10 @@ impl Container {
     /// Fails if the port variable is set to something that is no port.
     pub(crate) fn postgres() -> Result<Self> {
         Ok(Self {
-            name: name_from_env("FVOCI_TEST_PG_CONTAINER", "fvoci-test-pg"),
-            host_port: port_from_env("FVOCI_TEST_PG_PORT", 15433)?,
+            // Not the `fvoci-test-pg` on 15433 of the tasks before the superuser was
+            // postgres: worktrees of either may run their tests side by side.
+            name: name_from_env("FVOCI_TEST_PG_CONTAINER", "fvoci-test-postgres"),
+            host_port: port_from_env("FVOCI_TEST_PG_PORT", 15434)?,
             image: "postgres:18",
             internal_port: 5432,
             environment: vec![
@@ -149,6 +153,9 @@ impl Container {
         // Held until the container runs: no other run starts or stops it meanwhile.
         let _setup = uses.claim(&self.name)?;
         let state = self.state()?;
+        if state != State::Missing {
+            self.check_environment()?;
+        }
         if state != State::Running {
             // Marked before it is started: a start that fails half-way leaves it to stop.
             uses.mark_started(&self.name)?;
@@ -181,6 +188,43 @@ impl Container {
             }
         }
         self.check_published_port()
+    }
+
+    /// Checks that a container of this name was made with the environment this task
+    /// gives it. A PostgreSQL container made by an older task has another superuser
+    /// (`fvoci`, now the name of the tests' role) and would fail the tests' setup in a
+    /// way that does not say why.
+    fn check_environment(&self) -> Result<()> {
+        let inspected = capture(
+            "docker",
+            &[
+                "inspect",
+                "--format",
+                "{{range .Config.Env}}{{println .}}{{end}}",
+                &self.name,
+            ],
+        )?;
+        if !inspected.succeeded {
+            bail!("`docker inspect {}` failed: {}", self.name, inspected.error);
+        }
+        let missing = missing_environment(&self.environment, &inspected.output);
+        if missing.is_empty() {
+            return Ok(());
+        }
+        let older = if missing
+            .iter()
+            .any(|entry| entry.starts_with("POSTGRES_USER="))
+        {
+            " (one made by an older task had the superuser fvoci, now the tests' role)"
+        } else {
+            ""
+        };
+        bail!(
+            "the container {name} was not made by this task as it is now: it lacks {missing:?}{older}. \
+             Remove it with `docker rm --force {name}` (its test data goes with it) and run \
+             again, or name another container and port with the environment",
+            name = self.name
+        )
     }
 
     /// Checks that the container publishes its port where the tests will connect. A
@@ -412,6 +456,17 @@ impl State {
         }
         bail!("{}", inspected.error)
     }
+}
+
+/// The entries of `wanted` that a container's environment (`given`, one `NAME=value` a
+/// line, as `docker inspect` lists it) does not have.
+fn missing_environment<'a>(wanted: &'a [String], given: &str) -> Vec<&'a str> {
+    let given: Vec<&str> = given.lines().map(str::trim).collect();
+    wanted
+        .iter()
+        .map(String::as_str)
+        .filter(|entry| !given.contains(entry))
+        .collect()
 }
 
 fn docker(arguments: &[&str]) -> Result<()> {
@@ -662,7 +717,7 @@ mod tests {
             host_port: 15999,
             image: "postgres:18",
             internal_port: 5432,
-            environment: vec!["POSTGRES_USER=fvoci".to_owned()],
+            environment: vec!["POSTGRES_USER=postgres".to_owned()],
             command: vec!["server", "-s3"],
         }
     }
@@ -684,7 +739,7 @@ mod tests {
                 "--name",
                 "probe-pg",
                 "--env",
-                "POSTGRES_USER=fvoci",
+                "POSTGRES_USER=postgres",
                 "--publish",
                 "127.0.0.1:15999:5432",
                 "postgres:18",
@@ -821,12 +876,12 @@ mod tests {
     fn the_test_urls_name_the_host_port() {
         assert_eq!(
             probe().postgres_url(),
-            "postgres://fvoci_app:fvoci-test@localhost:15999/fvoci?sslmode=disable",
+            "postgres://fvoci:fvoci-test@localhost:15999/fvoci?sslmode=disable",
             "the URL the store's test support reads, of the role that is no superuser"
         );
         assert_eq!(
             probe().postgres_superuser_url(),
-            "postgres://fvoci:fvoci-test@localhost:15999/fvoci?sslmode=disable",
+            "postgres://postgres:fvoci-test@localhost:15999/fvoci?sslmode=disable",
             "and the superuser's, for the tests of a role the policies do not hold"
         );
         assert_eq!(
@@ -841,12 +896,28 @@ mod tests {
     fn the_test_role_is_no_superuser_and_is_held_by_row_level_security() {
         assert_eq!(
             test_role_statements(),
-            "DO $$ BEGIN CREATE ROLE fvoci_app; \
+            "DO $$ BEGIN CREATE ROLE fvoci; \
              EXCEPTION WHEN duplicate_object THEN NULL; END $$; \
-             ALTER ROLE fvoci_app LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB \
+             ALTER ROLE fvoci LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB \
              NOCREATEROLE PASSWORD 'fvoci-test'; \
-             GRANT CREATE ON DATABASE fvoci TO fvoci_app;",
+             GRANT CREATE ON DATABASE fvoci TO fvoci;",
             "made if missing, altered if there, and let make schemas"
+        );
+    }
+
+    #[test]
+    fn a_container_of_an_older_task_lacks_the_superuser_it_is_given_now() {
+        let container = Container::postgres().expect("the default container");
+        let older =
+            "POSTGRES_USER=fvoci\nPOSTGRES_PASSWORD=fvoci-test\nPOSTGRES_DB=fvoci\nPATH=/bin\n";
+        assert_eq!(
+            missing_environment(&container.environment, older),
+            ["POSTGRES_USER=postgres"]
+        );
+        let current = format!("{}\nPATH=/bin", container.environment.join("\n"));
+        assert_eq!(
+            missing_environment(&container.environment, &current),
+            Vec::<&str>::new()
         );
     }
 

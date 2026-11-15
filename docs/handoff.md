@@ -134,11 +134,11 @@ cargo xtask openapi  # contracts/openapi.json 이 서버가 내는 것과 다르
 
 ```bash
 target/tools/bin/cargo-about generate --manifest-path crates/server/Cargo.toml -o NOTICE about.hbs   # 의존성이 바뀌었을 때
-DOCKER_BUILDKIT=1 docker build -f docker/fvoci/Dockerfile -t fvoci-server:s5 .                      # 이미지
+cargo xtask docker   # 이미지 둘(서버+웹앱, 검색 서버)을 빌드해 docker/compose.yaml로 띄워 가입~검색을 시험하고 내린다. GHCR에 올리는 명령은 --push-plan
 ```
 
 - 의존성이 바뀐 커밋마다 `NOTICE`를 다시 만든다. 마지막으로 만든 것은 응답 압축(tower-http의 압축, brotli, zstd)을 더했을 때다(tracer-bullet 10). `zstd-sys`가 넣는 C 라이브러리의 BSD 고지는 cargo-about이 보지 못해 `about.hbs`에 손으로 적었다.
-- 이미지는 회귀 테스트를 세운 때(`PORTING.md` A절) 뒤로 다시 빌드하지 않았다. 이 기기에 있는 `fvoci-server:s5`는 태그 `parity-s5` 시점의 서버다. 지금의 서버와 스키마도 API도 다르다.
+- 이미지의 쓰는 법은 `docker/fvoci/Dockerfile`, `docker/search/Dockerfile`, `docker/compose.yaml`의 머리 주석에 있다.
 - `cargo xtask check`의 마지막 단계는 `cargo-deny`가 있어야 돈다. 워크트리의 `target/tools/bin`이나 검색 경로에서 찾는다. 워크트리에 두는 명령: `CARGO_TARGET_DIR=$PWD/target/tools/build cargo install cargo-deny --locked --root $PWD/target/tools`.
 
 ## 2. 이 기기의 상태
@@ -159,7 +159,7 @@ DOCKER_BUILDKIT=1 docker build -f docker/fvoci/Dockerfile -t fvoci-server:s5 .  
 
 | 컨테이너 | 주소 | 접속 |
 |---|---|---|
-| `fvoci-test-pg` (PostgreSQL) | `127.0.0.1:15433` | 테스트는 슈퍼유저가 아닌 역할 `fvoci_app`로 붙는다(xtask가 만든다). 이미지의 슈퍼유저 `fvoci`로는 그 역할을 다루는 테스트만 붙는다. 비밀번호 `fvoci-test`, DB `fvoci` |
+| `fvoci-test-postgres` (PostgreSQL) | `127.0.0.1:15434` | 테스트는 슈퍼유저가 아닌 역할 `fvoci`로 붙는다(xtask가 만든다). 이미지의 슈퍼유저 `postgres`로는 그 역할과 표의 주인을 다루는 테스트만 붙는다. 비밀번호 `fvoci-test`, DB `fvoci` |
 | `fvoci-test-s3` (S3 호환) | `127.0.0.1:18333` | 인증 없음, 버킷 `fvoci-test` |
 
 - `cargo xtask test`가 멈춘 컨테이너는 시작하고 없는 것은 만든다. 재시작 정책은 없다.

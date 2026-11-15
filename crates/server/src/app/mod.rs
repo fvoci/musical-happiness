@@ -48,6 +48,7 @@ pub(crate) use server_lock::HeldLock;
 pub(crate) use server_lock::take_server_lock;
 use slots::Busy;
 pub use slots::Slot;
+pub use startup::migrate_database;
 pub(crate) use startup::{open_store, prepare_store};
 mod shared_reads;
 mod sharing;

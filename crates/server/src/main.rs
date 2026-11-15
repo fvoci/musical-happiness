@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use anyhow::Context as _;
 use clap::Parser;
 use fvoci_server::config::{Configuration, ENV_PREFIX};
-use fvoci_server::{BASE_PATH_ENV, Server, listen_address};
+use fvoci_server::{BASE_PATH_ENV, Server, checked_base_path, listen_address};
 use tracing_subscriber::EnvFilter;
 
 /// Settings that are distinctive enough to recognize under a wrong prefix.
@@ -40,6 +40,53 @@ struct Cli {
     /// configured, opened or served.
     #[arg(long)]
     print_openapi: bool,
+    /// Ask the server this configuration describes, on this machine, whether it is
+    /// ready (`GET /api/v1/ready`), and exit with success only if it is: the health
+    /// check of a container, whose image has no HTTP client. Nothing is opened or served.
+    #[arg(long)]
+    check_ready: bool,
+    /// Bring the database's schema up to date and exit, holding the lock of the server
+    /// meanwhile: for the role that owns the tables (the configuration's dbconfig),
+    /// when the server connects as one that does not. Nothing is served.
+    #[arg(long, conflicts_with = "check_ready")]
+    migrate: bool,
+}
+
+/// How long the check of readiness waits for the answer: the server answers `ready`
+/// within two and a half seconds.
+const READY_CHECK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// Where the server this configuration describes answers whether it is ready, on this
+/// machine: the port, plain HTTP or TLS, and the base path (as the server checks it).
+fn ready_url(config: &Configuration, base_path: &str) -> String {
+    let scheme = if config.use_ssl { "https" } else { "http" };
+    format!(
+        "{scheme}://localhost:{}{base_path}{}/ready",
+        config.port,
+        fvoci_server::api::PREFIX
+    )
+}
+
+/// Asks the server on this machine whether it is ready, and succeeds only on 200.
+/// Nothing is sent but the request. The certificate of a server that serves TLS itself
+/// is for its public name, not `localhost`, so it is not verified here.
+async fn check_ready(config: &Configuration, base_path: &str) -> anyhow::Result<()> {
+    let url = ready_url(config, base_path);
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .tls_danger_accept_invalid_certs(config.use_ssl)
+        .timeout(READY_CHECK_TIMEOUT)
+        .build()
+        .context("unable to set up the check")?;
+    let status = client
+        .get(&url)
+        .send()
+        .await
+        .with_context(|| format!("asking {url}"))?
+        .status();
+    anyhow::ensure!(status == reqwest::StatusCode::OK, "{url} answered {status}");
+    Ok(())
 }
 
 /// Writes the contract of the API to the standard output: what `contracts/openapi.json`
@@ -120,6 +167,12 @@ async fn serve() -> anyhow::Result<()> {
     }
 
     let base_path = std::env::var(BASE_PATH_ENV).unwrap_or_default();
+    if cli.migrate {
+        return fvoci_server::app::migrate_database(&config).await;
+    }
+    if cli.check_ready {
+        return check_ready(&config, checked_base_path(&base_path)?).await;
+    }
 
     let address = listen_address(&config);
     let port = config.port;
@@ -174,4 +227,70 @@ async fn shutdown_signal() {
             std::process::exit(130);
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+
+    use super::*;
+
+    /// A server on this machine that answers every request with `status`.
+    async fn answering(status: &'static str) -> u16 {
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .expect("a local port");
+        let port = listener.local_addr().expect("its address").port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let mut request = [0; 1024];
+                let _ = stream.read(&mut request).await;
+                let answer =
+                    format!("HTTP/1.1 {status}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n");
+                let _ = stream.write_all(answer.as_bytes()).await;
+            }
+        });
+        port
+    }
+
+    #[tokio::test]
+    async fn the_check_succeeds_on_200_only() {
+        for (status, ready) in [
+            ("200 OK", true),
+            ("503 Service Unavailable", false),
+            ("204 No Content", false),
+        ] {
+            let config = Configuration {
+                port: answering(status).await,
+                ..Configuration::default()
+            };
+            assert_eq!(check_ready(&config, "").await.is_ok(), ready, "{status}");
+        }
+    }
+
+    #[test]
+    fn the_check_asks_where_the_server_listens() {
+        let plain = Configuration {
+            port: 8000,
+            ..Configuration::default()
+        };
+        let tls = Configuration {
+            port: 8443,
+            use_ssl: true,
+            ..Configuration::default()
+        };
+        let base = |raw| checked_base_path(raw).expect("a base path the server takes");
+        assert_eq!(
+            ready_url(&plain, base("")),
+            "http://localhost:8000/api/v1/ready"
+        );
+        assert_eq!(
+            ready_url(&plain, base("/boards/")),
+            "http://localhost:8000/boards/api/v1/ready"
+        );
+        assert_eq!(
+            ready_url(&tls, base("/")),
+            "https://localhost:8443/api/v1/ready"
+        );
+    }
 }

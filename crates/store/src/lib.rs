@@ -274,8 +274,9 @@ enum Pool {
 
 impl Store {
     /// Connects to the database described by the server's `dbtype` and `dbconfig`
-    /// settings and brings its schema up to date: an empty database gets the whole
-    /// schema, an older one the migrations it lacks.
+    /// settings and brings its schema up to date, as [`Store::migrate`] does: an empty
+    /// database gets the whole schema, an older one the migrations it lacks. A role that
+    /// does not own the tables opens only a schema that is up to date.
     ///
     /// The tables have fixed names. To keep them apart from other tables in one
     /// PostgreSQL database, give the server a schema of its own with `search_path` in
@@ -285,8 +286,10 @@ impl Store {
     ///
     /// Returns [`StoreError::Config`] if `dbconfig` cannot be used, [`StoreError::Schema`]
     /// if the database is not this server's to open (one with this server's tables but
-    /// no migration record, one migrated by a newer server), and [`StoreError::Database`]
-    /// if the database cannot be reached.
+    /// no migration record, one migrated by a newer server) or the role may not read and
+    /// write its tables, [`StoreError::SchemaNotOwned`] if the schema is to be changed and
+    /// the role does not own the tables, and [`StoreError::Database`] if the database
+    /// cannot be reached.
     pub async fn connect(db_type: DbType, dbconfig: &str) -> Result<Self, StoreError> {
         let store = Self::open(db_type, dbconfig).await?;
         store.migrate().await?;
@@ -297,12 +300,52 @@ impl Store {
     /// caller that looks at the connection ([`Store::role_past_the_wall`]) before
     /// anything is changed through it.
     ///
+    /// A database whose schema is this build's already is left as it is, so that a role
+    /// that does not own the tables may serve it once their owner brought them up to
+    /// date. Then only the changes of the data the migrations left to the server are
+    /// done, if any are still to do.
+    ///
     /// # Errors
     ///
-    /// Returns [`StoreError::Schema`] if the database is not this server's to open,
-    /// and [`StoreError::Database`] if a statement fails.
+    /// Returns [`StoreError::SchemaNotOwned`] if the schema is to be changed and the
+    /// role may not change it (it does not own the tables), [`StoreError::Schema`] if
+    /// the database is not this server's to open or the role may not read and write
+    /// its tables, and [`StoreError::Database`] if a statement fails.
     pub async fn migrate(&self) -> Result<(), StoreError> {
-        schema::migrate(self, None).await?;
+        let state = schema::state(self).await?;
+        let may_change = schema::may_change(self).await?;
+        let reason = match (state, may_change) {
+            (schema::SchemaState::Current, true) => None,
+            (schema::SchemaState::Current, false) => {
+                let ungranted = schema::ungranted_tables(self).await?;
+                if !ungranted.is_empty() {
+                    let (role, schema) = schema::whereabouts(self).await?;
+                    return Err(StoreError::Schema(format!(
+                        "the role {role} may not read and write the tables {} of the schema \
+                         {schema}: grant it SELECT, INSERT, UPDATE and DELETE on them \
+                         (SELECT on _sqlx_migrations)",
+                        ungranted.join(", ")
+                    )));
+                }
+                None
+            }
+            (schema::SchemaState::Behind | schema::SchemaState::Foreign(_), true) => {
+                schema::migrate(self, None).await?;
+                None
+            }
+            (schema::SchemaState::Behind, false) => {
+                Some("migrations of this server are not applied yet".to_owned())
+            }
+            (schema::SchemaState::Foreign(reason), false) => Some(reason),
+        };
+        if let Some(reason) = reason {
+            let (role, schema) = schema::whereabouts(self).await?;
+            return Err(StoreError::SchemaNotOwned {
+                role,
+                schema,
+                reason,
+            });
+        }
         data_steps::run(self).await
     }
 
@@ -508,6 +551,27 @@ impl Store {
             scope.fetch_optional(sql).await.map(|_| ())
         })
         .await
+    }
+
+    /// Whether the database's schema is this build's already: every migration recorded
+    /// as applied, with this build's text, and no other. Reads only.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Schema`] if the role may not read the record of the
+    /// migrations, and [`StoreError::Database`] if it cannot be read.
+    pub async fn schema_is_current(&self) -> Result<bool, StoreError> {
+        Ok(schema::state(self).await? == schema::SchemaState::Current)
+    }
+
+    /// The role the store connects as and the schema it works in, for what a server
+    /// says of them; empty on SQLite.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if they cannot be read.
+    pub async fn role_and_schema(&self) -> Result<(String, String), StoreError> {
+        schema::whereabouts(self).await
     }
 
     /// The name of the role the store connects as, if the wall between organizations
