@@ -86,6 +86,25 @@ describe('the search in memory', () => {
     });
   });
 
+  it('finds the pages of an open wiki the reader works beside, not joined, as the server does', async () => {
+    const made = world();
+    made.boards.set('notes', {
+      ...createBoard(),
+      id: 'notes',
+      workspaceId: 'w',
+      title: 'Notes',
+      type: 'O',
+      kind: 'wiki',
+    });
+    made.members.set('notes', [memberOf('notes', 'someone', 'admin')]);
+    made.blocks.set('note', { ...block('note', 'notes', 'Kangaroo notes'), type: 'page' });
+    const backend = new MemoryBackend(made, 'reader');
+    expect(ids(await backend.search.find('w', { query: 'notes' }))).toEqual([]);
+    made.workspaceMembers.add('reader');
+    const hits = await backend.search.find('w', { query: 'notes' });
+    expect(hits.map((hit) => [hit.id, hit.containerKind])).toEqual([['note', 'wiki']]);
+  });
+
   it('wants every word, in any case, and finds nothing for no words', async () => {
     const backend = new MemoryBackend(world(), 'reader');
     expect(ids(await backend.search.find('w', { query: 'ROUTE kangaroo' }))).toEqual(['found']);

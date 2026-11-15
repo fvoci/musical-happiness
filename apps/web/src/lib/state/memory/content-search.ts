@@ -5,7 +5,8 @@
  * A word matches where its letters stand in the title or the body as they
  * are, whatever the case, as the tests' fake search server matches (not by
  * the words of a language, as the real one does). Found are the cards and
- * pages of the boards and wikis the reader has a role on, of no template,
+ * pages of the boards and wikis the reader reads (a role on it, or an open
+ * wiki of the workspace they work in, as on the server), of no template,
  * and no card that is a template of its board. The snippet is one piece of
  * the body around the first word it holds, about as long as the server's,
  * every word in it marked; of a body that holds none, its beginning.
@@ -26,7 +27,7 @@ import {
   type SnippetPart,
 } from '../content-search.ts';
 
-import { roleOn } from './comments.ts';
+import { reads } from './board-access.ts';
 import { fail } from './refuse.ts';
 import type { StoredBlock, World } from './world.ts';
 
@@ -123,7 +124,7 @@ export class MemoryContentSearch implements ContentSearch {
     const hits: { hit: SearchHit; inTitle: number; updateAt: number }[] = [];
     for (const board of world.boards.values()) {
       if (board.workspaceId !== workspaceId || board.isTemplate) continue;
-      if (roleOn(world.members.get(board.id) ?? [], this.#userId) === '') continue;
+      if (!reads(world, this.#userId, board.id)) continue;
       for (const block of world.blocksOf(board.id)) {
         const kind = this.#kindOf(block);
         if (kind === undefined || (ask.kind !== undefined && ask.kind !== kind)) continue;
