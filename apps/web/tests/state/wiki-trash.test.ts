@@ -148,5 +148,75 @@ describe('the trash of pages in an open wiki', () => {
     await trash.read();
     expect(await trash.restore(a)).toBe(false);
     expect(trash.items.map((item) => item.id)).toEqual([a]);
+    expect(made.workspace.problems.at(-1)?.action).toBe('save');
+  });
+
+  it('undoes nothing of a deletion brought back meanwhile, and goes on to the step before', async () => {
+    const made = await openWiki();
+    const a = await made.page('A');
+    await made.store.load();
+    await made.store.changePage(a, { title: 'Named' });
+    await made.store.deletePage(a);
+    const trash = pageTrash(made.store);
+    await trash.read();
+    await trash.restore(a);
+    await settle();
+    await made.workspace.undoLast();
+    expect(made.workspace.problems).toEqual([]);
+    expect(titles(made.store.pages)).toEqual(['Named']);
+    await made.workspace.undoLast();
+    expect(titles(made.store.pages)).toEqual(['A']);
+  });
+
+  it('shows the open page again once somebody brings it back', async () => {
+    const made = await openWiki();
+    const a = await made.page('A');
+    await made.store.load();
+    const shown = made.store.showPage(a);
+    await settle();
+    await made.backend.wiki.deletePage(made.wikiId, a);
+    await settle();
+    expect(shown?.missing).toBe(true);
+    await made.backend.wiki.undeletePage(made.wikiId, a);
+    await settle();
+    expect([shown?.missing, shown?.status]).toEqual([false, 'ready']);
+  });
+
+  it('keeps out of the tree what a reading begun before a deletion still has', async () => {
+    const made = await openWiki();
+    const a = await made.page('A');
+    await made.page('B', a);
+    await made.page('C');
+    await made.store.load();
+    await made.store.deletePage(a);
+    // The tree read anew after the undo answers only once it is done again.
+    const wikis = made.backend.wiki;
+    const read = wikis.pages.bind(wikis);
+    let release = (): void => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    wikis.pages = async (wikiId) => {
+      const pages = await read(wikiId);
+      await held;
+      return pages;
+    };
+    // And what the undo brought back is heard only after its answer, as from a server.
+    const tell = made.world.tellBoard.bind(made.world);
+    const late: Parameters<typeof tell>[] = [];
+    made.world.tellBoard = (...told) => {
+      if (told[1].kind === 'pages') late.push(told);
+      else tell(...told);
+    };
+    await made.workspace.undoLast();
+    made.world.tellBoard = tell;
+    for (const told of late) tell(...told);
+    await settle();
+    expect(titles(made.store.pages)).toEqual(['A', '  B', 'C']);
+    await made.workspace.redoLast();
+    await settle();
+    release();
+    await settle();
+    expect(titles(made.store.pages)).toEqual(['C']);
   });
 });

@@ -57,6 +57,8 @@ export class TreeWrites {
    */
   forget(pageIds: readonly string[], by: 'others' | 'reader' | 'held'): void {
     const gone = pageIds.flatMap((pageId) => [...withDescendants(this.#host.pages(), pageId)]);
+    this.#forgettings += 1;
+    for (const pageId of [...pageIds, ...gone]) this.#forgottenAt.set(pageId, this.#forgettings);
     const shown = this.#host.openPage();
     // The reader's own deletion, heard back before its answer: the reader's still.
     const own = pageIds.find((pageId) => this.#deleting.has(pageId));
@@ -68,6 +70,26 @@ export class TreeWrites {
 
   /** The pages the reader is deleting, each with the title of the page shown when it began. */
   readonly #deleting = new Map<string, string>();
+
+  /** Whether the reader is deleting the page: it is off the tree by their doing, not told. */
+  isDeleting(pageId: string): boolean {
+    return this.#deleting.has(pageId);
+  }
+
+  /** Deletions taken off the tree so far (`forget`), counted. */
+  #forgettings = 0;
+  /** Each page taken off, with the count of deletions taken off then. */
+  readonly #forgottenAt = new Map<string, number>();
+
+  /** A mark of the deletions taken off so far: a reading begun now is told what went since. */
+  get forgettings(): number {
+    return this.#forgettings;
+  }
+
+  /** Whether the page was taken off the tree after `mark` (`forgettings`): a reading begun then still has it. */
+  forgottenSince(mark: number, pageId: string): boolean {
+    return (this.#forgottenAt.get(pageId) ?? 0) > mark;
+  }
 
   /** Deletes a page as the reader, its echo known for theirs (`forget`). */
   async #deletePage(
@@ -143,7 +165,9 @@ export class TreeWrites {
     try {
       await this.#host.workspace.undo.perform(
         () => this.#deleteShown(pageId),
-        () => this.restorePage(pageId),
+        // Brought back meanwhile (the trash, somebody else), or gone with a page above it:
+        // nothing is left to undo.
+        () => unlessGone(() => this.restorePage(pageId)),
         'deletePage',
       );
       return true;

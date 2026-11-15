@@ -88,3 +88,28 @@ test.describe('the trash of a wiki’s pages', () => {
     await expect.poll(() => treeShape(page)).toEqual(['Welcome', '  Getting started', 'Policies']);
   });
 });
+
+test.describe('the trash of a wiki’s pages at a phone’s width', () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
+
+  test('opened from the drawer of the tree, a page brought back shows in it', async ({ page }) => {
+    await openApp(page);
+    await wikiWithPages(page);
+    await deleteWelcome(page);
+    await page.getByTestId('open-page-trash').click();
+    const trash = page.getByTestId('page-trash');
+    const box = await trash.boundingBox();
+    expect(box && box.x >= 0 && box.x + box.width <= 390).toBe(true);
+    await trash.getByRole('button', { name: 'Restore Welcome' }).click();
+    await expect(trash.getByTestId('trash-empty')).toBeVisible();
+    // The list empty, the focus goes to "Close".
+    const close = trash
+      .locator('[data-slot="dialog-footer"]')
+      .getByRole('button', { name: 'Close' });
+    await expect(close).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(trash).toBeHidden();
+    await showTree(page);
+    await expect.poll(() => treeShape(page)).toEqual(['Welcome', '  Getting started', 'Policies']);
+  });
+});

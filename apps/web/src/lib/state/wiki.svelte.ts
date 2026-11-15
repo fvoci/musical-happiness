@@ -276,7 +276,11 @@ export class WikiStore {
   #takePage(page: WikiPage): void {
     if (page.wikiId !== this.wikiId) return;
     this.pages = take(this.pages, page);
-    if (this.openPage?.pageId === page.id) this.openPage.pageChanged(page);
+    const shown = this.openPage;
+    if (shown?.pageId !== page.id) return;
+    // Brought back while shown as not there: read again.
+    if (shown.missing) void shown.load();
+    else shown.pageChanged(page);
   }
 
   /**
@@ -288,6 +292,7 @@ export class WikiStore {
     this.#readings += 1;
     const reading = this.#readings;
     const before = this.pages.map((page) => page.id);
+    const mark = this.#writes.forgettings;
     try {
       const [wiki, pages, members] = await Promise.all([
         this.workspace.backend.board(this.wikiId),
@@ -298,9 +303,13 @@ export class WikiStore {
       [this.wiki, this.members] = [wiki, members];
       const shown = this.openPage;
       const title = (shown && this.page(shown.pageId)?.title) ?? '';
-      this.pages = reread(this.pages, pages, before, (page) => this.#writes.receive(page));
-      if (shown && !this.page(shown.pageId)) shown.gone('others', title);
-      else if (shown) void shown.refresh();
+      // What was taken off while it was read is gone, though the reading has it.
+      const read = pages.filter((page) => !this.#writes.forgottenSince(mark, page.id));
+      this.pages = reread(this.pages, read, before, (page) => this.#writes.receive(page));
+      // The reader's own deletion under way tells of itself.
+      if (shown && !this.page(shown.pageId)) {
+        if (!this.#writes.isDeleting(shown.pageId)) shown.gone('others', title);
+      } else if (shown) void shown.refresh();
     } catch (error) {
       if (this.#isClosed() || reading !== this.#readings) return;
       // Gone for the reader (deleted, or taken off it): read as on opening.

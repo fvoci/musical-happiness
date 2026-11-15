@@ -9,8 +9,12 @@
 
   The list is read each time the dialog opens, a page at a time ("Show
   more"). A list that could not be read says so, with a button to try again.
+  The focus that was on the button of one brought back goes to the row now
+  in its place, or, the list empty, to "Close".
 -->
 <script lang="ts">
+  import { tick } from 'svelte';
+
   import RotateCcwIcon from '@lucide/svelte/icons/rotate-ccw';
 
   import { m } from '$lib/i18n/paraglide/messages.js';
@@ -56,6 +60,22 @@
     hourCycle: workspace.regional.hourCycle,
   });
 
+  let list = $state<HTMLElement>();
+  let closer = $state<HTMLElement | null>(null);
+
+  /** Brings one back; the focus, lost with its button, goes to the row in its place. */
+  async function restore(of: Trash, id: string): Promise<void> {
+    const at = of.items.findIndex((item) => item.id === id);
+    if (!(await of.restore(id))) return;
+    await tick();
+    // Unless the reader has gone on to another control meanwhile.
+    const focused = document.activeElement;
+    const control = 'button, a[href], input, [tabindex]:not([tabindex="-1"])';
+    if (focused?.isConnected && focused.matches(control)) return;
+    const buttons = list?.querySelectorAll<HTMLElement>('[data-restore]') ?? [];
+    (buttons[Math.min(at, buttons.length - 1)] ?? closer)?.focus();
+  }
+
   const nameOf = (userId: string): string =>
     (userId === '' ? undefined : workspace.userName(userId)) ?? m['centerPanel.unknown-user']();
 </script>
@@ -73,7 +93,7 @@
     {#if trash}
       <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain">
         {#if trash.items.length > 0}
-          <ul class="grid gap-1" data-testid="trash-items">
+          <ul class="grid gap-1" data-testid="trash-items" bind:this={list}>
             {#each trash.items as item (item.id)}
               {@const wiki = item.kind === 'wiki'}
               {@const name = item.title || (wiki ? m.wiki_untitled() : untitled)}
@@ -112,8 +132,9 @@
                   size="sm"
                   class="roomy:min-h-touch"
                   aria-label={m.shell_trash_restore_named({ title: name })}
+                  data-restore
                   disabled={trash.restoring.includes(item.id)}
-                  onclick={() => void trash.restore(item.id)}
+                  onclick={() => void restore(trash, item.id)}
                 >
                   <RotateCcwIcon aria-hidden="true" />
                   {m.shell_trash_restore()}
@@ -148,6 +169,7 @@
 
     <Dialog.Footer>
       <Button
+        bind:ref={closer}
         variant="outline"
         class="roomy:min-h-touch"
         onclick={() => {

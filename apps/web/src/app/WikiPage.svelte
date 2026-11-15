@@ -57,6 +57,8 @@
       // What the head of the page told, and the focus of a join, were the wiki's before.
       notice = undefined;
       joined = false;
+      // And so were its deleted pages.
+      [trash, trashOpen] = [undefined, false];
       void store.load();
     });
     return () => {
