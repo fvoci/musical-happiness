@@ -760,7 +760,9 @@ impl Store {
     /// The organization of the live link whose token has the digest `token_hash`, at
     /// `now`: one that is not revoked, has not ended and was not used as often as it
     /// may be, into a workspace and an organization in use. `None` for any other, and
-    /// for no link at all: one read, the same whatever is wrong with a link.
+    /// for no link at all: one read, the same whatever is wrong with a link. The use a
+    /// registration made from the browser whose marker has the digest `replacing`
+    /// took of the link does not count: what the browser does next replaces it.
     ///
     /// # Errors
     ///
@@ -769,6 +771,7 @@ impl Store {
         &self,
         token_hash: &str,
         now: i64,
+        replacing: Option<&str>,
     ) -> Result<Option<String>, StoreError> {
         self.system()
             .with_conn(async |scope| {
@@ -778,7 +781,7 @@ impl Store {
                      JOIN organizations AS o ON o.id = t.org_id WHERE i.token_hash = ",
                 );
                 sql.bind(token_hash);
-                invitations::push_live(&mut sql, now);
+                invitations::push_live_but_for(&mut sql, now, replacing);
                 sql.push(IN_USE)
                     .push(&scope.same_organization(&[("i", "t")]));
                 match scope.fetch_optional(sql).await? {

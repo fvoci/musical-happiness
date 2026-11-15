@@ -220,6 +220,18 @@
     problem = undefined;
     fieldProblems = {};
   }
+
+  /**
+   * Back from waiting to the form, to register again by the link with the
+   * address put right: this browser's new registration replaces the one that
+   * waits, under the same name. At the address.
+   */
+  async function signUpAgain(): Promise<void> {
+    waitingFor = undefined;
+    switchTo('register');
+    await tick();
+    document.getElementById('account-email')?.focus();
+  }
 </script>
 
 {#snippet invitedTo(found: InvitationPreview)}
@@ -274,6 +286,7 @@
   <CheckMailPage
     email={address}
     onResend={() => onResend?.({ email: address }) ?? Promise.resolve()}
+    onSignUpAgain={() => void signUpAgain()}
   />
 {:else}
   <main class="grid min-h-dvh place-items-center p-4">

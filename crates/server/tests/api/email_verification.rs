@@ -7,8 +7,55 @@ use fvoci_store::{SIGNUP_LINK_LIFETIME_MILLIS, SignupLookup};
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
-use crate::common::{Setup, TestServer};
+use crate::common::{ApiResponse, Client, Setup, TestServer};
 use crate::fake_smtp::{FakeSmtp, Received};
+
+/// Where a confirmation link's token is sent.
+pub(crate) const COMPLETE: &str = "/email-verification/complete";
+
+/// The password of every registration made here.
+pub(crate) const SIGNUP_PASSWORD: &str = "Pa$$word-1";
+
+/// The name of the cookie of the browser a registration was made from, on a server
+/// reached over plain HTTP, as the test servers are.
+pub(crate) const SIGNUP_COOKIE: &str = "fvoci_signup";
+
+/// The secret the answer gives the browser that registered, in its cookie; `None` if
+/// it sets none. Empty where the cookie is cleared.
+pub(crate) fn marker_of(answer: &ApiResponse) -> Option<String> {
+    answer.set_cookies().into_iter().find_map(|cookie| {
+        let (pair, _attributes) = cookie.split_once(';').unwrap_or((cookie, ""));
+        let (name, value) = pair.split_once('=')?;
+        (name == SIGNUP_COOKIE).then(|| value.to_owned())
+    })
+}
+
+/// Opens the link of `token` in the browser that keeps `marker`: the one the
+/// registration was made from, if the marker is its own.
+pub(crate) async fn complete_with_marker(
+    th: &TestServer,
+    token: &str,
+    marker: &str,
+) -> ApiResponse {
+    let request = th
+        .anonymous()
+        .request(reqwest::Method::POST, COMPLETE)
+        .header("Cookie", format!("{SIGNUP_COOKIE}={marker}"))
+        .json(&json!({"token": token}));
+    Client::send(request).await
+}
+
+/// Opens the link of `token` in another browser than the registration was made from,
+/// and gives `password` when it is asked for.
+pub(crate) async fn complete_elsewhere(
+    th: &TestServer,
+    token: &str,
+    password: &str,
+) -> ApiResponse {
+    th.anonymous()
+        .post(COMPLETE, &json!({"token": token, "password": password}))
+        .await
+}
 
 /// A server that asks registrations to confirm their address, mailing through `smtp`.
 pub(crate) async fn verifying(smtp: &FakeSmtp) -> TestServer {
@@ -24,7 +71,7 @@ pub(crate) fn registration(username: &str, language: &str) -> Value {
     json!({
         "username": username,
         "email": format!("{username}@example.test"),
-        "password": "Pa$$word-1",
+        "password": SIGNUP_PASSWORD,
         "organizationName": format!("{username} works"),
         "language": language,
     })
@@ -57,6 +104,7 @@ async fn a_registration_opens_nothing_until_its_mailed_link_signs_it_in() {
         .await;
     answer.check_status(StatusCode::ACCEPTED);
     assert_eq!(answer.session_cookie(), None, "no session before the link");
+    let marker = marker_of(&answer).expect("the marker of the browser that registered");
     assert!(
         answer.text().is_empty(),
         "nothing of an account: {}",
@@ -96,12 +144,15 @@ async fn a_registration_opens_nothing_until_its_mailed_link_signs_it_in() {
 
     names_are_held_and_logins_refused(&th).await;
 
-    // Another browser than the one that registered: the mailbox is the proof.
-    let confirmed = th
-        .anonymous()
-        .post("/email-verification/complete", &json!({"token": token}))
-        .await;
+    // The browser that registered: the link is enough there.
+    let confirmed = complete_with_marker(&th, &token, &marker).await;
     confirmed.check_status(StatusCode::OK);
+    assert_eq!(
+        marker_of(&confirmed).as_deref(),
+        Some(""),
+        "the marker has nothing left to show: {:?}",
+        confirmed.set_cookies()
+    );
     assert_eq!(confirmed.value()["organizationStarted"], true, "its own");
     let session = confirmed.session_cookie().expect("a session");
     let workspace_id = confirmed.value()["workspaceId"]
@@ -122,10 +173,7 @@ async fn a_registration_opens_nothing_until_its_mailed_link_signs_it_in() {
     );
 
     // Used once.
-    let again = th
-        .anonymous()
-        .post("/email-verification/complete", &json!({"token": token}))
-        .await;
+    let again = complete_with_marker(&th, &token, &marker).await;
     again.check_status(StatusCode::BAD_REQUEST);
     assert_eq!(again.refused_at(), "/token");
     th.anonymous()
@@ -223,10 +271,7 @@ async fn a_link_confirms_for_a_day_and_two_at_once_confirm_once() {
             .await
             .expect("renewed")
     );
-    let ended = th
-        .anonymous()
-        .post("/email-verification/complete", &json!({"token": token}))
-        .await;
+    let ended = complete_elsewhere(&th, &token, SIGNUP_PASSWORD).await;
     ended.check_status(StatusCode::BAD_REQUEST);
     assert_eq!(ended.refused_at(), "/token");
 
@@ -236,12 +281,9 @@ async fn a_link_confirms_for_a_day_and_two_at_once_confirm_once() {
             .await
             .expect("renewed")
     );
-    let body = json!({"token": token});
+    let body = json!({"token": token, "password": SIGNUP_PASSWORD});
     let (one, two) = (th.anonymous(), th.anonymous());
-    let (first, second) = tokio::join!(
-        one.post("/email-verification/complete", &body),
-        two.post("/email-verification/complete", &body),
-    );
+    let (first, second) = tokio::join!(one.post(COMPLETE, &body), two.post(COMPLETE, &body));
     let mut statuses = [first.status, second.status];
     statuses.sort();
     assert_eq!(statuses, [StatusCode::OK, StatusCode::BAD_REQUEST]);
@@ -263,6 +305,35 @@ async fn a_server_that_does_not_ask_registers_and_answers_as_it_did() {
         .await;
     answer.check_status(StatusCode::CREATED);
     assert_eq!(answer.value()["username"], "fern");
+    assert_eq!(
+        answer.set_cookies(),
+        Vec::<&str>::new(),
+        "no marker where nothing waits"
+    );
+    // Nor from an acceptance that makes its account at once.
+    let fern = th.login("fern", SIGNUP_PASSWORD).await;
+    let workspaces: Vec<fvoci_model::UserWorkspace> =
+        fern.get("/users/me/workspaces").await.ok_json();
+    let link: fvoci_model::Invitation = fern
+        .post(
+            &format!("/w/{}/invitations", workspaces[0].id),
+            &json!({"role": "member"}),
+        )
+        .await
+        .created_json();
+    let accepted = th
+        .anonymous()
+        .post(
+            "/invitations/accept",
+            &json!({"token": link.token, "account": {
+                "username": "finn",
+                "email": "finn@example.test",
+                "password": SIGNUP_PASSWORD,
+            }}),
+        )
+        .await;
+    accepted.check_status(StatusCode::OK);
+    assert_eq!(accepted.set_cookies(), Vec::<&str>::new(), "no marker");
     th.anonymous()
         .login("fern", "Pa$$word-1")
         .await
@@ -273,14 +344,10 @@ async fn a_server_that_does_not_ask_registers_and_answers_as_it_did() {
     smtp.stop().await;
 }
 
-/// Confirms the registration whose mail is `message`, and answers as the server did.
-async fn confirm(th: &TestServer, message: &Received) -> crate::common::ApiResponse {
-    th.anonymous()
-        .post(
-            "/email-verification/complete",
-            &json!({"token": link_token(message)}),
-        )
-        .await
+/// Confirms the registration whose mail is `message`, from another browser than it was
+/// made from, with its password; and answers as the server did.
+async fn confirm(th: &TestServer, message: &Received) -> ApiResponse {
+    complete_elsewhere(th, &link_token(message), SIGNUP_PASSWORD).await
 }
 
 #[tokio::test]

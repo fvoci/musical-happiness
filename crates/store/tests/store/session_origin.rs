@@ -401,6 +401,7 @@ async fn a_sign_in_that_ends_after_the_unlinking_is_refused() {
                 user_id: &user,
                 password_hash: HASH,
                 identity,
+                proved_email: None,
             },
             &mut session,
             "digest",
@@ -481,6 +482,7 @@ async fn a_change_of_what_signing_in_takes_raises_the_revision() {
             user_id: &user,
             password_hash: HASH,
             identity,
+            proved_email: None,
         };
         test.finish_oidc_sign_in(&read.id, revision, account, &mut session, digest)
             .await

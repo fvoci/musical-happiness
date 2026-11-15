@@ -10,7 +10,7 @@ use fvoci_model::{
 
 use crate::db::{Bound, Id, OptId, Param, Row, Scope, Sql, now_millis};
 use crate::error::StoreError;
-use crate::{Store, blocks, board_kinds, board_search, boards, members};
+use crate::{Store, blocks, board_kinds, board_search, boards, members, signups};
 
 const WORKSPACE_COLUMNS: &str = "id, name, settings, modified_by, update_at, guest_invitations";
 
@@ -48,6 +48,10 @@ impl Store {
         modified_by: &str,
     ) -> Result<Workspace, StoreError> {
         self.transaction(async |scope| {
+            // Turned off, the workspace's guest links are held all at once.
+            if !change.enabled {
+                signups::hold_several_links(scope).await?;
+            }
             let now = now_millis();
             // The workspace before its links, as whoever takes somebody out of it has
             // them, and so that a link made meanwhile waits and finds it turned off.

@@ -606,6 +606,14 @@ async fn find_user(scope: &mut Scope<'_>, lookup: Lookup<'_>) -> Result<User, St
         .ok_or_else(user_not_found)
 }
 
+/// Whether an account that is not deleted has the address `email` as its own, in any
+/// letter case.
+pub(crate) async fn has_address(scope: &mut Scope<'_>, email: &str) -> Result<bool, StoreError> {
+    let mut sql = scope.sql("SELECT 1 FROM users WHERE delete_at = 0 AND ");
+    Lookup::Email(email).push_condition(&mut sql);
+    Ok(scope.fetch_optional(sql).await?.is_some())
+}
+
 /// Whether there is a user row with the identifier, deactivated or not: whether a row
 /// that refers to the user can be stored.
 pub(crate) async fn user_row_exists(

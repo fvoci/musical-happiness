@@ -179,6 +179,9 @@ reasons! {
     /// The password is right, of a registration whose email address is not confirmed
     /// yet: there is no account until it is.
     EmailUnverified => "email_unverified", "Email address not confirmed";
+    /// A confirmation link was opened in another browser than its registration was made
+    /// from: the password of the registration is to come with it.
+    PasswordRequired => "password_required", "Password required";
     /// The change would leave the board, the workspace or the instance without an
     /// administrator.
     LastAdmin => "last_admin", "Last administrator";

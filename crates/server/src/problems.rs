@@ -187,9 +187,11 @@ fn describe_reason(reason: Reason) -> &'static str {
              say which. Status 401 from a login. Status 400 from a change of the password, \
              whose session is good: `errors` names `/oldPassword`."
         }
-        Reason::InvitationRequired | Reason::InvitationUnavailable => {
-            describe_invitation(reason).unwrap_or_default()
-        }
+        Reason::InvitationRequired
+        | Reason::InvitationUnavailable
+        | Reason::TooManyRecipients
+        | Reason::InvitationMailLimit
+        | Reason::MailQueueFull => describe_invitation(reason).unwrap_or_default(),
         Reason::UsernameTaken => {
             "Status 409. Another user has the user name. `errors` names `/username`."
         }
@@ -234,6 +236,7 @@ fn describe_reason(reason: Reason) -> &'static str {
         | Reason::OidcTrialStale
         | Reason::OidcCarryOverRefused
         | Reason::EmailUnverified
+        | Reason::PasswordRequired
         | Reason::PasswordNotSet
         | Reason::LastSignIn
         | Reason::SsoRequired
@@ -250,21 +253,6 @@ fn describe_reason(reason: Reason) -> &'static str {
         | Reason::DefaultWorkspace
         | Reason::LastOrgAdmin
         | Reason::PublicLinksOff => describe_organization(reason).unwrap_or_default(),
-        Reason::TooManyRecipients => {
-            "Status 400. An invitation mail request names more recipients than \
-             `invitation_mail_recipients` allows (20 unless configured), which `limit` \
-             tells. `errors` names `/recipients`. Nothing was sent: send fewer at a time."
-        }
-        Reason::InvitationMailLimit => {
-            "Status 429. The workspace queued as many invitation messages within the last \
-             hour as `invitation_mail_per_hour` allows (100 unless configured), counting the \
-             recipients of this request. Nothing of it was sent. `Retry-After` and \
-             `retryAfter` say when enough of the earlier messages are an hour old."
-        }
-        Reason::MailQueueFull => {
-            "Status 503. The server holds as many invitation messages waiting to be sent as \
-             `mail_invitation_queue` allows. Nothing of this request was sent. Try again later."
-        }
         // The rest are the reasons of the search of bodies, of the limits of a wiki's tree
         // and of a body edited together, which the functions below name one by one: a
         // reason that is none of theirs fails the tests.
@@ -354,7 +342,8 @@ fn describe_transfer(reason: Reason) -> Option<&'static str> {
     })
 }
 
-/// The descriptions of the reasons somebody is not let in for.
+/// The descriptions of the reasons somebody is not let in for, and an invitation's mail is
+/// not sent for.
 fn describe_invitation(reason: Reason) -> Option<&'static str> {
     Some(match reason {
         Reason::InvitationRequired => {
@@ -367,6 +356,21 @@ fn describe_invitation(reason: Reason) -> Option<&'static str> {
              whether there never was such a link, it ended after its seven days, it was \
              used as often as it may be, it was revoked, or who made it may no longer \
              invite. Ask for a new link."
+        }
+        Reason::TooManyRecipients => {
+            "Status 400. An invitation mail request names more recipients than \
+             `invitation_mail_recipients` allows (20 unless configured), which `limit` \
+             tells. `errors` names `/recipients`. Nothing was sent: send fewer at a time."
+        }
+        Reason::InvitationMailLimit => {
+            "Status 429. The workspace queued as many invitation messages within the last \
+             hour as `invitation_mail_per_hour` allows (100 unless configured), counting the \
+             recipients of this request. Nothing of it was sent. `Retry-After` and \
+             `retryAfter` say when enough of the earlier messages are an hour old."
+        }
+        Reason::MailQueueFull => {
+            "Status 503. The server holds as many invitation messages waiting to be sent as \
+             `mail_invitation_queue` allows. Nothing of this request was sent. Try again later."
         }
         _ => return None,
     })
@@ -532,6 +536,14 @@ fn describe_sign_in(reason: Reason) -> Option<&'static str> {
              registration has not been confirmed, and there is no account until the link \
              mailed to the address confirms it, within seven days. A wrong password is \
              answered as for no account."
+        }
+        Reason::PasswordRequired => {
+            "Status 403 from `completeEmailVerification`, for a link that would confirm a \
+             registration, opened in another browser than the one it was made from: send \
+             the request again with `password`, the password the registration was made \
+             with. The link stays as it was. Only who registered finishes a registration, \
+             so that nobody is signed in to an account whose password somebody else \
+             chose; `errors` names `password`."
         }
         Reason::SecretKeyRequired => {
             "Status 409. The server seals the client secret of a provider with its key, \

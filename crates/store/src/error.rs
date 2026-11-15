@@ -161,6 +161,8 @@ pub enum Taken {
     WorkspaceName,
     /// The name of a team: another team in the workspace has it.
     TeamName,
+    /// The last use of a link of an invitation: it was used as often as it may be.
+    LinkUse,
 }
 
 impl std::fmt::Display for Taken {
@@ -171,6 +173,7 @@ impl std::fmt::Display for Taken {
             Self::Identity => "the identity at the provider",
             Self::WorkspaceName => "the name of the workspace",
             Self::TeamName => "the name of the team",
+            Self::LinkUse => "the last use of the invitation",
         })
     }
 }
