@@ -11,8 +11,9 @@
 //!    [`hold_organization`] of another), before any link of it that is held with
 //!    another, or with anything a deletion holds or deletes. Two transactions that hold
 //!    several links of one organization wait for each other here.
-//! 3. The workspace: before a member's link, which only the workspace's purge deletes,
-//!    the workspace instead of the organization's row ([`hold_for_letting_in`]).
+//! 3. The workspace. A transaction that holds a single member's link, which only the
+//!    workspace's purge deletes, and after it no organization's row, may hold the
+//!    workspace instead of the organization's row ([`hold_for_letting_in`]).
 //! 4. The board.
 //! 5. The links, a link before the links made like it for the recipients of its mail,
 //!    and then the registrations made by them.
@@ -152,27 +153,33 @@ pub(crate) async fn hold_for_new_link(
     Ok(())
 }
 
-/// Holds what a link that lets somebody in hangs from, before the link: for a guest's
-/// link the organization's row and then its board, as team changes and its deletion
-/// hold them, which keeps the access the board gives through teams as it is through
-/// the grant; for a member's link its workspace, `FOR KEY SHARE`, against its purge
-/// from the trash, which holds it before the links it deletes. Nothing else waits for
-/// that, so taking a maker out of the workspace meanwhile does not wait for the link,
-/// and is seen once the link is held. Says whether the board is there still.
+/// Holds what a link that lets somebody in hangs from, before the link, and says
+/// whether it is there still: for a guest's link the organization's row and then its
+/// board, as team changes and its deletion hold them, which keeps the access the board
+/// gives through teams as it is through the grant; for a member's link its workspace
+/// in use, `FOR KEY SHARE`, against its purge from the trash, which holds it before the
+/// links it deletes. Nothing else waits for that, so taking a maker out of the
+/// workspace meanwhile does not wait for the link, and is seen once the link is held.
+/// Under the `turn` the transaction holds another link after this one, after that
+/// link's organization's row: then the organization's row comes first for a member's
+/// link too.
 pub(crate) async fn hold_for_letting_in(
     scope: &mut Scope<'_>,
     link: &Invitation,
+    turn: Option<Turn>,
 ) -> Result<bool, StoreError> {
-    if let Some(board_id) = &link.board_id {
+    if link.board_id.is_some() || turn.is_some() {
         org_admin::hold_organization_row(scope).await?;
+    }
+    if let Some(board_id) = &link.board_id {
         return boards::lock_board(scope, board_id).await;
     }
+    let mut sql = scope.sql("SELECT id FROM workspaces WHERE id = ");
+    sql.bind(Id(&link.workspace_id))
+        .push_bind(" AND org_id = ", scope.org()?)
+        .push_bind(" AND delete_at = ", 0_i64);
     if scope.dialect() == Dialect::Postgres {
-        let mut sql = scope.sql("SELECT id FROM workspaces WHERE id = ");
-        sql.bind(Id(&link.workspace_id))
-            .push_bind(" AND org_id = ", scope.org()?)
-            .push(" FOR KEY SHARE");
-        scope.fetch_optional(sql).await?;
+        sql.push(" FOR KEY SHARE");
     }
-    Ok(true)
+    Ok(scope.fetch_optional(sql).await?.is_some())
 }

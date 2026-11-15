@@ -172,3 +172,78 @@ async fn a_registration_again_and_an_acceptance_again_take_turns() {
     assert_eq!(waiting_tess, None, "replaced by the account");
     test.teardown().await;
 }
+
+/// An acceptance of a link for members from a browser whose registration the same link
+/// made replaces that registration: it holds the link, and then the link of what it
+/// replaces, after that link's organization's row. Revoking the link holds that row and
+/// then the link. The acceptance holds the row first: the revocation waits for it. The
+/// acceptance is stopped after the link, where it holds the workspace's boards in the
+/// trash before its maker's membership, by a gate that holds them.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_acceptance_again_and_a_revocation_of_its_link_take_turns() {
+    let test = common::setup().await;
+    let admin = common::user(&test, "admin").await;
+    let members = link(&test, &admin, "members", None, None).await;
+    let boards = common::create_test_boards(&test, &test.workspace_id, &admin, 1).await;
+    test.delete_board(&boards[0].id, &admin)
+        .await
+        .expect("a board in the trash");
+    let waiting = NOW + SIGNUP_LIFETIME_MILLIS;
+    register_by(&test, "members", &registration("sam", "mine", waiting)).await;
+    let maker = MakerFound::of(&test, "members", AFTER)
+        .await
+        .expect("the maker is found");
+    let mut account = newcomer("sam");
+
+    if common::db_type() == DbType::Postgres {
+        let trashed = format!(
+            "SELECT id FROM deleted_boards WHERE workspace_id = '{}' FOR UPDATE",
+            test.workspace_id
+        );
+        let mut gate = Gate::holding(&test, &trashed).await;
+        let revoker = gate.second_store(&test).await;
+        let acceptor = test.store.clone();
+        let accepting = tokio::spawn(async move {
+            let replacing = Acceptor::Replacing {
+                user: &mut account,
+                browser: "mine",
+            };
+            acceptor
+                .accept_invitation("members", replacing, AFTER, maker.inviter())
+                .await
+        });
+        let holding = gate.stopped(&accepting).await;
+        let workspace_id = test.workspace_id.clone();
+        let revoking = tokio::spawn(async move {
+            revoker
+                .revoke_invitation(&workspace_id, &members.id, None, AFTER)
+                .await
+        });
+        gate.waits_for(holding, &revoking).await;
+        gate.open().await;
+        let accepted = ended(accepting).await.expect("accepted");
+        assert!(
+            accepted.accepted().is_some(),
+            "let in before the revocation"
+        );
+        assert!(ended(revoking).await.expect("revoked"), "and revoked after");
+    } else {
+        let replacing = Acceptor::Replacing {
+            user: &mut account,
+            browser: "mine",
+        };
+        let accepted = test
+            .accept_invitation("members", replacing, AFTER, maker.inviter())
+            .await
+            .expect("accepted");
+        assert!(accepted.accepted().is_some(), "let in");
+        let revoked = test.revoke_invitation(&test.workspace_id, &members.id, None, AFTER);
+        assert!(revoked.await.expect("revoked"));
+    }
+    let sam = test
+        .live_signup(SignupLookup::Username("sam"), AFTER)
+        .await
+        .expect("read");
+    assert_eq!(sam, None, "replaced by the account");
+    test.teardown().await;
+}

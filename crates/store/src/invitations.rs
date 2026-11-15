@@ -21,7 +21,7 @@ use crate::audit::{self, AuditEntry};
 use crate::boards::{find_member, save_member};
 use crate::db::{Dialect, Id, OptId, Param, Row, Scope, Sql};
 use crate::error::{StoreError, Taken};
-use crate::link_locks;
+use crate::link_locks::{self, Turn};
 use crate::trash::{self, TrashedRoles};
 use crate::users::InstanceRole;
 use crate::{Standing, Store, signups};
@@ -384,8 +384,7 @@ impl Store {
                 }
                 Acceptor::Account(_) | Acceptor::NewAccount(_) => None,
             };
-            let browser = replacing.map(|(browser, _)| browser);
-            let held = hold_live_link(scope, token_hash, now, inviter.standing, browser);
+            let held = hold_live_link(scope, token_hash, now, inviter.standing, replacing);
             let link = match held.await? {
                 Ok(link) => link,
                 Err(refused) => return Ok(refused),
@@ -429,20 +428,22 @@ pub(crate) async fn hold_live_link(
     token_hash: &str,
     now: i64,
     found: Standing<'_>,
-    replacing: Option<&str>,
+    replacing: Option<(&str, Turn)>,
 ) -> Result<Result<Invitation, Acceptance>, StoreError> {
-    // Hold the board before its invitation and membership, as removal does.
-    // The acceptor's role then stays what was read until its write.
-    let sql = select_live_by_token(scope, token_hash, now, replacing)?;
+    let (browser, turn) = (replacing.map(|(b, _)| b), replacing.map(|(_, t)| t));
+    // What the link hangs from before the link, its invitation and membership: the
+    // acceptor's role then stays what was read until its write.
+    let sql = select_live_by_token(scope, token_hash, now, browser)?;
     let Some(row) = scope.fetch_optional(sql).await? else {
         return Ok(Err(Acceptance::Unavailable));
     };
-    if !link_locks::hold_for_letting_in(scope, &invitation_from_row(&row)?).await? {
+    let link = invitation_from_row(&row)?;
+    if !link_locks::hold_for_letting_in(scope, &link, turn).await? {
         return Ok(Err(Acceptance::Unavailable));
     }
     // The link itself, held against the other acceptances of it: read again,
     // it is live still, and its workspace still invites guests if it is for one.
-    let mut sql = select_live_by_token(scope, token_hash, now, replacing)?;
+    let mut sql = select_live_by_token(scope, token_hash, now, browser)?;
     push_invites(&mut sql);
     if scope.dialect() == Dialect::Postgres {
         sql.push(" FOR UPDATE OF i");

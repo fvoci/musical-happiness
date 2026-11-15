@@ -19,10 +19,21 @@ const PATIENCE: Duration = Duration::from_secs(20);
 const SECOND: &str = "fvoci-test-second";
 
 /// A closed gate: a trigger of the test's schema that waits for an advisory lock the
-/// gate's own connection holds.
+/// gate's own connection holds, or rows that connection holds in a transaction.
 pub(crate) struct Gate {
     conn: PgConnection,
+    /// The backend of the gate's connection, and the key of its advisory lock.
     key: i64,
+    closed_by: ClosedBy,
+}
+
+/// What a gate holds closed.
+#[derive(Debug, Clone, Copy)]
+enum ClosedBy {
+    /// Its advisory lock, which its trigger waits for.
+    Trigger,
+    /// Rows, in a transaction of its own.
+    Rows,
 }
 
 impl Gate {
@@ -52,7 +63,32 @@ impl Gate {
             .execute(&mut conn)
             .await
             .expect("the gate is installed");
-        Self { conn, key }
+        Self {
+            conn,
+            key,
+            closed_by: ClosedBy::Trigger,
+        }
+    }
+
+    /// Closes a gate by holding, in a transaction of the gate's own, the rows `holding`
+    /// locks (a `SELECT ... FOR UPDATE`): a transaction stops where it waits for them,
+    /// holding what it held before.
+    pub(crate) async fn holding(test: &TestStore, holding: &str) -> Self {
+        let mut conn = common::connect_past_the_store(&test.dbconfig()).await;
+        let key: i64 = sqlx::query_scalar("SELECT pg_backend_pid()::bigint")
+            .fetch_one(&mut conn)
+            .await
+            .expect("the gate's connection has an identifier");
+        let held = format!("BEGIN; {holding}");
+        sqlx::raw_sql(sqlx::AssertSqlSafe(held))
+            .execute(&mut conn)
+            .await
+            .expect("the gate holds its rows");
+        Self {
+            conn,
+            key,
+            closed_by: ClosedBy::Rows,
+        }
     }
 
     /// The backend of the transaction that stopped at the gate, once one has.
@@ -63,10 +99,10 @@ impl Gate {
             loop {
                 assert!(!task.is_finished(), "the transaction ended before the gate");
                 let waiting: Option<i32> = sqlx::query_scalar(
-                    "SELECT pid FROM pg_locks WHERE locktype = 'advisory' \
-                     AND classid = 0 AND objid::bigint = $1 AND NOT granted LIMIT 1",
+                    "SELECT pid FROM pg_stat_activity \
+                     WHERE $1 = ANY(pg_blocking_pids(pid)) LIMIT 1",
                 )
-                .bind(key)
+                .bind(i32::try_from(key).expect("a backend's identifier"))
                 .fetch_optional(&mut *conn)
                 .await
                 .expect("the gate's waiters are read");
@@ -135,8 +171,11 @@ impl Gate {
 
     /// Opens the gate, and lets every transaction through it from then on.
     pub(crate) async fn open(mut self) {
-        sqlx::query("SELECT pg_advisory_unlock($1)")
-            .bind(self.key)
+        let opening = match self.closed_by {
+            ClosedBy::Trigger => sqlx::query("SELECT pg_advisory_unlock($1)").bind(self.key),
+            ClosedBy::Rows => sqlx::query("ROLLBACK"),
+        };
+        opening
             .execute(&mut self.conn)
             .await
             .expect("the gate opens");

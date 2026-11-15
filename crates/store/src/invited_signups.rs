@@ -69,8 +69,7 @@ impl Store {
                 Some(browser) => Some((browser, link_locks::take_turn(scope).await?)),
                 None => None,
             };
-            let browser = replacing.map(|(browser, _)| browser);
-            let held = hold_live_link(scope, token_hash, now, inviter.standing, browser);
+            let held = hold_live_link(scope, token_hash, now, inviter.standing, replacing);
             let link = match held.await? {
                 Ok(link) => link,
                 Err(refused) => return Ok(refused),
@@ -211,7 +210,7 @@ async fn hold_link(
         return Ok(None);
     };
     // A board that is gone took its links along.
-    if !link_locks::hold_for_letting_in(scope, &link).await? {
+    if !link_locks::hold_for_letting_in(scope, &link, None).await? {
         return Ok(None);
     }
     let mut sql = scope.sql("SELECT i.id FROM invitations AS i WHERE i.id = ");
