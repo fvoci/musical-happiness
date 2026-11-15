@@ -25,12 +25,21 @@ export interface OnPage {
   readonly pageId: string;
 }
 
-/** The role on the wiki, which is to be one to comment with; refused (403) for a reader. */
-function commenterRole(on: OnPage): 'admin' | 'editor' | 'commenter' {
+/**
+ * The role on the wiki, which is to be one to comment with; refused (403) for
+ * a reader, in the server's words: `denial` for a change of a comment.
+ */
+function commenterRole(
+  on: OnPage,
+  denial = 'access denied to comment on the page',
+): 'admin' | 'editor' | 'commenter' {
   const role = memberRole(on.world, on.userId, on.wikiId, 'wiki');
-  if (role === 'viewer') fail(403, 'access denied to comment on the page');
+  if (role === 'viewer') fail(403, denial);
   return role;
 }
+
+/** What the server refuses a reader's change of a comment with. */
+const CHANGES_DENIED = 'access denied to change the comments of the page';
 
 /** The page, a page of the wiki and not in the trash: 404 otherwise. */
 function pageOn(on: OnPage): StoredBlock {
@@ -90,7 +99,7 @@ export function createComment(on: OnPage, body: DocNode): Comment {
 }
 
 export function patchComment(on: OnPage, commentId: string, write: BodyWrite): Comment {
-  const role = commenterRole(on);
+  const role = commenterRole(on, CHANGES_DENIED);
   pageOn(on);
   const comment = commentOn(on, commentId);
   if (!mayChangeComment(role, comment.createdBy === on.userId)) {
@@ -109,7 +118,7 @@ export function patchComment(on: OnPage, commentId: string, write: BodyWrite): C
 }
 
 export function deleteComment(on: OnPage, commentId: string): void {
-  const role = commenterRole(on);
+  const role = commenterRole(on, CHANGES_DENIED);
   pageOn(on);
   const comment = commentOn(on, commentId);
   if (!mayDeleteComment(role, comment.createdBy === on.userId)) {

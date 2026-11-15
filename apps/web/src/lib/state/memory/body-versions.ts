@@ -189,10 +189,15 @@ export class MemoryBodyVersions implements BodyVersions {
     await this.#enter();
     const world = this.#world;
     const role = memberRole(world, this.#userId, boardId, this.#kind);
+    const refuse = (): void => {
+      if (role !== 'admin' && role !== 'editor') {
+        fail(403, `access denied to restore a version of the ${this.#of}'s body`);
+      }
+    };
+    // As the server: a card is looked for first, a page's wiki asked first.
+    if (this.#of === 'page') refuse();
     const card = this.#card(boardId, cardId);
-    if (role !== 'admin' && role !== 'editor') {
-      fail(403, `access denied to restore a version of the ${this.#of}'s body`);
-    }
+    refuse();
     const kept = keptOf(world, cardId).versions.find((one) => one.version === version);
     if (!kept) fail(404, 'no such version');
     // What the room's editors typed is in the card first, and is kept with the body before.

@@ -117,9 +117,11 @@ test('comments on a page arrive at the other person as they are written, changed
   await expect(rows(first).first()).toContainText('From the commenter, changed');
   await expect(rows(first).first().getByTestId('comment-edited')).toBeVisible();
   await rows(first).first().locator('[data-action="history"]').click();
-  await expect(rows(first).first().getByTestId('comment-history')).toContainText(
-    'From the commenter',
-  );
+  // The text it was posted with, and not the one it has now.
+  const history = rows(first).first().getByTestId('comment-history');
+  await expect(history.locator('[data-version]')).toHaveCount(1);
+  await expect(history).toContainText('From the commenter');
+  await expect(history).not.toContainText('changed');
   // The server keeps them as they are shown.
   const stored = (await (await api.get(`${page}/comments`)).json()) as Schemas['Block'][];
   expect(stored.map((comment) => comment.body)).toEqual([
@@ -127,6 +129,7 @@ test('comments on a page arrive at the other person as they are written, changed
     paragraph('From the owner'),
   ]);
   await own.getByRole('button', { name: /^Delete the comment from/ }).click();
+  await second.getByTestId('confirm-dialog').getByRole('button', { name: 'Delete' }).click();
   await expect(rows(first)).toHaveCount(1);
   await expect(rows(first).first()).toContainText('From the owner');
   // Read again, they are as the server has them.
@@ -138,7 +141,10 @@ test('comments on a page arrive at the other person as they are written, changed
   await api.dispose();
 });
 
-test('a version of the page restored by one is the body both see', async ({ browser, baseURL }) => {
+test('a version of the page restored by an editor is the body both see', async ({
+  browser,
+  baseURL,
+}) => {
   const { api, first, second, page } = await twoOnAPage(browser, baseURL ?? '', {
     prefix: 'page-versions',
     role: 'editor',
@@ -147,15 +153,16 @@ test('a version of the page restored by one is the body both see', async ({ brow
   const watched = [watchErrors(first), watchErrors(second)];
   await expect(first.getByTestId('page-body')).toContainText('The second plan');
 
-  await first.getByTestId('page-menu').click();
-  await first.locator('[data-action="versions"]').click();
-  const versions = first.getByTestId('body-versions');
+  // The colleague, an editor and no admin, goes back to the first.
+  await second.getByTestId('page-menu').click();
+  await second.locator('[data-action="versions"]').click();
+  const versions = second.getByTestId('body-versions');
   const listed = versions.locator('[data-version]');
   await expect(listed).toHaveCount(2);
   await listed.nth(1).click();
-  await expect(first.getByTestId('body-version')).toContainText('The first plan');
-  await first.getByTestId('body-version-restore').click();
-  await first.getByTestId('confirm-dialog').getByRole('button', { name: 'Restore' }).click();
+  await expect(second.getByTestId('body-version')).toContainText('The first plan');
+  await second.getByTestId('body-version-restore').click();
+  await second.getByTestId('confirm-dialog').getByRole('button', { name: 'Restore' }).click();
   await expect(versions).toBeHidden();
   for (const each of [first, second]) {
     await expect(each.getByTestId('page-body')).toContainText('The first plan');

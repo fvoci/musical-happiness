@@ -12,6 +12,7 @@ import type { DocNode } from '../editor/schema.ts';
 import { isBackendError, isConflict, type Comment, type CommentVersion } from './backend.ts';
 import { mayChangeComment } from './board-parts.ts';
 import type { CommentEdit } from './card-parts.ts';
+import type { LoadStatus } from './workspace.svelte.ts';
 import { byCreation } from './order.ts';
 import { authorIds } from './user-names.ts';
 import type { WikiStore } from './wiki.svelte.ts';
@@ -24,6 +25,14 @@ export class PageComments {
   #comments = $state.raw<Comment[]>([]);
   /** Oldest first. */
   readonly comments = $derived(byCreation(this.#comments));
+  /** Whether they have been read: until then there are none to say there are none. */
+  status = $state<LoadStatus>('idle');
+  /**
+   * The comments deleted while this store was open: a reading answered before
+   * a deletion it crossed does not bring one back (nothing brings one back).
+   */
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity -- consulted, never shown
+  readonly #deleted = new Set<string>();
   /** Readings begun: the latest is the one that counts. */
   #readings = 0;
   #closed = false;
@@ -78,13 +87,17 @@ export class PageComments {
     this.#readings += 1;
     const reading = this.#readings;
     const before = this.#comments.map((comment) => comment.id);
+    if (first || this.status === 'failed') this.status = 'loading';
     try {
-      const comments = await this.#wikis.comments(this.#wikiId, this.#pageId);
+      const read = await this.#wikis.comments(this.#wikiId, this.#pageId);
       if (this.#closed || reading !== this.#readings) return;
+      const comments = read.filter((comment) => !this.#deleted.has(comment.id));
       void this.#wiki.workspace.learnUsers(authorIds(comments));
       this.#comments = reread(this.#comments, comments, before);
+      this.status = 'ready';
     } catch (error) {
       if (this.#closed || reading !== this.#readings) return;
+      if (this.status !== 'ready') this.status = 'failed';
       const gone = isBackendError(error) && (error.status === 404 || error.status === 403);
       if (first && !gone) this.#wiki.workspace.report('load', error);
     }
@@ -103,6 +116,7 @@ export class PageComments {
 
   /** Blocks were deleted; some may be comments of this page. */
   forget(blockIds: readonly string[]): void {
+    for (const id of blockIds) this.#deleted.add(id);
     this.#comments = this.#comments.filter((comment) => !blockIds.includes(comment.id));
   }
 

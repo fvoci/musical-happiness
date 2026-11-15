@@ -64,7 +64,8 @@ describe('the comments on a page, in memory', () => {
     expect(await rejection(theirs.createComment(...at, { type: 'doc', content: [] }))).toBe(400);
     // The admin's way with somebody else's.
     await mine.patchComment(...at, own.id, { body: text('moderated'), readAt: changed.updateAt });
-    await theirs.deleteComment(...at, admins.id).catch(() => undefined);
+    const another = await theirs.createComment(...at, text('mine, deleted'));
+    await theirs.deleteComment(...at, another.id);
     await mine.deleteComment(...at, own.id);
     const left = await mine.comments(...at);
     expect(left.map((comment) => comment.id)).toEqual([admins.id]);
@@ -203,5 +204,28 @@ describe('the versions of a page’s body, in memory', () => {
     expect(reading.status).toBe('ready');
     expect(reading.versions.length).toBe(1);
     store.close();
+  });
+
+  it('are restored by an editor of the wiki, and refused to a reader in the server’s order', async () => {
+    const made = await aPage('editor');
+    const { wiki } = made.backend;
+    const read = await wiki.page(made.wikiId, made.pageId);
+    const first = await wiki.patchPage(made.wikiId, made.pageId, {
+      body: text('first'),
+      readAt: read.updateAt,
+    });
+    await wiki.patchPage(made.wikiId, made.pageId, {
+      body: text('second'),
+      readAt: first.updateAt,
+    });
+    const [, older] = await made.other.wiki.bodyVersions.list(made.wikiId, made.pageId);
+    if (!older) throw new Error('two versions');
+    await made.other.wiki.bodyVersions.restore(made.wikiId, made.pageId, older.version);
+    expect((await wiki.page(made.wikiId, made.pageId)).body).toEqual(text('first'));
+    // A reader is refused before the page is looked for, as the server asks the wiki first.
+    const viewer = await aPage('viewer');
+    expect(
+      await rejection(viewer.other.wiki.bodyVersions.restore(viewer.wikiId, 'no-such-page', 1)),
+    ).toBe(403);
   });
 });

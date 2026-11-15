@@ -13,7 +13,8 @@
 
   A wiki's page has comments of the same kind: they are shown by this too,
   with the page's comments (`PageComments`) in place of both the board and
-  the card.
+  the card. Nothing brings a page's comment back, so deleting one asks first
+  (`confirmDelete`), and the heading is one level under the page's title.
 -->
 <script lang="ts">
   import HistoryIcon from '@lucide/svelte/icons/history';
@@ -22,6 +23,7 @@
   import { onMount, tick } from 'svelte';
 
   import Avatar from '$lib/components/avatar/Avatar.svelte';
+  import ConfirmDialog from '$lib/components/confirm/ConfirmDialog.svelte';
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import { isComposing } from '$lib/components/keys.ts';
   import BodyView from '$lib/editor/BodyView.svelte';
@@ -44,9 +46,24 @@
     card: Pick<CardStore, 'comments' | 'comment' | 'editComment' | 'deleteComment'>;
     /** What a comment said before (`CommentHistory`). */
     readVersions: (commentId: string) => Promise<CommentVersion[]>;
+    /** Ask before a comment is deleted: where no undo brings it back. */
+    confirmDelete?: boolean;
+    /** The level of the heading: under a card's title, or under a page's. */
+    heading?: 'h2' | 'h3';
   }
 
-  let { board, card, readVersions }: Props = $props();
+  let { board, card, readVersions, confirmDelete = false, heading = 'h3' }: Props = $props();
+
+  /** The comment the reader asked to delete, while they are asked whether to. */
+  let deleting = $state<string | undefined>();
+  let deleteOpen = $state(false);
+
+  /** Deletes the comment; its field and its history, if open, go with it. */
+  function remove(commentId: string): void {
+    if (editing?.id === commentId) editing = undefined;
+    if (historyOf === commentId) historyOf = undefined;
+    void card.deleteComment(commentId);
+  }
 
   const uid = $props.id();
   const workspace = $derived(board.workspace);
@@ -147,10 +164,10 @@
   class="flex flex-col gap-4 border-t pt-5"
   data-testid="card-comments"
 >
-  <h3 id="{uid}-heading" class="font-semibold">
+  <svelte:element this={heading} id="{uid}-heading" class="font-semibold">
     {m['CardBadges.title-comments']()}
     <span class="font-normal text-muted-foreground">{card.comments.length}</span>
-  </h3>
+  </svelte:element>
   {#if card.comments.length === 0}
     <p class="text-muted-foreground">{m.card_comments_none()}</p>
   {/if}
@@ -292,10 +309,13 @@
             })}
             class="shrink-0 text-muted-foreground"
             onclick={() => {
-              // Its field, if open, goes with it (an undo brings the comment back, not the edit).
-              if (editing?.id === comment.id) editing = undefined;
-              if (historyOf === comment.id) historyOf = undefined;
-              void card.deleteComment(comment.id);
+              if (confirmDelete) {
+                deleting = comment.id;
+                deleteOpen = true;
+              } else {
+                // On a card an undo brings the comment back, not the edit.
+                remove(comment.id);
+              }
             }}
           >
             <Trash2Icon aria-hidden="true" />
@@ -305,3 +325,15 @@
     {/each}
   </ol>
 </section>
+{#if confirmDelete}
+  <ConfirmDialog
+    bind:open={deleteOpen}
+    title={m.page_comment_delete_title()}
+    description={m.page_comment_delete_description()}
+    confirmLabel={m.shared_delete()}
+    destructive
+    onConfirm={() => {
+      if (deleting) remove(deleting);
+    }}
+  />
+{/if}

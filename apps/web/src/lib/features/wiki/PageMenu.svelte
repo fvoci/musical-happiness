@@ -26,9 +26,9 @@
   ]);
 </script>
 
-<ActionMenu title={m.wiki_page_menu({ title })} subtitle={title} align="end" {actions}>
+<ActionMenu title={m.wiki_page_more({ title })} subtitle={title} align="end" {actions}>
   {#snippet trigger(props: Record<string, unknown>)}
-    <IconButton {...props} label={m.wiki_page_menu({ title })} data-testid="page-menu">
+    <IconButton {...props} label={m.wiki_page_more({ title })} data-testid="page-menu">
       <EllipsisIcon aria-hidden="true" />
     </IconButton>
   {/snippet}

@@ -41,6 +41,8 @@
     type Workspace,
   } from '$lib/state/index.ts';
 
+  import { Button } from '$lib/ui/button/index.js';
+
   import NotFound from './NotFound.svelte';
   import type { Router } from './router.svelte.ts';
 
@@ -112,8 +114,8 @@
   const below = $derived(deleting && wiki ? withDescendants(wiki.pages, deleting.id).size - 1 : 0);
   let settingsOpen = $state(false);
   let deleteWikiOpen = $state(false);
-  /** The versions of the page shown, read anew each time their dialog opens. */
-  let versions = $state.raw<VersionsReading>();
+  /** The versions of a page, read anew each time their dialog opens; it goes with the page. */
+  let versions = $state.raw<{ pageId: string; reading: VersionsReading }>();
   let versionsOpen = $state(false);
 
   /** Deletes the wiki; the page goes on to the first board or wiki of the sidebar. */
@@ -188,12 +190,14 @@
     {#snippet body(page: PageStore)}
       <!-- The page's body is edited together as a card's is, in the page's own room. -->
       <CardBody board={wiki} card={page} of="page" testId="page-body" />
-      {#if page.status === 'ready'}
-        {@const comments = page.comments}
+      {@const comments = page.comments}
+      {#if page.status === 'ready' && comments.status === 'ready'}
         <CardComments
           board={comments}
           card={comments}
           readVersions={(commentId: string) => comments.commentVersions(commentId)}
+          confirmDelete
+          heading="h2"
         />
         {#if comments.canComment}
           <CommentComposer
@@ -203,6 +207,13 @@
             placement="inline"
           />
         {/if}
+      {:else if comments.status === 'failed'}
+        <div class="flex flex-wrap items-center gap-2 border-t pt-5" role="alert">
+          <p class="text-muted-foreground">{m.app_problem_load()}</p>
+          <Button variant="outline" onclick={() => void comments.read(false)}>
+            {m.app_retry()}
+          </Button>
+        </div>
       {/if}
     {/snippet}
     {#snippet pageActions(page: PageStore)}
@@ -211,14 +222,17 @@
         <PageMenu
           page={shown}
           onVersions={() => {
-            versions = new VersionsReading(pageVersions(page));
+            versions = { pageId: page.pageId, reading: new VersionsReading(pageVersions(page)) };
             versionsOpen = true;
           }}
         />
       {/if}
     {/snippet}
   </WikiScreen>
-  <BodyVersions bind:open={versionsOpen} reading={versions} board={wiki} of="page" />
+  <!-- Another page shown, the dialog of the one before goes with it. -->
+  {#if versions && versions.pageId === pageId}
+    <BodyVersions bind:open={versionsOpen} reading={versions.reading} board={wiki} of="page" />
+  {/if}
   {@const store = wiki}
   {@const title = deleting?.title || m.wiki_page_untitled()}
   <ConfirmDialog

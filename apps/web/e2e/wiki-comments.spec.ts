@@ -32,7 +32,18 @@ interface Elsewhere {
   wiki: {
     page(wikiId: string, pageId: string): Promise<{ updateAt: number }>;
     patchPage(wikiId: string, pageId: string, patch: object): Promise<unknown>;
-    createComment(wikiId: string, pageId: string, body: object): Promise<{ id: string }>;
+    createComment(
+      wikiId: string,
+      pageId: string,
+      body: object,
+    ): Promise<{ id: string; updateAt: number }>;
+    patchComment(
+      wikiId: string,
+      pageId: string,
+      commentId: string,
+      write: object,
+    ): Promise<unknown>;
+    deleteComment(wikiId: string, pageId: string, commentId: string): Promise<void>;
   };
 }
 interface Dev {
@@ -59,18 +70,36 @@ async function aPage(page: Page): Promise<Place> {
   return wikiPlaceOf(page.url());
 }
 
-/** Somebody else on the wiki writes a comment on the page. */
-async function commentElsewhere(page: Page, place: Place, text: string): Promise<void> {
-  await page.evaluate(
-    async ({ at, said }) => {
-      const other = (window as unknown as { fvociDev: Dev }).fvociDev.someoneElse();
-      const body = {
-        type: 'doc',
-        content: [{ type: 'paragraph', content: [{ type: 'text', text: said }] }],
-      };
-      await other.wiki.createComment(at.wikiId, at.pageId, body);
+const paragraph = (text: string): object => ({
+  type: 'doc',
+  content: [{ type: 'paragraph', content: [{ type: 'text', text }] }],
+});
+
+/**
+ * Somebody else on the wiki does to a comment on the page what `act` says:
+ * writes it (gives it), changes it to `text`, or deletes it.
+ */
+async function commentElsewhere(
+  page: Page,
+  place: Place,
+  text: string,
+  act: { change?: { id: string; updateAt: number }; remove?: string } = {},
+): Promise<{ id: string; updateAt: number }> {
+  return page.evaluate(
+    async ({ at, what, body }) => {
+      const { wiki } = (window as unknown as { fvociDev: Dev }).fvociDev.someoneElse();
+      if (what.remove) {
+        await wiki.deleteComment(at.wikiId, at.pageId, what.remove);
+        return { id: what.remove, updateAt: 0 };
+      }
+      if (what.change) {
+        const write = { body, readAt: what.change.updateAt };
+        await wiki.patchComment(at.wikiId, at.pageId, what.change.id, write);
+        return what.change;
+      }
+      return wiki.createComment(at.wikiId, at.pageId, body);
     },
-    { at: place, said: text },
+    { at: place, what: act, body: paragraph(text) },
   );
 }
 
@@ -119,18 +148,27 @@ test('a comment is written below the page, changed, read as it was, and deleted'
   await expect(row.getByTestId('comment-edited')).toBeVisible();
   await row.locator('[data-action="history"]').click();
   await expect(row.getByTestId('comment-history')).toContainText('A first thought');
+  // Nothing brings it back: deleting it asks first.
   await row.getByRole('button', { name: /^Delete the comment from/ }).click();
+  await page.getByTestId('confirm-dialog').getByRole('button', { name: 'Delete' }).click();
   await expect(commentRows(page)).toHaveCount(0);
 });
 
-test('a comment of somebody else on the page arrives as they write it', async ({ page }) => {
+test('a comment of somebody else on the page arrives as they write, change and delete it', async ({
+  page,
+}) => {
   const place = await aPage(page);
   await letSomebodyElseIn(page, place.wikiId);
-  await commentElsewhere(page, place, 'Seen from elsewhere');
+  const theirs = await commentElsewhere(page, place, 'Seen from elsewhere');
   await expect(commentRows(page)).toHaveCount(1);
   await expect(commentRows(page).first()).toContainText('Seen from elsewhere');
   // The reader is the wiki's admin: theirs is the reader's to change and delete too.
   await expect(commentRows(page).first().locator('[data-action="edit"]')).toBeVisible();
+  await commentElsewhere(page, place, 'Changed elsewhere', { change: theirs });
+  await expect(commentRows(page).first()).toContainText('Changed elsewhere');
+  await expect(commentRows(page).first().getByTestId('comment-edited')).toBeVisible();
+  await commentElsewhere(page, place, '', { remove: theirs.id });
+  await expect(commentRows(page)).toHaveCount(0);
 });
 
 test('the versions of the page are listed from its menu, read, and one restored', async ({
@@ -165,9 +203,17 @@ for (const role of ['viewer', 'commenter'] as const) {
     await commentElsewhere(page, made, 'Their comment');
     await goInside(page, wikiPath(made.wikiId, made.pageId));
     await expect(commentRows(page)).toHaveCount(1);
-    await expect(commentRows(page).first().locator('[data-action="edit"]')).toHaveCount(0);
+    const deleteButton = { name: /^Delete the comment from/ };
+    const theirs = commentRows(page).first();
+    await expect(theirs.locator('[data-action="edit"]')).toHaveCount(0);
+    await expect(theirs.getByRole('button', deleteButton)).toHaveCount(0);
     await expect(composer(page)).toHaveCount(role === 'commenter' ? 1 : 0);
-    if (role === 'commenter') await writeComment(page, 'My own');
+    if (role === 'commenter') {
+      await writeComment(page, 'My own');
+      const mine = commentRows(page).last();
+      await expect(mine.locator('[data-action="edit"]')).toBeVisible();
+      await expect(mine.getByRole('button', deleteButton)).toBeVisible();
+    }
     await openVersions(page);
     await expect(versionRows(page)).toHaveCount(1);
     await versionRows(page).first().click();
@@ -175,6 +221,23 @@ for (const role of ['viewer', 'commenter'] as const) {
     await expect(page.getByTestId('body-version-restore')).toHaveCount(0);
   });
 }
+
+test('at 390 px the comments, their field and the page’s menu fit the width', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const place = await aPage(page);
+  await letSomebodyElseIn(page, place.wikiId);
+  await commentElsewhere(page, place, 'A comment long enough to wrap onto a second line here');
+  await writeComment(page, 'Mine');
+  for (const shown of [page.getByTestId('page-menu'), composer(page), commentRows(page).first()]) {
+    const box = await shown.boundingBox();
+    expect(
+      box && box.x >= 0 && box.x + box.width <= 390,
+      `${String(box?.x)}+${String(box?.width)}`,
+    ).toBe(true);
+  }
+  const wide = await page.evaluate(() => document.documentElement.scrollWidth);
+  expect(wide).toBeLessThanOrEqual(390);
+});
 
 test.describe('pictures', () => {
   test.skip(!process.env.FVOCI_SCREENS, 'set FVOCI_SCREENS=1 to take the pictures');
