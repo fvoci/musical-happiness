@@ -61,7 +61,7 @@ pub(crate) struct Container {
 }
 
 impl Container {
-    /// The PostgreSQL container: `fvoci-test-pg` on 127.0.0.1:15433 unless
+    /// The PostgreSQL container: `fvoci-test-postgres` on 127.0.0.1:15434 unless
     /// `FVOCI_TEST_PG_CONTAINER` and `FVOCI_TEST_PG_PORT` say otherwise.
     ///
     /// # Errors
@@ -69,8 +69,10 @@ impl Container {
     /// Fails if the port variable is set to something that is no port.
     pub(crate) fn postgres() -> Result<Self> {
         Ok(Self {
-            name: name_from_env("FVOCI_TEST_PG_CONTAINER", "fvoci-test-pg"),
-            host_port: port_from_env("FVOCI_TEST_PG_PORT", 15433)?,
+            // Not the `fvoci-test-pg` on 15433 of the tasks before the superuser was
+            // postgres: worktrees of either may run their tests side by side.
+            name: name_from_env("FVOCI_TEST_PG_CONTAINER", "fvoci-test-postgres"),
+            host_port: port_from_env("FVOCI_TEST_PG_PORT", 15434)?,
             image: "postgres:18",
             internal_port: 5432,
             environment: vec![

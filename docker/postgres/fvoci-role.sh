@@ -8,7 +8,8 @@
 # The role `fvoci` logs in and is no superuser, has no BYPASSRLS, and makes no databases
 # or roles. It owns nothing: the schema `public` and its tables are the superuser's, who
 # brings them up to date (the service `migrate`). It may only use the tables (SELECT,
-# INSERT, UPDATE, DELETE) and the sequences, those there now and, by default
+# INSERT, UPDATE, DELETE; only SELECT of the record of the migrations) and the
+# sequences, those there now and, by default
 # privileges, those the migrations make later. So the row-level security policies that
 # keep organizations apart hold it, and it cannot turn them off: only an owner may alter
 # a table. It may connect to no other database.
@@ -47,5 +48,12 @@ ALTER DEFAULT PRIVILEGES FOR ROLE :"USER" IN SCHEMA public
     GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO :"role";
 ALTER DEFAULT PRIVILEGES FOR ROLE :"USER" IN SCHEMA public
     GRANT USAGE, SELECT ON SEQUENCES TO :"role";
+-- The record of the migrations is read, never written, by the server: a server broken
+-- into does not make the schema read as another build's. (Made by the first `migrate`,
+-- after the first `roles`: taken back from the next `up` on.)
+SELECT to_regclass('public._sqlx_migrations') IS NOT NULL AS recorded \gset
+\if :recorded
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON public._sqlx_migrations FROM :"role";
+\endif
 SQL
 echo "fvoci-role: the role fvoci, its password and its grants are set"

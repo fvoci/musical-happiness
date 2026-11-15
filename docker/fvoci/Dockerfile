@@ -5,7 +5,8 @@
 #
 #   docker build -f docker/fvoci/Dockerfile -t fvoci-server \
 #       --build-arg FVOCI_BUILD_HASH=$(git rev-parse HEAD) .
-#   docker run --init -p 127.0.0.1:8080:8000 -v fvoci-data:/data fvoci-server
+#   docker run --init -p 127.0.0.1:8080:8000 -e FVOCI_SERVERROOT=http://localhost:8080 \
+#       -v fvoci-data:/data fvoci-server
 #
 # Alone it serves SQLite under /data. Settings are FVOCI_* variables or a file mounted
 # over /opt/fvoci/config.json; --init lets a stop end a server that is still starting.
@@ -64,7 +65,7 @@ COPY crates ./crates
 # A member of the workspace; cargo needs its manifest even though it is not built here.
 COPY xtask ./xtask
 RUN --mount=type=cache,id=fvoci-cargo-registry,target=/usr/local/cargo/registry \
-    --mount=type=cache,id=fvoci-cargo-target-${TARGETARCH},target=/src/target \
+    --mount=type=cache,id=fvoci-cargo-target-${TARGETARCH},target=/src/target,sharing=locked \
     cargo build --release --locked -p fvoci-server \
     && cp target/release/fvoci-server /fvoci-server
 

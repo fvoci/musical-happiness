@@ -115,7 +115,15 @@ pub(crate) fn build(root: &Path, names: &Names) -> Result<()> {
     let created = asked("git", &["-C", &root_text, "log", "-1", "--format=%cI"])?;
     let hash = format!("FVOCI_BUILD_HASH={}", names.revision);
     let created = format!("FVOCI_CREATED={created}");
-    let common = ["--build-arg", &hash, "--build-arg", &created];
+    let version = format!("FVOCI_VERSION={}", names.tag);
+    let common = [
+        "--build-arg",
+        &hash,
+        "--build-arg",
+        &created,
+        "--build-arg",
+        &version,
+    ];
     let builds: [(&str, &Name, &[&str]); 2] = [
         (
             "the server's image",

@@ -536,9 +536,10 @@ pub(crate) async fn whereabouts(store: &Store) -> Result<(String, String), Store
         .await
 }
 
-/// The tables of the schema the role may not read and write all of: a role that does
-/// not own them, on a schema that is up to date, would otherwise start and fail its
-/// requests (the default privileges cover only the tables made after them).
+/// The tables of the schema the role may not read and write all of (of the record of
+/// the migrations, read): a role that does not own them, on a schema that is up to
+/// date, would otherwise start and fail its requests (the default privileges cover only
+/// the tables made after them).
 ///
 /// # Errors
 ///
@@ -555,9 +556,10 @@ pub(crate) async fn ungranted_tables(store: &Store) -> Result<Vec<String>, Store
                    WHERE nspname = current_schema()) \
                  AND c.relkind IN ('r', 'p') \
                  AND NOT (has_table_privilege(c.oid, 'SELECT') \
-                   AND has_table_privilege(c.oid, 'INSERT') \
-                   AND has_table_privilege(c.oid, 'UPDATE') \
-                   AND has_table_privilege(c.oid, 'DELETE')) \
+                   AND (c.relname = '_sqlx_migrations' \
+                     OR (has_table_privilege(c.oid, 'INSERT') \
+                       AND has_table_privilege(c.oid, 'UPDATE') \
+                       AND has_table_privilege(c.oid, 'DELETE')))) \
                  ORDER BY c.relname",
             );
             scope

@@ -79,12 +79,21 @@ fn as_the_server_role(trial: &Trial, statement: &str) -> Result<Captured> {
     use std::io::Write as _;
     use std::process::Stdio;
 
-    let script = format!(
-        "PGPASSWORD=$(cat) psql --host=127.0.0.1 --username=fvoci --dbname=fvoci \
-         --command='{statement}'"
-    );
     let mut child = trial
-        .command(&["exec", "-T", "postgres", "sh", "-c", &script])
+        .command(&[
+            "exec",
+            "-T",
+            "postgres",
+            "sh",
+            "-c",
+            "PGPASSWORD=$(cat) exec psql \"$@\"",
+            "sh",
+            "--host=127.0.0.1",
+            "--username=fvoci",
+            "--dbname=fvoci",
+            "--command",
+            statement,
+        ])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -102,6 +111,33 @@ fn as_the_server_role(trial: &Trial, statement: &str) -> Result<Captured> {
         output: String::from_utf8_lossy(&output.stdout).trim().to_owned(),
         error: String::from_utf8_lossy(&output.stderr).trim().to_owned(),
     })
+}
+
+/// The worker the server starts for the bodies edited together runs in the image: the
+/// same executable, as the image's user, under the address space the server gives it
+/// (1 GiB), ending when its input ends. The scenario writes bodies over HTTP, which
+/// starts no worker; the server starts one when a body is opened over the WebSocket.
+///
+/// # Errors
+///
+/// Fails if the worker does not start or does not end cleanly.
+pub(super) fn collab_worker(trial: &Trial) -> Result<()> {
+    let ran = trial.compose(&[
+        "exec",
+        "-T",
+        "fvoci",
+        "sh",
+        "-c",
+        "ulimit -v 1048576 && exec /opt/fvoci/fvoci-server collab-worker < /dev/null",
+    ])?;
+    ensure!(
+        ran.succeeded,
+        "the worker did not run in the image: {} {}",
+        ran.output,
+        ran.error
+    );
+    say("    the worker ran and ended with its input, under 1 GiB of address space");
+    Ok(())
 }
 
 /// The containers of the services, by name.

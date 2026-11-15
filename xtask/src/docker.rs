@@ -98,6 +98,16 @@ impl Trial {
         {
             command.env_remove(name);
         }
+        // Every setting of the server and the database the compose file reads: a value
+        // exported for a server run by hand would win over the trial's file.
+        for (name, _) in std::env::vars_os() {
+            if name
+                .to_str()
+                .is_some_and(|name| name.starts_with("FVOCI_") || name.starts_with("POSTGRES_"))
+            {
+                command.env_remove(&name);
+            }
+        }
         command
     }
 
@@ -140,7 +150,12 @@ impl Teardown<'_> {
 impl Drop for Teardown<'_> {
     fn drop(&mut self) {
         if !self.done {
-            let _ = take_down(self.trial);
+            if let Err(error) = take_down(self.trial) {
+                say(&format!(
+                    "the trial {} may be left up: {error:#}; the next run takes it down",
+                    self.trial.project
+                ));
+            }
             let _ = remove_files(self.trial, &self.directory);
         }
     }
@@ -278,6 +293,9 @@ fn try_installation(trial: &Trial, directory: &Path) -> Result<()> {
                 checks::published_ports(trial)
             }),
             steps::Step::new("no process runs as root", || checks::processes(trial)),
+            steps::Step::new("the worker of editing together starts", || {
+                checks::collab_worker(trial)
+            }),
             steps::Step::new("no secret in the images, containers or logs", || {
                 checks::secrets(trial)
             }),

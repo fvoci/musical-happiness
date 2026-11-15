@@ -54,38 +54,56 @@ pub(crate) async fn prepare_store(store: Store) -> anyhow::Result<Store> {
 /// longer than `server_lock_wait_seconds`, or the schema cannot be brought up to date.
 pub async fn migrate_database(config: &Configuration) -> anyhow::Result<()> {
     let store = connect(config).await?;
-    match store.schema_is_current().await {
-        Ok(true) => {
-            let (role, schema) = store.role_and_schema().await.unwrap_or_default();
-            store.close().await;
-            tracing::info!(role, schema, "the database's schema is up to date already");
-            return Ok(());
-        }
-        Ok(false) => {}
-        Err(error) => {
-            store.close().await;
-            return Err(error).context("reading the record of the database's migrations");
-        }
-    }
-    let lock = match super::take_server_lock(&store, config).await {
-        Ok(lock) => lock,
-        Err(error) => {
-            store.close().await;
-            return Err(error.context(
-                "the schema is to be changed while a server serves the database: stop it, \
-                 then migrate",
-            ));
-        }
-    };
-    let migrated = store.migrate().await;
-    let whereabouts = store.role_and_schema().await;
-    // As a server ends: the database is closed before its lock is let go.
+    let migrated = migrate_under_the_lock(&store, config).await;
     store.close().await;
+    let done = migrated?;
+    tracing::info!(
+        role = done.role,
+        schema = done.schema,
+        changed = done.changed,
+        "the database's schema is up to date"
+    );
+    Ok(())
+}
+
+/// What a migration did, for its log line.
+struct Migrated {
+    role: String,
+    schema: String,
+    /// Whether the schema was changed, or found up to date.
+    changed: bool,
+}
+
+/// [`migrate_database`] on an open store, which the caller closes. The lock is let go
+/// after the migration; the store is still open then, which only the end of a server
+/// orders the other way.
+async fn migrate_under_the_lock(store: &Store, config: &Configuration) -> anyhow::Result<Migrated> {
+    let (role, schema) = store
+        .role_and_schema()
+        .await
+        .context("reading the role and the schema of the connection")?;
+    let current = store
+        .schema_is_current()
+        .await
+        .context("reading the record of the database's migrations")?;
+    if current {
+        return Ok(Migrated {
+            role,
+            schema,
+            changed: false,
+        });
+    }
+    let lock = super::take_server_lock(store, config).await.context(
+        "the schema is to be changed while a server serves the database: stop it, then migrate",
+    )?;
+    let migrated = store.migrate().await;
     lock.release().await;
     migrated.context("bringing the database's schema up to date")?;
-    let (role, schema) = whereabouts.unwrap_or_default();
-    tracing::info!(role, schema, "the database's schema is up to date");
-    Ok(())
+    Ok(Migrated {
+        role,
+        schema,
+        changed: true,
+    })
 }
 
 /// Connects to the database, trying up to `dbpingattempts` times a second apart, so that

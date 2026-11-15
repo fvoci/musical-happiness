@@ -77,6 +77,18 @@ async fn a_role_that_does_not_own_the_tables_refuses_a_schema_that_is_behind() {
             "{owner:?}: {refused}"
         );
 
+        let untouched = Store::open(database.db_type(), database.owner_dbconfig())
+            .await
+            .expect("the owner connects");
+        assert!(
+            !untouched
+                .schema_is_current()
+                .await
+                .expect("the record is read"),
+            "{owner:?}: the refusal changed nothing"
+        );
+        untouched.close().await;
+
         let owner_store = Store::connect(database.db_type(), database.owner_dbconfig())
             .await
             .expect("the owner brings it up to date");
@@ -87,6 +99,36 @@ async fn a_role_that_does_not_own_the_tables_refuses_a_schema_that_is_behind() {
         store.close().await;
         database.remove().await;
     }
+}
+
+/// A record that is not this build's (a newer server's migration) is refused to a role
+/// that does not own the tables with the reason, not as a schema to bring up to date.
+#[tokio::test]
+async fn a_role_that_does_not_own_the_tables_is_told_why_a_record_is_not_this_builds() {
+    if common::db_type() != DbType::Postgres {
+        return;
+    }
+    let database = owned_apart(TableOwner::Superuser).await;
+    Store::connect(database.db_type(), database.owner_dbconfig())
+        .await
+        .expect("the owner brings the schema up to date")
+        .close()
+        .await;
+    common::execute_raw(
+        database.owner_dbconfig(),
+        "INSERT INTO _sqlx_migrations (version, description, success, checksum, \
+         execution_time) VALUES (999999, 'newer', true, '\\x00', 0)",
+    )
+    .await;
+    let refused = Store::connect(database.db_type(), database.dbconfig())
+        .await
+        .expect_err("a newer server's record is refused");
+    assert!(
+        matches!(&refused, StoreError::SchemaNotOwned { reason, .. }
+            if reason.contains("newer server")),
+        "{refused}"
+    );
+    database.remove().await;
 }
 
 /// An empty schema that the server's role may not make tables in is refused the same

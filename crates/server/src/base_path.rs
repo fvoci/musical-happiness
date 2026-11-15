@@ -26,3 +26,22 @@ pub fn checked_base_path(base_path: &str) -> anyhow::Result<&str> {
     }
     Ok(base_path)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_base_path_loses_its_last_slash() {
+        assert_eq!(checked_base_path("").expect("none"), "");
+        assert_eq!(checked_base_path("/").expect("the root"), "");
+        assert_eq!(checked_base_path("/boards/").expect("a path"), "/boards");
+    }
+
+    #[test]
+    fn a_base_path_the_router_cannot_take_is_refused() {
+        for refused in ["boards", "/a//b", "/a/{id}", "/a b", "/:x"] {
+            assert!(checked_base_path(refused).is_err(), "{refused}");
+        }
+    }
+}

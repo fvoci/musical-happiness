@@ -231,7 +231,42 @@ async fn shutdown_signal() {
 
 #[cfg(test)]
 mod tests {
+    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+
     use super::*;
+
+    /// A server on this machine that answers every request with `status`.
+    async fn answering(status: &'static str) -> u16 {
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .expect("a local port");
+        let port = listener.local_addr().expect("its address").port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let mut request = [0; 1024];
+                let _ = stream.read(&mut request).await;
+                let answer =
+                    format!("HTTP/1.1 {status}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n");
+                let _ = stream.write_all(answer.as_bytes()).await;
+            }
+        });
+        port
+    }
+
+    #[tokio::test]
+    async fn the_check_succeeds_on_200_only() {
+        for (status, ready) in [
+            ("200 OK", true),
+            ("503 Service Unavailable", false),
+            ("204 No Content", false),
+        ] {
+            let config = Configuration {
+                port: answering(status).await,
+                ..Configuration::default()
+            };
+            assert_eq!(check_ready(&config, "").await.is_ok(), ready, "{status}");
+        }
+    }
 
     #[test]
     fn the_check_asks_where_the_server_listens() {
@@ -257,11 +292,5 @@ mod tests {
             ready_url(&tls, base("/")),
             "https://localhost:8443/api/v1/ready"
         );
-    }
-
-    #[test]
-    fn a_base_path_the_server_refuses_is_refused_by_the_check_too() {
-        assert!(checked_base_path("boards").is_err());
-        assert!(checked_base_path("/a//b").is_err());
     }
 }

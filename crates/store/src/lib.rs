@@ -269,8 +269,9 @@ enum Pool {
 
 impl Store {
     /// Connects to the database described by the server's `dbtype` and `dbconfig`
-    /// settings and brings its schema up to date: an empty database gets the whole
-    /// schema, an older one the migrations it lacks.
+    /// settings and brings its schema up to date, as [`Store::migrate`] does: an empty
+    /// database gets the whole schema, an older one the migrations it lacks. A role that
+    /// does not own the tables opens only a schema that is up to date.
     ///
     /// The tables have fixed names. To keep them apart from other tables in one
     /// PostgreSQL database, give the server a schema of its own with `search_path` in
@@ -280,8 +281,10 @@ impl Store {
     ///
     /// Returns [`StoreError::Config`] if `dbconfig` cannot be used, [`StoreError::Schema`]
     /// if the database is not this server's to open (one with this server's tables but
-    /// no migration record, one migrated by a newer server), and [`StoreError::Database`]
-    /// if the database cannot be reached.
+    /// no migration record, one migrated by a newer server) or the role may not read and
+    /// write its tables, [`StoreError::SchemaNotOwned`] if the schema is to be changed and
+    /// the role does not own the tables, and [`StoreError::Database`] if the database
+    /// cannot be reached.
     pub async fn connect(db_type: DbType, dbconfig: &str) -> Result<Self, StoreError> {
         let store = Self::open(db_type, dbconfig).await?;
         store.migrate().await?;
@@ -306,32 +309,37 @@ impl Store {
     pub async fn migrate(&self) -> Result<(), StoreError> {
         let state = schema::state(self).await?;
         let may_change = schema::may_change(self).await?;
-        match state {
-            schema::SchemaState::Current if !may_change => {
+        let reason = match (state, may_change) {
+            (schema::SchemaState::Current, true) => None,
+            (schema::SchemaState::Current, false) => {
                 let ungranted = schema::ungranted_tables(self).await?;
                 if !ungranted.is_empty() {
                     let (role, schema) = schema::whereabouts(self).await?;
                     return Err(StoreError::Schema(format!(
                         "the role {role} may not read and write the tables {} of the schema \
-                         {schema}: grant it SELECT, INSERT, UPDATE and DELETE on them",
+                         {schema}: grant it SELECT, INSERT, UPDATE and DELETE on them \
+                         (SELECT on _sqlx_migrations)",
                         ungranted.join(", ")
                     )));
                 }
+                None
             }
-            schema::SchemaState::Current => {}
-            state if !may_change => {
-                let (role, schema) = schema::whereabouts(self).await?;
-                let reason = match state {
-                    schema::SchemaState::Foreign(reason) => reason,
-                    _ => "migrations of this server are not applied yet".to_owned(),
-                };
-                return Err(StoreError::SchemaNotOwned {
-                    role,
-                    schema,
-                    reason,
-                });
+            (schema::SchemaState::Behind | schema::SchemaState::Foreign(_), true) => {
+                schema::migrate(self, None).await?;
+                None
             }
-            _ => schema::migrate(self, None).await?,
+            (schema::SchemaState::Behind, false) => {
+                Some("migrations of this server are not applied yet".to_owned())
+            }
+            (schema::SchemaState::Foreign(reason), false) => Some(reason),
+        };
+        if let Some(reason) = reason {
+            let (role, schema) = schema::whereabouts(self).await?;
+            return Err(StoreError::SchemaNotOwned {
+                role,
+                schema,
+                reason,
+            });
         }
         data_steps::run(self).await
     }
