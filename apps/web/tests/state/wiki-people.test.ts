@@ -106,6 +106,23 @@ describe('an open wiki, read without joining', () => {
   });
 });
 
+describe('the comments of an open wiki read without joining', () => {
+  it('are read with what they said before, and none is written or changed', async () => {
+    const made = await wikiOf('O');
+    const store = new WikiStore(made.theirs, made.wikiId);
+    await store.load();
+    const comments = store.showPage(made.pageId)?.comments;
+    await settle();
+    if (!comments) throw new Error('no page shown');
+    expect([
+      comments.canComment,
+      comments.canEditComment(made.other.userId),
+      comments.canReadCommentHistory,
+    ]).toEqual([false, false, true]);
+    store.close();
+  });
+});
+
 describe('a wiki shared by its admins', () => {
   it('opens and closes, sets the role of who joins, and is undone', async () => {
     const made = await wikiOf('P');

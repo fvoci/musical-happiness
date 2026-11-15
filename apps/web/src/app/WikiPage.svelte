@@ -81,8 +81,9 @@
       // What the head of the page told, and the focus of a join, were the wiki's before.
       notice = undefined;
       joined = false;
-      // And so were its deleted pages, and the dialog of its people.
+      // And so were its deleted pages, the dialog of its people and the versions of a page.
       [trash, trashOpen, sharing] = [undefined, false, false];
+      [versions, versionsOpen] = [undefined, false];
       void store.load();
     });
     return () => {

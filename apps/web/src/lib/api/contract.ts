@@ -3424,8 +3424,8 @@ export interface paths {
          * The versions kept of a page's body
          * @description As `getCardBodyVersions` gives a card's: the newest first, each with when it was
          *     kept and who wrote the body up to it, without the bodies (`getPageBodyVersion`).
-         *     For the members of the wiki, whatever their role. A page in the trash is not there
-         *     (404); its versions are kept while it is there, and go when it is gone for good.
+         *     For who reads the wiki, whatever their role: its members, and of an open wiki
+         *     whoever works in the workspace. A page in the trash is not there (404); its versions are kept while it is there, and go when it is gone for good.
          */
         get: operations["getPageBodyVersions"];
         put?: never;
@@ -3495,8 +3495,9 @@ export interface paths {
          * The comments on a page
          * @description Every comment on the page, oldest first, as blocks of the `type` `comment` whose
          *     parent is the page; each says who wrote it (`createdBy`), and one whose text was
-         *     changed when that last happened (`editedAt`). For the members of the wiki. A page
-         *     in the trash is not there (404).
+         *     changed when that last happened (`editedAt`). For who reads the wiki: its members,
+         *     and of an open wiki whoever works in the workspace. A page in the trash is not
+         *     there (404).
          */
         get: operations["getPageComments"];
         put?: never;
@@ -3504,7 +3505,7 @@ export interface paths {
          * Write a comment on a page
          * @description For the wiki's members from the commenter's role up. The server chooses the
          *     identifier, the author and the times. Every image of the text shows a file of the
-         *     wiki (400 otherwise). The wiki's members are told with `UPDATE_BLOCK`, as of a
+         *     wiki (400 otherwise). Who reads the wiki is told with `UPDATE_BLOCK`, as of a
          *     comment on a card.
          */
         post: operations["createPageComment"];
@@ -3528,7 +3529,7 @@ export interface paths {
          * Delete a comment on a page
          * @description The comment goes to the trash, as a comment on a card does: by its author from the
          *     commenter's role up, and the comment of somebody else by the wiki's admins only
-         *     (403, `access denied to delete other users' comments`). The wiki's members are told
+         *     (403, `access denied to delete other users' comments`). Who reads the wiki is told
          *     with `UPDATE_BLOCK` whose `deleteAt` is not 0.
          */
         delete: operations["deletePageComment"];
@@ -3563,8 +3564,8 @@ export interface paths {
          *     deleted, `a comment somebody else deleted is brought back by the board's admins`). A
          *     comment that went to the trash with its page comes back with the page
          *     (`undeletePage`), not on its own; that one, one not in the trash, and one of another
-         *     page are not there (404), nor is any while the page is in the trash. The wiki's
-         *     members are told with `UPDATE_BLOCK`.
+         *     page are not there (404), nor is any while the page is in the trash. Who reads the
+         *     wiki is told with `UPDATE_BLOCK`.
          */
         post: operations["undeletePageComment"];
         delete?: never;
@@ -3584,9 +3585,9 @@ export interface paths {
          * What a comment on a page said before
          * @description The earlier texts of the comment, as `getCommentVersions` gives a card's comment's:
          *     every version but the one it has now, the first one first, with who wrote it and
-         *     when. For the members of the wiki, also of a comment in the trash while its page is
-         *     there: the versions go only when the comment is gone for good. A page in the trash
-         *     is not there (404).
+         *     when. For who reads the wiki (as `getPageComments`), also of a comment in the trash
+         *     while its page is there: the versions go only when the comment is gone for good. A
+         *     page in the trash is not there (404).
          */
         get: operations["getPageCommentVersions"];
         put?: never;
