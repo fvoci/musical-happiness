@@ -1175,6 +1175,24 @@ async fn board_with_a_card(th: &TestServer, user_id: &str) -> (Board, Block) {
     (board, block)
 }
 
+/// The messages the server answers a client's own with: where it is, and whether its
+/// connection still carries.
+async fn hear_the_answers(
+    socket: &mut Socket,
+    contract_check: &mut ContractCheck<'_>,
+    board_id: &str,
+) {
+    socket
+        .send(
+            json!({"action": "SET_PRESENCE", "workspaceId": ROOT_WORKSPACE_ID,
+            "boardId": board_id}),
+        )
+        .await;
+    contract_check.hear(socket, "UPDATE_PRESENCE").await;
+    socket.send(json!({"action": "PING"})).await;
+    contract_check.hear(socket, "PONG").await;
+}
+
 /// Every message the server sends has exactly the members `contracts/websocket.json`
 /// lists for it, and what it carries has the members of its schema in
 /// `contracts/openapi.json`. The messages come from the hub's broadcasts over a real
@@ -1267,15 +1285,7 @@ async fn messages_match_the_websocket_contract() {
     contract_check.hear(&mut socket, "UPDATE_BOARD").await;
     hear_the_endings(&th, &mut socket, &mut contract_check, &block, &user1.id).await;
 
-    socket
-        .send(
-            json!({"action": "SET_PRESENCE", "workspaceId": ROOT_WORKSPACE_ID,
-        "boardId": board.id}),
-        )
-        .await;
-    contract_check.hear(&mut socket, "UPDATE_PRESENCE").await;
-    socket.send(json!({"action": "PING"})).await;
-    contract_check.hear(&mut socket, "PONG").await;
+    hear_the_answers(&mut socket, &mut contract_check, &board.id).await;
 
     // Every message of the contract was heard; those of the bodies edited together
     // are heard by `rooms_contract`.
