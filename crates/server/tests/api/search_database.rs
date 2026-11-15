@@ -3,7 +3,7 @@
 //! bodies, behind the same API. A server that has a search server is never searched
 //! so: while it does not answer, a search is a 503.
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use fvoci_model::{Board, BoardType, SearchHit, new_id};
 use fvoci_server::config::search::SearchSettings;
@@ -231,8 +231,11 @@ async fn a_user_searches_the_database_only_so_often() {
     th.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
 
     // One a second, and two at once after a pause: of eight at once, some wait.
+    let sent = Instant::now();
     let answers =
         futures_util::future::join_all((0..8).map(|_| search(&th.client, TEST_WS, "환불"))).await;
+    // Two at once, and one more for every second the eight took.
+    let most = 2 + usize::try_from(sent.elapsed().as_secs()).expect("seconds") + 1;
     let other = search(&th.client2, TEST_WS, "환불").await;
     th.teardown().await;
 
@@ -246,6 +249,7 @@ async fn a_user_searches_the_database_only_so_often() {
         .count();
     assert_eq!(limited + answered, 8, "answered, or told to wait");
     assert!(answered >= 1 && limited >= 1, "{answered} answered");
+    assert!(answered <= most, "{answered} answered, of at most {most}");
     other.check_ok();
 }
 

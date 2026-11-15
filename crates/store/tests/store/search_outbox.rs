@@ -221,35 +221,50 @@ async fn a_write_that_is_undone_notes_nothing() {
     test.teardown().await;
 }
 
+/// Writes `text` to the card as a room writes what its editors typed: with no version
+/// of its own. `seq` is the room's, one more each time.
+async fn typed(store: &Store, card_id: &str, text: &str, seq: i64, user_id: &str) {
+    if store.get_body_doc(card_id).await.expect("read").is_none() {
+        store
+            .create_body_doc(card_id, b"a state", b"a digest")
+            .await
+            .expect("a document is stored");
+    }
+    let read_at = store.get_block(card_id).await.expect("the card").update_at;
+    store
+        .project_body(
+            card_id,
+            Some(Some(body(text))),
+            read_at,
+            seq,
+            b"a digest",
+            user_id,
+        )
+        .await
+        .expect("the room's body is written to the card");
+}
+
 #[tokio::test]
 async fn keeping_a_version_of_a_body_notes_nothing() {
     let test = common::setup().await;
     let store = &test.store;
     store.keep_search_outbox();
+    // One version kept: keeping the second forgets the first, and puts down again
+    // what follows from the card.
+    store.set_body_versions_kept(1);
     let (board, user_id) = board(store).await;
     let card = card(store, &board.id, &user_id).await;
-    // Written as a room writes what its editors typed: with no version of its own.
-    store
-        .create_body_doc(&card.id, b"a state", b"a digest")
-        .await
-        .expect("a document is stored");
-    store
-        .project_body(
-            &card.id,
-            Some(Some(body("환불규정을 따른다"))),
-            card.update_at,
-            1,
-            b"a digest",
-            &user_id,
-        )
-        .await
-        .expect("the room's body is written to the card");
+    typed(store, &card.id, "환불규정을 따른다", 1, &user_id).await;
+    let first = store.keep_body_version(&card.id).await.expect("kept");
+    typed(store, &card.id, "환불규정을 바꾼다", 2, &user_id).await;
     settle_all(store).await;
 
     // A version is a copy of what the card holds: nothing a search finds changes.
-    let kept = store.keep_body_version(&card.id).await.expect("kept");
+    let second = store.keep_body_version(&card.id).await.expect("kept");
+    let versions = store.body_versions(&card.id).await.expect("the versions");
 
-    assert!(kept.is_some(), "a version of the body was kept");
+    assert_eq!((first, second), (Some(1), Some(2)), "two versions were kept");
+    assert_eq!(versions.len(), 1, "and the first forgotten: {versions:?}");
     assert_eq!(listed(store).await, [], "and nothing is noted for it");
     test.teardown().await;
 }
