@@ -11,7 +11,8 @@
  * then told to read again (`resync`): what happened in between is not
  * known. The browser saying it is online again, or the reader signing in
  * (`restart`), opens it at once; the browser saying it is offline drops it
- * at once (a connection that died says nothing for a long while). Nothing
+ * at once, and so does a `PING` nothing answers in time (`live-heartbeat.ts`:
+ * a connection that died says nothing for a long while otherwise). Nothing
  * is opened before a workspace is entered; entering another one moves the
  * subscription over to it.
  *
@@ -31,6 +32,7 @@
 import { isBackendError, type Change, type ChangeListener } from '../state/backend.ts';
 
 import { attachmentOf, boardOf, cardOfBlock, commentOf, viewOf, type Schemas } from './convert.ts';
+import { Heartbeat, Patience, PING, PONG } from './live-heartbeat.ts';
 import { LivePresence } from './live-presence.ts';
 import { LiveRooms } from './live-rooms.ts';
 import { pageOfBlock } from './wikis.ts';
@@ -75,6 +77,10 @@ export class LiveChanges {
   readonly #reads: LiveReads;
   readonly #listening = new Set<Listening>();
   #socket: WebSocket | undefined;
+  /** Whether `#socket` still carries, once it opened. */
+  #heartbeat: Heartbeat | undefined;
+  /** How long the connections' `PING`s wait. */
+  readonly #patience = new Patience();
   /** Whether `#socket` has opened and subscribed. */
   #subscribed = false;
   /** The workspace entered: the one subscribed to. */
@@ -121,9 +127,7 @@ export class LiveChanges {
     });
     globalThis.addEventListener('offline', () => {
       const socket = this.#socket;
-      if (!socket) return;
-      this.#dropped(socket);
-      socket.close();
+      if (socket) this.#letGo(socket);
     });
   }
 
@@ -136,6 +140,7 @@ export class LiveChanges {
     this.#failures = 0;
     // The old connection's close is not heard (it is no longer the one): its timer goes here.
     clearTimeout(this.#steady);
+    this.#stopHeartbeat();
     const socket = this.#socket;
     this.#socket = undefined;
     this.#subscribed = false;
@@ -202,6 +207,7 @@ export class LiveChanges {
     clearTimeout(this.#gathering);
     this.#timer = undefined;
     this.#gathering = undefined;
+    this.#stopHeartbeat();
     const socket = this.#socket;
     this.#socket = undefined;
     this.#subscribed = false;
@@ -226,6 +232,15 @@ export class LiveChanges {
         JSON.stringify({ action: 'SUBSCRIBE_WORKSPACE', workspaceId: this.#workspaceId }),
       );
       this.#subscribed = true;
+      this.#heartbeat = new Heartbeat(
+        () => {
+          socket.send(PING);
+        },
+        () => {
+          this.#letGo(socket);
+        },
+        this.#patience,
+      );
       // A connection that is closed as soon as it opens does not count as held.
       this.#steady = setTimeout(() => {
         this.#failures = 0;
@@ -239,8 +254,10 @@ export class LiveChanges {
     });
     socket.addEventListener('message', (event: MessageEvent<unknown>) => {
       if (this.#socket !== socket) return;
+      this.#heartbeat?.heard();
       if (event.data instanceof ArrayBuffer) this.rooms.bytes(new Uint8Array(event.data));
-      else if (typeof event.data === 'string') void this.#receive(event.data);
+      else if (typeof event.data === 'string' && event.data !== PONG)
+        void this.#receive(event.data);
     });
     socket.addEventListener('close', (event: CloseEvent) => {
       this.#dropped(socket, event.code === TRY_AGAIN);
@@ -255,12 +272,27 @@ export class LiveChanges {
   #dropped(socket: WebSocket, spread = false): void {
     if (this.#socket !== socket) return;
     clearTimeout(this.#steady);
+    this.#stopHeartbeat();
     this.#socket = undefined;
     this.#subscribed = false;
     this.#failures += 1;
     this.rooms.down();
     this.presence.down();
     this.#again(spread);
+  }
+
+  /**
+   * Gives up the connection `socket` that is taken for gone (the browser is
+   * offline, a `PING` was not answered): its close may not be heard for long.
+   */
+  #letGo(socket: WebSocket): void {
+    this.#dropped(socket);
+    socket.close();
+  }
+
+  #stopHeartbeat(): void {
+    this.#heartbeat?.stop();
+    this.#heartbeat = undefined;
   }
 
   /** Opens again after the wait of the failures so far; `spread` adds a random part of it. */
