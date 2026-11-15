@@ -3,7 +3,8 @@
 //! store that keeps it, and what the worker reads and takes off.
 
 use fvoci_model::{
-    Block, BlockPatch, BlockType, Board, BoardKind, BoardType, Body, BodyChange, NewPage, new_id,
+    Block, BlockPatch, BlockType, Board, BoardKind, BoardType, Body, BodyChange, NewPage,
+    PageLimits, new_id,
 };
 use fvoci_store::{DbType, SearchChange, SearchIndexMark, SearchTarget, Store, Tenant};
 use serde_json::json;
@@ -378,9 +379,15 @@ async fn a_card_template_of_a_board_has_no_document() {
         .await
         .expect("the wiki is stored");
     let page = store
-        .create_page(&wiki.id, &NewPage::default(), &user_id)
+        .create_page(
+            &wiki.id,
+            &NewPage::default(),
+            PageLimits::default(),
+            &user_id,
+        )
         .await
         .expect("the page is made")
+        .page
         .id;
 
     let mut found: Vec<String> = store
