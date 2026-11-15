@@ -27,7 +27,7 @@ impl From<BlockError> for AppError {
             | BlockError::NotPageOnWiki => Self::bad_request(error).with_field("type"),
             BlockError::ParentNotOnBoard
             | BlockError::ParentBelowBlock
-            | BlockError::CommentNotOnCard
+            | BlockError::CommentNotOnCardOrPage
             | BlockError::ParentIsComment
             | BlockError::PageNotBelowPage => Self::bad_request(error).with_field("parentId"),
             BlockError::EmptyBoardId => Self::from(anyhow::Error::from(error)),

@@ -28,6 +28,7 @@ mod oidc_held;
 mod onboarding;
 mod org;
 mod org_admin;
+mod page_comments;
 mod password_reset;
 mod recovery;
 mod search;
@@ -117,6 +118,7 @@ fn routes() -> Routes {
         .merge(blocks::routes())
         .merge(boards::routes())
         .merge(wikis::routes())
+        .merge(page_comments::routes())
         .merge(boards_and_blocks::routes())
         .merge(cards::routes())
         .merge(trash::routes())

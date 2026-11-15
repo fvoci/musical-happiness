@@ -20,9 +20,11 @@ struct Named {
     workspace: String,
     board: String,
     card: String,
-    /// A wiki for everybody in the workspace, which the member joined, and a page of it.
+    /// A wiki for everybody in the workspace, which the member joined, a page of it, and
+    /// a comment of the founder's on the page.
     wiki: String,
     page: String,
+    comment: String,
     file: String,
     upload: String,
     category: String,
@@ -121,6 +123,7 @@ impl Named {
             .replace("{blockId}", &self.card)
             .replace("{wikiId}", &self.wiki)
             .replace("{pageId}", &self.page)
+            .replace("{commentId}", &self.comment)
             .replace("{fileId}", &self.file)
             .replace("{uploadId}", &self.upload)
             .replace("{userId}", &self.member_id)
@@ -205,7 +208,7 @@ async fn organization(server: &TestServer, name: &str) -> Named {
         )
         .await
         .value();
-    let (wiki, page) = wiki_with_a_page(&founder, &at, name).await;
+    let (wiki, page, comment) = wiki_with_a_page(&founder, &at, name).await;
     write_a_body(&founder, &at, &card).await;
     let file = Client::send(
         founder
@@ -279,13 +282,14 @@ async fn organization(server: &TestServer, name: &str) -> Named {
         board,
         wiki,
         page,
+        comment,
         team,
     }
 }
 
-/// A wiki of the workspace at `at` for everybody in it, with a page: the identifiers
-/// of both.
-async fn wiki_with_a_page(founder: &Client, at: &str, name: &str) -> (String, String) {
+/// A wiki of the workspace at `at` for everybody in it, with a page and a comment on it:
+/// the identifiers of the three.
+async fn wiki_with_a_page(founder: &Client, at: &str, name: &str) -> (String, String, String) {
     let wiki = founder
         .post(
             &format!("{at}/wikis"),
@@ -301,7 +305,17 @@ async fn wiki_with_a_page(founder: &Client, at: &str, name: &str) -> (String, St
         )
         .await
         .value();
-    (wiki, text(&page, "id"))
+    let page = text(&page, "id");
+    let said = json!({"type": "doc", "content": [{"type": "paragraph", "content": [
+        {"type": "text", "text": format!("{name} comment")}]}]});
+    let comment = founder
+        .post(
+            &format!("{at}/wikis/{wiki}/pages/{page}/comments"),
+            &json!({ "body": said }),
+        )
+        .await
+        .value();
+    (wiki, page, text(&comment, "id"))
 }
 
 /// The member of the workspace `workspace` asks as a plain member: no administrator of

@@ -93,6 +93,11 @@ const REACHED: &[(&str, Reaches)] = &[
     ("getPage", Reaches::Wikis),
     ("patchPage", Reaches::Wikis),
     ("deletePage", Reaches::Wikis),
+    ("getPageComments", Reaches::Wikis),
+    ("createPageComment", Reaches::Wikis),
+    ("patchPageComment", Reaches::Wikis),
+    ("deletePageComment", Reaches::Wikis),
+    ("getPageCommentVersions", Reaches::Wikis),
     // What the holder of a read token reads.
     ("getSharedBoard", Reaches::Boards),
     ("getSharedBlocks", Reaches::Boards),
@@ -102,12 +107,13 @@ const REACHED: &[(&str, Reaches)] = &[
 ];
 
 /// The parameters of a path that name a board or a wiki, or something that is of one.
-const NAMING: [&str; 7] = [
+const NAMING: [&str; 8] = [
     "{boardId}",
     "{wikiId}",
     "{cardId}",
     "{blockId}",
     "{pageId}",
+    "{commentId}",
     "{uploadId}",
     "{fileId}",
 ];
@@ -119,7 +125,7 @@ struct Things {
     container: String,
     /// A card of the board; a page of the wiki.
     block: String,
-    /// A comment on the card.
+    /// A comment on the card; on the page.
     comment: String,
     file: String,
     upload: String,
@@ -224,15 +230,22 @@ impl World {
                 let body = json!({"type": "doc", "content": [{"type": "paragraph", "content": [
                     {"type": "text", "text": "written"}
                 ]}]});
+                let page_id = text(&page, "id");
                 client
                     .patch(
-                        &format!("{pages}/{}", text(&page, "id")),
+                        &format!("{pages}/{page_id}"),
                         &json!({"readAt": page["updateAt"], "body": body}),
                     )
                     .await
                     .check_ok();
-                // A page has no comment yet.
-                (text(&page, "id"), UNKNOWN_ID.to_owned())
+                let comment = client
+                    .post(
+                        &format!("{pages}/{page_id}/comments"),
+                        &json!({ "body": body }),
+                    )
+                    .await;
+                comment.check_done();
+                (page_id, text(&comment.value(), "id"))
             }
             Reaches::Boards | Reaches::Both => self.card_with_a_comment(&container).await,
         };
@@ -326,6 +339,7 @@ impl World {
             .replace("{cardId}", block)
             .replace("{blockId}", block)
             .replace("{pageId}", block)
+            .replace("{commentId}", &things.comment)
             .replace("{fileId}", &things.file)
             .replace("{uploadId}", &things.upload)
             .replace("{userId}", &self.other)
@@ -371,6 +385,8 @@ impl World {
             }
             "createBlocks" | "reorderCardProperties" => json!([]),
             "createCard" => json!({"title": "another card"}),
+            "createPageComment" => json!({"body": said()}),
+            "patchPageComment" => json!({"body": said(), "readAt": 1}),
             _ => json!({}),
         }
     }
@@ -386,6 +402,13 @@ impl Done for ApiResponse {
     fn check_done(&self) {
         assert!(self.status.is_success(), "{}: {}", self.status, self.text());
     }
+}
+
+/// A text, as a body or a comment says it.
+fn said() -> Value {
+    json!({"type": "doc", "content": [{"type": "paragraph", "content": [
+        {"type": "text", "text": "said"}
+    ]}]})
 }
 
 fn text(value: &Value, member: &str) -> String {

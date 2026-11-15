@@ -149,7 +149,7 @@ async fn a_comment_does_not_come_back_onto_what_is_no_card() {
     assert!(
         matches!(
             &error,
-            StoreError::NotRestorable { id, source: BlockError::CommentNotOnCard } if *id == comment_id
+            StoreError::NotRestorable { id, source: BlockError::CommentNotOnCardOrPage } if *id == comment_id
         ),
         "{error:?}"
     );
@@ -180,7 +180,7 @@ async fn a_comment_does_not_come_back_onto_what_is_no_card() {
         matches!(
             &error,
             StoreError::NotRestorable {
-                source: BlockError::CommentNotOnCard,
+                source: BlockError::CommentNotOnCardOrPage,
                 ..
             }
         ),

@@ -123,7 +123,7 @@ async fn a_commenter_deletes_and_brings_back_their_own_comment() {
 }
 
 /// The refusal of a comment that is not on a card.
-const OFF_A_CARD: &str = "the parent of a comment is a card of the board";
+const OFF_A_CARD: &str = "the parent of a comment is a card of the board or a page of the wiki";
 /// The refusal of a block below a comment.
 const BELOW_A_COMMENT: &str = "a comment is the parent of no block";
 

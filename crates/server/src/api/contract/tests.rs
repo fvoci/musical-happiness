@@ -529,6 +529,8 @@ const ORDERS: &[(&str, &str)] = &[
     ("getOrgAudit", "the newest first"),
     ("getOrgMembers", "the oldest member first"),
     ("getOrgWorkspaces", "the oldest first"),
+    ("getPageCommentVersions", "the first one first"),
+    ("getPageComments", "oldest first"),
     (
         "getPageTree",
         "By `order` as strings compare by code unit, then by `id`",

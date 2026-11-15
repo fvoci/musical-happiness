@@ -126,7 +126,7 @@ async fn handle_create_wiki(WsWiki(ws): WsWiki, body: Bytes) -> ApiResult {
 ///
 /// Who may not read the wiki is told what `require_board_permission` tells; a block
 /// that is no page of this wiki is no page, whatever else it is.
-async fn page_with_permission(
+pub(super) async fn page_with_permission(
     ws: &Ws,
     wiki_id: &str,
     page_id: &str,

@@ -3263,6 +3263,91 @@ export interface paths {
         patch: operations["patchPage"];
         trace?: never;
     };
+    "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/comments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The comments on a page
+         * @description Every comment on the page, oldest first, as blocks of the `type` `comment` whose
+         *     parent is the page; each says who wrote it (`createdBy`), and one whose text was
+         *     changed when that last happened (`editedAt`). For the members of the wiki. A page
+         *     in the trash is not there (404).
+         */
+        get: operations["getPageComments"];
+        put?: never;
+        /**
+         * Write a comment on a page
+         * @description For the wiki's members from the commenter's role up. The server chooses the
+         *     identifier, the author and the times. Every image of the text shows a file of the
+         *     wiki (400 otherwise). The wiki's members are told with `UPDATE_BLOCK`, as of a
+         *     comment on a card.
+         */
+        post: operations["createPageComment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/comments/{commentId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete a comment on a page
+         * @description The comment goes to the trash, as a comment on a card does: by its author from the
+         *     commenter's role up, and the comment of somebody else by the wiki's admins only
+         *     (403, `access denied to delete other users' comments`). The wiki's members are told
+         *     with `UPDATE_BLOCK` whose `deleteAt` is not 0.
+         */
+        delete: operations["deletePageComment"];
+        options?: never;
+        head?: never;
+        /**
+         * Change a comment on a page
+         * @description Writes a new text over the comment, as the card's comments are changed: by its
+         *     author from the commenter's role up, and the comment of somebody else by the wiki's
+         *     admins only (403, `access denied to change other users' comments`); an editor may
+         *     not change it. The text it had is kept (`getPageCommentVersions`), and the comment's
+         *     `editedAt` says when it last changed.
+         */
+        patch: operations["patchPageComment"];
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/comments/{commentId}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What a comment on a page said before
+         * @description The earlier texts of the comment, as `getCommentVersions` gives a card's comment's:
+         *     every version but the one it has now, the first one first, with who wrote it and
+         *     when. For the members of the wiki, also of a comment in the trash while its page is
+         *     there: the versions go only when the comment is gone for good. A page in the trash
+         *     is not there (404).
+         */
+        get: operations["getPageCommentVersions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -3414,8 +3499,9 @@ export interface components {
             title: string;
             /**
              * @description The block type: `card`, `view`, `comment` or `attachment` on a board, and `page`
-             *     on a wiki. No request of blocks makes a block of another type or patches one
-             *     into it (400 naming `type`), nor a page: `createPage` makes those.
+             *     and `comment` (on a page) on a wiki. No request of blocks makes a block of
+             *     another type or patches one into it (400 naming `type`), nor a page:
+             *     `createPage` makes those, and `createPageComment` the comments of a wiki.
              */
             type: string;
             /**
@@ -4412,6 +4498,11 @@ export interface components {
             /** @description The page's title. Left out, empty. */
             title?: string;
         };
+        /** @description A comment to write on a page. */
+        NewPageComment: {
+            /** @description The comment's text, as a page's body is written; neither empty nor `null`. */
+            body: components["schemas"]["Body"];
+        };
         /** @description A subscription to make. */
         NewSubscription: {
             /** @description The identifier of the block subscribed to. */
@@ -4716,6 +4807,20 @@ export interface components {
             updateAt: number;
             /** @description The identifier of the wiki the page is of. */
             wikiId: string;
+        };
+        /**
+         * @description What a comment on a page is changed to: its text, written over the comment as it was
+         *     read.
+         */
+        PageCommentPatch: {
+            /** @description The comment's new text, as a page's body is written; neither empty nor `null`. */
+            body: components["schemas"]["Body"];
+            /**
+             * Format: int64
+             * @description The `updateAt` of the comment as the client read it: if the comment has changed
+             *     since, the patch is refused with 409 and changes nothing.
+             */
+            readAt: number;
         };
         /** @description A page as the tree of its wiki lists it: without its body. */
         PageNode: {
@@ -10734,6 +10839,198 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getPageComments: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the wiki: a board of the `kind` `wiki`. A board of another kind is 404, as an identifier of nothing is. */
+                wikiId: string;
+                /** @description The identifier of the page: a page of the wiki of the path. 404 for a page of another wiki. */
+                pageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The comments, oldest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Block"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    createPageComment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the wiki: a board of the `kind` `wiki`. A board of another kind is 404, as an identifier of nothing is. */
+                wikiId: string;
+                /** @description The identifier of the page: a page of the wiki of the path. 404 for a page of another wiki. */
+                pageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewPageComment"];
+            };
+        };
+        responses: {
+            /** @description The comment as it was stored. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Block"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    deletePageComment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the wiki: a board of the `kind` `wiki`. A board of another kind is 404, as an identifier of nothing is. */
+                wikiId: string;
+                /** @description The identifier of the page: a page of the wiki of the path. 404 for a page of another wiki. */
+                pageId: string;
+                /** @description The identifier of the comment: a comment on the page of the path. 404 for a comment on another page, and for a block that is no comment. */
+                commentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The comment is deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    patchPageComment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the wiki: a board of the `kind` `wiki`. A board of another kind is 404, as an identifier of nothing is. */
+                wikiId: string;
+                /** @description The identifier of the page: a page of the wiki of the path. 404 for a page of another wiki. */
+                pageId: string;
+                /** @description The identifier of the comment: a comment on the page of the path. 404 for a comment on another page, and for a block that is no comment. */
+                commentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PageCommentPatch"];
+            };
+        };
+        responses: {
+            /** @description The comment as it is now. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Block"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getPageCommentVersions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the wiki: a board of the `kind` `wiki`. A board of another kind is 404, as an identifier of nothing is. */
+                wikiId: string;
+                /** @description The identifier of the page: a page of the wiki of the path. 404 for a page of another wiki. */
+                pageId: string;
+                /** @description The identifier of the comment: a comment on the page of the path. 404 for a comment on another page, and for a block that is no comment. */
+                commentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The earlier versions, the first one first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommentVersion"][];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */

@@ -1,5 +1,6 @@
-//! Where a comment may be: on a card of its board, with nothing below it (contract B1).
-//! Every block that is written is checked here by [`check`].
+//! Where a comment may be: on a card of its board or a page of its wiki, with nothing
+//! below it (contract B1; [`BlockType::takes_comments`]). Every block that is written is
+//! checked here by [`check`].
 
 use fvoci_model::{Block, BlockError, BlockType};
 
@@ -34,7 +35,7 @@ async fn types_below(scope: &mut Scope<'_>, block_id: &str) -> Result<Vec<BlockT
 }
 
 /// Checks that a block that is written keeps comments where they belong: a comment is
-/// on a card of its board and has nothing below it. What is checked is what the write
+/// on a card or a page of its board and has nothing below it. What is checked is what the write
 /// changes, so a block stored before the rule is still changed in other ways: a new
 /// block's parent, a moved block's new parent, and a type that changes. `parent_type`
 /// is the type of the block's parent, `None` if it has none.
@@ -54,10 +55,11 @@ pub(crate) async fn check(
     let old_type = existing.map(|existing| &existing.block_type);
     let is_comment = block.block_type == BlockType::Comment;
     let becomes_comment = is_comment && old_type != Some(&BlockType::Comment);
-    if is_comment && (moves || becomes_comment) && parent_type != Some(&BlockType::Card) {
+    let on_its_place = parent_type.is_some_and(BlockType::takes_comments);
+    if is_comment && (moves || becomes_comment) && !on_its_place {
         // Where only the type changed, the type is what the request got wrong.
         return refuse(if moves {
-            BlockError::CommentNotOnCard
+            BlockError::CommentNotOnCardOrPage
         } else {
             BlockError::TypeStrandsComments
         });
@@ -70,7 +72,7 @@ pub(crate) async fn check(
     };
     let below = types_below(scope, &block.id).await?;
     let strands = (is_comment && !below.is_empty())
-        || (*old_type == BlockType::Card && below.contains(&BlockType::Comment));
+        || (old_type.takes_comments() && below.contains(&BlockType::Comment));
     if strands {
         return refuse(BlockError::TypeStrandsComments);
     }
@@ -84,8 +86,8 @@ pub(crate) fn restore_refusal(
     block_type: &BlockType,
     parent_type: Option<&BlockType>,
 ) -> Option<BlockError> {
-    if *block_type == BlockType::Comment && parent_type != Some(&BlockType::Card) {
-        Some(BlockError::CommentNotOnCard)
+    if *block_type == BlockType::Comment && !parent_type.is_some_and(BlockType::takes_comments) {
+        Some(BlockError::CommentNotOnCardOrPage)
     } else if parent_type == Some(&BlockType::Comment) {
         Some(BlockError::ParentIsComment)
     } else {

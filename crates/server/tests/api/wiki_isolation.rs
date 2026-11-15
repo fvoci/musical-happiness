@@ -34,7 +34,7 @@ const DESCRIPTION: &str = "What this wiki is for";
 /// A wiki of the test workspace made by `maker`, of the type `wiki_type` (`P` for the
 /// invited only, `O` for everybody in the workspace), with a page: the identifiers of
 /// both.
-async fn wiki_of(maker: &Client, wiki_type: &str) -> (String, String) {
+pub(crate) async fn wiki_of(maker: &Client, wiki_type: &str) -> (String, String) {
     let wiki = json!({"type": wiki_type, "description": DESCRIPTION});
     let wiki = maker.post(&format!("{TEST_WS}/wikis"), &wiki).await;
     wiki.check_created();
@@ -92,7 +92,7 @@ async fn at_the_door(client: &Client, workspace_id: &str, page_id: &str) -> Stri
 
 /// Puts `user_id` on the wiki with `role` (`viewer`, `commenter` or `editor`), as
 /// `admin`, who administers it.
-async fn put_on(admin: &Client, wiki_id: &str, user_id: &str, role: &str) {
+pub(crate) async fn put_on(admin: &Client, wiki_id: &str, user_id: &str, role: &str) {
     assert!(
         ["viewer", "commenter", "editor"].contains(&role),
         "no such role: {role}"

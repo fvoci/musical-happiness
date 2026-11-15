@@ -45,7 +45,7 @@ pub enum BlockType {
     Card,
     /// A board view.
     View,
-    /// A comment on a card.
+    /// A comment on a card or on a page ([`BlockType::takes_comments`]).
     Comment,
     /// A file attachment on a card.
     Attachment,
@@ -67,6 +67,13 @@ impl BlockType {
     #[must_use]
     pub fn has_body(&self) -> bool {
         matches!(self, Self::Card | Self::Comment | Self::Page)
+    }
+
+    /// Returns `true` for the types a comment may be on: a card of a board and a page of
+    /// a wiki.
+    #[must_use]
+    pub fn takes_comments(&self) -> bool {
+        matches!(self, Self::Card | Self::Page)
     }
 
     /// Returns `true` for the types whose body has a room ([`Self::WITH_ROOM`]).
@@ -193,16 +200,17 @@ pub enum BlockError {
     /// The block's new parent is the block itself or a block below it.
     #[error("the parent is the block itself or below it")]
     ParentBelowBlock,
-    /// A comment that is new, newly a comment or moved is not below a card of its
-    /// board: a comment is on a card.
-    #[error("the parent of a comment is a card of the board")]
-    CommentNotOnCard,
+    /// A comment that is new, newly a comment or moved is not below a card or a page of
+    /// its board: a comment is on a card of a board or on a page of a wiki
+    /// ([`BlockType::takes_comments`]).
+    #[error("the parent of a comment is a card of the board or a page of the wiki")]
+    CommentNotOnCardOrPage,
     /// A block that is new or moved is below a comment: a comment has no blocks below
     /// it.
     #[error("a comment is the parent of no block")]
     ParentIsComment,
-    /// A change of type that would leave a comment off a card: a block with blocks
-    /// below it becomes a comment, a block off a card becomes a comment where it
+    /// A change of type that would leave a comment off a card or a page: a block with
+    /// blocks below it becomes a comment, a block off a card becomes a comment where it
     /// stands, or a card with comments becomes another type.
     #[error("the type would leave a comment off a card")]
     TypeStrandsComments,
@@ -260,8 +268,9 @@ pub enum BlockError {
     /// A page is stored on a board: a page is a block of a wiki.
     #[error("a page is a block of a wiki, not of a board")]
     PageOffWiki,
-    /// A block that is no page is stored on a wiki: a wiki has pages only.
-    #[error("the blocks of a wiki are pages")]
+    /// A block that is no page is stored on a wiki, and no comment on a page of it: a
+    /// wiki has pages and the comments on them only.
+    #[error("the blocks of a wiki are pages and the comments on them")]
     NotPageOnWiki,
     /// The parent of a page is no page: a page is at the top of its wiki or below a
     /// page of it.
@@ -339,8 +348,9 @@ pub struct Block {
     #[serde(deserialize_with = "null_as_default")]
     pub schema: i64,
     /// The block type: `card`, `view`, `comment` or `attachment` on a board, and `page`
-    /// on a wiki. No request of blocks makes a block of another type or patches one
-    /// into it (400 naming `type`), nor a page: `createPage` makes those.
+    /// and `comment` (on a page) on a wiki. No request of blocks makes a block of
+    /// another type or patches one into it (400 naming `type`), nor a page:
+    /// `createPage` makes those, and `createPageComment` the comments of a wiki.
     #[serde(rename = "type")]
     #[serde(deserialize_with = "null_as_default")]
     #[schema(value_type = String)]
