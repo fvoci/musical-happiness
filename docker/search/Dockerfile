@@ -6,17 +6,18 @@
 #   docker build -t fvoci-search docker/search
 #
 # docker/compose.yaml runs it as the service `search`, on its network only. At start
-# (search-entrypoint.sh) it makes, once, a certificate authority and a certificate for
-# the name `search` in the volume at config/tls, and writes the authority's certificate
-# to ca-out/ for fvoci to trust; it then sets the password of the user `fvoci` from the
-# file FVOCI_SEARCH_PASSWORD_FILE names. The user, its role and the certificates take
-# effect when the volume of the data is new: the security plugin keeps them in an index
-# of its own after the first start.
+# (search-entrypoint.sh) it makes, once, the certificates in the volume at config/tls
+# (the node's, for the name `search`, and an administrator's) and writes their
+# authority's certificate to ca-out/ for fvoci to trust; at every start it sets the
+# user `fvoci`, its role and the password from the file FVOCI_SEARCH_PASSWORD_FILE
+# names. The certificates stay as long as that volume.
 #
-# The same file builds linux/arm64 and linux/amd64: the base image has both.
+# The same file builds linux/arm64 and linux/amd64: the base is the list of both,
+# named by its digest.
 
+# The version of the digest above, for the label.
 ARG OPENSEARCH_VERSION=3.9.0
-FROM opensearchproject/opensearch:${OPENSEARCH_VERSION}
+FROM opensearchproject/opensearch:3.9.0@sha256:3b55f6b6249cfdb92b52ee59adc8a266203ba9ef9f5d82544fad6f1af2f3609e
 
 USER root
 # openssl makes the certificates at the first start.
@@ -31,9 +32,10 @@ RUN cd /usr/share/opensearch \
         if [ "$name" != opensearch-security ]; then rm -rf "$plugin" "config/$name"; fi; \
     done \
     && bin/opensearch-plugin install --batch analysis-nori \
-    && mkdir -p config/tls ca-out
+    && mkdir -p config/tls ca-out \
+    && chmod 700 config config/tls
 
-COPY --chown=opensearch:opensearch opensearch.yml /usr/share/opensearch/config/opensearch.yml
+COPY --chown=opensearch:opensearch --chmod=600 opensearch.yml /usr/share/opensearch/config/opensearch.yml
 COPY --chown=opensearch:opensearch --chmod=755 search-entrypoint.sh /usr/share/opensearch/search-entrypoint.sh
 
 # The demo configuration of the security plugin has well-known passwords and keys:
