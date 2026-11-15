@@ -312,6 +312,9 @@ impl Store {
         now: i64,
     ) -> Result<bool, StoreError> {
         self.transaction(async |scope| {
+            // The link and its children: against a registration by a child that
+            // replaces one by the link.
+            signups::hold_several_links(scope).await?;
             let mut sql = scope.sql("UPDATE invitations AS i SET revoked_at = ");
             sql.bind(now.max(1))
                 .push_bind(" WHERE i.id = ", Id(invitation_id))

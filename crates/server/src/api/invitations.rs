@@ -294,16 +294,18 @@ async fn handle_preview_invitation(
     body: Bytes,
 ) -> ApiResult {
     let request: InvitationToken = decode_object(&body)?;
-    let mut browser = marker_of(&app, &headers).filter(|_| app.verifies_email());
     // Who is signed in accepts as their account, which replaces no registration. Only
     // a browser with a registration's marker is asked for its session.
-    if browser.is_some()
-        && optional_session_of(&app, &headers, &extensions)
-            .await?
-            .is_some()
-    {
-        browser = None;
-    }
+    let browser = match marker_of(&app, &headers).filter(|_| app.verifies_email()) {
+        Some(marker)
+            if optional_session_of(&app, &headers, &extensions)
+                .await?
+                .is_none() =>
+        {
+            Some(marker)
+        }
+        _ => None,
+    };
     let preview = app
         .preview_invitation(&request.token, browser.as_deref(), address_of(client))
         .await?;

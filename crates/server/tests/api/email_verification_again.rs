@@ -10,7 +10,7 @@ use fvoci_store::SignupLookup;
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
 
-use crate::common::{ApiResponse, Client, Setup, TestServer};
+use crate::common::{ApiResponse, Client, SESSION_COOKIE, Setup, TestServer};
 use crate::email_verification::{
     SIGNUP_COOKIE, SIGNUP_PASSWORD, complete_elsewhere, complete_with_marker, link_token,
     marker_of, registration,
@@ -294,6 +294,17 @@ async fn accepting_again_gives_back_the_use_the_first_registration_took() {
         .header("Cookie", format!("{SIGNUP_COOKIE}={marker}"))
         .json(&preview);
     Client::send(signed_in)
+        .await
+        .check_status(StatusCode::NOT_FOUND);
+    // So is who sends the session in the cookie beside the marker, as a browser does.
+    let session = &org.founder.token;
+    let both = format!("{SESSION_COOKIE}={session}; {SIGNUP_COOKIE}={marker}");
+    let in_browser = th
+        .anonymous()
+        .request(Method::POST, "/invitations/preview")
+        .header("Cookie", both)
+        .json(&preview);
+    Client::send(in_browser)
         .await
         .check_status(StatusCode::NOT_FOUND);
     // Another registration's browser frees nothing of this link, and keeps its own.

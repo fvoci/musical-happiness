@@ -673,12 +673,12 @@ impl App {
             .await
             .map_err(|error| logged(&error, "looking up an identity"))?;
         if let Some(user) = found {
-            let known = FoundAccount {
+            let found = FoundAccount {
                 user: &user,
                 identity,
                 proved_email: proved_address(claims),
             };
-            return self.let_in(known, stored, ending, session, digest).await;
+            return self.let_in(found, stored, ending, session, digest).await;
         }
         // The identity of an account that is deleted: not let in, and not made anew.
         let of_a_deleted_account = self
@@ -734,7 +734,7 @@ impl App {
     /// waits at the address the provider vouches for is removed with it.
     pub(super) async fn let_in(
         &self,
-        known: FoundAccount<'_>,
+        found: FoundAccount<'_>,
         stored: &StoredProvider,
         ending: Ending<'_>,
         session: &mut Session,
@@ -744,7 +744,7 @@ impl App {
             user,
             identity,
             proved_email,
-        } = known;
+        } = found;
         let account = OidcAccount::Known {
             user_id: &user.id,
             password_hash: &user.password_hash,

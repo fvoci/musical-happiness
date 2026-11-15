@@ -42,7 +42,7 @@ impl FromRequestParts<App> for OptionalSession {
 /// # Errors
 ///
 /// Returns the store's error if the session cannot be looked up.
-pub(crate) async fn optional_session_of(
+pub(super) async fn optional_session_of(
     app: &App,
     headers: &HeaderMap,
     extensions: &Extensions,

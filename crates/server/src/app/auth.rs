@@ -564,11 +564,11 @@ impl App {
             .login_limiter()
             .admit_login(&[&user.username], address, Instant::now())
             .map_err(|RetryAfter(wait)| AppError::rate_limited(wait))?;
-        let known = PasswordOf {
+        let holder = PasswordHolder {
             username: &user.username,
             password_hash: &user.password_hash,
         };
-        if !self.is_password_of(known, password, attempt).await? {
+        if !self.is_password_of(holder, password, attempt).await? {
             tracing::debug!(user_id = %user.id, "invalid password for user");
             return Err(AppError::bad_request(wrong.words)
                 .with_reason(Reason::InvalidCredentials)
@@ -577,18 +577,18 @@ impl App {
         Ok(())
     }
 
-    /// Whether `password` is the one of `known`, which ends `attempt`, admitted at its
+    /// Whether `password` is the one of `holder`, which ends `attempt`, admitted at its
     /// name: a wrong one is a failure at the name, a right one ends the failures there.
     pub(super) async fn is_password_of(
         &self,
-        known: PasswordOf<'_>,
+        holder: PasswordHolder<'_>,
         password: &str,
         attempt: crate::auth::limiter::Attempt,
     ) -> Result<bool, AppError> {
         let right = password.len() <= MAXIMUM_PASSWORD_BYTES
-            && self.verify(known.password_hash, password).await? != Verdict::Mismatch;
+            && self.verify(holder.password_hash, password).await? != Verdict::Mismatch;
         if right {
-            attempt.succeeded(known.username);
+            attempt.succeeded(holder.username);
         } else {
             attempt.failed(Instant::now());
         }
@@ -598,7 +598,7 @@ impl App {
 
 /// Whose password is asked for: an account's, or a registration's that waits.
 #[derive(Clone, Copy)]
-pub(super) struct PasswordOf<'a> {
+pub(super) struct PasswordHolder<'a> {
     /// The name its failed attempts are counted at.
     pub(super) username: &'a str,
     /// An Argon2id PHC string.

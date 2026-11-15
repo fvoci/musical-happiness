@@ -79,12 +79,12 @@ impl App {
                         .await
                         .map_err(|error| logged(&error, "looking up an identity"))?
                         .ok_or(Reason::OidcUnavailable)?;
-                    let known = FoundAccount {
+                    let found = FoundAccount {
                         user: &user,
                         identity,
                         proved_email: Some(email),
                     };
-                    return self.let_in(known, stored, ending, session, digest).await;
+                    return self.let_in(found, stored, ending, session, digest).await;
                 }
                 // A registration at the address was confirmed while the person was
                 // at the provider: the account is theirs to sign in to and link.

@@ -358,8 +358,9 @@ impl Store {
 
 /// Holds the turn of the transactions that hold more than one link of an invitation
 /// at once, until this one ends: a registration that replaces one made by another
-/// link holds both, and so does the clean-up, in no order they share. Taken before
-/// the first link. SQLite's writers wait for each other already.
+/// link holds both, and so do the clean-up, the revocation of a link with its
+/// children and turning a workspace's guest links off, in no order they share. Taken
+/// first. SQLite's writers wait for each other already.
 pub(crate) async fn hold_several_links(scope: &mut Scope<'_>) -> Result<(), StoreError> {
     if scope.dialect() == Dialect::Postgres {
         let mut sql = scope.sql("SELECT pg_advisory_xact_lock(");
