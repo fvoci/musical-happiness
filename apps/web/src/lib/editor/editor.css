@@ -508,22 +508,45 @@ span.doc-embed-problem {
   .doc-math-editing textarea {
     min-height: var(--spacing-touch);
   }
-  /*
-   * A task is a row a finger's height, its first line in the middle of it. The
-   * box stays drawn at the size of the text; its label answers the row's whole
-   * height and a finger's width around the box. The rows do not overlap, and
-   * the answer stops where the words begin, so a press on them puts the caret.
-   */
-  .doc-body ul[data-type='taskList'] > li {
-    position: relative;
+}
+
+/*
+ * Where things are pressed with a finger (the roomy density: chosen, or left to a
+ * device whose main pointer is a finger; app.css), a task is a row a finger's
+ * height, its first line in the middle of it. The box stays drawn at the size of
+ * the text; its label answers a finger's square around it, which ends where the
+ * words begin, so a press on them puts the caret. The square is as high as the
+ * row's first line, so it stays clear of the tasks above, below and inside.
+ */
+:is([data-density='comfortable'] .doc-body) ul[data-type='taskList'] > li {
+  column-gap: calc(var(--spacing-touch) / 2 - 0.5em);
+  padding-block: max(0px, (var(--spacing-touch) - var(--line-body) * 1em) / 2);
+}
+:is([data-density='comfortable'] .doc-body) ul[data-type='taskList'] > li > label {
+  position: relative;
+}
+:is([data-density='comfortable'] .doc-body) ul[data-type='taskList'] > li > label::before {
+  content: '';
+  position: absolute;
+  inset-block-start: calc(50% - var(--spacing-touch) / 2);
+  inset-inline-start: calc(50% - var(--spacing-touch) / 2);
+  width: var(--spacing-touch);
+  height: var(--spacing-touch);
+}
+@media (pointer: coarse) {
+  :root:not([data-density]) .doc-body ul[data-type='taskList'] > li {
     column-gap: calc(var(--spacing-touch) / 2 - 0.5em);
     padding-block: max(0px, (var(--spacing-touch) - var(--line-body) * 1em) / 2);
   }
-  .doc-body ul[data-type='taskList'] > li > label::before {
+  :root:not([data-density]) .doc-body ul[data-type='taskList'] > li > label {
+    position: relative;
+  }
+  :root:not([data-density]) .doc-body ul[data-type='taskList'] > li > label::before {
     content: '';
     position: absolute;
-    inset-block: 0;
-    inset-inline-start: calc(0.5em - var(--spacing-touch) / 2);
+    inset-block-start: calc(50% - var(--spacing-touch) / 2);
+    inset-inline-start: calc(50% - var(--spacing-touch) / 2);
     width: var(--spacing-touch);
+    height: var(--spacing-touch);
   }
 }

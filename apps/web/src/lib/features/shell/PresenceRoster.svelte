@@ -6,9 +6,12 @@
   readers of its public link) open the list of who is here and
   which cards they have open. Beside them the number of the board's members opens
   the members of the sharing dialog (`onMembers`); it is there also when nobody
-  else is. A screen reader hears both numbers together on the group.
+  else is, and in a narrow pane (a phone) it is a figure and the number, so the
+  board's title keeps its room; there the faces show only when somebody else is here. A screen reader hears both numbers together on the group.
 -->
 <script lang="ts">
+  import UsersIcon from '@lucide/svelte/icons/users';
+
   import Avatar from '$lib/components/avatar/Avatar.svelte';
   import { PickerPresentation } from '$lib/components/picker-surface/default-presentation.svelte.ts';
   import PickerSurface from '$lib/components/picker-surface/PickerSurface.svelte';
@@ -22,6 +25,7 @@
   const label = $derived(m.presence_viewers({ count: presence.count }));
   /** Everybody the members' list shows: each member is somebody the reader may see. */
   const members = $derived(board.orderedMembers.length);
+  const membersLabel = $derived(m.presence_members_short({ count: members }));
   /** How many faces are shown before the rest become a number; fewer in a narrow pane. */
   const FACES = 5;
   const NARROW_FACES = 2;
@@ -46,7 +50,11 @@
         type="button"
         data-testid="board-presence"
         aria-label={label}
-        class="flex min-h-8 shrink-0 items-center justify-center gap-1 rounded-md px-1 text-xs hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring roomy:min-h-touch roomy:min-w-touch"
+        class={[
+          'flex min-h-8 shrink-0 items-center justify-center gap-1 rounded-md px-1 text-xs hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring roomy:min-h-touch roomy:min-w-touch',
+          // Nobody else here, a narrow pane gives the title the room of a "0"; the group still says it.
+          presence.count === 0 && '@max-columns/pane:hidden',
+        ]}
       >
         <span class="flex -space-x-1">
           {#each faces as person, index (person.userId)}
@@ -105,9 +113,12 @@
     type="button"
     data-testid="board-members-count"
     aria-haspopup="dialog"
-    class="flex min-h-8 shrink-0 items-center rounded-md px-1 text-xs whitespace-nowrap text-muted-foreground hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring roomy:min-h-touch"
+    aria-label={membersLabel}
+    class="flex min-h-8 shrink-0 items-center justify-center gap-1 rounded-md px-1 text-xs whitespace-nowrap text-muted-foreground hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring roomy:min-h-touch roomy:min-w-touch"
     onclick={onMembers}
   >
-    {m.presence_members_short({ count: members })}
+    <UsersIcon class="size-4 @columns/pane:hidden" aria-hidden="true" />
+    <span class="@columns/pane:hidden" aria-hidden="true">{members}</span>
+    <span class="hidden @columns/pane:inline" aria-hidden="true">{membersLabel}</span>
   </button>
 </div>

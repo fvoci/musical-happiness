@@ -94,6 +94,12 @@ test('a card: its title and the boxes of its tasks are a finger wide', async ({ 
     { ...middle, offsets: corners },
   );
   expect(answers).toEqual([true, true, true, true]);
+  // Just past the square, where the words begin, a press is for the text.
+  const past = await box.evaluate((input, { x, y }) => {
+    const hit = document.elementFromPoint(x + 24, y);
+    return hit?.closest('label') === null && hit.closest('li') === input.closest('li');
+  }, middle);
+  expect(past).toBe(true);
   const checked = await box.isChecked();
   await page.touchscreen.tap(middle.x - 18, middle.y + 18);
   await expect(box).toBeChecked({ checked: !checked });
@@ -111,3 +117,29 @@ test('a wiki: the pages of its tree are a finger high where they are pressed', a
   expect((await page.getByTestId('page-title').boundingBox())?.height).toBeGreaterThanOrEqual(44);
   await expectPageStill(page);
 });
+
+for (const width of [360, 393]) {
+  test.describe(`a phone held upright, ${width} wide`, () => {
+    // 393: an iPhone's Safari with its bars folded; 360: the narrowest Android phones.
+    test.use({ viewport: { width, height: 800 }, hasTouch: true });
+
+    test("the bar's buttons are a finger wide, fit the screen, and lie over no part of the title", async ({
+      page,
+    }) => {
+      await openApp(page);
+      const bar = page.getByTestId('top-bar');
+      for (const id of ['open-sidebar', 'board-members-count', 'share-board', 'undo', 'redo']) {
+        await expectFingerSized(bar.getByTestId(id), id);
+      }
+      const redo = await bar.getByTestId('redo').boundingBox();
+      expect((redo?.x ?? 0) + (redo?.width ?? 0)).toBeLessThanOrEqual(width);
+      const title = await bar.getByTestId('board-title').boundingBox();
+      const people = await bar.getByTestId('board-people').boundingBox();
+      if (!title || !people) throw new Error('no title or people');
+      expect(title.x + title.width).toBeLessThanOrEqual(people.x);
+      // Room for the start of the name: a few letters among six buttons at 360, a word at 393.
+      expect(title.width).toBeGreaterThanOrEqual(width === 360 ? 24 : 56);
+      await expectPageStill(page);
+    });
+  });
+}

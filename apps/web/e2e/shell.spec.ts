@@ -112,12 +112,19 @@ test.describe('the top bar', () => {
     expect((board?.y ?? 0) + (board?.height ?? 0)).toBe(page.viewportSize()?.height);
     expect(board?.width).toBe(bar?.width);
 
-    // Presence remains available on every width; the description needs the full header.
+    // Presence is said on every width; nobody else here, a narrow pane (under 544, two
+    // columns) folds the button of no faces away for the title. The description needs
+    // the full header.
     const width = (await pane(page).boundingBox())?.width ?? 0;
     const presence = topBar(page).getByTestId('board-presence');
     const description = topBar(page).getByText('Use this template to stay on top');
-    await expect(presence).toBeVisible();
-    await expect(presence).toHaveAccessibleName('People viewing this board: 0');
+    await expect(topBar(page).getByTestId('board-people')).toHaveAccessibleName(
+      /^People viewing this board: 0, members: \d+$/,
+    );
+    if (width >= 544) {
+      await expect(presence).toBeVisible();
+      await expect(presence).toHaveAccessibleName('People viewing this board: 0');
+    } else await expect(presence).toBeHidden();
     if (width >= 992) await expect(description).toBeVisible();
     else await expect(description).toBeHidden();
   });

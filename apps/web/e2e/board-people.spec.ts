@@ -72,7 +72,10 @@ test('alone, the head of the board shows nobody here and the number of members',
   const members = await page.evaluate(
     () => (window as unknown as { fvociDev: Dev }).fvociDev.workspace.board.members.length,
   );
-  await expect(topBar(page).getByTestId('board-members-count')).toHaveText(`Members ${members}`);
+  // In a narrow pane the button shows a figure and the number; its name is the same.
+  await expect(topBar(page).getByTestId('board-members-count')).toHaveAccessibleName(
+    `Members ${members}`,
+  );
   await expect(people(page)).toHaveAttribute(
     'aria-label',
     `People viewing this board: 0, members: ${members}`,
@@ -94,12 +97,15 @@ test('five faces in a wide pane and two in a narrow one, then the rest as a numb
   );
   await expect(faces(page)).toHaveCount(5);
   await expect(plus(page)).toHaveText('+2');
-  await expect(topBar(page).getByTestId('board-members-count')).toHaveText(`Members ${members}`);
+  const count = topBar(page).getByTestId('board-members-count');
+  await expect(count).toHaveText(`Members ${members}`, { useInnerText: true });
 
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(faces(page)).toHaveCount(2);
   await expect(plus(page)).toHaveText('+5');
-  await expect(topBar(page).getByTestId('board-members-count')).toBeVisible();
+  // Narrow, a figure and the number keep the title its room; the name says what it is.
+  await expect(count).toHaveText(String(members), { useInnerText: true });
+  await expect(count).toHaveAccessibleName(`Members ${members}`);
 });
 
 test('the number of members opens the sharing dialog at its members', async ({ page }) => {
