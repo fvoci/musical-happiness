@@ -322,7 +322,7 @@ pub(crate) fn said(kept: &[Value]) -> Vec<(i64, Vec<&str>, bool)> {
 /// over is kept before it if it was none yet. A body written again as it is, and a
 /// patch that leaves the body, keep nothing; no body is a version too. Of versions
 /// with the card's body, the newest is the current one, and a copy of the card has
-/// none of its versions.
+/// none of its versions: one of its own, its body as copied.
 #[tokio::test]
 async fn a_body_written_whole_is_a_version_and_so_is_the_one_before() {
     let th = Setup::native().start().await.init_basic().await;
@@ -399,11 +399,13 @@ async fn a_body_written_whole_is_a_version_and_so_is_the_one_before() {
         .find(|block| block["type"] == json!("card"))
         .and_then(|block| block["id"].as_str())
         .expect("the copy of the card");
+    let kept = versions(&th.client, copy).await;
     assert_eq!(
-        versions(&th.client, copy).await,
-        Vec::<Value>::new(),
-        "a copy begins without versions"
+        said(&kept),
+        [(1, Vec::<&str>::new(), true)],
+        "a copy begins with one version, its own"
     );
+    assert_eq!(lines(&th.client, copy, &kept[0]).await, ["second"]);
     th.teardown().await;
 }
 

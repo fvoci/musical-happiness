@@ -727,11 +727,12 @@ async fn a_copy_of_a_body_shows_copies_of_its_files() {
     th.teardown().await;
 }
 
-/// A copy of a card that shows an image, of the card or of its board, begins without
-/// versions of its body, as a copy without images does: that its image shows a file of
-/// its own is part of the copy, not a change of it. The original keeps its versions.
+/// A copy of a card that shows an image begins with one version of its body, as any
+/// copy of a card does: the body as copied, which shows the copy's own file, and none
+/// of the original's versions. The cards of a copy of its board begin without versions.
+/// The original keeps its versions.
 #[tokio::test]
-async fn a_copy_that_shows_an_image_begins_without_versions() {
+async fn a_copy_of_a_card_that_shows_an_image_begins_with_one_version() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
     let file_id = crate::files::uploaded_id(
@@ -779,10 +780,21 @@ async fn a_copy_that_shows_an_image_begins_without_versions() {
             .is_some_and(|files| files.len() == 1 && files[0] != file_id),
         "the copy shows a copy of the file: {shown:?}"
     );
+    let kept = crate::body_versions::versions(&th.client, copy).await;
     assert_eq!(
-        crate::body_versions::versions(&th.client, copy).await,
-        Vec::<Value>::new(),
-        "a copy of the card begins without versions"
+        crate::body_versions::said(&kept),
+        [(1, Vec::<&str>::new(), true)],
+        "one version, the copy's body"
+    );
+    let version: Value = th
+        .client
+        .get(&format!("{TEST_WS}/cards/{copy}/body-versions/1"))
+        .await
+        .ok_json();
+    assert_eq!(
+        version["body"]["content"][1]["attrs"]["fileId"].as_str(),
+        shown.as_ref().and_then(|files| files.first().copied()),
+        "the version shows the copy's file, not the original's"
     );
 
     let board_copy: Value = th
