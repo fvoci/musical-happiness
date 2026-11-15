@@ -139,7 +139,7 @@ impl App {
             .await?
         {
             return Err(AppError::conflict(
-                "the version shows an image whose file the board does not have any more",
+                "the version shows an image whose file is not there any more",
             ));
         }
         let patch = BlockPatch {

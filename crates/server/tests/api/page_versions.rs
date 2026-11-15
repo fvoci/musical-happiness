@@ -4,7 +4,9 @@
 
 use serde_json::{Value, json};
 
-use crate::common::{Client, ROOT_WS, Setup, TEST_WS, UNKNOWN_ID};
+use reqwest::StatusCode;
+
+use crate::common::{ApiResponse, Client, ROOT_WS, Setup, TEST_WS, UNKNOWN_ID};
 use crate::wiki_isolation::{put_on, wiki_of};
 
 /// A body of one paragraph.
@@ -49,7 +51,13 @@ async fn version_saying(client: &Client, wiki: &str, page: &str, said: &str) -> 
 
 /// What the three operations of versions answer, in this order: the list, a version,
 /// going back to it.
-async fn asked(client: &Client, at: &str, wiki: &str, page: &str, version: i64) -> [u16; 3] {
+async fn answers(
+    client: &Client,
+    at: &str,
+    wiki: &str,
+    page: &str,
+    version: i64,
+) -> [ApiResponse; 3] {
     let versions = format!("{}/body-versions", page_path(at, wiki, page));
     [
         client.get(&versions).await,
@@ -58,7 +66,28 @@ async fn asked(client: &Client, at: &str, wiki: &str, page: &str, version: i64) 
             .post_empty(&format!("{versions}/{version}/restore"))
             .await,
     ]
-    .map(|response| response.status.as_u16())
+}
+
+/// The statuses of [`answers`].
+async fn asked(client: &Client, at: &str, wiki: &str, page: &str, version: i64) -> [u16; 3] {
+    answers(client, at, wiki, page, version)
+        .await
+        .map(|response| response.status.as_u16())
+}
+
+/// The problems of [`answers`], as a refusal is compared with another.
+async fn refused(
+    client: &Client,
+    at: &str,
+    wiki: &str,
+    page: &str,
+    version: i64,
+) -> Vec<(StatusCode, Value)> {
+    answers(client, at, wiki, page, version)
+        .await
+        .iter()
+        .map(ApiResponse::problem)
+        .collect()
 }
 
 /// Every member of the wiki reads the versions; its editors go back to one, which is
@@ -84,6 +113,13 @@ async fn the_wikis_members_read_the_versions_and_its_editors_go_back_to_one() {
         read.value()["body"],
         text("second"),
         "refused, nothing changed"
+    );
+    let listed = format!("{}/body-versions", page_path(TEST_WS, &wiki, &page));
+    let before = th.client.get(&listed).await.value();
+    assert_eq!(
+        before.as_array().map(Vec::len),
+        Some(2),
+        "and no version kept: {before}"
     );
 
     put_on(&th.client, &wiki, &member, "editor").await;
@@ -112,6 +148,14 @@ async fn the_wikis_members_read_the_versions_and_its_editors_go_back_to_one() {
     let newest = &versions[0];
     assert_eq!(newest["isCurrent"], json!(true), "{versions}");
     assert_eq!(newest["editors"], json!([member]), "{versions}");
+    // And the wiki's admin, to the second again.
+    let second = version_saying(&th.client, &wiki, &page, "second").await;
+    let again = th
+        .client
+        .post_empty(&format!("{listed}/{second}/restore"))
+        .await;
+    again.check_ok();
+    assert_eq!(again.value()["body"], text("second"));
     th.teardown().await;
 }
 
@@ -128,12 +172,30 @@ async fn the_versions_are_reached_through_their_page_while_it_is_there() {
     assert_eq!(none, [404; 3]);
     for (client, at) in [(&th.client2, TEST_WS), (&th.client, ROOT_WS)] {
         assert_eq!(asked(client, at, &wiki, &page, first).await, none, "{at}");
-        let versions = |wiki: &str| format!("{}/body-versions", page_path(at, wiki, &page));
-        let of_wiki = client.get(&versions(&wiki)).await;
-        let of_none = client.get(&versions(UNKNOWN_ID)).await;
-        assert_eq!(of_wiki.problem(), of_none.problem(), "{at}");
+        // To the letter, for a version that is there and for one that is not.
+        let of_none = refused(client, at, UNKNOWN_ID, &page, 999).await;
+        for version in [first, 999] {
+            let of_wiki = refused(client, at, &wiki, &page, version).await;
+            assert_eq!(of_wiki, of_none, "{at}, version {version}");
+        }
     }
-    // Another page of the wiki has versions of its own, and a number is a number.
+    // Another page of the same wiki has versions of its own: the first's numbers name
+    // none of it, through its path.
+    let sibling = th
+        .client
+        .post(
+            &format!("{TEST_WS}/wikis/{wiki}/pages"),
+            &json!({"title": "sibling"}),
+        )
+        .await;
+    sibling.check_created();
+    let sibling = sibling.value()["id"].as_str().expect("an id").to_owned();
+    assert_eq!(
+        asked(&th.client, TEST_WS, &wiki, &sibling, first).await,
+        [200, 404, 404],
+        "the first page's version through the sibling's path"
+    );
+    // A number is a number.
     let (other_wiki, other_page) = wiki_of(&th.client, "P").await;
     let at = format!("{}/body-versions", page_path(TEST_WS, &wiki, &page));
     for missing in ["999", "one", "-1"] {
@@ -166,6 +228,16 @@ async fn the_versions_are_reached_through_their_page_while_it_is_there() {
         asked(&th.client, TEST_WS, &wiki, &page, first).await,
         [404; 3],
         "in the trash"
+    );
+    // A page of a wiki in the trash has none either.
+    th.client
+        .delete(&format!("{TEST_WS}/boards/{other_wiki}"))
+        .await
+        .check_no_content();
+    assert_eq!(
+        asked(&th.client, TEST_WS, &other_wiki, &other_page, 1).await,
+        [404; 3],
+        "the wiki in the trash"
     );
     th.teardown().await;
 }

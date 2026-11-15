@@ -307,14 +307,19 @@ async fn wiki_with_a_page(founder: &Client, at: &str, name: &str) -> (String, St
         .value();
     let said = json!({"type": "doc", "content": [{"type": "paragraph", "content": [
         {"type": "text", "text": format!("{name} comment")}]}]});
-    // A body written to the page is the first version of it, which the member reads.
-    founder
-        .patch(
-            &format!("{at}/wikis/{wiki}/pages/{}", text(&page, "id")),
-            &json!({"readAt": page["updateAt"], "body": said}),
-        )
-        .await
-        .check_ok();
+    // Two bodies written to the page are two versions of it: the member reads the first
+    // and goes back to it, which writes it to the page again.
+    let at_page = format!("{at}/wikis/{wiki}/pages/{}", text(&page, "id"));
+    let mut read_at = page["updateAt"].clone();
+    let again = json!({"type": "doc", "content": [{"type": "paragraph", "content": [
+        {"type": "text", "text": format!("{name} body again")}]}]});
+    for body in [said.clone(), again] {
+        let written = founder
+            .patch(&at_page, &json!({"readAt": read_at, "body": body}))
+            .await;
+        written.check_ok();
+        read_at = written.value()["updateAt"].clone();
+    }
     let page = text(&page, "id");
     let comment = founder
         .post(

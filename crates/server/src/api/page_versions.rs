@@ -34,7 +34,7 @@ const READ_DENIED: &str = "access denied to fetch page";
 /// As `getCardBodyVersions` gives a card's: the newest first, each with when it was
 /// kept and who wrote the body up to it, without the bodies (`getPageBodyVersion`).
 /// For the members of the wiki, whatever their role. A page in the trash is not there
-/// (404); its versions come back with it, and go when it is gone for good.
+/// (404); its versions are kept while it is there, and go when it is gone for good.
 #[utoipa::path(
     get,
     path = "/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/body-versions",

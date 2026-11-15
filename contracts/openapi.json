@@ -12723,7 +12723,7 @@
     },
     "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/body-versions": {
       "get": {
-        "description": "As `getCardBodyVersions` gives a card's: the newest first, each with when it was\nkept and who wrote the body up to it, without the bodies (`getPageBodyVersion`).\nFor the members of the wiki, whatever their role. A page in the trash is not there\n(404); its versions come back with it, and go when it is gone for good.",
+        "description": "As `getCardBodyVersions` gives a card's: the newest first, each with when it was\nkept and who wrote the body up to it, without the bodies (`getPageBodyVersion`).\nFor the members of the wiki, whatever their role. A page in the trash is not there\n(404); its versions are kept while it is there, and go when it is gone for good.",
         "operationId": "getPageBodyVersions",
         "parameters": [
           {

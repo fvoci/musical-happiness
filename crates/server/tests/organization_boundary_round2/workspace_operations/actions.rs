@@ -128,25 +128,28 @@ async fn pages(case: &mut Case, wiki: &str) {
     case.run("deletePage", of_below, json!({})).await;
 }
 
-/// The versions of the page's body: one written, listed, read and gone back to.
+/// The versions of the page's body: two written, listed, the older read and gone back
+/// to, which writes it to the page again.
 async fn page_versions(case: &mut Case, wiki: &str, page: &str) {
     let of_page = &[("wikiId", wiki), ("pageId", page)];
-    let read = case.present("getPage", of_page, page).await.value();
-    let body = json!({"type": "doc", "content": [{"type": "paragraph", "content": [
-        {"type": "text", "text": format!("secret {} body", case.label)}]}]});
-    case.run(
-        "patchPage",
-        of_page,
-        json!({"readAt": read["updateAt"], "body": body}),
-    )
-    .await;
+    for said in ["first", "second"] {
+        let read = case.present("getPage", of_page, page).await.value();
+        let body = json!({"type": "doc", "content": [{"type": "paragraph", "content": [
+            {"type": "text", "text": format!("secret {} {said} body", case.label)}]}]});
+        case.run(
+            "patchPage",
+            of_page,
+            json!({"readAt": read["updateAt"], "body": body}),
+        )
+        .await;
+    }
     let listed = case
         .run("getPageBodyVersions", of_page, json!({}))
         .await
         .value();
-    let version = listed[0]["version"]
+    let version = listed[1]["version"]
         .as_i64()
-        .expect("a version")
+        .expect("an older version")
         .to_string();
     let of_version = &[
         ("wikiId", wiki),

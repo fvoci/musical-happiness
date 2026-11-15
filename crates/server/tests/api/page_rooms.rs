@@ -242,6 +242,73 @@ async fn a_page_body_written_whole_goes_around_its_room() {
     th.teardown().await;
 }
 
+/// A version of the page restored while it is edited together, as a card's: what the
+/// editors typed is kept as a version first, everyone in the room is sent the version
+/// as a new document they go on in, and the wiki's members are told of the page.
+#[tokio::test]
+async fn a_version_of_a_page_restored_goes_around_its_room_and_its_wiki() {
+    let th = Setup::native().start().await.init_basic().await;
+    let (d, mut one, mut two) = two_at_a_desk(&th, &paragraphs(&["first"])).await;
+    let user2 = th.client2.me().await.id;
+    one.write_acked("typed").await;
+    two.settle().await;
+    let mut listener =
+        WorkspaceSocket::subscribe(&th, &th.client2, TEST_WORKSPACE_ID, &user2).await;
+    let versions = format!("{}/body-versions", d.page());
+    let kept: Vec<Value> = th.client.get(&versions).await.ok_json();
+    let first = kept.last().expect("the body it was written with")["version"].clone();
+
+    let restored: Page = th
+        .client2
+        .post_empty(&format!("{versions}/{first}/restore"))
+        .await
+        .ok_json();
+    assert_eq!(lines_of(body_of(&restored).as_ref()), ["first"]);
+    assert_eq!(restored.modified_by, user2, "written by who restored it");
+    for peer in [&mut one, &mut two] {
+        let reset = peer.text("DOC_RESET").await;
+        assert_eq!(reset["action"], json!("DOC_RESET"));
+        peer.settle().await;
+        assert_eq!(
+            peer.lines(),
+            ["first"],
+            "the version, in place of the document"
+        );
+    }
+    let kept: Vec<Value> = th.client.get(&versions).await.ok_json();
+    let mut typed_kept = false;
+    for version in &kept {
+        let number = &version["version"];
+        let read: Value = th
+            .client
+            .get(&format!("{versions}/{number}"))
+            .await
+            .ok_json();
+        typed_kept |= lines_of(read.get("body")) == ["first", "typed"];
+    }
+    assert!(typed_kept, "what was typed is kept: {kept:?}");
+    let mut heard = Vec::new();
+    for _ in 0..20 {
+        heard.extend(listener.drain().await);
+        if heard
+            .iter()
+            .any(|told| told["block"]["id"] == json!(d.page_id))
+        {
+            break;
+        }
+    }
+    assert!(
+        heard
+            .iter()
+            .any(|told| told["action"] == json!("UPDATE_BLOCK")
+                && told["block"]["id"] == json!(d.page_id)),
+        "the wiki's members are told of the page: {heard:?}"
+    );
+    one.leave().await;
+    two.leave().await;
+    th.teardown().await;
+}
+
 /// Who is in the room of a page is who its wiki lets read it, as the wiki lets them:
 /// nobody else, a reader who writes nothing, and a writer; and who is taken off the
 /// wiki is put out of the room.
