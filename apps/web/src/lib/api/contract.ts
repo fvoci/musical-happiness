@@ -3623,9 +3623,10 @@ export interface paths {
          *     The tree is held to the organization's limits: 400 with the reason `page_too_deep`
          *     or `too_many_pages` (with the `limit`) if the pages would be deeper, or the wiki
          *     larger, than they let it be. A page that is not in this wiki's trash, or went there
-         *     with the page it was below (it comes back with that page), is 404. The
-         *     wiki's members are told with `UPDATE_BLOCK` of each page that came back, a page
-         *     before those below it, and of each page numbered anew to leave it room.
+         *     with the page it was below (it comes back with that page), is 404. The comments on
+         *     the pages come back with them; the limits count pages. The wiki's members are told
+         *     with `UPDATE_BLOCK` of each page and comment that came back, a page before what is
+         *     below it, and of each page numbered anew to leave it room.
          */
         post: operations["undeletePage"];
         delete?: never;

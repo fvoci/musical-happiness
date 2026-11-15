@@ -158,7 +158,14 @@ export function restoreComment(on: OnPage, commentId: string): Comment {
   if (deleted?.boardId !== on.wikiId || comment?.type !== 'comment') fail(404, 'no such comment');
   if (comment.id !== commentId || comment.parentId !== on.pageId) fail(404, 'no such comment');
   if (!mayRemoveComments(role, on.userId, deleted)) {
-    fail(403, "access denied to undelete other users' comments");
+    // In the server's words: its author is told who brings back what somebody else deleted.
+    const theirs = comment.createdBy === on.userId && deleted.deletedBy !== on.userId;
+    fail(
+      403,
+      theirs
+        ? "a comment somebody else deleted is brought back by the board's admins"
+        : "access denied to undelete other users' comments",
+    );
   }
   on.world.deletedBlocks.delete(commentId);
   // As the server: whoever brings it back is the last to change it, now.

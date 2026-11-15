@@ -152,6 +152,34 @@ describe('the comments on a page, in memory', () => {
     store.close();
   });
 
+  it('are not taken back from news older than their deletion, and are once they are back', async () => {
+    const made = await aPage();
+    await made.workspace.load();
+    const store = new WikiStore(made.workspace, made.wikiId);
+    await store.load();
+    const comments = store.showPage(made.pageId)?.comments;
+    await settle();
+    if (!comments) throw new Error('no page shown');
+    const at = [made.wikiId, made.pageId] as const;
+    const theirs = await made.other.wiki.createComment(...at, text('theirs'));
+    await settle();
+    await made.other.wiki.deleteComment(...at, theirs.id);
+    await settle();
+    // News of it from before its deletion, heard after: read again, it is gone.
+    comments.receive(theirs);
+    await settle();
+    await settle();
+    expect(comments.comments).toEqual([]);
+    // Brought back by them: back here too, and a reading keeps it.
+    await made.other.wiki.restoreComment(...at, theirs.id);
+    await settle();
+    await settle();
+    expect(comments.comments.map((comment) => comment.id)).toEqual([theirs.id]);
+    await comments.read(false);
+    expect(comments.comments.map((comment) => comment.id)).toEqual([theirs.id]);
+    store.close();
+  });
+
   it('come back onto their page by who may delete them, as a card’s', async () => {
     const made = await aPage('commenter');
     const [mine, theirs] = [made.backend.wiki, made.other.wiki];

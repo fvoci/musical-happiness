@@ -469,35 +469,66 @@ async fn a_comment_deleted_on_its_own_comes_back_onto_its_page() {
         .await
         .check_ok();
 
-    // Under another page, as no comment, and as nothing at all: not there.
-    let (_, other_page) = wiki_of(&th.client, "P").await;
+    // Under another page of the same wiki, as no comment, and as nothing at all: not
+    // there, to the letter.
+    let sibling = th
+        .client
+        .post(
+            &format!("{TEST_WS}/wikis/{wiki}/pages"),
+            &json!({"title": "sibling"}),
+        )
+        .await;
+    sibling.check_created();
+    let sibling = id(&sibling.value());
     let none = th.client.post(&undelete(UNKNOWN_ID), &json!({})).await;
     none.check_not_found();
     for named in [
         format!(
-            "{TEST_WS}/wikis/{wiki}/pages/{other_page}/comments/{}/undelete",
+            "{TEST_WS}/wikis/{wiki}/pages/{sibling}/comments/{}/undelete",
             id(&admins)
         ),
         undelete(&page),
     ] {
         let answer = th.client.post(&named, &json!({})).await;
-        assert_eq!(answer.status.as_u16(), 404, "{named}: {}", answer.text());
+        assert_eq!(answer.problem(), none.problem(), "{named}");
     }
-    // A viewer brings nothing back.
-    put_on(&th.client, &wiki, &member, "viewer").await;
+    // An editor, no admin, does not bring back somebody else's.
+    put_on(&th.client, &wiki, &member, "editor").await;
     th.client2
         .post(&undelete(&id(&admins)), &json!({}))
         .await
         .check_forbidden();
+    // A viewer brings nothing back, refused before anything is looked for.
+    put_on(&th.client, &wiki, &member, "viewer").await;
+    th.client2
+        .post(&undelete(UNKNOWN_ID), &json!({}))
+        .await
+        .check_forbidden();
 
-    // Gone with its page, it comes back with the page and not on its own.
+    th.teardown().await;
+}
+
+/// A comment that went to the trash with its page comes back with the page, and not on
+/// its own.
+#[tokio::test]
+async fn a_comment_gone_with_its_page_comes_back_with_the_page() {
+    let th = Setup::native().start().await.init_basic().await;
+    let (wiki, page) = wiki_of(&th.client, "P").await;
+    let comments = comments_of(TEST_WS, &wiki, &page);
+    let undelete = |id: &str| format!("{comments}/{id}/undelete");
+    let own = written(&th.client, &wiki, &page, "deleted on its own").await;
+    th.client
+        .delete(&format!("{comments}/{}", id(&own)))
+        .await
+        .check_no_content();
     let with_page = written(&th.client, &wiki, &page, "with the page").await;
     th.client
         .delete(&format!("{TEST_WS}/wikis/{wiki}/pages/{page}"))
         .await
         .check_no_content();
+    // While the page is in the trash, nothing of it comes back.
     th.client
-        .post(&undelete(&id(&admins)), &json!({}))
+        .post(&undelete(&id(&own)), &json!({}))
         .await
         .check_not_found();
     th.client
@@ -517,7 +548,12 @@ async fn a_comment_deleted_on_its_own_comes_back_onto_its_page() {
         listed.contains(&id(&with_page)),
         "back with its page: {listed:?}"
     );
-    assert!(listed.contains(&id(&own)), "{listed:?}");
+    // The one deleted on its own before stays in the trash, and comes back on its own.
+    assert!(!listed.contains(&id(&own)), "{listed:?}");
+    th.client
+        .post(&undelete(&id(&own)), &json!({}))
+        .await
+        .check_ok();
     th.teardown().await;
 }
 

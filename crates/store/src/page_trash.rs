@@ -212,8 +212,16 @@ async fn undelete(
     if !pages.iter().any(|block| block.id == page_id) {
         return Err(block_not_in_trash());
     }
-    // The page asked for first, then parents before what is below them.
-    pages.sort_by_key(|block| (block.id != page_id, coming.depth(&block.id)));
+    // The page asked for first, then parents before what is below them: a comment is
+    // one below its page.
+    pages.sort_by_key(|block| {
+        let depth = if block.block_type == BlockType::Comment {
+            coming.depth(&block.parent_id) + 1
+        } else {
+            coming.depth(&block.id)
+        };
+        (block.id != page_id, depth)
+    });
     Ok(PageRestore { pages, renumbered })
 }
 

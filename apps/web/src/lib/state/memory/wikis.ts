@@ -35,7 +35,7 @@ import { MemoryBodyVersions, writtenWhole } from './body-versions.ts';
 import { MemoryPageComments, type OnPage } from './page-comments.ts';
 import { DEFAULT_LIMITS, PageTree, type PageLimits, type Place } from './page-tree.ts';
 import { fail } from './refuse.ts';
-import { copy, memberOf, orderOf, pageOf, scramble } from './shapes.ts';
+import { commentOf, copy, memberOf, orderOf, pageOf, scramble } from './shapes.ts';
 import { deletedPagesOf, deletion } from './trash.ts';
 import type { StoredBlock, StoredCard, World } from './world.ts';
 
@@ -436,6 +436,11 @@ export class MemoryWikis extends MemoryPageComments implements Wikis {
       world.blocks.set(block.id, block);
     }
     this.#tellPages(wikiId, [...renumbered, ...pages]);
+    // And the comments that came back with them, as the server tells them.
+    const comments = blocks.filter((block) => block.type === 'comment');
+    if (comments.length > 0) {
+      world.tellBoard(wikiId, { kind: 'blocks', boardId: wikiId, blocks: comments.map(commentOf) });
+    }
     return detailOf(top);
   }
 }

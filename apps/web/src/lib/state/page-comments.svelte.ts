@@ -28,12 +28,13 @@ export class PageComments {
   /** Whether they have been read: until then there are none to say there are none. */
   status = $state<LoadStatus>('idle');
   /**
-   * The comments deleted while this store was open: a reading answered before
-   * a deletion it crossed does not bring one back; "Undo" does, and takes it
-   * off this list.
+   * The comments told deleted while this store was open, each with how many
+   * times: nothing heard of one before its deletion brings it back, only what
+   * the backend says of it after (a reading begun since, or "Undo"). The count
+   * tells a deletion again during a reading from the one before it.
    */
   // eslint-disable-next-line svelte/prefer-svelte-reactivity -- consulted, never shown
-  readonly #deleted = new Set<string>();
+  readonly #deleted = new Map<string, number>();
   /** Readings begun: the latest is the one that counts. */
   #readings = 0;
   #closed = false;
@@ -88,15 +89,17 @@ export class PageComments {
     this.#readings += 1;
     const reading = this.#readings;
     const before = this.#comments.map((comment) => comment.id);
-    // Deleted before the reading began, a comment it finds was brought back since.
+    // Deleted before the reading began and not since, a comment it finds was brought back.
     // eslint-disable-next-line svelte/prefer-svelte-reactivity -- consulted, never shown
-    const deletedBefore = new Set(this.#deleted);
+    const deletedBefore = new Map(this.#deleted);
     if (first || this.status === 'failed') this.status = 'loading';
     try {
       const read = await this.#wikis.comments(this.#wikiId, this.#pageId);
       if (this.#closed || reading !== this.#readings) return;
       for (const comment of read)
-        if (deletedBefore.has(comment.id)) this.#deleted.delete(comment.id);
+        if (deletedBefore.get(comment.id) === this.#deleted.get(comment.id)) {
+          this.#deleted.delete(comment.id);
+        }
       const comments = read.filter((comment) => !this.#deleted.has(comment.id));
       void this.#wiki.workspace.learnUsers(authorIds(comments));
       this.#comments = reread(this.#comments, comments, before);
@@ -114,24 +117,35 @@ export class PageComments {
   }
 
   /**
-   * A comment the wiki heard of: one on this page is taken in, also one that
-   * was deleted, which was brought back since.
+   * A comment the wiki heard of: one on this page is taken in. Of one told
+   * deleted, the news may be from before its deletion (the server tells in no
+   * fixed order) or of its coming back: the comments are read again, which
+   * says which.
    */
   receive(comment: Comment): void {
     if (comment.parentId !== this.#pageId || this.#closed) return;
-    this.#deleted.delete(comment.id);
+    if (this.#deleted.has(comment.id)) {
+      void this.read(false);
+      return;
+    }
+    this.#take(comment);
+  }
+
+  #take(comment: Comment): void {
     void this.#wiki.workspace.learnUsers(authorIds([comment]));
     this.#comments = take(this.#comments, comment);
   }
 
   /** The answer to the reader's own write: not of a comment deleted meanwhile. */
   #answered(comment: Comment): void {
-    if (!this.#deleted.has(comment.id)) this.receive(comment);
+    if (comment.parentId === this.#pageId && !this.#closed && !this.#deleted.has(comment.id)) {
+      this.#take(comment);
+    }
   }
 
   /** Blocks were deleted; some may be comments of this page. */
   forget(blockIds: readonly string[]): void {
-    for (const id of blockIds) this.#deleted.add(id);
+    for (const id of blockIds) this.#deleted.set(id, (this.#deleted.get(id) ?? 0) + 1);
     this.#comments = this.#comments.filter((comment) => !blockIds.includes(comment.id));
   }
 
@@ -176,7 +190,9 @@ export class PageComments {
           this.forget([commentId]);
         },
         async () => {
-          this.receive(await this.#wikis.restoreComment(wikiId, pageId, commentId));
+          // Brought back by the reader: told deleted again while it comes, it stays away.
+          this.#deleted.delete(commentId);
+          this.#answered(await this.#wikis.restoreComment(wikiId, pageId, commentId));
         },
         'deleteComment',
       );

@@ -147,8 +147,9 @@ export interface Wikis {
    * Brings a page back from the trash with the pages that went with it, for
    * the wiki's editors: below the page it was below, or, that one gone, last
    * at the top. Past the wiki's limits it is 400 (`page_too_deep`,
-   * `too_many_pages`); one the trash does not have, 404. Each page that came
-   * back is told (`pages`); the answer is the page asked for.
+   * `too_many_pages`); one the trash does not have, 404. The comments on the
+   * pages come back with them. Each page that came back is told (`pages`),
+   * and each comment (`blocks`); the answer is the page asked for.
    */
   undeletePage(wikiId: string, pageId: string): Promise<WikiPageDetail>;
   /**
