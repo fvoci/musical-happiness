@@ -368,6 +368,28 @@ fn wiki_ops() -> Vec<Op> {
             None,
         ),
         op("pages: trash", Method::GET, "/wikis/{c}/trash/pages", None),
+        op(
+            "pages: comments",
+            Method::GET,
+            "/wikis/{c}/pages/{p}/comments",
+            None,
+        ),
+        op(
+            "pages: comment",
+            Method::POST,
+            "/wikis/{c}/pages/{p}/comments",
+            Json(|_, _| {
+                json!({"body": {"type": "doc", "content": [{"type": "paragraph", "content": [
+                    {"type": "text", "text": "said"}
+                ]}]}})
+            }),
+        ),
+        op(
+            "pages: versions",
+            Method::GET,
+            "/wikis/{c}/pages/{p}/body-versions",
+            None,
+        ),
         Op {
             prepare: Prepare::DeletePage,
             ..op(
@@ -824,6 +846,8 @@ async fn the_wiki_differs_from_the_board_only_where_an_open_wiki_is_read() {
         "references: resolve",
         "pages: tree",
         "pages: get",
+        "pages: comments",
+        "pages: versions",
     ];
     let viewer = column("viewer");
     for row in reads {
