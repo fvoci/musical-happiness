@@ -90,12 +90,18 @@ export async function showTree(page: Page): Promise<void> {
   await expect(pageTree(page)).toBeVisible();
 }
 
-/** Puts the tree's drawer away, where it is one: Escape, as a keyboard would. */
+/**
+ * Puts the tree's drawer away, where it is one: Escape, as a keyboard would,
+ * in any language; done once it has slid all the way out.
+ */
 export async function hideTree(page: Page): Promise<void> {
-  const drawer = page.getByRole('dialog', { name: 'Pages' });
-  if (!(await drawer.isVisible())) return;
-  await page.keyboard.press('Escape');
-  await expect(drawer).toBeHidden();
+  const opener = page.getByTestId('open-page-tree');
+  if (!(await opener.isVisible()) || (await opener.getAttribute('aria-expanded')) !== 'true') {
+    return;
+  }
+  await page.getByTestId('page-tree-panel').press('Escape');
+  await expect(opener).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.getByTestId('page-tree-panel')).toBeHidden();
 }
 
 /** Opens a page's menu in the tree and presses one of its lines. */

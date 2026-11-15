@@ -4,7 +4,7 @@
  * screen does not open, nor the wiki's a board; and their pages, made in a
  * tree, named and given an icon, there again when the page is read anew.
  */
-import { expect, test } from '@playwright/test';
+import { expect, test, type WebSocketRoute } from '@playwright/test';
 
 import { sidebar } from '../e2e/shell.support.ts';
 import {
@@ -321,5 +321,63 @@ test('an open wiki is listed to whoever works in the workspace, joined first, th
   await expect(page.getByTestId('page-title')).toHaveValue('Hello');
   expect(errors).toEqual([]);
   await page.context().close();
+  await api.dispose();
+});
+
+test('a connection that drops leaves a page read-only, and once back the reader goes on writing', async ({
+  page,
+  baseURL,
+}) => {
+  const base = baseURL ?? '';
+  const owner = person('wiki-tunnel');
+  await register(base, owner);
+  const api = await signedIn(base, owner);
+  const { workspaceId } = await makeBoard(api, { title: 'Roadmap' });
+  const inWorkspace = `/api/v1/w/${workspaceId}`;
+  const wiki = (await (
+    await api.post(`${inWorkspace}/wikis`, { data: { title: 'Handbook', type: 'P' } })
+  ).json()) as Schemas['Board'];
+  const first = (await (
+    await api.post(`${inWorkspace}/wikis/${wiki.id}/pages`, { data: { title: 'Travel' } })
+  ).json()) as Schemas['Page'];
+  const storedText = async (): Promise<string> =>
+    JSON.stringify(
+      (
+        (await (
+          await api.get(`${inWorkspace}/wikis/${wiki.id}/pages/${first.id}`)
+        ).json()) as Schemas['Page']
+      ).body,
+    );
+  // The page's sockets go through here, so that the test can cut them.
+  const sockets: WebSocketRoute[] = [];
+  await page.routeWebSocket(/\/ws$/, (socket) => {
+    socket.connectToServer();
+    sockets.push(socket);
+  });
+  const errors = watchErrors(page);
+  await page.goto(`/w/${workspaceId}/wikis/${wiki.id}/${first.id}`);
+  await signInOnPage(page, owner);
+  const body = page.getByTestId('page-body');
+  await expect(body).toHaveAttribute('data-editor', 'ready');
+  await pageBody(page).click();
+  await page.keyboard.type('Before the tunnel.');
+  await expect.poll(storedText, { timeout: 15_000 }).toContain('Before the tunnel.');
+
+  const count = sockets.length;
+  await sockets.at(-1)?.close();
+  await expect(body).toHaveAttribute('data-room', 'offline');
+  await expect(page.getByTestId('body-room-note')).toContainText(
+    'the page can be read, not changed',
+  );
+  await expect(body.locator('[contenteditable="true"]')).toHaveCount(0);
+
+  // Another connection, made by the page itself: the reader writes again.
+  await expect.poll(() => sockets.length).toBeGreaterThan(count);
+  await expect(body).toHaveAttribute('data-editor', 'ready');
+  await pageBody(page).click();
+  await page.keyboard.press('Control+End');
+  await page.keyboard.type(' After it.');
+  await expect.poll(storedText, { timeout: 15_000 }).toContain('Before the tunnel. After it.');
+  expect(errors).toEqual([]);
   await api.dispose();
 });
