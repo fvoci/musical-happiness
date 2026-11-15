@@ -2,7 +2,7 @@
 
 적은 때: 2026-11-11 05:05 KST, 고친 때: 18:56 KST. 서버(`fvoci-server`)가 읽는 설정의 전부다. 코드는 `crates/server/src/config.rs`다.
 
-이 문서는 코드와 함께 검사된다. `config.rs`의 테스트 `the_configuration_document_lists_every_key`가 다음을 견준다.
+키를 더하거나 바꾸면 같은 커밋에서 이 문서를 고친다. 이 문서는 코드와 함께 검사된다. `config.rs`의 테스트 `the_configuration_document_lists_every_key`가 다음을 견준다.
 
 - 코드가 받는 키와 아래 "키" 표들에 적힌 키가 같은지.
 - 키마다 기본값이 같은지.

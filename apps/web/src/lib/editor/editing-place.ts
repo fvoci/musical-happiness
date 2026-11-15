@@ -14,7 +14,7 @@
  *
  * - Opens: a press on the picture (the node views), Enter while the block is
  *   selected, and a new diagram (an empty one just made) opens by itself.
- * - Closes: Escape, Ctrl+Enter or Cmd+Enter, a press anywhere else, the
+ * - Closes: Escape, ⌘Enter on Apple devices and Ctrl+Enter elsewhere, a press anywhere else, the
  *   focus going elsewhere, or the cursor leaving the block. Closed by a key,
  *   the block is selected again and the editor has the focus.
  */

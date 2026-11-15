@@ -8,7 +8,7 @@
  * under the field. What the field holds goes into the document when the
  * place is closed on purpose (a key, its button, a press or the focus
  * elsewhere), as one step of the body's undo; a formula closed empty is
- * removed (editing-place.ts). Until then Ctrl+Z is the field's own.
+ * removed (editing-place.ts). Until then the platform's undo key is the field's own.
  *
  * A new formula (`$$` and a space on an empty line) has no node yet: a
  * formula without a source is none. Its place is drawn on that empty line,

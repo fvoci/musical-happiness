@@ -414,6 +414,7 @@ impl std::fmt::Debug for Configuration {
                 "oidc_allow_private_addresses",
                 &self.oidc_allow_private_addresses,
             )
+            .field("oidc_extra_ca_file", &self.oidc_extra_ca_file)
             .field("oidc_former_provider_days", &self.oidc_former_provider_days)
             .field("secret_key", &self.secret_key)
             .field("org_creation", &self.org_creation)

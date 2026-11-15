@@ -5,7 +5,7 @@
   clear of the home indicator when no keyboard covers that.
 
   A plain text box of several lines, not the editor: Enter starts a line,
-  Ctrl+Enter (⌘+Enter) or "Send" sends. Lines become paragraphs
+  ⌘Enter on Apple devices, Ctrl+Enter elsewhere, or "Send" sends. Lines become paragraphs
   (comment-doc.ts). What was typed stays until it was stored; a comment that
   could not be stored is still in the field.
 

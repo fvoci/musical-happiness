@@ -6,10 +6,20 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { boardPath } from './address.ts';
+import { othersArrive } from './presence.support.ts';
 import { openApp, sidebar } from './shell.support.ts';
 import { newWiki, pageTree } from './wiki.support.ts';
 
 test.use({ viewport: { width: 1180, height: 820 }, hasTouch: true });
+
+// Each test sets its own screen: one project of a configuration is enough (Chromium's
+// touched middle, WebKit's iPad).
+test.beforeEach(() => {
+  test.skip(
+    test.info().project.name !== 'middle',
+    'the screen is the test’s own; run in one project',
+  );
+});
 
 /** A finger's 44 pixels, in both directions. */
 async function expectFingerSized(target: Locator, name: string): Promise<void> {
@@ -123,23 +133,33 @@ for (const width of [360, 393]) {
     // 393: an iPhone's Safari with its bars folded; 360: the narrowest Android phones.
     test.use({ viewport: { width, height: 800 }, hasTouch: true });
 
-    test("the bar's buttons are a finger wide, fit the screen, and lie over no part of the title", async ({
-      page,
-    }) => {
-      await openApp(page);
+    /** The bar's buttons, a finger wide and on the screen, and none of them over the title. */
+    async function expectBarFits(page: Page, people: string): Promise<void> {
       const bar = page.getByTestId('top-bar');
-      for (const id of ['open-sidebar', 'board-members-count', 'share-board', 'undo', 'redo']) {
+      for (const id of ['open-sidebar', people, 'share-board', 'undo', 'redo']) {
         await expectFingerSized(bar.getByTestId(id), id);
       }
       const redo = await bar.getByTestId('redo').boundingBox();
       expect((redo?.x ?? 0) + (redo?.width ?? 0)).toBeLessThanOrEqual(width);
       const title = await bar.getByTestId('board-title').boundingBox();
-      const people = await bar.getByTestId('board-people').boundingBox();
-      if (!title || !people) throw new Error('no title or people');
-      expect(title.x + title.width).toBeLessThanOrEqual(people.x);
+      const group = await bar.getByTestId('board-people').boundingBox();
+      if (!title || !group) throw new Error('no title or people');
+      expect(title.x + title.width).toBeLessThanOrEqual(group.x);
       // Room for the start of the name: a few letters among six buttons at 360, a word at 393.
       expect(title.width).toBeGreaterThanOrEqual(width === 360 ? 24 : 56);
       await expectPageStill(page);
+    }
+
+    test('alone or with others, the bar fits and the title keeps its room', async ({ page }) => {
+      await openApp(page);
+      // Alone: the members, as a figure and the number.
+      await expectBarFits(page, 'board-members-count');
+      await expect(page.getByTestId('board-presence')).toBeHidden();
+      // Somebody else comes: their face takes the members' place, not the title's.
+      await othersArrive(page, 1);
+      await expect(page.getByTestId('board-presence').locator('[data-avatar]')).toHaveCount(1);
+      await expect(page.getByTestId('board-members-count')).toBeHidden();
+      await expectBarFits(page, 'board-presence');
     });
   });
 }

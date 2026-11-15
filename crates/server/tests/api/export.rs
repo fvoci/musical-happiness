@@ -862,10 +862,10 @@ async fn an_export_is_sent_with_its_length_and_leaves_nothing() {
         exported.body.len().to_string(),
         "the length of the archive"
     );
-    // Whoever has the whole archive finds nothing of it held: no file, and the place
-    // of the export free for the next one, without waiting.
+    // Whoever has the whole archive finds nothing of it held: the place of the export
+    // is free for the next one at once, and the file goes when the sent stream is
+    // dropped, which the end of the body does not wait for.
     let exports = ts.app.config().tmp_dir().join("exports");
-    // Receiving the body does not wait for the stream's asynchronous cleanup.
     until("the temporary archive is removed", || {
         temporary_archives(&ts) == 0
     })
@@ -873,6 +873,10 @@ async fn an_export_is_sent_with_its_length_and_leaves_nothing() {
     let left = std::fs::read_dir(&exports).map_or(0, Iterator::count);
     assert_eq!(left, 0, "no temporary archive is left");
     export_board(&ts.client, &board).await.check_ok();
+    until("the archive of the export after it is removed", || {
+        temporary_archives(&ts) == 0
+    })
+    .await;
     let left = std::fs::read_dir(&exports).map_or(0, Iterator::count);
     assert_eq!(left, 0, "nor of the export after it");
 

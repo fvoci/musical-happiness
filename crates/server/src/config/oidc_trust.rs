@@ -30,14 +30,22 @@ fn read(path: &Path) -> anyhow::Result<Vec<Vec<u8>>> {
     let mut checked = RootCertStore::empty();
     let mut roots = Vec::new();
     for certificate in CertificateDer::pem_slice_iter(&pem) {
-        let certificate = certificate.context("oidc_extra_ca_file contains invalid PEM")?;
-        checked
-            .add(certificate.clone())
-            .context("oidc_extra_ca_file contains an invalid certificate")?;
+        let certificate = certificate.with_context(|| {
+            format!("oidc_extra_ca_file {} contains invalid PEM", path.display())
+        })?;
+        checked.add(certificate.clone()).with_context(|| {
+            format!(
+                "oidc_extra_ca_file {} contains an invalid certificate",
+                path.display()
+            )
+        })?;
         roots.push(certificate.as_ref().to_vec());
     }
     if roots.is_empty() {
-        bail!("oidc_extra_ca_file contains no certificates");
+        bail!(
+            "oidc_extra_ca_file {} contains no certificates",
+            path.display()
+        );
     }
     Ok(roots)
 }
@@ -144,9 +152,14 @@ mod tests {
             "-----BEGIN CERTIFICATE-----\nAQID\n-----END CERTIFICATE-----",
         ] {
             let file = PemFile::new(text);
+            let error = file
+                .config()
+                .oidc_trusted_roots()
+                .expect_err(&format!("accepted {text:?}"));
+            // The message names the file, so a refused start says which one.
             assert!(
-                file.config().oidc_trusted_roots().is_err(),
-                "accepted {text:?}"
+                format!("{error:#}").contains(&file.0.display().to_string()),
+                "{error:#}"
             );
         }
     }

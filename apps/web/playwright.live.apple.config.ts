@@ -8,6 +8,7 @@ export default defineConfig({
   outputDir: 'test-results/live-apple',
   projects: base.projects?.map((project) => ({
     ...project,
-    use: { ...devices['Desktop Safari'], deviceScaleFactor: 2 },
+    // The project's own address stays: the organizations and verifying servers are others.
+    use: { ...project.use, ...devices['Desktop Safari'], deviceScaleFactor: 2 },
   })),
 });

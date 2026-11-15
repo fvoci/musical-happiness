@@ -6,8 +6,9 @@
   readers of its public link) open the list of who is here and
   which cards they have open. Beside them the number of the board's members opens
   the members of the sharing dialog (`onMembers`); it is there also when nobody
-  else is, and in a narrow pane (a phone) it is a figure and the number, so the
-  board's title keeps its room; there the faces show only when somebody else is here. A screen reader hears both numbers together on the group.
+  else is. A narrow pane (a phone) keeps one of the two, so the board's title keeps
+  its room: alone, the members as a figure and the number; with others, their faces,
+  whose list ends in the members. A screen reader hears both numbers together on the group.
 -->
 <script lang="ts">
   import UsersIcon from '@lucide/svelte/icons/users';
@@ -26,6 +27,7 @@
   /** Everybody the members' list shows: each member is somebody the reader may see. */
   const members = $derived(board.orderedMembers.length);
   const membersLabel = $derived(m.presence_members_short({ count: members }));
+  let listOpen = $state(false);
   /** How many faces are shown before the rest become a number; fewer in a narrow pane. */
   const FACES = 5;
   const NARROW_FACES = 2;
@@ -43,7 +45,7 @@
   class="flex shrink-0 items-center gap-1"
   data-testid="board-people"
 >
-  <PickerSurface presentation={presentation.current} title={label}>
+  <PickerSurface bind:open={listOpen} presentation={presentation.current} title={label}>
     {#snippet trigger({ props })}
       <button
         {...props}
@@ -107,6 +109,22 @@
         <li>{m.presence_hidden({ count: presence.snapshot.hiddenCount })}</li>
       {/if}
       {#if presence.count === 0}<li class="text-muted-foreground">{m.presence_alone()}</li>{/if}
+      <!-- Narrow, where the members' own button gives way to the faces. -->
+      <li class="border-t pt-2 @columns/pane:hidden">
+        <button
+          type="button"
+          data-testid="presence-members"
+          aria-haspopup="dialog"
+          class="flex min-h-8 w-full items-center gap-2 rounded-md px-1 text-left hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring roomy:min-h-touch"
+          onclick={() => {
+            listOpen = false;
+            onMembers();
+          }}
+        >
+          <UsersIcon class="size-4" aria-hidden="true" />
+          {membersLabel}
+        </button>
+      </li>
     </ul>
   </PickerSurface>
   <button
@@ -114,7 +132,10 @@
     data-testid="board-members-count"
     aria-haspopup="dialog"
     aria-label={membersLabel}
-    class="flex min-h-8 shrink-0 items-center justify-center gap-1 rounded-md px-1 text-xs whitespace-nowrap text-muted-foreground hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring roomy:min-h-touch roomy:min-w-touch"
+    class={[
+      'flex min-h-8 shrink-0 items-center justify-center gap-1 rounded-md px-1 text-xs whitespace-nowrap text-muted-foreground hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring roomy:min-h-touch roomy:min-w-touch',
+      presence.count > 0 && '@max-columns/pane:hidden',
+    ]}
     onclick={onMembers}
   >
     <UsersIcon class="size-4 @columns/pane:hidden" aria-hidden="true" />

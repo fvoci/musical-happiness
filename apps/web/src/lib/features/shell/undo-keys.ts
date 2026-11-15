@@ -3,7 +3,8 @@ import { inField, isComposing, primaryModifier } from '$lib/keys.ts';
 export { inField } from '$lib/keys.ts';
 
 /**
- * The keys for undo and redo: Ctrl+Z or ⌘Z, and with Shift for redo.
+ * The keys for undo and redo: ⌘Z on Apple devices and Ctrl+Z elsewhere (the
+ * other modifier is no alias), and with Shift for redo.
  *
  * Inside a field they are left alone: a field has an undo of its own for
  * what was typed, and taking the keys there would undo a change of the board
