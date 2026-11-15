@@ -815,13 +815,6 @@ fn unsubscribe_from_blocks(listeners: &mut Listeners, id: ListenerId, block_ids:
     }
 }
 
-mod closing;
-mod ending;
-mod revocations;
-mod subscribe;
-
-/// Ports of `server/ws/server_test.go`, on the listener table.
-
 /// A board as it is told once gone: only its identifiers and the time it went, as
 /// its deletion and the closing of an open wiki to who did not join it are told.
 fn gone_board(workspace_id: &str, board_id: &str) -> Board {
@@ -835,5 +828,11 @@ fn gone_board(workspace_id: &str, board_id: &str) -> Board {
     }
 }
 
+mod closing;
+mod ending;
+mod revocations;
+mod subscribe;
+
+/// Ports of `server/ws/server_test.go`, on the listener table.
 #[cfg(test)]
 mod tests;

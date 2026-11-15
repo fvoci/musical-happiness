@@ -442,7 +442,7 @@ async fn the_administration_socket_releases_an_organization() {
 }
 
 /// The operations of the contract that are the account's own, come before there is a
-/// session, or read a board by its public link, which asks for none: what a session
+/// session, or read a board or wiki by its public link, which asks for none: what a session
 /// that does not open the organization still does.
 const OPEN_TO_ANY_SESSION: &[&str] = &[
     "changePassword",
@@ -468,6 +468,8 @@ const OPEN_TO_ANY_SESSION: &[&str] = &[
     "getSharedCards",
     "getSharedFile",
     "getSharedFileInfo",
+    "getSharedPage",
+    "getSharedPageTree",
     "getUserSettings",
     "hello",
     "login",
