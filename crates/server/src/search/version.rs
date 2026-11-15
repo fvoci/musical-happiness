@@ -6,15 +6,30 @@
 //! A version is the time, in microseconds, at which what is sent was read from the
 //! database, and never one this process gave before: what is read later is as new or
 //! newer, so it is sent with a version as high or higher. A process that starts begins
-//! past the highest version the index holds (`sent`), however its clock stands.
+//! past the highest version the index holds (`sent`), however its clock stands; and
+//! past the version of a document the search server says it holds when it refuses one
+//! for being lower (a removal's, which `sent` does not keep).
 
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+/// The version a document is written with: not the version of the definition of the
+/// index ([`super::index::VERSION`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct DocumentVersion(i64);
+
+impl DocumentVersion {
+    /// The version as the search server reads it.
+    pub(crate) fn get(self) -> i64 {
+        self.0
+    }
+}
+
 /// Where the versions of this process stand.
 #[derive(Debug, Default)]
 pub(crate) struct Versions {
-    /// The last version given.
+    /// The last version given. One atomic, and nothing else it guards: what it says
+    /// alone is ordered.
     last: AtomicI64,
 }
 
@@ -29,19 +44,21 @@ fn now_micros() -> i64 {
 impl Versions {
     /// The version of what is about to be read: the time now, or one past the last one
     /// given if the clock has not moved past it.
-    pub(crate) fn next(&self) -> i64 {
+    pub(crate) fn next(&self) -> DocumentVersion {
         let now = now_micros();
         let given = |last: i64| now.max(last.saturating_add(1));
         let last = self
             .last
-            .try_update(Ordering::SeqCst, Ordering::SeqCst, |last| Some(given(last)))
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |last| {
+                Some(given(last))
+            })
             .unwrap_or_else(|last| last);
-        given(last)
+        DocumentVersion(given(last))
     }
 
     /// Has every version given from now on be higher than `version`.
     pub(crate) fn past(&self, version: i64) {
-        self.last.fetch_max(version, Ordering::SeqCst);
+        self.last.fetch_max(version, Ordering::Relaxed);
     }
 }
 
@@ -54,12 +71,12 @@ mod tests {
         let versions = Versions::default();
         let mut last = versions.next();
         assert!(
-            last > 1_000_000_000_000_000,
-            "the time in microseconds: {last}"
+            last.get() > 1_000_000_000_000_000,
+            "the time in microseconds: {last:?}"
         );
         for _ in 0..10_000 {
             let next = versions.next();
-            assert!(next > last, "{next} after {last}");
+            assert!(next > last, "{next:?} after {last:?}");
             last = next;
         }
     }
@@ -69,9 +86,9 @@ mod tests {
         let versions = Versions::default();
         let ahead = now_micros() + 3_600_000_000;
         versions.past(ahead);
-        assert_eq!(versions.next(), ahead + 1);
-        assert_eq!(versions.next(), ahead + 2);
+        assert_eq!(versions.next().get(), ahead + 1);
+        assert_eq!(versions.next().get(), ahead + 2);
         versions.past(1);
-        assert_eq!(versions.next(), ahead + 3, "never back");
+        assert_eq!(versions.next().get(), ahead + 3, "never back");
     }
 }

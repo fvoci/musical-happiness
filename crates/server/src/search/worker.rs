@@ -11,7 +11,7 @@ use std::collections::HashMap;
 
 use fvoci_store::{SearchChange, SearchDocument, SearchIndexMark, SearchTarget, Store};
 
-use super::client::{Client, ClientError, IndexFound, Operation};
+use super::client::{Client, ClientError, IndexFound, Operation, Refused};
 use super::index;
 use super::query::Scope;
 use super::version::Versions;
@@ -153,7 +153,7 @@ async fn send_blocks(
         .collect();
     let refusals = client.write(&operations).await?;
     for (change, refusal) in changes.iter().zip(refusals) {
-        settle(store, metrics, change, refusal.as_deref()).await?;
+        settle(store, versions, metrics, change, refusal.as_ref()).await?;
     }
     Ok(())
 }
@@ -181,7 +181,7 @@ async fn send_board(
     // Every page is put, also after a document was refused: what is refused is one
     // document, and the others of the board are not left out for it.
     let mut after: Option<String> = None;
-    let mut refused: Option<String> = None;
+    let mut refused: Option<Refused> = None;
     let mut refused_count = 0_usize;
     loop {
         let version = versions.next();
@@ -197,22 +197,29 @@ async fn send_board(
             .map(|document| Operation::Put { document, version })
             .collect();
         let refusals = client.write(&operations).await?;
-        for (operation, kind) in operations.iter().zip(refusals) {
-            let (Operation::Put { document, .. }, Some(kind)) = (operation, kind) else {
+        for (operation, refusal) in operations.iter().zip(refusals) {
+            let (Operation::Put { document, .. }, Some(refusal)) = (operation, refusal) else {
                 continue;
             };
             // Which documents, so that somebody can look at them: the first few of a
             // container, and how many in all below.
             if refused_count < REFUSALS_NAMED {
                 tracing::warn!(
-                    kind,
+                    kind = refusal.kind,
                     id = %document.id,
                     container_id = %change.id,
                     "the search server refused a document of a container sent whole"
                 );
             }
             refused_count += 1;
-            refused.get_or_insert(kind);
+            // A version it holds is gone past whichever document said it; the row
+            // keeps the refusal that says one, so that it is due again at once.
+            if let Some(holds) = refusal.holds {
+                versions.past(holds);
+            }
+            if refused.as_ref().is_none_or(|first| first.holds.is_none()) {
+                refused = Some(refusal);
+            }
         }
     }
     if refused_count > REFUSALS_NAMED {
@@ -222,37 +229,49 @@ async fn send_board(
             "the search server refused more documents of the container than were named"
         );
     }
-    settle(store, metrics, change, refused.as_deref()).await
+    settle(store, versions, metrics, change, refused.as_ref()).await
 }
 
 /// Takes a row off the list once what it is about was sent, or notes when to try
-/// again what the search server refused (`refusal`, the name of its error).
+/// again what the search server refused (`refusal`). One refused for a version lower
+/// than the search server holds (written by a server whose clock was ahead, or removed
+/// so: what `sent` does not say when a server starts) is due again at once, past that
+/// version; any other later and later.
 async fn settle(
     store: &Store,
+    versions: &Versions,
     metrics: &Metrics,
     change: &SearchChange,
-    refusal: Option<&str>,
+    refusal: Option<&Refused>,
 ) -> Result<(), Stopped> {
-    match refusal {
-        None => {
-            // A row noted again meanwhile stays, and is counted when it is sent again.
-            if store.settle_search_change(change).await? {
-                metrics.search_sent(SearchSent::Done);
-            }
+    let Some(refusal) = refusal else {
+        // A row noted again meanwhile stays, and is counted when it is sent again.
+        if store.settle_search_change(change).await? {
+            metrics.search_sent(SearchSent::Done);
         }
-        Some(kind) => {
-            tracing::warn!(
-                kind,
-                id = %change.id,
-                attempts = change.attempts.saturating_add(1),
-                "the search server refused a document; it is tried again later"
-            );
-            store
-                .search_change_failed(change, retry_at(now_millis(), change.attempts))
-                .await?;
-            metrics.search_sent(SearchSent::Refused);
-        }
-    }
+        return Ok(());
+    };
+    let now = now_millis();
+    let due = if let Some(holds) = refusal.holds {
+        versions.past(holds);
+        tracing::warn!(
+            id = %change.id,
+            holds,
+            "the search server holds a newer version of a document than this server \
+             gave; it is sent again past it"
+        );
+        now
+    } else {
+        tracing::warn!(
+            kind = refusal.kind,
+            id = %change.id,
+            attempts = change.attempts.saturating_add(1),
+            "the search server refused a document; it is tried again later"
+        );
+        retry_at(now, change.attempts)
+    };
+    store.search_change_failed(change, due).await?;
+    metrics.search_sent(SearchSent::Refused);
     Ok(())
 }
 

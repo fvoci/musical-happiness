@@ -13,6 +13,7 @@ use fvoci_store::SearchDocument;
 use serde_json::{Value, json};
 
 use super::query::{MATCH_END, MATCH_START, Scope};
+use super::version::DocumentVersion;
 use super::{document, index};
 use crate::config::search::{SearchCredentials, SearchServer};
 
@@ -128,10 +129,23 @@ pub(crate) enum Operation {
     /// page.
     Put {
         document: SearchDocument,
-        version: i64,
+        version: DocumentVersion,
     },
     /// The document of the card of this identifier is removed, if there is one.
-    Remove { id: String, version: i64 },
+    Remove {
+        id: String,
+        version: DocumentVersion,
+    },
+}
+
+/// Why the search server did not do a write of one document.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Refused {
+    /// The `type` of its error, or `unknown`.
+    pub(crate) kind: String,
+    /// For a write of a version lower than what it holds of the document (or remembers
+    /// of its removal): that version, as the search server says it.
+    pub(crate) holds: Option<i64>,
 }
 
 impl Operation {
@@ -162,8 +176,21 @@ impl Operation {
 /// version. `external_gte` and not `external`: a removal by query
 /// ([`Client::remove_documents`]) leaves a document's version one past the one it was
 /// written with, and what is put after it, read later, may have just that one.
-fn versioned(id: &str, version: i64) -> Value {
-    json!({"_id": id, "version": version, "version_type": "external_gte"})
+fn versioned(id: &str, version: DocumentVersion) -> Value {
+    json!({"_id": id, "version": version.get(), "version_type": "external_gte"})
+}
+
+/// The version a refusal of a write for its version says the search server holds of
+/// the document: both say `… current version [N] is higher …` under the type
+/// `version_conflict_engine_exception`. `None` for any other refusal.
+fn version_held(outcome: &Value) -> Option<i64> {
+    if outcome.pointer("/error/type")?.as_str()? != "version_conflict_engine_exception" {
+        return None;
+    }
+    let reason = outcome.pointer("/error/reason")?.as_str()?;
+    let (_, after) = reason.split_once("current version [")?;
+    let (digits, _) = after.split_once(']')?;
+    digits.parse().ok()
 }
 
 /// What a search found of one document.
@@ -376,7 +403,7 @@ impl Client {
     pub(crate) async fn write(
         &self,
         operations: &[Operation],
-    ) -> Result<Vec<Option<String>>, ClientError> {
+    ) -> Result<Vec<Option<Refused>>, ClientError> {
         let mut refusals = Vec::with_capacity(operations.len());
         let mut sent = 0;
         while sent < operations.len() {
@@ -402,7 +429,7 @@ impl Client {
         &self,
         operations: &[Operation],
         body: String,
-    ) -> Result<Vec<Option<String>>, ClientError> {
+    ) -> Result<Vec<Option<Refused>>, ClientError> {
         let request = self
             .http
             .post(self.url("/_bulk"))
@@ -429,7 +456,10 @@ impl Client {
                 if (200..300).contains(&status) || removed_nothing {
                     None
                 } else {
-                    Some(kind_of(outcome))
+                    Some(Refused {
+                        kind: kind_of(outcome),
+                        holds: version_held(outcome),
+                    })
                 }
             })
             .collect())
@@ -485,6 +515,8 @@ impl Client {
     ///
     /// Returns why the search server did not say.
     pub(crate) async fn highest_version(&self) -> Result<Option<i64>, ClientError> {
+        // An aggregation reads what was refreshed.
+        self.refresh().await?;
         let request = self.http.post(self.url("/_search")).json(&json!({
             "size": 0,
             "track_total_hits": false,
@@ -498,6 +530,9 @@ impl Client {
         if highest.is_null() {
             return Ok(None);
         }
+        if let Some(highest) = highest.as_i64() {
+            return Ok(Some(highest));
+        }
         // Both answer the maximum as a JSON number, a float for a long: a version, a
         // whole number of microseconds, is well within a float's whole numbers, and is
         // read rounded up so that what follows it is past it.
@@ -505,7 +540,10 @@ impl Client {
         format!("{highest:.0}")
             .parse::<i64>()
             .map(Some)
-            .map_err(|_| ClientError::Unreadable)
+            .map_err(|error| {
+                tracing::warn!(%error, highest, "the highest version of the index could not be read");
+                ClientError::Unreadable
+            })
     }
 
     /// Finds up to `size` documents of `scope` by `text`, past the `from` that match
@@ -622,6 +660,45 @@ mod tests {
         assert_eq!(
             snippet_parts(&format!("a{MATCH_END}b{MATCH_START}c")),
             [plain("ab"), matched("c")]
+        );
+    }
+
+    #[test]
+    fn a_refusal_for_a_lower_version_says_the_version_held() {
+        let refused = |kind: &str, reason: &str| json!({"status": 409, "error": {"type": kind, "reason": reason}});
+        // As Elasticsearch and OpenSearch say it, for external_gte and for external.
+        for reason in [
+            "[c1]: version conflict, current version [1794747538116988] is higher than the one provided [17]",
+            "[c1]: version conflict, current version [1794747538116988] is higher or equal to the one provided [17]",
+        ] {
+            assert_eq!(
+                version_held(&refused("version_conflict_engine_exception", reason)),
+                Some(1_794_747_538_116_988),
+                "{reason}"
+            );
+        }
+        assert_eq!(
+            version_held(&refused("mapper_parsing_exception", "current version [3]")),
+            None
+        );
+        assert_eq!(
+            version_held(&refused("version_conflict_engine_exception", "no number")),
+            None
+        );
+        assert_eq!(version_held(&json!({"status": 429})), None);
+    }
+
+    #[test]
+    fn every_write_says_its_version_and_that_one_as_high_wins() {
+        let version = crate::search::version::Versions::default().next();
+        let removal = Operation::Remove {
+            id: "c1".to_owned(),
+            version,
+        };
+        let line: Value = serde_json::from_str(removal.lines().trim()).expect("a line");
+        assert_eq!(
+            line,
+            json!({"delete": {"_id": "c1", "version": version.get(), "version_type": "external_gte"}})
         );
     }
 

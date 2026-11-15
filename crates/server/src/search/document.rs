@@ -7,6 +7,8 @@ use fvoci_store::SearchDocument;
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 
+use super::version::DocumentVersion;
+
 /// How many bytes of the hash a digest keeps: enough that two texts of one card or
 /// page never share one by chance.
 const DIGEST_BYTES: usize = 16;
@@ -30,9 +32,9 @@ pub(crate) fn digest(title: &str, text: &str) -> String {
 
 /// The document of a card or a page, written with `version`: what the mapping of the
 /// index names, and nothing else.
-pub(crate) fn source(document: &SearchDocument, version: i64) -> Value {
+pub(crate) fn source(document: &SearchDocument, version: DocumentVersion) -> Value {
     json!({
-        "sent": version,
+        "sent": version.get(),
         "orgId": document.org_id,
         "workspaceId": document.workspace_id,
         "containerId": document.container_id,
@@ -62,7 +64,8 @@ mod tests {
             title: "제목".to_owned(),
             text: "본문".to_owned(),
         };
-        let source = source(&document, 7);
+        let version = crate::search::version::Versions::default().next();
+        let source = source(&document, version);
         let definition = index::definition();
         let mapped = definition["mappings"]["properties"]
             .as_object()
@@ -73,7 +76,7 @@ mod tests {
         assert_eq!(source["kind"], "card");
         assert_eq!(source["containerId"], "b");
         assert_eq!(source["digest"], digest("제목", "본문"));
-        assert_eq!(source["sent"], 7);
+        assert_eq!(source["sent"], version.get());
     }
 
     #[test]

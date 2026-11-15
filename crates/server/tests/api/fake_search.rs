@@ -643,6 +643,27 @@ fn document_of(state: &State, name: &str, id: &str) -> Response {
     }
 }
 
+/// The refusal of a write (`action`, the member of its line) whose version is too low
+/// for the version `held` of its document: `external` writes a version higher than the
+/// one held, `external_gte` one as high or higher. `None` for a write it may do.
+fn version_conflict(name: &str, id: &str, action: &Value, held: Option<i64>) -> Option<Value> {
+    let version = action["version"].as_i64()?;
+    let held = held?;
+    let as_high = action["version_type"] == "external_gte";
+    if version > held || (as_high && version == held) {
+        return None;
+    }
+    let higher = if as_high {
+        "higher"
+    } else {
+        "higher or equal to"
+    };
+    Some(json!({"_index": name, "_id": id, "status": 409, "error": {
+        "type": "version_conflict_engine_exception",
+        "reason": format!("[{id}]: version conflict, current version [{held}] is {higher} than the one provided [{version}]"),
+    }}))
+}
+
 fn bulk(state: &State, name: &str, text: &str) -> Response {
     let mut indices = state.indices.lock().expect("the indices");
     // As both search servers do unless they are told otherwise: an index that is not
@@ -694,19 +715,16 @@ fn bulk(state: &State, name: &str, text: &str) -> Response {
             .is_ok();
         let version = action[operation]["version"].as_i64();
         let held = index.versions.get(&id).copied();
+        let conflict = version_conflict(name, &id, &action[operation], held);
         let item = if failing {
             errors = true;
             json!({"_index": name, "_id": id, "status": 429, "error": {
                 "type": "es_rejected_execution_exception",
                 "reason": "rejected execution of coordinating operation",
             }})
-        } else if let Some(conflict) = version.zip(held).filter(|(version, held)| version < held) {
+        } else if let Some(conflict) = conflict {
             errors = true;
-            let (version, held) = conflict;
-            json!({"_index": name, "_id": id, "status": 409, "error": {
-                "type": "version_conflict_engine_exception",
-                "reason": format!("[{id}]: version conflict, current version [{held}] is higher than the one provided [{version}]"),
-            }})
+            conflict
         } else if operation == "index" {
             let Some(source) = source else {
                 return refusal(

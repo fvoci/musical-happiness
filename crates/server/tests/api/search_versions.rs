@@ -106,6 +106,10 @@ async fn sent(th: &TestServer, reach: &Reach) {
 
 /// What became of each late write, and of the documents after it.
 #[derive(Debug, PartialEq)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "what the test saw: a yes or a no for each step, compared whole"
+)]
 struct Seen {
     /// The version is a time in microseconds, not a count of writes.
     external: bool,
@@ -119,6 +123,10 @@ struct Seen {
     /// Whether a server that starts on an index written with versions an hour ahead of
     /// its clock writes past them.
     past_a_clock_ahead: bool,
+    /// Whether a card removed with a version ahead of what the server gives (which no
+    /// document of the index says) is written again past it, once the search server
+    /// refused it for being lower.
+    past_a_removal_ahead: bool,
 }
 
 /// The scenario, on a server `th` whose search server `reach` reaches. Returns the
@@ -197,12 +205,34 @@ async fn late_writes_lose(th: TestServer, reach: &Reach) -> (TestServer, Seen) {
         .await
         .is_some_and(|(version, _)| version > ahead);
 
+    // Removed by a server whose clock was two hours ahead: the next write of it is
+    // refused for its version, and sent again past what the search server says it holds.
+    let removed_ahead = first + 7_200_000_000;
+    reach
+        .write_late("delete", &other.id, removed_ahead, &Value::Null)
+        .await;
+    th.client
+        .patch(
+            &format!("{TEST_WS}/boards/{}/blocks/{}", board.id, other.id),
+            &json!({"title": "세 번 고친 제목"}),
+        )
+        .await
+        .check_no_content();
+    sent(&th, reach).await;
+    let past_a_removal_ahead = reach
+        .held(&other.id)
+        .await
+        .is_some_and(|(version, source)| {
+            version > removed_ahead && source["title"] == "세 번 고친 제목"
+        });
+
     let seen = Seen {
         external: first > 1_000_000_000_000_000,
         after_a_change,
         after_the_removal,
         back_with_its_board,
         past_a_clock_ahead,
+        past_a_removal_ahead,
     };
     (th, seen)
 }
@@ -215,6 +245,7 @@ fn as_it_should_be() -> Seen {
         after_the_removal: (409, false),
         back_with_its_board: true,
         past_a_clock_ahead: true,
+        past_a_removal_ahead: true,
     }
 }
 
