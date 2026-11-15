@@ -192,11 +192,24 @@ test.describe('the top bar', () => {
     await expect(title).toHaveValue(FIRST_BOARD);
     await page.keyboard.press(await primaryKey(page, 'Shift+z'));
     await expect(title).toHaveValue('One');
-    // The other platform's modifier never changes the board.
+    // The other platform's modifier never changes the board: each is pressed before the
+    // right key, which then takes the one step it would alone.
     const modifier = await primaryName(page);
+    const other = modifier === 'Meta' ? 'Control' : 'Meta';
+    await title.fill('Two');
+    await title.press('Enter');
     await undo.focus();
-    await page.keyboard.press(`${modifier === 'Meta' ? 'Control' : 'Meta'}+z`);
+    await page.keyboard.press(`${other}+z`);
+    await page.keyboard.press(await primaryKey(page, 'z'));
     await expect(title).toHaveValue('One');
+    await expect(redo).toBeEnabled();
+    await page.keyboard.press(`${other}+Shift+z`);
+    await page.keyboard.press(await primaryKey(page, 'z'));
+    await expect(title).toHaveValue(FIRST_BOARD);
+    await page.keyboard.press(await primaryKey(page, 'Shift+z'));
+    await expect(title).toHaveValue('One');
+    await page.keyboard.press(await primaryKey(page, 'Shift+z'));
+    await expect(title).toHaveValue('Two');
     await expect(redo).toBeDisabled();
     await expect(undo).toHaveAttribute(
       'title',
@@ -212,11 +225,11 @@ test.describe('the top bar', () => {
     await title.focus();
     await page.keyboard.press('End');
     await page.keyboard.type('x');
-    await expect(title).toHaveValue('Onex');
+    await expect(title).toHaveValue('Twox');
     await page.keyboard.press(await primaryKey(page, 'z'));
     await expect(redo).toBeDisabled();
     await title.press('Escape');
-    await expect(title).toHaveValue('One');
+    await expect(title).toHaveValue('Two');
   });
 
   test('a board that can only be read says so and offers no changes', async ({ page }) => {

@@ -198,6 +198,16 @@ test.describe('dragging cards with a mouse', () => {
   }, info) => {
     await openView(page, info, ...TASKS);
     const modifier = await primaryName(page);
+    // The other platform's modifier neither opens nor selects: pressed before the right one,
+    // the card is selected once and nothing opened.
+    await card(page, 'Requirements sign-off').focus();
+    await page.keyboard.press(`${modifier === 'Meta' ? 'Control' : 'Meta'}+Enter`);
+    await page.keyboard.press(`${modifier}+Enter`);
+    await expect(page.getByTestId('selection-bar')).toContainText('1 selected');
+    await expect(dialog(page)).toBeHidden();
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('selection-bar')).toHaveCount(0);
+
     await card(page, 'Project budget approval').click({ modifiers: [modifier] });
     await card(page, 'Identify dependencies').click({ modifiers: ['Shift'] });
     await expect(page.getByTestId('selection-bar')).toContainText('3 selected');

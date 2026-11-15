@@ -64,6 +64,8 @@
   const badges = $derived(badgesOf(card));
 
   function activate(event: MouseEvent | KeyboardEvent): void {
+    // The other platform's modifier is no command on a card, as in the table.
+    if ((event.ctrlKey || event.metaKey) && !primaryModifier(event)) return;
     if (primaryModifier(event)) onActivate(card.id, 'toggle');
     else if (event.shiftKey) onActivate(card.id, 'range');
     else onActivate(card.id, 'open');

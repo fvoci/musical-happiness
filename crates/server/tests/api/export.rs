@@ -863,8 +863,8 @@ async fn an_export_is_sent_with_its_length_and_leaves_nothing() {
         "the length of the archive"
     );
     // Whoever has the whole archive finds nothing of it held: the place of the export
-    // is free for the next one at once, and the file goes when the sent stream is
-    // dropped, which the end of the body does not wait for.
+    // is free for the next one, and the file goes when the sent stream is dropped,
+    // which the end of the body does not wait for.
     let exports = ts.app.config().tmp_dir().join("exports");
     until("the temporary archive is removed", || {
         temporary_archives(&ts) == 0

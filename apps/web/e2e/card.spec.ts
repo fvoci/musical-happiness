@@ -947,6 +947,8 @@ test('comments: written with the button and with Ctrl+Enter, lines become paragr
   await commentField(page).press(await primaryKey(page, 'Enter'));
   await expect(list).toHaveCount(count + 2);
   await expect(list.last()).toContainText('With the keyboard');
+  // Sent after the other modifier was pressed, and alone: that press sent nothing.
+  await expect(list.filter({ hasText: 'The other modifier does not send' })).toHaveCount(0);
   // The newest comment is in sight.
   await expect(list.last()).toBeInViewport();
 
