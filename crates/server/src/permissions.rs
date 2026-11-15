@@ -9,7 +9,9 @@
 //! The table of `permissions/table.rs` pins every rule of this file, one row per
 //! sentence of what the product promises.
 
-use fvoci_model::{Board, BoardMember, BoardRole, BoardType, OrgRole, Workspace, WorkspaceRole};
+use fvoci_model::{
+    Board, BoardKind, BoardMember, BoardRole, BoardType, OrgRole, Workspace, WorkspaceRole,
+};
 use fvoci_store::{Looking, Reach};
 
 #[cfg(test)]
@@ -18,6 +20,8 @@ mod session_table;
 mod table;
 #[cfg(test)]
 mod team_table;
+#[cfg(test)]
+mod wiki_table;
 #[cfg(test)]
 mod workspace_table;
 
@@ -126,7 +130,7 @@ pub const fn may_become(from: WorkspaceRole, to: WorkspaceRole) -> bool {
 #[must_use]
 pub const fn invites_guests(grant: Grant, scope: BoardScope, workspace: &Workspace) -> bool {
     match scope {
-        BoardScope::InvitedOnly | BoardScope::Open => {
+        BoardScope::InvitedOnly | BoardScope::Open | BoardScope::OpenWiki => {
             workspace.guest_invitations && grant.allows(BoardPermission::ManageBoardRoles)
         }
         BoardScope::BuiltIn | BoardScope::InvitedOnlyTemplate | BoardScope::OpenTemplate => false,
@@ -138,6 +142,9 @@ pub const fn invites_guests(grant: Grant, scope: BoardScope, workspace: &Workspa
 pub enum BoardScope {
     /// An open board: whoever works in the workspace sees it and may join it.
     Open,
+    /// An open wiki: whoever works in the workspace reads it without joining, and joins
+    /// it to write.
+    OpenWiki,
     /// A board for the invited only: nobody but its members knows it is there.
     InvitedOnly,
     /// An open template of the workspace: whoever works there reads it, to copy it.
@@ -154,7 +161,10 @@ impl BoardScope {
     pub fn of(board: &Board) -> Self {
         match (board.is_builtin, board.is_template, board.board_type) {
             (true, _, _) => Self::BuiltIn,
-            (false, false, BoardType::Open) => Self::Open,
+            (false, false, BoardType::Open) => match board.kind {
+                BoardKind::Board => Self::Open,
+                BoardKind::Wiki => Self::OpenWiki,
+            },
             (false, false, BoardType::Private) => Self::InvitedOnly,
             (false, true, BoardType::Open) => Self::OpenTemplate,
             (false, true, BoardType::Private) => Self::InvitedOnlyTemplate,
@@ -166,15 +176,23 @@ impl BoardScope {
     #[must_use]
     pub fn in_the_trash(self) -> Self {
         match self {
-            Self::Open => Self::InvitedOnly,
-            Self::OpenTemplate => Self::InvitedOnlyTemplate,
-            other => other,
+            Self::Open | Self::OpenWiki | Self::InvitedOnly => Self::InvitedOnly,
+            Self::OpenTemplate | Self::InvitedOnlyTemplate => Self::InvitedOnlyTemplate,
+            Self::BuiltIn => Self::BuiltIn,
         }
     }
 
     /// Whether whoever works in the workspace sees the board without being its member.
     fn open_to_the_workspace(self) -> bool {
-        matches!(self, Self::Open | Self::OpenTemplate)
+        matches!(self, Self::Open | Self::OpenWiki | Self::OpenTemplate)
+    }
+
+    /// Whether whoever works in the workspace reads what is on the board without being
+    /// its member: an open wiki, and an open template, which is read to be copied. An
+    /// open board is not: it is read once joined.
+    #[must_use]
+    pub const fn read_by_the_workspace(self) -> bool {
+        matches!(self, Self::OpenWiki | Self::OpenTemplate)
     }
 }
 
@@ -519,7 +537,8 @@ pub const fn people_reach(workspace_role: WorkspaceRole) -> Reach {
 /// - A member of the board may do what the role lets them, a guest of the workspace no
 ///   more than an editor.
 /// - Whoever works in the workspace sees its open boards and may join those that are
-///   no template, and reads its open templates.
+///   no template, and reads its open templates. An open wiki they read and may join
+///   without joining it; only joined do they write in it.
 /// - An administrator of the workspace sees its boards, lists and changes their
 ///   members, and deletes and restores them; what is on a board for the invited only
 ///   they read as its member, and are told it is not there otherwise
@@ -545,6 +564,7 @@ pub fn grant(actor: Actor, facts: BoardFacts) -> Grant {
     });
     let as_worker = match (actor.works_there(), facts.scope) {
         (true, BoardScope::Open) => Grant::of(&[SeeBoard, JoinBoard]),
+        (true, BoardScope::OpenWiki) => Grant::of(&[SeeBoard, JoinBoard, ViewBoard, ListMembers]),
         (true, BoardScope::OpenTemplate) => Grant::of(&[SeeBoard, ViewBoard, ListMembers]),
         _ => Grant::NONE,
     };
@@ -559,6 +579,24 @@ pub fn grant(actor: Actor, facts: BoardFacts) -> Grant {
     } else {
         granted
     }
+}
+
+/// Whether a member of a workspace in `role` is told the changes of one of its boards
+/// of `scope` that they hold no role on: of an open wiki, whoever works there, who reads
+/// it without joining it. An open template is read to be copied: what changes on it is
+/// told to its members, as on any board.
+#[must_use]
+pub fn told_without_a_role(scope: BoardScope, role: WorkspaceRole) -> bool {
+    let actor = Actor {
+        org: None,
+        workspace: Some(role),
+    };
+    let facts = BoardFacts {
+        scope,
+        role: None,
+        team_role: None,
+    };
+    scope == BoardScope::OpenWiki && grant(actor, facts).reads()
 }
 
 /// Whether a user who is `role` in a workspace (`None`: no member) reads its audit log:

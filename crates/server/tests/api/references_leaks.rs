@@ -216,13 +216,21 @@ async fn nothing_a_page_gives_tells_the_title_of_what_it_names() {
 }
 
 /// A member of the workspace who is on neither the board nor the wiki of what is
-/// named, and has not joined the open ones.
+/// named, and has not joined the open board (an open wiki they read unjoined).
 #[tokio::test]
 async fn nothing_tells_a_member_the_title_of_what_is_on_a_board_they_are_not_on() {
     let th = Setup::native().start().await.init_basic().await;
     let private = made(&th.client, TEST_WS, "P", HIDDEN).await;
     let open = made(&th.client, TEST_WS, "O", HIDDEN).await;
-    let targets = [private.both(), open.both()].concat();
+    let targets = [private.card.as_str(), &private.page, &open.card]; // The page of the open wiki is read unjoined: its title is no secret.
+    th.client
+        .patch(
+            &format!("{TEST_WS}/wikis/{}/pages/{}", open.wiki, open.page),
+            &json!({"title": "read unjoined"}),
+        )
+        .await
+        .check_ok();
+
     check_nothing_tells_the_title(&th, &targets).await;
     th.teardown().await;
 }

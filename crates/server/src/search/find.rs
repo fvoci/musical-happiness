@@ -87,8 +87,8 @@ impl App {
     /// of the workspace ([`App::in_workspace`]) that reaches the kinds of container
     /// to search ([`App::reaching`]): one that reaches boards alone finds no page. The
     /// user reads what is on the boards and in the wikis they have a role on, their
-    /// own or a team's: an open one they have not joined is theirs to join, and not
-    /// searched.
+    /// own or a team's, and in the open wikis of a workspace they work in, joined or
+    /// not: an open board they have not joined is theirs to join, and not searched.
     ///
     /// The search server is asked, and every document it answers with is then asked
     /// of the database (`check_hits`): what the user does not read now is left out.
@@ -128,7 +128,7 @@ impl App {
             .org_id()
             .ok_or_else(|| AppError::internal("a search outside an organization"))?;
         let theirs: HashSet<String> = self
-            .boards_for_user_and_workspace(user_id, workspace_id, PublicBoards::Exclude)
+            .boards_for_user_and_workspace(user_id, workspace_id, PublicBoards::OpenWikis)
             .await?
             .into_iter()
             .map(|board| board.id)
@@ -193,7 +193,8 @@ impl App {
     /// reaches it, has a document of that identifier now ([`SearchDocument`]: a card
     /// or a page that is no block of the trash, in a container that is no template),
     /// in this workspace, of the kind asked for, in a container the user has a role
-    /// on and reads ([`App::board_access`], asked once a container). What is answered
+    /// on or that is an open wiki, and reads ([`App::board_access`], asked once a
+    /// container). What is answered
     /// of it is what the database says: the container and its kind, the kind and the
     /// title. The piece of text alone
     /// is the search server's, and is left out unless the document was indexed from
@@ -217,9 +218,9 @@ impl App {
             let Some(document) = documents.remove(&hit.id) else {
                 continue;
             };
-            // A container the user has no role on is asked nothing about: what the
-            // index answers of the containers of others costs the same as what it
-            // does not.
+            // A container the user neither has a role on nor reads as an open wiki is
+            // asked nothing about: what the index answers of the containers of others
+            // costs the same as what it does not.
             if document.workspace_id != check.workspace_id
                 || check.kind.is_some_and(|kind| kind != document.kind)
                 || !check.theirs.contains(&document.container_id)
@@ -264,7 +265,8 @@ struct Check<'a> {
     user_id: &'a str,
     workspace_id: &'a str,
     kind: Option<SearchKind>,
-    /// The boards and wikis of the workspace the user has a role on.
+    /// The boards and wikis of the workspace the user has a role on, and its open
+    /// wikis for who works there.
     theirs: &'a HashSet<String>,
     /// Whether the user reads a board, for the boards asked about.
     reads: HashMap<String, bool>,

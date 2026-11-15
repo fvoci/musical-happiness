@@ -150,6 +150,7 @@ mod websocket_documents;
 mod websocket_organizations;
 mod wiki_isolation;
 mod wiki_kinds;
+mod wiki_open;
 mod workspace_admin;
 mod workspace_members;
 mod workspace_removal;

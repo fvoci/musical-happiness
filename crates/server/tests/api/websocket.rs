@@ -1258,7 +1258,11 @@ async fn messages_match_the_websocket_contract() {
         .hear(&mut socket, "UPDATE_CLIENT_CONFIG")
         .await;
     // The board deletion goes to the former members, with the board's identifiers only.
-    ws.broadcast_board_delete(ROOT_WORKSPACE_ID, &board.id, &members)
+    let former = fvoci_server::app::Former {
+        members: &members,
+        scope: fvoci_server::permissions::BoardScope::InvitedOnly,
+    };
+    ws.broadcast_board_delete(ROOT_WORKSPACE_ID, &board.id, former)
         .await;
     contract_check.hear(&mut socket, "UPDATE_BOARD").await;
     hear_the_endings(&th, &mut socket, &mut contract_check, &block, &user1.id).await;

@@ -184,11 +184,12 @@ impl App {
         Ok(self.store().cards_on_board_among(board_id, &named).await?)
     }
 
-    /// The boards and wikis of the workspace the user holds a role on, templates left
-    /// out: where to look for what the user reads. Whether the user does read one is
-    /// not said here ([`App::boards_read`] asks).
+    /// The boards and wikis of the workspace the user holds a role on, and its open
+    /// wikis, which whoever works there reads without joining; templates left out:
+    /// where to look for what the user reads. Whether the user does read one is not
+    /// said here ([`App::boards_read`] asks).
     async fn boards_held(&self, user_id: &str, workspace_id: &str) -> Result<Vec<Board>, AppError> {
-        self.boards_for_user_and_workspace(user_id, workspace_id, PublicBoards::Exclude)
+        self.boards_for_user_and_workspace(user_id, workspace_id, PublicBoards::OpenWikis)
             .await
     }
 
@@ -199,7 +200,7 @@ impl App {
     /// [`App::board_access`] before the store is asked what is on any. So the store
     /// looks only where the user reads, what is found there is the answer as it is, a
     /// page is cut from that alone, and the reads a question takes are those of the
-    /// boards the user holds a role on, whatever is on them. They are asked one after
+    /// boards the user holds a role on and of the open wikis, whatever is on them. They are asked one after
     /// another: a request holds no more of the store's connections than any other does.
     async fn boards_read(
         &self,

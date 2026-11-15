@@ -6,10 +6,17 @@ use fvoci_model::{BoardMember, BoardsAndBlocks, DeleteBoardsAndBlocks, PatchBoar
 
 use fvoci_store::NewImages;
 
-use super::App;
 use super::boards::CreatorMembership;
+use super::{App, Former};
 use crate::collab::{AccessScope, Deletion};
 use crate::error::AppError;
+use crate::permissions::BoardScope;
+
+/// Who read a board the request did not list: nobody (the store refused it).
+const NOBODY: Former<'static> = Former {
+    members: &[],
+    scope: BoardScope::InvitedOnly,
+};
 
 impl App {
     /// Stores the boards and blocks of an archive as they are, identifiers included,
@@ -225,7 +232,8 @@ impl App {
         let mut former_members = HashMap::with_capacity(request.boards.len());
         for board_id in &request.boards {
             let members = self.store().effective_board_members(board_id).await?;
-            former_members.insert(board_id.as_str(), members);
+            let scope = BoardScope::of(&self.store().get_board(board_id).await?);
+            former_members.insert(board_id.as_str(), (members, scope));
         }
         let mut deleted_blocks = Vec::with_capacity(request.blocks.len());
         for block_id in &request.blocks {
@@ -247,21 +255,28 @@ impl App {
                 .recheck_access(self, AccessScope::boards(&request.boards))
                 .await;
         }
+        let former = |board_id: &str| {
+            former_members
+                .get(board_id)
+                .map_or(NOBODY, |(members, scope)| Former {
+                    members,
+                    scope: *scope,
+                })
+        };
         for (block_id, board_id) in &deleted_blocks {
             // A block of a board the request does not list was refused by the store.
-            let members = former_members
-                .get(board_id.as_str())
-                .map_or(&[][..], Vec::as_slice);
             self.ws()
-                .broadcast_block_delete_with_board(&workspace_id, block_id, board_id, members)
+                .broadcast_block_delete_with_board(
+                    &workspace_id,
+                    block_id,
+                    board_id,
+                    former(board_id),
+                )
                 .await;
         }
         for board_id in &request.boards {
-            let members = former_members
-                .get(board_id.as_str())
-                .map_or(&[][..], Vec::as_slice);
             self.ws()
-                .broadcast_board_delete(&workspace_id, board_id, members)
+                .broadcast_board_delete(&workspace_id, board_id, former(board_id))
                 .await;
             // The board's sharing went with it; so does whoever followed it by its link,
             // as with `deleteBoard`.

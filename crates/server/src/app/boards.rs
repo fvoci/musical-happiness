@@ -8,9 +8,10 @@ use fvoci_store::{
     AuditEntry, DeletedBoard, DuplicateAs, Joined, MemberChange, PublicBoards, Standing,
 };
 
-use super::{App, BoardAccess, DEFAULT_CATEGORY_BOARDS};
+use super::{App, BoardAccess, DEFAULT_CATEGORY_BOARDS, Former};
 use crate::collab::{AccessScope, Deletion};
 use crate::error::{AppError, Reason};
+use crate::permissions::BoardScope;
 
 /// Whether a patch of a board changes who may do what on it: its type (open to the
 /// workspace or by invitation) or the role of who joins it.
@@ -177,6 +178,7 @@ impl App {
         user_id: &str,
     ) -> Result<Board, AppError> {
         let mut is_template = false;
+        let mut scope_before = None;
         if patch.board_type.is_some() {
             let board = match self.store().get_board(board_id).await {
                 Ok(board) => board,
@@ -186,9 +188,15 @@ impl App {
                 Err(error) => return Err(error.into()),
             };
             is_template = board.is_template;
+            scope_before = Some(BoardScope::of(&board));
         }
 
         let updated = self.store().patch_board(board_id, patch, user_id).await?;
+        // Who read an open wiki without joining it reads it no more once it is private:
+        // they are told it is gone for them, as when it is deleted.
+        let closed = scope_before.filter(|before| {
+            before.read_by_the_workspace() && !BoardScope::of(&updated).read_by_the_workspace()
+        });
         if changes_access(patch) {
             self.collab()
                 .recheck_access(self, AccessScope::board(board_id))
@@ -204,6 +212,9 @@ impl App {
                 .await;
             if let Some(board_type) = new_type {
                 app.broadcast_workspace_users(&board, board_type).await;
+            }
+            if let Some(scope) = closed {
+                app.broadcast_closed(&board, scope).await;
             }
         });
 
@@ -240,6 +251,21 @@ impl App {
                 .await;
         });
         Ok(order.to_vec())
+    }
+
+    /// Tells who read the board as it was, `scope`, and no longer does that it is gone
+    /// for them: the message of its deletion, to who reads it no more alone.
+    async fn broadcast_closed(&self, board: &Board, scope: BoardScope) {
+        let members = match self.effective_board_members(&board.id).await {
+            Ok(members) => members,
+            Err(error) => {
+                tracing::error!(%error, "Unable to get the board members");
+                return;
+            }
+        };
+        self.ws()
+            .broadcast_closed_to_others(&board.workspace_id, &board.id, &members, scope)
+            .await;
     }
 
     /// Tells who works in the workspace and is no member of a template that they gained or
@@ -318,8 +344,12 @@ impl App {
             .recheck_access(self, AccessScope::board(board_id))
             .await;
 
+        let former = Former {
+            members: &members,
+            scope: BoardScope::of(&board),
+        };
         self.ws()
-            .broadcast_board_delete(&board.workspace_id, &board.id, &members)
+            .broadcast_board_delete(&board.workspace_id, &board.id, former)
             .await;
         // The board's sharing went with it; so does whoever followed it by its link.
         self.ws().end_readers_of_board(&board.id);

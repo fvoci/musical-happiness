@@ -274,7 +274,7 @@ async fn a_stale_index_shows_nobody_a_page_they_do_not_read() {
     let stranger = th.stranger_in(TEST_WORKSPACE_ID).await;
     let (private, private_page) =
         stored_wiki(store, TEST_WORKSPACE_ID, BoardType::Private, &stranger).await;
-    // An open wiki the searchers have not joined: theirs to join, and not to read.
+    // An open wiki the searchers have not joined: read by whoever works there.
     let (open, open_page) = stored_wiki(store, TEST_WORKSPACE_ID, BoardType::Open, &stranger).await;
     let hidden_owner = th.stranger_in(HIDDEN_WORKSPACE_ID).await;
     let (_, hidden_page) = stored_wiki(
@@ -291,7 +291,7 @@ async fn a_stale_index_shows_nobody_a_page_they_do_not_read() {
         (below.id.clone(), mine.clone()),
         (gone_page.id.clone(), gone.clone()),
         (private_page, private),
-        (open_page, open),
+        (open_page.clone(), open.clone()),
         (hidden_page, mine.clone()),
     ];
     // Another organization's page, where the database holds more than one.
@@ -323,21 +323,31 @@ async fn a_stale_index_shows_nobody_a_page_they_do_not_read() {
     let asked = fake.recorded_at("/_search").len();
     th.teardown().await;
 
+    let mut read_by_owner = vec![read.id.clone(), open_page.clone()];
+    read_by_owner.sort();
     assert_eq!(
         ids(&owner),
-        std::slice::from_ref(&read.id),
-        "the page they read, and no other"
+        read_by_owner,
+        "the page of their wiki and the page of the open wiki, and no other"
     );
-    assert_eq!(owner[0].container_id, mine);
-    assert_eq!(owner[0].title, "읽는 페이지", "the title is the database's");
+    let own = owner
+        .iter()
+        .find(|hit| hit.id == read.id)
+        .expect("their page");
+    assert_eq!(own.container_id, mine);
+    assert_eq!(own.title, "읽는 페이지", "the title is the database's");
     assert!(
-        owner[0].snippet.is_empty(),
+        own.snippet.is_empty(),
         "what was indexed from another title and text is not shown: {owner:?}"
     );
+    let of_open = owner.iter().find(|hit| hit.id == open_page).expect("open");
+    assert_eq!(of_open.container_id, open);
+    let mut read_by_other = vec![their_card.id, open_page];
+    read_by_other.sort();
     assert_eq!(
         ids(&other),
-        [their_card.id],
-        "their own card, and no page: no wiki is theirs"
+        read_by_other,
+        "their own card, and the page of the open wiki: no other wiki is theirs"
     );
     assert_eq!(ids(&in_root), Vec::<String>::new(), "another workspace");
     assert_eq!(asked, 3, "each of them asked the index");

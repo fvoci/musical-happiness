@@ -5,18 +5,52 @@ use fvoci_model::{Block, BoardMember, WorkspaceRole};
 use super::ending::{Ended, Of};
 use super::{CHECKED_AT_MOST, Hub, ListenerId, Outgoing, ReadPermit, UpdateBlockMessage, text_of};
 use crate::metrics::Disconnect;
-use crate::permissions::{role_of, session_opens};
+use crate::permissions::{BoardScope, role_of, session_opens, told_without_a_role};
 
 #[derive(Clone, Copy)]
 pub(super) enum Access<'a> {
     Workspace(&'a str),
+    /// Who follows the workspace and reads the board (`readers`), and `also`.
     Members {
         workspace: &'a str,
-        board: &'a str,
+        readers: Readers<'a>,
         also: Option<&'a str>,
     },
     Public(&'a str),
     All,
+}
+
+/// Who reads a board, for what is told of it to its readers alone: its members, and of
+/// an open wiki whoever works in its workspace ([`told_without_a_role`]).
+#[derive(Clone, Copy)]
+pub(super) enum Readers<'a> {
+    /// The board as it is when the change is sent: its members and its scope are read
+    /// then.
+    Now(&'a str),
+    /// A board that is gone, as it was: its members and its scope.
+    Former {
+        members: &'a [BoardMember],
+        scope: BoardScope,
+    },
+}
+
+/// What [`Readers`] stand for when a change is checked: the members, and the scope,
+/// `None` for a board that is not there (whose members alone are told).
+#[derive(Default)]
+struct Known {
+    members: Vec<BoardMember>,
+    scope: Option<BoardScope>,
+}
+
+impl Known {
+    fn reads(&self, user: &str, role: WorkspaceRole) -> bool {
+        self.members
+            .iter()
+            .any(|member| member.user_id == user && role_of(member).is_some())
+            || self
+                .scope
+                .is_some_and(|scope| told_without_a_role(scope, role))
+    }
 }
 
 impl Hub {
@@ -218,32 +252,50 @@ impl Hub {
     }
 
     async fn authorized(&self, ids: &[ListenerId], access: Access<'_>) -> Vec<ListenerId> {
-        let members = match access {
-            Access::Members { board, .. } => match self.audience.members(board).await {
-                Ok(members) => members,
-                Err(error) => {
-                    tracing::error!(%error, board_id = board, "websocket: cannot read dispatch membership");
-                    self.close_unread(ids);
-                    return Vec::new();
-                }
-            },
-            _ => Vec::new(),
+        let known = if let Access::Members { readers, .. } = access {
+            let Some(known) = self.known(readers).await else {
+                self.close_unread(ids);
+                return Vec::new();
+            };
+            known
+        } else {
+            Known::default()
         };
         let mut authorized = Vec::new();
         for id in ids {
-            if self.authorizes(*id, access, &members).await {
+            if self.authorizes(*id, access, &known).await {
                 authorized.push(*id);
             }
         }
         authorized
     }
 
-    async fn authorizes(
-        &self,
-        id: ListenerId,
-        access: Access<'_>,
-        members: &[BoardMember],
-    ) -> bool {
+    /// What `readers` stand for now; `None`, logged, if it cannot be read.
+    async fn known(&self, readers: Readers<'_>) -> Option<Known> {
+        match readers {
+            Readers::Former { members, scope } => Some(Known {
+                members: members.to_vec(),
+                scope: Some(scope),
+            }),
+            Readers::Now(board) => {
+                let members = self
+                    .audience
+                    .members(board)
+                    .await
+                    .inspect_err(|error| unread(board, error))
+                    .ok()?;
+                let scope = self
+                    .audience
+                    .board_scope(board)
+                    .await
+                    .inspect_err(|error| unread(board, error))
+                    .ok()?;
+                Some(Known { members, scope })
+            }
+        }
+    }
+
+    async fn authorizes(&self, id: ListenerId, access: Access<'_>, known: &Known) -> bool {
         let following = {
             let listeners = self.listeners();
             let Some(listener) = listeners.by_id.get(&id) else {
@@ -261,7 +313,7 @@ impl Hub {
                 }
                 Access::Members {
                     workspace, also, ..
-                } => following_workspace(listener, workspace, BoardOnly::Members { also }),
+                } => following_workspace(listener, workspace, BoardOnly::Readers { also }),
             }
         };
         match following {
@@ -282,11 +334,8 @@ impl Hub {
                 }
                 match board_only {
                     BoardOnly::No => true,
-                    BoardOnly::Members { also } => {
-                        also == Some(user.as_str())
-                            || members
-                                .iter()
-                                .any(|member| member.user_id == user && role_of(member).is_some())
+                    BoardOnly::Readers { also } => {
+                        also == Some(user.as_str()) || known.reads(&user, role)
                     }
                 }
             }
@@ -368,14 +417,19 @@ enum Following<'a> {
     },
 }
 
-/// Whether a change of a workspace is told only to the members of its board.
+/// Whether a change of a workspace is told only to who reads its board.
 #[derive(Clone, Copy)]
 enum BoardOnly<'a> {
     No,
-    /// Only to the board's members, and to `also` (who made it).
-    Members {
+    /// Only to the board's readers ([`Readers`]), and to `also` (who made it).
+    Readers {
         also: Option<&'a str>,
     },
+}
+
+/// Logs that who reads `board` could not be read for a change of it.
+fn unread(board: &str, error: &impl std::fmt::Display) {
+    tracing::error!(%error, board_id = board, "websocket: cannot read dispatch membership");
 }
 
 /// What `listener` follows of `workspace`, if it does.
