@@ -62,6 +62,7 @@ import {
   wireBody,
   type Schemas,
 } from './convert.ts';
+import { ClientConfig, ServerContentSearch } from './content-search.ts';
 import { downloadWithProgress } from './download.ts';
 import { Http } from './http.ts';
 import { LiveChanges } from './live.ts';
@@ -79,11 +80,16 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
   /** `basePath` is the path the app is served under (`<meta name="fvoci:base">`). */
   readonly #live: LiveChanges;
   readonly presence: Backend['presence'];
+  readonly search: Backend['search'];
+  /** The server's settings for clients, read once. */
+  readonly #config: ClientConfig;
 
   constructor(basePath: string) {
     const http = new Http(basePath);
     super(http);
     this.#http = http;
+    this.#config = new ClientConfig(http);
+    this.search = new ServerContentSearch(http, this.#config);
     // The page's own origin: the browser sends the session's cookie with it.
     const socket = new URL(`${basePath}/ws`, location.href);
     socket.protocol = socket.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -819,7 +825,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
    * with the limit, as the server would refuse it (413).
    */
   async upload(boardId: string, file: File, options?: UploadOptions): Promise<UploadedFile> {
-    const limit = (await this.#clientConfig()).maxFileSize;
+    const limit = (await this.#config.read()).maxFileSize;
     if (file.size > limit) {
       throw new BackendError(413, { detail: 'the file is too large', limit });
     }
@@ -891,7 +897,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
    * counts toward the same open uploads of the reader.
    */
   async importArchive(workspaceId: string, file: File, options?: UploadOptions) {
-    const limit = (await this.#clientConfig()).maxImportSize;
+    const limit = (await this.#config.read()).maxImportSize;
     if (file.size > limit) {
       // The reason is this app's: the server's 413 may count entries, this one counts bytes.
       throw new BackendError(413, {
@@ -907,18 +913,6 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
       this.#uploading -= 1;
       this.#uploadWaiting.shift()?.();
     }
-  }
-
-  /** The server's settings for clients, read once. */
-  #config: Promise<Schemas['ClientConfig']> | undefined;
-
-  #clientConfig(): Promise<Schemas['ClientConfig']> {
-    this.#config ??= this.#http.request<Schemas['ClientConfig']>('/api/v1/client-config');
-    // A failed reading is tried again next time.
-    this.#config.catch(() => {
-      this.#config = undefined;
-    });
-    return this.#config;
   }
 
   /** The bytes of a file (`getFile`). */

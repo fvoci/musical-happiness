@@ -132,6 +132,7 @@
     data-testid="board-members-count"
     aria-haspopup="dialog"
     aria-label={membersLabel}
+    title={membersLabel}
     class={[
       'flex min-h-8 shrink-0 items-center justify-center gap-1 rounded-md px-1 text-xs whitespace-nowrap text-muted-foreground hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring roomy:min-h-touch roomy:min-w-touch',
       presence.count > 0 && '@max-columns/pane:hidden',

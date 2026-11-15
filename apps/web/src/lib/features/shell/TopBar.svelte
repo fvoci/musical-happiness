@@ -22,6 +22,7 @@
   import Share2Icon from '@lucide/svelte/icons/share-2';
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
   import Undo2Icon from '@lucide/svelte/icons/undo-2';
+  import type { Snippet } from 'svelte';
 
   import { shortcutKeys, shortcutLabel } from '$lib/keys.ts';
   import PresenceRoster from './PresenceRoster.svelte';
@@ -46,9 +47,11 @@
     /** Show the button that opens the drawer. */
     menuButton: boolean;
     onOpenSidebar: (event: MouseEvent) => void;
+    /** The button of the search of the workspace, where it has one. */
+    search?: Snippet<[Workspace]>;
   }
 
-  let { workspace, boardId, sharedHref, menuButton, onOpenSidebar }: Props = $props();
+  let { workspace, boardId, sharedHref, menuButton, onOpenSidebar, search }: Props = $props();
 
   let sharing = $state(false);
   /** The sharing dialog was opened from the number of members: it begins at them. */
@@ -183,6 +186,8 @@
       <Trash2Icon />
     </IconButton>
   {/if}
+
+  {@render search?.(workspace)}
 
   <!-- An undo or redo waiting for a write says so on both, until it is carried out. -->
   <IconButton
