@@ -21,9 +21,10 @@
 //! everything else reads) two seconds after the last update, ten seconds after the
 //! first one that is not written at the latest, and when the document is closed or the
 //! server stops. Versions of the body are kept as `versions` says. The log is folded
-//! into the stored state every [`FOLD_AFTER`] updates; a document whose state comes
-//! near its limit is made again from its body. A server that ended before it wrote a
-//! body writes it when it starts again ([`Collab::recover`]).
+//! into the stored state every [`FOLD_AFTER`] updates and when the document closes; a
+//! document whose state comes near its limit is made again from its body. A server that
+//! ended before it wrote a body or folded a log does so when it starts again
+//! ([`Collab::recover`]).
 
 mod admission;
 mod caret;
@@ -483,7 +484,8 @@ impl Collab {
     }
 
     /// Writes the body of a card's document to the card, keeps it as a version if the
-    /// document took updates no version holds, and closes the document. The next
+    /// document took updates no version holds, folds its log into its state, and
+    /// closes the document. The next
     /// request opens it again from what is stored. A body that cannot be written
     /// now stays in the log and is written when the document is opened again, or when
     /// the server starts: the document is closed all the same.
@@ -501,6 +503,7 @@ impl Collab {
                 if written.is_ok() {
                     collab.version_as_left(app, card_id, slot).await;
                 }
+                collab.fold_as_it_closes(app, card_id, slot).await;
                 collab.forget(slot).await;
                 collab.retire(slot);
                 written
@@ -533,6 +536,7 @@ impl Collab {
                             tracing::error!(%error, card_id, "cannot write a card's body as the server stops");
                         }
                     }
+                    self.fold_as_it_closes(&app, &card_id, &mut slot).await;
                     self.forget(&mut slot).await;
                 }
                 self.retire(&mut slot);
@@ -555,12 +559,13 @@ impl Collab {
         }
     }
 
-    /// Writes the bodies of the documents that a server that ended did not write, and
-    /// keeps as versions those it did not keep, each as its organization: for a server
-    /// that starts. `app` reaches every organization. What cannot be written is logged
-    /// and left for when the document is opened.
+    /// Writes the bodies of the documents that a server that ended did not write, keeps
+    /// as versions those it did not keep, and folds the logs it did not fold, each as
+    /// its organization: for a server that starts. `app` reaches every organization.
+    /// What cannot be done is logged and left for when the document is opened.
     pub async fn recover(&self, app: &App) {
-        // Writes to cards: only the server of the database does.
+        // Writes to cards and to what is stored of documents: only the server of the
+        // database does.
         if let Err(error) = app.require_server_lock() {
             tracing::warn!(%error, "the bodies a run that ended did not write are not written");
             return;
@@ -572,7 +577,19 @@ impl Collab {
                 return;
             }
         };
-        for (card_id, org_id) in unfinished {
+        self.see_to(app, unfinished).await;
+        // Read after those are seen to, which folded theirs: those left were written
+        // and kept, and their logs alone are left.
+        match app.store().unfolded_body_docs().await {
+            Ok(unfolded) => self.see_to(app, unfolded).await,
+            Err(error) => tracing::error!(%error, "cannot read which logs are not folded"),
+        }
+    }
+
+    /// Opens each of `docs` (cards with their organizations), writes its body, keeps a
+    /// version if one is due, folds its log and closes it.
+    async fn see_to(&self, app: &App, docs: Vec<(String, String)>) {
+        for (card_id, org_id) in docs {
             let tenant = match Tenant::org(&org_id) {
                 Ok(tenant) => tenant,
                 Err(error) => {
@@ -590,7 +607,8 @@ impl Collab {
     }
 
     /// Opens a card's document, writes its body, which keeps it as a version if one
-    /// is due (a document opened with what no version holds is), and closes it.
+    /// is due (a document opened with what no version holds is), folds its log, and
+    /// closes it.
     async fn close_after_open(&self, app: &App, card_id: &str) -> Result<(), AppError> {
         self.on_slot(
             app,
@@ -599,6 +617,7 @@ impl Collab {
                 let (collab, app, card_id, slot) = (&collab, &app, card_id.as_str(), &mut slot);
                 collab.ensure_open(app, card_id, slot).await?;
                 let written = collab.write_now(app, card_id, slot).await;
+                collab.fold_as_it_closes(app, card_id, slot).await;
                 collab.forget(slot).await;
                 collab.retire(slot);
                 written

@@ -399,6 +399,42 @@ impl Store {
     ///
     /// Returns [`StoreError::Database`] if the query fails.
     pub async fn unfinished_body_docs(&self) -> Result<Vec<(String, String)>, StoreError> {
+        self.body_docs_where(&|scope| {
+            [
+                // Only the body of a card or a page is kept: of a block that is one no
+                // more, the names stay put down, and nothing is to see to.
+                " WHERE d.projected_seq < d.log_end OR (",
+                &body_versions::with_room_sql("b.type"),
+                " AND EXISTS (SELECT 1 FROM body_version_editors e WHERE e.block_id = d.block_id",
+                &format!(" AND e.version = {}", body_versions::PENDING),
+                &scope.same_organization(&[("e", "d")]),
+                "))",
+            ]
+            .concat()
+        })
+        .await
+    }
+
+    /// The documents whose log holds updates their state does not, with the
+    /// organization of each: what a server that ended before it folded them leaves.
+    /// Blocks in the trash are left out; theirs is folded when they are opened again
+    /// and closed.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn unfolded_body_docs(&self) -> Result<Vec<(String, String)>, StoreError> {
+        self.body_docs_where(&|_| " WHERE d.state_seq < d.log_end".to_owned())
+            .await
+    }
+
+    /// The documents of the blocks that are not in the trash, of the condition
+    /// `condition` makes for a scope (on `d`, the document, and `b`, its block), with
+    /// the organization of each, by block.
+    async fn body_docs_where(
+        &self,
+        condition: &(dyn Fn(&Scope<'_>) -> String + Sync),
+    ) -> Result<Vec<(String, String)>, StoreError> {
         self.with_conn(async |scope| {
             let statement = [
                 "SELECT d.block_id, w.org_id FROM body_docs d \
@@ -408,14 +444,8 @@ impl Store {
                 &scope.same_organization(&[("o", "b")]),
                 " JOIN workspaces w ON w.id = o.workspace_id",
                 &scope.same_organization(&[("w", "o")]),
-                // Only the body of a card or a page is kept: of a block that is one no
-                // more, the names stay put down, and nothing is to see to.
-                " WHERE d.projected_seq < d.log_end OR (",
-                &body_versions::with_room_sql("b.type"),
-                " AND EXISTS (SELECT 1 FROM body_version_editors e WHERE e.block_id = d.block_id",
-                &format!(" AND e.version = {}", body_versions::PENDING),
-                &scope.same_organization(&[("e", "d")]),
-                ")) ORDER BY d.block_id",
+                &condition(scope),
+                " ORDER BY d.block_id",
             ]
             .concat();
             let sql = scope.sql(&statement);
