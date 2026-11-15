@@ -209,7 +209,8 @@ export class MemoryWikis implements Wikis {
       const sibling = this.#world.blocks.get(id);
       if (!sibling) return [];
       sibling.fields = { ...sibling.fields, order };
-      [sibling.updateAt, sibling.modifiedBy] = [now, this.#host.userId];
+      // As the server: the order alone, who changed it last stays.
+      sibling.updateAt = now;
       return [sibling];
     });
     page.fields = { ...page.fields, order: place.order };

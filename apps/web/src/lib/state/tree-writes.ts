@@ -108,11 +108,22 @@ export class TreeWrites {
     const forgotten = this.#forgottenAt.get(page.id);
     if (forgotten && page.updateAt <= forgotten.updateAt) return false;
     if (page.parentId !== '' && this.#forgottenAt.has(page.parentId)) {
-      this.#forgottenAt.set(page.id, { at: this.#forgettings, updateAt: page.updateAt });
+      // Shown (a move of it under way, say), it goes now with the page it is below.
+      if (this.#page(page.id)) this.forget([page.id], 'others');
+      const kept = this.#forgottenAt.get(page.id)?.updateAt ?? -Infinity;
+      this.#forgottenAt.set(page.id, {
+        at: this.#forgettings,
+        updateAt: Math.max(kept, page.updateAt),
+      });
       return false;
     }
     this.#forgottenAt.delete(page.id);
     return true;
+  }
+
+  /** The pages shown after a reading of the tree are there: none of them is taken off any more. */
+  remember(pages: readonly WikiPage[]): void {
+    for (const page of pages) this.#forgottenAt.delete(page.id);
   }
 
   /** The pages of a reading begun at `mark` that are to be shown, parents before what is below them. */
@@ -227,6 +238,7 @@ export class TreeWrites {
     const before = this.#host.pages();
     const gone = withDescendants(before, pageId);
     const title = this.#page(this.#host.openPage()?.pageId)?.title ?? '';
+    const marks = [...gone].map((id) => [id, this.#forgottenAt.get(id)] as const);
     this.forget([pageId], 'held');
     try {
       await this.#deletePage(pageId, title);
@@ -234,6 +246,11 @@ export class TreeWrites {
       // Not gone already (somebody else deleted it): it comes back as it was.
       if (!isBackendError(error) || error.status !== 404) {
         this.#host.setPages(before);
+        // Not taken off after all: what is heard below it is shown again.
+        for (const [id, mark] of marks) {
+          if (mark) this.#forgottenAt.set(id, mark);
+          else this.#forgottenAt.delete(id);
+        }
         throw error;
       }
     }

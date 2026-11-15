@@ -163,12 +163,15 @@ export class PageTree {
     if (parentId !== '' && this.below(pageId).includes(parentId)) {
       fail(400, 'the parent is the page itself or below it', { field: 'parentId' });
     }
+    if (parentId !== '' && !this.#pages.has(parentId)) {
+      fail(400, 'the parent is no page of the wiki', { field: 'parentId' });
+    }
     const height = this.height(pageId);
     const deepest = this.depth(parentId) + height;
-    if (deepest > limits.depth && deepest > this.depth(pageId) + height - 1) {
+    // Among its siblings too, however far past a limit lowered since it is.
+    if (deepest > limits.depth && deepest > Math.max(0, this.depth(pageId) + height - 1)) {
       refuseLimit('page_too_deep', limits.depth);
     }
-    this.checkRoom(parentId, 0, 0, limits);
   }
 
   /** Whether the page is already below `parentId` where `after` says: a move there changes nothing. */

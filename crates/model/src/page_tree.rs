@@ -217,16 +217,20 @@ impl PageTree {
         if !parent_id.is_empty() && self.below(page_id).contains(&parent_id) {
             return Err(BlockError::ParentBelowBlock);
         }
+        if !parent_id.is_empty() && !self.contains(parent_id) {
+            return Err(BlockError::ParentNotOnBoard);
+        }
         let height = self.height(page_id);
-        // Pages deeper than a limit lowered since may still move, as long as no deeper.
-        let deepest_now = self.depth(page_id) + height - 1;
+        // Pages deeper than a limit lowered since may still move, as long as no deeper:
+        // among their siblings too, however far past the limit they are.
+        let deepest_now = (self.depth(page_id) + height).saturating_sub(1);
         let deepest = self.depth(parent_id) + height;
         if deepest > depth_limit(limits) && deepest > deepest_now {
             return Err(BlockError::PageTooDeep {
                 limit: limits.depth,
             });
         }
-        self.check_room(parent_id, 0, 0, limits)
+        Ok(())
     }
 
     /// Whether the page is already below `parent_id` at the place `after` says: a move
@@ -493,6 +497,19 @@ mod tests {
             tree.check_move("d", "b", limits(2, 100)),
             Err(BlockError::PageTooDeep { limit: 2 })
         );
+    }
+
+    #[test]
+    fn a_page_far_past_a_lowered_limit_moves_among_its_siblings() {
+        let tree = tree();
+        // c is at depth 3, two levels below a limit of 1.
+        assert_eq!(tree.check_move("c", "b", limits(1, 100)), Ok(()));
+        assert_eq!(
+            tree.check_move("c", "nowhere", limits(1, 100)),
+            Err(BlockError::ParentNotOnBoard)
+        );
+        // A page the tree does not have goes nowhere deeper than nothing.
+        assert_eq!(tree.check_move("unknown", "", limits(1, 100)), Ok(()));
     }
 
     #[test]

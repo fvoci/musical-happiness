@@ -175,6 +175,27 @@ describe('the rules of a move in memory, as the server’s', () => {
   });
 });
 
+describe('a page far past a lowered limit', () => {
+  it('moves among its siblings, as the server lets it', async () => {
+    const made = await openWiki();
+    const wikis = made.backend.wiki;
+    const a = await made.page('A');
+    const b = await made.page('B', a);
+    const c = await made.page('C', b);
+    const d = await made.page('D', c);
+    const e = await made.page('E', c);
+    wikis.limits = { depth: 1, pages: 100 };
+    await wikis.movePage(made.wikiId, d, { parentId: c, after: e });
+    expect(titles(await wikis.pages(made.wikiId))).toEqual([
+      'A',
+      '  B',
+      '    C',
+      '      E',
+      '      D',
+    ]);
+  });
+});
+
 describe('moving a page in an open wiki', () => {
   it('shows the move at once, and undoes it back to where the page was', async () => {
     const made = await openWiki();

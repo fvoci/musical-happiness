@@ -327,3 +327,30 @@ describe('a page copied with the pages below it', () => {
     expect(titles(made.store.pages)).toEqual(['A', '  B']);
   });
 });
+
+describe('what the tree keeps out of a page taken off', () => {
+  it('shows again what is made below a page whose deletion was refused', async () => {
+    const made = await openWiki();
+    const a = await made.page('A');
+    await made.store.load();
+    made.backend.wiki.failNext('deletePage', new BackendError(500, { detail: 'down' }));
+    expect(await made.store.deletePage(a)).toBe(false);
+    await made.store.createPage({ title: 'B', parentId: a });
+    await settle();
+    expect(titles(made.store.pages)).toEqual(['A', '  B']);
+  });
+
+  it('takes off a page moved out from below a page somebody else deleted first', async () => {
+    const made = await openWiki();
+    const a = await made.page('A');
+    const p = await made.page('P', a);
+    await made.page('C');
+    await made.store.load();
+    const deleting = made.backend.wiki.deletePage(made.wikiId, a);
+    const moving = made.store.movePage(p, { parentId: '' });
+    await deleting;
+    await moving;
+    await settle();
+    expect(titles(made.store.pages)).toEqual(['C']);
+  });
+});

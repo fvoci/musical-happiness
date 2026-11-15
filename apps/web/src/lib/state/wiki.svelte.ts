@@ -306,6 +306,7 @@ export class WikiStore {
       // What was taken off while it was read is gone, though the reading has it.
       const read = this.#writes.admitted(pages, mark);
       this.pages = reread(this.pages, read, before, (page) => this.#writes.receive(page));
+      this.#writes.remember(this.pages);
       // The reader's own deletion under way tells of itself.
       if (shown && !this.page(shown.pageId)) {
         if (!this.#writes.isDeleting(shown.pageId)) shown.gone('others', title);
