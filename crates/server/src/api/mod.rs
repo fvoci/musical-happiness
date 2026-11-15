@@ -29,6 +29,7 @@ mod onboarding;
 mod org;
 mod org_admin;
 mod page_comments;
+mod page_versions;
 mod password_reset;
 mod recovery;
 mod search;
@@ -119,6 +120,7 @@ fn routes() -> Routes {
         .merge(boards::routes())
         .merge(wikis::routes())
         .merge(page_comments::routes())
+        .merge(page_versions::routes())
         .merge(boards_and_blocks::routes())
         .merge(cards::routes())
         .merge(trash::routes())

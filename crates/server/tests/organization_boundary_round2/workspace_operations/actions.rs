@@ -123,8 +123,39 @@ async fn pages(case: &mut Case, wiki: &str) {
     case.run("patchPage", of_page, json!({"title": "changed page"}))
         .await;
     page_comments(case, wiki, &page).await;
+    page_versions(case, wiki, &page).await;
     let of_below = &[("wikiId", wiki), ("pageId", below.as_str())];
     case.run("deletePage", of_below, json!({})).await;
+}
+
+/// The versions of the page's body: one written, listed, read and gone back to.
+async fn page_versions(case: &mut Case, wiki: &str, page: &str) {
+    let of_page = &[("wikiId", wiki), ("pageId", page)];
+    let read = case.present("getPage", of_page, page).await.value();
+    let body = json!({"type": "doc", "content": [{"type": "paragraph", "content": [
+        {"type": "text", "text": format!("secret {} body", case.label)}]}]});
+    case.run(
+        "patchPage",
+        of_page,
+        json!({"readAt": read["updateAt"], "body": body}),
+    )
+    .await;
+    let listed = case
+        .run("getPageBodyVersions", of_page, json!({}))
+        .await
+        .value();
+    let version = listed[0]["version"]
+        .as_i64()
+        .expect("a version")
+        .to_string();
+    let of_version = &[
+        ("wikiId", wiki),
+        ("pageId", page),
+        ("version", version.as_str()),
+    ];
+    case.run("getPageBodyVersion", of_version, json!({})).await;
+    case.run("restorePageBodyVersion", of_version, json!({}))
+        .await;
 }
 
 /// A comment on the page: written, listed, changed, its versions read, and deleted.

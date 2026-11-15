@@ -216,6 +216,21 @@ pub(super) const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
         "/wikis/{wikiId}/pages/{pageId}/comments/{commentId}/versions",
         "getPageCommentVersions",
     ),
+    (
+        "GET",
+        "/wikis/{wikiId}/pages/{pageId}/body-versions",
+        "getPageBodyVersions",
+    ),
+    (
+        "GET",
+        "/wikis/{wikiId}/pages/{pageId}/body-versions/{version}",
+        "getPageBodyVersion",
+    ),
+    (
+        "POST",
+        "/wikis/{wikiId}/pages/{pageId}/body-versions/{version}/restore",
+        "restorePageBodyVersion",
+    ),
 ];
 
 /// What a guest of the workspace is told by an operation of `REACHED_BY_ITEM` about
@@ -242,6 +257,9 @@ const REACHED_BY_ITEM: &[&str] = &[
     "patchPageComment",
     "deletePageComment",
     "getPageCommentVersions",
+    "getPageBodyVersions",
+    "getPageBodyVersion",
+    "restorePageBodyVersion",
     "createBoardsAndBlocks",
     "deleteBoardsAndBlocks",
     "patchBoardsAndBlocks",

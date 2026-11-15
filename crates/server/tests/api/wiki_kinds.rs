@@ -98,6 +98,9 @@ const REACHED: &[(&str, Reaches)] = &[
     ("patchPageComment", Reaches::Wikis),
     ("deletePageComment", Reaches::Wikis),
     ("getPageCommentVersions", Reaches::Wikis),
+    ("getPageBodyVersions", Reaches::Wikis),
+    ("getPageBodyVersion", Reaches::Wikis),
+    ("restorePageBodyVersion", Reaches::Wikis),
     // What the holder of a read token reads.
     ("getSharedBoard", Reaches::Boards),
     ("getSharedBlocks", Reaches::Boards),

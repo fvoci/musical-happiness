@@ -407,6 +407,6 @@ async fn handle_restore_card_body_version(
 }
 
 /// The number of a version, as a path names it: what is no number names no version.
-fn version_number(text: &str) -> Result<i64, AppError> {
+pub(super) fn version_number(text: &str) -> Result<i64, AppError> {
     text.parse().map_err(|_| AppError::not_found("version"))
 }

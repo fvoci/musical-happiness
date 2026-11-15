@@ -12721,6 +12721,212 @@
         ]
       }
     },
+    "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/body-versions": {
+      "get": {
+        "description": "As `getCardBodyVersions` gives a card's: the newest first, each with when it was\nkept and who wrote the body up to it, without the bodies (`getPageBodyVersion`).\nFor the members of the wiki, whatever their role. A page in the trash is not there\n(404); its versions come back with it, and go when it is gone for good.",
+        "operationId": "getPageBodyVersions",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the wiki: a board of the `kind` `wiki`. A board of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "wikiId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the page: a page of the wiki of the path. 404 for a page of another wiki.",
+            "in": "path",
+            "name": "pageId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/BodyVersion"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The versions, the newest first."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "The versions kept of a page's body",
+        "tags": [
+          "wikis"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/body-versions/{version}": {
+      "get": {
+        "description": "The version with its body, as `getPage` gives a body. For whom\n`getPageBodyVersions` is for. A number the page has no version of, or has none of\nany more, is 404.",
+        "operationId": "getPageBodyVersion",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the wiki: a board of the `kind` `wiki`. A board of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "wikiId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the page: a page of the wiki of the path. 404 for a page of another wiki.",
+            "in": "path",
+            "name": "pageId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The number of the version of the page's body, as `getPageBodyVersions` lists it.",
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BodyVersionContent"
+                }
+              }
+            },
+            "description": "The version."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "A version kept of a page's body",
+        "tags": [
+          "wikis"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/body-versions/{version}/restore": {
+      "post": {
+        "description": "Writes the body of the version to the page again, as `restoreCardBodyVersion` does\nto a card: those who edit the page together are sent the body as a new document,\nthe body it replaces is kept as a version first, and the body written is the\npage's newest version, by the caller. A page that has that body already is left as\nit is. For editors of the wiki (403 for its other members). A number the page has\nno version of, or has none of any more, is 404; a version whose body may not be\nstored any more, or shows an image whose file the wiki no longer has, is 409.",
+        "operationId": "restorePageBodyVersion",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the wiki: a board of the `kind` `wiki`. A board of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "wikiId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the page: a page of the wiki of the path. 404 for a page of another wiki.",
+            "in": "path",
+            "name": "pageId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The number of the version of the page's body, as `getPageBodyVersions` lists it.",
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page"
+                }
+              }
+            },
+            "description": "The page as it is now."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Go back to a version of a page's body",
+        "tags": [
+          "wikis"
+        ]
+      }
+    },
     "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/comments": {
       "get": {
         "description": "Every comment on the page, oldest first, as blocks of the `type` `comment` whose\nparent is the page; each says who wrote it (`createdBy`), and one whose text was\nchanged when that last happened (`editedAt`). For the members of the wiki. A page\nin the trash is not there (404).",

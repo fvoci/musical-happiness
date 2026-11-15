@@ -305,9 +305,17 @@ async fn wiki_with_a_page(founder: &Client, at: &str, name: &str) -> (String, St
         )
         .await
         .value();
-    let page = text(&page, "id");
     let said = json!({"type": "doc", "content": [{"type": "paragraph", "content": [
         {"type": "text", "text": format!("{name} comment")}]}]});
+    // A body written to the page is the first version of it, which the member reads.
+    founder
+        .patch(
+            &format!("{at}/wikis/{wiki}/pages/{}", text(&page, "id")),
+            &json!({"readAt": page["updateAt"], "body": said}),
+        )
+        .await
+        .check_ok();
+    let page = text(&page, "id");
     let comment = founder
         .post(
             &format!("{at}/wikis/{wiki}/pages/{page}/comments"),
@@ -427,6 +435,10 @@ async fn every_contract_operation_answers_a_plain_member_alike_in_both_organizat
         "getWikis",
         "getPageTree",
         "getPage",
+        "getPageComments",
+        "getPageCommentVersions",
+        "getPageBodyVersions",
+        "getPageBodyVersion",
         "getCardBodyVersions",
         "getCardBodyVersion",
         "getUpload",
