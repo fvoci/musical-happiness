@@ -34,6 +34,7 @@
   import { Button } from '$lib/ui/button/index.js';
   import * as Dialog from '$lib/ui/dialog/index.js';
 
+  import { bodyReferences } from './body-references.ts';
   import type { VersionsReading } from './body-versions.svelte.ts';
 
   interface Props {
@@ -62,6 +63,8 @@
           restoreDescription: m.card_version_restore_description,
         },
   );
+
+  const references = $derived(bodyReferences(board));
 
   /** How many faces a version shows of those who wrote it. */
   const FACES = 3;
@@ -257,7 +260,12 @@
               {:else if reading.contentStatus === 'failed'}
                 <p role="alert">{m.card_version_read_failed()}</p>
               {:else}
-                <BodyView doc={reading.content?.body ?? null} {resolveUser} class="text-base">
+                <BodyView
+                  doc={reading.content?.body ?? null}
+                  {resolveUser}
+                  {references}
+                  class="text-base"
+                >
                   {#snippet empty()}
                     <p class="text-muted-foreground">{words.noBody()}</p>
                   {/snippet}

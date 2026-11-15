@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::block::{Block, BlockPatch};
-use crate::block_ids::{UnmatchedRelation, renew_block_ids};
+use crate::block_ids::{UnmatchedRelation, renew_block_ids_told};
 use crate::board::{Board, BoardPatch};
 use crate::id::new_id;
 use crate::relation::RelationProperties;
@@ -173,7 +173,7 @@ pub fn generate_boards_and_blocks_ids(
     boards_and_blocks: BoardsAndBlocks,
 ) -> Result<BoardsAndBlocks, BoardsAndBlocksError> {
     boards_and_blocks.validate()?;
-    Ok(renew_ids(boards_and_blocks, UnmatchedRelation::Kept))
+    Ok(renew_ids(boards_and_blocks, UnmatchedRelation::Kept, &|_| false).boards_and_blocks)
 }
 
 /// Gives every board and block a new identifier, keeping blocks attached to their boards
@@ -186,13 +186,38 @@ pub fn generate_boards_and_blocks_ids(
 /// that are among `blocks`, and no other card.
 #[must_use]
 pub fn renew_boards_and_blocks_ids(boards_and_blocks: BoardsAndBlocks) -> BoardsAndBlocks {
-    renew_ids(boards_and_blocks, UnmatchedRelation::Dropped)
+    renew_ids(boards_and_blocks, UnmatchedRelation::Dropped, &|_| false).boards_and_blocks
+}
+
+/// Boards and blocks with new identifiers, and what some of the blocks were renamed to.
+#[derive(Debug, Clone)]
+pub struct Renewed {
+    /// The boards and blocks, as [`renew_boards_and_blocks_ids`] gives them.
+    pub boards_and_blocks: BoardsAndBlocks,
+    /// The new identifier of each block that was asked for, by its old one.
+    pub renamed: HashMap<String, String>,
+}
+
+/// Does what [`renew_boards_and_blocks_ids`] does and tells the new identifier of each
+/// block that `told` picks by its old one. One board of an archive of several is
+/// renewed so: a body of another board that names one of its blocks is pointed at the
+/// copy with it.
+#[must_use]
+pub fn renew_boards_and_blocks_ids_told(
+    boards_and_blocks: BoardsAndBlocks,
+    told: impl Fn(&str) -> bool,
+) -> Renewed {
+    renew_ids(boards_and_blocks, UnmatchedRelation::Dropped, &told)
 }
 
 /// Gives every board and block a new identifier, as the two functions above say; a card
 /// relation value names the cards among the blocks by their new identifiers, and what
 /// else it names is kept or dropped as `unmatched` says.
-fn renew_ids(boards_and_blocks: BoardsAndBlocks, unmatched: UnmatchedRelation) -> BoardsAndBlocks {
+fn renew_ids(
+    boards_and_blocks: BoardsAndBlocks,
+    unmatched: UnmatchedRelation,
+    told: &dyn Fn(&str) -> bool,
+) -> Renewed {
     let BoardsAndBlocks { mut boards, blocks } = boards_and_blocks;
 
     let mut blocks_by_board: HashMap<String, Vec<Block>> = HashMap::new();
@@ -225,7 +250,10 @@ fn renew_ids(boards_and_blocks: BoardsAndBlocks, unmatched: UnmatchedRelation) -
     for board in &boards {
         relations.add_board(&board.id, &board.card_properties);
     }
-    renew_block_ids(&mut blocks, &relations, unmatched);
+    let renamed = renew_block_ids_told(&mut blocks, &relations, unmatched, told);
 
-    BoardsAndBlocks { boards, blocks }
+    Renewed {
+        boards_and_blocks: BoardsAndBlocks { boards, blocks },
+        renamed,
+    }
 }

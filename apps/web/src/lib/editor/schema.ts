@@ -12,9 +12,10 @@
 
 /**
  * The version of this list. A stored body carries the version it was written
- * under. Version 2 added the two formula nodes, `inlineMath` and `blockMath`.
+ * under. Version 2 added the two formula nodes, `inlineMath` and `blockMath`;
+ * version 3 the `reference` to a card or a page.
  */
-export const BODY_VERSION = 2;
+export const BODY_VERSION = 3;
 
 /** The largest body, as the bytes of its JSON in UTF-8 (`storedSize`). */
 export const MAX_BODY_BYTES = 1024 * 1024;
@@ -78,6 +79,8 @@ export const isUserId: AttributeRule = (value) =>
   typeof value === 'string' &&
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value) &&
   value !== NIL_ID;
+/** A block's identifier, which has the form of a user's: whether it names anything is not asked. */
+export const isBlockId: AttributeRule = isUserId;
 /** A language tag of a code block: `rust`, `c++`, `objective-c`. */
 const isLanguage: AttributeRule = (value) =>
   typeof value === 'string' && /^[A-Za-z0-9+#._-]{1,40}$/.test(value);
@@ -112,7 +115,7 @@ const BLOCKS = [
   'image',
   'blockMath',
 ] as const;
-const INLINE = ['text', 'hardBreak', 'mention', 'inlineMath'] as const;
+const INLINE = ['text', 'hardBreak', 'mention', 'reference', 'inlineMath'] as const;
 
 export const NODE_SPECS: Record<string, NodeSpec> = {
   doc: { attrs: {}, children: BLOCKS, minChildren: 1 },
@@ -137,6 +140,8 @@ export const NODE_SPECS: Record<string, NodeSpec> = {
     minChildren: 0,
   },
   mention: { attrs: { userId: required(isUserId) }, children: [], minChildren: 0 },
+  // A reference is the identifier of a card or a page; its title is read where it is shown.
+  reference: { attrs: { id: required(isBlockId) }, children: [], minChildren: 0 },
   // A formula is its LaTeX source and nothing else; it is drawn where it is shown.
   inlineMath: {
     attrs: { latex: required(isNonEmptyText(MAX_LATEX)) },
@@ -211,11 +216,24 @@ function holdsNul(value: unknown): boolean {
  * written back.
  */
 const SHOWN_MENTION = { userId: required(isText(100)) };
+/**
+ * The attributes of a reference in a body that is only shown: the same
+ * reader gets a reference to anything outside the board with an empty `id`,
+ * drawn as a link that cannot be seen.
+ */
+const SHOWN_REFERENCE = { id: required(isText(100)) };
+
+/** The attributes a node of a body that is only shown may have, where they are not those it is written with. */
+const SHOWN_ATTRS: Record<string, Record<string, AttributeSpec>> = {
+  mention: SHOWN_MENTION,
+  reference: SHOWN_REFERENCE,
+};
 
 export interface ValidateOptions {
   /**
    * The document is only shown, not written: a mention may name nobody
-   * (an empty `userId`), and U+0000, which only the server's store cannot
+   * (an empty `userId`) and a reference nothing (an empty `id`), and
+   * U+0000, which only the server's store cannot
    * keep, is drawn as the letter it is.
    */
   shown?: boolean;
@@ -295,12 +313,8 @@ export function validateDoc(doc: unknown, options: ValidateOptions = {}): string
     if (allowed && !allowed.includes(type))
       problems.push(`${at}: not allowed inside ${where || 'the root'}`);
     for (const key of Object.keys(rest)) problems.push(`${at}: unknown member "${key}"`);
-    checkAttributes(
-      at,
-      attrs,
-      options.shown && type === 'mention' ? SHOWN_MENTION : spec.attrs,
-      problems,
-    );
+    const shownAttrs = options.shown ? SHOWN_ATTRS[type] : undefined;
+    checkAttributes(at, attrs, shownAttrs ?? spec.attrs, problems);
 
     if (type === 'text') {
       if (typeof text !== 'string' || text.length === 0) problems.push(`${at}: text is empty`);
@@ -437,7 +451,7 @@ export const MAX_DIAGRAM_SOURCE = 20_000;
 /**
  * The words of a document without its structure, one line per paragraph:
  * for search, previews and notifications. `mentionLabel` names a mentioned
- * user. A formula gives its source: inside a line where it stands in one, on
+ * user; a reference gives nothing, as on the server. A formula gives its source: inside a line where it stands in one, on
  * a line of its own when it is a block. A diagram is a code block and gives
  * its source like any other code.
  */

@@ -33,6 +33,7 @@
   import { Button } from '$lib/ui/button/index.js';
 
   import { autosize } from '$lib/components/autosize.ts';
+  import { bodyReferences } from './body-references.ts';
   import { commentDoc, commentText } from './comment-doc.ts';
   import CommentHistory from './CommentHistory.svelte';
 
@@ -64,6 +65,8 @@
     if (historyOf === commentId) historyOf = undefined;
     void card.deleteComment(commentId);
   }
+
+  const references = $derived(bodyReferences(board, card.cardId));
 
   const uid = $props.id();
   const workspace = $derived(board.workspace);
@@ -233,7 +236,12 @@
                   data-testid="comment-theirs"
                 >
                   <p class="font-medium">{m.card_comment_conflict()}</p>
-                  <BodyView doc={current?.body ?? null} {resolveUser} class="mt-1 text-sm" />
+                  <BodyView
+                    doc={current?.body ?? null}
+                    {resolveUser}
+                    {references}
+                    class="mt-1 text-sm"
+                  />
                 </div>
               {/if}
               <!-- The field opens on the reader's own press, to be typed in. -->
@@ -257,7 +265,7 @@
               </div>
             </form>
           {:else}
-            <BodyView doc={comment.body} {resolveUser} class="text-base">
+            <BodyView doc={comment.body} {resolveUser} {references} class="text-base">
               {#snippet invalid()}
                 <p class="text-muted-foreground">{m.card_body_invalid()}</p>
               {/snippet}

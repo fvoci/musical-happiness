@@ -138,6 +138,7 @@ impl Named {
     fn body(&self, operation: &str) -> Value {
         match operation {
             "getWorkspaceUsersById" => json!([self.member_id]),
+            "resolveReferences" => json!([self.card, self.page]),
             "createBlocks" | "reorderCardProperties" => json!([]),
             "importArchive" => json!({ "uploadId": self.upload }),
             "previewInvitation" => json!({ "token": self.invitation }),
@@ -217,22 +218,8 @@ async fn organization(server: &TestServer, name: &str) -> Named {
     )
     .await
     .value();
-    let invitation = founder
-        .post(&format!("{at}/invitations"), &json!({"role": "member"}))
-        .await
-        .value();
+    let (invitation, member) = invited_member(server, &founder, &at, name).await;
     let token = text(&invitation, "token");
-    let member_name = format!("{name}-member");
-    let accepted = server
-        .anonymous()
-        .post(
-            "/invitations/accept",
-            &json!({"token": token, "account": {"username": member_name,
-                "email": format!("{member_name}@example.test"), "password": PASSWORD}}),
-        )
-        .await;
-    assert!(accepted.status.is_success(), "{}", accepted.text());
-    let member = log_in(server, &member_name).await;
     let member_id = member.me().await.id;
     let categories = member.get(&format!("{at}/categories")).await.value();
     let sharing = founder
@@ -285,6 +272,31 @@ async fn organization(server: &TestServer, name: &str) -> Named {
         comment,
         team,
     }
+}
+
+/// The invitation for members the founder makes in the workspace at `at`, and the
+/// member who signs up by it and is logged in.
+async fn invited_member(
+    server: &TestServer,
+    founder: &Client,
+    at: &str,
+    name: &str,
+) -> (Value, Client) {
+    let invitation = founder
+        .post(&format!("{at}/invitations"), &json!({"role": "member"}))
+        .await
+        .value();
+    let member_name = format!("{name}-member");
+    let accepted = server
+        .anonymous()
+        .post(
+            "/invitations/accept",
+            &json!({"token": text(&invitation, "token"), "account": {"username": member_name,
+                "email": format!("{member_name}@example.test"), "password": PASSWORD}}),
+        )
+        .await;
+    assert!(accepted.status.is_success(), "{}", accepted.text());
+    (invitation, log_in(server, &member_name).await)
 }
 
 /// A wiki of the workspace at `at` for everybody in it, with a page and a comment on it:
@@ -451,6 +463,9 @@ async fn every_contract_operation_answers_a_plain_member_alike_in_both_organizat
         "getSharedCards",
         "getTemplates",
         "getWorkspaceUsers",
+        "resolveReferences",
+        "getReferencesTo",
+        "searchReferences",
         "getMyMemberships",
     ] {
         assert_eq!(

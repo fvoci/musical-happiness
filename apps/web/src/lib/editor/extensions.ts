@@ -50,6 +50,7 @@ import { EditingPlace } from './editing-place.ts';
 import { findEmojiTrigger } from './emoji-trigger.ts';
 import { fileUrl } from './files.ts';
 import { BlockMath, InlineMath } from './math-nodes.ts';
+import { Reference, type ReferenceOptions } from './reference.ts';
 import { isAllowedHref, isUserId } from './schema.ts';
 
 /** A link keeps its target and nothing else; how it opens is the app's business, not the document's. */
@@ -300,6 +301,8 @@ export interface BodyExtensionOptions {
   history?: boolean;
   mention?: MentionOptions;
   emoji?: EmojiOptions;
+  /** Without it references are drawn as what the reader may not see, and `[[` offers nothing. */
+  reference?: Partial<ReferenceOptions>;
 }
 
 /** Every extension of the body editor. The nodes and marks are exactly those of schema.ts. */
@@ -321,6 +324,7 @@ export function bodyExtensions(options: BodyExtensionOptions = {}): AnyExtension
     HardBreak,
     FileImage,
     Mention.configure(options.mention ?? {}),
+    Reference.configure(options.reference ?? {}),
     InlineMath,
     BlockMath,
     // Marks

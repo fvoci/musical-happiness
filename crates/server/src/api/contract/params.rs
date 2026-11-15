@@ -81,6 +81,7 @@ parameter!(Page: Query "page", i64, False, "The page, counted from 0. Left out, 
 parameter!(PerPage: Query "perPage", i64, False, "How many a page has. Left out, 100. Zero or less asks for all of them.");
 parameter!(CappedPerPage: Query "perPage", i64, False, "How many a page has, at most 200. Left out, or zero or less, 50.");
 parameter!(SearchTerm: Query "q", String, False, "What to look for. Without it nothing is found.");
+parameter!(TitleTerm: Query "q", String, False, "The words to look for in titles, at most 200 characters. Without it, what was changed last is found.");
 parameter!(SearchField: Query "field", String, False, "What the term is matched against: `title` (also when left out), or `property_name`, for the boards whose own `properties` object has a member named exactly as the term. Anything else is 400.");
 parameter!(ContentText: Query "q", String, False, "The words to find, at most 200 characters. Without it nothing is found.");
 parameter!(ContentKind: Query "kind", String, False, "The kind of thing to find: `card` or `page`. Left out, both. Anything else is 400.");

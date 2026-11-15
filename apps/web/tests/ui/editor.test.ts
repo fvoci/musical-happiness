@@ -152,6 +152,19 @@ describe('HTML from elsewhere', () => {
     expect(JSON.stringify(doc)).not.toContain('mention');
   });
 
+  it('takes a reference by its identifier alone, and none that names nothing', () => {
+    const id = '01930000-0000-7000-8000-00000000b001';
+    const doc = load(
+      `<p>a <span data-reference data-block-id="${id}">Plan</span> b <span data-reference data-block-id="">Hidden</span> c <span data-reference data-block-id="b1">x</span></p>`,
+    );
+    expect(doc.content?.[0]?.content?.filter((node) => node.type === 'reference')).toEqual([
+      { type: 'reference', attrs: { id } },
+    ]);
+    // What stood inside the element, a title somebody else's screen drew, is not taken.
+    expect(JSON.stringify(doc)).not.toContain('Plan');
+    expect(validateDoc(doc)).toEqual([]);
+  });
+
   it('keeps marks off line breaks and mentions inside marked text', () => {
     const doc = load(
       '<p><strong>a<br>b <span data-mention data-user-id="01930000-0000-7000-8000-00000000c001"></span> c</strong></p><p><a href="/x"><em>d<br></em>e</a></p>',

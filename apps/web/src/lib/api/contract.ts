@@ -1061,7 +1061,10 @@ export interface paths {
          *     a list keeps its length, so how many people a card has still shows. A card's values
          *     of properties the board does not define are left out, and a view grouped by a person
          *     property keeps of `visibleOptionIds`, `hiddenOptionIds`, `collapsedOptionIds` and
-         *     `kanbanCalculations` only the group of the cards without a value (`""`). Oldest
+         *     `kanbanCalculations` only the group of the cards without a value (`""`). A reference
+         *     in a body keeps its `id` if it names a card of this board, and has an empty one for
+         *     anything else: of what is elsewhere in the workspace nothing is told, nor whether
+         *     there is anything. Oldest
          *     first; the blocks that one request made come in the order that request had them in.
          */
         get: operations["getSharedBlocks"];
@@ -1086,7 +1089,8 @@ export interface paths {
          *     No card names a user: `createdBy` and `modifiedBy` are empty, the values of person
          *     properties are emptied, and values of properties the board does not define are left
          *     out. The preview's text has no mentions in it, and its image `getSharedFile` gives.
-         *     Oldest first; the pages cut that order.
+         *     A card comes without its body, so with nothing a body names. Oldest first; the
+         *     pages cut that order.
          */
         get: operations["getSharedCards"];
         put?: never;
@@ -2781,6 +2785,90 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/w/{workspaceId}/references/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * What references name
+         * @description A body names a card or a page by its identifier alone (the node `reference`), and no
+         *     body, however it is read, says what that is called: this does, for the user who
+         *     asks and as things are now. Of the identifiers of the body, the cards and pages of
+         *     this workspace on a board or a wiki the user reads (as `getCard` and `getPage` ask),
+         *     each once, in the order they were first named.
+         *
+         *     Whatever else an identifier names is left out, and the answer does not tell why:
+         *     nothing at all, something in the trash, something of another workspace or
+         *     organization, a card or a page the user does not read, or a block that is neither.
+         *     The body names at most 100 identifiers (more is 400, as an entry that has not the
+         *     form of an identifier is); an empty list answers an empty list.
+         */
+        post: operations["resolveReferences"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/references/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Find what a reference may name
+         * @description The cards and pages of this workspace, on a board or a wiki the user reads, whose
+         *     title has every word of `q` in it, as spaces divide it and whatever the case of the
+         *     letters (of every letter, not only ASCII); `%` and `_` are characters like any
+         *     other. At most 20, the one changed last first; without `q`, the 20 changed last.
+         *     Bodies are not looked into. What is in the trash, what is on a template, and a card
+         *     that is a template of its board's cards are never found. A `q` of more than 200
+         *     characters is 400.
+         */
+        get: operations["searchReferences"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/references/to/{blockId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What names a card or a page
+         * @description The cards and pages of this workspace whose body names the block of the path with a
+         *     reference, or which have a comment whose body does, on a board or a wiki the user
+         *     reads; the block itself is never among them. Oldest first, 50 to a page unless
+         *     `perPage` says otherwise, at most 200. What names it from where the user does not
+         *     read is left out and takes no place in a page: the answer does not say how many
+         *     there are, nor whether there are any.
+         *
+         *     404 unless the block is a card or a page the user reads, as `resolveReferences`
+         *     tells of it: for anything else, as for an identifier of nothing.
+         */
+        get: operations["getReferencesTo"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/w/{workspaceId}/search": {
         parameters: {
             query?: never;
@@ -4287,6 +4375,21 @@ export interface components {
             /** @description The token of the link. */
             token: string;
         };
+        /** @description A card or a page as a reference shows it: what it is called, and where it is. */
+        LinkedBlock: {
+            /** @description The identifier of the board the card is on, or of the wiki the page is of. */
+            boardId: string;
+            /** @description Whether that is a board or a wiki. */
+            boardKind: components["schemas"]["BoardKind"];
+            /** @description Its icon, at most one grapheme; empty for none. */
+            icon: string;
+            /** @description The identifier of the card or the page. */
+            id: string;
+            /** @description Whether it is a card or a page. */
+            kind: components["schemas"]["LinkedKind"];
+            /** @description Its title; empty for one without. */
+            title: string;
+        };
         /**
          * @description An identity tied to an account: who its owner is at a provider, by which they sign
          *     in to it through the provider of an organization.
@@ -4313,6 +4416,11 @@ export interface components {
             /** @description Who the account's owner is at the issuer. */
             subject: string;
         };
+        /**
+         * @description What a reference may name: a card of a board or a page of a wiki.
+         * @enum {string}
+         */
+        LinkedKind: "card" | "page";
         /** @description What the login page shows: the organization it is for, if it is for one. */
         LoginOptions: {
             /**
@@ -5054,6 +5162,8 @@ export interface components {
              */
             size: number;
         };
+        /** @description The identifiers the references name, each the `id` of a node `reference`: at most 100. */
+        ReferenceIds: string[];
         /** @description A request to register a new user. */
         RegisterRequest: {
             /**
@@ -9962,6 +10072,116 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OnboardingStart"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    resolveReferences: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReferenceIds"];
+            };
+        };
+        responses: {
+            /** @description What the user is shown of them. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LinkedBlock"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    searchReferences: {
+        parameters: {
+            query?: {
+                /** @description The words to look for in titles, at most 200 characters. Without it, what was changed last is found. */
+                q?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What was found. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LinkedBlock"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getReferencesTo: {
+        parameters: {
+            query?: {
+                /** @description The page, counted from 0. Left out, the first one. */
+                page?: number;
+                /** @description How many a page has, at most 200. Left out, or zero or less, 50. */
+                perPage?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the block. */
+                blockId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What names it, of the page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LinkedBlock"][];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */

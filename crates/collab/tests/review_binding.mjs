@@ -37,7 +37,7 @@ const content = {
   bulletList: 'listItem+', orderedList: 'listItem+', taskList: 'taskItem+',
   listItem: 'paragraph block*', taskItem: 'paragraph block*', codeBlock: 'text*',
 };
-const inline = new Set(['text', 'hardBreak', 'mention', 'inlineMath']);
+const inline = new Set(['text', 'hardBreak', 'mention', 'reference', 'inlineMath']);
 const attrs = given => Object.fromEntries(Object.entries(given).map(([key, value]) => [key, { default: value }]));
 const schema = new Schema({
   nodes: Object.fromEntries(Object.entries(contract.schema.nodes).map(([name, given]) => [name, {
@@ -90,7 +90,8 @@ for (let mask = 0; mask < 32; mask++) {
 cases.push({ name: 'Unicode in attributes, empty optional strings, defaults and Mermaid', body: doc([
   { type: 'heading', attrs: { level: 3 }, content: [text(letters)] },
   paragraph({ type: 'inlineMath', attrs: { latex: letters } },
-    { type: 'mention', attrs: { userId: '01930000-0000-7000-8000-00000000c002' } }),
+    { type: 'mention', attrs: { userId: '01930000-0000-7000-8000-00000000c002' } },
+    { type: 'reference', attrs: { id: '01930000-0000-7000-8000-00000000b002' } }),
   { type: 'blockMath', attrs: { latex: letters } },
   { type: 'image', attrs: { fileId: '😀e\u0301.png', alt: letters } },
   { type: 'image', attrs: { fileId: 'empty-alt.png', alt: '' } },

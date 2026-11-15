@@ -17,6 +17,7 @@ use std::collections::BTreeSet;
 use fvoci_model::{Block, BlockError, FileInfo};
 
 use crate::Store;
+use crate::block_derived::Refreshing;
 use crate::body_versions;
 use crate::comment_versions;
 use crate::db::{Dialect, Id, Scope, Sql, now_millis};
@@ -102,11 +103,13 @@ pub enum NewImages {
 /// files of its board whose state that changes. A comment shows the files of its kept
 /// versions too, also while it is made a block of another type, and a card or a page
 /// those of the kept versions of its body. What the images of
-/// the body newly show is asked as `new_images` says.
+/// the body newly show is asked as `new_images` says. Only
+/// [`crate::block_derived::refresh`] makes it, with the rest of what follows from a block.
 pub(crate) async fn refresh(
     scope: &mut Scope<'_>,
     block: &Block,
     new_images: NewImages,
+    _: Refreshing,
 ) -> Result<(), StoreError> {
     let mut sql = scope.sql("DELETE FROM file_refs WHERE block_id = ");
     sql.bind(Id(&block.id)).push(" RETURNING name");

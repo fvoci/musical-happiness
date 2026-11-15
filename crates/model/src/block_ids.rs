@@ -21,8 +21,9 @@ pub enum UnmatchedRelation {
 
 /// Gives every block a new identifier while keeping references between them intact.
 ///
-/// A reference is another block's identifier appearing as a `board_id`, a `parent_id`, or
-/// inside the `contentOrder`, `cardOrder` or `defaultTemplateId` fields. References to
+/// A reference is another block's identifier appearing as a `board_id`, a `parent_id`,
+/// inside the `contentOrder`, `cardOrder` or `defaultTemplateId` fields, or in a
+/// reference of the body (a card or a page a body names). References to
 /// identifiers outside `blocks` are left as they are, so the tree keeps its shape and
 /// stays attached to whatever it pointed at.
 ///
@@ -45,52 +46,37 @@ pub fn renew_block_ids(
     relations: &RelationProperties,
     unmatched: UnmatchedRelation,
 ) {
+    renew_block_ids_told(blocks, relations, unmatched, &|_| false);
+}
+
+/// Does what [`renew_block_ids`] does and returns the new identifier of each block
+/// that `told` picks by its old one, by that old one. What names such a block from outside `blocks` (a body
+/// of another board of the same archive) can then be pointed at its copy.
+pub(crate) fn renew_block_ids_told(
+    blocks: &mut [Block],
+    relations: &RelationProperties,
+    unmatched: UnmatchedRelation,
+    told: &dyn Fn(&str) -> bool,
+) -> HashMap<String, String> {
     // The board of each card: a copy names a copied card of its own board only.
     let card_boards: HashMap<String, String> = blocks
         .iter()
         .filter(|block| block.block_type == BlockType::Card)
         .map(|block| (block.id.clone(), block.board_id.clone()))
         .collect();
-    let mut referenced: HashSet<&str> = HashSet::new();
-    for block in blocks.iter() {
-        referenced.extend(related_ids(block, relations));
-        referenced.insert(&block.board_id);
-        referenced.insert(&block.parent_id);
-        // A view's card order names cards that nothing else may refer to: a card whose
-        // content is its body has no blocks below it.
-        if let Some(Value::Array(items)) = block.fields.get("cardOrder") {
-            referenced.extend(order_ids(items));
-        }
-
-        if let Some(content_order) = block.fields.get("contentOrder") {
-            let Some(items) = content_order.as_array() else {
-                // The original skips the rest of this block, including its
-                // `defaultTemplateId`, when `contentOrder` is not an array.
-                continue;
-            };
-            referenced.extend(order_ids(items));
-        }
-        if let Some(Value::String(template_id)) = block.fields.get("defaultTemplateId") {
-            referenced.insert(template_id);
-        }
-    }
-
-    // No identifier is no reference. A block without a parent would otherwise refer to
-    // every block of the request that came without an identifier: those would share
-    // one new identifier, and the blocks without a parent would get it as theirs.
-    referenced.remove("");
+    let referenced = referenced_ids(blocks, relations);
 
     // The new identifiers are made in the order of the blocks: identifiers sort in the
     // order they were made, and a list of blocks is by creation time and then by
     // identifier, so blocks that are stored in one millisecond come back in the order
     // they were sent in. Blocks that share an identifier share the new one too, which
-    // is only kept for the blocks something refers to: no other block needs to learn
-    // the new value of the rest.
+    // is only kept for the blocks something refers to and those asked for (`told`): no
+    // other block needs to learn the new value of the rest.
     let mut renamed: HashMap<String, String> = HashMap::new();
     let new_ids: Vec<String> = blocks
         .iter()
         .map(|block| {
-            if referenced.contains(block.id.as_str()) {
+            if referenced.contains(block.id.as_str()) || told(&block.id) {
                 renamed
                     .entry(block.id.clone())
                     .or_insert_with(new_id)
@@ -134,7 +120,49 @@ pub fn renew_block_ids(
         if let Some(Value::String(template_id)) = block.fields.get_mut("defaultTemplateId") {
             renamed_or_same(template_id);
         }
+        if let Some(body) = block.body.as_mut() {
+            body.rename_references(|id| renamed.get(id).cloned());
+        }
     }
+    renamed.retain(|old, _| told(old));
+    renamed
+}
+
+/// What the blocks refer to by identifier ([`generate_block_ids`]): boards, parents,
+/// what the order and template fields and card relations name, and what bodies name.
+fn referenced_ids<'b>(blocks: &'b [Block], relations: &RelationProperties) -> HashSet<&'b str> {
+    let mut referenced: HashSet<&str> = HashSet::new();
+    for block in blocks {
+        referenced.extend(related_ids(block, relations));
+        referenced.insert(&block.board_id);
+        referenced.insert(&block.parent_id);
+        if let Some(body) = &block.body {
+            referenced.extend(body.reference_ids());
+        }
+        // A view's card order names cards that nothing else may refer to: a card whose
+        // content is its body has no blocks below it.
+        if let Some(Value::Array(items)) = block.fields.get("cardOrder") {
+            referenced.extend(order_ids(items));
+        }
+
+        if let Some(content_order) = block.fields.get("contentOrder") {
+            let Some(items) = content_order.as_array() else {
+                // The original skips the rest of this block, including its
+                // `defaultTemplateId`, when `contentOrder` is not an array.
+                continue;
+            };
+            referenced.extend(order_ids(items));
+        }
+        if let Some(Value::String(template_id)) = block.fields.get("defaultTemplateId") {
+            referenced.insert(template_id);
+        }
+    }
+
+    // No identifier is no reference. A block without a parent would otherwise refer to
+    // every block of the request that came without an identifier: those would share
+    // one new identifier, and the blocks without a parent would get it as theirs.
+    referenced.remove("");
+    referenced
 }
 
 /// Renames what the relation values of the cards among `blocks` name ([`renew_block_ids`]):

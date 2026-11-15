@@ -2,6 +2,7 @@
 
 use crate::boards::{board_with_admin, new_board};
 use crate::common::{ROOT_WORKSPACE_ID, Setup, TestServer};
+use crate::references::{HIDDEN, check_as_nothing, made, named, resolved};
 use fvoci_model::{AuditAction, Board, BoardMember, BoardRole, BoardType, Team};
 use reqwest::StatusCode;
 use serde_json::json;
@@ -547,4 +548,31 @@ async fn a_board_of_a_team_is_listed_only_to_a_session_its_organization_takes() 
     );
     th.teardown().await;
     fake.stop();
+}
+
+/// What a reference names is told to whoever holds a role through a team as to one who
+/// holds it by name, and no longer once the team is taken off the board.
+#[tokio::test]
+async fn a_team_role_is_told_what_references_name_until_it_is_taken_off() {
+    let th = Setup::native().start().await.init_basic().await;
+    let at = format!("/w/{ROOT_WORKSPACE_ID}");
+    let own = made(&th.client2, &at, "P", "own").await;
+    let private = made(&th.client, &at, "P", HIDDEN).await;
+    let member = th.client2.me().await.id;
+    let team = group(&th, &member, "Readers").await;
+    let on_the_board = format!("{at}/boards/{}/teams/{}", private.board, team.id);
+
+    check_as_nothing(&th.client2, &at, &private.both(), &own.card, "no role").await;
+    th.client
+        .put(&on_the_board, &json!({"role":"viewer"}))
+        .await
+        .check_no_content();
+    assert_eq!(
+        named(&resolved(&th.client2, &at, &private.both()).await),
+        [private.card.as_str()],
+        "the team is on the board and not on the wiki"
+    );
+    th.client.delete(&on_the_board).await.check_no_content();
+    check_as_nothing(&th.client2, &at, &private.both(), &own.card, "taken off").await;
+    th.teardown().await;
 }

@@ -33,6 +33,8 @@ export interface RawCase {
 }
 
 const ADA = '01930000-0000-7000-8000-00000000c002';
+/** A block a reference names. */
+const PLAN = '01930000-0000-7000-8000-00000000b002';
 
 const text = (insert: string, attributes?: Record<string, unknown>): RawNode => ({
   text: [attributes ? { insert, attributes } : { insert }],
@@ -96,6 +98,7 @@ export const BODIES: BodyCase[] = [
         run('c', 'italic'),
         { type: 'inlineMath', attrs: { latex: 'x' } },
         { type: 'mention', attrs: { userId: ADA } },
+        { type: 'reference', attrs: { id: PLAN } },
         run('d', 'bold'),
         run('e', 'bold', 'italic'),
       ),
@@ -298,6 +301,13 @@ export const REFUSED: RawCase[] = [
     ],
   },
   {
+    name: 'a reference to nothing, and to something that is no identifier',
+    root: [
+      paragraph({ element: 'reference' }),
+      paragraph({ element: 'reference', attrs: { id: 'x' } }),
+    ],
+  },
+  {
     name: 'formulas without a source and with an empty one',
     root: [
       { element: 'blockMath' },
@@ -449,6 +459,7 @@ export const REPAIRS: RawCase[] = [
       { element: 'horizontalRule', children: [paragraph()] },
       { element: 'blockMath', attrs: { latex: 'x' }, children: [text('x')] },
       paragraph({ element: 'mention', attrs: { userId: ADA }, children: [text('x')] }),
+      paragraph({ element: 'reference', attrs: { id: PLAN }, children: [text('x')] }),
       paragraph({ element: 'inlineMath', attrs: { latex: 'x' }, children: [text('x')] }, text('b')),
     ],
   },

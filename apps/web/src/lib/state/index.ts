@@ -66,6 +66,12 @@ export type {
   WorkspaceRole,
 } from './people-types.ts';
 export { newCardMaker, registerNewCard, type NewCardMaker } from './new-card.ts';
+export {
+  referenceTitles,
+  ReferenceTitles,
+  type ReferencePlaces,
+} from './reference-titles.svelte.ts';
+export type { LinkedBlock } from './references.ts';
 export { byCreation, byTitle, type SidebarCategory } from './order.ts';
 export { type Transfer } from './transfers.svelte.ts';
 export { type EnterStatus } from './workspace-entry.ts';

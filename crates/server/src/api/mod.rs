@@ -32,6 +32,7 @@ mod page_comments;
 mod page_versions;
 mod password_reset;
 mod recovery;
+mod references;
 mod search;
 mod session;
 mod shared;
@@ -136,6 +137,7 @@ fn routes() -> Routes {
         .merge(onboarding::routes())
         .merge(org::routes())
         .merge(org_admin::routes())
+        .merge(references::routes())
         .merge(search::routes())
         .merge(content_search::routes())
         .merge(sharing::routes())

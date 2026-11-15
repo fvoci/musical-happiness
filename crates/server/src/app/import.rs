@@ -8,13 +8,14 @@
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::io::{self, Read, Seek, SeekFrom, Write as _};
+use std::mem;
 use std::path::Path;
 use std::sync::Arc;
 
 use bytes::Bytes;
 use fvoci_model::{
-    ArchiveHeader, ArchiveLine, Block, BlockType, Board, BoardKind, BoardMember, BoardsAndBlocks,
-    BoardsAndBlocksError, JsonMap, WorkspaceRole, renew_boards_and_blocks_ids,
+    ArchiveHeader, ArchiveLine, Block, Board, BoardKind, BoardMember, BoardsAndBlocks,
+    BoardsAndBlocksError, JsonMap, Renewed, WorkspaceRole, renew_boards_and_blocks_ids_told,
 };
 use serde_json::Value;
 use tokio::fs;
@@ -146,9 +147,6 @@ impl App {
             }
         }
 
-        // Every board is read and checked as the store checks it before the first is
-        // stored: an archive that one of them refuses stores nothing. What is read is
-        // dropped and read again to be stored, so that one board at a time is held.
         let mut boards = Vec::new();
         for index in 0..zip.len() {
             let (dir, filename) = entry_name(&zip, index)?;
@@ -156,14 +154,15 @@ impl App {
                 boards.push((index, dir));
             }
         }
-        for (index, _) in &boards {
-            parse_board_jsonl(read_entry(&zip, *index, MAX_JSONL_BYTES).await?, options).await?;
-        }
+        let elsewhere = named_elsewhere(&zip, &boards, options).await?;
 
         // First pass: the boards; a file entry needs its board already known.
         let mut left_out: HashSet<String> = HashSet::new();
-        let board_map = self
-            .store_archive_boards(&zip, boards, options, &mut left_out)
+        let StoredBoards {
+            by_dir: board_map,
+            copies,
+        } = self
+            .store_archive_boards(&zip, boards, options, &elsewhere, &mut left_out)
             .await?;
 
         // Second pass: the files, placed under their board.
@@ -196,7 +195,7 @@ impl App {
             file_map.insert((board.id.clone(), filename), new_name);
         }
 
-        self.fix_images_attachments(&board_map, &file_map, &options.modified_by)
+        self.fix_images_attachments(&board_map, &file_map, &copies, &options.modified_by)
             .await;
         tracing::debug!(boards_imported = board_map.len(), "import archive - done");
         Ok(Imported {
@@ -204,105 +203,10 @@ impl App {
         })
     }
 
-    /// Points every block of each imported board that shows a file at the newly stored
-    /// one: the `fileId` or `attachmentId` of an attachment block, and the
-    /// images of a body. A name the archive brought no file for becomes the empty name
-    /// in a block's fields, and its image in a body an empty paragraph. Failures are
-    /// logged, as in the original.
-    async fn fix_images_attachments(
-        &self,
-        board_map: &HashMap<String, Board>,
-        file_map: &HashMap<(String, String), String>,
-        user_id: &str,
-    ) {
-        for board in board_map.values() {
-            let blocks = match self.store().get_blocks(&board_blocks(&board.id)).await {
-                Ok(blocks) => blocks,
-                Err(error) => {
-                    tracing::error!(
-                        %error,
-                        board_id = board.id,
-                        "cannot retrieve imported blocks for board"
-                    );
-                    continue;
-                }
-            };
-
-            let mut bodies = Vec::new();
-            let mut block_ids = Vec::new();
-            let mut block_patches = Vec::new();
-            for block in blocks {
-                if let Some(body) = block.body.filter(|body| !body.file_ids().is_empty()) {
-                    let body = body.with_files_renamed(|old| {
-                        file_map.get(&(board.id.clone(), old.to_owned())).cloned()
-                    });
-                    bodies.push((block.id, body));
-                    continue;
-                }
-                if block.block_type != BlockType::Attachment {
-                    continue;
-                }
-                let mut updated_fields = JsonMap::new();
-                for key in ["fileId", "attachmentId"] {
-                    if let Some(old) = block.fields.get(key).and_then(Value::as_str) {
-                        let new_name = file_map
-                            .get(&(board.id.clone(), old.to_owned()))
-                            .cloned()
-                            .unwrap_or_default();
-                        updated_fields.insert(key.to_owned(), Value::String(new_name));
-                    }
-                }
-                if !updated_fields.is_empty() {
-                    block_ids.push(block.id);
-                    block_patches.push(fvoci_model::BlockPatch {
-                        updated_fields,
-                        ..fvoci_model::BlockPatch::default()
-                    });
-                }
-            }
-            // The bodies as the archive wrote them, with the new files: part of the
-            // import, not a change of them (a comment gets no version).
-            if !bodies.is_empty()
-                && let Err(error) = self
-                    .store()
-                    .replace_bodies_as_written(&board.id, bodies)
-                    .await
-            {
-                tracing::error!(
-                    %error,
-                    board_id = board.id,
-                    "the imported bodies could not be pointed at their files"
-                );
-            }
-            if block_ids.is_empty() {
-                continue;
-            }
-
-            let batch = fvoci_model::BlockPatchBatch {
-                block_ids,
-                block_patches,
-            };
-            if let Err(error) = self
-                .patch_blocks(
-                    &board.workspace_id,
-                    &batch,
-                    user_id,
-                    super::ChangeNotification::Send,
-                )
-                .await
-            {
-                tracing::error!(
-                    %error,
-                    board_id = board.id,
-                    "the imported blocks could not be pointed at their files"
-                );
-            }
-        }
-    }
-
     /// Stores the boards of the archive, each its `board.jsonl` at an index under a
-    /// directory, and returns them by their directory. Members left out are added to
-    /// `left_out` ([`App::store_archive_board`]).
+    /// directory, and returns them by their directory, with the new identifiers of the
+    /// blocks among `elsewhere` (what a body of another board may name). Members left
+    /// out are added to `left_out` ([`App::store_archive_board`]).
     ///
     /// # Errors
     ///
@@ -312,16 +216,22 @@ impl App {
         zip: &Archive,
         boards: Vec<(usize, String)>,
         options: &ImportOptions,
+        elsewhere: &HashSet<String>,
         left_out: &mut HashSet<String>,
-    ) -> Result<HashMap<String, Board>, AppError> {
-        let mut board_map = HashMap::new();
+    ) -> Result<StoredBoards, AppError> {
+        let mut stored = StoredBoards::default();
         for (index, dir) in boards {
             let jsonl = read_entry(zip, index, MAX_JSONL_BYTES).await?;
-            let board = parse_board_jsonl(jsonl, options).await?;
+            let mut board = parse_board_jsonl(jsonl, options, elsewhere).await?;
+            // Two blocks of an archive that share an identifier are no archive of this
+            // server's: the first is the one named.
+            for (old, new) in mem::take(&mut board.renamed) {
+                stored.copies.entry(old).or_insert(new);
+            }
             let board = self.store_archive_board(board, options, left_out).await?;
-            board_map.insert(dir, board);
+            stored.by_dir.insert(dir, board);
         }
-        Ok(board_map)
+        Ok(stored)
     }
 
     /// Stores one board of an archive as [`parse_board_jsonl`] read it, with its
@@ -342,6 +252,7 @@ impl App {
         let ParsedBoard {
             boards_and_blocks,
             members,
+            renamed: _,
         } = board;
         // Keep only members who are in the workspace: a board takes no others. A guest of
         // the workspace keeps a role no higher than editor. A membership without a role
@@ -415,6 +326,56 @@ fn no_more_than_holdable(member: BoardMember, workspace_role: WorkspaceRole) -> 
 struct ParsedBoard {
     boards_and_blocks: BoardsAndBlocks,
     members: Vec<BoardMember>,
+    /// The new identifier of each of its blocks that was asked for, by its old one.
+    renamed: HashMap<String, String>,
+}
+
+impl ParsedBoard {
+    /// What its bodies name that is no block of its own: what was a block of its own
+    /// is named by its new identifier, which no archive holds.
+    fn named_elsewhere(&self) -> impl Iterator<Item = String> + '_ {
+        let blocks = &self.boards_and_blocks.blocks;
+        let own: HashSet<&str> = blocks.iter().map(|block| block.id.as_str()).collect();
+        let named = blocks
+            .iter()
+            .filter_map(|block| block.body.as_ref())
+            .flat_map(fvoci_model::Body::reference_ids);
+        named.filter(move |id| !own.contains(id)).map(str::to_owned)
+    }
+}
+
+/// Reads and checks every board of the archive ([`parse_board_jsonl`]) as the store
+/// checks it, before the first is stored: an archive that one of them refuses stores
+/// nothing. What is read is dropped and read again to be stored, so that one board at a
+/// time is held. Returns what the bodies name that is no block of their own board: it
+/// may be a block of another board of the archive, whose new identifier is asked for
+/// when that board is stored.
+///
+/// # Errors
+///
+/// As [`parse_board_jsonl`], and a bad request for an entry that cannot be read.
+async fn named_elsewhere(
+    zip: &Archive,
+    boards: &[(usize, String)],
+    options: &ImportOptions,
+) -> Result<HashSet<String>, AppError> {
+    let mut elsewhere = HashSet::new();
+    for (index, _) in boards {
+        let jsonl = read_entry(zip, *index, MAX_JSONL_BYTES).await?;
+        let board = parse_board_jsonl(jsonl, options, &HashSet::new()).await?;
+        elsewhere.extend(board.named_elsewhere());
+    }
+    Ok(elsewhere)
+}
+
+/// The boards of an archive as they were stored.
+#[derive(Default)]
+struct StoredBoards {
+    /// Each board by the directory of the archive it came in.
+    by_dir: HashMap<String, Board>,
+    /// The new identifier of each block that a body of another board names, by its old
+    /// one.
+    copies: HashMap<String, String>,
 }
 
 /// Reads and checks one board's `board.jsonl`: its lines, the types of its blocks,
@@ -422,7 +383,7 @@ struct ParsedBoard {
 /// checks it (the card property definitions of a board; the title, the fields with the
 /// limit of their type, the property values and the body of a block). Values of the
 /// other kind are cleared, blocks that nothing leads to are dropped, and everything gets
-/// a new identifier.
+/// a new identifier; those of the blocks among `told` are given back by the old ones.
 ///
 /// What the store still checks against what is stored is the parent of a block: a
 /// parent that is a board of the same `board.jsonl` other than the block's own. An
@@ -434,7 +395,11 @@ struct ParsedBoard {
 /// type, a block has a type that no new block has, a board is of another kind than a
 /// board, the boards and blocks do not fit together, or a board or block is not one the
 /// store takes, with the store's message.
-async fn parse_board_jsonl(jsonl: Bytes, options: &ImportOptions) -> Result<ParsedBoard, AppError> {
+async fn parse_board_jsonl(
+    jsonl: Bytes,
+    options: &ImportOptions,
+    told: &HashSet<String>,
+) -> Result<ParsedBoard, AppError> {
     // Parsing tens of megabytes of JSON would hold up a worker of the runtime.
     let (workspace_id, modified_by) = (options.workspace_id.clone(), options.modified_by.clone());
     let (mut boards_and_blocks, members) = tokio::task::spawn_blocking(move || {
@@ -478,11 +443,14 @@ async fn parse_board_jsonl(jsonl: Bytes, options: &ImportOptions) -> Result<Pars
         );
     }
 
-    let boards_and_blocks = match boards_and_blocks.validate() {
+    let Renewed {
+        boards_and_blocks,
+        renamed,
+    } = match boards_and_blocks.validate() {
         // A board without blocks is a board all the same, and what exporting one gives.
         // The original refuses such an archive.
         Ok(()) | Err(BoardsAndBlocksError::NoBlocks) => {
-            renew_boards_and_blocks_ids(boards_and_blocks)
+            renew_boards_and_blocks_ids_told(boards_and_blocks, |id| told.contains(id))
         }
         Err(error) => {
             return Err(AppError::bad_request(format_args!(
@@ -507,6 +475,7 @@ async fn parse_board_jsonl(jsonl: Bytes, options: &ImportOptions) -> Result<Pars
     Ok(ParsedBoard {
         boards_and_blocks,
         members,
+        renamed,
     })
 }
 
@@ -948,5 +917,6 @@ fn with_workspace_named(mut data: Value) -> Value {
     data
 }
 
+mod pointing;
 #[cfg(test)]
 mod tests;

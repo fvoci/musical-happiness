@@ -27,6 +27,7 @@
 
   import BodyView from '$lib/editor/BodyView.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
+  import type { BodyReferences } from '$lib/editor/body-editor.ts';
   import type { BoardStore, CardStore } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
@@ -60,10 +61,12 @@
     >;
     /** Whose body it is, for the words it says: a card's, or a wiki's page's. */
     of?: 'card' | 'page';
+    /** What its references are drawn from and put with (`bodyReferences`); without it, none is shown. */
+    references?: BodyReferences | undefined;
     testId?: string;
   }
 
-  let { board, card, of = 'card', testId = 'card-body' }: Props = $props();
+  let { board, card, of = 'card', testId = 'card-body', references }: Props = $props();
 
   const words = $derived(of === 'page' ? PAGE_WORDS : CARD_WORDS);
 
@@ -183,6 +186,7 @@
           }}
           users={people}
           {resolveUser}
+          {references}
           label={words.label()}
           placeholder={words.placeholder()}
           readPlaceholder={words.readEmpty?.() ?? ''}
@@ -196,7 +200,7 @@
     {/key}
   {:else}
     <div {@attach caret.watch}>
-      <BodyView doc={card.body} {resolveUser} class="text-base">
+      <BodyView doc={card.body} {resolveUser} {references} class="text-base">
         {#snippet empty()}
           <p class="text-base text-muted-foreground">
             {board.canEdit ? words.placeholder() : words.empty()}

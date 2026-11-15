@@ -54,6 +54,8 @@ export const image = (fileId: string, alt?: string): DocNode => ({
   attrs: alt === undefined ? { fileId } : { fileId, alt },
 });
 export const mention = (userId: string): DocNode => ({ type: 'mention', attrs: { userId } });
+/** A reference to a card or a page. */
+export const reference = (id: string): DocNode => ({ type: 'reference', attrs: { id } });
 /** A formula inside a line. */
 export const math = (latex: string): DocNode => ({ type: 'inlineMath', attrs: { latex } });
 /** A formula on a line of its own. */
@@ -122,6 +124,22 @@ export const HAND_MADE: Record<string, DocNode> = {
     paragraph(
       text('bold', 'bold'),
       mention('01930000-0000-7000-8000-00000000c001'),
+      text('bold again', 'bold'),
+    ),
+  ),
+
+  references: doc(
+    paragraph(
+      text('see '),
+      reference('01930000-0000-7000-8000-00000000b001'),
+      text(' and '),
+      reference('01930000-0000-7000-8000-00000000b002'),
+    ),
+    paragraph(reference('01930000-0000-7000-8000-00000000b001')),
+    heading(2, reference('01930000-0000-7000-8000-00000000b002'), text(' in a heading')),
+    paragraph(
+      text('bold', 'bold'),
+      reference('01930000-0000-7000-8000-00000000b001'),
       text('bold again', 'bold'),
     ),
   ),

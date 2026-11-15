@@ -7,6 +7,8 @@ import type { Editor } from '@tiptap/core';
 import type { Snippet } from 'svelte';
 import type { Doc } from 'yjs';
 
+import type { SuggestionEntry } from './extensions.ts';
+import type { ReferenceDrawing } from './reference-chip.ts';
 import type { DocNode } from './schema.ts';
 
 /**
@@ -20,6 +22,20 @@ export interface BodyEditorTools {
   editor: Editor;
   /** Goes up with every change of the document or the selection; read it to stay current. */
   changes: number;
+}
+
+/**
+ * What an editor draws its references from and puts them with: beyond the
+ * drawing of a body that is only shown, what `[[` offers and what a pasted
+ * address names.
+ */
+export interface BodyReferences extends ReferenceDrawing {
+  /** What may be named whose title matches what was typed after `[[`. */
+  search: (query: string) => SuggestionEntry[] | Promise<SuggestionEntry[]>;
+  /** The identifier an address names, if it is the address of a card or a page of the workspace. */
+  named: (address: string) => string | undefined;
+  /** Whether the reader may see what the identifier names. */
+  seen: (id: string) => Promise<boolean>;
 }
 
 export interface BodyEditorProps {
@@ -37,6 +53,11 @@ export interface BodyEditorProps {
   onChange?: (doc: DocNode | null) => void;
   onFocus?: () => void;
   onBlur?: () => void;
+  /**
+   * What references are drawn from and put with. Without it every reference
+   * shows as what the reader may not see, and none can be put.
+   */
+  references?: BodyReferences;
   /** Uploads a pasted or dropped image and gives its file identifier. Without it images cannot be added. */
   uploadImage?: (file: File) => Promise<string>;
   /** What an empty body says while it can be written. */
