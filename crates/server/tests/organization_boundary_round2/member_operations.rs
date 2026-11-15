@@ -29,6 +29,8 @@ struct Named {
     invitation: String,
     invitation_id: String,
     read_token: String,
+    /// The read token of the wiki, which is shared too: the pages of a link are a wiki's.
+    wiki_token: String,
     /// A team of the workspace with a role on the board, which the member is in.
     team: String,
 }
@@ -113,6 +115,12 @@ fn operations() -> Vec<(String, String, String)> {
 
 impl Named {
     fn path(&self, template: &str) -> String {
+        // The pages of a link are read by the wiki's link, its other routes by the board's.
+        let template = if template.starts_with("/api/v1/shared/{boardId}/pages") {
+            template.replacen("{boardId}", &self.wiki, 1)
+        } else {
+            template.to_owned()
+        };
         template
             .trim_start_matches("/api/v1")
             .replace("{workspaceId}", &self.workspace)
@@ -157,7 +165,9 @@ impl Named {
                 !path.contains('{'),
                 "unfilled parameter of {operation}: {path}"
             );
-            let path = if template.starts_with("/api/v1/shared/") {
+            let path = if template.starts_with("/api/v1/shared/{boardId}/pages") {
+                format!("{path}?readToken={}", self.wiki_token)
+            } else if template.starts_with("/api/v1/shared/") {
                 format!("{path}?readToken={}", self.read_token)
             } else {
                 path
@@ -227,6 +237,13 @@ async fn organization(server: &TestServer, name: &str) -> Named {
         )
         .await
         .value();
+    let wiki_sharing = founder
+        .post(
+            &format!("{at}/boards/{wiki}/sharing"),
+            &json!({"enabled": true}),
+        )
+        .await
+        .value();
     // On the board and the wiki, the member asks what their members are asked.
     for joined in [&board, &wiki] {
         member
@@ -258,6 +275,7 @@ async fn organization(server: &TestServer, name: &str) -> Named {
         category: text(&categories[0], "id"),
         card: card_id,
         read_token: text(&sharing, "token"),
+        wiki_token: text(&wiki_sharing, "token"),
         file: text(&file, "fileId"),
         upload: text(&upload, "uploadId"),
         invitation: token,
@@ -431,6 +449,8 @@ async fn every_contract_operation_answers_a_plain_member_alike_in_both_organizat
         "getUpload",
         "getSharedBoard",
         "getSharedCards",
+        "getSharedPageTree",
+        "getSharedPage",
         "getTemplates",
         "getWorkspaceUsers",
         "resolveReferences",

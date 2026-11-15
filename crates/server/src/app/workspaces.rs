@@ -4,7 +4,7 @@
 
 use std::collections::HashSet;
 
-use fvoci_model::{Board, BoardKinds, OrgRole, Session, UserWorkspace, Workspace, WorkspaceRole};
+use fvoci_model::{Board, OrgRole, Session, UserWorkspace, Workspace, WorkspaceRole};
 use fvoci_store::{PublicBoards, Tenant};
 
 use super::{App, Asker, as_managed, sso};
@@ -123,10 +123,11 @@ impl App {
         }))
     }
 
-    /// The application as the holder of a board's read token reaches the board: behind
-    /// the wall of the board's own organization, whichever the request came in for, and
-    /// reaching boards only. `None` if the token opens nothing, or is empty; the token
-    /// of a wiki opens nothing (`Store::org_of_shared_board`).
+    /// The application as the holder of a read token reaches what it opens: behind the
+    /// wall of its own organization, whichever the request came in for, and reaching
+    /// its kind alone (boards for a board's token, wikis for a wiki's), which the
+    /// routes of the link ask ([`App::kinds`]). `None` if the token opens nothing, or
+    /// is empty.
     ///
     /// # Errors
     ///
@@ -141,12 +142,16 @@ impl App {
         if read_token.is_empty() {
             return Ok(None);
         }
-        let org_id = self
+        let shared = self
             .authenticator()
-            .org_of_read_token(board_id, read_token)
+            .shared_by_read_token(board_id, read_token)
             .await?;
-        org_id
-            .map(|org_id| Ok(self.in_organization(&org_id)?.reaching(BoardKinds::Boards)))
+        shared
+            .map(|shared| {
+                Ok(self
+                    .in_organization(&shared.org_id)?
+                    .reaching(shared.kind.into()))
+            })
             .transpose()
     }
 

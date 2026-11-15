@@ -1028,12 +1028,13 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * A shared board
-         * @description The board whose read token the request has; no session is needed, and one that
-         *     comes along is not looked at. Who made the board or changed it last is not told
-         *     (`createdBy` and `modifiedBy` are empty), nor its workspace (`workspaceId` is
-         *     empty). 404 unless the token is the board's and the board is shared and not in the
-         *     trash; 429 for an address that has had many such answers within a minute.
+         * A shared board or wiki
+         * @description The board or the wiki (its `kind` says which) whose read token the request has; no
+         *     session is needed, and one that comes along is not looked at. Who made it or
+         *     changed it last is not told (`createdBy` and `modifiedBy` are empty), nor its
+         *     workspace (`workspaceId` is empty). 404 unless the token is its own and it is shared
+         *     and not in the trash, and its organization has public links on; 429 for an address
+         *     that has had many such answers within a minute.
          */
         get: operations["getSharedBoard"];
         put?: never;
@@ -1054,7 +1055,7 @@ export interface paths {
         /**
          * The blocks of a shared board
          * @description What `getBlocks` gives of the board, with the same parameters, read with its read
-         *     token as `getSharedBoard` is. No block names a user: `createdBy` and `modifiedBy`
+         *     token as `getSharedBoard` is; a wiki's token reads no blocks (404). No block names a user: `createdBy` and `modifiedBy`
          *     are empty, so is the `userId` of every mention in a body, and so is each user that
          *     the board's person properties (`person`, `multiPerson`, `createdBy`, `updatedBy`)
          *     name in a card's `fields.properties` and in the clauses of a view's `fields.filter`;
@@ -1085,7 +1086,8 @@ export interface paths {
         };
         /**
          * The cards of a shared board
-         * @description What `getCards` gives of the board, read with its read token as `getSharedBoard` is.
+         * @description What `getCards` gives of the board, read with its read token as `getSharedBoard` is;
+         *     a wiki's token reads no cards (404).
          *     No card names a user: `createdBy` and `modifiedBy` are empty, the values of person
          *     properties are emptied, and values of properties the board does not define are left
          *     out. The preview's text has no mentions in it, and its image `getSharedFile` gives.
@@ -1109,9 +1111,9 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * A file of a shared board
-         * @description What `getFile` gives of a file of the board, read with its read token as
-         *     `getSharedBoard` is: a file of another board is not there.
+         * A file of a shared board or wiki
+         * @description What `getFile` gives of a file of the board or the wiki, read with its read token as
+         *     `getSharedBoard` is: a file of another board or wiki is not there.
          */
         get: operations["getSharedFile"];
         put?: never;
@@ -1130,11 +1132,59 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * What is known about a file of a shared board
-         * @description What `getFileInfo` gives of a file of the board, read with its read token as
-         *     `getSharedBoard` is.
+         * What is known about a file of a shared board or wiki
+         * @description What `getFileInfo` gives of a file of the board or the wiki, read with its read
+         *     token as `getSharedBoard` is.
          */
         get: operations["getSharedFileInfo"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/shared/{boardId}/pages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The pages of a shared wiki
+         * @description What `getPageTree` gives of the wiki, read with its read token as `getSharedBoard`
+         *     is: every page without its body, naming nobody. A board's token reads no pages
+         *     (404).
+         */
+        get: operations["getSharedPageTree"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/shared/{boardId}/pages/{pageId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A page of a shared wiki
+         * @description What `getPage` gives of a page of the wiki, read with its read token as
+         *     `getSharedBoard` is. No page names a user: `createdBy` and `modifiedBy` are empty,
+         *     and so is the `userId` of every mention in its body. A reference in the body keeps
+         *     its `id` if it names a page of this wiki, and has an empty one for anything else: of
+         *     what is elsewhere in the workspace nothing is told, nor whether there is anything.
+         *     Its comments and its versions are not read by the link. A page of another wiki, one
+         *     in the trash, and a board's token are 404.
+         */
+        get: operations["getSharedPage"];
         put?: never;
         post?: never;
         delete?: never;
@@ -7061,7 +7111,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The board. */
+            /** @description The board or the wiki. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -7235,6 +7285,78 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FileInfo"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getSharedPageTree: {
+        parameters: {
+            query: {
+                /** @description The read token of the board, as `getSharing` answers it while the board is shared. */
+                readToken: string;
+            };
+            header?: never;
+            path: {
+                /** @description The identifier of the board. */
+                boardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The pages. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageNode"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getSharedPage: {
+        parameters: {
+            query: {
+                /** @description The read token of the board, as `getSharing` answers it while the board is shared. */
+                readToken: string;
+            };
+            header?: never;
+            path: {
+                /** @description The identifier of the board. */
+                boardId: string;
+                /** @description The identifier of the page: a page of the wiki of the path. 404 for a page of another wiki. */
+                pageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page"];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */

@@ -3,7 +3,8 @@
  * signed in as nobody opens the link, reads the board, switches views, opens
  * a card and reads its body and comments, and announces an anonymous visit.
  * Somebody signed in reads it the same way. A wrong token, and the link
- * turned off, show "not found". Pictures, wide and at 390 pixels, go to
+ * turned off, show "not found". A wiki is read by its link the same way: its
+ * tree and its pages, naming nobody. Pictures, wide and at 390 pixels, go to
  * `target/screens/shared/` when `FVOCI_SCREENS` is set.
  */
 import { expect, test, type Page } from '@playwright/test';
@@ -235,4 +236,111 @@ test('a board is read by its public link without signing in, and not when the li
   await context.close();
   await ownerContext.close();
   expect([...errors, ...ownerErrors, ...readerErrors]).toEqual([]);
+});
+
+test('a wiki is read by its public link without signing in: its tree and pages, naming nobody', async ({
+  browser,
+  baseURL,
+}) => {
+  const base = baseURL ?? '';
+  const owner = person('wiki-publisher');
+  await register(base, owner);
+  const api = await signedIn(base, owner);
+  const { workspaceId } = await makeBoard(api, { title: 'Beside the wiki' });
+  const at = `/api/v1/w/${workspaceId}`;
+  const wiki = (await (
+    await api.post(`${at}/wikis`, { data: { title: 'Field notes', type: 'P' } })
+  ).json()) as Schemas['Board'];
+  const pages = `${at}/wikis/${wiki.id}/pages`;
+  const made = async (title: string, parentId?: string) =>
+    (await (
+      await api.post(pages, { data: { title, ...(parentId ? { parentId } : {}) } })
+    ).json()) as Schemas['Page'];
+  const planting = await made('Planting');
+  const harvest = await made('Harvest', planting.id);
+  const ownerId = ((await (await api.get('/api/v1/users/me')).json()) as Schemas['User']).id;
+  const body = {
+    type: 'doc',
+    content: [
+      {
+        type: 'paragraph',
+        content: [
+          { type: 'text', text: 'Sow in rows, then see ' },
+          { type: 'reference', attrs: { id: harvest.id } },
+          { type: 'text', text: ' and ask ' },
+          { type: 'mention', attrs: { userId: ownerId } },
+        ],
+      },
+    ],
+  };
+  expect(
+    (
+      await api.patch(`${pages}/${planting.id}`, { data: { readAt: planting.updateAt, body } })
+    ).ok(),
+  ).toBe(true);
+  const shared = (await (
+    await api.post(`${at}/boards/${wiki.id}/sharing`, { data: { enabled: true } })
+  ).json()) as Schemas['Sharing'];
+  const token = shared.token ?? '';
+
+  // Signed in as nobody: the tree and the first page, in the address of the link.
+  const context = await browser.newContext({ locale: 'en-US', baseURL: base });
+  const page = await context.newPage();
+  const errors = watchErrors(page);
+  const stray = strayRequestsOf(page, wiki.id);
+  await page.goto(sharedPath(wiki.id, token));
+  const reader = page.getByTestId('shared-wiki');
+  await expect(reader.getByTestId('page-title')).toHaveText('Planting');
+  await expect(page).toHaveURL(new RegExp(`/shared/${wiki.id}/${planting.id}\\?r=`));
+  await expect(page.getByTestId('shared-title')).toHaveText('Field notes');
+  await expect(reader.getByTestId('shared-page-tree').getByRole('link')).toHaveText([
+    'Planting',
+    'Harvest',
+  ]);
+  await expect(reader.getByTestId('page-body')).toContainText('Sow in rows, then see');
+  // Nobody named, nothing to write, nothing of the workspace.
+  await expect(page.getByText(owner.username)).toHaveCount(0);
+  await expect(page.getByRole('textbox')).toHaveCount(0);
+  await expect(page.getByTestId('sidebar')).toHaveCount(0);
+
+  // The reference to the other page of the wiki opens it.
+  await reader.getByTestId('page-body').getByText('Harvest').click();
+  await expect(page).toHaveURL(new RegExp(`/shared/${wiki.id}/${harvest.id}\\?r=`));
+  await expect(reader.getByTestId('page-title')).toHaveText('Harvest');
+
+  // At 390 pixels the tree is a list that opens above the page.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(reader.getByTestId('shared-page-tree')).toHaveCount(0);
+  await reader.getByRole('button', { name: 'Pages' }).click();
+  await reader.getByTestId('shared-page-tree').getByRole('link', { name: 'Planting' }).click();
+  await expect(reader.getByTestId('page-title')).toHaveText('Planting');
+  expect(stray).toEqual([]);
+
+  // Pictured in Korean, wide and at 390 pixels, as nobody.
+  if (process.env.FVOCI_SCREENS) {
+    const korean = await (await browser.newContext({ locale: 'ko-KR', baseURL: base })).newPage();
+    for (const size of [
+      { width: 1280, height: 800, label: 'wide' },
+      { width: 390, height: 844, label: '390' },
+    ]) {
+      await korean.setViewportSize(size);
+      await korean.goto(sharedPath(wiki.id, token, planting.id));
+      await expect(korean.getByTestId('page-title')).toHaveText('Planting');
+      await korean.screenshot({
+        path: `${screensDir('wiki-people')}/public-reader-${size.label}.png`,
+        animations: 'disabled',
+      });
+    }
+    await korean.context().close();
+  }
+
+  // The link turned off: the same "not found" as any other.
+  expect(
+    (await api.post(`${at}/boards/${wiki.id}/sharing`, { data: { enabled: false } })).ok(),
+  ).toBe(true);
+  await page.reload();
+  await expect(page.getByTestId('not-found')).toBeVisible();
+  expect(errors).toEqual([]);
+  await context.close();
+  await api.dispose();
 });

@@ -32,7 +32,7 @@ enum Reaches {
 /// Every operation whose path names a board, a wiki, or something that is of one (a
 /// block, a file, an upload), and the kinds it reaches: the extractor of its handler
 /// (`Ws` for boards, `WsWiki` for wikis, `WsModule` for both; the token of a shared
-/// board opens boards). What names one in its body or its query is asked in
+/// board or wiki opens its own kind's routes). What names one in its body or its query is asked in
 /// [`what_names_a_wiki_in_a_body_or_a_query_is_refused_as_what_names_nothing`].
 const REACHED: &[(&str, Reaches)] = &[
     // The container itself, in the trash too.
@@ -50,7 +50,7 @@ const REACHED: &[(&str, Reaches)] = &[
     ("getBoardTeams", Reaches::Both),
     ("setBoardTeam", Reaches::Both),
     ("removeBoardTeam", Reaches::Both),
-    // Its sharing: kept for a wiki as for a board, though the link opens boards only.
+    // Its sharing: a board's link reads its cards, a wiki's its pages.
     ("getSharing", Reaches::Both),
     ("setSharing", Reaches::Both),
     // Its files.
@@ -100,11 +100,13 @@ const REACHED: &[(&str, Reaches)] = &[
     // What names a card or a page from a body: a card and a page name each other.
     ("getReferencesTo", Reaches::Both),
     // What the holder of a read token reads.
-    ("getSharedBoard", Reaches::Boards),
+    ("getSharedBoard", Reaches::Both),
     ("getSharedBlocks", Reaches::Boards),
     ("getSharedCards", Reaches::Boards),
-    ("getSharedFile", Reaches::Boards),
-    ("getSharedFileInfo", Reaches::Boards),
+    ("getSharedFile", Reaches::Both),
+    ("getSharedFileInfo", Reaches::Both),
+    ("getSharedPageTree", Reaches::Wikis),
+    ("getSharedPage", Reaches::Wikis),
 ];
 
 /// The parameters of a path that name a board or a wiki, or something that is of one.

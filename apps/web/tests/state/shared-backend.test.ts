@@ -93,3 +93,45 @@ describe('the backend of a public link', () => {
     expect(sent).toEqual([]);
   });
 });
+
+describe('the backend of a wiki’s public link', () => {
+  it('reads the tree and a page under the wiki by the token, and refuses every change', async () => {
+    const sent = serve([]);
+    const backend = new SharedBackend('', 'w1', 't');
+    const wikis = backend.wiki;
+    expect(await wikis.pages('w1')).toEqual([]);
+    sent.length = 0;
+    serve({
+      id: 'p1',
+      wikiId: 'w1',
+      parentId: '',
+      title: 'Planting',
+      icon: '',
+      order: 'a',
+      body: null,
+      createdBy: '',
+      modifiedBy: '',
+      createAt: 1,
+      updateAt: 1,
+    });
+    const page = await wikis.page('w1', 'p1');
+    expect([page.title, page.createdBy]).toEqual(['Planting', '']);
+    await expect(wikis.pages('w2')).rejects.toSatisfy(isBackendError);
+    for (const write of [
+      () => wikis.createPage('w1', { title: 'x' }),
+      () => wikis.patchPage('w1', 'p1', { title: 'y' }),
+      () => wikis.deletePage('w1', 'p1'),
+    ]) {
+      await expect(write()).rejects.toSatisfy(isBackendError);
+    }
+  });
+
+  it('asks the server at the wiki’s addresses of the link', async () => {
+    const sent = serve([]);
+    const backend = new SharedBackend('', 'w1', 'to/ken');
+    await backend.wiki.pages('w1');
+    expect(sent.map((one) => [one.url, one.credentials])).toEqual([
+      ['/api/v1/shared/w1/pages?readToken=to%2Fken', 'omit'],
+    ]);
+  });
+});

@@ -176,8 +176,8 @@ test.describe('a wiki looked after', () => {
     await expect(open).toBeChecked();
     await dialog.getByTestId('share-candidates').getByRole('button').first().click();
     await expect(dialog.getByTestId('share-members').locator('li')).toHaveCount(2);
-    // A wiki's public link is not offered: it would open nothing.
-    await expect(dialog.getByTestId('share-public')).toHaveCount(0);
+    // A wiki's public link is offered as a board's is.
+    await expect(dialog.getByTestId('share-public')).toBeVisible();
   });
 
   for (const role of ['viewer', 'commenter']) {

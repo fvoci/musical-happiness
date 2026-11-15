@@ -88,7 +88,7 @@ export interface Wikis {
   wikis(workspaceId: string): Promise<Board[]>;
   /** Makes a wiki, filed under the reader's default category; its members are told. */
   createWiki(workspaceId: string, draft: WikiDraft): Promise<Board>;
-  /** Every page of the wiki, in no promised order. For its members (an open one: 403 until joined). */
+  /** Every page of the wiki, in no promised order. For who reads it (an open one: who works there). */
   pages(wikiId: string): Promise<WikiPage[]>;
   page(wikiId: string, pageId: string): Promise<WikiPageDetail>;
   /** For the wiki's editors. A parent or `after` that is no such page is 400. */
@@ -132,7 +132,7 @@ export interface Wikis {
   duplicatePage(wikiId: string, pageId: string, title?: string): Promise<WikiPageDetail>;
 }
 
-/** Where a backend keeps its wikis. One by a public link has none (W4). */
+/** Where a backend keeps its wikis. One by a public link reads only its wiki's tree and pages. */
 export interface WikisOfBackend {
   readonly wiki?: Wikis;
 }

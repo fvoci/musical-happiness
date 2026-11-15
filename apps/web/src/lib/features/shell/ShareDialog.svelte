@@ -1,8 +1,8 @@
 <!--
   Sharing a board or a wiki, for its admins: who of the workspace may find and
   join it (read an open wiki unjoined) and with which role, its members and
-  their roles, adding people of the workspace, and a board's public link (read
-  only, for anyone who has it).
+  their roles, adding people of the workspace, and the public link (read only,
+  for anyone who has it).
 
   Every change is sent at once through its store, which shows it and
   takes it back when the server refuses it. The people offered to add are
@@ -154,8 +154,8 @@
   /** Asking before a new link stops the old one. */
   let confirmOpen = $state(false);
 
-  /** The public link: a board's, for its admins (a wiki's opens nothing yet). */
-  const publicLink = $derived(!membersOnly && board.board?.kind !== 'wiki');
+  /** The public link, for its admins: a board's reads its cards, a wiki's its pages. */
+  const publicLink = $derived(!membersOnly);
   const link = $derived(sharing?.enabled && sharing.token ? linkOf(sharing.token) : '');
 
   async function readSharing(): Promise<void> {

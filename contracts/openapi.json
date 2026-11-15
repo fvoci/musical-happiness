@@ -6566,7 +6566,7 @@
     },
     "/api/v1/shared/{boardId}": {
       "get": {
-        "description": "The board whose read token the request has; no session is needed, and one that\ncomes along is not looked at. Who made the board or changed it last is not told\n(`createdBy` and `modifiedBy` are empty), nor its workspace (`workspaceId` is\nempty). 404 unless the token is the board's and the board is shared and not in the\ntrash; 429 for an address that has had many such answers within a minute.",
+        "description": "The board or the wiki (its `kind` says which) whose read token the request has; no\nsession is needed, and one that comes along is not looked at. Who made it or\nchanged it last is not told (`createdBy` and `modifiedBy` are empty), nor its\nworkspace (`workspaceId` is empty). 404 unless the token is its own and it is shared\nand not in the trash, and its organization has public links on; 429 for an address\nthat has had many such answers within a minute.",
         "operationId": "getSharedBoard",
         "parameters": [
           {
@@ -6597,7 +6597,7 @@
                 }
               }
             },
-            "description": "The board."
+            "description": "The board or the wiki."
           },
           "default": {
             "content": {
@@ -6613,7 +6613,7 @@
         "security": [
           {}
         ],
-        "summary": "A shared board",
+        "summary": "A shared board or wiki",
         "tags": [
           "sharing"
         ]
@@ -6621,7 +6621,7 @@
     },
     "/api/v1/shared/{boardId}/blocks": {
       "get": {
-        "description": "What `getBlocks` gives of the board, with the same parameters, read with its read\ntoken as `getSharedBoard` is. No block names a user: `createdBy` and `modifiedBy`\nare empty, so is the `userId` of every mention in a body, and so is each user that\nthe board's person properties (`person`, `multiPerson`, `createdBy`, `updatedBy`)\nname in a card's `fields.properties` and in the clauses of a view's `fields.filter`;\na list keeps its length, so how many people a card has still shows. A card's values\nof properties the board does not define are left out, and a view grouped by a person\nproperty keeps of `visibleOptionIds`, `hiddenOptionIds`, `collapsedOptionIds` and\n`kanbanCalculations` only the group of the cards without a value (`\"\"`). A reference\nin a body keeps its `id` if it names a card of this board, and has an empty one for\nanything else: of what is elsewhere in the workspace nothing is told, nor whether\nthere is anything. Oldest\nfirst; the blocks that one request made come in the order that request had them in.",
+        "description": "What `getBlocks` gives of the board, with the same parameters, read with its read\ntoken as `getSharedBoard` is; a wiki's token reads no blocks (404). No block names a user: `createdBy` and `modifiedBy`\nare empty, so is the `userId` of every mention in a body, and so is each user that\nthe board's person properties (`person`, `multiPerson`, `createdBy`, `updatedBy`)\nname in a card's `fields.properties` and in the clauses of a view's `fields.filter`;\na list keeps its length, so how many people a card has still shows. A card's values\nof properties the board does not define are left out, and a view grouped by a person\nproperty keeps of `visibleOptionIds`, `hiddenOptionIds`, `collapsedOptionIds` and\n`kanbanCalculations` only the group of the cards without a value (`\"\"`). A reference\nin a body keeps its `id` if it names a card of this board, and has an empty one for\nanything else: of what is elsewhere in the workspace nothing is told, nor whether\nthere is anything. Oldest\nfirst; the blocks that one request made come in the order that request had them in.",
         "operationId": "getSharedBlocks",
         "parameters": [
           {
@@ -6715,7 +6715,7 @@
     },
     "/api/v1/shared/{boardId}/cards": {
       "get": {
-        "description": "What `getCards` gives of the board, read with its read token as `getSharedBoard` is.\nNo card names a user: `createdBy` and `modifiedBy` are empty, the values of person\nproperties are emptied, and values of properties the board does not define are left\nout. The preview's text has no mentions in it, and its image `getSharedFile` gives.\nA card comes without its body, so with nothing a body names. Oldest first; the\npages cut that order.",
+        "description": "What `getCards` gives of the board, read with its read token as `getSharedBoard` is;\na wiki's token reads no cards (404).\nNo card names a user: `createdBy` and `modifiedBy` are empty, the values of person\nproperties are emptied, and values of properties the board does not define are left\nout. The preview's text has no mentions in it, and its image `getSharedFile` gives.\nA card comes without its body, so with nothing a body names. Oldest first; the\npages cut that order.",
         "operationId": "getSharedCards",
         "parameters": [
           {
@@ -6802,7 +6802,7 @@
     },
     "/api/v1/shared/{boardId}/files/{fileId}": {
       "get": {
-        "description": "What `getFile` gives of a file of the board, read with its read token as\n`getSharedBoard` is: a file of another board is not there.",
+        "description": "What `getFile` gives of a file of the board or the wiki, read with its read token as\n`getSharedBoard` is: a file of another board or wiki is not there.",
         "operationId": "getSharedFile",
         "parameters": [
           {
@@ -6872,7 +6872,7 @@
         "security": [
           {}
         ],
-        "summary": "A file of a shared board",
+        "summary": "A file of a shared board or wiki",
         "tags": [
           "sharing"
         ]
@@ -6880,7 +6880,7 @@
     },
     "/api/v1/shared/{boardId}/files/{fileId}/info": {
       "get": {
-        "description": "What `getFileInfo` gives of a file of the board, read with its read token as\n`getSharedBoard` is.",
+        "description": "What `getFileInfo` gives of a file of the board or the wiki, read with its read\ntoken as `getSharedBoard` is.",
         "operationId": "getSharedFileInfo",
         "parameters": [
           {
@@ -6936,7 +6936,129 @@
         "security": [
           {}
         ],
-        "summary": "What is known about a file of a shared board",
+        "summary": "What is known about a file of a shared board or wiki",
+        "tags": [
+          "sharing"
+        ]
+      }
+    },
+    "/api/v1/shared/{boardId}/pages": {
+      "get": {
+        "description": "What `getPageTree` gives of the wiki, read with its read token as `getSharedBoard`\nis: every page without its body, naming nobody. A board's token reads no pages\n(404).",
+        "operationId": "getSharedPageTree",
+        "parameters": [
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The read token of the board, as `getSharing` answers it while the board is shared.",
+            "in": "query",
+            "name": "readToken",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PageNode"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The pages."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "security": [
+          {}
+        ],
+        "summary": "The pages of a shared wiki",
+        "tags": [
+          "sharing"
+        ]
+      }
+    },
+    "/api/v1/shared/{boardId}/pages/{pageId}": {
+      "get": {
+        "description": "What `getPage` gives of a page of the wiki, read with its read token as\n`getSharedBoard` is. No page names a user: `createdBy` and `modifiedBy` are empty,\nand so is the `userId` of every mention in its body. A reference in the body keeps\nits `id` if it names a page of this wiki, and has an empty one for anything else: of\nwhat is elsewhere in the workspace nothing is told, nor whether there is anything.\nIts comments and its versions are not read by the link. A page of another wiki, one\nin the trash, and a board's token are 404.",
+        "operationId": "getSharedPage",
+        "parameters": [
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the page: a page of the wiki of the path. 404 for a page of another wiki.",
+            "in": "path",
+            "name": "pageId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The read token of the board, as `getSharing` answers it while the board is shared.",
+            "in": "query",
+            "name": "readToken",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page"
+                }
+              }
+            },
+            "description": "The page."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "security": [
+          {}
+        ],
+        "summary": "A page of a shared wiki",
         "tags": [
           "sharing"
         ]

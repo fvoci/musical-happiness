@@ -125,6 +125,7 @@ mod search_real;
 mod server_lock;
 mod shared;
 mod shared_blocks;
+mod shared_wiki;
 mod sharing;
 mod sidebar;
 mod sidebar_messages;

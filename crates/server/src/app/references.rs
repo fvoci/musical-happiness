@@ -10,7 +10,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use fvoci_model::{Block, Board, Body, LinkedBlock, is_id};
+use fvoci_model::{Block, BlockType, Board, Body, LinkedBlock, is_id};
 use fvoci_store::PublicBoards;
 
 use super::App;
@@ -178,10 +178,40 @@ impl App {
         board_id: &str,
         bodies: impl IntoIterator<Item = &Body>,
     ) -> Result<HashSet<String>, AppError> {
+        self.named_on(board_id, BlockType::Card, bodies).await
+    }
+
+    /// The pages of the wiki among what the bodies name: all that whoever reads the
+    /// wiki by its link is shown of the references of its pages, as
+    /// [`App::cards_named_on`] is of a board's. A reference to a card, to a page of
+    /// another wiki, to what is in the trash or to nothing goes out without its
+    /// identifier.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if the pages cannot be read; nothing is sent then.
+    pub async fn pages_named_on(
+        &self,
+        wiki_id: &str,
+        bodies: impl IntoIterator<Item = &Body>,
+    ) -> Result<HashSet<String>, AppError> {
+        self.named_on(wiki_id, BlockType::Page, bodies).await
+    }
+
+    /// The blocks of the type on the board among what the bodies name.
+    async fn named_on(
+        &self,
+        board_id: &str,
+        block_type: BlockType,
+        bodies: impl IntoIterator<Item = &Body>,
+    ) -> Result<HashSet<String>, AppError> {
         let mut named: Vec<&str> = bodies.into_iter().flat_map(Body::reference_ids).collect();
         named.sort_unstable();
         named.dedup();
-        Ok(self.store().cards_on_board_among(board_id, &named).await?)
+        Ok(self
+            .store()
+            .blocks_on_board_among(board_id, block_type, &named)
+            .await?)
     }
 
     /// The boards and wikis of the workspace the user holds a role on, and its open

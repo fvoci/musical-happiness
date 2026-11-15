@@ -1,7 +1,8 @@
 <!--
   A board read by its public link (`/shared/<board>/<view>/<card>?r=<token>`):
   its views, its cards with their bodies, comments and files, and nothing
-  else. No sidebar, no settings, nobody named, nothing to change: the backend
+  else; or a wiki, its tree and its pages (`SharedWiki`), the kind the server
+  gives the link's board saying which. No sidebar, no settings, nobody named, nothing to change: the backend
   of the link writes nothing (`startShared`). Whoever opens the link reads it
   so, signed in or not; no session goes along. Nothing changes while it is
   open: reading again shows what is new. A wrong token, a link turned off and
@@ -13,7 +14,8 @@
   import { setFileUrlResolver } from '$lib/editor/files.ts';
   import { pane } from '$lib/layout/room.svelte.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
-  import { Workspace } from '$lib/state/index.ts';
+  import type { BoardKind } from '$lib/logic/wire.ts';
+  import { Workspace, type Backend } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
   import { startShared } from './backend.ts';
@@ -22,33 +24,47 @@
   import NotFound from './NotFound.svelte';
   import Problems from './Problems.svelte';
   import type { Router } from './router.svelte.ts';
+  import SharedWiki from './SharedWiki.svelte';
 
   let { router }: { router: Router } = $props();
 
   let workspace = $state.raw<Workspace | undefined>(undefined);
+  let backend = $state.raw<Backend | undefined>(undefined);
+  /** What the link opens, once read: a board's screen or a wiki's. */
+  let kind = $state<BoardKind | undefined>(undefined);
+  /** The title at the head of the page: the board's, as its screen reads it, or the wiki's. */
+  let wiki = $state.raw<{ title: string; icon: string } | undefined>(undefined);
   let place = '';
   /** The screen could not start (its code did not load): nothing is read. */
   let unstarted = $state(false);
 
   /** The board read, once it is: its title heads the page. */
-  const board = $derived(workspace?.board?.board);
+  const board = $derived(kind === 'wiki' ? wiki : workspace?.board?.board);
 
   onMount(() => {
     const { boardId, readToken } = router.route;
     if (!boardId || !readToken) return;
     let made: Workspace | undefined;
     let left = false;
+    /** Asked as a function: `left` changes while a reading waits, which TypeScript does not see. */
+    const isLeft = (): boolean => left;
     void startShared(boardId, readToken).then(
       async (started) => {
         // Gone before the backend came: nothing is read.
         if (left) return;
-        const { backend } = started;
+        const read = started.backend;
         place = started.place;
-        made = new Workspace({ backend, locale: currentLocale });
-        // The bodies of cards name their images by file: the link's board has them.
-        setFileUrlResolver((fileId) => backend.fileUrl(boardId, fileId));
+        made = new Workspace({ backend: read, locale: currentLocale });
+        // The bodies name their images by file: the link's board or wiki has them.
+        setFileUrlResolver((fileId) => read.fileUrl(boardId, fileId));
         workspace = made;
+        backend = read;
         await made.load(place);
+        // Which screen: a link that opens nothing shows the board's "not found".
+        const opened = await read.board(boardId).catch(() => undefined);
+        if (isLeft()) return;
+        kind = opened?.kind ?? 'board';
+        if (opened?.kind === 'wiki') wiki = { title: opened.title, icon: opened.icon ?? '' };
       },
       () => {
         if (!left) unstarted = true;
@@ -70,7 +86,8 @@
     <p class="shrink-0 font-semibold tracking-tight" translate="no">{m.app_name()}</p>
     {#if board}
       <h1 class="min-w-0 truncate text-muted-foreground" data-testid="shared-title">
-        {board.icon ? `${board.icon} ` : ''}{board.title || m['Sidebar.untitled-board']()}
+        {board.icon ? `${board.icon} ` : ''}{board.title ||
+          (kind === 'wiki' ? m.wiki_untitled() : m['Sidebar.untitled-board']())}
       </h1>
     {/if}
   </header>
@@ -81,7 +98,7 @@
       <div class="grid h-full place-items-center p-6 text-center">
         <p class="text-muted-foreground" role="alert">{m.app_problem_load()}</p>
       </div>
-    {:else if !workspace || workspace.status === 'idle' || workspace.status === 'loading'}
+    {:else if !workspace || !kind || workspace.status === 'idle' || workspace.status === 'loading'}
       <div class="grid h-full place-items-center p-6">
         <p class="text-muted-foreground" role="status">{m.app_loading()}</p>
       </div>
@@ -94,6 +111,8 @@
           </Button>
         </div>
       </div>
+    {:else if kind === 'wiki' && backend}
+      <SharedWiki {backend} wikiId={router.route.boardId} {router} />
     {:else}
       <BoardPage {workspace} {router} />
     {/if}
