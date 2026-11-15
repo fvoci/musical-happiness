@@ -83,6 +83,8 @@
     onSwitchWorkspace?: (workspaceId: string) => void;
     /** Reads the workspace's records. Without it (no server) they are not offered. */
     readRecords?: (workspaceId: string) => Promise<AuditRecord[]>;
+    /** The button of the search of the workspace, in the top bar; none where there is no search. */
+    search?: Snippet<[Workspace]>;
     /** The page: what is shown beside the sidebar. */
     children: Snippet;
   }
@@ -104,6 +106,7 @@
     orgHref,
     onSwitchWorkspace,
     readRecords,
+    search,
     children,
   }: Props = $props();
 
@@ -336,8 +339,10 @@
     />
   </div>
 
+  <!-- Focusable by a script: where the focus goes when what had it is gone. -->
   <main
-    class="@container/pane flex min-w-0 flex-1 flex-col"
+    class="@container/pane flex min-w-0 flex-1 flex-col outline-none"
+    tabindex="-1"
     inert={drawerOut}
     {@attach pane.attach}
   >
@@ -347,6 +352,7 @@
       {sharedHref}
       menuButton={layout.menuButton}
       onOpenSidebar={openDrawer}
+      {search}
     />
     <div class="relative min-h-0 flex-1">
       {@render children()}

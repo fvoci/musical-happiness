@@ -98,6 +98,7 @@ where
             Disconnect::ClientClosed
             | Disconnect::ReadError
             | Disconnect::SlowConsumer
+            | Disconnect::Quiet
             | Disconnect::Shutdown,
         )
         | None => None,

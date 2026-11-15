@@ -27,19 +27,23 @@ pub(crate) enum Disconnect {
     ChecksOvertaken,
     /// It did not read its messages as fast as they came.
     SlowConsumer,
+    /// It sent nothing at all for the quiet limit (`ws/inbound.rs`): a client gone
+    /// without a word.
+    Quiet,
     /// The server stopped. Counted as it stops, after the metrics listener closed, so a
     /// scrape does not see it.
     Shutdown,
 }
 
 impl Disconnect {
-    const ALL: [Self; 7] = [
+    const ALL: [Self; 8] = [
         Self::ClientClosed,
         Self::ReadError,
         Self::SessionEnded,
         Self::StoreUnavailable,
         Self::ChecksOvertaken,
         Self::SlowConsumer,
+        Self::Quiet,
         Self::Shutdown,
     ];
 
@@ -52,6 +56,7 @@ impl Disconnect {
             Self::StoreUnavailable => "store_unavailable",
             Self::ChecksOvertaken => "checks_overtaken",
             Self::SlowConsumer => "slow_consumer",
+            Self::Quiet => "quiet",
             Self::Shutdown => "shutdown",
         }
     }
@@ -93,7 +98,8 @@ impl WebsocketMetrics {
                  frame), read_error (broken off, or no websocket frame), session_ended, \
                  store_unavailable (what it may be \
                  told could not be read; it connects again), checks_overtaken (checked \
-                 again too often as permissions changed; it connects again), slow_consumer, shutdown (not \
+                 again too often as permissions changed; it connects again), slow_consumer, quiet (it sent nothing for the quiet limit), \
+                 shutdown (not \
                  seen: counted as the server stops).",
             )
             .namespace(PREFIX),

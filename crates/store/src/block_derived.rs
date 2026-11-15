@@ -5,6 +5,7 @@
 //! block changes.
 
 use fvoci_model::{Block, SearchKind};
+use serde_json::Value;
 
 use crate::body_links;
 use crate::db::Scope;
@@ -12,9 +13,13 @@ use crate::error::StoreError;
 use crate::file_refs::{self, NewImages};
 use crate::search_outbox;
 
-/// Whether the search server holds a document of a block of this type.
+/// Whether the search server holds a document of the block: of a card or a page, but
+/// not of a card that is a template of its board (`isTemplate` is `true`), as
+/// `search_docs` reads them. A card that becomes a template, or stops being one, is
+/// so told.
 fn is_searched(block: &Block) -> bool {
     SearchKind::of_block(&block.block_type).is_some()
+        && block.fields.get("isTemplate") != Some(&Value::Bool(true))
 }
 
 /// What only this module makes: what [`file_refs::refresh`] and [`body_links::refresh`]
