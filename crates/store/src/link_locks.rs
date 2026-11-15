@@ -155,8 +155,8 @@ pub(crate) async fn hold_for_new_link(
 
 /// Holds what a link that lets somebody in hangs from, before the link, and says
 /// whether it is there still: for a guest's link the organization's row and then its
-/// board, as team changes and its deletion hold them, which keeps the access the board
-/// gives through teams as it is through the grant; for a member's link its workspace
+/// board, as its deletion holds them, and as team changes hold them, which keeps
+/// the access the board gives as it is through the grant; for a member's link its workspace
 /// in use, `FOR KEY SHARE`, against its purge from the trash, which holds it before the
 /// links it deletes. Nothing else waits for that, so taking a maker out of the
 /// workspace meanwhile does not wait for the link, and is seen once the link is held.
