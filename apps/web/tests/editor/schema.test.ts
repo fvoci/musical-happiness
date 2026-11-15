@@ -23,8 +23,8 @@ const paragraph = (...content: DocNode[]): DocNode => ({ type: 'paragraph', cont
 const doc = (...content: DocNode[]): DocNode => ({ type: 'doc', content });
 
 describe('the list of what a body may contain', () => {
-  it('has the seventeen nodes and five marks of version 2', () => {
-    expect(BODY_VERSION).toBe(2);
+  it('has the eighteen nodes and five marks of version 3', () => {
+    expect(BODY_VERSION).toBe(3);
     expect(Object.keys(NODE_SPECS).sort()).toEqual([
       'blockMath',
       'blockquote',
@@ -40,6 +40,7 @@ describe('the list of what a body may contain', () => {
       'mention',
       'orderedList',
       'paragraph',
+      'reference',
       'taskItem',
       'taskList',
       'text',
@@ -60,6 +61,7 @@ describe('validating a document', () => {
         text('link', { type: 'link', attrs: { href: 'https://example.com/a?b=1' } }),
         { type: 'hardBreak' },
         { type: 'mention', attrs: { userId: '01930000-0000-7000-8000-00000000c001' } },
+        { type: 'reference', attrs: { id: '01930000-0000-7000-8000-00000000b001' } },
       ),
       { type: 'bulletList', content: [{ type: 'listItem', content: [paragraph(text('a'))] }] },
       {
@@ -269,6 +271,7 @@ describe('reading a document without an editor', () => {
     paragraph(
       text('ask '),
       { type: 'mention', attrs: { userId: '01930000-0000-7000-8000-00000000c001' } },
+      { type: 'reference', attrs: { id: '01930000-0000-7000-8000-00000000b001' } },
       { type: 'hardBreak' },
       text('today'),
     ),
@@ -303,7 +306,7 @@ describe('reading a document without an editor', () => {
     expect(countTasks(emptyDoc())).toEqual({ total: 0, checked: 0 });
   });
 
-  it('gives the words, one line per paragraph, with mentions by name', () => {
+  it('gives the words, one line per paragraph, with mentions by name and nothing for a reference', () => {
     expect(
       plainText(sample, (id) => (id === '01930000-0000-7000-8000-00000000c001' ? 'Ada' : id)),
     ).toBe('Plan\nask @Ada\ntoday\none\ninner');

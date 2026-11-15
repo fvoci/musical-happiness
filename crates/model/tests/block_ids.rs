@@ -435,3 +435,54 @@ fn renew_block_ids_keeps_a_copied_relation_on_its_board() {
     );
     assert_eq!(related(&blocks[2]), &json!([]));
 }
+
+/// A body that names a block renewed with it names that block by its new identifier,
+/// whichever way unmatched relations go, and what else it names it names as before: a
+/// copy points at the copies, and at what was not copied.
+#[test]
+fn renew_block_ids_renames_what_bodies_name_among_the_blocks() {
+    use fvoci_model::{Body, RelationProperties, UnmatchedRelation, renew_block_ids};
+
+    let naming = |targets: &[&str]| {
+        let line: Vec<Value> = targets
+            .iter()
+            .map(|target| json!({"type": "reference", "attrs": {"id": target}}))
+            .collect();
+        Body::parse(json!({"type": "doc", "content": [{"type": "paragraph", "content": line}]}))
+            .expect("a body")
+    };
+    for unmatched in [UnmatchedRelation::Kept, UnmatchedRelation::Dropped] {
+        let (first, second, comment, outside) = (id(), id(), id(), id());
+        let mut blocks = vec![
+            Block {
+                body: naming(&[&second, &outside, &first]),
+                ..block(&first, "board", "")
+            },
+            block(&second, "board", ""),
+            Block {
+                body: naming(&[&first]),
+                ..block(&comment, "board", &second)
+            },
+        ];
+        renew_block_ids(&mut blocks, &RelationProperties::new(), unmatched);
+        let named = |block: &Block| -> Vec<String> {
+            let body = block.body.as_ref().expect("the body stays");
+            body.reference_ids()
+                .into_iter()
+                .map(str::to_owned)
+                .collect()
+        };
+        assert!(
+            blocks
+                .iter()
+                .all(|block| block.id != first && block.id != second)
+        );
+        assert_eq!(
+            named(&blocks[0]),
+            [blocks[1].id.clone(), outside, blocks[0].id.clone()],
+            "{unmatched:?}"
+        );
+        assert_eq!(named(&blocks[2]), [blocks[0].id.clone()], "{unmatched:?}");
+        assert_eq!(blocks[2].parent_id, blocks[1].id);
+    }
+}

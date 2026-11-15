@@ -1694,6 +1694,44 @@
         ],
         "type": "object"
       },
+      "LinkedBlock": {
+        "description": "A card or a page as a reference shows it: what it is called, and where it is.",
+        "properties": {
+          "boardId": {
+            "description": "The identifier of the board the card is on, or of the wiki the page is of.",
+            "type": "string"
+          },
+          "boardKind": {
+            "$ref": "#/components/schemas/BoardKind",
+            "description": "Whether that is a board or a wiki."
+          },
+          "icon": {
+            "description": "Its icon, at most one grapheme; empty for none.",
+            "type": "string"
+          },
+          "id": {
+            "description": "The identifier of the card or the page.",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/LinkedKind",
+            "description": "Whether it is a card or a page."
+          },
+          "title": {
+            "description": "Its title; empty for one without.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "boardId",
+          "boardKind",
+          "icon",
+          "id",
+          "kind",
+          "title"
+        ],
+        "type": "object"
+      },
       "LinkedIdentity": {
         "description": "An identity tied to an account: who its owner is at a provider, by which they sign\nin to it through the provider of an organization.",
         "properties": {
@@ -1727,6 +1765,14 @@
           "subject"
         ],
         "type": "object"
+      },
+      "LinkedKind": {
+        "description": "What a reference may name: a card of a board or a page of a wiki.",
+        "enum": [
+          "card",
+          "page"
+        ],
+        "type": "string"
       },
       "LoginOptions": {
         "description": "What the login page shows: the organization it is for, if it is for one.",
@@ -3461,6 +3507,14 @@
           "size"
         ],
         "type": "object"
+      },
+      "ReferenceIds": {
+        "description": "The identifiers the references name, each the `id` of a node `reference`: at most 100.",
+        "items": {
+          "type": "string"
+        },
+        "maxItems": 100,
+        "type": "array"
       },
       "RegisterRequest": {
         "description": "A request to register a new user.",
@@ -6457,7 +6511,7 @@
     },
     "/api/v1/shared/{boardId}/blocks": {
       "get": {
-        "description": "What `getBlocks` gives of the board, with the same parameters, read with its read\ntoken as `getSharedBoard` is. No block names a user: `createdBy` and `modifiedBy`\nare empty, so is the `userId` of every mention in a body, and so is each user that\nthe board's person properties (`person`, `multiPerson`, `createdBy`, `updatedBy`)\nname in a card's `fields.properties` and in the clauses of a view's `fields.filter`;\na list keeps its length, so how many people a card has still shows. A card's values\nof properties the board does not define are left out, and a view grouped by a person\nproperty keeps of `visibleOptionIds`, `hiddenOptionIds`, `collapsedOptionIds` and\n`kanbanCalculations` only the group of the cards without a value (`\"\"`). Oldest\nfirst; the blocks that one request made come in the order that request had them in.",
+        "description": "What `getBlocks` gives of the board, with the same parameters, read with its read\ntoken as `getSharedBoard` is. No block names a user: `createdBy` and `modifiedBy`\nare empty, so is the `userId` of every mention in a body, and so is each user that\nthe board's person properties (`person`, `multiPerson`, `createdBy`, `updatedBy`)\nname in a card's `fields.properties` and in the clauses of a view's `fields.filter`;\na list keeps its length, so how many people a card has still shows. A card's values\nof properties the board does not define are left out, and a view grouped by a person\nproperty keeps of `visibleOptionIds`, `hiddenOptionIds`, `collapsedOptionIds` and\n`kanbanCalculations` only the group of the cards without a value (`\"\"`). A reference\nin a body keeps its `id` if it names a card of this board, and has an empty one for\nanything else: of what is elsewhere in the workspace nothing is told, nor whether\nthere is anything. Oldest\nfirst; the blocks that one request made come in the order that request had them in.",
         "operationId": "getSharedBlocks",
         "parameters": [
           {
@@ -6551,7 +6605,7 @@
     },
     "/api/v1/shared/{boardId}/cards": {
       "get": {
-        "description": "What `getCards` gives of the board, read with its read token as `getSharedBoard` is.\nNo card names a user: `createdBy` and `modifiedBy` are empty, the values of person\nproperties are emptied, and values of properties the board does not define are left\nout. The preview's text has no mentions in it, and its image `getSharedFile` gives.\nOldest first; the pages cut that order.",
+        "description": "What `getCards` gives of the board, read with its read token as `getSharedBoard` is.\nNo card names a user: `createdBy` and `modifiedBy` are empty, the values of person\nproperties are emptied, and values of properties the board does not define are left\nout. The preview's text has no mentions in it, and its image `getSharedFile` gives.\nA card comes without its body, so with nothing a body names. Oldest first; the\npages cut that order.",
         "operationId": "getSharedCards",
         "parameters": [
           {
@@ -11203,6 +11257,192 @@
         ]
       }
     },
+    "/api/v1/w/{workspaceId}/references/resolve": {
+      "post": {
+        "description": "A body names a card or a page by its identifier alone (the node `reference`), and no\nbody, however it is read, says what that is called: this does, for the user who\nasks and as things are now. Of the identifiers of the body, the cards and pages of\nthis workspace on a board or a wiki the user reads (as `getCard` and `getPage` ask),\neach once, in the order they were first named.\n\nWhatever else an identifier names is left out, and the answer does not tell why:\nnothing at all, something in the trash, something of another workspace or\norganization, a card or a page the user does not read, or a block that is neither.\nThe body names at most 100 identifiers (more is 400, as an entry that has not the\nform of an identifier is); an empty list answers an empty list.",
+        "operationId": "resolveReferences",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReferenceIds"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/LinkedBlock"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "What the user is shown of them."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "What references name",
+        "tags": [
+          "references"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/references/search": {
+      "get": {
+        "description": "The cards and pages of this workspace, on a board or a wiki the user reads, whose\ntitle has every word of `q` in it, as spaces divide it and whatever the case of the\nletters (of every letter, not only ASCII); `%` and `_` are characters like any\nother. At most 20, the one changed last first; without `q`, the 20 changed last.\nBodies are not looked into. What is in the trash, what is on a template, and a card\nthat is a template of its board's cards are never found. A `q` of more than 200\ncharacters is 400.",
+        "operationId": "searchReferences",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The words to look for in titles, at most 200 characters. Without it, what was changed last is found.",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/LinkedBlock"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "What was found."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Find what a reference may name",
+        "tags": [
+          "references"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/references/to/{blockId}": {
+      "get": {
+        "description": "The cards and pages of this workspace whose body names the block of the path with a\nreference, or which have a comment whose body does, on a board or a wiki the user\nreads; the block itself is never among them. Oldest first, 50 to a page unless\n`perPage` says otherwise, at most 200. What names it from where the user does not\nread is left out and takes no place in a page: the answer does not say how many\nthere are, nor whether there are any.\n\n404 unless the block is a card or a page the user reads, as `resolveReferences`\ntells of it: for anything else, as for an identifier of nothing.",
+        "operationId": "getReferencesTo",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the block.",
+            "in": "path",
+            "name": "blockId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The page, counted from 0. Left out, the first one.",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "How many a page has, at most 200. Left out, or zero or less, 50.",
+            "in": "query",
+            "name": "perPage",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/LinkedBlock"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "What names it, of the page."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "What names a card or a page",
+        "tags": [
+          "references"
+        ]
+      }
+    },
     "/api/v1/w/{workspaceId}/search": {
       "get": {
         "description": "The cards of the boards and the pages of the wikis of the workspace that the user\nhas a role on, their own or a team's (an open board or wiki they have not joined is\nnot searched), whose title and body together hold every word of `q`. Korean is\nmatched by its words, whatever particles and endings they carry, and a compound by\nits parts too: \"환불 규정\" finds \"환불규정을\". Comments, property values and attached\nfiles are not searched, and neither are templates. Each hit is the card or the page\nas it is now: its `kind`, its `title`, the board or the wiki it is in (`containerId`,\nand `containerKind`, by which a client tells a card's address from a page's), and\n`snippet`, a piece of its body in stretches of plain text, those that matched\nmarked; the snippet is empty for a body that changed a moment ago, or has nothing\nto show. The best match first. Nothing says how many match in all: fewer than\n`limit` means that no more of what the user reads matches (for a user with a role\non more than 1,000 boards and wikis: among the 10,000 best matches of the\nworkspace).\n\nA `q` of more than 200 characters, a `kind` that is none and a `limit` outside 1\nto 50 are 400; a `q` that is empty finds nothing. A user who searches more often\nthan the server lets one is told to wait (429, `Retry-After`). Where the server\nhas no search server (`searchEnabled` of `getClientConfig` is false) the answer is\n404 with the reason `search_not_configured`, and while the search server does not\nanswer, 503 with the reason `search_unavailable`: nothing else of the server waits\nfor it.",
@@ -12742,6 +12982,10 @@
     {
       "description": "The blocks of type `card`, as cards.",
       "name": "cards"
+    },
+    {
+      "description": "What the bodies of a workspace name: a body holds the identifier of a card or a page (the node `reference`), and what that is called is told here, to each user what they read.",
+      "name": "references"
     },
     {
       "description": "A user's categories and the boards filed under them.",

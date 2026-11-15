@@ -169,7 +169,7 @@ impl World {
 }
 
 const CLIENTS: [u64; 6] = [1, 2, 3, 5, 0, (1 << 53) - 1];
-const NAMES: [&str; 12] = [
+const NAMES: [&str; 13] = [
     "paragraph",
     "heading",
     "bulletList",
@@ -180,11 +180,12 @@ const NAMES: [&str; 12] = [
     "codeBlock",
     "hardBreak",
     "mention",
+    "reference",
     "video",
     "",
 ];
-const KEYS: [&str; 8] = [
-    "level", "checked", "start", "language", "userId", "x", "", "latex",
+const KEYS: [&str; 9] = [
+    "level", "checked", "start", "language", "userId", "x", "", "latex", "id",
 ];
 const LETTERS: [&str; 9] = ["a", "word ", "한글", "😀", "👩‍👩‍👧‍👦", "𝒳", "\n", "é", ""];
 const MARKS: [&str; 7] = [

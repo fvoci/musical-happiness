@@ -3,10 +3,11 @@
 
 mod cache;
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use cache::Cache;
-use fvoci_model::{BoardMember, PersonProperties};
+use fvoci_model::{Block, BoardMember, Body, PersonProperties};
 use fvoci_store::{Store, StoreError, Tenant, VisibilityVersion, WorkspaceAccess};
 
 /// The boards as the websocket hub asks about them: who the members of a board are,
@@ -174,4 +175,39 @@ impl Audience {
             )
             .await
     }
+
+    /// What whoever reads the block's board by its link is not told of the block: the
+    /// person properties of the board ([`Self::person_properties`]), and the cards of
+    /// the board among what the block's body names, which are all that reader is shown
+    /// of the references of the body ([`Block::clear_references_but`]). The cards are read
+    /// anew each time, and only for a body that names something: a card that comes or
+    /// goes changes no version of the audience.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if either cannot be read: the block is not sent then.
+    pub async fn unsaid_by_link(&self, block: &Block) -> Result<UnsaidByLink, StoreError> {
+        let people = self.person_properties(&block.board_id).await?;
+        let named = block
+            .body
+            .as_ref()
+            .map(Body::reference_ids)
+            .unwrap_or_default();
+        let shown = self
+            .store
+            .cards_on_board_among(&block.board_id, &named)
+            .await?;
+        Ok(UnsaidByLink { people, shown })
+    }
+}
+
+/// What a block is sent without to whoever reads its board by the link alone
+/// ([`Audience::unsaid_by_link`]).
+#[derive(Debug)]
+pub struct UnsaidByLink {
+    /// The person properties of the board, whose values go out empty.
+    pub people: PersonProperties,
+    /// The cards of the board among what the body names: every other reference goes
+    /// out without its identifier.
+    pub shown: HashSet<String>,
 }

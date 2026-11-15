@@ -9,6 +9,8 @@
   import { displayDateTime, type DisplayContext } from '$lib/logic/format.ts';
   import type { BoardStore, CommentVersion } from '$lib/state/index.ts';
 
+  import { bodyReferences } from './body-references.ts';
+
   interface Props {
     board: BoardStore;
     commentId: string;
@@ -20,6 +22,8 @@
   }
 
   let { board, commentId, editedAt, context, resolveUser, id }: Props = $props();
+
+  const references = $derived(bodyReferences(board));
 
   /** The texts as of the comment's last change: a newer one reads them again. */
   const versions = $derived(versionsAsOf(commentId, editedAt));
@@ -46,7 +50,7 @@
               ? m.card_comment_version_posted({ who, when })
               : m.card_comment_version_changed({ who, when })}
           </p>
-          <BodyView doc={version.body} {resolveUser} class="text-sm">
+          <BodyView doc={version.body} {resolveUser} {references} class="text-sm">
             {#snippet invalid()}
               <p class="text-muted-foreground">{m.card_body_invalid()}</p>
             {/snippet}

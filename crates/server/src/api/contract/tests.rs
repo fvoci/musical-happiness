@@ -533,6 +533,7 @@ const ORDERS: &[(&str, &str)] = &[
         "getPageTree",
         "By `order` as strings compare by code unit, then by `id`",
     ),
+    ("getReferencesTo", "Oldest first"),
     (
         "getSharedBlocks",
         "Oldest first; the blocks that one request made come in the order that request had them in",
@@ -560,6 +561,8 @@ const ORDERS: &[(&str, &str)] = &[
     ("reorderCardProperties", "in their new order"),
     ("reorderCategories", "in their new order"),
     ("reorderCategoryBoards", "in their new order"),
+    ("resolveReferences", "in the order they were first named"),
+    ("searchReferences", "the one changed last first"),
     ("searchWorkspaceBoards", "Oldest first"),
     ("searchWorkspaceContent", "The best match first"),
 ];

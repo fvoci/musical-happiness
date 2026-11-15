@@ -93,6 +93,8 @@ const REACHED: &[(&str, Reaches)] = &[
     ("getPage", Reaches::Wikis),
     ("patchPage", Reaches::Wikis),
     ("deletePage", Reaches::Wikis),
+    // What names a card or a page from a body: a card and a page name each other.
+    ("getReferencesTo", Reaches::Both),
     // What the holder of a read token reads.
     ("getSharedBoard", Reaches::Boards),
     ("getSharedBlocks", Reaches::Boards),

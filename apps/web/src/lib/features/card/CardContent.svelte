@@ -20,9 +20,11 @@
   import { whileHere, type BoardStore, type CardStore } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
+  import { bodyReferences } from './body-references.ts';
   import BodyVersions from './BodyVersions.svelte';
   import { VersionsReading } from './body-versions.svelte.ts';
   import CardAttachments from './CardAttachments.svelte';
+  import CardBacklinks from './CardBacklinks.svelte';
   import CardBody from './CardBody.svelte';
   import CardComments from './CardComments.svelte';
   import CardHeader from './CardHeader.svelte';
@@ -44,6 +46,8 @@
   }
 
   let { board, view, card, frame, cardHref, onClose, onOpenCard }: Props = $props();
+
+  const references = $derived(bodyReferences(board, card.cardId));
 
   const summary = $derived(card.summary);
   const ready = $derived(card.status === 'ready');
@@ -144,7 +148,8 @@
       <CardTitle {board} card={summary} autofocus={blank} />
       <CardProperties {board} {view} card={summary} {onOpenCard} />
       {#if ready}
-        <CardBody {board} {card} />
+        <CardBody {board} {card} {references} />
+        <CardBacklinks workspace={board.workspace} blockId={card.cardId} />
         <CardAttachments {board} {card} />
         <CardComments {board} {card} />
       {:else if card.status === 'failed'}

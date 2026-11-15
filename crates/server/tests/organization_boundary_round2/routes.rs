@@ -159,6 +159,9 @@ pub(super) const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
     ("PUT", "/members/{user}", "setWorkspaceRole"),
     ("DELETE", "/members/{user}", "removeWorkspaceMember"),
     ("POST", "/onboard", "onboard"),
+    ("POST", "/references/resolve", "resolveReferences"),
+    ("GET", "/references/search?q=secret", "searchReferences"),
+    ("GET", "/references/to/{blockId}", "getReferencesTo"),
     ("PUT", "/guest-invitations", "setGuestInvitations"),
     ("GET", "/invitations", "getInvitations"),
     ("POST", "/invitations", "createInvitation"),
@@ -205,6 +208,7 @@ const REFUSED_IN_REACH: [StatusCode; 3] = [
 /// they name, as a member does: for the guest the workspace is there, and what is refused
 /// is what the path names (a board, a card, an upload, a user), or the operation.
 const REACHED_BY_ITEM: &[&str] = &[
+    "getReferencesTo",
     "createBoard",
     "createWiki",
     "getPageTree",
@@ -361,12 +365,25 @@ async fn compare_malformed_bodies(
 fn route_body(operation: &str, user_id: &str, workspace: &str) -> Value {
     match operation {
         "createCategory" => json!({"name": "mine", "userId": user_id, "workspaceId": workspace}),
-        "reorderCategories" | "reorderCategoryBoards" | "getWorkspaceUsersById" => json!([]),
+        "reorderCategories"
+        | "reorderCategoryBoards"
+        | "getWorkspaceUsersById"
+        | "resolveReferences" => json!([]),
         "importArchive" => json!({"uploadId": "missing-upload"}),
         "createImportUpload" => json!({"name": "archive.zip", "size": 0}),
         _ => json!({}),
     }
 }
+
+/// The operations of `WORKSPACE_ROUTES` that answer a guest of a workspace that has
+/// nothing for them with an empty list: the boards and the wikis the guest is on, what
+/// the references of no body name, and what a reference of the guest may name.
+const EMPTY_FOR_A_GUEST: &[&str] = &[
+    "getWorkspaceBoards",
+    "getWikis",
+    "resolveReferences",
+    "searchReferences",
+];
 
 /// Whether the answer says that the server has no search server: what a guest of the
 /// workspace, for whom it is there, is told by the search of bodies in these tests.
@@ -393,10 +410,10 @@ async fn compare_workspace_routes(client: &Client, user_id: &str, asker: Asker) 
         };
         let hidden = send(HIDDEN_WORKSPACE_ID).await;
         let absent = send(UNKNOWN_ID).await;
-        let lists_boards = matches!(*operation, "getWorkspaceBoards" | "getWikis");
+        let lists_boards = EMPTY_FOR_A_GUEST.contains(operation);
         let equal = if lists_boards && asker == Asker::Guest {
             // A guest of the workspace is a member of it: the boards, and the wikis, are
-            // those the guest is on, none here (the route of `api/workspaces.rs`).
+            // those the guest is on, none here; and what no reference names is nothing.
             hidden.status == StatusCode::OK
                 && answer(&hidden).1 == json!([])
                 && absent.status == StatusCode::NOT_FOUND
@@ -1355,10 +1372,11 @@ async fn an_invited_workspace_guest_reads_its_board_without_gaining_editor_right
 #[tokio::test]
 async fn the_paths_from_before_the_workspace_are_not_there() {
     let ts = Setup::native().start().await.init_basic().await;
-    // The wikis came after the move, and were never anywhere else.
+    // The wikis and the references came after the move, and were never anywhere else.
     let gone = WORKSPACE_ROUTES
         .iter()
         .filter(|(_, suffix, _)| !suffix.starts_with("/wikis"))
+        .filter(|(_, suffix, _)| !suffix.starts_with("/references"))
         .filter(|(_, _, operation)| REACHED_BY_ITEM.contains(operation))
         .map(|(method, suffix, operation)| (*method, fill_with_nothing(suffix), *operation))
         .chain([

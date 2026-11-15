@@ -37,7 +37,7 @@ pub struct PageAsked {
 
 impl PageAsked {
     /// The page as the store reads it; `None` for a page before the first.
-    fn paging(self) -> Option<Paging> {
+    pub(super) fn paging(self) -> Option<Paging> {
         let page = u32::try_from(self.page).ok()?;
         let per_page = if self.per_page <= 0 {
             DEFAULT_PER_PAGE

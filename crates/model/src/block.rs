@@ -1,6 +1,7 @@
 //! Blocks: the basic unit of board content (cards, views, comments and attachments) and
 //! of a wiki's (pages).
 
+use std::collections::HashSet;
 use std::fmt;
 use std::str::FromStr;
 
@@ -485,6 +486,18 @@ impl Block {
         }
         if self.block_type == BlockType::View {
             people.hide_view_fields(&mut self.fields);
+        }
+    }
+
+    /// Empties what the references of the body name, but for the cards of `shown`: the
+    /// block as it goes to whoever reads its board by the link, with
+    /// [`Self::hide_people`]. `shown` is the cards of that board; of anything else of
+    /// the workspace that reader is told nothing ([`Body::clear_references_but`]).
+    ///
+    /// [`Body::clear_references_but`]: crate::Body::clear_references_but
+    pub fn clear_references_but(&mut self, shown: &HashSet<String>) {
+        if let Some(body) = self.body.as_mut() {
+            body.clear_references_but(shown);
         }
     }
 

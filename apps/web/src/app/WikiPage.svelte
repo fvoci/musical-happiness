@@ -17,6 +17,8 @@
   import { untrack } from 'svelte';
 
   import ConfirmDialog from '$lib/components/confirm/ConfirmDialog.svelte';
+  import { bodyReferences } from '$lib/features/card/body-references.ts';
+  import CardBacklinks from '$lib/features/card/CardBacklinks.svelte';
   import CardBody from '$lib/features/card/CardBody.svelte';
   import WikiSettingsDialog from '$lib/features/wiki/WikiSettingsDialog.svelte';
   import WikiJoin from '$lib/features/wiki/WikiJoin.svelte';
@@ -24,6 +26,7 @@
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { firstPage, withDescendants } from '$lib/logic/page-tree.ts';
   import {
+    referenceTitles,
     shownWiki,
     whileHere,
     WikiStore,
@@ -34,9 +37,16 @@
   } from '$lib/state/index.ts';
 
   import NotFound from './NotFound.svelte';
+  import { referencePlaces } from './reference-places.ts';
   import type { Router } from './router.svelte.ts';
 
   let { workspace, router }: { workspace: Workspace; router: Router } = $props();
+
+  // Where the references in the bodies of this workspace lead, by the app's one router:
+  // the board page and the wiki page each say so, and neither takes it back.
+  $effect.pre(() => {
+    referenceTitles(workspace).places = referencePlaces(router);
+  });
 
   const wikiId = $derived(router.route.wikiId);
   const pageId = $derived(router.route.pageId);
@@ -176,7 +186,15 @@
     {/snippet}
     {#snippet body(page: PageStore)}
       <!-- The page's body is edited together as a card's is, in the page's own room. -->
-      <CardBody board={wiki} card={page} of="page" testId="page-body" />
+      <CardBody
+        board={wiki}
+        card={page}
+        of="page"
+        testId="page-body"
+        references={bodyReferences(wiki, page.pageId)}
+      />
+      <!-- WikiScreen draws each page anew: the list is read for the page it is drawn for. -->
+      <CardBacklinks {workspace} blockId={page.pageId} of="page" />
     {/snippet}
   </WikiScreen>
   {@const store = wiki}

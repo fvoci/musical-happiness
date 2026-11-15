@@ -37,6 +37,27 @@ impl utoipa::PartialSchema for UserIds {
 
 impl ToSchema for UserIds {}
 
+/// The identifiers the references of a body name: at most
+/// [`MAX_REFERENCE_IDS`](crate::app::MAX_REFERENCE_IDS).
+#[derive(Debug)]
+pub(crate) struct ReferenceIds;
+
+impl utoipa::PartialSchema for ReferenceIds {
+    fn schema() -> utoipa::openapi::RefOr<utoipa::openapi::schema::Schema> {
+        utoipa::openapi::schema::ArrayBuilder::new()
+            .items(String::schema())
+            .max_items(Some(crate::app::MAX_REFERENCE_IDS))
+            .description(Some(format!(
+                "The identifiers the references name, each the `id` of a node `reference`: \
+                 at most {}.",
+                crate::app::MAX_REFERENCE_IDS
+            )))
+            .into()
+    }
+}
+
+impl ToSchema for ReferenceIds {}
+
 /// A board to make.
 #[derive(Debug, ToSchema)]
 #[schema(rename_all = "camelCase")]

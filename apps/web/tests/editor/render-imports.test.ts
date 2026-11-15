@@ -143,7 +143,7 @@ describe('what the read-only view is made of', () => {
     });
   });
 
-  it('adds, for the component, the framework, the style sheets, and the two libraries that draw formulas and diagrams', () => {
+  it('adds, for the component, the framework, the style sheets, what draws a reference, and the two libraries that draw formulas and diagrams', () => {
     expect(graphOf('src/lib/editor/BodyView.svelte')).toEqual({
       files: [
         'src/lib/editor/BodyView.svelte',
@@ -155,6 +155,7 @@ describe('what the read-only view is made of', () => {
         'src/lib/editor/files.ts',
         'src/lib/editor/katex.css',
         'src/lib/editor/math.ts',
+        'src/lib/editor/reference-chip.ts',
         'src/lib/editor/render.ts',
         'src/lib/editor/safe-svg.ts',
         'src/lib/editor/schema.ts',
@@ -165,6 +166,7 @@ describe('what the read-only view is made of', () => {
         'mermaid',
         'svelte',
         'svelte/elements',
+        'svelte/events',
       ],
     });
   });

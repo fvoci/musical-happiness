@@ -4,7 +4,7 @@
   import { setFileUrlResolver } from '$lib/editor/files.ts';
   import type { DocNode } from '$lib/editor/schema.ts';
 
-  import { PEOPLE, sampleFileUrl } from './body-samples.ts';
+  import { PEOPLE, SAMPLE_REFERENCES, sampleFileUrl } from './body-samples.ts';
 
   let { doc, editable = true }: { doc: unknown; editable?: boolean } = $props();
 
@@ -24,6 +24,7 @@
       {editable}
       {users}
       resolveUser={(userId: string) => PEOPLE[userId]}
+      references={SAMPLE_REFERENCES}
       uploadImage={() => Promise.resolve(`file-${(uploads += 1)}`)}
       placeholder="내용을 입력하세요."
       class="min-h-40 p-4"
@@ -36,7 +37,12 @@
     />
   </div>
   <div class="rounded-lg border border-input-border">
-    <BodyView doc={stored ?? null} resolveUser={(userId: string) => PEOPLE[userId]} class="p-4">
+    <BodyView
+      doc={stored ?? null}
+      resolveUser={(userId: string) => PEOPLE[userId]}
+      references={SAMPLE_REFERENCES}
+      class="p-4"
+    >
       {#snippet empty()}
         <p class="p-4 text-sm text-muted-foreground">내용이 없습니다.</p>
       {/snippet}
