@@ -7,6 +7,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
 import { Finger, nextFrame, pointOn, touch } from './kanban.support.ts';
+import { primaryKey } from './keyboard.support.ts';
 import { openApp } from './shell.support.ts';
 import {
   hideTree,
@@ -73,7 +74,7 @@ test.describe('a page moved', () => {
     await page.keyboard.press('Alt+ArrowLeft');
     expect(await treeShape(page)).toEqual(['Welcome', '  Getting started', 'Travel', 'Policies']);
     // Undone: back where it was, one step at a time.
-    await page.keyboard.press('Control+z');
+    await page.keyboard.press(await primaryKey(page, 'z'));
     await expect
       .poll(() => treeShape(page))
       .toEqual(['Welcome', '  Travel', '  Getting started', 'Policies']);

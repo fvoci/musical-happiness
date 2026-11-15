@@ -33,6 +33,7 @@
   import ActionMenu from '$lib/components/menu/ActionMenu.svelte';
   import type { MenuAction } from '$lib/components/menu/actions.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
+  import { isApplePlatform } from '$lib/keys.ts';
   import { fingerPointer } from '$lib/layout/room.svelte.ts';
   import { stepped, type MoveStep, type PagePlace } from '$lib/logic/page-moves.ts';
   import { pageRows, type PageRow } from '$lib/logic/page-tree.ts';
@@ -86,7 +87,7 @@
     ArrowLeft: 'out',
   };
   /** How the menu writes the key held with an arrow: ⌥ on Apple's systems. */
-  const alt = /Mac|iPhone|iPad/u.test(navigator.userAgent) ? '⌥' : 'Alt+';
+  const alt = isApplePlatform() ? '⌥' : 'Alt+';
   /** The keys are shown where there is likely a keyboard: not with a finger for a pointer. */
   const keys = $derived(!fingerPointer.current);
   /** Said after a page is moved with the keys. */

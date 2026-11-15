@@ -20,6 +20,20 @@ export async function documentBoundary(page: Page, edge: 'start' | 'end'): Promi
   await page.keyboard.press(key);
 }
 
+/** The end of the row the caret is on: Home and End on macOS scroll and leave the caret. */
+export async function lineBoundary(
+  page: Page,
+  edge: 'start' | 'end',
+  { select = false } = {},
+): Promise<void> {
+  const shift = select ? 'Shift+' : '';
+  const key =
+    process.platform === 'darwin'
+      ? `${shift}Meta+${edge === 'start' ? 'ArrowLeft' : 'ArrowRight'}`
+      : `${shift}${edge === 'start' ? 'Home' : 'End'}`;
+  await page.keyboard.press(key);
+}
+
 /** The engine that draws the page: the one place the tests ask for it. */
 export function engineOf(page: Page): string | undefined {
   return page.context().browser()?.browserType().name();

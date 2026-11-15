@@ -21,6 +21,7 @@ import {
 } from '@playwright/test';
 
 import { scrollTo, uncovered } from '../e2e/carets.support.ts';
+import { documentBoundary, lineBoundary } from '../e2e/keyboard.support.ts';
 import { screensDir } from '../e2e/screens.ts';
 
 import {
@@ -134,7 +135,7 @@ test('two people see where the other is, by the name the server knows them by; a
     'Who books the room?',
   ]);
   await editor(second).locator('p').nth(1).click();
-  await second.keyboard.press('End');
+  await lineBoundary(second, 'end');
 
   // Each sees the other, where they are, under the server's word of who they are.
   await expect(carets(first)).toHaveCount(1);
@@ -163,7 +164,7 @@ test('two people see where the other is, by the name the server knows them by; a
   await expect(carets(first)).toHaveAttribute('data-named', '');
   await picture(first, 'two-people');
   // A selection of Bora's is tinted for the others.
-  await second.keyboard.press('Shift+Home');
+  await lineBoundary(second, 'start', { select: true });
   await expect(editor(first).locator('.doc-caret-selection').first()).toBeVisible();
   await expect(carets(first)).toHaveAttribute('data-named', '');
   await picture(first, 'selection');
@@ -235,7 +236,7 @@ test('a connection cut for five seconds: the body is read-only meanwhile, and bo
   await first.keyboard.type('Bora:');
   await expect(editor(second).locator('p')).toHaveText(['Shared line: one two three.', 'Bora:']);
   await editor(second).locator('p').nth(1).click();
-  await second.keyboard.press('End');
+  await lineBoundary(second, 'end');
   await second.keyboard.type(' before the tunnel.');
   await expect(editor(first).locator('p').nth(1)).toHaveText('Bora: before the tunnel.');
   await expect(carets(first)).toHaveCount(1);
@@ -261,7 +262,7 @@ test('a connection cut for five seconds: the body is read-only meanwhile, and bo
   await expect(carets(first)).toHaveCount(0);
   await expect(carets(second)).toHaveCount(0);
   await editor(first).locator('p').first().click();
-  await first.keyboard.press('End');
+  await lineBoundary(first, 'end');
   await first.keyboard.type(' Ada meanwhile.');
   await second.waitForTimeout(5000);
   // Nothing of the other's reached either.
@@ -299,7 +300,7 @@ test('a connection cut for five seconds: the body is read-only meanwhile, and bo
     'data-name',
     new RegExp(bora.username),
   );
-  await second.keyboard.press('End');
+  await lineBoundary(second, 'end');
   await second.keyboard.type(' Out again.');
   together = [together[0] ?? '', `${together[1] ?? ''} Out again.`];
   await expect(editor(first).locator('p')).toHaveText(together);
@@ -353,7 +354,7 @@ test('the browser going offline leaves the body read-only at once, and what was 
   await page.context().setOffline(false);
   await expect(body).toHaveAttribute('data-editor', 'ready', { timeout: 30_000 });
   await editor(page).click();
-  await page.keyboard.press('Control+End');
+  await documentBoundary(page, 'end');
   await page.keyboard.type(' After it.');
   await expect
     .poll(() => stored(api, board.workspaceId, cardId), { timeout: 15_000 })
@@ -406,7 +407,7 @@ test("a wiki's page shows the carets of who write it, by the name the server kno
   await first.keyboard.type('Its second line.');
   await expect(body(second).locator('p')).toHaveText(['The handbook.', 'Its second line.']);
   await body(second).locator('p').first().click();
-  await second.keyboard.press('End');
+  await lineBoundary(second, 'end');
 
   for (const [page, whose, who] of [
     [first, boraId, bora.username],
@@ -424,7 +425,7 @@ test("a wiki's page shows the carets of who write it, by the name the server kno
   // On a phone the page scrolls under a bar that stays at its top: a name on the line
   // just below the bar is drawn under its line, not under the bar.
   await body(first).locator('p').nth(1).click();
-  await first.keyboard.press('End');
+  await lineBoundary(first, 'end');
   for (let line = 3; line <= 70; line += 1) {
     await first.keyboard.press('Enter');
     await first.keyboard.insertText(`Line ${String(line)}.`);
@@ -433,7 +434,7 @@ test("a wiki's page shows the carets of who write it, by the name the server kno
   await first.setViewportSize({ width: 390, height: 844 });
   expect(await scrollTo(body(first).locator('p').nth(29), 30)).toBe(true);
   await body(second).locator('p').nth(29).click();
-  await second.keyboard.press('End');
+  await lineBoundary(second, 'end');
   await expect(body(first).locator('p').nth(29).locator('.doc-caret')).toHaveCount(1);
   await expect(caretsOn(first)).toHaveAttribute('data-named', '');
   await expect.poll(() => uncovered(body(first))).toBe(true);
