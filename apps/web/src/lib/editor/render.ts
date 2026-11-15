@@ -28,6 +28,8 @@ import {
   LINK_ATTRIBUTES,
   MATH_SLOTS,
   mathSlotAttributes,
+  REFERENCE_CLASS,
+  REFERENCE_ID_ATTRIBUTE,
   type MathNodeName,
 } from './drawing.ts';
 import { fileUrl } from './files.ts';
@@ -74,7 +76,7 @@ const MARK_TAGS: Record<string, string> = {
   code: 'code',
 };
 const HEADING_TAGS: Record<number, string> = { 1: 'h1', 2: 'h2', 3: 'h3' };
-const INLINE = new Set(['text', 'hardBreak', 'mention', 'inlineMath']);
+const INLINE = new Set(['text', 'hardBreak', 'mention', 'reference', 'inlineMath']);
 
 const TEXT_NODE = 3;
 
@@ -165,6 +167,15 @@ class BodyDrawing {
     return element;
   }
 
+  /** A reference: an element that holds the identifier, which may be empty for a reader by a link. */
+  #reference(node: DocNode): HTMLElement {
+    const element = this.#page.createElement('span');
+    element.setAttribute(REFERENCE_ID_ATTRIBUTE, textAttribute(node, 'id') ?? '');
+    element.setAttribute('data-reference', '');
+    element.setAttribute('class', REFERENCE_CLASS);
+    return element;
+  }
+
   /**
    * Where a formula goes: an element that holds the source, as text and in
    * an attribute. Nothing is drawn here. Whoever places the body (the
@@ -217,6 +228,9 @@ class BodyDrawing {
         lineIsEmpty = true;
       } else if (child.type === 'mention') {
         parent.append(this.#mention(child));
+        lineIsEmpty = false;
+      } else if (child.type === 'reference') {
+        parent.append(this.#reference(child));
         lineIsEmpty = false;
       } else if (child.type === 'inlineMath') {
         parent.append(this.#math('inlineMath', child));

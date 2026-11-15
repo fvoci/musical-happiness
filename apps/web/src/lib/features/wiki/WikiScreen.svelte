@@ -23,7 +23,8 @@
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { closeOnBack } from '$lib/layout/back.svelte.ts';
   import { pane } from '$lib/layout/room.svelte.ts';
-  import { ancestorsOf } from '$lib/logic/page-tree.ts';
+  import type { PagePlace } from '$lib/logic/page-moves.ts';
+  import { ancestorsOf, PAGE_TITLE_MAX } from '$lib/logic/page-tree.ts';
   import {
     whileHere,
     type PageDraft,
@@ -33,6 +34,7 @@
   } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
+  import MovePageDialog from './MovePageDialog.svelte';
   import PageTree from './PageTree.svelte';
   import WikiHeader from './WikiHeader.svelte';
   import PageView from './PageView.svelte';
@@ -53,6 +55,8 @@
     onEditWiki: () => void;
     /** Asks to delete the wiki (its managers'). */
     onDeleteWiki: () => void;
+    /** Asks to show the wiki's deleted pages (its editors'). */
+    onOpenTrash: () => void;
     /** Something to tell at the head of the page (a page shown was deleted). */
     notice?: string | undefined;
     onDismissNotice?: (() => void) | undefined;
@@ -70,6 +74,7 @@
     onDelete,
     onEditWiki,
     onDeleteWiki,
+    onOpenTrash,
     notice,
     onDismissNotice,
     takeFocus = false,
@@ -131,6 +136,35 @@
 
   /** A page is being made: a second click does not make another. */
   let creating = $state(false);
+  /** The page "Move…" asks a place for. */
+  let moving = $state<string | undefined>(undefined);
+  let movingOpen = $state(false);
+
+  /** Moves a page; the page it goes below unfolds, so that it stays in sight. */
+  function move(pageId: string, to: PagePlace): Promise<boolean> {
+    if (to.parentId !== '') open.set([to.parentId, ...ancestorsOf(wiki.pages, to.parentId)]);
+    return wiki.movePage(pageId, to);
+  }
+
+  /**
+   * Copies a page with those below it, and shows the copy, right after it,
+   * open if the page is (the copies below it folded). Gives the copy's title,
+   * to be told; undefined when it was refused (told).
+   */
+  async function duplicate(source: WikiPage): Promise<string | undefined> {
+    const copying = wiki;
+    // The longest title cut to leave the words of a copy room.
+    const room = PAGE_TITLE_MAX - Array.from(m.wiki_page_copy({ title: '' })).length;
+    const base = Array.from(source.title || m.wiki_page_untitled())
+      .slice(0, room)
+      .join('');
+    const title = m.wiki_page_copy({ title: base });
+    const copy = await whileHere(copying.workspace, () => copying.duplicatePage(source.id, title));
+    if (!copy || wiki !== copying) return undefined;
+    if (open.has(source.id)) open.set([copy.id]);
+    show(copy.id);
+    return copy.title;
+  }
 
   async function create(draft: PageDraft): Promise<void> {
     if (creating) return;
@@ -228,7 +262,7 @@
         </IconButton>
       </div>
     {/if}
-    <WikiHeader {wiki} onEdit={onEditWiki} onDelete={onDeleteWiki} />
+    <WikiHeader {wiki} onEdit={onEditWiki} onDelete={onDeleteWiki} onTrash={onOpenTrash} />
     <PageTree
       {wiki}
       currentId={page?.pageId}
@@ -237,6 +271,11 @@
       onOpenPage={show}
       onCreate={(draft: PageDraft) => void create(draft)}
       {onDelete}
+      onMove={move}
+      onMoveTo={(chosen: WikiPage) => {
+        [moving, movingOpen] = [chosen.id, true];
+      }}
+      onDuplicate={duplicate}
       busy={creating}
     />
   </div>
@@ -300,3 +339,10 @@
     {/if}
   </div>
 </div>
+
+<MovePageDialog
+  bind:open={movingOpen}
+  {wiki}
+  pageId={moving}
+  onMove={(pageId: string, to: PagePlace) => void move(pageId, to)}
+/>

@@ -37,10 +37,13 @@ function imagesIn(node: Node | null | undefined): string[] {
   return [...own, ...(node.content ?? []).flatMap((child) => imagesIn(child))];
 }
 
-/** Whether every picture in `place` has arrived and been drawn. */
+/**
+ * Whether every picture in `place` has arrived and been drawn. The image without a size that
+ * the editor puts after somebody's caret at the end of a line is not one.
+ */
 async function drawn(place: Locator): Promise<number[]> {
   return place
-    .locator('img')
+    .locator('img:not(.ProseMirror-separator)')
     .evaluateAll((images) =>
       images.map((image) =>
         (image as HTMLImageElement).complete ? (image as HTMLImageElement).naturalWidth : -1,

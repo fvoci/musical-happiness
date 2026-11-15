@@ -26,6 +26,7 @@
 //! body writes it when it starts again ([`Collab::recover`]).
 
 mod admission;
+mod caret;
 #[cfg(unix)]
 mod child;
 mod frame;

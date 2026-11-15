@@ -5,8 +5,11 @@
  */
 import type { Editor } from '@tiptap/core';
 import type { Snippet } from 'svelte';
+import type { Awareness } from 'y-protocols/awareness';
 import type { Doc } from 'yjs';
 
+import type { SuggestionEntry } from './extensions.ts';
+import type { ReferenceDrawing } from './reference-chip.ts';
 import type { DocNode } from './schema.ts';
 
 /**
@@ -20,6 +23,20 @@ export interface BodyEditorTools {
   editor: Editor;
   /** Goes up with every change of the document or the selection; read it to stay current. */
   changes: number;
+}
+
+/**
+ * What an editor draws its references from and puts them with: beyond the
+ * drawing of a body that is only shown, what `[[` offers and what a pasted
+ * address names.
+ */
+export interface BodyReferences extends ReferenceDrawing {
+  /** What may be named whose title matches what was typed after `[[`. */
+  search: (query: string) => SuggestionEntry[] | Promise<SuggestionEntry[]>;
+  /** The identifier an address names, if it is the address of a card or a page of the workspace. */
+  named: (address: string) => string | undefined;
+  /** Whether the reader may see what the identifier names. */
+  seen: (id: string) => Promise<boolean>;
 }
 
 export interface BodyEditorProps {
@@ -37,6 +54,11 @@ export interface BodyEditorProps {
   onChange?: (doc: DocNode | null) => void;
   onFocus?: () => void;
   onBlur?: () => void;
+  /**
+   * What references are drawn from and put with. Without it every reference
+   * shows as what the reader may not see, and none can be put.
+   */
+  references?: BodyReferences;
   /** Uploads a pasted or dropped image and gives its file identifier. Without it images cannot be added. */
   uploadImage?: (file: File) => Promise<string>;
   /** What an empty body says while it can be written. */
@@ -67,6 +89,26 @@ export interface BodyEditorProps {
    * only. Another document needs another editor.
    */
   collab?: Doc;
+  /**
+   * With `collab`: the carets of that document (carets.ts). The others' are
+   * drawn with their name (`resolveUser`) and their colour (`colorOf`, a CSS
+   * colour by the user's identifier); where the reader's own is is written
+   * into `awareness`. Read when the editor is made, as `collab` is.
+   */
+  carets?: { awareness: Awareness; colorOf: (userId: string) => string };
+  /**
+   * With `collab`: the reader began (`true`) or ended composing a syllable
+   * with an input method. A change from outside in the line being composed
+   * would end the composition: whoever brings such changes holds them back
+   * meanwhile.
+   */
+  onComposing?: (composing: boolean) => void;
+  /**
+   * With `collab`: takes what has the editor read the selection of the page
+   * and gives what takes it back. Whoever brings the others' changes calls
+   * it before each (moves-kept.ts).
+   */
+  readsFirst?: (read: () => void) => () => void;
   /** Called once the editor is made, with it: for whoever puts the caret back where it was. */
   onEditor?: (editor: Editor) => void;
   /**

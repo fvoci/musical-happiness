@@ -25,6 +25,7 @@ import {
   type WorkspaceInfo,
 } from '../state/backend.ts';
 import type { CardPreview } from '../editor/card-preview.ts';
+import type { LinkedBlock } from '../state/references.ts';
 import type { Board } from '../logic/wire.ts';
 
 import {
@@ -80,6 +81,19 @@ export class SharedBackend implements Backend {
     read: refused,
     restore: refused,
   };
+  /**
+   * What a body names is told of the board that was received and of nothing
+   * else: the server gave the link's reader no identifier of anything else
+   * (it empties them), and takes no question about references from them.
+   */
+  readonly references: Backend['references'] = {
+    resolve: async (_workspaceId, ids) => {
+      const cards = await this.cards(this.#boardId);
+      return cards.filter((card) => ids.includes(card.id)).map((card) => this.#linked(card));
+    },
+    to: nothing,
+    search: nothing,
+  };
   readonly #http: Http;
   readonly #boardId: string;
   readonly #readToken: string;
@@ -114,6 +128,11 @@ export class SharedBackend implements Backend {
       { boardId: this.#boardId, ...params },
       { query: { ...query, readToken: this.#readToken } },
     );
+  }
+
+  #linked(card: CardSummary): LinkedBlock {
+    const { id, title, boardId } = card;
+    return { id, kind: 'card', title, icon: card.fields.icon ?? '', boardId, boardKind: 'board' };
   }
 
   /** Only the link's board is there: another is as one that does not exist. */

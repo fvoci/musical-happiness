@@ -5,11 +5,15 @@
  * - text on its surface: 4.5 to 1
  * - the outline of a form field and the focus indicator, on every surface
  *   they can appear on: 3 to 1
+ * - the line of somebody else's caret in a body (editor/carets.css), in each
+ *   colour a person can have, on the surfaces a body is drawn on: 3 to 1
  */
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { describe, expect, it } from 'vitest';
+
+import { AVATAR_COLORS } from '$lib/components/avatar/avatar.ts';
 
 import { contrast, over, parseOklch, type Color } from '../support/color.ts';
 
@@ -26,6 +30,18 @@ function tokensOf(selector: string): Map<string, Color> {
   }
   return tokens;
 }
+
+const caretCss = readFileSync(
+  path.resolve(import.meta.dirname, '../../src/lib/editor/carets.css'),
+  'utf8',
+);
+/** The share of the person's colour in the line of a caret; the rest is the text colour. */
+const caretShare =
+  Number(
+    /--caret-line:\s*color-mix\(\s*in srgb,\s*var\(--caret[^%]*\)\s+(\d+)%,\s*var\(--foreground\)\s*\)/.exec(
+      caretCss,
+    )?.[1],
+  ) / 100;
 
 const themes = {
   light: tokensOf(':root'),
@@ -104,6 +120,17 @@ describe.each(Object.entries(themes))('%s theme', (name, tokens) => {
     for (const opacity of opacities) {
       const tinted = over(token('destructive'), page, opacity);
       expect(contrast(token('destructive'), tinted)).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
+  it.each(AVATAR_COLORS)("the line of a caret in a person's %s is at least 3:1", (color) => {
+    expect(caretShare).toBeGreaterThan(0);
+    for (const surface of ['background', 'card', 'popover']) {
+      const painted = over(token(surface), page);
+      const line = over(token('foreground'), token(`option-${color}`), 1 - caretShare);
+      expect(contrast(line, painted), `on ${surface}`).toBeGreaterThanOrEqual(3);
+      // The name is the text colour on the person's colour.
+      expect(contrast(token('foreground'), token(`option-${color}`))).toBeGreaterThanOrEqual(4.5);
     }
   });
 

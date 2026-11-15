@@ -602,6 +602,7 @@ fn the_configuration_document_lists_every_key() {
         .chain(&super::smtp::ENV_KEYS)
         .chain(&super::mail::ENV_KEYS)
         .chain(&super::search::ENV_KEYS)
+        .chain(&super::wiki::ENV_KEYS)
         .map(|(key, _)| ((*key).to_owned(), env_name(key)))
         .collect();
     assert_eq!(

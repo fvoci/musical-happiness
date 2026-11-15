@@ -73,13 +73,24 @@ const settle = async (): Promise<void> => {
   for (let turn = 0; turn < 5; turn += 1) await Promise.resolve();
 };
 
+/** Hears every listening of a test begin: what each gave back ends it. */
+const watchListenings = () => vi.spyOn(LiveChanges.prototype, 'watch');
+let listenings: ReturnType<typeof watchListenings>;
+
 beforeEach(() => {
   FakeSocket.made = [];
   vi.stubGlobal('WebSocket', FakeSocket);
   vi.useFakeTimers();
+  listenings = watchListenings();
 });
 
 afterEach(() => {
+  // The connections of a test are closed with it, by ending each of its listenings: left
+  // open, they would hear the next test's browser going offline, and open sockets of their own.
+  for (const listening of listenings.mock.results) {
+    if (listening.type === 'return') listening.value();
+  }
+  vi.restoreAllMocks();
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
@@ -349,6 +360,30 @@ describe('changes from the server', () => {
     again?.open();
     expect(again?.sent).toEqual([{ action: 'SUBSCRIBE_WORKSPACE', workspaceId: 't' }]);
     for (const changes of [board, self, other]) expect(changes).toEqual([{ kind: 'resync' }]);
+  });
+
+  it('drops the connection at once when the browser says it is offline, and opens again when it is back', async () => {
+    const { socket, board } = await connected();
+    globalThis.dispatchEvent(new Event('offline'));
+    // Dropped without waiting for the socket to say so; its late close changes nothing.
+    await vi.advanceTimersByTimeAsync(499);
+    expect(FakeSocket.made).toHaveLength(1);
+    socket.drop();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(FakeSocket.made).toHaveLength(2);
+    // Still offline: the try fails, and the next waits longer.
+    FakeSocket.made[1]?.drop();
+    await vi.advanceTimersByTimeAsync(500);
+    expect(FakeSocket.made).toHaveLength(2);
+    globalThis.dispatchEvent(new Event('online'));
+    expect(FakeSocket.made).toHaveLength(3);
+    FakeSocket.made[2]?.open();
+    expect(board).toEqual([{ kind: 'resync' }]);
+    // Offline with no connection open: nothing to drop.
+    FakeSocket.made[2]?.drop();
+    globalThis.dispatchEvent(new Event('offline'));
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(FakeSocket.made).toHaveLength(4);
   });
 
   it('spreads the wait after the server asks to try again, so its pages do not all come back at once', async () => {

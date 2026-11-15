@@ -13,6 +13,9 @@ use crate::id::new_id;
 use crate::refusal::{RefusalReason, Refusals};
 use crate::serde_util::null_as_default;
 
+/// The member of a card's fields that holds its icon.
+pub(crate) const CARD_ICON_FIELD: &str = "icon";
+
 /// Errors from validating cards and converting them to and from blocks.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum CardError {
@@ -243,7 +246,7 @@ impl Card {
             return Err(CardError::NotCardBlock);
         }
 
-        let icon = match block.fields.get("icon") {
+        let icon = match block.fields.get(CARD_ICON_FIELD) {
             None | Some(Value::Null) => String::new(),
             Some(Value::String(icon)) => icon.clone(),
             Some(_) => return Err(CardError::InvalidFieldType { field: "icon" }),
@@ -298,7 +301,7 @@ impl From<Card> for Block {
     /// without a parent.
     fn from(card: Card) -> Self {
         let mut fields = JsonMap::new();
-        fields.insert("icon".to_owned(), Value::from(card.icon));
+        fields.insert(CARD_ICON_FIELD.to_owned(), Value::from(card.icon));
         fields.insert("isTemplate".to_owned(), Value::from(card.is_template));
         fields.insert("properties".to_owned(), Value::Object(card.properties));
 
@@ -436,7 +439,7 @@ impl CardPatch {
 
         let mut updated_fields = JsonMap::new();
         if let Some(icon) = &self.icon {
-            updated_fields.insert("icon".to_owned(), Value::from(icon.clone()));
+            updated_fields.insert(CARD_ICON_FIELD.to_owned(), Value::from(icon.clone()));
         }
 
         Ok(BlockPatch {

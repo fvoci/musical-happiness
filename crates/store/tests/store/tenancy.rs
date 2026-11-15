@@ -580,13 +580,14 @@ async fn a_link_for_a_guest(store: &Store, board: &Board, user_id: &str) {
         .expect("a link is stored");
 }
 
-/// The document of a card's body that is edited together: an update logged, a version kept.
+/// The document of a card's body that is edited together: an update logged, a version
+/// kept. The body names a block, which is a row of what bodies name.
 async fn a_body_edited_together(store: &Store, board_id: &str, user_id: &str) {
     let mut edited = fvoci_model::Block {
         id: new_id(),
         board_id: board_id.to_owned(),
         block_type: BlockType::Card,
-        body: crate::body_versions::body_showing("kept", &[]),
+        body: crate::body_links::body_naming("kept", &[&new_id()]),
         ..fvoci_model::Block::default()
     };
     common::insert_blocks(store, std::slice::from_mut(&mut edited), user_id).await;
@@ -686,6 +687,10 @@ async fn one_organization_does_not_purge_the_trash_of_another() {
     assert!(
         theirs.count_rows("file_refs").await.expect("counted") > 0,
         "and what their blocks show is still put down"
+    );
+    assert!(
+        theirs.count_rows("body_links").await.expect("counted") > 0,
+        "and what their bodies name"
     );
 
     let purged = test.system().purge_trash(whenever).await.expect("purged");

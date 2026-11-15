@@ -11,6 +11,8 @@ export interface DeletedItem {
   deletedBy: string;
   /** In the trash of boards: a board or a wiki (a board when left out). */
   kind?: BoardKind;
+  /** In the trash of a wiki's pages: how many pages below it went with it, to come back with it. */
+  below?: number;
 }
 
 /** A page of a list: `page` counts from 0, and a `perPage` of zero or less is all of it. */

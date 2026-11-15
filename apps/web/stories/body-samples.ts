@@ -1,4 +1,6 @@
 /** Made-up bodies for the stories of the read-only view. */
+import type { BodyReferences } from '$lib/editor/body-editor.ts';
+import type { ShownReference } from '$lib/editor/reference-chip.ts';
 import type { DocNode } from '$lib/editor/schema.ts';
 
 const text = (value: string, ...marks: string[]): DocNode =>
@@ -194,5 +196,71 @@ export const DIAGRAMS: DocNode = {
     ),
     paragraph(text('읽을 수 없는 다이어그램은 원문과 안내가 보입니다:')),
     diagram('flowchart LR\n  A --> --> B ]]'),
+  ],
+};
+
+const PLAN = '01930000-0000-7000-8000-00000000b001';
+const LONG = '01930000-0000-7000-8000-00000000b002';
+const PAGE = '01930000-0000-7000-8000-00000000b003';
+const UNSEEN = '01930000-0000-7000-8000-00000000b004';
+const ASKED = '01930000-0000-7000-8000-00000000b005';
+
+/** What the stories know of what references name: `null` for what the reader may not see. */
+const NAMED: Record<string, ShownReference | null> = {
+  [PLAN]: { title: '분기 계획', icon: '🚀', kind: 'card', href: '#plan' },
+  [LONG]: {
+    title: 'A title that goes on for much longer than a narrow screen is wide, and then some',
+    icon: '',
+    kind: 'card',
+    href: '#long',
+  },
+  [PAGE]: { title: 'Handbook', icon: '📘', kind: 'page' },
+  [UNSEEN]: null,
+};
+
+/**
+ * The stories have no server: what a reference names is made up here. One
+ * identifier is never answered, as while the server is being asked.
+ */
+export const SAMPLE_REFERENCES: BodyReferences = {
+  shown: (id) => (id === ASKED ? undefined : (NAMED[id] ?? null)),
+  search: (query) =>
+    Object.entries(NAMED)
+      .flatMap(([id, shown]) => (shown ? [{ value: id, label: shown.title }] : []))
+      .filter((entry) => entry.label.toLowerCase().includes(query.toLowerCase())),
+  named: () => undefined,
+  seen: (id) => Promise.resolve(Boolean(NAMED[id])),
+};
+
+const reference = (id: string): DocNode => ({ type: 'reference', attrs: { id } });
+const words = (text: string): DocNode => ({ type: 'text', text });
+
+/**
+ * References in every state: a card with its icon, a title too long for the
+ * line, a page (which has no screen to open), what the reader may not see,
+ * and one still being asked.
+ */
+export const REFERENCES: DocNode = {
+  type: 'doc',
+  content: [
+    {
+      type: 'paragraph',
+      content: [words('See '), reference(PLAN), words(' and '), reference(PAGE), words('.')],
+    },
+    { type: 'paragraph', content: [reference(LONG)] },
+    {
+      type: 'paragraph',
+      content: [
+        words('Not for this reader: '),
+        reference(UNSEEN),
+        words(' Asked: '),
+        reference(ASKED),
+      ],
+    },
+    {
+      type: 'heading',
+      attrs: { level: 2 },
+      content: [reference(PLAN), words(' in a heading')],
+    },
   ],
 };

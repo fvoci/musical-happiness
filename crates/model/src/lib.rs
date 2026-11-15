@@ -27,11 +27,13 @@ mod deleted_item;
 mod file_info;
 mod id;
 mod invitation;
+mod linked;
 mod name;
 mod oidc;
 mod org_admin;
 mod organization;
 mod page;
+mod page_tree;
 mod problem;
 mod refusal;
 mod relation;
@@ -64,8 +66,8 @@ pub use board::{
 };
 pub use board_teams::{BoardTeam, BoardTeamRole};
 pub use boards_and_blocks::{
-    BoardsAndBlocks, BoardsAndBlocksError, DeleteBoardsAndBlocks, PatchBoardsAndBlocks,
-    generate_boards_and_blocks_ids, renew_boards_and_blocks_ids,
+    BoardsAndBlocks, BoardsAndBlocksError, DeleteBoardsAndBlocks, PatchBoardsAndBlocks, Renewed,
+    generate_boards_and_blocks_ids, renew_boards_and_blocks_ids, renew_boards_and_blocks_ids_told,
 };
 pub use body::{
     BODY_MAX_BYTES, BODY_MAX_DEPTH, BODY_MAX_NODES, BODY_VERSION, Body, BodyChange, BodyError,
@@ -94,6 +96,7 @@ pub use invitation::{
     AcceptInvitation, AcceptedInvitation, GUEST_INVITATION_USES, INVITATION_LIFETIME_MILLIS,
     Invitation, InvitationMail, InvitationPreview, InvitationToken, NewInvitation,
 };
+pub use linked::{LinkedBlock, LinkedKind};
 pub use name::{Named, required_name};
 pub use oidc::{
     LinkedIdentity, LoginOptions, LoginOrganization, OIDC_CLIENT_FIELD_MAX_BYTES,
@@ -109,9 +112,10 @@ pub use organization::{
     OrgRole, UnknownRole, UserWorkspace, WorkspaceMember, WorkspaceRole, WorkspaceRoleChange,
 };
 pub use page::{
-    NewPage, OrderError, PAGE_ICON_FIELD, PAGE_ORDER_FIELD, Page, PageNode, PagePatch,
-    order_between, sort_pages,
+    DeletedPage, NewPage, OrderError, PAGE_ICON_FIELD, PAGE_ORDER_FIELD, Page, PageDuplicate,
+    PageMove, PageNode, PagePatch, order_between, sort_pages,
 };
+pub use page_tree::{DEFAULT_PAGE_DEPTH, DEFAULT_WIKI_PAGES, PageLimits, PageTree, Place};
 pub use problem::{InvalidInput, PROBLEM_MEDIA_TYPE, Problem, json_pointer, pointer_token};
 pub use refusal::{NAME_SHOWN_CHARS, Refusal, RefusalReason, Refusals, shown_name};
 pub use relation::{

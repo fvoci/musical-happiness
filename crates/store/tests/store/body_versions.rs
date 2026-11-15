@@ -487,9 +487,15 @@ async fn the_body_of_a_page_is_kept_as_that_of_a_card() {
         .await
         .expect("the wiki is stored");
     let page_id = store
-        .create_page(&wiki.id, &NewPage::default(), &author)
+        .create_page(
+            &wiki.id,
+            &NewPage::default(),
+            fvoci_model::PageLimits::default(),
+            &author,
+        )
         .await
         .expect("the page is made")
+        .page
         .id;
     assert_eq!(texts(store, &page_id).await, [], "a page as it was made");
 

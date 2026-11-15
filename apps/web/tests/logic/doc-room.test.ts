@@ -354,6 +354,207 @@ describe('receiving the document again', () => {
     expect(room.of('offer')).toHaveLength(1);
   });
 
+  it('a connection that came back names the document held, and answers the state vector of the server with what it lacks', () => {
+    const STEP_1 = 0;
+    const theirs = new Uint8Array([1, 9, 3]);
+    const room = new Harness();
+    room.joined(1, 7);
+    room.take({ type: 'down' });
+    room.write();
+    // The join says which document is held: the server may send what it lacks, not the whole.
+    expect(room.take({ type: 'up' })).toContainEqual({ type: 'join', held: 7 });
+    room.take({
+      type: 'message',
+      message: { action: 'DOC_JOINED', doc: 2, epoch: 7, mode: 'write' },
+    });
+    // The server's state vector first: nothing is done with it yet.
+    room.take({ type: 'frame', frame: { doc: 2, epoch: 7, sync: STEP_1, payload: theirs } });
+    expect(room.effects).toEqual([]);
+    expect(room.room.status.phase).toBe('receiving');
+    room.take({ type: 'frame', frame: { doc: 2, epoch: 7, sync: STEP_2, payload: WHOLE } });
+    expect(room.of('apply')).toEqual([{ type: 'apply', update: WHOLE }]);
+    expect(room.of('answer')).toEqual([{ type: 'answer', theirs }]);
+    expect(room.of('offer')).toEqual([]);
+    // What the server lacks goes to it as a change, and is answered.
+    const lacked = update();
+    room.take({ type: 'missing', update: lacked });
+    room.take({ type: 'timer', timer: 'flush' });
+    expect(room.sent()).toEqual([{ doc: 2, epoch: 7, sync: UPDATE, payload: lacked }]);
+    expect(room.room.status.pending).toBe(true);
+    room.take({ type: 'message', message: { action: 'DOC_ACK', doc: 2, epoch: 7 } });
+    expect(room.room.status.pending).toBe(false);
+
+    // Nothing written meanwhile: the state vector is not answered.
+    room.take({ type: 'down' });
+    room.take({ type: 'up' });
+    room.take({
+      type: 'message',
+      message: { action: 'DOC_JOINED', doc: 3, epoch: 7, mode: 'write' },
+    });
+    room.take({ type: 'frame', frame: { doc: 3, epoch: 7, sync: STEP_1, payload: theirs } });
+    room.take({ type: 'frame', frame: { doc: 3, epoch: 7, sync: STEP_2, payload: WHOLE } });
+    expect(room.of('answer')).toEqual([]);
+    expect(room.room.status).toMatchObject({ phase: 'joined', writable: true, pending: false });
+  });
+
+  it('forgets the state vector of the server when the connection drops, or the document is sent anew, before what follows it', () => {
+    const STEP_1 = 0;
+    const theirs = new Uint8Array([1, 9, 3]);
+    const back = (room: Harness, doc: number): void => {
+      room.take({ type: 'down' });
+      room.take({ type: 'up' });
+      room.take({
+        type: 'message',
+        message: { action: 'DOC_JOINED', doc, epoch: 7, mode: 'write' },
+      });
+    };
+    // Dropped between the two: the next room's whole is answered by the whole, not by a
+    // state vector of the room before.
+    const room = new Harness();
+    room.joined(1, 7);
+    room.take({ type: 'down' });
+    room.write();
+    room.take({ type: 'up' });
+    room.take({
+      type: 'message',
+      message: { action: 'DOC_JOINED', doc: 2, epoch: 7, mode: 'write' },
+    });
+    room.take({ type: 'frame', frame: { doc: 2, epoch: 7, sync: STEP_1, payload: theirs } });
+    back(room, 3);
+    room.take({ type: 'frame', frame: { doc: 3, epoch: 7, sync: STEP_2, payload: WHOLE } });
+    expect(room.of('answer')).toEqual([]);
+    expect(room.of('offer')).toEqual([{ type: 'offer', have: WHOLE }]);
+
+    // The document made anew between the two: the whole of the new one, and the loss said.
+    const reset = new Harness();
+    reset.joined(1, 7);
+    reset.take({ type: 'down' });
+    reset.write();
+    reset.take({ type: 'up' });
+    reset.take({
+      type: 'message',
+      message: { action: 'DOC_JOINED', doc: 2, epoch: 7, mode: 'write' },
+    });
+    reset.take({ type: 'frame', frame: { doc: 2, epoch: 7, sync: STEP_1, payload: theirs } });
+    reset.take({ type: 'message', message: { action: 'DOC_RESET', doc: 2, epoch: 8 } });
+    reset.take({ type: 'frame', frame: { doc: 2, epoch: 8, sync: STEP_2, payload: WHOLE } });
+    expect(reset.of('fresh')).toHaveLength(1);
+    expect(reset.of('answer')).toEqual([]);
+    expect(reset.of('discarded')).toEqual([{ type: 'discarded', why: 'document_reset' }]);
+  });
+
+  it('let in to read after being away with changes: the whole says whether the server lacks them', () => {
+    // The server sends who reads the whole, though they named their document.
+    const room = new Harness();
+    room.joined(1, 7);
+    room.take({ type: 'down' });
+    room.write();
+    room.take({ type: 'up' });
+    room.take({
+      type: 'message',
+      message: { action: 'DOC_JOINED', doc: 2, epoch: 7, mode: 'read' },
+    });
+    room.take({ type: 'frame', frame: { doc: 2, epoch: 7, sync: STEP_2, payload: WHOLE } });
+    expect(room.of('offer')).toEqual([{ type: 'offer', have: WHOLE }]);
+    // The server had them all (only its answer was lost): nothing is said lost.
+    const had = room.take({ type: 'missing', update: undefined });
+    expect(had.some((effect) => effect.type === 'discarded')).toBe(false);
+    expect(room.room.status).toMatchObject({ phase: 'joined', mode: 'read', pending: false });
+
+    // The server lacks some: they cannot go any more, and that is said.
+    const lacks = new Harness();
+    lacks.joined(1, 7);
+    lacks.take({ type: 'down' });
+    lacks.write();
+    lacks.take({ type: 'up' });
+    lacks.take({
+      type: 'message',
+      message: { action: 'DOC_JOINED', doc: 2, epoch: 7, mode: 'read' },
+    });
+    lacks.take({ type: 'frame', frame: { doc: 2, epoch: 7, sync: STEP_2, payload: WHOLE } });
+    lacks.take({ type: 'missing', update: update() });
+    expect(lacks.of('join')).toEqual([{ type: 'join', held: undefined }]);
+  });
+
+  it('names no document when the one held is to be dropped, and takes a state vector of another epoch for nothing', () => {
+    const STEP_1 = 0;
+    const room = new Harness();
+    room.joined(1, 7);
+    room.write();
+    // A change refused: the document is the reader's alone, and is not named.
+    const refused = room.take({
+      type: 'message',
+      message: { action: 'DOC_NACK', doc: 1, epoch: 7, reason: 'update_refused' },
+    });
+    expect(refused).toContainEqual({ type: 'join', held: undefined });
+    // Holding none, none is named.
+    expect(new Harness().take({ type: 'up' })).toContainEqual({ type: 'join', held: undefined });
+
+    // Made anew meanwhile: a state vector of the new epoch is no word about the one held.
+    const away = new Harness();
+    away.joined(1, 7);
+    away.take({ type: 'down' });
+    away.write();
+    away.take({ type: 'up' });
+    away.take({
+      type: 'message',
+      message: { action: 'DOC_JOINED', doc: 2, epoch: 9, mode: 'write' },
+    });
+    away.take({
+      type: 'frame',
+      frame: { doc: 2, epoch: 9, sync: STEP_1, payload: new Uint8Array([0]) },
+    });
+    // What follows a state vector is a difference, and one for another document than the one
+    // held is no document: it is not taken for the whole, which is asked for, naming nothing.
+    away.take({ type: 'frame', frame: { doc: 2, epoch: 9, sync: STEP_2, payload: WHOLE } });
+    expect(away.of('fresh')).toEqual([]);
+    expect(away.of('answer')).toEqual([]);
+    expect(away.of('join')).toEqual([{ type: 'join', held: undefined }]);
+    away.take({
+      type: 'message',
+      message: { action: 'DOC_JOINED', doc: 3, epoch: 9, mode: 'write' },
+    });
+    away.take({ type: 'frame', frame: { doc: 3, epoch: 9, sync: STEP_2, payload: WHOLE } });
+    expect(away.of('fresh')).toHaveLength(1);
+    expect(away.of('discarded')).toHaveLength(1);
+
+    // The same for a document given up after it was named (a change too large to send, found
+    // while an older join's answer was still on its way): the difference is not the document.
+    const gave = new Harness();
+    gave.joined(1, 7);
+    gave.take({ type: 'down' });
+    gave.write();
+    gave.take({ type: 'up' });
+    gave.take({
+      type: 'message',
+      message: { action: 'DOC_JOINED', doc: 2, epoch: 7, mode: 'write' },
+    });
+    gave.take({
+      type: 'frame',
+      frame: { doc: 2, epoch: 7, sync: STEP_1, payload: new Uint8Array([0]) },
+    });
+    gave.take({ type: 'frame', frame: { doc: 2, epoch: 7, sync: STEP_2, payload: WHOLE } });
+    // What the server lacks is larger than it takes: the document is given up, joined anew.
+    gave.take({ type: 'missing', update: update(2000) });
+    expect(gave.take({ type: 'timer', timer: 'flush' })).toContainEqual({
+      type: 'join',
+      held: undefined,
+    });
+    // The answer of a join that named the document comes first: not taken for the whole.
+    gave.take({
+      type: 'message',
+      message: { action: 'DOC_JOINED', doc: 3, epoch: 7, mode: 'write' },
+    });
+    gave.take({
+      type: 'frame',
+      frame: { doc: 3, epoch: 7, sync: STEP_1, payload: new Uint8Array([0]) },
+    });
+    gave.take({ type: 'frame', frame: { doc: 3, epoch: 7, sync: STEP_2, payload: WHOLE } });
+    expect(gave.of('fresh')).toEqual([]);
+    expect(gave.of('apply')).toEqual([]);
+    expect(gave.room.status.phase).not.toBe('joined');
+  });
+
   it('a dropped connection with the document made anew meanwhile: the change written is said lost', () => {
     const room = new Harness();
     room.joined(1, 7);
@@ -481,5 +682,64 @@ describe('answers that come late, and joins that cross', () => {
     room.take({ type: 'message', message: { action: 'DOC_LEFT', doc: 1, reason: 'not_found' } });
     room.take({ type: 'down' });
     expect(room.take({ type: 'up' }).some((effect) => effect.type === 'join')).toBe(false);
+  });
+});
+
+describe('the carets of a room', () => {
+  const CARET = new Uint8Array([1, 7, 1, 4, 110, 117, 108, 108]);
+
+  it("takes in the others' of the document held, in the room it is in", () => {
+    const room = new Harness();
+    room.joined(4, 7);
+    room.take({ type: 'carets', carets: { doc: 4, epoch: 7, update: CARET } });
+    expect(room.of('carets')).toEqual([{ type: 'carets', update: CARET }]);
+    // Of another room, and of another making of the document.
+    room.take({ type: 'carets', carets: { doc: 5, epoch: 7, update: CARET } });
+    expect(room.of('carets')).toEqual([]);
+    room.take({ type: 'carets', carets: { doc: 4, epoch: 6, update: CARET } });
+    expect(room.of('carets')).toEqual([]);
+    // While another document is on its way.
+    room.take({ type: 'message', message: { action: 'DOC_RESET', doc: 4, epoch: 8 } });
+    room.take({ type: 'carets', carets: { doc: 4, epoch: 7, update: CARET } });
+    room.take({ type: 'carets', carets: { doc: 4, epoch: 8, update: CARET } });
+    expect(room.of('carets')).toEqual([]);
+  });
+
+  it("tells the reader's own while they write in the room, and never while they only read", () => {
+    const room = new Harness();
+    // Not in a room yet.
+    room.take({ type: 'caret', update: CARET });
+    expect(room.of('tell')).toEqual([]);
+    room.joined(4, 7);
+    room.take({ type: 'caret', update: CARET });
+    expect(room.of('tell')).toEqual([
+      { type: 'tell', carets: { doc: 4, epoch: 7, update: CARET } },
+    ]);
+    room.take({ type: 'message', message: { action: 'DOC_MODE', doc: 4, mode: 'read' } });
+    room.take({ type: 'caret', update: CARET });
+    expect(room.of('tell')).toEqual([]);
+    const reader = new Harness();
+    reader.joined(1, 7, 'read');
+    reader.take({ type: 'caret', update: CARET });
+    expect(reader.of('tell')).toEqual([]);
+    // What a reader is told of the others they take in.
+    reader.take({ type: 'carets', carets: { doc: 1, epoch: 7, update: CARET } });
+    expect(reader.of('carets')).toHaveLength(1);
+  });
+
+  it("lets go of the others' when the room is left: put out, joined again, the connection gone", () => {
+    const room = new Harness();
+    room.joined(4, 7);
+    room.take({ type: 'message', message: { action: 'DOC_LEFT', doc: 4, reason: 'not_found' } });
+    expect(room.of('unseen')).toHaveLength(1);
+    const dropped = new Harness();
+    dropped.joined(4, 7);
+    dropped.take({ type: 'down' });
+    expect(dropped.of('unseen')).toHaveLength(1);
+    // Not in a room: nothing to let go of.
+    dropped.take({ type: 'down' });
+    expect(dropped.of('unseen')).toEqual([]);
+    dropped.take({ type: 'caret', update: CARET });
+    expect(dropped.of('tell')).toEqual([]);
   });
 });

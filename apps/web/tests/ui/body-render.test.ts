@@ -36,8 +36,16 @@ const ALLOWED: Record<string, string[]> = {
   hr: [],
   br: [],
   img: ['data-file-id', 'alt', 'loading', 'decoding', 'src'],
-  // A mention, or the place of a formula in a line.
-  span: ['data-user-id', 'data-mention', 'class', 'data-type', 'data-latex'],
+  // A mention, a reference, or the place of a formula in a line.
+  span: [
+    'data-user-id',
+    'data-mention',
+    'data-block-id',
+    'data-reference',
+    'class',
+    'data-type',
+    'data-latex',
+  ],
   strong: [],
   em: [],
   s: [],

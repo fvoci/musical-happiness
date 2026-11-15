@@ -50,9 +50,10 @@ export { CardPreviews } from './card-previews.svelte.ts';
 export { type CommentEdit, type Upload } from './card-parts.ts';
 export { CardStore } from './card.svelte.ts';
 export { PageStore } from './page.svelte.ts';
-export { createWiki, WikiStore, type PageLooks, type WikiLooks } from './wiki.svelte.ts';
+export { WikiStore, type PageLooks, type WikiLooks } from './wiki.svelte.ts';
+export { createWiki } from './wiki-parts.ts';
 export { shownWiki } from './shown-wiki.svelte.ts';
-export type { PageDraft, WikiDraft, WikiPage, WikiPageDetail } from './wiki-types.ts';
+export type { PageDraft, PageMove, WikiDraft, WikiPage, WikiPageDetail } from './wiki-types.ts';
 export { changeDisplayName } from './account.ts';
 export { whileHere } from './here.ts';
 export { administers, isGuest, peopleOf, providePeople, type PeopleAccess } from './people.ts';
@@ -65,10 +66,16 @@ export type {
   WorkspaceRole,
 } from './people-types.ts';
 export { newCardMaker, registerNewCard, type NewCardMaker } from './new-card.ts';
+export {
+  referenceTitles,
+  ReferenceTitles,
+  type ReferencePlaces,
+} from './reference-titles.svelte.ts';
+export type { LinkedBlock } from './references.ts';
 export { byCreation, byTitle, type SidebarCategory } from './order.ts';
 export { type Transfer } from './transfers.svelte.ts';
 export { type EnterStatus } from './workspace-entry.ts';
-export { boardTrash, cardTrash, Trash, type TrashStatus } from './trash.svelte.ts';
+export { boardTrash, cardTrash, pageTrash, Trash, type TrashStatus } from './trash.svelte.ts';
 export {
   Workspace,
   type LoadStatus,

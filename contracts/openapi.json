@@ -1362,6 +1362,52 @@
         ],
         "type": "object"
       },
+      "DeletedPage": {
+        "description": "A page in the trash, at the top of what went with it, as the trash of a wiki lists\nit: `undeletePage` brings it back with the pages below it.",
+        "properties": {
+          "below": {
+            "description": "How many pages below it went with it, and come back with it.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "deletedAt": {
+            "description": "When it was deleted, in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "deletedBy": {
+            "description": "Who deleted it, who may no longer exist; empty if not known.",
+            "type": "string"
+          },
+          "icon": {
+            "description": "The page's icon when it was deleted; empty for none.",
+            "type": "string"
+          },
+          "id": {
+            "description": "The page's identifier.",
+            "type": "string"
+          },
+          "parentId": {
+            "description": "The page it was below; empty for one at the top of the wiki. It may be gone: the\npage then comes back at the top.",
+            "type": "string"
+          },
+          "title": {
+            "description": "The page's title when it was deleted.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "below",
+          "deletedAt",
+          "deletedBy",
+          "icon",
+          "id",
+          "parentId",
+          "title"
+        ],
+        "type": "object"
+      },
       "Density": {
         "description": "How much room the interface gives each thing.",
         "enum": [
@@ -1694,6 +1740,44 @@
         ],
         "type": "object"
       },
+      "LinkedBlock": {
+        "description": "A card or a page as a reference shows it: what it is called, and where it is.",
+        "properties": {
+          "boardId": {
+            "description": "The identifier of the board the card is on, or of the wiki the page is of.",
+            "type": "string"
+          },
+          "boardKind": {
+            "$ref": "#/components/schemas/BoardKind",
+            "description": "Whether that is a board or a wiki."
+          },
+          "icon": {
+            "description": "Its icon, at most one grapheme; empty for none.",
+            "type": "string"
+          },
+          "id": {
+            "description": "The identifier of the card or the page.",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/LinkedKind",
+            "description": "Whether it is a card or a page."
+          },
+          "title": {
+            "description": "Its title; empty for one without.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "boardId",
+          "boardKind",
+          "icon",
+          "id",
+          "kind",
+          "title"
+        ],
+        "type": "object"
+      },
       "LinkedIdentity": {
         "description": "An identity tied to an account: who its owner is at a provider, by which they sign\nin to it through the provider of an organization.",
         "properties": {
@@ -1727,6 +1811,14 @@
           "subject"
         ],
         "type": "object"
+      },
+      "LinkedKind": {
+        "description": "What a reference may name: a card of a board or a page of a wiki.",
+        "enum": [
+          "card",
+          "page"
+        ],
+        "type": "string"
       },
       "LoginOptions": {
         "description": "What the login page shows: the organization it is for, if it is for one.",
@@ -2811,6 +2903,38 @@
         ],
         "type": "object"
       },
+      "PageDuplicate": {
+        "additionalProperties": false,
+        "description": "What a copy of a page, with every page below it, is given: its title, for the copy\nof the page asked for alone (the pages below it keep theirs).",
+        "properties": {
+          "title": {
+            "description": "The copy's title; left out or `null`, the page's own. A client names the copy\nin its reader's language (\" (copy)\"): the server does not.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "PageMove": {
+        "additionalProperties": false,
+        "description": "Where a page moves to, with every page below it: within its wiki.",
+        "properties": {
+          "after": {
+            "description": "The identifier of the page it goes right after: another page of that parent.\nEmpty for the first place; left out or `null`, the last place.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "parentId": {
+            "description": "The identifier of the page it goes below: a page of the same wiki, neither the\npage itself nor one below it. Left out or empty, the page goes to the top of the\nwiki.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "PageNode": {
         "description": "A page as the tree of its wiki lists it: without its body.",
         "properties": {
@@ -3413,6 +3537,16 @@
             "reason": "search_unavailable",
             "title": "Search unavailable",
             "type": "/problems/search-unavailable"
+          },
+          {
+            "reason": "page_too_deep",
+            "title": "Page too deep",
+            "type": "/problems/page-too-deep"
+          },
+          {
+            "reason": "too_many_pages",
+            "title": "Too many pages in the wiki",
+            "type": "/problems/too-many-pages"
           }
         ]
       },
@@ -3461,6 +3595,14 @@
           "size"
         ],
         "type": "object"
+      },
+      "ReferenceIds": {
+        "description": "The identifiers the references name, each the `id` of a node `reference`: at most 100.",
+        "items": {
+          "type": "string"
+        },
+        "maxItems": 100,
+        "type": "array"
       },
       "RegisterRequest": {
         "description": "A request to register a new user.",
@@ -6457,7 +6599,7 @@
     },
     "/api/v1/shared/{boardId}/blocks": {
       "get": {
-        "description": "What `getBlocks` gives of the board, with the same parameters, read with its read\ntoken as `getSharedBoard` is. No block names a user: `createdBy` and `modifiedBy`\nare empty, so is the `userId` of every mention in a body, and so is each user that\nthe board's person properties (`person`, `multiPerson`, `createdBy`, `updatedBy`)\nname in a card's `fields.properties` and in the clauses of a view's `fields.filter`;\na list keeps its length, so how many people a card has still shows. A card's values\nof properties the board does not define are left out, and a view grouped by a person\nproperty keeps of `visibleOptionIds`, `hiddenOptionIds`, `collapsedOptionIds` and\n`kanbanCalculations` only the group of the cards without a value (`\"\"`). Oldest\nfirst; the blocks that one request made come in the order that request had them in.",
+        "description": "What `getBlocks` gives of the board, with the same parameters, read with its read\ntoken as `getSharedBoard` is. No block names a user: `createdBy` and `modifiedBy`\nare empty, so is the `userId` of every mention in a body, and so is each user that\nthe board's person properties (`person`, `multiPerson`, `createdBy`, `updatedBy`)\nname in a card's `fields.properties` and in the clauses of a view's `fields.filter`;\na list keeps its length, so how many people a card has still shows. A card's values\nof properties the board does not define are left out, and a view grouped by a person\nproperty keeps of `visibleOptionIds`, `hiddenOptionIds`, `collapsedOptionIds` and\n`kanbanCalculations` only the group of the cards without a value (`\"\"`). A reference\nin a body keeps its `id` if it names a card of this board, and has an empty one for\nanything else: of what is elsewhere in the workspace nothing is told, nor whether\nthere is anything. Oldest\nfirst; the blocks that one request made come in the order that request had them in.",
         "operationId": "getSharedBlocks",
         "parameters": [
           {
@@ -6551,7 +6693,7 @@
     },
     "/api/v1/shared/{boardId}/cards": {
       "get": {
-        "description": "What `getCards` gives of the board, read with its read token as `getSharedBoard` is.\nNo card names a user: `createdBy` and `modifiedBy` are empty, the values of person\nproperties are emptied, and values of properties the board does not define are left\nout. The preview's text has no mentions in it, and its image `getSharedFile` gives.\nOldest first; the pages cut that order.",
+        "description": "What `getCards` gives of the board, read with its read token as `getSharedBoard` is.\nNo card names a user: `createdBy` and `modifiedBy` are empty, the values of person\nproperties are emptied, and values of properties the board does not define are left\nout. The preview's text has no mentions in it, and its image `getSharedFile` gives.\nA card comes without its body, so with nothing a body names. Oldest first; the\npages cut that order.",
         "operationId": "getSharedCards",
         "parameters": [
           {
@@ -11203,6 +11345,192 @@
         ]
       }
     },
+    "/api/v1/w/{workspaceId}/references/resolve": {
+      "post": {
+        "description": "A body names a card or a page by its identifier alone (the node `reference`), and no\nbody, however it is read, says what that is called: this does, for the user who\nasks and as things are now. Of the identifiers of the body, the cards and pages of\nthis workspace on a board or a wiki the user reads (as `getCard` and `getPage` ask),\neach once, in the order they were first named.\n\nWhatever else an identifier names is left out, and the answer does not tell why:\nnothing at all, something in the trash, something of another workspace or\norganization, a card or a page the user does not read, or a block that is neither.\nThe body names at most 100 identifiers (more is 400, as an entry that has not the\nform of an identifier is); an empty list answers an empty list.",
+        "operationId": "resolveReferences",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReferenceIds"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/LinkedBlock"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "What the user is shown of them."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "What references name",
+        "tags": [
+          "references"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/references/search": {
+      "get": {
+        "description": "The cards and pages of this workspace, on a board or a wiki the user reads, whose\ntitle has every word of `q` in it, as spaces divide it and whatever the case of the\nletters (of every letter, not only ASCII); `%` and `_` are characters like any\nother. At most 20, the one changed last first; without `q`, the 20 changed last.\nBodies are not looked into. What is in the trash, what is on a template, and a card\nthat is a template of its board's cards are never found. A `q` of more than 200\ncharacters is 400.",
+        "operationId": "searchReferences",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The words to look for in titles, at most 200 characters. Without it, what was changed last is found.",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/LinkedBlock"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "What was found."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Find what a reference may name",
+        "tags": [
+          "references"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/references/to/{blockId}": {
+      "get": {
+        "description": "The cards and pages of this workspace whose body names the block of the path with a\nreference, or which have a comment whose body does, on a board or a wiki the user\nreads; the block itself is never among them. Oldest first, 50 to a page unless\n`perPage` says otherwise, at most 200. What names it from where the user does not\nread is left out and takes no place in a page: the answer does not say how many\nthere are, nor whether there are any.\n\n404 unless the block is a card or a page the user reads, as `resolveReferences`\ntells of it: for anything else, as for an identifier of nothing.",
+        "operationId": "getReferencesTo",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the block.",
+            "in": "path",
+            "name": "blockId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The page, counted from 0. Left out, the first one.",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "How many a page has, at most 200. Left out, or zero or less, 50.",
+            "in": "query",
+            "name": "perPage",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/LinkedBlock"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "What names it, of the page."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "What names a card or a page",
+        "tags": [
+          "references"
+        ]
+      }
+    },
     "/api/v1/w/{workspaceId}/search": {
       "get": {
         "description": "The cards of the boards and the pages of the wikis of the workspace that the user\nhas a role on, their own or a team's (an open board or wiki they have not joined is\nnot searched), whose title and body together hold every word of `q`. Korean is\nmatched by its words, whatever particles and endings they carry, and a compound by\nits parts too: \"환불 규정\" finds \"환불규정을\". Comments, property values and attached\nfiles are not searched, and neither are templates. Each hit is the card or the page\nas it is now: its `kind`, its `title`, the board or the wiki it is in (`containerId`,\nand `containerKind`, by which a client tells a card's address from a page's), and\n`snippet`, a piece of its body in stretches of plain text, those that matched\nmarked; the snippet is empty for a body that changed a moment ago, or has nothing\nto show. The best match first. Nothing says how many match in all: fewer than\n`limit` means that no more of what the user reads matches (for a user with a role\non more than 1,000 boards and wikis: among the 10,000 best matches of the\nworkspace).\n\nA `q` of more than 200 characters, a `kind` that is none and a `limit` outside 1\nto 50 are 400; a `q` that is empty finds nothing. A user who searches more often\nthan the server lets one is told to wait (429, `Retry-After`). Where the server\nhas no search server (`searchEnabled` of `getClientConfig` is false) the answer is\n404 with the reason `search_not_configured`, and while the search server does not\nanswer, 503 with the reason `search_unavailable`: nothing else of the server waits\nfor it.",
@@ -12445,7 +12773,7 @@
         ]
       },
       "post": {
-        "description": "The server chooses the identifier, the creator, the times and the `order`. For\neditors of the wiki. The page goes below `parentId`, a page of the same wiki (400 at\n`/parentId` otherwise), or at the top of the wiki; among the pages of that parent it\ngoes right after the page `after` (400 at `/after` if that is no page of the same\nparent), first if `after` is empty, and last if it is left out. Its body is written\nby `patchPage`, or together in its room (`JOIN_DOC`).\n\nThe wiki's members are told with `UPDATE_BLOCK`, whose block of the `type` `page`\nhas the icon and the order among its `fields`.",
+        "description": "The server chooses the identifier, the creator, the times and the `order`. For\neditors of the wiki. The page goes below `parentId`, a page of the same wiki (400 at\n`/parentId` otherwise), or at the top of the wiki; among the pages of that parent it\ngoes right after the page `after` (400 at `/after` if that is no page of the same\nparent), first if `after` is empty, and last if it is left out. Its body is written\nby `patchPage`, or together in its room (`JOIN_DOC`).\n\nThe tree is held to the organization's limits: a page deeper than its depth is 400\nat `/parentId` with the reason `page_too_deep`, and one more page than a wiki may\nhave (those in the trash not counted) is 400 with the reason `too_many_pages`, each\nwith the `limit`.\n\nThe wiki's members are told with `UPDATE_BLOCK`, whose block of the `type` `page`\nhas the icon and the order among its `fields`. Where the pages of the parent had no\nroom left between them (two of one order, or orders grown long), they are numbered\nanew, and each that changed is told of too.",
         "operationId": "createPage",
         "parameters": [
           {
@@ -12686,6 +13014,284 @@
           "wikis"
         ]
       }
+    },
+    "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/duplicate": {
+      "post": {
+        "description": "Copies the page with every page below it, within its wiki, for editors of the wiki:\nthe copy goes right after the page among its siblings, titled `title` if given\n(the page's own title otherwise; a client names it in its reader's language), and\nthe pages below it are copied below it as they are, with their titles, icons,\nplaces and bodies, what is typed in them now included. The images in the bodies get\nfiles of their own, as a card's duplicate's do. The versions of the bodies and the\ncomments are not copied. The tree is held to the organization's limits: 400 with the\nreason `page_too_deep` or `too_many_pages` (with the `limit`) if the copies would be\ndeeper, or the wiki larger, than they let it be; 400 at `/title` for a title longer\nthan 16383 characters. Nothing is changed then.\n\nThe wiki's members are told with `UPDATE_BLOCK` of each copy, a page before those\nbelow it, and of each page of the parent numbered anew to leave the copy room.",
+        "operationId": "duplicatePage",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the wiki: a board of the `kind` `wiki`. A board of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "wikiId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the page: a page of the wiki of the path. 404 for a page of another wiki.",
+            "in": "path",
+            "name": "pageId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PageDuplicate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page"
+                }
+              }
+            },
+            "description": "The copy of the page."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Duplicate a page",
+        "tags": [
+          "wikis"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/move": {
+      "post": {
+        "description": "The page goes, with every page below it, below `parentId` (a page of the same wiki;\nleft out or empty, the top of the wiki), right after the page `after` among the\npages there, first if `after` is empty, and last if it is left out, as for\n`createPage`. For editors of the wiki. A page moves within its wiki only. 400 at\n`/parentId` if the parent is no page of the wiki or is the page itself or a page\nbelow it, and with the reason `page_too_deep` (and the `limit`) if a page would be\ndeeper than the organization's limit; 400 at `/after` if that is no other page of\nthe parent. Nothing is changed then.\n\nThe wiki's members are told with `UPDATE_BLOCK` of the page, and of every page of\nthe parent numbered anew to leave it room; the pages below it keep their parents\nand are not told of.",
+        "operationId": "movePage",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the wiki: a board of the `kind` `wiki`. A board of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "wikiId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the page: a page of the wiki of the path. 404 for a page of another wiki.",
+            "in": "path",
+            "name": "pageId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PageMove"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page"
+                }
+              }
+            },
+            "description": "The page where it is now."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Move a page",
+        "tags": [
+          "wikis"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/undelete": {
+      "post": {
+        "description": "The page comes back from the wiki's trash with every page that was deleted along\nwith it, for editors of the wiki: below the page it was below, at the place it had\n(right after the pages before it there, if a page made since has that place), or,\nthat page gone (in the trash, or gone for good), last at the top of the wiki.\nThe tree is held to the organization's limits: 400 with the reason `page_too_deep`\nor `too_many_pages` (with the `limit`) if the pages would be deeper, or the wiki\nlarger, than they let it be. A page that is not in this wiki's trash, or went there\nwith the page it was below (it comes back with that page), is 404. The\nwiki's members are told with `UPDATE_BLOCK` of each page that came back, a page\nbefore those below it, and of each page numbered anew to leave it room.",
+        "operationId": "undeletePage",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the wiki: a board of the `kind` `wiki`. A board of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "wikiId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the page: a page of the wiki of the path. 404 for a page of another wiki.",
+            "in": "path",
+            "name": "pageId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page"
+                }
+              }
+            },
+            "description": "The page as it is again."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Bring back a page",
+        "tags": [
+          "wikis"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/wikis/{wikiId}/trash/pages": {
+      "get": {
+        "description": "One page of the wiki's pages that are in the trash, each with its identifier, its\ntitle and icon, the page it was below, when it was deleted, by whom, and how many\npages below it went with it; `undeletePage` brings one back with those until the\ntrash is emptied of it (`trash_retention_days`, as for a board's cards). A page that\nwent with the page it was below comes back with that page, and is not listed. For\nthe wiki's editors. The last deleted first; the pages cut that order. A `page` or\n`perPage` that is no whole number is 400.",
+        "operationId": "getDeletedPages",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the wiki: a board of the `kind` `wiki`. A board of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "wikiId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The page, counted from 0. Left out, the first one.",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "How many a page has. Left out, 100. Zero or less asks for all of them.",
+            "in": "query",
+            "name": "perPage",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DeletedPage"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The deleted pages of the wiki."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "The deleted pages of a wiki",
+        "tags": [
+          "wikis"
+        ]
+      }
     }
   },
   "security": [
@@ -12742,6 +13348,10 @@
     {
       "description": "The blocks of type `card`, as cards.",
       "name": "cards"
+    },
+    {
+      "description": "What the bodies of a workspace name: a body holds the identifier of a card or a page (the node `reference`), and what that is called is told here, to each user what they read.",
+      "name": "references"
     },
     {
       "description": "A user's categories and the boards filed under them.",

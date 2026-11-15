@@ -93,12 +93,15 @@ fn marks(random: &mut Random) -> Vec<Value> {
 fn line(random: &mut Random) -> Vec<Value> {
     let mut content: Vec<Value> = Vec::new();
     for _ in 0..random.below(6) {
-        let node = match random.below(8) {
+        let node = match random.below(9) {
             0 => json!({"type": "hardBreak"}),
             1 => json!({"type": "mention", "attrs": {
                 "userId": format!("01930000-0000-7000-8000-00000000c00{}", 1 + random.below(8)),
             }}),
             2 => json!({"type": "inlineMath", "attrs": {"latex": words(random)}}),
+            3 => json!({"type": "reference", "attrs": {
+                "id": format!("01930000-0000-7000-8000-00000000b00{}", 1 + random.below(8)),
+            }}),
             _ => {
                 let marks = marks(random);
                 let same_as_last = content.last().is_some_and(|last| {

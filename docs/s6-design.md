@@ -807,7 +807,7 @@ C의 세부:
 
 | 무엇 | 결정 |
 |---|---|
-| 허용 목록 | 아래 표(`body_version` 2. 판 1에 수식 노드 둘을 더했다) |
+| 허용 목록 | 아래 표(`body_version` 3. 판 1에 수식 노드 둘을, 판 2에 `reference`를 더했다) |
 | 빈 본문, 멘션, 한도, 표 | 빈 본문은 `NULL`, 멘션은 형식만, 1 MiB·깊이 32·노드 20,000, 표는 넣지 않는다 |
 | 클라이언트와 서버의 검증 맞추기 | A: 공유 테스트 벡터 |
 | 검색용 평문과 할 일 수 | B: 저장할 때 서버가 뽑아 열로 둔다 |
@@ -823,10 +823,10 @@ C의 세부:
 - `body_version`은 2가 된다. 판 1의 문서는 그대로 판 2의 문서다.
 - 다이어그램은 언어가 `mermaid`인 `codeBlock`이다. 허용 목록도 서버도 바뀌지 않는다.
 - 새 노드가 올 수 있는 자리, 서버가 뽑는 평문, 테스트 벡터에 더할 경우는 웹앱의 문서 `apps/web/docs/contract-assumptions.md` 4절에 있다.
-- 아래 표가 판 2다. 판 1과 다른 것은 수식 노드 두 줄과 블록·인라인의 목록이다.
+- 아래 표는 판 3이다(2026-11-15): 판 2에 인라인 노드 `reference`를 더했다. 속성은 가리키는 카드나 페이지의 `id` 하나이고, 형식만 검증하며 대상이 있는지·누가 볼 수 있는지는 쓸 때 확인하지 않는다(읽는 사람마다 풀어 읽을 때 정한다). 제목은 본문에 두지 않고 평문에도 넣지 않는다. 판 2의 문서는 그대로 판 3의 문서다.
 - **길이를 세는 단위(결정됨, 2026-11-11 04:06 KST. 결정 표의 19번).** 판 1의 모든 길이 한도(`alt`, `href`, `language` 등)와 판 2의 `latex`를 **UTF-16 코드 단위**로 센다. 웹앱의 검증기(JavaScript의 `length`)와 같다. BMP 밖의 글자(이모지 등)는 둘로 센다. 공유 벡터(`contracts/body-vectors.json`)에 웹앱 문서 4.4의 6번과 10번으로 고정한다.
 
-**허용 목록(`body_version` 2).** 스파이크 문서 2절의 표를 그대로 채택한다. 설계 때 3.7에 적었던 목록과 다른 곳은 넷이다: `orderedList`에 `start`(0 이상의 정수, 선택)를 더한다. `listItem`과 `taskItem`의 첫 자식은 `paragraph`다. `codeBlock` 안의 `text`에는 마크가 없다. `image`는 블록이다(문단 안에 올 수 없다).
+**허용 목록(`body_version` 3).** 스파이크 문서 2절의 표를 그대로 채택한다. 설계 때 3.7에 적었던 목록과 다른 곳은 넷이다: `orderedList`에 `start`(0 이상의 정수, 선택)를 더한다. `listItem`과 `taskItem`의 첫 자식은 `paragraph`다. `codeBlock` 안의 `text`에는 마크가 없다. `image`는 블록이다(문단 안에 올 수 없다).
 
 | 노드 | 속성 | 안에 올 수 있는 것 |
 |---|---|---|
@@ -843,11 +843,11 @@ C의 세부:
 | `horizontalRule`, `hardBreak` | 없음 | 없음 |
 | `image` | `fileId` 1–100자, 필수, `alt` 0–1000자 선택 | 없음. 블록 |
 | `mention` | `userId` 필수 | 없음. 인라인 |
-| `inlineMath` | `latex` 1–4,000자, 필수 | 없음. 인라인 |
-| `blockMath` | `latex` 1–4,000자, 필수 | 없음. 블록 |
+| `reference` | `id` 필수 | 없음. 인라인 |
+| `inlineMath`, `blockMath` | `latex` 1–4,000자, 필수 | 없음. 앞은 인라인, 뒤는 블록 |
 | `text` | 없음 | `text`는 비어 있지 않은 문자열. `marks`는 여기에만 |
 
-블록은 `paragraph`, `heading`, `bulletList`, `orderedList`, `taskList`, `blockquote`, `codeBlock`, `horizontalRule`, `image`, `blockMath`. 인라인은 `text`, `hardBreak`, `mention`, `inlineMath`. 마크는 `bold`, `italic`, `strike`, `code`, `link`(`href` 1–2048자, 필수).
+블록은 `paragraph`, `heading`, `bulletList`, `orderedList`, `taskList`, `blockquote`, `codeBlock`, `horizontalRule`, `image`, `blockMath`. 인라인은 `text`, `hardBreak`, `mention`, `reference`, `inlineMath`. 마크는 `bold`, `italic`, `strike`, `code`, `link`(`href` 1–2048자, 필수).
 
 - **표에 없던 한도와 정수(2026-11-11, 구현하며 정했다).** `start`의 위 끝 1,000,000,000과 `fileId`의 1–100자는 웹앱의 검증기와 같게 정했다. 정수는 어떻게 쓰였든(`1`, `1.0`, `1e0`) 값이 정수면 받는다(웹앱의 `Number.isInteger`와 같다).
 - **보내는 꼴과 거절하는 것.** "값이 없는 속성은 빼고 속성이 없으면 `attrs`도 뺀다"는 클라이언트가 보내는 꼴이다. 빈 `attrs`(`{}`)와 잎 노드의 빈 `content`(`[]`)는 거절하지 않는다(벡터에 있다).

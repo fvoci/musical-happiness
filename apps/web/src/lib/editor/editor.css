@@ -219,6 +219,57 @@ img.ProseMirror-separator {
   white-space: nowrap;
 }
 
+/*
+ * A reference to a card or a page: its icon and title in one piece that stays
+ * on a line and never runs wider than the text, the title cut short where it
+ * would. What the reader may not see, and what is still being asked, is
+ * dimmed and is no link.
+ */
+.doc-body .reference {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.25em;
+  max-width: min(100%, 22rem);
+  vertical-align: bottom;
+  background: var(--muted);
+  color: var(--foreground);
+  border-radius: var(--radius-sm);
+  padding: 0.05em 0.35em;
+  font-weight: 500;
+}
+/* Doubled to outrank the editor's own style sheet; see the top. */
+.doc-body .reference.reference {
+  white-space: nowrap;
+}
+.doc-body .reference a {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.25em;
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+}
+.doc-body .reference a:hover .reference-title {
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+.doc-body .reference .reference-icon {
+  flex: none;
+}
+.doc-body .reference .reference-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.doc-body .reference[data-state='unseen'],
+.doc-body .reference[data-state='pending'] {
+  color: var(--muted-foreground);
+  font-weight: 400;
+}
+.doc-body .reference.ProseMirror-selectednode {
+  outline: 2px solid var(--ring);
+}
+
 .doc-body p.is-editor-empty:first-child::before {
   content: attr(data-placeholder);
   color: var(--muted-foreground);

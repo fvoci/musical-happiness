@@ -178,16 +178,17 @@ describe('an open wiki', () => {
     expect(await made.backend.wiki.pages(made.wikiId)).toHaveLength(3);
   });
 
-  it('undoes nothing, and says nothing, of a page deleted since', async () => {
+  it('undoes a deletion by bringing the page back, and then what came before it', async () => {
     const made = await openWiki();
     const page = await made.store.createPage({ title: 'Draft' });
     if (!page) throw new Error('no page');
     await made.store.changePage(page.id, { title: 'Named' });
     expect(await made.store.deletePage(page.id)).toBe(true);
     await made.workspace.undoLast();
+    expect(titles(made.store)).toEqual(['Named']);
     await made.workspace.undoLast();
     expect(made.workspace.problems).toEqual([]);
-    expect(titles(made.store)).toEqual([]);
+    expect(titles(made.store)).toEqual(['Draft']);
   });
 
   it('changes the wiki’s title, also in the sidebar, and undoes it', async () => {

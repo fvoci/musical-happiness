@@ -210,7 +210,7 @@ async fn a_revoked_document_connection_cannot_write_or_receive_another_update() 
     loop {
         match two.incoming(QUIET).await {
             Incoming::Nothing => break,
-            Incoming::Frame(_) => panic!("no later document update"),
+            Incoming::Frame(_) | Incoming::Caret(_) => panic!("no later document update"),
             Incoming::Closed => panic!("the connection stays"),
             Incoming::Text(_) => {}
         }

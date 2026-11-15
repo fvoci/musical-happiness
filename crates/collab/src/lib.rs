@@ -182,6 +182,20 @@ pub mod testing {
             self.doc.transact().state_vector().encode_v1()
         }
 
+        /// What the editor holds that a holder of `state_vector` (version 1) lacks, as
+        /// an update: every deletion it knows of, whoever made it, is in it.
+        ///
+        /// # Panics
+        ///
+        /// Panics if `state_vector` is none.
+        #[must_use]
+        pub fn missing_from(&self, state_vector: &[u8]) -> Vec<u8> {
+            use yrs::updates::decoder::Decode as _;
+            use yrs::{ReadTxn as _, StateVector};
+            let theirs = StateVector::decode_v1(state_vector).expect("a state vector");
+            self.doc.transact().encode_diff_v1(&theirs)
+        }
+
         /// The body of what the editor holds.
         ///
         /// # Panics

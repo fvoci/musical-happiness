@@ -253,11 +253,39 @@ fn describe_reason(reason: Reason) -> &'static str {
         | Reason::DefaultWorkspace
         | Reason::LastOrgAdmin
         | Reason::PublicLinksOff => describe_organization(reason).unwrap_or_default(),
-        // The rest are the reasons of the search of bodies and of a body edited together,
-        // which the functions below name one by one: a reason that is none of theirs
-        // fails the tests.
-        _ => describe_search(reason).unwrap_or_else(|| describe_editing_together(reason)),
+        // The rest are the reasons of the search of bodies, of the limits of a wiki's tree
+        // and of a body edited together, which the functions below name one by one: a
+        // reason that is none of theirs fails the tests.
+        _ => describe_the_rest(reason),
     }
+}
+
+/// The description of a reason of the search of bodies, of the limits of a wiki's tree
+/// or of a body edited together.
+fn describe_the_rest(reason: Reason) -> &'static str {
+    describe_search(reason)
+        .or_else(|| describe_page_tree(reason))
+        .unwrap_or_else(|| describe_editing_together(reason))
+}
+
+/// The descriptions of the reasons of the limits of a wiki's tree.
+fn describe_page_tree(reason: Reason) -> Option<&'static str> {
+    Some(match reason {
+        Reason::PageTooDeep => {
+            "Status 400. The page, or the lowest of the pages below it, would be deeper in its \
+             wiki than the organization's limit, which `limit` tells (a page at the top is at \
+             depth 1; `wiki_page_depth`, 10 unless configured): when a page is made, moved, \
+             restored or duplicated. `errors` names `/parentId` when a page is made or moved; a \
+             restore and a copy name no parent. Nothing was changed."
+        }
+        Reason::TooManyPages => {
+            "Status 400. The wiki would have more pages than the organization's limit, which \
+             `limit` tells (`wiki_pages`, 5000 unless configured; pages in the trash are not \
+             counted): when a page is made, restored or duplicated. Nothing was changed. \
+             Deleting pages makes room."
+        }
+        _ => return None,
+    })
 }
 
 /// The descriptions of the reasons of the search of bodies.
