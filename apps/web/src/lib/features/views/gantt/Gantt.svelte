@@ -492,6 +492,7 @@
 {#if sheet}
   <BottomSheet
     bind:open={undated.open}
+    returnFocus={() => undated.button}
     title={m.calendar_undated_count({ count: chart.placed.undated.length })}
   >
     <Undated {...undatedRows} onOpenCard={(cardId: string) => void undated.openCard(cardId)} />
