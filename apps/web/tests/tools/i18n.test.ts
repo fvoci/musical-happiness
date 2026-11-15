@@ -203,10 +203,11 @@ describe('the message files', () => {
       expect(messages('en')[id]).not.toContain('Boards');
       expect(messages('ko')[id]).toContain('fvoci');
     }
-    // The default category of the sidebar is called "Boards"; that stays.
+    // The default category of the sidebar holds boards and wikis: it is shown as "General".
     expect(messages('en')['SidebarCategories.CategoryMenu.DeleteModal.Body']).toContain(
-      'the Boards categories',
+      'the General category',
     );
+    expect(messages('en').shell_default_category).toBe('General');
   });
 
   it('use only the values and tags of the English message, each closed', () => {

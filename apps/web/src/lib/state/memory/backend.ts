@@ -24,6 +24,7 @@ import {
   type Board,
   type BoardMember,
   type BoardPatch,
+  type BoardKind,
   type BoardView,
 } from '../../logic/wire.ts';
 import {
@@ -74,12 +75,14 @@ import {
 import { MemoryBodyVersions, writtenWhole } from './body-versions.ts';
 import { pause } from './pause.ts';
 import { MemoryPresence } from './presence.ts';
+import { MemoryWikis } from './wikis.ts';
 import { memberRole, memberFileUrl } from './board-access.ts';
 import { usersAmong, usersNamed } from './users.ts';
 import { changeDisplayName } from './account.ts';
-import { archiveOf } from './archive.ts';
+import { archiveLines, archiveOf } from './archive.ts';
 import { checkedBody, checkedWhole, flushBoards, flushCard, openMemoryRoom } from './bodies.ts';
 import { checkRelations, renameCopied } from './references.ts';
+import { searchBoardsOf } from './search.ts';
 import { fail } from './refuse.ts';
 import {
   deletedBoardsOf,
@@ -98,7 +101,6 @@ import {
   detailOf,
   inPropertyOrder,
   LIMITS,
-  MEMORY_ARCHIVE,
   memberOf,
   scramble,
   SCREEN_STATE_KEY,
@@ -115,6 +117,7 @@ export class MemoryBackend implements Backend {
   readonly world: World;
   readonly userId: string;
   readonly presence: MemoryPresence;
+  readonly wiki = new MemoryWikis(this);
   readonly bodyVersions: MemoryBodyVersions;
   /** Milliseconds every call waits before it answers. */
   latency = 0;
@@ -159,13 +162,17 @@ export class MemoryBackend implements Backend {
     }
   }
 
-  #board(boardId: string): Board {
-    return this.world.boards.get(boardId) ?? fail(404, 'no such board');
+  /** A board of the `kind`: the server answers a wiki to an operation of cards as one not there. */
+  #board(boardId: string, kind: BoardKind | 'any' = 'any'): Board {
+    const board = this.world.boards.get(boardId);
+    return board && (kind === 'any' || (board.kind ?? 'board') === kind)
+      ? board
+      : fail(404, 'no board');
   }
 
   #block(boardId: string, blockId: string, type?: StoredBlock['type']): StoredBlock {
     const block = this.world.blocks.get(blockId);
-    if (block?.boardId !== boardId || (type && block.type !== type)) {
+    if (block?.boardId !== boardId || block.type === 'page' || (type && block.type !== type)) {
       fail(404, `no such ${type ?? 'block'}`);
     }
     return block;
@@ -329,8 +336,8 @@ export class MemoryBackend implements Backend {
 
   async boards(workspaceId: string): Promise<Board[]> {
     await this.#enterWorkspace('boards', workspaceId);
-    const mine = [...this.world.boards.values()].filter((board) =>
-      this.#memberIds(board.id).includes(this.userId),
+    const mine = [...this.world.boards.values()].filter(
+      (board) => board.kind !== 'wiki' && this.#memberIds(board.id).includes(this.userId),
     );
     return scramble(mine).map(copy);
   }
@@ -432,27 +439,10 @@ export class MemoryBackend implements Backend {
     return deletedBoardsOf(this.world, this.userId, workspaceId, paging);
   }
 
-  /**
-   * As the server matches: every word of the term in the title, whatever the case; oldest
-   * first. Among the boards of the workspace this backend lists (`boards`: the reader's).
-   */
+  /** As the server matches (`searchBoardsOf`): among the boards this backend lists. */
   async searchBoards(workspaceId: string, query: string): Promise<Board[]> {
     await this.#enterWorkspace('searchBoards', workspaceId);
-    const words = query
-      .toLowerCase()
-      .split(' ')
-      .filter((word) => word !== '');
-    if (words.length === 0) return [];
-    return [...this.world.boards.values()]
-      .filter(
-        (board) =>
-          !board.isTemplate &&
-          board.workspaceId === workspaceId &&
-          this.#memberIds(board.id).includes(this.userId) &&
-          words.every((word) => board.title.toLowerCase().includes(word)),
-      )
-      .sort((first, second) => first.createAt - second.createAt)
-      .map(copy);
+    return searchBoardsOf(this.world, this.userId, workspaceId, query);
   }
 
   /** As the server: the workspace's templates, then the built-in ones, each the oldest first. */
@@ -469,7 +459,7 @@ export class MemoryBackend implements Backend {
 
   async duplicateBoard(boardId: string, asTemplate: boolean, workspaceId: string): Promise<Board> {
     await this.#enterWorkspace('duplicateBoard', workspaceId);
-    return this.#copyBoard(this.#board(boardId), asTemplate);
+    return this.#copyBoard(this.#board(boardId, 'board'), asTemplate);
   }
 
   /** As the server: a copy of the built-in welcome template, without its mark. */
@@ -556,7 +546,7 @@ export class MemoryBackend implements Backend {
    */
   async exportBoard(boardId: string, options?: DownloadOptions): Promise<DownloadedFile> {
     await this.#enter('exportBoard', options?.signal);
-    const board = this.#board(boardId);
+    const board = this.#board(boardId, 'board');
     // For its members, as on the server (an open board is readable, its parts are not).
     if (!this.#memberIds(boardId).includes(this.userId)) fail(403, 'not a member of the board');
     return archiveOf(this.world, [board], options);
@@ -569,6 +559,7 @@ export class MemoryBackend implements Backend {
     const boards = [...this.world.boards.values()].filter(
       (board) =>
         !board.isTemplate &&
+        board.kind !== 'wiki' &&
         (board.type === 'O' || this.#memberIds(board.id).includes(this.userId)),
     );
     return archiveOf(this.world, boards, options);
@@ -577,16 +568,7 @@ export class MemoryBackend implements Backend {
   async importArchive(workspaceId: string, file: File, options?: UploadOptions) {
     await this.#enter('importArchive', options?.signal);
     if (workspaceId !== this.world.workspace.id) fail(404, 'no such workspace');
-    let lines: { type?: string; version?: string; data?: unknown }[];
-    try {
-      lines = (await file.text())
-        .split('\n')
-        .filter((line) => line.trim() !== '')
-        .map((line) => JSON.parse(line) as { type?: string; version?: string; data?: unknown });
-    } catch {
-      fail(400, 'not an archive');
-    }
-    if (lines[0]?.version !== MEMORY_ARCHIVE) fail(400, 'not an archive of this app');
+    const lines = await archiveLines(file);
     options?.onProgress?.({ sentBytes: file.size, totalBytes: file.size });
     const boards = lines.filter((line) => line.type === 'board').map((line) => line.data as Board);
     const blocks = lines
@@ -860,7 +842,7 @@ export class MemoryBackend implements Backend {
 
   async createView(boardId: string, draft: ViewDraft): Promise<BoardView> {
     await this.#enter('createView');
-    this.#board(boardId);
+    this.#board(boardId, 'board');
     const block = this.#newBlock(boardId, boardId, 'view');
     block.title = draft.title;
     block.fields = copy(draft.fields);
@@ -904,7 +886,7 @@ export class MemoryBackend implements Backend {
 
   async createCard(boardId: string, draft: CardDraft): Promise<CardSummary> {
     await this.#enter('createCard');
-    const board = this.#board(boardId);
+    const board = this.#board(boardId, 'board');
     const block = this.#newBlock(boardId, boardId, 'card');
     block.title = draft.title ?? '';
     block.fields = {
@@ -1111,7 +1093,7 @@ export class MemoryBackend implements Backend {
 
   async fileBytes(boardId: string, fileId: string): Promise<Blob> {
     await this.#enter('fileBytes');
-    this.#memberRole(boardId);
+    memberRole(this.world, this.userId, boardId, 'any');
     const file = this.world.files.get(fileId);
     if (file?.boardId !== boardId || !file.blob) fail(404, 'no such file');
     return file.blob;

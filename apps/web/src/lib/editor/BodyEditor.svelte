@@ -52,6 +52,7 @@
     onBlur,
     uploadImage,
     placeholder = '',
+    readPlaceholder = '',
     class: className,
     label,
     toolbar,
@@ -160,6 +161,7 @@
         ...bodyExtensions({
           history: !shared,
           placeholder,
+          readPlaceholder,
           mention: {
             search: (query) => {
               const wanted = query.toLowerCase();

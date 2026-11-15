@@ -8,6 +8,7 @@ import {
   cardProperty,
   parseRelationValue,
   type Board,
+  type BoardKind,
   type BoardMember,
   type Card,
   type MemberRole,
@@ -18,18 +19,23 @@ import type { BoardStore } from './board.svelte.ts';
 import { BackendError } from './problems.ts';
 
 /**
- * Reads a board of the workspace `workspaceId`, the one the address names.
- * A board of another workspace is not found there (404), as one that is not
- * there at all: the address does not say where else it is.
+ * Reads a board of the workspace `workspaceId`, the one the address names,
+ * of the `kind` the address says (a wiki at a board's address, or a board at
+ * a wiki's). A board of another workspace or kind is not found there (404),
+ * as one that is not there at all: the address does not say where else it is.
  */
 export async function boardOfWorkspace(
   backend: Backend,
   boardId: string,
   workspaceId: string | undefined,
+  kind: BoardKind = 'board',
 ): Promise<Board> {
   const board = await backend.board(boardId);
   if (board.workspaceId !== workspaceId) {
     throw new BackendError(404, { detail: 'the board is of another workspace' });
+  }
+  if ((board.kind ?? 'board') !== kind) {
+    throw new BackendError(404, { detail: `the board is no ${kind}` });
   }
   return board;
 }

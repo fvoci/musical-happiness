@@ -1,15 +1,25 @@
-/** The visit lasts only while its board is on screen; hidden tabs leave after a minute. */
+/**
+ * The visit lasts only while its board is on screen; hidden tabs leave after a minute.
+ * A wiki is visited as a board is, its page as a card.
+ */
 import { EMPTY_PRESENCE, type PresenceSnapshot, type PresentPerson } from './presence.ts';
 import type { BoardStore } from './board.svelte.ts';
+import type { Workspace } from './workspace.svelte.ts';
+
+/** Where the reader is: a board, or a wiki. */
+export interface PresencePlace {
+  readonly workspace: Workspace;
+  readonly boardId: string;
+}
 
 export class BoardPresence {
-  readonly #board: BoardStore;
+  readonly #board: PresencePlace;
   snapshot = $state.raw<PresenceSnapshot>(EMPTY_PRESENCE);
   #active = false;
   #hidden = false;
   #cardId: string | undefined;
 
-  constructor(board: BoardStore) {
+  constructor(board: PresencePlace) {
     this.#board = board;
   }
 

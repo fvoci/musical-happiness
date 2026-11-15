@@ -1,5 +1,6 @@
 <!--
-  "Add board": an empty board, or a board made from a template. The
+  "New": a wiki (`onNewWiki`, where the backend has wikis), an empty board,
+  or a board made from a template. The
   templates are read each time the dialog opens: the workspace's (which can be
   opened to be changed) and then the built-in ones every workspace is offered.
   A template is changed where any board is: on its own page.
@@ -7,6 +8,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
 
+  import BookOpenIcon from '@lucide/svelte/icons/book-open';
   import PencilIcon from '@lucide/svelte/icons/pencil';
   import PlusIcon from '@lucide/svelte/icons/plus';
   import XIcon from '@lucide/svelte/icons/x';
@@ -29,6 +31,8 @@
     onFromTemplate: (template: Board) => void;
     /** Opens a template of the workspace on its page, to be changed. */
     onEditTemplate: (template: Board) => void;
+    /** Asks for a new wiki; left out where there are none. */
+    onNewWiki?: (() => void) | undefined;
   }
 
   let {
@@ -37,6 +41,7 @@
     onEmptyBoard,
     onFromTemplate,
     onEditTemplate,
+    onNewWiki,
   }: Props = $props();
 
   const compact = $derived(page.stage === 'compact');
@@ -109,6 +114,20 @@
         <PlusIcon aria-hidden="true" />
         {m['BoardTemplateSelector.create-empty-board']()}
       </Button>
+      {#if onNewWiki}
+        <Button
+          variant="outline"
+          class="justify-start roomy:min-h-touch"
+          data-testid="new-wiki"
+          onclick={() => {
+            open = false;
+            onNewWiki();
+          }}
+        >
+          <BookOpenIcon aria-hidden="true" />
+          {m.wiki_new_title()}
+        </Button>
+      {/if}
 
       {#if templates === undefined}
         <p class="text-muted-foreground" role="status">{m.app_loading()}</p>
