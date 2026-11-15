@@ -66,7 +66,8 @@
     void card.deleteComment(commentId);
   }
 
-  const references = $derived(bodyReferences(board, card.cardId));
+  // The comments are drawn, not written in: what `[[` offers is none of theirs.
+  const references = $derived(bodyReferences(board));
 
   const uid = $props.id();
   const workspace = $derived(board.workspace);
@@ -275,6 +276,7 @@
             <CommentHistory
               id="{uid}-history-{comment.id}"
               read={readVersions}
+              {references}
               commentId={comment.id}
               editedAt={comment.editedAt}
               {context}
@@ -341,7 +343,10 @@
     confirmLabel={m.shared_delete()}
     destructive
     onConfirm={() => {
-      if (deleting) remove(deleting);
+      // Gone meanwhile (somebody else deleted it): nothing is left to delete.
+      const asked = deleting;
+      deleting = undefined;
+      if (asked && card.comment(asked)) remove(asked);
     }}
   />
 {/if}

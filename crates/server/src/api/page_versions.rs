@@ -13,7 +13,7 @@ use utoipa_axum::routes;
 use super::cards::version_number;
 use super::contract::params::{MemberWorkspaceId, PageId, PageVersionNumber, WikiId};
 use super::contract::tag;
-use super::wikis::page_with_permission;
+use super::wikis::{READ_DENIED, page_with_permission};
 use super::workspace::WsWiki;
 use super::{ApiResult, json_response};
 use crate::app::App;
@@ -25,9 +25,6 @@ pub(super) fn routes() -> OpenApiRouter<App> {
         .routes(routes!(handle_get_page_body_version))
         .routes(routes!(handle_restore_page_body_version))
 }
-
-/// What a reader of the page is refused with who may not read it.
-const READ_DENIED: &str = "access denied to fetch page";
 
 /// The versions kept of a page's body
 ///

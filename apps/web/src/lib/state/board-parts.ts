@@ -102,7 +102,7 @@ export function roleOf(member: BoardMember | undefined): MemberRole {
  * an admin (the user's decision of 2026-11-11 22:13 KST; `patchPageComment`
  * in `contracts/openapi.json`), as `BoardStore.canEditComment` has it of a board.
  */
-export function mayChangeComment(
+export function canChangeComment(
   role: MemberRole,
   createdBy: string,
   readerId: string | undefined,

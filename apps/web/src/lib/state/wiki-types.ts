@@ -93,7 +93,7 @@ export interface Wikis {
   deletePage(wikiId: string, pageId: string): Promise<void>;
 
   // The comments on a page, as a card's (`Backend.comments` and the rest).
-  /** In no promised order. For the wiki's members; a page that is not there is 404. */
+  /** Oldest first. For the wiki's members; a page that is not there is 404. */
   comments(wikiId: string, pageId: string): Promise<Comment[]>;
   /** For the wiki's commenters and up. A comment has a text: an empty one is 400. */
   createComment(wikiId: string, pageId: string, body: DocNode): Promise<Comment>;
@@ -109,7 +109,8 @@ export interface Wikis {
   ): Promise<Comment>;
   /**
    * Moves a comment to the trash, by whom may change it. Nothing brings one
-   * back yet: a page brought back has the comments that went with it.
+   * back yet; a wiki brought back from the trash has the comments that were
+   * on its pages.
    */
   deleteComment(wikiId: string, pageId: string, commentId: string): Promise<void>;
   /** What a comment said before each change, the first text first. For the wiki's members. */

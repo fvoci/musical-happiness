@@ -130,6 +130,9 @@ describe('the comments on a page, in memory', () => {
     await made.other.wiki.deleteComment(...at, theirs.id);
     await settle();
     expect(comments.comments).toEqual([]);
+    // A reply that comes after its deletion does not bring a comment back.
+    comments.receive({ ...theirs, updateAt: theirs.updateAt + 10 });
+    expect(comments.comments).toEqual([]);
     expect(await comments.addComment(text('mine'))).toBe(true);
     expect(comments.comments.map((comment) => comment.createdBy)).toEqual([made.backend.userId]);
     store.close();

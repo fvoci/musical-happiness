@@ -85,7 +85,7 @@ impl App {
     ///
     /// Returns a not-found error if the card has no such version (any more) or is not
     /// there any more, a conflict if the version's body may not be stored any more or
-    /// shows an image whose file the board no longer has, and the errors of a write of
+    /// shows an image whose file is not there any more, and the errors of a write of
     /// the whole body ([`crate::collab::Collab::write_whole`]).
     pub async fn restore_body_version(
         &self,

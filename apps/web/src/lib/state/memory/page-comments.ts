@@ -8,12 +8,13 @@
  */
 import type { DocNode } from '../../editor/schema.ts';
 import type { BodyWrite, Comment, CommentVersion } from '../backend.ts';
+import { byCreation } from '../order.ts';
 
 import { memberRole } from './board-access.ts';
 import { checkedBody } from './bodies.ts';
 import { earlierVersions, mayChangeComment, mayDeleteComment, noteChange } from './comments.ts';
 import { fail } from './refuse.ts';
-import { commentOf, scramble } from './shapes.ts';
+import { commentOf } from './shapes.ts';
 import { deletion } from './trash.ts';
 import type { StoredBlock, World } from './world.ts';
 
@@ -69,7 +70,8 @@ export function commentsOf(on: OnPage): Comment[] {
   memberRole(on.world, on.userId, on.wikiId, 'wiki');
   pageOn(on);
   const comments = on.world.childrenOf(on.pageId).filter((block) => block.type === 'comment');
-  return scramble(comments).map(commentOf);
+  // Oldest first, as the server lists them.
+  return byCreation(comments).map(commentOf);
 }
 
 export function createComment(on: OnPage, body: DocNode): Comment {

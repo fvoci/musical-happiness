@@ -10,7 +10,7 @@
  */
 import type { DocNode } from '../editor/schema.ts';
 import { isBackendError, isConflict, type Comment, type CommentVersion } from './backend.ts';
-import { mayChangeComment } from './board-parts.ts';
+import { canChangeComment } from './board-parts.ts';
 import type { CommentEdit } from './card-parts.ts';
 import type { LoadStatus } from './workspace.svelte.ts';
 import { byCreation } from './order.ts';
@@ -63,9 +63,9 @@ export class PageComments {
     return this.#wiki.canEdit || this.#wiki.role === 'commenter';
   }
 
-  /** Whether the reader changes the text of a comment `createdBy` wrote ([`mayChangeComment`]). */
+  /** Whether the reader changes the text of a comment `createdBy` wrote ([`canChangeComment`]). */
   canEditComment(createdBy: string): boolean {
-    return mayChangeComment(this.#wiki.role, createdBy, this.#wiki.workspace.me?.id);
+    return canChangeComment(this.#wiki.role, createdBy, this.#wiki.workspace.me?.id);
   }
 
   /** Whether the reader deletes a comment `createdBy` wrote: as `canEditComment`. */
@@ -109,7 +109,7 @@ export class PageComments {
 
   /** A comment arrived from the backend: one on this page is taken in. */
   receive(comment: Comment): void {
-    if (comment.parentId !== this.#pageId || this.#closed) return;
+    if (comment.parentId !== this.#pageId || this.#closed || this.#deleted.has(comment.id)) return;
     void this.#wiki.workspace.learnUsers(authorIds([comment]));
     this.#comments = take(this.#comments, comment);
   }

@@ -3332,10 +3332,10 @@ export interface paths {
         post?: never;
         /**
          * Delete a page
-         * @description The page goes to the trash with every page below it, for editors of the wiki. The
-         *     wiki's members are told with `UPDATE_BLOCK` of the page alone, whose `deleteAt` is
-         *     not 0, as for any block that is deleted; the pages below it went with it and are
-         *     not told of one by one.
+         * @description The page goes to the trash with every page below it and the comments on them, for
+         *     editors of the wiki. The wiki's members are told with `UPDATE_BLOCK` of the page
+         *     alone, whose `deleteAt` is not 0, as for any block that is deleted; what went with
+         *     it is not told of one by one.
          */
         delete: operations["deletePage"];
         options?: never;

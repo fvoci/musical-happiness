@@ -18,7 +18,7 @@ use utoipa_axum::routes;
 
 use super::contract::params::{CommentId, MemberWorkspaceId, PageId, WikiId};
 use super::contract::tag;
-use super::wikis::page_with_permission;
+use super::wikis::{READ_DENIED, page_with_permission};
 use super::workspace::{Ws, WsWiki};
 use super::{
     ApiResult, BlockAction, created, decode_with_document, json_response, no_content,
@@ -44,9 +44,6 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 /// What a comment is changed by, and what a comment is refused with that a request does
 /// not change.
 const CHANGES_DENIED: &str = "access denied to change the comments of the page";
-
-/// What a reader of the page is refused with who may not read it.
-const READ_DENIED: &str = "access denied to fetch page";
 
 /// What a comment is refused with that has no text.
 const TEXT_MISSING: &str = "a comment has a text";

@@ -54,11 +54,13 @@
     of === 'page'
       ? {
           noBody: m.page_version_no_body,
+          invalid: m.wiki_body_invalid,
           isCurrent: m.page_version_is_current,
           restoreDescription: m.page_version_restore_description,
         }
       : {
           noBody: m.card_version_no_body,
+          invalid: m.card_body_invalid,
           isCurrent: m.card_version_is_current,
           restoreDescription: m.card_version_restore_description,
         },
@@ -270,7 +272,7 @@
                     <p class="text-muted-foreground">{words.noBody()}</p>
                   {/snippet}
                   {#snippet invalid()}
-                    <p class="text-muted-foreground" role="alert">{m.card_body_invalid()}</p>
+                    <p class="text-muted-foreground" role="alert">{words.invalid()}</p>
                   {/snippet}
                 </BodyView>
               {/if}
