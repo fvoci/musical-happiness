@@ -19,7 +19,11 @@
   import SearchIcon from '@lucide/svelte/icons/search';
 
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
-  import { opensSearch, searchKeysLabel } from '$lib/features/search/search-keys.ts';
+  import {
+    opensSearch,
+    searchKeysLabel,
+    searchKeysNames,
+  } from '$lib/features/search/search-keys.ts';
   import { SearchSession } from '$lib/features/search/search-session.svelte.ts';
   import { SearchSwitch } from '$lib/features/search/search-switch.svelte.ts';
   import SearchDialog from '$lib/features/search/SearchDialog.svelte';
@@ -48,7 +52,7 @@
   /** Asked of each backend the workspace has (one, for the life of the page). */
   const enabled = $derived(new SearchSwitch(workspace.backend.search));
 
-  const keys = searchKeysLabel(navigator.userAgent);
+  const keys = searchKeysLabel();
 
   /** Where the focus goes back to: where it was, or the page where that is gone (the button, after a 404). */
   function returnTo(): HTMLElement | undefined {
@@ -190,7 +194,7 @@
     title={m.search_open_keys({ keys })}
     data-testid="open-search"
     aria-haspopup="dialog"
-    aria-keyshortcuts="Meta+K Control+K"
+    aria-keyshortcuts={searchKeysNames()}
     onclick={(event: MouseEvent & { currentTarget: HTMLButtonElement }) => {
       openSearch(event.currentTarget);
     }}

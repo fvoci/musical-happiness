@@ -12,8 +12,9 @@
   Its editors find the board's deleted cards here ("Deleted cards").
 
   A narrow pane (a phone) has room for the title only if undo, redo and the
-  deleted cards are lines of a menu ("…"): there are no keys for them there.
-  From where two kanban columns fit they are buttons of their own.
+  deleted cards are lines of a menu ("…"); a phone seldom has a keyboard for
+  their keys, which work all the same. From where two kanban columns fit they
+  are buttons of their own.
 
   The title is a field for a reader who may change the board, and plain text
   for one who may not; a board that can only be read says so next to it. The

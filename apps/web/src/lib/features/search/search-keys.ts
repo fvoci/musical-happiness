@@ -1,13 +1,13 @@
 /**
- * The keys of the search: ⌘K or Ctrl+K open it, from anywhere on the page,
- * inside an editor too. On a Mac both are taken, as the reader of a PC's
- * keyboard on one presses Ctrl.
+ * The keys of the search: ⌘K on Apple's devices, Ctrl+K elsewhere, from
+ * anywhere on the page, inside an editor too. The other modifier is no alias
+ * (`$lib/keys.ts`): on a Mac, Ctrl+K in a field deletes to the end of the line.
  *
  * A press something under it already took (`defaultPrevented`: an editor
  * whose own ⌘K makes a link of what is chosen) is left to it, and so is one
  * while letters are being put together by an input method (`isComposing`).
  */
-import { isComposing } from '$lib/keys.ts';
+import { isComposing, primaryModifier, shortcutKeys, shortcutLabel } from '$lib/keys.ts';
 
 /**
  * Whether a key press opens the search. By the letter the key gives; a key
@@ -18,7 +18,7 @@ import { isComposing } from '$lib/keys.ts';
  */
 export function opensSearch(event: KeyboardEvent): boolean {
   if (event.defaultPrevented || isComposing(event)) return false;
-  if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return false;
+  if (!primaryModifier(event) || event.altKey || event.shiftKey) return false;
   const key = event.key.toLowerCase();
   if (key === 'k') return true;
   return !/^[a-z]$/.test(key) && event.code === 'KeyK';
@@ -30,19 +30,28 @@ export type ListMove = 'next' | 'previous' | 'go' | 'goNewTab';
 /**
  * What a key in the field of the search does to the list. Nothing while an
  * input method puts letters together: its Enter takes the letters, and its
- * arrows move among the candidates (`isComposing`).
+ * arrows move among the candidates (`isComposing`). The platform's modifier
+ * with Enter opens a new tab, as with a click; the other modifier does nothing.
  */
 export function listMove(event: KeyboardEvent): ListMove | undefined {
   if (isComposing(event) || event.altKey) return undefined;
-  const command = event.ctrlKey || event.metaKey;
-  if (event.key === 'Enter') return command ? 'goNewTab' : event.shiftKey ? undefined : 'go';
-  if (command || event.shiftKey) return undefined;
+  const modified = event.ctrlKey || event.metaKey;
+  if (event.key === 'Enter') {
+    if (primaryModifier(event)) return 'goNewTab';
+    return modified || event.shiftKey ? undefined : 'go';
+  }
+  if (modified || event.shiftKey) return undefined;
   if (event.key === 'ArrowDown') return 'next';
   if (event.key === 'ArrowUp') return 'previous';
   return undefined;
 }
 
 /** The keys that open the search as a device's keyboard names them: ⌘K on Apple's, else Ctrl+K. */
-export function searchKeysLabel(userAgent: string): string {
-  return /Mac|iPhone|iPad/.test(userAgent) ? '⌘K' : 'Ctrl+K';
+export function searchKeysLabel(platform?: string): string {
+  return shortcutLabel('K', {}, platform);
+}
+
+/** The keys that open the search, for `aria-keyshortcuts`. */
+export function searchKeysNames(platform?: string): string {
+  return shortcutKeys('K', {}, platform);
 }

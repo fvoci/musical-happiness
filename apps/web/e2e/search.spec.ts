@@ -8,6 +8,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { ON_A_CARD, ON_A_VIEW, placeOf } from './address.ts';
+import { primaryKey, primaryName } from './keyboard.support.ts';
 import { newWiki, pageTree, showTree, wikiPath, wikiScreen } from './wiki.support.ts';
 import {
   boardMenu,
@@ -80,7 +81,7 @@ async function pagesIn(page: Page, wikiId: string, titles: string[]): Promise<st
 
 /** Opens the search by its keys, finds the one card the words find, and goes to it. */
 async function goTo(page: Page, words: string, title: string): Promise<void> {
-  await page.keyboard.press('Control+k');
+  await page.keyboard.press(await primaryKey(page, 'k'));
   await search(page, words);
   await expect(dialog(page)).toHaveAttribute('data-status', 'found');
   await expect(hits(page).locator('[data-hit-title]')).toHaveText([title]);
@@ -115,20 +116,26 @@ async function search(page: Page, words: string): Promise<void> {
 }
 
 test.describe('the search of cards and pages', () => {
-  test('⌘K and Ctrl+K open it, Escape closes it and the focus goes back', async ({ page }) => {
+  test('the platform’s ⌘K or Ctrl+K opens it, Escape closes it and the focus goes back', async ({
+    page,
+  }) => {
     await openWithSearch(page);
     const open = topBar(page).getByTestId('open-search');
     await expect(open).toBeVisible();
-    for (const keys of ['Meta+k', 'Control+k']) {
-      await page.getByTestId('board-page').focus();
-      await page.keyboard.press(keys);
-      await expect(dialog(page)).toBeVisible();
-      await expect(field(page)).toBeFocused();
-      await expect(page.getByTestId('search-hint')).toBeVisible();
-      await page.keyboard.press('Escape');
-      await expect(dialog(page)).toHaveCount(0);
-      await expect(page.getByTestId('board-page')).toBeFocused();
-    }
+    const modifier = await primaryName(page);
+    await expect(open).toHaveAttribute('aria-keyshortcuts', `${modifier}+K`);
+    // The other platform's modifier is no alias: on a Mac, Ctrl+K in a field deletes to the
+    // end of the line. Pressed first, it leaves the search shut.
+    await page.getByTestId('board-page').focus();
+    await page.keyboard.press(`${modifier === 'Meta' ? 'Control' : 'Meta'}+k`);
+    await expect(dialog(page)).toHaveCount(0);
+    await page.keyboard.press(await primaryKey(page, 'k'));
+    await expect(dialog(page)).toBeVisible();
+    await expect(field(page)).toBeFocused();
+    await expect(page.getByTestId('search-hint')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(dialog(page)).toHaveCount(0);
+    await expect(page.getByTestId('board-page')).toBeFocused();
     // The button opens it too, and has the focus back.
     await open.click();
     await expect(field(page)).toBeFocused();
@@ -141,7 +148,7 @@ test.describe('the search of cards and pages', () => {
   }) => {
     await openWithSearch(page);
     const cardId = await cardWith(page, 'Quarterly review', 'The zephyrquokka migration is due');
-    await page.keyboard.press('Control+k');
+    await page.keyboard.press(await primaryKey(page, 'k'));
     await search(page, 'zephyrquokka');
     await expect(dialog(page)).toHaveAttribute('data-status', 'found');
     await expect(hits(page)).toHaveCount(1);
@@ -166,7 +173,7 @@ test.describe('the search of cards and pages', () => {
     await openWithSearch(page);
     await cardWith(page, 'First cassowary', 'one');
     await cardWith(page, 'Second cassowary', 'two');
-    await page.keyboard.press('Control+k');
+    await page.keyboard.press(await primaryKey(page, 'k'));
     await search(page, 'cassowary');
     await expect(hits(page)).toHaveCount(2);
     const selected = dialog(page).locator('[role="option"][aria-selected="true"]');
@@ -182,7 +189,7 @@ test.describe('the search of cards and pages', () => {
   test('finds one kind at a time', async ({ page }) => {
     await openWithSearch(page);
     await cardWith(page, 'Platypus plan', 'a body');
-    await page.keyboard.press('Control+k');
+    await page.keyboard.press(await primaryKey(page, 'k'));
     await search(page, 'platypus');
     await expect(hits(page)).toHaveCount(1);
     await dialog(page).getByRole('radio', { name: 'Pages' }).click();
@@ -216,7 +223,7 @@ test.describe('the search of cards and pages', () => {
       page.evaluate(async (at) => {
         await (window as unknown as { heldSearches: (() => Promise<void>)[] }).heldSearches[at]?.();
       }, index);
-    await page.keyboard.press('Control+k');
+    await page.keyboard.press(await primaryKey(page, 'k'));
     await search(page, 'ocelot');
     await expect.poll(held).toBe(1);
     await search(page, 'ocelot two');
@@ -282,7 +289,7 @@ test.describe('the search of cards and pages', () => {
     const onPage = (pageId = ''): RegExp => new RegExp(`${wikiPath(wikiId, pageId)}$`);
 
     // From a board, over the wiki.
-    await page.keyboard.press('Control+k');
+    await page.keyboard.press(await primaryKey(page, 'k'));
     await search(page, 'harbour');
     await expect(dialog(page)).toHaveAttribute('data-status', 'found');
     await expect(hits(page)).toHaveCount(1);
@@ -296,7 +303,7 @@ test.describe('the search of cards and pages', () => {
     await expect(page.locator('main')).toBeFocused();
 
     // Another page of the wiki shown, as from its tree.
-    await page.keyboard.press('Control+k');
+    await page.keyboard.press(await primaryKey(page, 'k'));
     await search(page, 'lighthouse');
     await expect(hits(page).locator('[data-hit-title]')).toHaveText(['Lighthouse keeping']);
     await page.keyboard.press('Enter');
@@ -307,7 +314,7 @@ test.describe('the search of cards and pages', () => {
     // A card from a page, and a page from the card.
     await goTo(page, 'beacon', 'Keeper notes');
     expect(placeOf(page.url())).toMatchObject({ boardId: board, cardId: card });
-    await page.keyboard.press('Control+k');
+    await page.keyboard.press(await primaryKey(page, 'k'));
     await search(page, 'harbour');
     await expect(hits(page).locator('[data-hit-title]')).toHaveText(['Harbour log']);
     await page.keyboard.press('Enter');
@@ -344,7 +351,7 @@ test.describe('the search of cards and pages', () => {
     await showTree(page);
     // The drawer leaves the top bar in reach: neither its button nor the keys open the search.
     await topBar(page).getByTestId('open-search').click();
-    await page.keyboard.press('Control+k');
+    await page.keyboard.press(await primaryKey(page, 'k'));
     await expect(dialog(page)).toHaveCount(0);
     await expect(pageTree(page)).toBeVisible();
     await page.goBack();
@@ -361,7 +368,7 @@ test.describe('the search of cards and pages', () => {
       await sidebar(page).getByTestId('open-settings').click();
     }
     await expect(page.getByTestId('settings-dialog')).toBeVisible();
-    await page.keyboard.press('Control+k');
+    await page.keyboard.press(await primaryKey(page, 'k'));
     await expect(dialog(page)).toHaveCount(0);
     await expect(page.getByTestId('settings-dialog')).toBeVisible();
   });
@@ -372,7 +379,7 @@ test.describe('the search of cards and pages', () => {
     await openWithSearch(page);
     await cardWith(page, 'Gecko older', 'iguana');
     await cardWith(page, 'Gecko newer', 'iguana basilisk');
-    await page.keyboard.press('Control+k');
+    await page.keyboard.press(await primaryKey(page, 'k'));
     await search(page, 'iguana');
     await expect(hits(page)).toHaveCount(2);
     // The next search answers when the test lets it.
@@ -404,7 +411,7 @@ test.describe('the search of cards and pages', () => {
     test.skip((await stageOf(page)) !== 'expanded', 'a sidebar beside the board, no drawer');
     await chooseFromMenu(page, boardMenu(page, 'Meeting Agenda'), 'delete');
     await expect(page.getByTestId('confirm-dialog')).toBeVisible();
-    await page.keyboard.press('Control+k');
+    await page.keyboard.press(await primaryKey(page, 'k'));
     await expect(dialog(page)).toHaveCount(0);
     await expect(page.getByTestId('confirm-dialog')).toBeVisible();
   });
@@ -412,7 +419,7 @@ test.describe('the search of cards and pages', () => {
   test('what a body says is shown as text, the matched words marked', async ({ page }) => {
     await openWithSearch(page);
     await cardWith(page, 'Markup', 'before <script>alert(1)</script> wombat <b>after</b>');
-    await page.keyboard.press('Control+k');
+    await page.keyboard.press(await primaryKey(page, 'k'));
     await search(page, 'wombat');
     const snippet = hits(page).first().locator('[data-hit-snippet]');
     await expect(snippet).toHaveText('before <script>alert(1)</script> wombat <b>after</b>');
@@ -423,7 +430,7 @@ test.describe('the search of cards and pages', () => {
   test('each state of the search says what it is', async ({ page }) => {
     await openWithSearch(page);
     await cardWith(page, 'Narwhal notes', 'body');
-    await page.keyboard.press('Control+k');
+    await page.keyboard.press(await primaryKey(page, 'k'));
     // Not available: said, with a way to try again.
     await refuseNext(page, 503, { reason: 'search_unavailable' });
     await search(page, 'narwhal');
@@ -448,14 +455,14 @@ test.describe('the search of cards and pages', () => {
     page,
   }) => {
     await openWithSearch(page);
-    await page.keyboard.press('Control+k');
+    await page.keyboard.press(await primaryKey(page, 'k'));
     await page.evaluate(() => {
       (window as unknown as { fvociDev: Dev }).fvociDev.backend.world.searchEnabled = false;
     });
     await search(page, 'anything');
     await expect(dialog(page)).toHaveCount(0);
     await expect(topBar(page).getByTestId('open-search')).toHaveCount(0);
-    await page.keyboard.press('Control+k');
+    await page.keyboard.press(await primaryKey(page, 'k'));
     await expect(dialog(page)).toHaveCount(0);
   });
 
@@ -463,7 +470,7 @@ test.describe('the search of cards and pages', () => {
     await openApp(page, '/?search=0');
     await expect(undoInBar(page)).toBeVisible();
     await expect(topBar(page).getByTestId('open-search')).toHaveCount(0);
-    await page.keyboard.press('Control+k');
+    await page.keyboard.press(await primaryKey(page, 'k'));
     await page.keyboard.press('Meta+k');
     await expect(dialog(page)).toHaveCount(0);
   });
@@ -499,7 +506,7 @@ test.describe('the search of cards and pages', () => {
   }) => {
     await page.setViewportSize({ width: 844, height: 390 });
     await openWithSearch(page);
-    await page.keyboard.press('Control+k');
+    await page.keyboard.press(await primaryKey(page, 'k'));
     await expect(dialog(page)).toHaveAttribute('data-compact', 'true');
     await expect.poll(async () => (await dialog(page).boundingBox())?.width).toBe(844);
     expect((await dialog(page).boundingBox())?.x).toBe(0);
@@ -510,7 +517,7 @@ test.describe('the search of cards and pages', () => {
   }) => {
     await openWithSearch(page);
     await cardWith(page, 'Ibis', 'a tab of its own');
-    await page.keyboard.press('Control+k');
+    await page.keyboard.press(await primaryKey(page, 'k'));
     await search(page, 'ibis');
     await expect(hits(page)).toHaveCount(1);
     // The browser's click: a new tab (in the background, of no interest here), the search left open.

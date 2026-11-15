@@ -6,7 +6,12 @@
 import { cleanup, render } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { listMove, opensSearch, searchKeysLabel } from '$lib/features/search/search-keys.ts';
+import {
+  listMove,
+  opensSearch,
+  searchKeysLabel,
+  searchKeysNames,
+} from '$lib/features/search/search-keys.ts';
 import {
   HITS_ASKED,
   SearchSession,
@@ -223,9 +228,13 @@ describe('a search session', () => {
 const press = (init: KeyboardEventInit): KeyboardEvent => new KeyboardEvent('keydown', init);
 
 describe('the keys of the search', () => {
-  it('⌘K and Ctrl+K open it', () => {
-    expect(opensSearch(press({ key: 'k', code: 'KeyK', metaKey: true }))).toBe(true);
+  it('the platform’s ⌘K or Ctrl+K opens it, and the other modifier does not', () => {
+    // The tests run with no Apple platform: Ctrl is the modifier, Meta no alias of it.
     expect(opensSearch(press({ key: 'K', code: 'KeyK', ctrlKey: true }))).toBe(true);
+    expect(opensSearch(press({ key: 'k', code: 'KeyK', metaKey: true }))).toBe(false);
+    expect(opensSearch(press({ key: 'k', code: 'KeyK', ctrlKey: true, metaKey: true }))).toBe(
+      false,
+    );
     expect(opensSearch(press({ key: 'k', code: 'KeyK' }))).toBe(false);
     expect(opensSearch(press({ key: 'k', code: 'KeyK', ctrlKey: true, shiftKey: true }))).toBe(
       false,
@@ -234,32 +243,33 @@ describe('the keys of the search', () => {
   });
 
   it('by the K of a Latin keyboard where the key gives a letter of another script', () => {
-    expect(opensSearch(press({ key: 'ㅏ', code: 'KeyK', metaKey: true }))).toBe(true);
+    expect(opensSearch(press({ key: 'ㅏ', code: 'KeyK', ctrlKey: true }))).toBe(true);
     // Where the K key gives a Latin letter, the letter is what counts (Dvorak's T there).
     expect(opensSearch(press({ key: 't', code: 'KeyK', ctrlKey: true }))).toBe(false);
   });
 
   it('takes a held key, for whoever listens to take its repeats', () => {
-    expect(opensSearch(press({ key: 'k', code: 'KeyK', metaKey: true, repeat: true }))).toBe(true);
+    expect(opensSearch(press({ key: 'k', code: 'KeyK', ctrlKey: true, repeat: true }))).toBe(true);
   });
 
   it('leaves a press something took already, or one of an input method', () => {
-    const taken = press({ key: 'k', code: 'KeyK', metaKey: true, cancelable: true });
+    const taken = press({ key: 'k', code: 'KeyK', ctrlKey: true, cancelable: true });
     taken.preventDefault();
     expect(opensSearch(taken)).toBe(false);
-    expect(opensSearch(press({ key: 'k', code: 'KeyK', metaKey: true, isComposing: true }))).toBe(
+    expect(opensSearch(press({ key: 'k', code: 'KeyK', ctrlKey: true, isComposing: true }))).toBe(
       false,
     );
     // eslint-disable-next-line @typescript-eslint/no-deprecated -- the only mark Safari leaves
-    expect(opensSearch(press({ key: 'k', code: 'KeyK', metaKey: true, keyCode: 229 }))).toBe(false);
+    expect(opensSearch(press({ key: 'k', code: 'KeyK', ctrlKey: true, keyCode: 229 }))).toBe(false);
   });
 
   it('moves in the list, and goes, but not while letters are put together', () => {
     expect(listMove(press({ key: 'ArrowDown' }))).toBe('next');
     expect(listMove(press({ key: 'ArrowUp' }))).toBe('previous');
     expect(listMove(press({ key: 'Enter' }))).toBe('go');
-    expect(listMove(press({ key: 'Enter', metaKey: true }))).toBe('goNewTab');
     expect(listMove(press({ key: 'Enter', ctrlKey: true }))).toBe('goNewTab');
+    // The other platform's modifier neither goes nor opens a tab.
+    expect(listMove(press({ key: 'Enter', metaKey: true }))).toBeUndefined();
     expect(listMove(press({ key: 'Enter', isComposing: true }))).toBeUndefined();
     // Safari's Enter that takes the letters: the key code is all that tells it.
     // eslint-disable-next-line @typescript-eslint/no-deprecated -- the only mark Safari leaves
@@ -269,9 +279,11 @@ describe('the keys of the search', () => {
   });
 
   it('are named as the keyboard of the device names them', () => {
-    expect(searchKeysLabel('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)')).toBe('⌘K');
-    expect(searchKeysLabel('Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)')).toBe('⌘K');
-    expect(searchKeysLabel('Mozilla/5.0 (X11; Linux aarch64)')).toBe('Ctrl+K');
+    expect(searchKeysLabel('MacIntel')).toBe('⌘K');
+    expect(searchKeysLabel('iPhone')).toBe('⌘K');
+    expect(searchKeysLabel('Linux aarch64')).toBe('Ctrl+K');
+    expect(searchKeysNames('MacIntel')).toBe('Meta+K');
+    expect(searchKeysNames('Win32')).toBe('Control+K');
   });
 });
 
