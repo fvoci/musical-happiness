@@ -258,7 +258,7 @@
               href={pageHref(page.id)}
               tabindex="-1"
               draggable="false"
-              class="flex min-w-0 flex-1 items-center gap-1.5 py-1"
+              class="flex min-w-0 flex-1 items-center gap-1.5 self-stretch py-1"
               onclick={(event: MouseEvent) => {
                 onclick(event, page.id);
               }}

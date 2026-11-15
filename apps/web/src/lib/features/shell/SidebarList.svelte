@@ -174,8 +174,9 @@
   }
 </script>
 
+<!-- Positioned, so what is placed out of the flow in it (the announcer) scrolls with it, not the page. -->
 <div
-  class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-2"
+  class="relative min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-2"
   data-testid="sidebar-list"
   data-drag-scroll="y"
   data-dragging={drag?.mode}

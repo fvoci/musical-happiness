@@ -508,4 +508,22 @@ span.doc-embed-problem {
   .doc-math-editing textarea {
     min-height: var(--spacing-touch);
   }
+  /*
+   * A task is a row a finger's height, its first line in the middle of it. The
+   * box stays drawn at the size of the text; its label answers the row's whole
+   * height and a finger's width around the box. The rows do not overlap, and
+   * the answer stops where the words begin, so a press on them puts the caret.
+   */
+  .doc-body ul[data-type='taskList'] > li {
+    position: relative;
+    column-gap: calc(var(--spacing-touch) / 2 - 0.5em);
+    padding-block: max(0px, (var(--spacing-touch) - var(--line-body) * 1em) / 2);
+  }
+  .doc-body ul[data-type='taskList'] > li > label::before {
+    content: '';
+    position: absolute;
+    inset-block: 0;
+    inset-inline-start: calc(0.5em - var(--spacing-touch) / 2);
+    width: var(--spacing-touch);
+  }
 }

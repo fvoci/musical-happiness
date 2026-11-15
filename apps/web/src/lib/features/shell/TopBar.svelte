@@ -162,7 +162,7 @@
       size="sm"
       data-testid="share-board"
       aria-haspopup="dialog"
-      class="shrink-0 roomy:min-h-touch"
+      class="shrink-0 roomy:min-h-touch roomy:min-w-touch"
       onclick={() => {
         sharingMembers = false;
         sharing = true;

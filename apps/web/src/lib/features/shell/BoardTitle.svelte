@@ -52,7 +52,7 @@
   maxlength={200}
   autocomplete="off"
   enterkeyhint="done"
-  class="field-sizing-content max-w-full min-w-24 truncate rounded-md border border-transparent bg-transparent px-1.5 py-0.5 font-semibold outline-none placeholder:font-normal placeholder:text-muted-foreground hover:border-input-border focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+  class="field-sizing-content max-w-full min-w-24 truncate rounded-md border border-transparent bg-transparent px-1.5 py-0.5 font-semibold outline-none placeholder:font-normal placeholder:text-muted-foreground hover:border-input-border focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 roomy:min-h-touch"
   oninput={(event) => {
     draft = event.currentTarget.value;
   }}

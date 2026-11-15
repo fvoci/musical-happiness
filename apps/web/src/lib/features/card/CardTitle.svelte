@@ -176,7 +176,7 @@
       enterkeyhint="done"
       class={[
         TITLE,
-        'field-sizing-content resize-none overflow-hidden rounded-md bg-transparent placeholder:text-muted-foreground',
+        'field-sizing-content resize-none overflow-hidden rounded-md bg-transparent placeholder:text-muted-foreground roomy:min-h-touch',
       ]}
       onfocus={() => {
         editing = true;

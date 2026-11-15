@@ -46,7 +46,7 @@
         type="button"
         data-testid="board-presence"
         aria-label={label}
-        class="flex min-h-8 shrink-0 items-center gap-1 rounded-md px-1 text-xs hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring roomy:min-h-touch"
+        class="flex min-h-8 shrink-0 items-center justify-center gap-1 rounded-md px-1 text-xs hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring roomy:min-h-touch roomy:min-w-touch"
       >
         <span class="flex -space-x-1">
           {#each faces as person, index (person.userId)}
