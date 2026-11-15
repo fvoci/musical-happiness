@@ -1,10 +1,10 @@
 //! The search of the cards and pages of a workspace by the letters of their title and
 //! body (`blocks.body_text`), for a server without a search server: every word asked
 //! for is in the title or in the body, as it is written there, ASCII letters in either
-//! case. A word is looked for as text, never as a pattern of `LIKE`: each comparison of
-//! a row is one step SQLite cannot stop in, and `LIKE` of a word of 200 characters that
-//! almost matches everywhere in a body of a megabyte takes a fifth of a second, where
-//! `instr` takes a hundredth. It reads the blocks that have a document ([`crate::search_docs`]), the same
+//! case. A word is looked for as text, by position, never as a pattern of `LIKE`: each
+//! comparison of a row is one step SQLite cannot stop in, and `LIKE` of a long word that
+//! almost matches everywhere in a large body takes many times longer than `instr`.
+//! It reads the blocks that have a document ([`crate::search_docs`]), the same
 //! ones a search server holds, and answers their identifiers alone, the best first:
 //! the caller checks each against what the user reads, as it checks what a search
 //! server answers.
@@ -47,28 +47,31 @@ fn needle(word: &str) -> String {
     word.to_ascii_lowercase()
 }
 
-/// Whether the column `column` of `b`, with its ASCII letters in lower case and no other
-/// letter changed, holds the next bound value. SQLite's `lower` changes ASCII letters
-/// alone; PostgreSQL's does under the collation `C`.
-fn holds(dialect: Dialect, column: &str) -> String {
-    match dialect {
+/// Adds the condition that the column `column` of `b`, with its ASCII letters in lower
+/// case and no other letter changed, holds `word`. SQLite's `lower` changes ASCII
+/// letters alone; PostgreSQL's does under the collation `C`.
+fn push_holds(sql: &mut Sql, dialect: Dialect, column: &str, word: &str) {
+    let position = match dialect {
         Dialect::Sqlite => format!("instr(lower({column}), "),
         Dialect::Postgres => format!("strpos(lower({column} COLLATE \"C\"), "),
-    }
+    };
+    sql.push_bind(&position, needle(word)).push(") > 0");
 }
+
+/// The body of `b`, empty where it has none.
+const BODY: &str = "COALESCE(b.body_text, '')";
 
 /// Adds the condition that every word is in the title or in the body.
 fn push_every_word(sql: &mut Sql, dialect: Dialect, words: &[String]) {
-    let title = holds(dialect, "b.title");
-    let body = holds(dialect, "COALESCE(b.body_text, '')");
     for (index, word) in words.iter().enumerate() {
-        let needle = needle(word);
         if index > 0 {
             sql.push(" AND ");
         }
-        sql.push_bind(&format!("({title}"), needle.clone())
-            .push_bind(&format!(") > 0 OR {body}"), needle)
-            .push(") > 0)");
+        sql.push("(");
+        push_holds(sql, dialect, "b.title", word);
+        sql.push(" OR ");
+        push_holds(sql, dialect, BODY, word);
+        sql.push(")");
     }
 }
 
@@ -77,6 +80,7 @@ impl Store {
     /// ones whose title holds every word first, then the most recently changed, and
     /// then by identifier, so that a page follows the one before. Stopped at `by`.
     /// Words of which one holds a NUL character find nothing: no text stored holds one.
+    /// Words that are empty are none: every text holds one.
     ///
     /// # Errors
     ///
@@ -88,11 +92,21 @@ impl Store {
         limit: i64,
         by: Instant,
     ) -> Result<TextFound, StoreError> {
-        if search.words.is_empty() || search.words.iter().any(|word| word.contains('\0')) {
+        let words: Vec<String> = search
+            .words
+            .iter()
+            .filter(|word| !word.is_empty())
+            .cloned()
+            .collect();
+        if words.is_empty() || words.iter().any(|word| word.contains('\0')) {
             return Ok(TextFound::Ids(Vec::new()));
         }
+        let search = TextSearch {
+            words: &words,
+            ..*search
+        };
         self.with_conn(async |scope| {
-            let sql = statement(scope, search, offset, limit);
+            let sql = statement(scope, &search, offset, limit);
             let Some(rows) = scope.fetch_all_by(sql, by).await? else {
                 return Ok(TextFound::OutOfTime);
             };
@@ -130,12 +144,11 @@ fn statement(scope: &Scope<'_>, search: &TextSearch<'_>, offset: i64, limit: i64
 
 /// Adds the condition that the title holds every word.
 fn push_title_holds_every_word(sql: &mut Sql, dialect: Dialect, words: &[String]) {
-    let title = holds(dialect, "b.title");
     for (index, word) in words.iter().enumerate() {
         if index > 0 {
             sql.push(" AND ");
         }
-        sql.push_bind(&title, needle(word)).push(") > 0");
+        push_holds(sql, dialect, "b.title", word);
     }
 }
 

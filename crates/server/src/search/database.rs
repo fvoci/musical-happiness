@@ -82,13 +82,19 @@ impl Asking {
             };
             store.search_text(&search, from, size, by).await
         });
-        // Getting a connection is waited for within the time too: the task, once it has
-        // one past the time, asks nothing.
+        // Getting a connection is waited for within the time too. The task keeps its turn
+        // until it has one, and then asks for nothing but its transaction, which it ends.
         let Ok(page) = tokio::time::timeout_at(by.into(), page).await else {
             return Ok(TextFound::OutOfTime);
         };
-        page.map_err(|error| AppError::internal(format_args!("the search task failed: {error}")))?
-            .map_err(AppError::from)
+        match page
+            .map_err(|error| AppError::internal(format_args!("the search task failed: {error}")))?
+        {
+            // A pool that gave no connection in its own time, shorter than the search's:
+            // as late as one that gives none in the search's.
+            Err(error) if error.is_pool_timeout() => Ok(TextFound::OutOfTime),
+            page => page.map_err(AppError::from),
+        }
     }
 }
 
