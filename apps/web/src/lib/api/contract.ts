@@ -2797,7 +2797,8 @@ export interface paths {
          *     letters (of every letter, not only ASCII); `%` and `_` are characters like any
          *     other. At most 20, the one changed last first; without `q`, the 20 changed last.
          *     Bodies are not looked into. What is in the trash, what is on a template, and a card
-         *     that is a template of its board's cards are never found.
+         *     that is a template of its board's cards are never found. A `q` of more than 200
+         *     characters is 400.
          */
         get: operations["searchReferences"];
         put?: never;
@@ -9905,7 +9906,7 @@ export interface operations {
     searchReferences: {
         parameters: {
             query?: {
-                /** @description The words to look for in titles. Without it, what was changed last is found. */
+                /** @description The words to look for in titles, at most 200 characters. Without it, what was changed last is found. */
                 q?: string;
             };
             header?: never;

@@ -11290,7 +11290,7 @@
     },
     "/api/v1/w/{workspaceId}/references/search": {
       "get": {
-        "description": "The cards and pages of this workspace, on a board or a wiki the user reads, whose\ntitle has every word of `q` in it, as spaces divide it and whatever the case of the\nletters (of every letter, not only ASCII); `%` and `_` are characters like any\nother. At most 20, the one changed last first; without `q`, the 20 changed last.\nBodies are not looked into. What is in the trash, what is on a template, and a card\nthat is a template of its board's cards are never found.",
+        "description": "The cards and pages of this workspace, on a board or a wiki the user reads, whose\ntitle has every word of `q` in it, as spaces divide it and whatever the case of the\nletters (of every letter, not only ASCII); `%` and `_` are characters like any\nother. At most 20, the one changed last first; without `q`, the 20 changed last.\nBodies are not looked into. What is in the trash, what is on a template, and a card\nthat is a template of its board's cards are never found. A `q` of more than 200\ncharacters is 400.",
         "operationId": "searchReferences",
         "parameters": [
           {
@@ -11303,7 +11303,7 @@
             }
           },
           {
-            "description": "The words to look for in titles. Without it, what was changed last is found.",
+            "description": "The words to look for in titles, at most 200 characters. Without it, what was changed last is found.",
             "in": "query",
             "name": "q",
             "required": false,

@@ -464,6 +464,8 @@ async fn what_a_reference_may_name_is_found_by_its_title() {
         ("%C3%A9tude", vec![&accented]),
         ("%25", vec![&percent]),
         ("_", vec![&percent]),
+        // `_` is no letter standing for any other: "d_ne" is not "done".
+        ("d_ne", vec![]),
         ("see", vec![]),
         ("plan%20nothing", vec![]),
         (
@@ -484,6 +486,10 @@ async fn what_a_reference_may_name_is_found_by_its_title() {
     }
     let without_q = user.get(&format!("{TEST_WS}/references/search")).await;
     assert_eq!(listed(&without_q).len(), 5);
+    // A term is at most 200 characters, of whatever letters.
+    found(user, TEST_WS, &"%C3%A9".repeat(200)).await.check_ok();
+    let long = found(user, TEST_WS, &"%C3%A9".repeat(201)).await;
+    assert_eq!(long.status, StatusCode::BAD_REQUEST, "{}", long.text());
 
     // In the trash a card is not found; a card that is a template of the board's
     // cards never is, nor what is on a board that is a template.

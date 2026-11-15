@@ -227,6 +227,37 @@ describe('a pasted address', () => {
     expect(made.state.selection.from).toBe(2);
   });
 
+  it('becomes a reference each time the same address is pasted, also while another waits', async () => {
+    vi.stubGlobal('ClipboardEvent', class extends Event {});
+    const answers: ((seen: boolean) => void)[] = [];
+    const made = create(doc(paragraph(text('See '))), {
+      ...given(references({ [SEEN]: plan })),
+      seen: () => new Promise((resolve) => answers.push(resolve)),
+    });
+    const atEnd = () => {
+      made.view.dispatch(made.state.tr.setSelection(Selection.atEnd(made.state.doc)));
+    };
+    atEnd();
+    expect(paste(made, ADDRESS)).toBe(true);
+    answers.shift()?.(true);
+    await settle();
+    atEnd();
+    expect(paste(made, ADDRESS)).toBe(true);
+    atEnd();
+    expect(paste(made, ADDRESS)).toBe(true);
+    for (const answer of answers.splice(0).reverse()) answer(true);
+    await settle();
+    expect(stored(made).content?.[0]?.content).toEqual([
+      text('See '),
+      reference(SEEN),
+      text(' '),
+      reference(SEEN),
+      text(' '),
+      reference(SEEN),
+      text(' '),
+    ]);
+  });
+
   it('stays the address it was if it was changed before the answer', async () => {
     vi.stubGlobal('ClipboardEvent', class extends Event {});
     let answer: (seen: boolean) => void = () => undefined;

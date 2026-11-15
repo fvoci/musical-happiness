@@ -23,6 +23,11 @@ pub const MAX_REFERENCE_IDS: usize = 100;
 /// The most cards and pages a search for what a reference may name finds.
 const FOUND_AT_MOST: usize = 20;
 
+/// The longest term a search for what a reference may name takes, in characters: far
+/// past a title typed after `[[`, and short enough that a term that finds nothing does
+/// not make the reading of every title the work of many words.
+const MAX_TITLE_TERM_CHARS: usize = 200;
+
 impl App {
     /// What the references to `ids` show the user: the cards and pages among them that
     /// are on a board or a wiki of this handle's workspace ([`App::in_workspace`]) the
@@ -135,13 +140,19 @@ impl App {
     ///
     /// # Errors
     ///
-    /// Returns the store's error if a read fails.
+    /// Returns 400 for a term of more than 200 characters, and the
+    /// store's error if a read fails.
     pub async fn search_references(
         &self,
         user_id: &str,
         workspace_id: &str,
         term: &str,
     ) -> Result<Vec<LinkedBlock>, AppError> {
+        if term.chars().count() > MAX_TITLE_TERM_CHARS {
+            return Err(AppError::bad_request(format_args!(
+                "a search for what a reference may name is at most {MAX_TITLE_TERM_CHARS} characters"
+            )));
+        }
         let boards = self.boards_held(user_id, workspace_id).await?;
         let read = self.boards_read(user_id, boards).await?;
         let board_ids: Vec<&str> = read.keys().map(String::as_str).collect();

@@ -94,7 +94,8 @@ async fn handle_get_references_to(
 /// letters (of every letter, not only ASCII); `%` and `_` are characters like any
 /// other. At most 20, the one changed last first; without `q`, the 20 changed last.
 /// Bodies are not looked into. What is in the trash, what is on a template, and a card
-/// that is a template of its board's cards are never found.
+/// that is a template of its board's cards are never found. A `q` of more than 200
+/// characters is 400.
 #[utoipa::path(
     get,
     path = "/w/{workspaceId}/references/search",

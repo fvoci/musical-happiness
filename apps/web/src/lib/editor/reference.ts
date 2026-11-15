@@ -151,13 +151,15 @@ export const Reference = Node.create<ReferenceOptions>({
 
 /** An address that was pasted, where it is now, while whether the reader may see what it names is asked. */
 interface PastedAddress {
+  /** Which paste it is: two pastes of one address are two. */
+  key: number;
   from: number;
   to: number;
   text: string;
   id: string;
 }
 
-type PasteMeta = { add: PastedAddress } | { done: PastedAddress };
+type PasteMeta = { add: PastedAddress } | { done: number };
 
 const pasteKey = new PluginKey<PastedAddress[]>('referencePaste');
 
@@ -186,12 +188,11 @@ function codeBetween(doc: ProseMirrorNode, from: number, to: number): boolean {
  * leaves it text too: the text is still the address, and a link.
  */
 function pastedAddresses(name: string, options: ReferenceOptions): Plugin<PastedAddress[]> {
+  let pastes = 0;
   const settle = (view: EditorView, pasted: PastedAddress, seen: boolean): void => {
-    const now = pasteKey
-      .getState(view.state)
-      ?.find((each) => each.id === pasted.id && each.text === pasted.text);
+    const now = pasteKey.getState(view.state)?.find((each) => each.key === pasted.key);
     if (!now) return;
-    const tr = view.state.tr.setMeta(pasteKey, { done: now } satisfies PasteMeta);
+    const tr = view.state.tr.setMeta(pasteKey, { done: now.key } satisfies PasteMeta);
     const { schema, doc } = view.state;
     const whole =
       now.from < now.to &&
@@ -218,7 +219,7 @@ function pastedAddresses(name: string, options: ReferenceOptions): Plugin<Pasted
           }));
         }
         if (meta && 'add' in meta) next = [...next, meta.add];
-        if (meta && 'done' in meta) next = next.filter((each) => each !== meta.done);
+        if (meta && 'done' in meta) next = next.filter((each) => each.key !== meta.done);
         return next;
       },
     },
@@ -233,7 +234,8 @@ function pastedAddresses(name: string, options: ReferenceOptions): Plugin<Pasted
         // Pasted with no clipboard of its own, it does not come here again.
         view.pasteText(text);
         const to = view.state.selection.from;
-        const pasted: PastedAddress = { from, to, text, id };
+        pastes += 1;
+        const pasted: PastedAddress = { key: pastes, from, to, text, id };
         view.dispatch(view.state.tr.setMeta(pasteKey, { add: pasted } satisfies PasteMeta));
         void options
           .seen(id)

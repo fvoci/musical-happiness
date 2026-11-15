@@ -70,24 +70,27 @@ impl Store {
     /// The blocks the identifiers name that are on a board now, of whatever type, each
     /// without its body and in no order: what a reference is resolved from. An
     /// identifier that names none (never one, in the trash, of another organization)
-    /// has no block here, and nothing says which.
+    /// has no block here, and nothing says which. Asked some at a time, as a statement
+    /// binds only so many.
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::Database`] if the query fails.
+    /// Returns [`StoreError::Database`] if a query fails.
     pub async fn named_blocks(&self, ids: &[&str]) -> Result<Vec<Block>, StoreError> {
         if ids.is_empty() {
             return Ok(Vec::new());
         }
         self.with_conn(async |scope| {
-            let mut sql = scope.sql(&format!("SELECT {SHOWN_COLUMNS} FROM blocks WHERE id IN ("));
-            sql.bind_list(ids.iter().map(|id| Id(id))).push(")");
-            scope
-                .fetch_all(sql)
-                .await?
-                .iter()
-                .map(shown_block)
-                .collect()
+            let mut found = Vec::new();
+            for some in ids.chunks(ASKED_AT_ONCE) {
+                let mut sql =
+                    scope.sql(&format!("SELECT {SHOWN_COLUMNS} FROM blocks WHERE id IN ("));
+                sql.bind_list(some.iter().map(|id| Id(id))).push(")");
+                for row in scope.fetch_all(sql).await? {
+                    found.push(shown_block(&row)?);
+                }
+            }
+            Ok(found)
         })
         .await
     }
@@ -147,20 +150,33 @@ impl Store {
         }
         self.with_conn(async |scope| {
             let mut sql = select_named_on(scope, board_ids);
-            // What a comment names, the card or the page it is on names.
+            // What a comment names, the card or the page it is on names. The rows of
+            // the boards asked about are the only ones looked at; what is found is held
+            // to the boards its block is on now all the same.
             sql.push_bind(" AND id <> ", Id(target_id))
+                .push_bind(
+                    " AND id IN (SELECT CASE WHEN s.type = ",
+                    BlockType::Comment.as_str(),
+                )
                 .push(
-                    " AND id IN (SELECT CASE WHEN s.type = 'comment' THEN s.parent_id ELSE s.id END \
+                    " THEN s.parent_id ELSE s.id END \
                      FROM body_links l JOIN blocks s ON s.id = l.source_id WHERE l.target_id = ",
                 )
                 .bind(Id(target_id))
-                .push(") ORDER BY create_at, id");
+                .push(" AND l.board_id IN (")
+                .bind_list(board_ids.iter().map(|id| Id(id)))
+                .push(")) ORDER BY create_at, id");
             if paging.per_page > 0 {
                 let offset = i64::from(paging.page) * i64::from(paging.per_page);
                 sql.push_bind(" LIMIT ", i64::from(paging.per_page))
                     .push_bind(" OFFSET ", offset);
             }
-            scope.fetch_all(sql).await?.iter().map(shown_block).collect()
+            scope
+                .fetch_all(sql)
+                .await?
+                .iter()
+                .map(shown_block)
+                .collect()
         })
         .await
     }
