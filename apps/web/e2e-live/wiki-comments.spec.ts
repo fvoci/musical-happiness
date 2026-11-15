@@ -7,6 +7,8 @@
  */
 import { expect, test, type Browser, type Page } from '@playwright/test';
 
+import { topBar } from '../e2e/shell.support.ts';
+
 import {
   makeBoard,
   person,
@@ -129,7 +131,14 @@ test('comments on a page arrive at the other person as they are written, changed
     paragraph('From the owner'),
   ]);
   await own.getByRole('button', { name: /^Delete the comment from/ }).click();
-  await second.getByTestId('confirm-dialog').getByRole('button', { name: 'Delete' }).click();
+  await expect(rows(first)).toHaveCount(1);
+  // "Undo" brings it back on the server (`undeletePageComment`), for the other too.
+  await topBar(second).getByTestId('undo').click();
+  await expect(rows(first)).toHaveCount(2);
+  await rows(second)
+    .first()
+    .getByRole('button', { name: /^Delete the comment from/ })
+    .click();
   await expect(rows(first)).toHaveCount(1);
   await expect(rows(first).first()).toContainText('From the owner');
   // Read again, they are as the server has them.

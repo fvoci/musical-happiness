@@ -5,8 +5,8 @@
  * (`WikiStore`, which hands them here). A comment is written, changed over
  * the text it was read at (409: somebody changed it since, and theirs is
  * read again for the caller to show) and deleted by whom the wiki lets, as
- * a board lets of a card's (`canEditComment`, the wiki's role). Nothing
- * brings a deleted comment on a page back yet, so its deletion has no undo.
+ * a board lets of a card's (`canEditComment`, the wiki's role). A comment
+ * deleted here comes back with "Undo", as a card's does.
  */
 import type { DocNode } from '../editor/schema.ts';
 import { isBackendError, isConflict, type Comment, type CommentVersion } from './backend.ts';
@@ -29,7 +29,8 @@ export class PageComments {
   status = $state<LoadStatus>('idle');
   /**
    * The comments deleted while this store was open: a reading answered before
-   * a deletion it crossed does not bring one back (nothing brings one back).
+   * a deletion it crossed does not bring one back; "Undo" does, and takes it
+   * off this list.
    */
   // eslint-disable-next-line svelte/prefer-svelte-reactivity -- consulted, never shown
   readonly #deleted = new Set<string>();
@@ -87,10 +88,15 @@ export class PageComments {
     this.#readings += 1;
     const reading = this.#readings;
     const before = this.#comments.map((comment) => comment.id);
+    // Deleted before the reading began, a comment it finds was brought back since.
+    // eslint-disable-next-line svelte/prefer-svelte-reactivity -- consulted, never shown
+    const deletedBefore = new Set(this.#deleted);
     if (first || this.status === 'failed') this.status = 'loading';
     try {
       const read = await this.#wikis.comments(this.#wikiId, this.#pageId);
       if (this.#closed || reading !== this.#readings) return;
+      for (const comment of read)
+        if (deletedBefore.has(comment.id)) this.#deleted.delete(comment.id);
       const comments = read.filter((comment) => !this.#deleted.has(comment.id));
       void this.#wiki.workspace.learnUsers(authorIds(comments));
       this.#comments = reread(this.#comments, comments, before);
@@ -107,11 +113,20 @@ export class PageComments {
     this.#closed = true;
   }
 
-  /** A comment arrived from the backend: one on this page is taken in. */
+  /**
+   * A comment the wiki heard of: one on this page is taken in, also one that
+   * was deleted, which was brought back since.
+   */
   receive(comment: Comment): void {
-    if (comment.parentId !== this.#pageId || this.#closed || this.#deleted.has(comment.id)) return;
+    if (comment.parentId !== this.#pageId || this.#closed) return;
+    this.#deleted.delete(comment.id);
     void this.#wiki.workspace.learnUsers(authorIds([comment]));
     this.#comments = take(this.#comments, comment);
+  }
+
+  /** The answer to the reader's own write: not of a comment deleted meanwhile. */
+  #answered(comment: Comment): void {
+    if (!this.#deleted.has(comment.id)) this.receive(comment);
   }
 
   /** Blocks were deleted; some may be comments of this page. */
@@ -127,7 +142,7 @@ export class PageComments {
 
   async addComment(body: DocNode): Promise<boolean> {
     try {
-      this.receive(await this.#wikis.createComment(this.#wikiId, this.#pageId, body));
+      this.#answered(await this.#wikis.createComment(this.#wikiId, this.#pageId, body));
       return true;
     } catch (error) {
       this.#wiki.workspace.report('save', error);
@@ -139,7 +154,7 @@ export class PageComments {
   async editComment(commentId: string, body: DocNode, readAt: number): Promise<CommentEdit> {
     try {
       const write = { body, readAt };
-      this.receive(await this.#wikis.patchComment(this.#wikiId, this.#pageId, commentId, write));
+      this.#answered(await this.#wikis.patchComment(this.#wikiId, this.#pageId, commentId, write));
       return 'saved';
     } catch (error) {
       if (!isConflict(error)) {
@@ -151,10 +166,20 @@ export class PageComments {
     }
   }
 
+  /** Deletes a comment, which "Undo" brings back onto the page, as a card's. */
   async deleteComment(commentId: string): Promise<void> {
+    const [wikiId, pageId] = [this.#wikiId, this.#pageId];
     try {
-      await this.#wikis.deleteComment(this.#wikiId, this.#pageId, commentId);
-      this.forget([commentId]);
+      await this.#wiki.workspace.undo.perform(
+        async () => {
+          await this.#wikis.deleteComment(wikiId, pageId, commentId);
+          this.forget([commentId]);
+        },
+        async () => {
+          this.receive(await this.#wikis.restoreComment(wikiId, pageId, commentId));
+        },
+        'deleteComment',
+      );
     } catch (error) {
       this.#wiki.workspace.report('save', error);
     }

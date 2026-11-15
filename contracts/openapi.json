@@ -13529,6 +13529,76 @@
         ]
       }
     },
+    "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/comments/{commentId}/undelete": {
+      "post": {
+        "description": "A comment deleted on its own comes back onto its page, as `undeleteBlock` brings a\ncard's comment back: for its author from the commenter's role up if they deleted it\nthemselves, and for the wiki's admins whoever wrote or deleted it (403, `access denied\nto undelete other users' comments`, and for the author of a comment somebody else\ndeleted, `a comment somebody else deleted is brought back by the board's admins`). A\ncomment that went to the trash with its page comes back with the page\n(`undeletePage`), not on its own; that one, one not in the trash, and one of another\npage are not there (404), nor is any while the page is in the trash. The wiki's\nmembers are told with `UPDATE_BLOCK`.",
+        "operationId": "undeletePageComment",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the wiki: a board of the `kind` `wiki`. A board of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "wikiId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the page: a page of the wiki of the path. 404 for a page of another wiki.",
+            "in": "path",
+            "name": "pageId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the comment: a comment on the page of the path. 404 for a comment on another page, and for a block that is no comment.",
+            "in": "path",
+            "name": "commentId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Block"
+                }
+              }
+            },
+            "description": "The comment as it is again."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Bring a deleted comment on a page back",
+        "tags": [
+          "wikis"
+        ]
+      }
+    },
     "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/comments/{commentId}/versions": {
       "get": {
         "description": "The earlier texts of the comment, as `getCommentVersions` gives a card's comment's:\nevery version but the one it has now, the first one first, with who wrote it and\nwhen. For the members of the wiki, also of a comment in the trash while its page is\nthere: the versions go only when the comment is gone for good. A page in the trash\nis not there (404).",

@@ -22,7 +22,7 @@ use super::wikis::{READ_DENIED, page_with_permission};
 use super::workspace::{Ws, WsWiki};
 use super::{
     ApiResult, BlockAction, created, decode_with_document, json_response, no_content,
-    require_block_permission, require_delete_permission,
+    require_block_permission, require_delete_permission, require_deletion_permission,
 };
 use crate::app::{App, ChangeNotification};
 use crate::error::AppError;
@@ -39,6 +39,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
             handle_delete_page_comment
         ))
         .routes(routes!(handle_get_page_comment_versions))
+        .routes(routes!(handle_undelete_page_comment))
 }
 
 /// What a comment is changed by, and what a comment is refused with that a request does
@@ -315,6 +316,65 @@ async fn handle_delete_page_comment(
         .await?;
     tracing::debug!(wiki_id, page_id, comment_id, user_id, "DeletePageComment");
     Ok(no_content())
+}
+
+/// Bring a deleted comment on a page back
+///
+/// A comment deleted on its own comes back onto its page, as `undeleteBlock` brings a
+/// card's comment back: for its author from the commenter's role up if they deleted it
+/// themselves, and for the wiki's admins whoever wrote or deleted it (403, `access denied
+/// to undelete other users' comments`, and for the author of a comment somebody else
+/// deleted, `a comment somebody else deleted is brought back by the board's admins`). A
+/// comment that went to the trash with its page comes back with the page
+/// (`undeletePage`), not on its own; that one, one not in the trash, and one of another
+/// page are not there (404), nor is any while the page is in the trash. The wiki's
+/// members are told with `UPDATE_BLOCK`.
+#[utoipa::path(
+    post,
+    path = "/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/comments/{commentId}/undelete",
+    operation_id = "undeletePageComment",
+    tag = tag::WIKIS,
+    params(MemberWorkspaceId, WikiId, PageId, CommentId),
+    responses((status = 200, description = "The comment as it is again.", body = Block)),
+)]
+async fn handle_undelete_page_comment(
+    WsWiki(ws): WsWiki,
+    Path((_, wiki_id, page_id, comment_id)): Path<(String, String, String, String)>,
+) -> ApiResult {
+    let user_id = ws.session.user_id.as_str();
+    // Nobody below the commenter's role brings anything back, whatever the comment.
+    let page = page_with_permission(
+        &ws,
+        &wiki_id,
+        &page_id,
+        BoardPermission::CommentBoardCards,
+        CHANGES_DENIED,
+    )
+    .await?;
+    // What the trash has of this page: a comment deleted on its own, at the top of its
+    // deletion.
+    let deletion = ws.app.deletion(&comment_id).await?;
+    let Some((top, below)) = deletion
+        .split_first()
+        .filter(|(top, _)| top.id == comment_id && is_comment_on(top, &page))
+    else {
+        return Err(AppError::not_found("comment"));
+    };
+    let deleted_by = ws.app.deleted_by(&top.id).await?;
+    require_deletion_permission(
+        &ws.app,
+        user_id,
+        top,
+        below,
+        BlockAction::Undelete {
+            deleted_by: &deleted_by,
+        },
+        CHANGES_DENIED,
+    )
+    .await?;
+    let comment = ws.app.undelete_block(&comment_id, user_id).await?;
+    tracing::debug!(wiki_id, page_id, comment_id, user_id, "UndeletePageComment");
+    Ok(json_response(&comment))
 }
 
 /// What a comment on a page said before

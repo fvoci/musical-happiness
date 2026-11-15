@@ -411,3 +411,147 @@ async fn the_comments_of_a_page_in_the_trash_are_not_there() {
     assert!(deleted.is_some(), "the comment is in the trash");
     th.teardown().await;
 }
+
+/// A comment deleted on its own comes back onto its page as a card's does: its author
+/// brings back what they deleted, the wiki's admins anyone's, and nobody brings back on
+/// their own what somebody else deleted. One that went with its page comes back with
+/// it and not alone, and none while the page is in the trash.
+#[tokio::test]
+async fn a_comment_deleted_on_its_own_comes_back_onto_its_page() {
+    let th = Setup::native().start().await.init_basic().await;
+    let member = th.client2.me().await.id;
+    let (wiki, page) = wiki_of(&th.client, "P").await;
+    put_on(&th.client, &wiki, &member, "commenter").await;
+    let comments = comments_of(TEST_WS, &wiki, &page);
+    let undelete = |id: &str| format!("{comments}/{id}/undelete");
+
+    // Their own, deleted and brought back by them.
+    let own = written(&th.client2, &wiki, &page, "mine").await;
+    th.client2
+        .delete(&format!("{comments}/{}", id(&own)))
+        .await
+        .check_no_content();
+    let back = th.client2.post(&undelete(&id(&own)), &json!({})).await;
+    back.check_ok();
+    assert_eq!(back.value()["body"], text("mine"));
+    let listed = th.client2.get(&comments).await.value();
+    assert_eq!(listed.as_array().map(Vec::len), Some(1), "{listed}");
+    // Twice is not there any more to bring back.
+    th.client2
+        .post(&undelete(&id(&own)), &json!({}))
+        .await
+        .check_not_found();
+
+    // Theirs, deleted by the admin: the admin's to bring back, not the author's.
+    th.client
+        .delete(&format!("{comments}/{}", id(&own)))
+        .await
+        .check_no_content();
+    let refused = th.client2.post(&undelete(&id(&own)), &json!({})).await;
+    refused.check_forbidden();
+    assert!(
+        refused.text().contains("somebody else deleted"),
+        "{}",
+        refused.text()
+    );
+    // The admin's, deleted by the admin: not the commenter's.
+    let admins = written(&th.client, &wiki, &page, "the admin's").await;
+    th.client
+        .delete(&format!("{comments}/{}", id(&admins)))
+        .await
+        .check_no_content();
+    th.client2
+        .post(&undelete(&id(&admins)), &json!({}))
+        .await
+        .check_forbidden();
+    th.client
+        .post(&undelete(&id(&own)), &json!({}))
+        .await
+        .check_ok();
+
+    // Under another page, as no comment, and as nothing at all: not there.
+    let (_, other_page) = wiki_of(&th.client, "P").await;
+    let none = th.client.post(&undelete(UNKNOWN_ID), &json!({})).await;
+    none.check_not_found();
+    for named in [
+        format!(
+            "{TEST_WS}/wikis/{wiki}/pages/{other_page}/comments/{}/undelete",
+            id(&admins)
+        ),
+        undelete(&page),
+    ] {
+        let answer = th.client.post(&named, &json!({})).await;
+        assert_eq!(answer.status.as_u16(), 404, "{named}: {}", answer.text());
+    }
+    // A viewer brings nothing back.
+    put_on(&th.client, &wiki, &member, "viewer").await;
+    th.client2
+        .post(&undelete(&id(&admins)), &json!({}))
+        .await
+        .check_forbidden();
+
+    // Gone with its page, it comes back with the page and not on its own.
+    let with_page = written(&th.client, &wiki, &page, "with the page").await;
+    th.client
+        .delete(&format!("{TEST_WS}/wikis/{wiki}/pages/{page}"))
+        .await
+        .check_no_content();
+    th.client
+        .post(&undelete(&id(&admins)), &json!({}))
+        .await
+        .check_not_found();
+    th.client
+        .post(
+            &format!("{TEST_WS}/wikis/{wiki}/pages/{page}/undelete"),
+            &json!({}),
+        )
+        .await
+        .check_ok();
+    th.client
+        .post(&undelete(&id(&with_page)), &json!({}))
+        .await
+        .check_not_found();
+    let listed = th.client.get(&comments).await.value();
+    let listed: Vec<String> = listed.as_array().expect("a list").iter().map(id).collect();
+    assert!(
+        listed.contains(&id(&with_page)),
+        "back with its page: {listed:?}"
+    );
+    assert!(listed.contains(&id(&own)), "{listed:?}");
+    th.teardown().await;
+}
+
+/// A page's comment that names a card is the page's naming of it: the page is among
+/// what names the card, for the wiki's readers.
+#[tokio::test]
+async fn a_comment_that_names_a_card_is_its_pages_naming_of_it() {
+    let th = Setup::native().start().await.init_basic().await;
+    let client = &th.client;
+    let (wiki, page) = wiki_of(client, "P").await;
+    let board = client
+        .post(&format!("{TEST_WS}/boards"), &json!({"type": "P"}))
+        .await;
+    board.check_created();
+    let board = id(&board.value());
+    let card = client
+        .post(
+            &format!("{TEST_WS}/boards/{board}/cards"),
+            &json!({"title": "named"}),
+        )
+        .await;
+    card.check_created();
+    let card = id(&card.value());
+    let naming = json!({"type": "doc", "content": [{"type": "paragraph", "content": [
+        {"type": "reference", "attrs": {"id": card}}
+    ]}]});
+    client
+        .post(
+            &comments_of(TEST_WS, &wiki, &page),
+            &json!({ "body": naming }),
+        )
+        .await
+        .check_created();
+    let naming = client.get(&format!("{TEST_WS}/references/to/{card}")).await;
+    assert!(naming.text().contains(&page), "{}", naming.text());
+    th.teardown().await;
+}

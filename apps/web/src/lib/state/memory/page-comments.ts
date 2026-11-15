@@ -4,7 +4,9 @@
  * comment is a block of the type `comment` below its page, and who may do
  * what to one is what a card's comments let (`comments.ts`), by the role on
  * the wiki. The role is asked first, then the page, then the comment: who
- * may not do it learns nothing of what is there.
+ * may not do it learns nothing of what is there. A comment deleted on its
+ * own comes back onto its page (`restoreComment`) by who may delete it, its
+ * author only if they deleted it.
  *
  * `MemoryPageComments` is what `MemoryWikis` is besides its pages.
  */
@@ -14,7 +16,13 @@ import type { Wikis } from '../wiki-types.ts';
 
 import { memberRole } from './board-access.ts';
 import { checkedBody } from './bodies.ts';
-import { earlierVersions, mayChangeComment, mayDeleteComment, noteChange } from './comments.ts';
+import {
+  earlierVersions,
+  mayChangeComment,
+  mayDeleteComment,
+  mayRemoveComments,
+  noteChange,
+} from './comments.ts';
 import { fail } from './refuse.ts';
 import { commentOf, scramble } from './shapes.ts';
 import { deletion } from './trash.ts';
@@ -141,6 +149,26 @@ export function deleteComment(on: OnPage, commentId: string): void {
   });
 }
 
+/** A comment deleted on its own, brought back onto its page, which is to be there. */
+export function restoreComment(on: OnPage, commentId: string): Comment {
+  const role = commenterRole(on, CHANGES_DENIED);
+  pageOn(on);
+  const deleted = on.world.deletedBlocks.get(commentId);
+  const [comment] = deleted?.blocks ?? [];
+  if (deleted?.boardId !== on.wikiId || comment?.type !== 'comment') fail(404, 'no such comment');
+  if (comment.id !== commentId || comment.parentId !== on.pageId) fail(404, 'no such comment');
+  if (!mayRemoveComments(role, on.userId, deleted)) {
+    fail(403, "access denied to undelete other users' comments");
+  }
+  on.world.deletedBlocks.delete(commentId);
+  // As the server: whoever brings it back is the last to change it, now.
+  comment.updateAt = on.world.now();
+  comment.modifiedBy = on.userId;
+  on.world.blocks.set(comment.id, comment);
+  tell(on, comment);
+  return commentOf(comment);
+}
+
 /** Also of a comment deleted on its own, whose page is there: as the server keeps them. */
 export function versionsOf(on: OnPage, commentId: string): CommentVersion[] {
   memberRole(on.world, on.userId, on.wikiId, 'wiki');
@@ -182,6 +210,11 @@ export abstract class MemoryPageComments {
   async deleteComment(wikiId: string, pageId: string, commentId: string): Promise<void> {
     await this.enter('deleteComment');
     deleteComment(this.on(wikiId, pageId), commentId);
+  }
+
+  async restoreComment(wikiId: string, pageId: string, commentId: string): Promise<Comment> {
+    await this.enter('restoreComment');
+    return restoreComment(this.on(wikiId, pageId), commentId);
   }
 
   async commentVersions(

@@ -119,11 +119,16 @@ export interface Wikis {
     write: BodyWrite,
   ): Promise<Comment>;
   /**
-   * Moves a comment to the trash, by whom may change it. Nothing brings one
-   * back yet; a wiki brought back from the trash has the comments that were
-   * on its pages.
+   * Moves a comment to the trash, by whom may change it. A page brought back
+   * from the trash has the comments that went with it.
    */
   deleteComment(wikiId: string, pageId: string, commentId: string): Promise<void>;
+  /**
+   * Brings back a comment deleted on its own, onto its page: its author's if
+   * they deleted it, anyone's for the wiki's admins (403 otherwise); one that
+   * went with its page, or is not in the trash, is 404. Its listeners are told.
+   */
+  restoreComment(wikiId: string, pageId: string, commentId: string): Promise<Comment>;
   /** What a comment said before each change, the first text first. For the wiki's members. */
   commentVersions(wikiId: string, pageId: string, commentId: string): Promise<CommentVersion[]>;
   /**

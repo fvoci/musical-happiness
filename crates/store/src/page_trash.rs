@@ -20,7 +20,8 @@ use crate::{Store, StoreError, boards};
 /// below it, the page asked for first; and the pages numbered anew to leave it room.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PageRestore {
-    /// The pages brought back, as they are stored.
+    /// The pages brought back, as they are stored, and the comments on them that went
+    /// with them.
     pub pages: Vec<Block>,
     /// The pages numbered anew, as they are stored.
     pub renumbered: Vec<Block>,
@@ -41,17 +42,19 @@ impl Store {
         paging: Option<Paging>,
     ) -> Result<Vec<DeletedPage>, StoreError> {
         self.with_conn(async |scope| {
-            // The type is in the stored block.
-            let is_page = match scope.dialect() {
-                Dialect::Sqlite => "json_extract(top.block, '$.type') = 'page'",
-                Dialect::Postgres => "top.block->>'type' = 'page'",
+            // The type is in the stored block. The comments on the pages went with them
+            // and come back with them, and are no pages below.
+            let is_page = |row: &str| match scope.dialect() {
+                Dialect::Sqlite => format!("json_extract({row}.block, '$.type') = 'page'"),
+                Dialect::Postgres => format!("{row}.block->>'type' = 'page'"),
             };
-            let mut sql = scope.sql(
+            let (is_page, went_page) = (is_page("top"), is_page("went"));
+            let mut sql = scope.sql(&format!(
                 "SELECT top.block, top.deleted_by, top.deleted_at, \
                  (SELECT COUNT(*) FROM deleted_blocks went \
-                 WHERE went.deletion_id = top.deletion_id) \
-                 FROM deleted_blocks top WHERE top.board_id = ",
-            );
+                 WHERE went.deletion_id = top.deletion_id AND {went_page}) \
+                 FROM deleted_blocks top WHERE top.board_id = "
+            ));
             sql.bind(Id(wiki_id)).push(&format!(
                 " AND {is_page} AND NOT EXISTS (SELECT 1 FROM deleted_blocks above \
                  WHERE above.deletion_id = top.deletion_id AND above.id = top.parent_id) \

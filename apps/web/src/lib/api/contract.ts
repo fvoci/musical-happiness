@@ -3490,6 +3490,34 @@ export interface paths {
         patch: operations["patchPageComment"];
         trace?: never;
     };
+    "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/comments/{commentId}/undelete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Bring a deleted comment on a page back
+         * @description A comment deleted on its own comes back onto its page, as `undeleteBlock` brings a
+         *     card's comment back: for its author from the commenter's role up if they deleted it
+         *     themselves, and for the wiki's admins whoever wrote or deleted it (403, `access denied
+         *     to undelete other users' comments`, and for the author of a comment somebody else
+         *     deleted, `a comment somebody else deleted is brought back by the board's admins`). A
+         *     comment that went to the trash with its page comes back with the page
+         *     (`undeletePage`), not on its own; that one, one not in the trash, and one of another
+         *     page are not there (404), nor is any while the page is in the trash. The wiki's
+         *     members are told with `UPDATE_BLOCK`.
+         */
+        post: operations["undeletePageComment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/comments/{commentId}/versions": {
         parameters: {
             query?: never;
@@ -11569,6 +11597,44 @@ export interface operations {
         };
         responses: {
             /** @description The comment as it is now. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Block"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    undeletePageComment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the wiki: a board of the `kind` `wiki`. A board of another kind is 404, as an identifier of nothing is. */
+                wikiId: string;
+                /** @description The identifier of the page: a page of the wiki of the path. 404 for a page of another wiki. */
+                pageId: string;
+                /** @description The identifier of the comment: a comment on the page of the path. 404 for a comment on another page, and for a block that is no comment. */
+                commentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The comment as it is again. */
             200: {
                 headers: {
                     [name: string]: unknown;

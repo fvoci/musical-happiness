@@ -193,7 +193,8 @@ async fn page_versions(case: &mut Case, wiki: &str, page: &str) {
         .await;
 }
 
-/// A comment on the page: written, listed, changed, its versions read, and deleted.
+/// A comment on the page: written, listed, changed, its versions read, deleted and
+/// brought back.
 async fn page_comments(case: &mut Case, wiki: &str, page: &str) {
     let of_page = &[("wikiId", wiki), ("pageId", page)];
     let said = |text: String| {
@@ -217,6 +218,7 @@ async fn page_comments(case: &mut Case, wiki: &str, page: &str) {
     case.run("getPageCommentVersions", of_comment, json!({}))
         .await;
     case.run("deletePageComment", of_comment, json!({})).await;
+    case.run("undeletePageComment", of_comment, json!({})).await;
 }
 
 async fn cards(case: &mut Case, board: &str) -> String {

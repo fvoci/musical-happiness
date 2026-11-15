@@ -329,8 +329,6 @@
   "page_version_no_body": "이때는 본문이 없었습니다.",
   "page_version_is_current": "지금 페이지의 본문이 이 판입니다.",
   "page_version_restore_description": "모두에게 페이지의 본문이 {when}의 판으로 바뀝니다. 지금 본문도 판으로 남아서 다시 되돌릴 수 있습니다.",
-  "page_comment_delete_title": "이 댓글을 삭제할까요?",
-  "page_comment_delete_description": "삭제한 댓글은 되돌릴 수 없습니다.",
   "wiki_page_more": "{title} 페이지 더 보기",
   "property_type_relation": "카드 관계",
   "property_relation_search": "카드 찾기",

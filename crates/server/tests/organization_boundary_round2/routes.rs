@@ -246,6 +246,11 @@ pub(super) const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
         "/wikis/{wikiId}/pages/{pageId}/undelete",
         "undeletePage",
     ),
+    (
+        "POST",
+        "/wikis/{wikiId}/pages/{pageId}/comments/{commentId}/undelete",
+        "undeletePageComment",
+    ),
 ];
 
 /// What a guest of the workspace is told by an operation of `REACHED_BY_ITEM` about
@@ -280,6 +285,7 @@ const REACHED_BY_ITEM: &[&str] = &[
     "duplicatePage",
     "getDeletedPages",
     "undeletePage",
+    "undeletePageComment",
     "createBoardsAndBlocks",
     "deleteBoardsAndBlocks",
     "patchBoardsAndBlocks",

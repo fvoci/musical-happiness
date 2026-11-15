@@ -130,12 +130,52 @@ describe('the comments on a page, in memory', () => {
     await made.other.wiki.deleteComment(...at, theirs.id);
     await settle();
     expect(comments.comments).toEqual([]);
-    // A reply that comes after its deletion does not bring a comment back.
-    comments.receive({ ...theirs, updateAt: theirs.updateAt + 10 });
-    expect(comments.comments).toEqual([]);
+    // Brought back by them, it is back here too.
+    await made.other.wiki.restoreComment(...at, theirs.id);
+    await settle();
+    expect(comments.comments.map((comment) => comment.id)).toEqual([theirs.id]);
+    await made.other.wiki.deleteComment(...at, theirs.id);
+    await settle();
     expect(await comments.addComment(text('mine'))).toBe(true);
     expect(comments.comments.map((comment) => comment.createdBy)).toEqual([made.backend.userId]);
+    // Deleted here, "Undo" brings it back, and "Redo" takes it away again.
+    const [mine] = comments.comments;
+    if (!mine) throw new Error('no comment of mine');
+    await comments.deleteComment(mine.id);
+    expect(comments.comments).toEqual([]);
+    await made.workspace.undo.undo();
+    await settle();
+    expect(comments.comments.map((comment) => comment.id)).toEqual([mine.id]);
+    await made.workspace.undo.redo();
+    await settle();
+    expect(comments.comments).toEqual([]);
     store.close();
+  });
+
+  it('come back onto their page by who may delete them, as a card’s', async () => {
+    const made = await aPage('commenter');
+    const [mine, theirs] = [made.backend.wiki, made.other.wiki];
+    const at = [made.wikiId, made.pageId] as const;
+    const own = await theirs.createComment(...at, text('theirs'));
+    await theirs.deleteComment(...at, own.id);
+    expect((await theirs.restoreComment(...at, own.id)).id).toBe(own.id);
+    expect(await rejection(theirs.restoreComment(...at, own.id))).toBe(404);
+    // Deleted by the admin: not the author's to bring back; the admin's own neither.
+    await mine.deleteComment(...at, own.id);
+    expect(await rejection(theirs.restoreComment(...at, own.id))).toBe(403);
+    const admins = await mine.createComment(...at, text('the admin’s'));
+    await mine.deleteComment(...at, admins.id);
+    expect(await rejection(theirs.restoreComment(...at, admins.id))).toBe(403);
+    await mine.restoreComment(...at, own.id);
+    // Under another page, not there; gone with its page, it comes back with the page only.
+    const other = await mine.createPage(made.wikiId, { title: 'Other' });
+    expect(await rejection(mine.restoreComment(made.wikiId, other.id, admins.id))).toBe(404);
+    await mine.deletePage(made.wikiId, made.pageId);
+    expect(await rejection(mine.restoreComment(...at, admins.id))).toBe(404);
+    const [listed] = await mine.deletedPages(made.wikiId);
+    expect(listed?.below).toBe(0);
+    await mine.undeletePage(made.wikiId, made.pageId);
+    expect((await mine.comments(...at)).map((comment) => comment.id)).toEqual([own.id]);
   });
 
   it('are the commenter’s own to change, as the wiki says', async () => {

@@ -220,14 +220,13 @@
         references={bodyReferences(wiki, page.pageId)}
       />
       <!-- WikiScreen draws each page anew: the list is read for the page it is drawn for. -->
-      <CardBacklinks {workspace} blockId={page.pageId} of="page" />
+      <CardBacklinks {workspace} blockId={page.pageId} of="page" heading="h2" />
       {@const comments = page.comments}
       {#if page.status === 'ready' && comments.status === 'ready'}
         <CardComments
           board={comments}
           card={comments}
           readVersions={(commentId: string) => comments.commentVersions(commentId)}
-          confirmDelete
           heading="h2"
         />
         {#if comments.canComment}

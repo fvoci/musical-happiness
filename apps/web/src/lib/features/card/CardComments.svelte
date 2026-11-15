@@ -13,8 +13,8 @@
 
   A wiki's page has comments of the same kind: they are shown by this too,
   with the page's comments (`PageComments`) in place of both the board and
-  the card. Nothing brings a page's comment back, so deleting one asks first
-  (`confirmDelete`), and the heading is one level under the page's title.
+  the card; "Undo" brings a deleted one back there too, and the heading is
+  one level under the page's title.
 -->
 <script lang="ts">
   import HistoryIcon from '@lucide/svelte/icons/history';
@@ -23,7 +23,6 @@
   import { onMount, tick } from 'svelte';
 
   import Avatar from '$lib/components/avatar/Avatar.svelte';
-  import ConfirmDialog from '$lib/components/confirm/ConfirmDialog.svelte';
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import { isComposing } from '$lib/components/keys.ts';
   import BodyView from '$lib/editor/BodyView.svelte';
@@ -47,17 +46,11 @@
     card: Pick<CardStore, 'comments' | 'comment' | 'editComment' | 'deleteComment'>;
     /** What a comment said before (`CommentHistory`). */
     readVersions: (commentId: string) => Promise<CommentVersion[]>;
-    /** Ask before a comment is deleted: where no undo brings it back. */
-    confirmDelete?: boolean;
     /** The level of the heading: under a card's title, or under a page's. */
     heading?: 'h2' | 'h3';
   }
 
-  let { board, card, readVersions, confirmDelete = false, heading = 'h3' }: Props = $props();
-
-  /** The comment the reader asked to delete, while they are asked whether to. */
-  let deleting = $state<string | undefined>();
-  let deleteOpen = $state(false);
+  let { board, card, readVersions, heading = 'h3' }: Props = $props();
 
   /** Deletes the comment; its field and its history, if open, go with it. */
   function remove(commentId: string): void {
@@ -319,13 +312,8 @@
             })}
             class="shrink-0 text-muted-foreground"
             onclick={() => {
-              if (confirmDelete) {
-                deleting = comment.id;
-                deleteOpen = true;
-              } else {
-                // On a card an undo brings the comment back, not the edit.
-                remove(comment.id);
-              }
+              // An undo brings the comment back, not the edit.
+              remove(comment.id);
             }}
           >
             <Trash2Icon aria-hidden="true" />
@@ -335,18 +323,3 @@
     {/each}
   </ol>
 </section>
-{#if confirmDelete}
-  <ConfirmDialog
-    bind:open={deleteOpen}
-    title={m.page_comment_delete_title()}
-    description={m.page_comment_delete_description()}
-    confirmLabel={m.shared_delete()}
-    destructive
-    onConfirm={() => {
-      // Gone meanwhile (somebody else deleted it): nothing is left to delete.
-      const asked = deleting;
-      deleting = undefined;
-      if (asked && card.comment(asked)) remove(asked);
-    }}
-  />
-{/if}

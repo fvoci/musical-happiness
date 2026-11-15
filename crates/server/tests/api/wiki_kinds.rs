@@ -98,6 +98,7 @@ const REACHED: &[(&str, Reaches)] = &[
     ("patchPageComment", Reaches::Wikis),
     ("deletePageComment", Reaches::Wikis),
     ("getPageCommentVersions", Reaches::Wikis),
+    ("undeletePageComment", Reaches::Wikis),
     ("getPageBodyVersions", Reaches::Wikis),
     ("getPageBodyVersion", Reaches::Wikis),
     ("restorePageBodyVersion", Reaches::Wikis),
@@ -327,6 +328,13 @@ impl World {
                     things.container, things.block
                 );
                 self.ts.client.delete(&page).await
+            }
+            "undeletePageComment" => {
+                let comment = format!(
+                    "{ROOT_WS}/wikis/{}/pages/{}/comments/{}",
+                    things.container, things.block, things.comment
+                );
+                self.ts.client.delete(&comment).await
             }
             _ => return,
         };

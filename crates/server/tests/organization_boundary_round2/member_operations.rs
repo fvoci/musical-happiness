@@ -39,7 +39,7 @@ struct Named {
 /// too, for what the sweep names: one board and one card for every operation. Any
 /// other 404 fails the test, as an answer of the second organization equal to a
 /// wrong first one would hide a lookup in another organization.
-const NOT_THERE_FOR_A_MEMBER: [&str; 29] = [
+const NOT_THERE_FOR_A_MEMBER: [&str; 30] = [
     // The organization's own routes are its administrators'.
     "createOrgWorkspace",
     "deleteOidcFormerProvider",
@@ -64,10 +64,11 @@ const NOT_THERE_FOR_A_MEMBER: [&str; 29] = [
     "revokeInvitation",
     // The card is no comment, and has no versions of one.
     "getCommentVersions",
-    // The board is not in the trash, nor the card, nor the wiki's page.
+    // The board is not in the trash, nor the card, nor the wiki's page, nor its comment.
     "undeleteBoard",
     "undeleteBlock",
     "undeletePage",
+    "undeletePageComment",
     // The member's subscription is to the card, by its own identifier.
     "deleteSubscription",
     // The upload asked of is done with by then, or was never begun in parts.

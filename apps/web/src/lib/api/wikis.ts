@@ -282,6 +282,16 @@ export class ServerWikis implements Wikis {
     );
   }
 
+  async restoreComment(wikiId: string, pageId: string, commentId: string): Promise<Comment> {
+    return commentOf(
+      await this.#request<Schemas['Block']>(
+        '/wikis/{wikiId}/pages/{pageId}/comments/{commentId}/undelete',
+        { wikiId, pageId, commentId },
+        { method: 'POST' },
+      ),
+    );
+  }
+
   async commentVersions(
     wikiId: string,
     pageId: string,
