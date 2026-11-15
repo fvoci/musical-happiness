@@ -1,12 +1,18 @@
-//! Twenty connections in one room: how long an update takes to be answered and to
-//! reach everyone, and what the server and its worker hold meanwhile.
+//! Twenty connections in one room, in turn and all writing at once for a while: how
+//! long an update takes to be answered and to reach everyone, and what the server and
+//! its worker hold meanwhile.
 
+use std::collections::{HashMap, VecDeque};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use serde_json::json;
+use tokio::sync::Barrier;
 
 use crate::common::{Setup, TEST_WORKSPACE_ID};
-use crate::rooms::{Incoming, PATIENCE, Peer, UPDATE, card_holds, paragraphs, table};
+use crate::rooms::{
+    Incoming, PATIENCE, Peer, UPDATE, card_holds, give, paragraphs, table, take_varuint,
+};
 
 /// The resident memory of a process, in KiB, as `/proc` has it; `None` where there
 /// is no `/proc`.
@@ -132,6 +138,241 @@ async fn twenty_connections_edit_one_body() {
         worker
             .and_then(resident_kib)
             .map_or_else(|| "?".to_owned(), |kib| kib.to_string()),
+    ));
+    drop(peers);
+    card_holds(&th.client, &t.card_id, &body).await;
+    th.teardown().await;
+}
+
+/// How many users the twenty connections of the room under load are: two tabs each,
+/// within `collab_connections_per_user` as it is by default.
+const USERS: usize = 10;
+/// How long everyone writes at once.
+const WRITING: Duration = Duration::from_secs(10);
+/// How often each connection writes: someone typing steadily, as the web app gathers
+/// what is typed into frames (at most 33 a second). Twenty of them are forty updates a
+/// second for the room, which takes them one after another: a debug build on SQLite
+/// takes some sixty a second on a quiet machine of four cores, and eight a second each
+/// (160 for the room) falls behind there.
+const EVERY: Duration = Duration::from_millis(500);
+
+/// The client of the editor whose update `update` is: the first client it holds
+/// items of (an update of one paragraph by one editor holds that one).
+fn writer_of(update: &[u8]) -> u64 {
+    let mut bytes = update;
+    let _clients = take_varuint(&mut bytes);
+    let _structs = take_varuint(&mut bytes);
+    take_varuint(&mut bytes)
+}
+
+/// When the writers of the room under load sent each of their updates, by writer and
+/// in order.
+#[derive(Default)]
+struct Sent(Mutex<HashMap<u64, Vec<Instant>>>);
+
+impl Sent {
+    fn put(&self, writer: u64, at: Instant) {
+        let mut sent = self.0.lock().expect("lock poisoned");
+        sent.entry(writer).or_default().push(at);
+    }
+
+    /// When the `nth` update of `writer` was sent.
+    fn when(&self, writer: u64, nth: usize) -> Option<Instant> {
+        let sent = self.0.lock().expect("lock poisoned");
+        sent.get(&writer)?.get(nth).copied()
+    }
+
+    fn counts(&self) -> HashMap<u64, usize> {
+        let sent = self.0.lock().expect("lock poisoned");
+        sent.iter()
+            .map(|(writer, at)| (*writer, at.len()))
+            .collect()
+    }
+}
+
+/// What one connection of the room under load saw: how long each update of the others
+/// took to reach it, how long each of its own took to be answered, and how many of
+/// each writer's it took.
+#[derive(Default)]
+struct Seen {
+    reached: Vec<Duration>,
+    answered: Vec<Duration>,
+    taken: HashMap<u64, usize>,
+    /// When its updates that are not answered yet were sent, in order.
+    waiting: VecDeque<Instant>,
+    /// When the last update of the others came.
+    last: Option<Instant>,
+}
+
+impl Seen {
+    /// Takes what came into the peer's document, or as the answer to its update.
+    fn take(&mut self, peer: &mut Peer, sent: &Sent, incoming: Incoming) {
+        match incoming {
+            Incoming::Frame(frame) => {
+                assert_eq!((frame.doc, frame.sync), (peer.doc, UPDATE), "{frame:?}");
+                let writer = writer_of(&frame.payload);
+                let nth = self.taken.entry(writer).or_default();
+                if let Some(at) = sent.when(writer, *nth) {
+                    self.reached.push(at.elapsed());
+                }
+                *nth += 1;
+                self.last = Some(Instant::now());
+                peer.editor().receive(&frame.payload);
+            }
+            Incoming::Text(message) if message["action"] == json!("DOC_ACK") => {
+                let at = self.waiting.pop_front().expect("an update is waiting");
+                self.answered.push(at.elapsed());
+            }
+            Incoming::Nothing => {}
+            other => panic!(
+                "{}: only updates and answers come: {other:?}",
+                peer.client()
+            ),
+        }
+    }
+
+    /// Whether it took every update the others sent, and was answered all of its own.
+    fn has_all(&self, me: u64, sent: &HashMap<u64, usize>) -> bool {
+        self.waiting.is_empty()
+            && sent
+                .iter()
+                .all(|(writer, count)| *writer == me || self.taken.get(writer) == Some(count))
+    }
+}
+
+/// One connection of the room under load: writes every [`EVERY`] until `stop`, taking
+/// in what comes meanwhile, and then reads until it holds all that the others sent.
+async fn write_and_read(
+    mut peer: Peer,
+    sent: Arc<Sent>,
+    stop: Instant,
+    stopped: Arc<Barrier>,
+) -> (Peer, Seen) {
+    let me = peer.client();
+    let mut seen = Seen::default();
+    let mut next = Instant::now();
+    let mut n = 0;
+    while Instant::now() < stop {
+        if Instant::now() >= next {
+            let at = Instant::now();
+            sent.put(me, at);
+            seen.waiting.push_back(at);
+            peer.write(&format!("{me}.{n}")).await;
+            n += 1;
+            next += EVERY;
+        }
+        let wait = next
+            .saturating_duration_since(Instant::now())
+            .max(Duration::from_millis(1));
+        let incoming = peer.incoming(wait).await;
+        seen.take(&mut peer, &sent, incoming);
+    }
+    // Everyone stopped writing: what each sent is all there is to have.
+    stopped.wait().await;
+    let all = sent.counts();
+    let deadline = Instant::now() + PATIENCE * 6;
+    while !seen.has_all(me, &all) {
+        assert!(
+            Instant::now() < deadline,
+            "{me} holds all that was sent: {:?} of {all:?}; {} answers wait; the last update \
+             came {:?} after the writing stopped",
+            seen.taken,
+            seen.waiting.len(),
+            seen.last.map(|last| last.saturating_duration_since(stop)),
+        );
+        let incoming = peer.incoming(PATIENCE).await;
+        seen.take(&mut peer, &sent, incoming);
+    }
+    (peer, seen)
+}
+
+/// Twenty connections of ten users, two tabs each, as the server is configured by
+/// default, write into the room of one card all at once for ten seconds, twice a
+/// second each: every one holds the same document in the end, and so does the card.
+/// Prints how long an update took to reach each of the others and to be answered, how
+/// many bytes the worker holds of the document, and the memory of the worker and of
+/// the server's process (which is this test's, with its twenty editors).
+#[tokio::test]
+async fn twenty_connections_write_at_once_for_a_while() {
+    let th = Setup::native().start().await.init_basic().await;
+    let t = table(&th, &paragraphs(&["first"])).await;
+    let mut clients = vec![th.client.clone(), th.client2.clone()];
+    for user in 2..USERS {
+        clients.push(th.add_user(&format!("writer{user}")).await);
+    }
+    for client in &clients[1..] {
+        give(&th, &t.board_id, &client.me().await.id, "editor").await;
+    }
+    let before = resident_kib(std::process::id());
+    let mut peers = Vec::new();
+    for (n, client) in clients
+        .iter()
+        .flat_map(|client| [client, client])
+        .enumerate()
+    {
+        let mut peer = Peer::connect(client, 300 + u64::try_from(n).expect("few")).await;
+        peer.joined(TEST_WORKSPACE_ID, &t.card_id).await;
+        peers.push(peer);
+    }
+    let joined = resident_kib(std::process::id());
+
+    let sent = Arc::new(Sent::default());
+    let stopped = Arc::new(Barrier::new(peers.len()));
+    let began = Instant::now();
+    let stop = began + WRITING;
+    let writing: Vec<_> = peers
+        .into_iter()
+        .map(|peer| {
+            tokio::spawn(write_and_read(
+                peer,
+                Arc::clone(&sent),
+                stop,
+                Arc::clone(&stopped),
+            ))
+        })
+        .collect();
+    let (mut reached, mut answered, mut peers) = (Vec::new(), Vec::new(), Vec::new());
+    let mut last = began;
+    for done in writing {
+        let (peer, seen) = done
+            .await
+            .expect("a connection of the room writes and reads");
+        reached.extend(seen.reached);
+        answered.extend(seen.answered);
+        last = last.max(seen.last.unwrap_or(began));
+        peers.push(peer);
+    }
+    let took = last - began;
+    let held = th.app.collab().held_state_bytes(&th.app, &t.card_id).await;
+    let after = resident_kib(std::process::id());
+    let worker = th.app.collab().worker_pids().await[0];
+
+    let written: usize = sent.counts().values().sum();
+    let body = peers[0].body().expect("a body");
+    assert_eq!(peers[0].lines().len(), 1 + written, "every update is in it");
+    for peer in &peers {
+        assert_eq!(peer.body().as_ref(), Some(&body), "all hold the same");
+    }
+    let kib = |kib: Option<u64>| kib.map_or_else(|| "?".to_owned(), |kib| kib.to_string());
+    report(&format!(
+        "{} connections of {USERS} users in one room, all writing every {} ms for {} s: \
+         {written} updates, everywhere {} ms after the first was sent; at each of the \
+         other {} {}; answered (DOC_ACK) {}; the \
+         worker holds {} bytes of the document's state and its resident memory is {} \
+         KiB; the server's process (with the test and its editors) {} KiB before the \
+         connections, {} KiB with them in the room, {} KiB after the writing",
+        peers.len(),
+        EVERY.as_millis(),
+        WRITING.as_secs(),
+        took.as_millis(),
+        peers.len() - 1,
+        spread(&mut reached),
+        spread(&mut answered),
+        held.map_or_else(|| "?".to_owned(), |bytes| bytes.to_string()),
+        kib(worker.and_then(resident_kib)),
+        kib(before),
+        kib(joined),
+        kib(after),
     ));
     drop(peers);
     card_holds(&th.client, &t.card_id, &body).await;
