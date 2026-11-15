@@ -564,6 +564,7 @@ const ORDERS: &[(&str, &str)] = &[
     ("resolveReferences", "in the order they were first named"),
     ("searchReferences", "the one changed last first"),
     ("searchWorkspaceBoards", "Oldest first"),
+    ("searchWorkspaceContent", "The best match first"),
 ];
 
 /// Whether what an operation answers is a list, or boards with their blocks.

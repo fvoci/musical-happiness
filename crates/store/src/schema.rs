@@ -37,7 +37,7 @@ struct Step {
 }
 
 /// Every migration, oldest first. Applied ones are never edited: add a new one.
-const STEPS: [Step; 36] = [
+const STEPS: [Step; 37] = [
     Step {
         version: 1,
         description: "baseline",
@@ -251,6 +251,12 @@ const STEPS: [Step; 36] = [
         postgres: include_str!("../schema/postgres/0037_body_links.sql"),
     },
     Step {
+        version: 38,
+        description: "search outbox",
+        sqlite: include_str!("../schema/sqlite/0038_search_outbox.sql"),
+        postgres: include_str!("../schema/postgres/0038_search_outbox.sql"),
+    },
+    Step {
         version: 39,
         description: "signups",
         sqlite: include_str!("../schema/sqlite/0039_signups.sql"),
@@ -275,12 +281,13 @@ pub(crate) const ORG_MANAGEMENT_VERSION: i64 = 23;
 /// The tables that are no organization's: the accounts and what is true of the
 /// installation. Every other table of the schema is one of [`ORG_TABLES`].
 #[cfg(any(test, feature = "test-util"))]
-pub(crate) const GLOBAL_TABLES: [&str; 9] = [
+pub(crate) const GLOBAL_TABLES: [&str; 10] = [
     "_sqlx_migrations",
     "data_steps",
     "instance",
     "preferences",
     "password_resets",
+    "search_index_state",
     "sessions",
     "signups",
     "user_identities",
@@ -292,7 +299,7 @@ pub(crate) const GLOBAL_TABLES: [&str; 9] = [
 /// policy `org_wall`. A test of the store reads the catalog to see that every table of
 /// the schema is in this list or in [`GLOBAL_TABLES`], and that it is so.
 #[cfg(any(test, feature = "test-util"))]
-pub(crate) const ORG_TABLES: [&str; 34] = [
+pub(crate) const ORG_TABLES: [&str; 35] = [
     "audit_log",
     "blocks",
     "board_members",
@@ -319,6 +326,7 @@ pub(crate) const ORG_TABLES: [&str; 34] = [
     "oidc_providers",
     "organization_members",
     "organizations",
+    "search_outbox",
     "sharing",
     "subscriptions",
     "team_members",

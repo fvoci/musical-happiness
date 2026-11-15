@@ -6,6 +6,9 @@ mod common;
 #[path = "api/fake_oidc.rs"]
 mod fake_oidc;
 
+#[path = "api/fake_search.rs"]
+mod fake_search;
+
 #[path = "api/fake_smtp.rs"]
 mod fake_smtp;
 

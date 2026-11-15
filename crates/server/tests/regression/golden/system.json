@@ -57,6 +57,7 @@
       "featureFlags": {},
       "maxFileSize": 104857600,
       "maxImportSize": 268435456,
+      "searchEnabled": false,
       "teammateNameDisplay": "username"
     }
   },
@@ -70,6 +71,7 @@
       "featureFlags": {},
       "maxFileSize": 104857600,
       "maxImportSize": 268435456,
+      "searchEnabled": false,
       "teammateNameDisplay": "username"
     }
   },

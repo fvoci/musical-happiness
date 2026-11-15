@@ -54,6 +54,8 @@ mod page_places;
 mod pages;
 mod password_reset;
 mod schema;
+mod search_docs;
+mod search_outbox;
 mod server_lock;
 mod sessions;
 mod sharing;
@@ -104,6 +106,8 @@ pub use oidc_identities::{LinkRefusal, Linked, LinkingSession, TiedIdentity, Unl
 pub use oidc_pending::{Applied, Binding, PendingProvider, PendingSettings, Trial, Tried};
 pub use org_admin::{Joining, OrgRoleChange, WorkspaceTrashing};
 pub use password_reset::PASSWORD_RESET_LIFETIME_MILLIS;
+pub use search_docs::SearchDocument;
+pub use search_outbox::{SearchChange, SearchIndexMark, SearchOutboxCounts, SearchTarget};
 pub use server_lock::ServerLock;
 pub use sharing::SharingChange;
 pub use signups::{
@@ -232,6 +236,8 @@ struct Inner {
     sqlite_writers: tokio::sync::Mutex<()>,
     /// See [`Store::set_comment_versions_kept`].
     comment_versions_kept: std::sync::atomic::AtomicUsize,
+    /// Whether changes are noted for the search server ([`Store::keep_search_outbox`]).
+    search_outbox: std::sync::atomic::AtomicBool,
     /// See [`Store::set_body_versions_kept`].
     body_versions_kept: std::sync::atomic::AtomicU32,
     /// Who is told about the calls; see [`Store::observe`].
@@ -344,6 +350,7 @@ impl Store {
                     usize::try_from(comment_versions::DEFAULT_COMMENT_VERSIONS_KEPT)
                         .unwrap_or(usize::MAX),
                 ),
+                search_outbox: std::sync::atomic::AtomicBool::new(false),
                 body_versions_kept: std::sync::atomic::AtomicU32::new(
                     body_versions::DEFAULT_BODY_VERSIONS_KEPT,
                 ),
@@ -562,6 +569,7 @@ impl Store {
                     Err(error) => return (Err(error.into()), Access::Read),
                 };
                 let mut scope = Scope::new(ConnRef::Sqlite(&mut conn), self.tenant, kept)
+                    .noting_for_search(&self.inner.search_outbox)
                     .reporting_writes_to(watch.map(Watch::writes))
                     .tracking_visibility(visibility);
                 let result = operation(&mut scope).await;
@@ -578,6 +586,7 @@ impl Store {
                     Err(error) => return (Err(error.into()), Access::Read),
                 };
                 let mut scope = Scope::new(ConnRef::Postgres(&mut tx), self.tenant, kept)
+                    .noting_for_search(&self.inner.search_outbox)
                     .reporting_writes_to(watch.map(Watch::writes))
                     .tracking_visibility(visibility);
                 let result = operation(&mut scope).await;
@@ -639,6 +648,7 @@ impl Store {
                 let mut tx = conn.begin_with("BEGIN IMMEDIATE").await?;
                 let result = operation(
                     &mut Scope::new(ConnRef::Sqlite(&mut tx), self.tenant, kept)
+                        .noting_for_search(&self.inner.search_outbox)
                         .tracking_visibility(visibility),
                 )
                 .await;
@@ -649,6 +659,7 @@ impl Store {
                 let mut tx = conn.begin_with(self.tenant.begin_on_postgres()).await?;
                 let result = operation(
                     &mut Scope::new(ConnRef::Postgres(&mut tx), self.tenant, kept)
+                        .noting_for_search(&self.inner.search_outbox)
                         .tracking_visibility(visibility),
                 )
                 .await;

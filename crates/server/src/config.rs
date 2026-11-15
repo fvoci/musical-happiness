@@ -25,6 +25,7 @@ mod env;
 mod keys;
 pub mod mail;
 mod scrapes;
+pub mod search;
 mod secret_key;
 pub mod smtp;
 mod upload_limits;
@@ -290,6 +291,9 @@ pub struct Configuration {
     /// The way mail leaves (`mail_transport`) and the keys of the providers' APIs.
     #[serde(flatten)]
     pub mail: mail::MailSettings,
+    /// The keys `search_*` (the search server of the bodies).
+    #[serde(flatten)]
+    pub search: search::SearchSettings,
     /// Whether to skip importing the built-in templates at startup. Not a configuration
     /// file key; the test harness sets it so a server that does not need templates
     /// starts quickly, as the original's `SkipTemplateInit` does.
@@ -359,6 +363,7 @@ impl Default for Configuration {
             collab: collab::CollabSettings::default(),
             smtp: smtp::SmtpSettings::default(),
             mail: mail::MailSettings::default(),
+            search: search::SearchSettings::default(),
             skip_template_init: false,
         }
     }
@@ -370,6 +375,7 @@ impl std::fmt::Debug for Configuration {
         f.debug_struct("Configuration")
             .field("smtp", &self.smtp)
             .field("mail", &self.mail)
+            .field("search", &self.search)
             .field("server_root", &self.server_root)
             .field("port", &self.port)
             .field("db_type", &self.db_type)
@@ -724,6 +730,7 @@ impl Configuration {
             .chain(collab::ENV_KEYS)
             .chain(smtp::ENV_KEYS)
             .chain(mail::ENV_KEYS)
+            .chain(search::ENV_KEYS)
         {
             let name = env_name(key);
             if let Some(text) = env(&name)
@@ -757,6 +764,7 @@ impl Configuration {
         scrapes::check_token_is_text(&keys)?;
         smtp::check_password_is_text(&keys)?;
         mail::check_secrets_are_text(&keys)?;
+        search::check_secrets_are_text(&keys)?;
         let secret_key = secret_key::read(&keys, &env, is_unset)?;
         let mut config: Self = serde_json::from_value(Value::Object(keys))
             .context("a key has a value of the wrong type")?;
@@ -865,6 +873,7 @@ impl Configuration {
         self.check_upload_limits()?;
         self.smtp.check()?;
         self.mail.check(&self.smtp)?;
+        self.search.server()?;
         self.metrics_address()?;
         self.check_metrics_token()?;
         match self.files_driver.as_str() {

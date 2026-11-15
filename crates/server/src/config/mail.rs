@@ -531,7 +531,7 @@ fn secret_shaped(key: &str, value: &str) -> anyhow::Result<()> {
 
 /// The address `url` names, if it is written as an address of this machine's
 /// loopback (also one mapped into IPv6).
-fn loopback_address(url: &reqwest::Url) -> Option<IpAddr> {
+pub(super) fn loopback_address(url: &reqwest::Url) -> Option<IpAddr> {
     // A URL writes an IPv6 address in brackets, and an IPv4 one in its usual form.
     let address = url
         .host_str()?

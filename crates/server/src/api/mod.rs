@@ -15,6 +15,7 @@ mod body;
 mod cards;
 mod categories;
 mod config;
+mod content_search;
 pub mod contract;
 mod email_verification;
 mod files;
@@ -133,6 +134,7 @@ fn routes() -> Routes {
         .merge(org_admin::routes())
         .merge(references::routes())
         .merge(search::routes())
+        .merge(content_search::routes())
         .merge(sharing::routes())
         .merge(subscriptions::routes())
         .merge(templates::routes())
