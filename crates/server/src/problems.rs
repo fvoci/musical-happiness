@@ -286,13 +286,13 @@ fn describe_page_tree(reason: Reason) -> Option<&'static str> {
         Reason::PageTooDeep => {
             "Status 400. The page, or the lowest of the pages below it, would be deeper in its \
              wiki than the organization's limit, which `limit` tells (a page at the top is at \
-             depth 1; `wiki_page_depth`, 10 unless configured): when a page is made or moved. \
+             depth 1; `wiki_page_depth`, 10 unless configured): when a page is made, moved or restored. \
              `errors` names `/parentId`. Nothing was changed."
         }
         Reason::TooManyPages => {
             "Status 400. The wiki would have more pages than the organization's limit, which \
              `limit` tells (`wiki_pages`, 5000 unless configured; pages in the trash are not \
-             counted): when a page is made. Nothing was changed. \
+             counted): when a page is made or restored. Nothing was changed. \
              Deleting pages makes room."
         }
         _ => return None,

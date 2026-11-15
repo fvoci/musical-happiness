@@ -5,17 +5,19 @@
 //! handle these routes work with reaches wikis and no board (`WsWiki`).
 
 use axum::body::Bytes;
-use axum::extract::Path;
+use axum::extract::{Path, RawQuery};
 use fvoci_model::{
-    Block, BlockType, Board, BoardKind, BoardType, MinimumRole, NewPage, Page, PageMove, PageNode,
-    PagePatch,
+    Block, BlockType, Board, BoardKind, BoardType, DeletedPage, MinimumRole, NewPage, Page,
+    PageMove, PageNode, PagePatch,
 };
 use serde::Deserialize;
 use utoipa::ToSchema;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
-use super::contract::params::{MemberWorkspaceId, PageId, WikiId};
+use super::cards::page_params;
+use super::contract::params::Page as PageNumber;
+use super::contract::params::{MemberWorkspaceId, PageId, PerPage, WikiId};
 use super::contract::tag;
 use super::workspace::{Ws, WsWiki};
 use super::{
@@ -36,6 +38,8 @@ pub(super) fn routes() -> OpenApiRouter<App> {
             handle_delete_page
         ))
         .routes(routes!(handle_move_page))
+        .routes(routes!(handle_get_deleted_pages))
+        .routes(routes!(handle_undelete_page))
 }
 
 /// A wiki to make.
@@ -372,4 +376,76 @@ async fn handle_delete_page(
         .await?;
     tracing::debug!(wiki_id, page_id, user_id, "DeletePage");
     Ok(no_content())
+}
+
+/// The deleted pages of a wiki
+///
+/// One page of the wiki's pages that are in the trash, each with its identifier, its
+/// title and icon, the page it was below, when it was deleted, by whom, and how many
+/// pages below it went with it; `undeletePage` brings one back with those until the
+/// trash is emptied of it (`trash_retention_days`, as for a board's cards). A page that
+/// went with the page it was below comes back with that page, and is not listed. For
+/// the wiki's editors. The last deleted first; the pages cut that order. A `page` or
+/// `perPage` that is no whole number is 400.
+#[utoipa::path(
+    get,
+    path = "/w/{workspaceId}/wikis/{wikiId}/trash/pages",
+    operation_id = "getDeletedPages",
+    tag = tag::WIKIS,
+    params(MemberWorkspaceId, WikiId, PageNumber, PerPage),
+    responses((status = 200, description = "The deleted pages of the wiki.", body = Vec<DeletedPage>)),
+)]
+async fn handle_get_deleted_pages(
+    WsWiki(ws): WsWiki,
+    Path((_, wiki_id)): Path<(String, String)>,
+    RawQuery(query): RawQuery,
+) -> ApiResult {
+    require_board_permission(
+        &ws.app,
+        &ws.session.user_id,
+        &wiki_id,
+        BoardPermission::ManageBoardCards,
+        "access denied to the trash of the wiki",
+    )
+    .await?;
+    let (page, per_page) = page_params(query.as_deref())?;
+    Ok(json_response(
+        &ws.app.deleted_pages(&wiki_id, page, per_page).await?,
+    ))
+}
+
+/// Bring back a page
+///
+/// The page comes back from the wiki's trash with every page that was deleted along
+/// with it, for editors of the wiki: below the page it was below, at the place it had,
+/// or, that page gone (in the trash, or gone for good), last at the top of the wiki.
+/// The tree is held to the organization's limits: 400 with the reason `page_too_deep`
+/// or `too_many_pages` (with the `limit`) if the pages would be deeper, or the wiki
+/// larger, than they let it be. A page that is not in this wiki's trash is 404. The
+/// wiki's members are told with `UPDATE_BLOCK` of each page that came back, a page
+/// before those below it, and of each page numbered anew to leave it room.
+#[utoipa::path(
+    post,
+    path = "/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/undelete",
+    operation_id = "undeletePage",
+    tag = tag::WIKIS,
+    params(MemberWorkspaceId, WikiId, PageId),
+    responses((status = 200, description = "The page as it is again.", body = Page)),
+)]
+async fn handle_undelete_page(
+    WsWiki(ws): WsWiki,
+    Path((_, wiki_id, page_id)): Path<(String, String, String)>,
+) -> ApiResult {
+    let user_id = ws.session.user_id.as_str();
+    require_board_permission(
+        &ws.app,
+        user_id,
+        &wiki_id,
+        BoardPermission::ManageBoardCards,
+        "access denied to undelete page",
+    )
+    .await?;
+    let page = ws.app.undelete_page(&wiki_id, &page_id, user_id).await?;
+    tracing::debug!(wiki_id, page_id, user_id, "UndeletePage");
+    Ok(json_response(&page))
 }

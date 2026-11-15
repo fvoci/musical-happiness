@@ -249,6 +249,28 @@ impl From<Block> for Page {
     }
 }
 
+/// A page in the trash, at the top of what went with it, as the trash of a wiki lists
+/// it: `undeletePage` brings it back with the pages below it.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(default, rename_all = "camelCase")]
+pub struct DeletedPage {
+    /// The page's identifier.
+    pub id: String,
+    /// The page's title when it was deleted.
+    pub title: String,
+    /// The page's icon when it was deleted; empty for none.
+    pub icon: String,
+    /// The page it was below; empty for one at the top of the wiki. It may be gone: the
+    /// page then comes back at the top.
+    pub parent_id: String,
+    /// When it was deleted, in milliseconds since the Unix epoch.
+    pub deleted_at: i64,
+    /// Who deleted it, who may no longer exist; empty if not known.
+    pub deleted_by: String,
+    /// How many pages below it went with it, and come back with it.
+    pub below: u32,
+}
+
 /// A page to make.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize, utoipa::ToSchema)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]

@@ -192,6 +192,12 @@ pub(super) const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
     ("PATCH", "/wikis/{wikiId}/pages/{pageId}", "patchPage"),
     ("DELETE", "/wikis/{wikiId}/pages/{pageId}", "deletePage"),
     ("POST", "/wikis/{wikiId}/pages/{pageId}/move", "movePage"),
+    ("GET", "/wikis/{wikiId}/trash/pages", "getDeletedPages"),
+    (
+        "POST",
+        "/wikis/{wikiId}/pages/{pageId}/undelete",
+        "undeletePage",
+    ),
 ];
 
 /// What a guest of the workspace is told by an operation of `REACHED_BY_ITEM` about
@@ -214,6 +220,8 @@ const REACHED_BY_ITEM: &[&str] = &[
     "patchPage",
     "deletePage",
     "movePage",
+    "getDeletedPages",
+    "undeletePage",
     "createBoardsAndBlocks",
     "deleteBoardsAndBlocks",
     "patchBoardsAndBlocks",

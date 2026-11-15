@@ -73,6 +73,7 @@ mod org_admin_review;
 mod organizations;
 mod page_moves;
 mod page_rooms;
+mod page_trash;
 mod pages;
 mod password_reset;
 mod paths;

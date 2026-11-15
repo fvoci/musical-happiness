@@ -99,8 +99,8 @@ async fn wikis(case: &mut Case) {
     pages(case, &wiki).await;
 }
 
-/// Pages of the wiki, one below the other: made, listed, read, changed, moved and
-/// deleted.
+/// Pages of the wiki, one below the other: made, listed, read, changed, moved,
+/// deleted, found in the trash and brought back.
 async fn pages(case: &mut Case, wiki: &str) {
     let at = &[("wikiId", wiki)];
     let title = format!("secret {} page", case.label);
@@ -126,6 +126,9 @@ async fn pages(case: &mut Case, wiki: &str) {
     let of_below = &[("wikiId", wiki), ("pageId", below.as_str())];
     case.run("movePage", of_below, json!({"parentId": ""}))
         .await;
+    case.run("deletePage", of_below, json!({})).await;
+    case.present("getDeletedPages", at, &below).await;
+    case.run("undeletePage", of_below, json!({})).await;
     case.run("deletePage", of_below, json!({})).await;
 }
 

@@ -3269,6 +3269,59 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/undelete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Bring back a page
+         * @description The page comes back from the wiki's trash with every page that was deleted along
+         *     with it, for editors of the wiki: below the page it was below, at the place it had,
+         *     or, that page gone (in the trash, or gone for good), last at the top of the wiki.
+         *     The tree is held to the organization's limits: 400 with the reason `page_too_deep`
+         *     or `too_many_pages` (with the `limit`) if the pages would be deeper, or the wiki
+         *     larger, than they let it be. A page that is not in this wiki's trash is 404. The
+         *     wiki's members are told with `UPDATE_BLOCK` of each page that came back, a page
+         *     before those below it, and of each page numbered anew to leave it room.
+         */
+        post: operations["undeletePage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/wikis/{wikiId}/trash/pages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The deleted pages of a wiki
+         * @description One page of the wiki's pages that are in the trash, each with its identifier, its
+         *     title and icon, the page it was below, when it was deleted, by whom, and how many
+         *     pages below it went with it; `undeletePage` brings one back with those until the
+         *     trash is emptied of it (`trash_retention_days`, as for a board's cards). A page that
+         *     went with the page it was below comes back with that page, and is not listed. For
+         *     the wiki's editors. The last deleted first; the pages cut that order. A `page` or
+         *     `perPage` that is no whole number is 400.
+         */
+        get: operations["getDeletedPages"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -3946,6 +3999,35 @@ export interface components {
             id: string;
             kind?: components["schemas"]["BoardKind"] | null;
             /** @description Its title when it was deleted. */
+            title: string;
+        };
+        /**
+         * @description A page in the trash, at the top of what went with it, as the trash of a wiki lists
+         *     it: `undeletePage` brings it back with the pages below it.
+         */
+        DeletedPage: {
+            /**
+             * Format: int32
+             * @description How many pages below it went with it, and come back with it.
+             */
+            below: number;
+            /**
+             * Format: int64
+             * @description When it was deleted, in milliseconds since the Unix epoch.
+             */
+            deletedAt: number;
+            /** @description Who deleted it, who may no longer exist; empty if not known. */
+            deletedBy: string;
+            /** @description The page's icon when it was deleted; empty for none. */
+            icon: string;
+            /** @description The page's identifier. */
+            id: string;
+            /**
+             * @description The page it was below; empty for one at the top of the wiki. It may be gone: the
+             *     page then comes back at the top.
+             */
+            parentId: string;
+            /** @description The page's title when it was deleted. */
             title: string;
         };
         /**
@@ -10784,6 +10866,81 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    undeletePage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the wiki: a board of the `kind` `wiki`. A board of another kind is 404, as an identifier of nothing is. */
+                wikiId: string;
+                /** @description The identifier of the page: a page of the wiki of the path. 404 for a page of another wiki. */
+                pageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The page as it is again. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getDeletedPages: {
+        parameters: {
+            query?: {
+                /** @description The page, counted from 0. Left out, the first one. */
+                page?: number;
+                /** @description How many a page has. Left out, 100. Zero or less asks for all of them. */
+                perPage?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the wiki: a board of the `kind` `wiki`. A board of another kind is 404, as an identifier of nothing is. */
+                wikiId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The deleted pages of the wiki. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeletedPage"][];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */

@@ -110,8 +110,8 @@ pub use organization::{
     OrgRole, UnknownRole, UserWorkspace, WorkspaceMember, WorkspaceRole, WorkspaceRoleChange,
 };
 pub use page::{
-    NewPage, OrderError, PAGE_ICON_FIELD, PAGE_ORDER_FIELD, Page, PageMove, PageNode, PagePatch,
-    order_between, sort_pages,
+    DeletedPage, NewPage, OrderError, PAGE_ICON_FIELD, PAGE_ORDER_FIELD, Page, PageMove, PageNode,
+    PagePatch, order_between, sort_pages,
 };
 pub use page_tree::{DEFAULT_PAGE_DEPTH, DEFAULT_WIKI_PAGES, PageLimits, PageTree, Place};
 pub use problem::{InvalidInput, PROBLEM_MEDIA_TYPE, Problem, json_pointer, pointer_token};

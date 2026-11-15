@@ -33,6 +33,7 @@ mod operator_password;
 mod order;
 mod org_admin;
 mod page_moves;
+mod page_trash;
 mod pages;
 mod password_reset;
 mod registration;

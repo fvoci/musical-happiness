@@ -326,6 +326,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("NewPage", Members::Only(&[])),
     ("PagePatch", Members::Only(&[])),
     ("PageMove", Members::Only(&[])),
+    ("DeletedPage", Members::All),
     ("NewCard", Members::AsWritten),
     ("NewCategory", Members::AsWritten),
     ("NewInvitation", Members::Only(&["role"])),
