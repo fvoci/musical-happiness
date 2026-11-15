@@ -25,7 +25,8 @@ pub const PAGE_ORDER_FIELD: &str = "order";
 
 /// The digits of an order, least first. They are in the order of their bytes, so that
 /// the server's comparison and a client's comparison of strings agree.
-const DIGITS: &[u8; 62] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+pub(crate) const DIGITS: &[u8; 62] =
+    b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 
 /// How many digits there are: one more than the index of the greatest.
 const BASE: usize = DIGITS.len();
@@ -127,6 +128,11 @@ fn halfway(low: &[usize], high: &[usize]) -> Vec<usize> {
 /// Whether a value is an order: a string [`order_between`] takes as a bound.
 pub(crate) fn is_order_value(value: &Value) -> bool {
     value.as_str().is_some_and(|order| digits_of(order).is_ok())
+}
+
+/// Whether `order` is an order [`order_between`] takes as a bound.
+pub(crate) fn is_order(order: &str) -> bool {
+    digits_of(order).is_ok()
 }
 
 /// The digits of an order as their indices in [`DIGITS`].
@@ -243,6 +249,28 @@ impl From<Block> for Page {
     }
 }
 
+/// A page in the trash, at the top of what went with it, as the trash of a wiki lists
+/// it: `undeletePage` brings it back with the pages below it.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(default, rename_all = "camelCase")]
+pub struct DeletedPage {
+    /// The page's identifier.
+    pub id: String,
+    /// The page's title when it was deleted.
+    pub title: String,
+    /// The page's icon when it was deleted; empty for none.
+    pub icon: String,
+    /// The page it was below; empty for one at the top of the wiki. It may be gone: the
+    /// page then comes back at the top.
+    pub parent_id: String,
+    /// When it was deleted, in milliseconds since the Unix epoch.
+    pub deleted_at: i64,
+    /// Who deleted it, who may no longer exist; empty if not known.
+    pub deleted_by: String,
+    /// How many pages below it went with it, and come back with it.
+    pub below: u32,
+}
+
 /// A page to make.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize, utoipa::ToSchema)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
@@ -270,6 +298,42 @@ impl NewPage {
         let mut refused = Refusals::new();
         refuse_title(&mut refused, Some(&self.title));
         refuse_icon(&mut refused, Some(&self.icon));
+        refused.into_result()
+    }
+}
+
+/// Where a page moves to, with every page below it: within its wiki.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize, utoipa::ToSchema)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+pub struct PageMove {
+    /// The identifier of the page it goes below: a page of the same wiki, neither the
+    /// page itself nor one below it. Left out or empty, the page goes to the top of the
+    /// wiki.
+    pub parent_id: String,
+    /// The identifier of the page it goes right after: another page of that parent.
+    /// Empty for the first place; left out or `null`, the last place.
+    pub after: Option<String>,
+}
+
+/// What a copy of a page, with every page below it, is given: its title, for the copy
+/// of the page asked for alone (the pages below it keep theirs).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize, utoipa::ToSchema)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+pub struct PageDuplicate {
+    /// The copy's title; left out or `null`, the page's own. A client names the copy
+    /// in its reader's language (" (copy)"): the server does not.
+    pub title: Option<String>,
+}
+
+impl PageDuplicate {
+    /// Refuses, at `title`, a title longer than [`BLOCK_TITLE_MAX_CHARS`] characters.
+    ///
+    /// # Errors
+    ///
+    /// Returns the refusal if the title may not be stored.
+    pub fn check_request(&self) -> Result<(), Refusals> {
+        let mut refused = Refusals::new();
+        refuse_title(&mut refused, self.title.as_deref());
         refused.into_result()
     }
 }

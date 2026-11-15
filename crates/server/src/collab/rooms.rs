@@ -22,14 +22,17 @@
 //! logged and sent to the others, never logged and not sent.
 
 mod access;
+mod carets;
 mod held;
 mod index;
+mod joining;
 #[cfg(feature = "test-util")]
 mod pauses;
 mod removal;
 mod walls;
 
 pub(crate) use access::AccessScope;
+pub(super) use joining::{Entering, Holding};
 pub(crate) use walls::{AccessChange, Wall};
 
 use std::collections::HashMap;
@@ -259,6 +262,10 @@ struct Member {
     checking: Option<u64>,
     /// What the room did not send them while a check held them.
     missed: Option<held::Missed>,
+    /// Where they are in the document, once they said so.
+    caret: Option<carets::Caret>,
+    /// The carets that went while a check held them, if any was told meanwhile.
+    carets_missed: Option<carets::CaretsMissed>,
 }
 
 /// A member as a room asks about it again.
@@ -309,7 +316,7 @@ impl Turn {
             .iter()
             .position(|member| member.connection.id == connection.id);
         if let Some(index) = at {
-            let before = self.members.swap_remove(index);
+            let before = self.take_out(index);
             connection.forget(before.doc);
             connection.queue.forget_frames(before.doc);
         }
@@ -325,7 +332,7 @@ impl Turn {
     /// sync messages that waited for it of the room and after the answers it was
     /// given there.
     fn put_out(&mut self, index: usize, reason: &str) {
-        let member = self.members.swap_remove(index);
+        let member = self.take_out(index);
         member.connection.forget(member.doc);
         member
             .connection
@@ -379,6 +386,9 @@ impl Turn {
     /// waited for them: those were of the document before, or are in this one.
     /// A member a check holds is sent it once the check keeps them.
     fn send_anew(&mut self, loaded: &Loaded) {
+        if self.epoch != loaded.epoch {
+            self.forget_carets();
+        }
         self.epoch = loaded.epoch;
         self.miss(&held::Missed::Whole);
         self.push_anew(loaded, |member| !member.is_held());
@@ -398,7 +408,7 @@ impl Turn {
                 Queued::text(doc, messages::reset(doc, epoch)),
                 Queued::sync(doc, epoch, &whole),
             ];
-            member.connection.queue.push_anew(doc, anew)
+            member.connection.queue.push_anew(doc, epoch, anew)
         });
     }
 }
@@ -598,10 +608,11 @@ impl Collab {
     }
 
     /// Lets a connection into the room of a card of a board of `workspace_id`, to be
-    /// known there as `doc`, and sends it `DOC_JOINED` and the whole document. A
-    /// connection that is in the room already is in it anew: what it knew the room
-    /// as before is no room of its any more. `home` is the application as the
-    /// connection's handshake reached it.
+    /// known there as `doc`, and sends it `DOC_JOINED` and the document: the whole of
+    /// it, or what the connection lacks of the document it says it holds
+    /// ([`Self::first_of`]). A connection that is in the room already is in it anew:
+    /// what it knew the room as before is no room of its any more. `home` is the
+    /// application as the connection's handshake reached it.
     ///
     /// # Errors
     ///
@@ -615,9 +626,9 @@ impl Collab {
         connection: &Arc<Connection>,
         home: &App,
         doc: u32,
-        workspace_id: &str,
-        card_id: &str,
+        entering: Entering<'_>,
     ) -> Result<(), AppError> {
+        let (workspace_id, card_id) = (entering.workspace_id, entering.card_id);
         let limits = &self.inner.rooms;
         // Before anything is asked of the store: a connection that is in as many
         // rooms as it may be has nothing asked for it.
@@ -674,11 +685,9 @@ impl Collab {
                 return Err(AppError::not_found("card"));
             }
             let epoch = loaded.epoch;
-            let whole = frame::message(Sync::Missing, &loaded.state);
-            let joined = messages::joined(workspace_id, card_id, doc, epoch, admitted.mode);
-            let queued = connection
-                .queue
-                .push([Queued::text(doc, joined), Queued::sync(doc, epoch, &whole)]);
+            let queued = self
+                .welcome(&room, connection, doc, &loaded, admitted.mode, &entering)
+                .await;
             // Counted among the connection's rooms before it is a member: a connection
             // that ended meanwhile is no member of a room nobody would take it out of.
             if queued.is_err() || !connection.join(doc, &room) {
@@ -699,7 +708,10 @@ impl Collab {
                 mode: admitted.mode,
                 checking: None,
                 missed: None,
+                caret: None,
+                carets_missed: None,
             });
+            turn.send_carets(turn.members.len() - 1);
             return Ok(());
         }
     }
@@ -733,7 +745,7 @@ impl Collab {
     pub(super) async fn leave(&self, room: &Arc<Room>, connection: &Connection, doc: u32) {
         let mut turn = room.turn.lock().await;
         if let Some(index) = turn.index_of(connection, doc) {
-            turn.members.swap_remove(index);
+            turn.take_out(index);
         }
         connection.queue.forget(doc);
         self.shut_if_empty(room, &mut turn).await;

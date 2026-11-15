@@ -92,6 +92,12 @@ async fn a_reader_by_link_is_kept_out_of_the_room_and_told_its_body_naming_nobod
 
     let mut writer = Peer::connect(&th.client, 101).await;
     writer.joined(TEST_WORKSPACE_ID, &t.card_id).await;
+    // Where the writer is in the body is told to the room, which no reader is in.
+    let place = json!({"tname": "default", "assoc": 0});
+    let caret = json!({"cursor": {"anchor": place, "head": place}});
+    writer
+        .send_caret(&crate::rooms::awareness(writer.client(), 1, &caret))
+        .await;
     writer.write_acked("typed in the room").await;
     assert_eq!(th.app.collab().room_members(&th.app, &t.card_id).await, 1);
     th.app

@@ -15,6 +15,7 @@ import type { Board, BoardType, MemberRole } from '../logic/wire.ts';
 
 import type { BodyWrite, Comment, CommentVersion } from './backend.ts';
 import type { BodyVersions } from './body-versions.ts';
+import type { DeletedItem, Paging } from './trash-reads.ts';
 
 /** A page as the tree of its wiki lists it: without its body. */
 export interface WikiPage {
@@ -62,6 +63,16 @@ export interface PageDraft {
    * The page it goes right after, of the same parent: empty for the first
    * place, left out for the last.
    */
+  after?: string;
+}
+
+/**
+ * Where a page moves to, with every page below it, within its wiki: below
+ * `parentId` (a page of it; left out or empty, the top), at the place
+ * `after` says, as `PageDraft.after`.
+ */
+export interface PageMove {
+  parentId?: string;
   after?: string;
 }
 
@@ -120,6 +131,37 @@ export interface Wikis {
    * board and the page in place of the card. Restored by the wiki's editors.
    */
   readonly bodyVersions: BodyVersions;
+  /**
+   * The wiki's pages in the trash, for its editors: a page, the last deleted
+   * first, each with how many pages below it went with it (`below`). A page
+   * that went with the page it was below comes back with that page, and is
+   * not listed.
+   */
+  deletedPages(wikiId: string, paging?: Paging): Promise<DeletedItem[]>;
+  /**
+   * Brings a page back from the trash with the pages that went with it, for
+   * the wiki's editors: below the page it was below, or, that one gone, last
+   * at the top. Past the wiki's limits it is 400 (`page_too_deep`,
+   * `too_many_pages`); one the trash does not have, 404. Each page that came
+   * back is told (`pages`); the answer is the page asked for.
+   */
+  undeletePage(wikiId: string, pageId: string): Promise<WikiPageDetail>;
+  /**
+   * Moves the page with every page below it, for the wiki's editors: below
+   * itself, below a page below it or deeper than the limit (`page_too_deep`)
+   * is 400 at `parentId`, an `after` that is no other page there 400 at
+   * `after`. Siblings numbered anew to leave it room are told (`pages`).
+   */
+  movePage(wikiId: string, pageId: string, to: PageMove): Promise<WikiPageDetail>;
+  /**
+   * Copies the page with every page below it, for the wiki's editors: the
+   * copy right after the page, titled `title` (left out, the page's own), the
+   * pages below it copied below it as they are, bodies and their images too;
+   * not their versions or comments. Past the wiki's limits it is 400
+   * (`page_too_deep`, `too_many_pages`). Each copy is told (`pages`); the
+   * answer is the copy of the page.
+   */
+  duplicatePage(wikiId: string, pageId: string, title?: string): Promise<WikiPageDetail>;
 }
 
 /** Where a backend keeps its wikis. One by a public link has none (W4). */

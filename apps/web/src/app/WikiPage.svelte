@@ -28,17 +28,20 @@
   import CardComments from '$lib/features/card/CardComments.svelte';
   import CommentComposer from '$lib/features/card/CommentComposer.svelte';
   import PageMenu from '$lib/features/wiki/PageMenu.svelte';
+  import TrashDialog from '$lib/features/shell/TrashDialog.svelte';
   import WikiSettingsDialog from '$lib/features/wiki/WikiSettingsDialog.svelte';
   import WikiJoin from '$lib/features/wiki/WikiJoin.svelte';
   import WikiScreen from '$lib/features/wiki/WikiScreen.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { firstPage, withDescendants } from '$lib/logic/page-tree.ts';
   import {
+    pageTrash,
     referenceTitles,
     shownWiki,
     whileHere,
     WikiStore,
     type PageStore,
+    type Trash,
     type WikiLooks,
     type WikiPage,
     type Workspace,
@@ -74,6 +77,8 @@
       // What the head of the page told, and the focus of a join, were the wiki's before.
       notice = undefined;
       joined = false;
+      // And so were its deleted pages.
+      [trash, trashOpen] = [undefined, false];
       void store.load();
     });
     return () => {
@@ -127,6 +132,9 @@
   /** The versions of a page, read anew each time their dialog opens; it goes with the page. */
   let versions = $state.raw<{ pageId: string; reading: VersionsReading }>();
   let versionsOpen = $state(false);
+  /** The wiki's deleted pages, read anew each time they are opened. */
+  let trash = $state.raw<Trash | undefined>(undefined);
+  let trashOpen = $state(false);
 
   /** Deletes the wiki; the page goes on to the first board or wiki of the sidebar. */
   async function deleteWiki(store: WikiStore): Promise<void> {
@@ -189,6 +197,11 @@
     }}
     onDeleteWiki={() => {
       deleteWikiOpen = true;
+    }}
+    onOpenTrash={() => {
+      trash = pageTrash(wiki);
+      trashOpen = true;
+      void trash.read();
     }}
     onOpenPage={(id: string) => {
       router.openPage(id);
@@ -270,6 +283,17 @@
         '[data-testid="page-tree"] [role="treeitem"][tabindex="0"]',
       )}
   />
+  {#if store.canEdit}
+    <TrashDialog
+      bind:open={trashOpen}
+      {trash}
+      {workspace}
+      title={m.wiki_trash()}
+      description={m.wiki_trash_description()}
+      untitled={m.wiki_page_untitled()}
+      testId="page-trash"
+    />
+  {/if}
   {#if store.wiki}
     <WikiSettingsDialog
       bind:open={settingsOpen}

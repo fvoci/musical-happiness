@@ -1362,6 +1362,52 @@
         ],
         "type": "object"
       },
+      "DeletedPage": {
+        "description": "A page in the trash, at the top of what went with it, as the trash of a wiki lists\nit: `undeletePage` brings it back with the pages below it.",
+        "properties": {
+          "below": {
+            "description": "How many pages below it went with it, and come back with it.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "deletedAt": {
+            "description": "When it was deleted, in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "deletedBy": {
+            "description": "Who deleted it, who may no longer exist; empty if not known.",
+            "type": "string"
+          },
+          "icon": {
+            "description": "The page's icon when it was deleted; empty for none.",
+            "type": "string"
+          },
+          "id": {
+            "description": "The page's identifier.",
+            "type": "string"
+          },
+          "parentId": {
+            "description": "The page it was below; empty for one at the top of the wiki. It may be gone: the\npage then comes back at the top.",
+            "type": "string"
+          },
+          "title": {
+            "description": "The page's title when it was deleted.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "below",
+          "deletedAt",
+          "deletedBy",
+          "icon",
+          "id",
+          "parentId",
+          "title"
+        ],
+        "type": "object"
+      },
       "Density": {
         "description": "How much room the interface gives each thing.",
         "enum": [
@@ -2891,6 +2937,38 @@
         ],
         "type": "object"
       },
+      "PageDuplicate": {
+        "additionalProperties": false,
+        "description": "What a copy of a page, with every page below it, is given: its title, for the copy\nof the page asked for alone (the pages below it keep theirs).",
+        "properties": {
+          "title": {
+            "description": "The copy's title; left out or `null`, the page's own. A client names the copy\nin its reader's language (\" (copy)\"): the server does not.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "PageMove": {
+        "additionalProperties": false,
+        "description": "Where a page moves to, with every page below it: within its wiki.",
+        "properties": {
+          "after": {
+            "description": "The identifier of the page it goes right after: another page of that parent.\nEmpty for the first place; left out or `null`, the last place.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "parentId": {
+            "description": "The identifier of the page it goes below: a page of the same wiki, neither the\npage itself nor one below it. Left out or empty, the page goes to the top of the\nwiki.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "PageNode": {
         "description": "A page as the tree of its wiki lists it: without its body.",
         "properties": {
@@ -3493,6 +3571,16 @@
             "reason": "search_unavailable",
             "title": "Search unavailable",
             "type": "/problems/search-unavailable"
+          },
+          {
+            "reason": "page_too_deep",
+            "title": "Page too deep",
+            "type": "/problems/page-too-deep"
+          },
+          {
+            "reason": "too_many_pages",
+            "title": "Too many pages in the wiki",
+            "type": "/problems/too-many-pages"
           }
         ]
       },
@@ -12719,7 +12807,7 @@
         ]
       },
       "post": {
-        "description": "The server chooses the identifier, the creator, the times and the `order`. For\neditors of the wiki. The page goes below `parentId`, a page of the same wiki (400 at\n`/parentId` otherwise), or at the top of the wiki; among the pages of that parent it\ngoes right after the page `after` (400 at `/after` if that is no page of the same\nparent), first if `after` is empty, and last if it is left out. Its body is written\nby `patchPage`, or together in its room (`JOIN_DOC`).\n\nThe wiki's members are told with `UPDATE_BLOCK`, whose block of the `type` `page`\nhas the icon and the order among its `fields`.",
+        "description": "The server chooses the identifier, the creator, the times and the `order`. For\neditors of the wiki. The page goes below `parentId`, a page of the same wiki (400 at\n`/parentId` otherwise), or at the top of the wiki; among the pages of that parent it\ngoes right after the page `after` (400 at `/after` if that is no page of the same\nparent), first if `after` is empty, and last if it is left out. Its body is written\nby `patchPage`, or together in its room (`JOIN_DOC`).\n\nThe tree is held to the organization's limits: a page deeper than its depth is 400\nat `/parentId` with the reason `page_too_deep`, and one more page than a wiki may\nhave (those in the trash not counted) is 400 with the reason `too_many_pages`, each\nwith the `limit`.\n\nThe wiki's members are told with `UPDATE_BLOCK`, whose block of the `type` `page`\nhas the icon and the order among its `fields`. Where the pages of the parent had no\nroom left between them (two of one order, or orders grown long), they are numbered\nanew, and each that changed is told of too.",
         "operationId": "createPage",
         "parameters": [
           {
@@ -13509,6 +13597,284 @@
           }
         },
         "summary": "What a comment on a page said before",
+        "tags": [
+          "wikis"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/duplicate": {
+      "post": {
+        "description": "Copies the page with every page below it, within its wiki, for editors of the wiki:\nthe copy goes right after the page among its siblings, titled `title` if given\n(the page's own title otherwise; a client names it in its reader's language), and\nthe pages below it are copied below it as they are, with their titles, icons,\nplaces and bodies, what is typed in them now included. The images in the bodies get\nfiles of their own, as a card's duplicate's do. The versions of the bodies and the\ncomments are not copied. The tree is held to the organization's limits: 400 with the\nreason `page_too_deep` or `too_many_pages` (with the `limit`) if the copies would be\ndeeper, or the wiki larger, than they let it be; 400 at `/title` for a title longer\nthan 16383 characters. Nothing is changed then.\n\nThe wiki's members are told with `UPDATE_BLOCK` of each copy, a page before those\nbelow it, and of each page of the parent numbered anew to leave the copy room.",
+        "operationId": "duplicatePage",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the wiki: a board of the `kind` `wiki`. A board of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "wikiId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the page: a page of the wiki of the path. 404 for a page of another wiki.",
+            "in": "path",
+            "name": "pageId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PageDuplicate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page"
+                }
+              }
+            },
+            "description": "The copy of the page."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Duplicate a page",
+        "tags": [
+          "wikis"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/move": {
+      "post": {
+        "description": "The page goes, with every page below it, below `parentId` (a page of the same wiki;\nleft out or empty, the top of the wiki), right after the page `after` among the\npages there, first if `after` is empty, and last if it is left out, as for\n`createPage`. For editors of the wiki. A page moves within its wiki only. 400 at\n`/parentId` if the parent is no page of the wiki or is the page itself or a page\nbelow it, and with the reason `page_too_deep` (and the `limit`) if a page would be\ndeeper than the organization's limit; 400 at `/after` if that is no other page of\nthe parent. Nothing is changed then.\n\nThe wiki's members are told with `UPDATE_BLOCK` of the page, and of every page of\nthe parent numbered anew to leave it room; the pages below it keep their parents\nand are not told of.",
+        "operationId": "movePage",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the wiki: a board of the `kind` `wiki`. A board of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "wikiId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the page: a page of the wiki of the path. 404 for a page of another wiki.",
+            "in": "path",
+            "name": "pageId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PageMove"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page"
+                }
+              }
+            },
+            "description": "The page where it is now."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Move a page",
+        "tags": [
+          "wikis"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/undelete": {
+      "post": {
+        "description": "The page comes back from the wiki's trash with every page that was deleted along\nwith it, for editors of the wiki: below the page it was below, at the place it had\n(right after the pages before it there, if a page made since has that place), or,\nthat page gone (in the trash, or gone for good), last at the top of the wiki.\nThe tree is held to the organization's limits: 400 with the reason `page_too_deep`\nor `too_many_pages` (with the `limit`) if the pages would be deeper, or the wiki\nlarger, than they let it be. A page that is not in this wiki's trash, or went there\nwith the page it was below (it comes back with that page), is 404. The\nwiki's members are told with `UPDATE_BLOCK` of each page that came back, a page\nbefore those below it, and of each page numbered anew to leave it room.",
+        "operationId": "undeletePage",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the wiki: a board of the `kind` `wiki`. A board of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "wikiId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the page: a page of the wiki of the path. 404 for a page of another wiki.",
+            "in": "path",
+            "name": "pageId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page"
+                }
+              }
+            },
+            "description": "The page as it is again."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Bring back a page",
+        "tags": [
+          "wikis"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/wikis/{wikiId}/trash/pages": {
+      "get": {
+        "description": "One page of the wiki's pages that are in the trash, each with its identifier, its\ntitle and icon, the page it was below, when it was deleted, by whom, and how many\npages below it went with it; `undeletePage` brings one back with those until the\ntrash is emptied of it (`trash_retention_days`, as for a board's cards). A page that\nwent with the page it was below comes back with that page, and is not listed. For\nthe wiki's editors. The last deleted first; the pages cut that order. A `page` or\n`perPage` that is no whole number is 400.",
+        "operationId": "getDeletedPages",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the wiki: a board of the `kind` `wiki`. A board of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "wikiId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The page, counted from 0. Left out, the first one.",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "How many a page has. Left out, 100. Zero or less asks for all of them.",
+            "in": "query",
+            "name": "perPage",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DeletedPage"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The deleted pages of the wiki."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "The deleted pages of a wiki",
         "tags": [
           "wikis"
         ]

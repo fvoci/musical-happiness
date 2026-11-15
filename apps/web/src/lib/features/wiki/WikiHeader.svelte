@@ -1,6 +1,7 @@
 <!--
-  The head of a wiki's tree: its icon, its name and its description, and for
-  whoever may manage the wiki a menu to edit those and to delete the wiki.
+  The head of a wiki's tree: its icon, its name and its description; for its
+  editors the way to its deleted pages, and for whoever may manage the wiki a
+  menu to edit those and to delete the wiki.
 -->
 <script lang="ts">
   import EllipsisIcon from '@lucide/svelte/icons/ellipsis';
@@ -17,9 +18,11 @@
     wiki: WikiStore;
     onEdit: () => void;
     onDelete: () => void;
+    /** Opens the wiki's deleted pages (its editors'). */
+    onTrash: () => void;
   }
 
-  let { wiki, onEdit, onDelete }: Props = $props();
+  let { wiki, onEdit, onDelete, onTrash }: Props = $props();
 
   const title = $derived(wiki.wiki?.title || m.wiki_untitled());
   const actions = $derived<MenuAction[]>([
@@ -52,6 +55,17 @@
       </p>
     {/if}
   </div>
+  {#if wiki.canEdit}
+    <IconButton
+      label={m.wiki_trash()}
+      data-testid="open-page-trash"
+      aria-haspopup="dialog"
+      class="text-muted-foreground"
+      onclick={onTrash}
+    >
+      <Trash2Icon />
+    </IconButton>
+  {/if}
   {#if wiki.canManage}
     <ActionMenu {title} align="end" {actions}>
       {#snippet trigger(props: Record<string, unknown>)}

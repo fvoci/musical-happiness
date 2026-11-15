@@ -5,16 +5,18 @@
  * what to one is what a card's comments let (`comments.ts`), by the role on
  * the wiki. The role is asked first, then the page, then the comment: who
  * may not do it learns nothing of what is there.
+ *
+ * `MemoryPageComments` is what `MemoryWikis` is besides its pages.
  */
 import type { DocNode } from '../../editor/schema.ts';
 import type { BodyWrite, Comment, CommentVersion } from '../backend.ts';
-import { byCreation } from '../order.ts';
+import type { Wikis } from '../wiki-types.ts';
 
 import { memberRole } from './board-access.ts';
 import { checkedBody } from './bodies.ts';
 import { earlierVersions, mayChangeComment, mayDeleteComment, noteChange } from './comments.ts';
 import { fail } from './refuse.ts';
-import { commentOf } from './shapes.ts';
+import { commentOf, scramble } from './shapes.ts';
 import { deletion } from './trash.ts';
 import type { StoredBlock, World } from './world.ts';
 
@@ -70,8 +72,8 @@ export function commentsOf(on: OnPage): Comment[] {
   memberRole(on.world, on.userId, on.wikiId, 'wiki');
   pageOn(on);
   const comments = on.world.childrenOf(on.pageId).filter((block) => block.type === 'comment');
-  // Oldest first, as the server lists them.
-  return byCreation(comments).map(commentOf);
+  // In no order to count on, as every list of this backend: the screens sort them.
+  return scramble(comments).map(commentOf);
 }
 
 export function createComment(on: OnPage, body: DocNode): Comment {
@@ -147,4 +149,47 @@ export function versionsOf(on: OnPage, commentId: string): CommentVersion[] {
   const comment = on.world.blocks.get(commentId) ?? deleted;
   if (comment?.type !== 'comment' || comment.parentId !== on.pageId) fail(404, 'no such comment');
   return earlierVersions(on.world.commentVersions.get(commentId) ?? []);
+}
+
+/**
+ * The comments of `Wikis` in memory: what `MemoryWikis` is besides its pages,
+ * each call waiting as the backend's do (`enter`) and asked as its user (`on`).
+ */
+export abstract class MemoryPageComments {
+  protected abstract enter(method: keyof Wikis): Promise<void>;
+  protected abstract on(wikiId: string, pageId: string): OnPage;
+
+  async comments(wikiId: string, pageId: string): Promise<Comment[]> {
+    await this.enter('comments');
+    return commentsOf(this.on(wikiId, pageId));
+  }
+
+  async createComment(wikiId: string, pageId: string, body: DocNode): Promise<Comment> {
+    await this.enter('createComment');
+    return createComment(this.on(wikiId, pageId), body);
+  }
+
+  async patchComment(
+    wikiId: string,
+    pageId: string,
+    commentId: string,
+    write: BodyWrite,
+  ): Promise<Comment> {
+    await this.enter('patchComment');
+    return patchComment(this.on(wikiId, pageId), commentId, write);
+  }
+
+  async deleteComment(wikiId: string, pageId: string, commentId: string): Promise<void> {
+    await this.enter('deleteComment');
+    deleteComment(this.on(wikiId, pageId), commentId);
+  }
+
+  async commentVersions(
+    wikiId: string,
+    pageId: string,
+    commentId: string,
+  ): Promise<CommentVersion[]> {
+    await this.enter('commentVersions');
+    return versionsOf(this.on(wikiId, pageId), commentId);
+  }
 }

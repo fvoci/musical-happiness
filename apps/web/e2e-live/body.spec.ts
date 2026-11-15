@@ -112,12 +112,14 @@ test('a body written in the editor is the server’s, and opens again as it was'
   await page.locator('[data-card]').filter({ hasText: 'Write the report' }).click();
   await expect(page.getByTestId('card-body')).toHaveAttribute('data-editor', 'ready');
   await expect(editor(page).locator('p')).toHaveText(['First line', 'Second line']);
-  // Opening it is no change: nothing is sent to the room before the card is
-  // left (leaving sends what waits first), and the server keeps the same body.
+  // Opening it is no change: nothing of the document is sent to the room before
+  // the card is left (leaving sends what waits first), and the server keeps the
+  // same body. Where the reader's caret is is told, which changes nothing: a
+  // frame says its kind after its room, 0 for the document's.
   let sent = 0;
   for (const socket of sockets) {
     socket.on('framesent', (frame) => {
-      if (typeof frame.payload !== 'string') sent += 1;
+      if (typeof frame.payload !== 'string' && frame.payload[1] === 0) sent += 1;
     });
   }
   await editor(page).click();

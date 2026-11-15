@@ -191,9 +191,15 @@ async fn a_wiki_of_another_organization_is_reached_through_its_workspace_only() 
         .await
         .expect("their wiki is stored");
     let page = theirs
-        .create_page(&wiki.id, &NewPage::default(), &owner)
+        .create_page(
+            &wiki.id,
+            &NewPage::default(),
+            fvoci_model::PageLimits::default(),
+            &owner,
+        )
         .await
-        .expect("their page is stored");
+        .expect("their page is stored")
+        .page;
     let (wiki, page) = (wiki.id, page.id);
     let (our_wiki, our_page) = wiki_of(&th.client, "O").await;
 

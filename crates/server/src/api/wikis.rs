@@ -5,16 +5,19 @@
 //! handle these routes work with reaches wikis and no board (`WsWiki`).
 
 use axum::body::Bytes;
-use axum::extract::Path;
+use axum::extract::{Path, RawQuery};
 use fvoci_model::{
-    Block, BlockType, Board, BoardKind, BoardType, MinimumRole, NewPage, Page, PageNode, PagePatch,
+    Block, BlockType, Board, BoardKind, BoardType, DeletedPage, MinimumRole, NewPage, Page,
+    PageDuplicate, PageMove, PageNode, PagePatch,
 };
 use serde::Deserialize;
 use utoipa::ToSchema;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
-use super::contract::params::{MemberWorkspaceId, PageId, WikiId};
+use super::cards::page_params;
+use super::contract::params::Page as PageNumber;
+use super::contract::params::{MemberWorkspaceId, PageId, PerPage, WikiId};
 use super::contract::tag;
 use super::workspace::{Ws, WsWiki};
 use super::{
@@ -34,6 +37,10 @@ pub(super) fn routes() -> OpenApiRouter<App> {
             handle_patch_page,
             handle_delete_page
         ))
+        .routes(routes!(handle_move_page))
+        .routes(routes!(handle_duplicate_page))
+        .routes(routes!(handle_get_deleted_pages))
+        .routes(routes!(handle_undelete_page))
 }
 
 /// A wiki to make.
@@ -184,8 +191,15 @@ async fn handle_get_page_tree(
 /// parent), first if `after` is empty, and last if it is left out. Its body is written
 /// by `patchPage`, or together in its room (`JOIN_DOC`).
 ///
+/// The tree is held to the organization's limits: a page deeper than its depth is 400
+/// at `/parentId` with the reason `page_too_deep`, and one more page than a wiki may
+/// have (those in the trash not counted) is 400 with the reason `too_many_pages`, each
+/// with the `limit`.
+///
 /// The wiki's members are told with `UPDATE_BLOCK`, whose block of the `type` `page`
-/// has the icon and the order among its `fields`.
+/// has the icon and the order among its `fields`. Where the pages of the parent had no
+/// room left between them (two of one order, or orders grown long), they are numbered
+/// anew, and each that changed is told of too.
 #[utoipa::path(
     post,
     path = "/w/{workspaceId}/wikis/{wikiId}/pages",
@@ -291,6 +305,97 @@ async fn handle_patch_page(
     Ok(json_response(&Page::from(patched)))
 }
 
+/// Move a page
+///
+/// The page goes, with every page below it, below `parentId` (a page of the same wiki;
+/// left out or empty, the top of the wiki), right after the page `after` among the
+/// pages there, first if `after` is empty, and last if it is left out, as for
+/// `createPage`. For editors of the wiki. A page moves within its wiki only. 400 at
+/// `/parentId` if the parent is no page of the wiki or is the page itself or a page
+/// below it, and with the reason `page_too_deep` (and the `limit`) if a page would be
+/// deeper than the organization's limit; 400 at `/after` if that is no other page of
+/// the parent. Nothing is changed then.
+///
+/// The wiki's members are told with `UPDATE_BLOCK` of the page, and of every page of
+/// the parent numbered anew to leave it room; the pages below it keep their parents
+/// and are not told of.
+#[utoipa::path(
+    post,
+    path = "/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/move",
+    operation_id = "movePage",
+    tag = tag::WIKIS,
+    params(MemberWorkspaceId, WikiId, PageId),
+    request_body = PageMove,
+    responses((status = 200, description = "The page where it is now.", body = Page)),
+)]
+async fn handle_move_page(
+    WsWiki(ws): WsWiki,
+    Path((_, wiki_id, page_id)): Path<(String, String, String)>,
+    body: Bytes,
+) -> ApiResult {
+    let user_id = ws.session.user_id.as_str();
+    let page = page_with_permission(
+        &ws,
+        &wiki_id,
+        &page_id,
+        BoardPermission::ManageBoardCards,
+        "access denied to move page",
+    )
+    .await?;
+    let to: PageMove = decode_object(&body)?;
+    let moved = ws.app.move_page(&wiki_id, &page.id, &to, user_id).await?;
+    tracing::debug!(wiki_id, page_id, user_id, "MovePage");
+    Ok(json_response(&moved))
+}
+
+/// Duplicate a page
+///
+/// Copies the page with every page below it, within its wiki, for editors of the wiki:
+/// the copy goes right after the page among its siblings, titled `title` if given
+/// (the page's own title otherwise; a client names it in its reader's language), and
+/// the pages below it are copied below it as they are, with their titles, icons,
+/// places and bodies, what is typed in them now included. The images in the bodies get
+/// files of their own, as a card's duplicate's do. The versions of the bodies and the
+/// comments are not copied. The tree is held to the organization's limits: 400 with the
+/// reason `page_too_deep` or `too_many_pages` (with the `limit`) if the copies would be
+/// deeper, or the wiki larger, than they let it be; 400 at `/title` for a title longer
+/// than 16383 characters. Nothing is changed then.
+///
+/// The wiki's members are told with `UPDATE_BLOCK` of each copy, a page before those
+/// below it, and of each page of the parent numbered anew to leave the copy room.
+#[utoipa::path(
+    post,
+    path = "/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/duplicate",
+    operation_id = "duplicatePage",
+    tag = tag::WIKIS,
+    params(MemberWorkspaceId, WikiId, PageId),
+    request_body = PageDuplicate,
+    responses((status = 201, description = "The copy of the page.", body = Page)),
+)]
+async fn handle_duplicate_page(
+    WsWiki(ws): WsWiki,
+    Path((_, wiki_id, page_id)): Path<(String, String, String)>,
+    body: Bytes,
+) -> ApiResult {
+    let user_id = ws.session.user_id.as_str();
+    let page = page_with_permission(
+        &ws,
+        &wiki_id,
+        &page_id,
+        BoardPermission::ManageBoardCards,
+        "access denied to duplicate page",
+    )
+    .await?;
+    let copy: PageDuplicate = decode_object(&body)?;
+    copy.check_request()?;
+    let made = ws
+        .app
+        .duplicate_page(&wiki_id, &page.id, copy.title.as_deref(), user_id)
+        .await?;
+    tracing::debug!(wiki_id, page_id, user_id, "DuplicatePage");
+    Ok(created(&made))
+}
+
 /// Delete a page
 ///
 /// The page goes to the trash with every page below it and the comments on them, for
@@ -323,4 +428,78 @@ async fn handle_delete_page(
         .await?;
     tracing::debug!(wiki_id, page_id, user_id, "DeletePage");
     Ok(no_content())
+}
+
+/// The deleted pages of a wiki
+///
+/// One page of the wiki's pages that are in the trash, each with its identifier, its
+/// title and icon, the page it was below, when it was deleted, by whom, and how many
+/// pages below it went with it; `undeletePage` brings one back with those until the
+/// trash is emptied of it (`trash_retention_days`, as for a board's cards). A page that
+/// went with the page it was below comes back with that page, and is not listed. For
+/// the wiki's editors. The last deleted first; the pages cut that order. A `page` or
+/// `perPage` that is no whole number is 400.
+#[utoipa::path(
+    get,
+    path = "/w/{workspaceId}/wikis/{wikiId}/trash/pages",
+    operation_id = "getDeletedPages",
+    tag = tag::WIKIS,
+    params(MemberWorkspaceId, WikiId, PageNumber, PerPage),
+    responses((status = 200, description = "The deleted pages of the wiki.", body = Vec<DeletedPage>)),
+)]
+async fn handle_get_deleted_pages(
+    WsWiki(ws): WsWiki,
+    Path((_, wiki_id)): Path<(String, String)>,
+    RawQuery(query): RawQuery,
+) -> ApiResult {
+    require_board_permission(
+        &ws.app,
+        &ws.session.user_id,
+        &wiki_id,
+        BoardPermission::ManageBoardCards,
+        "access denied to the trash of the wiki",
+    )
+    .await?;
+    let (page, per_page) = page_params(query.as_deref())?;
+    Ok(json_response(
+        &ws.app.deleted_pages(&wiki_id, page, per_page).await?,
+    ))
+}
+
+/// Bring back a page
+///
+/// The page comes back from the wiki's trash with every page that was deleted along
+/// with it, for editors of the wiki: below the page it was below, at the place it had
+/// (right after the pages before it there, if a page made since has that place), or,
+/// that page gone (in the trash, or gone for good), last at the top of the wiki.
+/// The tree is held to the organization's limits: 400 with the reason `page_too_deep`
+/// or `too_many_pages` (with the `limit`) if the pages would be deeper, or the wiki
+/// larger, than they let it be. A page that is not in this wiki's trash, or went there
+/// with the page it was below (it comes back with that page), is 404. The
+/// wiki's members are told with `UPDATE_BLOCK` of each page that came back, a page
+/// before those below it, and of each page numbered anew to leave it room.
+#[utoipa::path(
+    post,
+    path = "/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/undelete",
+    operation_id = "undeletePage",
+    tag = tag::WIKIS,
+    params(MemberWorkspaceId, WikiId, PageId),
+    responses((status = 200, description = "The page as it is again.", body = Page)),
+)]
+async fn handle_undelete_page(
+    WsWiki(ws): WsWiki,
+    Path((_, wiki_id, page_id)): Path<(String, String, String)>,
+) -> ApiResult {
+    let user_id = ws.session.user_id.as_str();
+    require_board_permission(
+        &ws.app,
+        user_id,
+        &wiki_id,
+        BoardPermission::ManageBoardCards,
+        "access denied to undelete page",
+    )
+    .await?;
+    let page = ws.app.undelete_page(&wiki_id, &page_id, user_id).await?;
+    tracing::debug!(wiki_id, page_id, user_id, "UndeletePage");
+    Ok(json_response(&page))
 }

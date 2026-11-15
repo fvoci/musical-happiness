@@ -15,9 +15,9 @@ use crate::websocket::Socket;
 
 /// A wiki for the invited only in the test workspace, made by the first client's
 /// user, with a page.
-struct Desk {
-    wiki_id: String,
-    page_id: String,
+pub(crate) struct Desk {
+    pub(crate) wiki_id: String,
+    pub(crate) page_id: String,
 }
 
 impl Desk {
@@ -31,7 +31,7 @@ impl Desk {
 }
 
 /// A [`Desk`] whose page has the body `body`.
-async fn desk(th: &TestServer, body: &Value) -> Desk {
+pub(crate) async fn desk(th: &TestServer, body: &Value) -> Desk {
     let wiki = th
         .client
         .post(&format!("{TEST_WS}/wikis"), &json!({"type": "P"}))

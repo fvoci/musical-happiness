@@ -16,6 +16,14 @@ export interface RoomFrame {
   payload: Uint8Array;
 }
 
+/** The carets of a room: the contract says what its bytes are (`contracts/websocket.md`, section 6). */
+export interface RoomCarets {
+  doc: number;
+  epoch: number;
+  /** An awareness update of y-protocols. */
+  update: Uint8Array;
+}
+
 /** What the server says of a room; a join's two answers come without a room number that is known. */
 export type RoomMessage =
   | { action: 'DOC_JOINED'; doc: number; epoch: number; mode: DocMode }
@@ -34,14 +42,21 @@ export interface RoomHears {
   down(): void;
   message(message: RoomMessage): void;
   frame(frame: RoomFrame): void;
+  carets(carets: RoomCarets): void;
+}
+
+/** The document a reader holds as they ask to be let in again: its epoch and its state vector. */
+export interface RoomHeld {
+  epoch: number;
+  stateVector: Uint8Array;
 }
 
 /** What a room says. */
 export interface RoomPort {
   /** The connection is there now: the room may be joined (`up` is told only of later ones). */
   readonly connected: boolean;
-  /** Sends `JOIN_DOC` for the card. */
-  join(): void;
+  /** Sends `JOIN_DOC` for the card; with `held`, as one who holds its document already. */
+  join(held?: RoomHeld): void;
   /** Sends a binary frame. */
   send(frame: Uint8Array<ArrayBuffer>): void;
   /** Leaves the room, also one a join still on its way will be let into, and hears no more. */
@@ -63,6 +78,10 @@ export type RoomEvent =
   | { type: 'down' }
   | { type: 'message'; message: RoomMessage }
   | { type: 'frame'; frame: RoomFrame }
+  /** The room says where carets are, or that they are gone. */
+  | { type: 'carets'; carets: RoomCarets }
+  /** The reader's caret is to be told: an awareness update of their own state. */
+  | { type: 'caret'; update: Uint8Array }
   /** The reader changed the document held. */
   | { type: 'local'; update: Uint8Array }
   /** The answer to `offer`: what the document held has that the server's lacks, if anything. */
@@ -74,9 +93,15 @@ export type RoomEvent =
   | { type: 'settle' };
 
 export type RoomEffect =
-  /** Send `JOIN_DOC`. */
-  | { type: 'join' }
+  /** Send `JOIN_DOC`; with `held`, naming the document held: its epoch, and its state vector. */
+  | { type: 'join'; held: number | undefined }
   | { type: 'send'; frame: RoomFrame }
+  /** Send the reader's caret. */
+  | { type: 'tell'; carets: RoomCarets }
+  /** Take in where the others' carets are. */
+  | { type: 'carets'; update: Uint8Array }
+  /** The room was left: where the others' carets are is not known any more. */
+  | { type: 'unseen' }
   /** Merge into the document held. */
   | { type: 'apply'; update: Uint8Array }
   /** Drop the document held, if any, and hold a new one made of this. */
@@ -85,6 +110,8 @@ export type RoomEffect =
   | { type: 'drop' }
   /** Say (`missing`) what the document held has that `have` lacks. */
   | { type: 'offer'; have: Uint8Array }
+  /** Say (`missing`) what the document held has that a holder of the state vector `theirs` lacks. */
+  | { type: 'answer'; theirs: Uint8Array }
   /** Changes of the reader were dropped with their document; `why` is a reason of the server's, or `document_reset`. */
   | { type: 'discarded'; why: string }
   | { type: 'timer'; timer: RoomTimer; wait: number }

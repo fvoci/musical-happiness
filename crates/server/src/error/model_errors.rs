@@ -19,6 +19,13 @@ impl From<BlockError> for AppError {
                 Self::bad_request(error).with_field("fields")
             }
             BlockError::AfterNotSibling => Self::bad_request(error).with_field("after"),
+            BlockError::PageTooDeep { limit } => Self::bad_request(error)
+                .with_reason(Reason::PageTooDeep)
+                .with_limit(u64::from(limit))
+                .with_field("parentId"),
+            BlockError::TooManyPages { limit } => Self::bad_request(error)
+                .with_reason(Reason::TooManyPages)
+                .with_limit(u64::from(limit)),
             BlockError::InvalidRelation(error) => Self::from(error),
             BlockError::TypeNotCurrent(_)
             | BlockError::TypeStrandsComments

@@ -10,14 +10,18 @@
  * editors; a body is written with the `updateAt` it was read at (409 when the
  * page changed since, what its room took counted first) and kept as a
  * version around the write, as a card's is; deleting a page takes every page
- * below it along, and their comments, and tells of the page alone. The
- * comments on a page are `page-comments.ts`'.
+ * below it along, and their comments, and tells of the page alone; bringing
+ * it back brings them, below the page it was below or, that one gone, last at
+ * the top (`crates/store/src/page_trash.rs`). The comments on a page are
+ * `page-comments.ts`'.
  */
 import type { DocNode } from '../../editor/schema.ts';
+import { PAGE_TITLE_MAX } from '../../logic/page-tree.ts';
 import { createBoard, type Board, type BoardKind } from '../../logic/wire.ts';
-import { BackendError, type BodyWrite, type Comment, type CommentVersion } from '../backend.ts';
+import { BackendError, type DeletedItem, type Paging } from '../backend.ts';
 import type {
   PageDraft,
+  PageMove,
   PagePatch,
   WikiDraft,
   WikiPage,
@@ -28,11 +32,11 @@ import type {
 import { memberRole } from './board-access.ts';
 import { checkedWhole } from './bodies.ts';
 import { MemoryBodyVersions, writtenWhole } from './body-versions.ts';
-import * as comments from './page-comments.ts';
-import { orderBetween } from './page-order.ts';
+import { MemoryPageComments, type OnPage } from './page-comments.ts';
+import { DEFAULT_LIMITS, PageTree, type PageLimits, type Place } from './page-tree.ts';
 import { fail } from './refuse.ts';
 import { copy, memberOf, orderOf, pageOf, scramble } from './shapes.ts';
-import { deletion } from './trash.ts';
+import { deletedPagesOf, deletion } from './trash.ts';
 import type { StoredBlock, StoredCard, World } from './world.ts';
 
 /** What the wikis share with the backend they are of. */
@@ -43,18 +47,7 @@ export interface WikiHost {
   readonly latency: number;
 }
 
-/** The most characters of a page's title, as the server takes a block's (`BLOCK_TITLE_MAX_CHARS`). */
-export const PAGE_TITLE_MAX = 16_383;
-
 const isWiki = (board: Board | undefined): board is Board => board?.kind === 'wiki';
-
-/** The order of a page among its siblings: by `order` as code units compare, then by `id`. */
-const byPlace = (first: StoredBlock, second: StoredBlock): number => {
-  const [one, other] = [orderOf(first), orderOf(second)];
-  if (one !== other) return one < other ? -1 : 1;
-  if (first.id === second.id) return 0;
-  return first.id < second.id ? -1 : 1;
-};
 
 function detailOf(block: StoredBlock): WikiPageDetail {
   return {
@@ -80,13 +73,16 @@ function checkedTitle(title: string): string {
   return title;
 }
 
-export class MemoryWikis implements Wikis {
+export class MemoryWikis extends MemoryPageComments implements Wikis {
   readonly #host: WikiHost;
   readonly #failures = new Map<keyof Wikis, BackendError>();
+  /** The limits of the tree: the server's defaults, lowered by a test to reach them. */
+  limits: PageLimits = DEFAULT_LIMITS;
   /** Made when first asked: the host's world is not there yet while this is made. */
   #bodyVersions: MemoryBodyVersions | undefined;
 
   constructor(host: WikiHost) {
+    super();
     this.#host = host;
   }
 
@@ -102,6 +98,14 @@ export class MemoryWikis implements Wikis {
       'page',
     );
     return this.#bodyVersions;
+  }
+
+  protected enter(method: keyof Wikis): Promise<void> {
+    return this.#enter(method);
+  }
+
+  protected on(wikiId: string, pageId: string): OnPage {
+    return { world: this.#world, userId: this.#host.userId, wikiId, pageId };
   }
 
   /** Makes the next call of `method` reject with `error`, once. */
@@ -212,20 +216,30 @@ export class MemoryWikis implements Wikis {
     return detailOf(this.#page(wikiId, pageId));
   }
 
-  /** The place of a new page below `parentId`, as `after` asks (`PageDraft.after`). */
-  #placeFor(wikiId: string, parentId: string, after: string | undefined): string {
-    const siblings = this.#pagesOf(wikiId)
-      .filter((block) => block.parentId === parentId)
-      .sort(byPlace);
-    const orderAt = (at: number): string | undefined => {
-      const sibling = siblings[at];
-      return sibling && orderOf(sibling);
-    };
-    if (after === undefined) return orderBetween(orderAt(siblings.length - 1), undefined);
-    if (after === '') return orderBetween(undefined, orderAt(0));
-    const at = siblings.findIndex((block) => block.id === after);
-    if (at < 0) fail(400, 'no page of the same parent', { field: 'after' });
-    return orderBetween(orderAt(at), orderAt(at + 1));
+  /** The pages of the wiki as a tree, for its decisions (`page-tree.ts`). */
+  #tree(wikiId: string): PageTree {
+    return new PageTree(
+      this.#pagesOf(wikiId).map((block) => ({
+        id: block.id,
+        parentId: block.parentId,
+        order: orderOf(block),
+      })),
+    );
+  }
+
+  /** Gives `page` the order of `place`, and its siblings theirs: those numbered anew, changed. */
+  #writePlace(page: StoredBlock, place: Place): StoredBlock[] {
+    const now = this.#world.now();
+    const renumbered = place.renumbered.flatMap(([id, order]) => {
+      const sibling = this.#world.blocks.get(id);
+      if (!sibling) return [];
+      sibling.fields = { ...sibling.fields, order };
+      // As the server: the order alone, who changed it last stays.
+      sibling.updateAt = now;
+      return [sibling];
+    });
+    page.fields = { ...page.fields, order: place.order };
+    return renumbered;
   }
 
   async createPage(wikiId: string, draft: PageDraft): Promise<WikiPageDetail> {
@@ -241,7 +255,9 @@ export class MemoryWikis implements Wikis {
         fail(400, 'the parent is no page of the wiki', { field: 'parentId' });
       }
     }
-    const order = this.#placeFor(wikiId, parentId, draft.after);
+    const tree = this.#tree(wikiId);
+    tree.checkRoom(parentId, 1, 1, this.limits);
+    const place = tree.place(parentId, draft.after);
     const now = this.#world.now();
     const userId = this.#host.userId;
     const page: StoredBlock = {
@@ -253,15 +269,74 @@ export class MemoryWikis implements Wikis {
       schema: 1,
       type: 'page',
       title,
-      fields: { icon, order },
+      fields: { icon },
       body: null,
       createAt: now,
       updateAt: now,
       deleteAt: 0,
     };
+    const renumbered = this.#writePlace(page, place);
     this.#world.blocks.set(page.id, page);
-    this.#tellPages(wikiId, [page]);
+    this.#tellPages(wikiId, [...renumbered, page]);
     return detailOf(page);
+  }
+
+  async movePage(wikiId: string, pageId: string, to: PageMove): Promise<WikiPageDetail> {
+    await this.#enter('movePage');
+    this.#mayWrite(wikiId);
+    const page = this.#page(wikiId, pageId);
+    const parentId = to.parentId === wikiId ? '' : (to.parentId ?? '');
+    const tree = this.#tree(wikiId);
+    tree.checkMove(pageId, parentId, this.limits);
+    // Where it is already: nothing is written, and nobody is told.
+    if (page.parentId === parentId && tree.isAt(pageId, parentId, to.after)) return detailOf(page);
+    const place = tree.place(parentId, to.after, pageId);
+    const renumbered = this.#writePlace(page, place);
+    page.parentId = parentId;
+    page.updateAt = this.#world.now();
+    page.modifiedBy = this.#host.userId;
+    this.#tellPages(wikiId, [...renumbered, page]);
+    return detailOf(page);
+  }
+
+  /** As the server: the page and the pages below it copied right after it, held to the limits. */
+  async duplicatePage(wikiId: string, pageId: string, title?: string): Promise<WikiPageDetail> {
+    await this.#enter('duplicatePage');
+    this.#mayWrite(wikiId);
+    const page = this.#page(wikiId, pageId);
+    const copied = title === undefined ? page.title : checkedTitle(title);
+    const tree = this.#tree(wikiId);
+    const family = tree.below(pageId);
+    tree.checkRoom(page.parentId, tree.height(pageId), family.length, this.limits);
+    const place = tree.place(page.parentId, pageId);
+    const world = this.#world;
+    // What is typed in the bodies now is copied too.
+    for (const id of family) world.bodyFlushed?.(id);
+    const now = world.now();
+    const userId = this.#host.userId;
+    const ids = new Map(family.map((id) => [id, world.newId()]));
+    const copies = family.flatMap((id) => {
+      const source = world.blocks.get(id);
+      if (!source) return [];
+      const made: StoredBlock = {
+        ...copy(source),
+        id: ids.get(id) ?? world.newId(),
+        parentId: ids.get(source.parentId) ?? source.parentId,
+        createdBy: userId,
+        modifiedBy: userId,
+        createAt: now,
+        updateAt: now,
+        deleteAt: 0,
+      };
+      return [made];
+    });
+    const [top] = copies;
+    if (!top) fail(404, 'no such page');
+    top.title = copied;
+    const renumbered = this.#writePlace(top, place);
+    for (const one of copies) world.blocks.set(one.id, one);
+    this.#tellPages(wikiId, [...renumbered, ...copies]);
+    return detailOf(top);
   }
 
   async patchPage(wikiId: string, pageId: string, patch: PagePatch): Promise<WikiPageDetail> {
@@ -311,41 +386,56 @@ export class MemoryWikis implements Wikis {
     this.#world.tellBoard(wikiId, { kind: 'blocksDeleted', boardId: wikiId, blockIds: [pageId] });
   }
 
-  #on(wikiId: string, pageId: string): comments.OnPage {
-    return { world: this.#world, userId: this.#host.userId, wikiId, pageId };
+  async deletedPages(wikiId: string, paging?: Paging): Promise<DeletedItem[]> {
+    await this.#enter('deletedPages');
+    this.#mayWrite(wikiId);
+    return deletedPagesOf(this.#world, wikiId, paging);
   }
 
-  async comments(wikiId: string, pageId: string): Promise<Comment[]> {
-    await this.#enter('comments');
-    return comments.commentsOf(this.#on(wikiId, pageId));
-  }
-
-  async createComment(wikiId: string, pageId: string, body: DocNode): Promise<Comment> {
-    await this.#enter('createComment');
-    return comments.createComment(this.#on(wikiId, pageId), body);
-  }
-
-  async patchComment(
-    wikiId: string,
-    pageId: string,
-    commentId: string,
-    write: BodyWrite,
-  ): Promise<Comment> {
-    await this.#enter('patchComment');
-    return comments.patchComment(this.#on(wikiId, pageId), commentId, write);
-  }
-
-  async deleteComment(wikiId: string, pageId: string, commentId: string): Promise<void> {
-    await this.#enter('deleteComment');
-    comments.deleteComment(this.#on(wikiId, pageId), commentId);
-  }
-
-  async commentVersions(
-    wikiId: string,
-    pageId: string,
-    commentId: string,
-  ): Promise<CommentVersion[]> {
-    await this.#enter('commentVersions');
-    return comments.versionsOf(this.#on(wikiId, pageId), commentId);
+  /**
+   * As the server: the page at the top of a deletion comes back with all that
+   * went with it, held to the limits; at its place, unless a page made since
+   * has it (then right after the pages before it), or, its parent gone, last
+   * at the top.
+   */
+  async undeletePage(wikiId: string, pageId: string): Promise<WikiPageDetail> {
+    await this.#enter('undeletePage');
+    this.#mayWrite(wikiId);
+    const world = this.#world;
+    const deleted = world.deletedBlocks.get(pageId);
+    const [top] = deleted?.blocks ?? [];
+    if (deleted?.boardId !== wikiId || top?.id !== pageId || top.type !== 'page') {
+      fail(404, 'no such page in the trash');
+    }
+    const { blocks } = deleted;
+    // The comments that went with the pages come back with them; the limits count pages.
+    const pages = blocks.filter((block) => block.type === 'page');
+    const tree = this.#tree(wikiId);
+    const coming = new PageTree(
+      pages.map((block) => ({ id: block.id, parentId: block.parentId, order: orderOf(block) })),
+    );
+    const parentId = top.parentId !== '' && !tree.has(top.parentId) ? '' : top.parentId;
+    tree.checkRoom(parentId, coming.height(pageId), pages.length, this.limits);
+    const order = orderOf(top);
+    const siblings = tree.siblings(parentId);
+    let renumbered: StoredBlock[] = [];
+    if (parentId !== top.parentId) {
+      // Last at the top of the wiki.
+      renumbered = this.#writePlace(top, tree.place('', undefined));
+    } else if (siblings.some((sibling) => sibling.order === order)) {
+      const before = siblings.filter(
+        (sibling) => sibling.order < order || (sibling.order === order && sibling.id < pageId),
+      );
+      renumbered = this.#writePlace(top, tree.place(parentId, before.at(-1)?.id ?? ''));
+    }
+    top.parentId = parentId;
+    world.deletedBlocks.delete(pageId);
+    const now = world.now();
+    for (const block of blocks) {
+      [block.updateAt, block.modifiedBy] = [now, this.#host.userId];
+      world.blocks.set(block.id, block);
+    }
+    this.#tellPages(wikiId, [...renumbered, ...pages]);
+    return detailOf(top);
   }
 }
