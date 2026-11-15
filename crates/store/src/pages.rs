@@ -12,7 +12,7 @@ use fvoci_model::{
 };
 use serde_json::Value;
 
-use crate::db::{Id, Scope};
+use crate::db::{Id, Param, Scope, now_millis};
 use crate::{Store, StoreError, blocks, boards, comment_places, page_places};
 
 /// What a write of the tree changed: the page it was about, and the siblings whose
@@ -84,7 +84,7 @@ impl Store {
             let place = tree
                 .place(&page.parent_id, new.after.as_deref(), "")
                 .map_err(invalid)?;
-            let renumbered = write_place(scope, &mut page, place, user_id).await?;
+            let renumbered = write_place(scope, &mut page, place).await?;
             blocks::insert_block(scope, &mut page, user_id).await?;
             Ok(PageWrite { page, renumbered })
         })
@@ -132,11 +132,22 @@ impl Store {
             let tree = page_tree(scope, wiki_id).await?;
             tree.check_move(page_id, parent_id, limits)
                 .map_err(invalid)?;
+            // Where it is already: nothing is written, and nobody is told.
+            if page.parent_id == parent_id
+                && tree
+                    .is_at(page_id, parent_id, to.after.as_deref())
+                    .map_err(invalid)?
+            {
+                return Ok(PageWrite {
+                    page,
+                    renumbered: Vec::new(),
+                });
+            }
             let place = tree
                 .place(parent_id, to.after.as_deref(), page_id)
                 .map_err(invalid)?;
             parent_id.clone_into(&mut page.parent_id);
-            let renumbered = write_place(scope, &mut page, place, user_id).await?;
+            let renumbered = write_place(scope, &mut page, place).await?;
             blocks::insert_block(scope, &mut page, user_id).await?;
             Ok(PageWrite { page, renumbered })
         })
@@ -187,32 +198,61 @@ pub(crate) async fn page_nodes(
     Ok(pages)
 }
 
-/// The tree of the wiki's pages, which the wiki is held for.
+/// The tree of the wiki's pages, which the wiki is held for: what its decisions need of
+/// each, and no title or body.
 pub(crate) async fn page_tree(
     scope: &mut Scope<'_>,
     wiki_id: &str,
 ) -> Result<PageTree, StoreError> {
-    Ok(page_nodes(scope, wiki_id).await?.into_iter().collect())
+    let mut sql = scope.sql("SELECT id, parent_id, fields FROM blocks WHERE board_id = ");
+    sql.bind(Id(wiki_id))
+        .push_bind(" AND type = ", BlockType::Page.as_str());
+    let mut pages = Vec::new();
+    for row in &scope.fetch_all(sql).await? {
+        pages.push(PageNode::from(Block {
+            id: row.id(0)?,
+            parent_id: row.id(1)?,
+            fields: row.json_map(2, "fields")?,
+            ..Block::default()
+        }));
+    }
+    Ok(pages.into_iter().collect())
 }
 
 /// Gives `page` the order of `place`, and stores the orders of the siblings it numbers
-/// anew, each as a change of its block by `user_id`. Returns those siblings as stored.
+/// anew. Returns those siblings as stored.
 pub(crate) async fn write_place(
     scope: &mut Scope<'_>,
     page: &mut Block,
     place: Place,
-    user_id: &str,
 ) -> Result<Vec<Block>, StoreError> {
     page.fields
         .insert(PAGE_ORDER_FIELD.to_owned(), Value::from(place.order));
     let mut renumbered = Vec::with_capacity(place.renumbered.len());
     for (sibling_id, order) in place.renumbered {
-        let mut sibling = blocks::get_block(scope, &sibling_id).await?;
-        sibling
-            .fields
-            .insert(PAGE_ORDER_FIELD.to_owned(), Value::from(order));
-        blocks::insert_block(scope, &mut sibling, user_id).await?;
-        renumbered.push(sibling);
+        renumbered.push(write_order(scope, &sibling_id, order).await?);
     }
     Ok(renumbered)
+}
+
+/// Stores a new order of a page and nothing else of it: who changed it last stays, and
+/// nothing that follows from a block (its files, what a search holds of it) reads its
+/// order. Its `updateAt` moves on, so that whoever holds it takes the change. Returns
+/// the page as stored.
+async fn write_order(
+    scope: &mut Scope<'_>,
+    page_id: &str,
+    order: String,
+) -> Result<Block, StoreError> {
+    let mut page = blocks::get_block(scope, page_id).await?;
+    page.fields
+        .insert(PAGE_ORDER_FIELD.to_owned(), Value::from(order));
+    page.update_at = now_millis().max(page.update_at.saturating_add(1));
+    let mut sql = scope.sql("UPDATE blocks SET fields = ");
+    sql.bind(Param::json(&page.fields)?)
+        .push_bind(", update_at = ", page.update_at)
+        .push_bind(" WHERE id = ", Id(page_id))
+        .push_bind(" AND board_id = ", Id(&page.board_id));
+    scope.execute(sql).await?;
+    Ok(page)
 }

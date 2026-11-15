@@ -25,7 +25,8 @@ pub const PAGE_ORDER_FIELD: &str = "order";
 
 /// The digits of an order, least first. They are in the order of their bytes, so that
 /// the server's comparison and a client's comparison of strings agree.
-const DIGITS: &[u8; 62] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+pub(crate) const DIGITS: &[u8; 62] =
+    b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 
 /// How many digits there are: one more than the index of the greatest.
 const BASE: usize = DIGITS.len();

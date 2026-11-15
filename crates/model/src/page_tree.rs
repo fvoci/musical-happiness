@@ -2,13 +2,13 @@
 //! and how many, and the place a page takes among its siblings, with its siblings
 //! numbered anew where there is no room left between them.
 //!
-//! Every write of the tree (making, moving, restoring and copying pages) decides here,
+//! Every write of the tree (making and moving pages) decides here,
 //! over the pages of the wiki read under its lock: the same rules on every database,
 //! and none that a cycle of parents could send round for ever.
 
 use std::collections::{HashMap, HashSet};
 
-use crate::page::{PageNode, is_order, order_between, sort_pages};
+use crate::page::{DIGITS, PageNode, is_order, order_between, sort_pages};
 use crate::{BlockError, OrderError};
 
 /// How deep the pages of a wiki may go when nothing else says: a page at the top is at
@@ -22,7 +22,7 @@ pub const DEFAULT_WIKI_PAGES: u32 = 5_000;
 /// The longest order a page is given: past it, the pages of the parent are numbered
 /// anew. One place asked for again and again grows an order by one character every five
 /// or six pages, so this is some 150 pages put at one place before it happens.
-pub const ORDER_MAX_CHARS: usize = 32;
+pub(crate) const ORDER_MAX_CHARS: usize = 32;
 
 /// How large the tree of a wiki may grow.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -188,8 +188,7 @@ impl PageTree {
         if !parent_id.is_empty() && !self.contains(parent_id) {
             return Err(BlockError::ParentNotOnBoard);
         }
-        let deepest = self.depth(parent_id) + height;
-        if deepest > usize::try_from(limits.depth).unwrap_or(usize::MAX) {
+        if self.depth(parent_id) + height > depth_limit(limits) {
             return Err(BlockError::PageTooDeep {
                 limit: limits.depth,
             });
@@ -218,7 +217,37 @@ impl PageTree {
         if !parent_id.is_empty() && self.below(page_id).contains(&parent_id) {
             return Err(BlockError::ParentBelowBlock);
         }
-        self.check_room(parent_id, self.height(page_id), 0, limits)
+        let height = self.height(page_id);
+        // Pages deeper than a limit lowered since may still move, as long as no deeper.
+        let deepest_now = self.depth(page_id) + height - 1;
+        let deepest = self.depth(parent_id) + height;
+        if deepest > depth_limit(limits) && deepest > deepest_now {
+            return Err(BlockError::PageTooDeep {
+                limit: limits.depth,
+            });
+        }
+        self.check_room(parent_id, 0, 0, limits)
+    }
+
+    /// Whether the page is already below `parent_id` at the place `after` says: a move
+    /// there changes nothing.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BlockError::AfterNotSibling`] if `after` names no other page below the
+    /// parent.
+    pub fn is_at(
+        &self,
+        page_id: &str,
+        parent_id: &str,
+        after: Option<&str>,
+    ) -> Result<bool, BlockError> {
+        let at = place_index(&self.siblings(parent_id, page_id), after)?;
+        let now = self
+            .siblings(parent_id, "")
+            .iter()
+            .position(|page| page.id == page_id);
+        Ok(now == Some(at))
     }
 
     /// The pages below `parent_id`, the empty identifier for the top, but `except`, in
@@ -260,19 +289,30 @@ impl PageTree {
         except: &str,
     ) -> Result<Place, BlockError> {
         let siblings = self.siblings(parent_id, except);
-        let at = match after {
-            None => siblings.len(),
-            Some("") => 0,
-            Some(after) => {
-                siblings
-                    .iter()
-                    .position(|page| page.id == after)
-                    .ok_or(BlockError::AfterNotSibling)?
-                    + 1
-            }
-        };
+        let at = place_index(&siblings, after)?;
         Ok(place_at(&siblings, at))
     }
+}
+
+/// The deepest a page may be, as an index.
+fn depth_limit(limits: PageLimits) -> usize {
+    usize::try_from(limits.depth).unwrap_or(usize::MAX)
+}
+
+/// The index among `siblings` that `after` names: right after the page of that
+/// identifier, first for the empty identifier, and last for `None`.
+fn place_index(siblings: &[PageNode], after: Option<&str>) -> Result<usize, BlockError> {
+    Ok(match after {
+        None => siblings.len(),
+        Some("") => 0,
+        Some(after) => {
+            siblings
+                .iter()
+                .position(|page| page.id == after)
+                .ok_or(BlockError::AfterNotSibling)?
+                + 1
+        }
+    })
 }
 
 /// The place at index `at` of `siblings`, listed in their order: between the orders of
@@ -310,17 +350,15 @@ fn place_at(siblings: &[PageNode], at: usize) -> Place {
     Place { order, renumbered }
 }
 
-/// The digits of an order, least first, as `page.rs` has them.
-const DIGITS: &[u8; 62] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-
-/// How many digits there are.
-const BASE_DIGITS: u8 = 62;
+/// How many digits an order has, for the arithmetic of [`spread_orders`].
+const BASE: u128 = 62;
+const _: () = assert!(DIGITS.len() == 62, "BASE is the number of digits");
 
 /// `count` orders, each after the one before, spread evenly over the orders of as few
 /// digits as leave room between every two: short, and with room at both ends.
 #[must_use]
-pub fn spread_orders(count: usize) -> Vec<String> {
-    let base = u128::from(BASE_DIGITS);
+pub(crate) fn spread_orders(count: usize) -> Vec<String> {
+    let base = BASE;
     // A count is less than any `u128`.
     let slots = u128::try_from(count).unwrap_or(u128::MAX).saturating_add(1);
     // Room for at least one order between every two and at the ends.
@@ -441,6 +479,33 @@ mod tests {
         assert_eq!(
             tree.check_room("b", 1, 2, limits(3, 5)),
             Err(BlockError::TooManyPages { limit: 5 })
+        );
+    }
+
+    #[test]
+    fn pages_deeper_than_a_lowered_limit_move_as_long_as_no_deeper() {
+        let tree = tree();
+        // c is at depth 3, below a limit of 2 lowered since.
+        assert_eq!(tree.check_move("c", "b", limits(2, 100)), Ok(()));
+        assert_eq!(tree.check_move("c", "a", limits(2, 100)), Ok(()));
+        assert_eq!(tree.check_move("b", "", limits(2, 100)), Ok(()));
+        assert_eq!(
+            tree.check_move("d", "b", limits(2, 100)),
+            Err(BlockError::PageTooDeep { limit: 2 })
+        );
+    }
+
+    #[test]
+    fn a_page_is_at_the_place_it_already_has() {
+        let tree = tree();
+        assert_eq!(tree.is_at("d", "", None), Ok(true));
+        assert_eq!(tree.is_at("d", "", Some("a")), Ok(true));
+        assert_eq!(tree.is_at("d", "", Some("")), Ok(false));
+        assert_eq!(tree.is_at("a", "", Some("")), Ok(true));
+        assert_eq!(tree.is_at("b", "", None), Ok(false));
+        assert_eq!(
+            tree.is_at("d", "", Some("d")),
+            Err(BlockError::AfterNotSibling)
         );
     }
 

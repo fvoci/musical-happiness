@@ -130,6 +130,21 @@ async fn a_page_moves_with_what_is_below_it_where_it_is_asked() {
         [b.as_str(), d.as_str(), a.as_str()]
     );
     assert!(in_order(&test, &wiki.id, "").await);
+    // Where it is already: nothing is written.
+    let before = tree_of(&test, &wiki.id).await;
+    let stayed = moved(
+        &test,
+        &user_id,
+        &wiki.id,
+        &d,
+        &to("", Some(&b)),
+        limits(10, 10),
+    )
+    .await
+    .expect("moved where it is");
+    let stored = test.get_block(&d).await.expect("the page");
+    assert_eq!(stayed.page.update_at, stored.update_at, "not written");
+    assert_eq!(tree_of(&test, &wiki.id).await, before);
     test.teardown().await;
 }
 
