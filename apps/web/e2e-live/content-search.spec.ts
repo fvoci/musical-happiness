@@ -3,7 +3,7 @@
  * search server (`tools/live-server.ts`, nine ports up), which finds by the
  * letters: a card is found by a word of its body and opened from the
  * dialog; another person's private board and a card template are not found;
- * a page of a wiki is found by its title and opened over its wiki; a search
+ * a page of a wiki is found by a word of its body and opened over its wiki; a search
  * server that is down is said so, and searched again once it is up.
  */
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
@@ -112,7 +112,7 @@ test('a card is found by a word of its body and opened; what the reader cannot r
   expect(errors).toEqual([]);
 });
 
-test('a page of a wiki is found by its title and opened over its wiki', async ({
+test('a page of a wiki is found by a word of its body and opened over its wiki', async ({
   page,
   baseURL,
 }) => {
@@ -131,10 +131,15 @@ test('a page of a wiki is found by its title and opened over its wiki', async ({
   expect(made.ok(), await made.text()).toBe(true);
   const wiki = (await made.json()) as Schemas['Board'];
   const written = await api.post(`${inWorkspace}/wikis/${wiki.id}/pages`, {
-    data: { title: `Counting the ${word}` },
+    data: { title: 'Counting puffins' },
   });
   expect(written.ok(), await written.text()).toBe(true);
-  const pageId = ((await written.json()) as Schemas['Page']).id;
+  const { id: pageId, updateAt } = (await written.json()) as Schemas['Page'];
+  // A body is sent with when the page it replaces was read.
+  const bodied = await api.patch(`${inWorkspace}/wikis/${wiki.id}/pages/${pageId}`, {
+    data: { body: body(`The ${word} colony grew`), readAt: updateAt },
+  });
+  expect(bodied.ok(), await bodied.text()).toBe(true);
   await expect.poll(() => foundBy(api, workspaceId, word)).toEqual([pageId]);
 
   await page.goto('/');
@@ -150,9 +155,10 @@ test('a page of a wiki is found by its title and opened over its wiki', async ({
   await expect(hits).toHaveCount(1);
   await expect(hits.first()).toHaveAttribute('data-kind', 'page');
   await expect(hits.first().locator('[data-hit-container]')).toHaveText('Lighthouse handbook');
+  await expect(hits.first().locator('mark')).toHaveText(word);
   await page.keyboard.press('Enter');
   await expect(page).toHaveURL(`/w/${workspaceId}/wikis/${wiki.id}/${pageId}`);
-  await expect(page.getByTestId('page-title')).toHaveValue(`Counting the ${word}`);
+  await expect(page.getByTestId('page-title')).toHaveValue('Counting puffins');
   await api.dispose();
   expect(errors).toEqual([]);
 });
