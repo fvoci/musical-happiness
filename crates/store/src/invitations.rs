@@ -162,14 +162,12 @@ impl Store {
     ///
     /// Returns [`StoreError::NotFound`] if the organization has no such workspace in
     /// use, or the workspace no such board or invites no guests to it for a guest's
-    /// link, or the link it is made like is revoked or ended;
+    /// link, or the link it is made like is revoked or ended, or of another board;
     /// [`StoreError::NoOrganization`] if the handle names none; and
     /// [`StoreError::Database`] if a statement fails.
     pub async fn create_invitation(&self, link: &NewLink<'_>) -> Result<Invitation, StoreError> {
         self.transaction(async |scope| {
-            if !link_locks::hold_for_new_link(scope, link).await? {
-                return Err(StoreError::not_found("workspace or board"));
-            }
+            link_locks::hold_for_new_link(scope, link).await?;
             let (role, board_id, board_role) = match link.guest_of {
                 Some((board_id, board_role)) => {
                     (WorkspaceRole::Guest, board_id, Some(board_role.as_str()))
@@ -201,10 +199,15 @@ impl Store {
                     Param::OptText(link.mailed.map(|mailed| mailed.recipient.to_owned())),
                 )
                 .push(&format!(") RETURNING {COLUMNS}"));
-            match scope.fetch_optional(sql).await? {
-                Some(row) => invitation_from_row(&row),
-                None => Err(StoreError::not_found("workspace or board")),
-            }
+            // An insert that returns no row has failed already.
+            let row = scope
+                .fetch_optional(sql)
+                .await?
+                .ok_or(StoreError::Corrupt {
+                    column: "id",
+                    reason: "a stored link was not returned".to_owned(),
+                })?;
+            invitation_from_row(&row)
         })
         .await
     }

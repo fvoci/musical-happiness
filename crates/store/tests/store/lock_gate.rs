@@ -26,9 +26,10 @@ pub(crate) struct Gate {
 }
 
 impl Gate {
-    /// Closes a gate before each `event` (`UPDATE` or `DELETE`) of the rows of `table`
-    /// that `when` picks (a trigger's condition, of `OLD` and `NEW`). A row trigger
-    /// runs once its row is locked: the transaction that stops holds it.
+    /// Closes a gate before each `event` (`INSERT`, `UPDATE` or `DELETE`) of the rows of
+    /// `table` that `when` picks (a trigger's condition, of `OLD` and `NEW`). The
+    /// transaction stops holding what it held before, and for an update or a deletion
+    /// the row too: a row trigger runs once its row is locked.
     pub(crate) async fn before(test: &TestStore, event: &str, table: &str, when: &str) -> Self {
         let mut conn = common::connect_past_the_store(&test.dbconfig()).await;
         let key: i64 = sqlx::query_scalar("SELECT pg_backend_pid()::bigint")

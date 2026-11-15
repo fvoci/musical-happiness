@@ -77,20 +77,26 @@ pub(crate) async fn hold_organization(
     Ok(())
 }
 
-/// Holds what a new link hangs from, in the order above, and says whether it lets the
-/// link be made: its workspace of the handle's organization in use, and for a guest's
-/// link the workspace inviting guests and its board there that is no template; for a
-/// link made like another, that link while it is neither revoked nor ended at `now`.
+/// Holds what a new link hangs from, in the order above: its workspace of the handle's
+/// organization in use, and for a guest's link the workspace inviting guests and its
+/// board there that is no template; for a link made like another, that link, of the
+/// same workspace and board, while it is neither revoked nor ended at `now`.
 ///
 /// No organization's row: a link being made is nothing a deletion waits for. A guest's
 /// link holds the workspace against turning its guest links off, which then waits and
 /// revokes the new link with the others, or comes first and is found; the board, as
 /// its reference does, against its deletion, which comes first and is found, or
 /// waits; and the link it is made like against its revocation, likewise.
+///
+/// # Errors
+///
+/// Returns [`StoreError::NotFound`], naming which, if one of them does not let the link
+/// be made; [`StoreError::NoOrganization`] if the handle names none; and
+/// [`StoreError::Database`] if a statement fails.
 pub(crate) async fn hold_for_new_link(
     scope: &mut Scope<'_>,
     link: &NewLink<'_>,
-) -> Result<bool, StoreError> {
+) -> Result<(), StoreError> {
     let postgres = scope.dialect() == Dialect::Postgres;
     let mut sql = scope.sql("SELECT id FROM workspaces WHERE id = ");
     sql.bind(Id(link.workspace_id))
@@ -103,7 +109,7 @@ pub(crate) async fn hold_for_new_link(
         }
     }
     if scope.fetch_optional(sql).await?.is_none() {
-        return Ok(false);
+        return Err(StoreError::not_found("workspace"));
     }
     if let Some((board_id, _)) = link.guest_of {
         let mut sql = scope.sql("SELECT id FROM boards WHERE id = ");
@@ -115,21 +121,27 @@ pub(crate) async fn hold_for_new_link(
             sql.push(" FOR KEY SHARE");
         }
         if scope.fetch_optional(sql).await?.is_none() {
-            return Ok(false);
+            return Err(StoreError::not_found("board"));
         }
     }
     if let Some(mailed) = link.mailed {
         let mut sql = scope.sql("SELECT id FROM invitations WHERE id = ");
         sql.bind(Id(mailed.parent_id))
             .push_bind(" AND org_id = ", scope.org()?)
-            .push_bind(" AND revoked_at = ", 0_i64)
+            .push_bind(" AND workspace_id = ", Id(link.workspace_id));
+        // Of the board held above: a link of another board is not held after its own.
+        match link.guest_of {
+            Some((board_id, _)) => sql.push_bind(" AND board_id = ", Id(board_id)),
+            None => sql.push(" AND board_id IS NULL"),
+        };
+        sql.push_bind(" AND revoked_at = ", 0_i64)
             .push_bind(" AND expires_at > ", link.now);
         if postgres {
             sql.push(" FOR SHARE");
         }
         if scope.fetch_optional(sql).await?.is_none() {
-            return Ok(false);
+            return Err(StoreError::not_found("invitation"));
         }
     }
-    Ok(true)
+    Ok(())
 }

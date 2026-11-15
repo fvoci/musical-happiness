@@ -1,7 +1,7 @@
 //! Transactions that write the links of invitations, and those that delete what the
 //! links hang from, wait for each other instead of each holding what the other waits
 //! for (`crates/store/src/link_locks.rs`). On PostgreSQL each test stops one
-//! transaction at its first lock of a link or of a workspace, starts the other, lets
+//! transaction once it holds a link, a workspace or a board, starts the other, lets
 //! the first go once the other waits for it, and asks that both end as they should; on
 //! SQLite, whose writers take turns, the two run one after the other.
 
@@ -237,9 +237,36 @@ async fn a_link_mailed_while_guest_links_are_turned_off_waits_and_is_not_made() 
 /// A link made for one recipient of a mailed link names the board of the link it is
 /// made like; deleting the board holds it, and then deletes that link. The new link
 /// holds the board before the link it is made like: asked for while the board is
-/// being deleted, it waits, and is not made.
+/// being deleted, it waits, and is not made. So does a guest's link of its own.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_link_mailed_while_its_board_is_deleted_waits_and_is_not_made() {
+async fn a_link_made_while_its_board_is_deleted_waits_and_is_not_made() {
+    for made in [Made::Mailed, Made::OfItsOwn] {
+        made_while_the_board_is_deleted(made).await;
+    }
+}
+
+/// How a guest's link to the board of another is made.
+#[derive(Debug, Clone, Copy)]
+enum Made {
+    /// Like the other, for one recipient of its mail.
+    Mailed,
+    /// Of its own.
+    OfItsOwn,
+}
+
+/// A guest's link to the board of `parent`, made as `made` says.
+fn on_the_board<'a>(workspace_id: &'a str, parent: &'a Invitation, made: Made) -> NewLink<'a> {
+    let child = mailed_like(workspace_id, parent, "child");
+    match made {
+        Made::Mailed => child,
+        Made::OfItsOwn => NewLink {
+            mailed: None,
+            ..child
+        },
+    }
+}
+
+async fn made_while_the_board_is_deleted(made: Made) {
     let test = common::setup().await;
     let admin = common::user(&test, "admin").await;
     let boards = common::create_test_boards(&test, &test.workspace_id, &admin, 1).await;
@@ -248,12 +275,12 @@ async fn a_link_mailed_while_its_board_is_deleted_waits_and_is_not_made() {
     let parent = link(&test, &admin, "parent", guest_of, None).await;
     if common::db_type() != DbType::Postgres {
         test.delete_board(&board_id, &admin).await.expect("deleted");
-        let made = test
-            .create_invitation(&mailed_like(&test.workspace_id, &parent, "child"))
+        let answer = test
+            .create_invitation(&on_the_board(&test.workspace_id, &parent, made))
             .await;
         assert!(
-            made.as_ref().is_err_and(StoreError::is_not_found),
-            "{made:?}"
+            answer.as_ref().is_err_and(StoreError::is_not_found),
+            "{answer:?}"
         );
         test.teardown().await;
         return;
@@ -268,17 +295,69 @@ async fn a_link_mailed_while_its_board_is_deleted_waits_and_is_not_made() {
     let deleting = gate.stopped(&delete).await;
     let workspace_id = test.workspace_id.clone();
     let making = tokio::spawn(async move {
-        let child = mailed_like(&workspace_id, &parent, "child");
+        let child = on_the_board(&workspace_id, &parent, made);
         maker.create_invitation(&child).await
     });
     gate.waits_for(deleting, &making).await;
     gate.open().await;
 
     ended(delete).await.expect("the board is deleted");
-    let made = ended(making).await;
+    let answer = ended(making).await;
     assert!(
-        made.as_ref().is_err_and(StoreError::is_not_found),
-        "{made:?}"
+        answer.as_ref().is_err_and(StoreError::is_not_found),
+        "{answer:?}"
+    );
+    assert_eq!(
+        unrevoked(&test).await,
+        Vec::<String>::new(),
+        "no link is left"
+    );
+    test.teardown().await;
+}
+
+/// A link made for one recipient of a mailed link before the workspace's guest links
+/// are turned off is held by them: turning them off waits for it, and then revokes it
+/// with the others.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_link_mailed_before_guest_links_are_turned_off_is_revoked_with_them() {
+    let test = common::setup().await;
+    let admin = common::user(&test, "admin").await;
+    let boards = common::create_test_boards(&test, &test.workspace_id, &admin, 1).await;
+    let guest_of = Some((boards[0].id.as_str(), BoardRole::Viewer));
+    let parent = link(&test, &admin, "parent", guest_of, None).await;
+    if common::db_type() != DbType::Postgres {
+        let child = mailed_like(&test.workspace_id, &parent, "child");
+        test.create_invitation(&child).await.expect("made");
+        let turned = test.set_guest_invitations(&test.workspace_id, OFF, &admin);
+        turned.await.expect("turned off");
+        let child = test.unended_invitation("child", NOW).await.expect("asked");
+        assert_eq!(child, None, "revoked with the others");
+        test.teardown().await;
+        return;
+    }
+
+    // The new link stops once it holds what it hangs from, before it is stored.
+    let mut gate = Gate::before(&test, "INSERT", "invitations", "NEW.parent_id IS NOT NULL").await;
+    let turner = gate.second_store(&test).await;
+    let maker = test.store.clone();
+    let workspace_id = test.workspace_id.clone();
+    let making = tokio::spawn(async move {
+        let child = mailed_like(&workspace_id, &parent, "child");
+        maker.create_invitation(&child).await
+    });
+    let holding = gate.stopped(&making).await;
+    let (workspace_id, by) = (test.workspace_id.clone(), admin.clone());
+    let turn_off =
+        tokio::spawn(async move { turner.set_guest_invitations(&workspace_id, OFF, &by).await });
+    gate.waits_for(holding, &turn_off).await;
+    gate.open().await;
+
+    ended(making).await.expect("the link is made");
+    ended(turn_off).await.expect("turned off");
+    assert_eq!(
+        unrevoked(&test).await,
+        Vec::<String>::new(),
+        "revoked with the others"
     );
     test.teardown().await;
 }
