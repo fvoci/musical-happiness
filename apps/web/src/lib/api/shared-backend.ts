@@ -1,7 +1,7 @@
 /**
- * The backend of a reader by a board's public link: the board, its views,
- * cards, comments and files, read by `/api/v1/shared/{boardId}` with the
- * link's read token alone. No session goes along (`credentials: 'omit'`): a
+ * The backend of a reader by a public link: a board's views, cards, comments
+ * and files, or a wiki's tree, pages and files, read by
+ * `/api/v1/shared/{boardId}` with the link's read token alone. No session goes along (`credentials: 'omit'`): a
  * reader who is signed in reads as anyone else does, and nothing of their
  * account mixes in. Nothing is written: every change is refused here,
  * before a request is made. A visit connection counts this reader anonymously;
@@ -26,6 +26,7 @@ import {
 } from '../state/backend.ts';
 import type { CardPreview } from '../editor/card-preview.ts';
 import type { LinkedBlock } from '../state/references.ts';
+import type { Wikis } from '../state/wiki-types.ts';
 import type { Board } from '../logic/wire.ts';
 
 import {
@@ -40,6 +41,7 @@ import {
   type Schemas,
 } from './convert.ts';
 import { Http, type ApiPath } from './http.ts';
+import { pageDetailOf, pageOf } from './wikis.ts';
 
 /** The place the shared board is shown in: no workspace of anybody's. */
 export const SHARED_PLACE = 'shared';
@@ -98,6 +100,38 @@ export class SharedBackend implements Backend {
     },
     to: nothing,
     search: nothing,
+  };
+  /**
+   * A wiki's link reads its tree and its pages, naming nobody, and nothing
+   * else of a wiki (no comments, no versions, no trash, no other wiki);
+   * nothing is changed.
+   */
+  readonly wiki: Wikis = {
+    wikis: nothing,
+    pages: async (wikiId) => {
+      this.#only(wikiId);
+      const nodes = await this.#read<Schemas['PageNode'][]>('/pages');
+      return nodes.map((node) => pageOf(node, wikiId));
+    },
+    page: async (wikiId, pageId) => {
+      this.#only(wikiId);
+      return pageDetailOf(await this.#read<Schemas['Page']>('/pages/{pageId}', { pageId }));
+    },
+    comments: nothing,
+    createComment: refused,
+    patchComment: refused,
+    deleteComment: refused,
+    restoreComment: refused,
+    commentVersions: nothing,
+    bodyVersions: this.bodyVersions,
+    deletedPages: nothing,
+    createWiki: refused,
+    createPage: refused,
+    patchPage: refused,
+    deletePage: refused,
+    undeletePage: refused,
+    movePage: refused,
+    duplicatePage: refused,
   };
   readonly #http: Http;
   readonly #boardId: string;

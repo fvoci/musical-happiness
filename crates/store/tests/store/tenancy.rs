@@ -6,13 +6,14 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use fvoci_model::{
-    AuditAction, BlockType, Board, BoardMember, BoardType, Category, OrgRole, SubscriberType,
-    Subscription, Upload, UploadPart, User, Workspace, WorkspaceRole, is_id, new_id,
+    AuditAction, BlockType, Board, BoardKind, BoardMember, BoardType, Category, OrgRole,
+    SubscriberType, Subscription, Upload, UploadPart, User, Workspace, WorkspaceRole, is_id,
+    new_id,
 };
 use fvoci_store::testing::{GLOBAL_TABLES, ORG_TABLES};
 use fvoci_store::{
-    AuditEntry, DbType, SYSTEM_ORG_ID, SYSTEM_WORKSPACE_ID, SharingChange, Store, StoreError,
-    Tenant,
+    AuditEntry, DbType, SYSTEM_ORG_ID, SYSTEM_WORKSPACE_ID, SharedContainer, SharingChange, Store,
+    StoreError, Tenant,
 };
 use sqlx::Connection as _;
 
@@ -1245,7 +1246,7 @@ async fn assert_the_template_is_the_systems(
     }
     assert_eq!(
         unset
-            .org_of_shared_board(before.id("template"), "the-template-token")
+            .shared_container(before.id("template"), "the-template-token")
             .await
             .expect("the shared board is looked up"),
         None,
@@ -1261,9 +1262,10 @@ async fn assert_the_template_is_the_systems(
     );
     assert_eq!(
         unset
-            .org_of_shared_board(before.id("board"), "the-read-token")
+            .shared_container(before.id("board"), "the-read-token")
             .await
-            .expect("the shared board is looked up"),
+            .expect("the shared board is looked up")
+            .map(|shared| shared.org_id),
         Some(org_id.to_owned()),
         "whose a shared board is"
     );
@@ -1455,13 +1457,43 @@ async fn the_organization_of_a_shared_board_is_for_the_holder_of_its_token() {
 
     let org_of = async |board_id: &str, token: &str| {
         unset
-            .org_of_shared_board(board_id, token)
+            .shared_container(board_id, token)
             .await
             .expect("the shared board is looked up")
+            .map(|shared| shared.org_id)
     };
     assert_eq!(
         org_of(&shared, "the-token").await,
         Some(test.org_id.clone())
+    );
+    // A wiki is shared as a board is, and said to be one: its token reads its pages.
+    let mut wiki = Board {
+        id: new_id(),
+        workspace_id: workspace_id.clone(),
+        kind: BoardKind::Wiki,
+        title: "a wiki".to_owned(),
+        ..Board::default()
+    };
+    test.insert_board(&mut wiki, &user_id)
+        .await
+        .expect("the wiki is stored");
+    test.set_sharing(&wiki.id, SharingChange::On, "the-wiki-token", &user_id)
+        .await
+        .expect("the wiki is shared");
+    assert_eq!(
+        unset
+            .shared_container(&wiki.id, "the-wiki-token")
+            .await
+            .expect("the shared wiki is looked up"),
+        Some(SharedContainer {
+            org_id: test.org_id.clone(),
+            kind: BoardKind::Wiki,
+        })
+    );
+    assert_eq!(
+        org_of(&shared, "the-wiki-token").await,
+        None,
+        "a wiki's token opens no board"
     );
     for (board_id, token, why) in [
         (shared.as_str(), "the-toke", "a part of the token"),
@@ -1832,7 +1864,7 @@ async fn a_row_of_one_organization_under_anothers_parent_counts_for_nothing() {
         "and their workspace is not among the user's: {listed:?}"
     );
     assert_eq!(
-        test.org_of_shared_board(&their_board, "a-forged-token")
+        test.shared_container(&their_board, "a-forged-token")
             .await
             .expect("the sharing is looked up"),
         None,

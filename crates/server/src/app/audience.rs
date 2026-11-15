@@ -7,7 +7,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use cache::Cache;
-use fvoci_model::{Block, BoardMember, Body, PersonProperties};
+use fvoci_model::{Block, BlockType, BoardKind, BoardMember, Body, PersonProperties};
 use fvoci_store::{Store, StoreError, Tenant, VisibilityVersion, WorkspaceAccess};
 
 use crate::permissions::BoardScope;
@@ -63,7 +63,9 @@ impl Audience {
         self.store.if_visibility_current(version, send)
     }
 
-    /// Whether a previously admitted public subscription still has a valid token.
+    /// Whether a previously admitted public subscription still has a valid token: the
+    /// subscriptions of a link follow a board's blocks, which a wiki's token does not
+    /// open.
     ///
     /// # Errors
     ///
@@ -77,9 +79,9 @@ impl Audience {
                 || async {
                     Ok(self
                         .store
-                        .org_of_shared_board(board_id, read_token)
+                        .shared_container(board_id, read_token)
                         .await?
-                        .is_some())
+                        .is_some_and(|shared| shared.kind == BoardKind::Board))
                 },
             )
             .await
@@ -230,7 +232,7 @@ impl Audience {
             .unwrap_or_default();
         let shown = self
             .store
-            .cards_on_board_among(&block.board_id, &named)
+            .blocks_on_board_among(&block.board_id, BlockType::Card, &named)
             .await?;
         Ok(UnsaidByLink { people, shown })
     }

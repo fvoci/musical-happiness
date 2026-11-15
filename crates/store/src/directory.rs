@@ -21,6 +21,7 @@ use fvoci_model::{
 use subtle::ConstantTimeEq as _;
 
 use crate::Store;
+use crate::board_kinds;
 use crate::board_team_access;
 use crate::db::{Dialect, Id, Row, Scope, Sql};
 use crate::error::StoreError;
@@ -705,33 +706,34 @@ impl Store {
         let Some(board_id) = board_id else {
             return Ok(None);
         };
-        Ok(self
-            .org_of_shared_board(&board_id, read_token)
-            .await?
+        // The blocks a token follows are a board's: a wiki's token reads its pages only.
+        let shared = self.shared_container(&board_id, read_token).await?;
+        Ok(shared
+            .filter(|shared| shared.kind == BoardKind::Board)
             .map(|_| board_id))
     }
 
-    /// The organization of a board that is shared, for whoever holds its read token;
-    /// `None` if the board is not shared, is not there, is a wiki, or the token is not
-    /// its own: a read token opens the cards of a board, and a wiki has none.
-    /// Nothing of the system organization is shared, nothing of a workspace or an
-    /// organization that was deleted, and nothing of an organization that turned its
-    /// public links off.
+    /// The board or the wiki that is shared, for whoever holds its read token: its
+    /// organization and its kind, which says what the token reads of it (a board's
+    /// cards, a wiki's pages). `None` if it is not shared, is not there, or the token
+    /// is not its own. Nothing of the system organization is shared, nothing of a
+    /// workspace or an organization that was deleted, and nothing of an organization
+    /// that turned its public links off.
     ///
     /// The tokens are compared without showing through timing where they differ.
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if the query fails.
-    pub async fn org_of_shared_board(
+    pub async fn shared_container(
         &self,
         board_id: &str,
         read_token: &str,
-    ) -> Result<Option<String>, StoreError> {
+    ) -> Result<Option<SharedContainer>, StoreError> {
         self.system()
             .with_conn(async |scope| {
                 let mut sql = scope.sql(
-                    "SELECT t.org_id, s.token FROM sharing AS s \
+                    "SELECT t.org_id, s.token, b.kind FROM sharing AS s \
                      JOIN boards AS b ON b.id = s.board_id \
                      JOIN workspaces AS t ON t.id = b.workspace_id \
                      JOIN organizations AS o ON o.id = t.org_id WHERE s.board_id = ",
@@ -739,7 +741,6 @@ impl Store {
                 sql.bind(Id(board_id))
                     .push_bind(" AND s.enabled = ", true)
                     .push_bind(" AND o.public_links = ", true)
-                    .push_bind(" AND b.kind = ", BoardKind::Board.as_str())
                     .push(IN_USE)
                     .push(&scope.same_organization(&[("s", "b"), ("b", "t")]));
                 let Some(row) = scope.fetch_optional(sql).await? else {
@@ -752,10 +753,23 @@ impl Store {
                 if token.is_empty() || !held {
                     return Ok(None);
                 }
-                row.id(0).map(Some)
+                let kind = board_kinds::kind_from_text(&row.text(2)?)?;
+                Ok(Some(SharedContainer {
+                    org_id: row.id(0)?,
+                    kind,
+                }))
             })
             .await
     }
+}
+
+/// A board or a wiki that a read token opens ([`Store::shared_container`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SharedContainer {
+    /// The organization it is of, which it is read in.
+    pub org_id: String,
+    /// Which of the two it is.
+    pub kind: BoardKind,
 }
 
 impl Store {

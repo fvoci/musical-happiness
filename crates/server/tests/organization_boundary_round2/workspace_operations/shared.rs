@@ -1,4 +1,4 @@
-//! Read-token HTTP paths use the token's board and never reveal people.
+//! Read-token HTTP paths use the token's board or wiki and never reveal people.
 
 use reqwest::multipart::{Form, Part};
 use serde_json::json;
@@ -67,4 +67,52 @@ pub(super) async fn exercise(case: &mut Case) {
     let request = super::with_query(case.request("getSharedFileInfo", at), "readToken", token);
     let info = case.send("getSharedFileInfo", request).await.value();
     assert_eq!(info["name"], name, "public file metadata names this upload");
+}
+
+/// A wiki's link reads its tree and its pages, of this organization, naming nobody.
+pub(super) async fn exercise_wiki(case: &mut Case) {
+    let made = case
+        .run(
+            "createWiki",
+            &[],
+            json!({"title": format!("{} shared wiki", case.label), "type": "P"}),
+        )
+        .await
+        .value();
+    let wiki = case.remember(&made, "id");
+    let made = case
+        .run(
+            "createPage",
+            &[("wikiId", wiki.as_str())],
+            json!({"title": format!("{} shared page", case.label)}),
+        )
+        .await
+        .value();
+    let page = case.remember(&made, "id");
+    let at = &[("boardId", wiki.as_str())];
+    let sharing = case
+        .run("setSharing", at, json!({"enabled": true}))
+        .await
+        .value();
+    let token = sharing["token"].as_str().expect("read token");
+    let of_page = &[("boardId", wiki.as_str()), ("pageId", page.as_str())];
+    for (operation, params, expected) in [
+        ("getSharedPageTree", &at[..], &page),
+        ("getSharedPage", &of_page[..], &page),
+    ] {
+        let request = super::with_query(case.request(operation, params), "readToken", token);
+        let response = case.send(operation, request).await;
+        assert!(
+            response.text().contains(expected.as_str()),
+            "{operation} returns its own content"
+        );
+        assert!(
+            !response.text().contains(&case.user),
+            "{operation} hides user IDs even with a session"
+        );
+        assert!(
+            !response.text().contains(&case.workspace),
+            "{operation} hides the workspace"
+        );
+    }
 }

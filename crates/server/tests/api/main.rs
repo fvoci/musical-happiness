@@ -132,6 +132,7 @@ mod search_versions;
 mod server_lock;
 mod shared;
 mod shared_blocks;
+mod shared_wiki;
 mod sharing;
 mod sidebar;
 mod sidebar_messages;

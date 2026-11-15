@@ -7,7 +7,9 @@ use std::path::Path;
 use std::time::Duration;
 
 use futures_util::{SinkExt as _, StreamExt as _};
-use fvoci_model::{Block, BlockType, Board, BoardPatch, BoardType, Category, new_id};
+use fvoci_model::{Block, BlockType, Board, BoardMember, BoardPatch, BoardType, Category, new_id};
+use fvoci_server::app::Former;
+use fvoci_server::permissions::BoardScope;
 use serde_json::{Value, json};
 use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::Message;
@@ -1175,6 +1177,14 @@ async fn board_with_a_card(th: &TestServer, user_id: &str) -> (Board, Block) {
     (board, block)
 }
 
+/// Who read a board for the invited only, now gone: its `members`.
+fn of_the_invited(members: &[BoardMember]) -> Former<'_> {
+    Former {
+        members,
+        scope: BoardScope::InvitedOnly,
+    }
+}
+
 /// Every message the server sends has exactly the members `contracts/websocket.json`
 /// lists for it, and what it carries has the members of its schema in
 /// `contracts/openapi.json`. The messages come from the hub's broadcasts over a real
@@ -1258,11 +1268,7 @@ async fn messages_match_the_websocket_contract() {
         .hear(&mut socket, "UPDATE_CLIENT_CONFIG")
         .await;
     // The board deletion goes to the former members, with the board's identifiers only.
-    let former = fvoci_server::app::Former {
-        members: &members,
-        scope: fvoci_server::permissions::BoardScope::InvitedOnly,
-    };
-    ws.broadcast_board_delete(ROOT_WORKSPACE_ID, &board.id, former)
+    ws.broadcast_board_delete(ROOT_WORKSPACE_ID, &board.id, of_the_invited(&members))
         .await;
     contract_check.hear(&mut socket, "UPDATE_BOARD").await;
     hear_the_endings(&th, &mut socket, &mut contract_check, &block, &user1.id).await;

@@ -11,6 +11,10 @@
 # the original's name (teammatenamedisplay, teammateNameDisplay).
 ** | teammate
 
+# Skills copied as they are from their sources by `npx skills add` (skills-lock.json):
+# their text is not ours to change.
+.agents/skills/**
+
 # The migrations a database has already run are not changed; 17 renames what they made,
 # and the list of migrations names the files.
 crates/store/schema/*/0001_baseline.sql
@@ -192,6 +196,8 @@ crates/server/tests/api/rooms_access.rs | team.id
 crates/server/tests/api/rooms_access.rs | through a team
 crates/server/tests/api/rooms_access.rs | the team member left
 apps/web/src/lib/features/shell/ShareDialog.svelte | team
+apps/web/src/lib/features/shell/share-words.ts | team
+apps/web/src/lib/state/member-writes.ts | boardteams
 
 # Team membership is reusable across workspace modules; board effects live on the board side.
 crates/model/src/board_teams.rs

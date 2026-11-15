@@ -31,6 +31,7 @@
     <ManagedBoard
       workspace={example.workspace}
       board={example.workspace.board}
+      shown={() => true}
       {router}
       onJoined={() => {
         joined = true;

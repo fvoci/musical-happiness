@@ -44,7 +44,8 @@ import { lastCommentsOf } from './last-comments.ts';
 import { propertyMovesOf } from './property-moves.ts';
 import { authorIds, memberId } from './user-names.ts';
 import { readBoard } from './board-load.ts';
-import { addMemberTo, boardOfWorkspace, roleFlags, roleOf, type CardDrop } from './board-parts.ts';
+import { boardOfWorkspace, roleOf, type CardDrop } from './board-parts.ts';
+import { MemberWrites } from './member-writes.ts';
 import { orderMembers, orderViews } from './order.ts';
 import {
   applyCardPatch,
@@ -164,8 +165,8 @@ export class BoardStore {
   });
   /** Readings again (`#refresh`) begun: the latest is the one that counts. */
   #refreshing = 0;
-  /** Lists of members told by changes: a reading begun before the latest does not replace it. */
-  #membersTold = 0;
+  /** Adding, changing and taking off members (`member-writes.ts`). */
+  readonly #people = new MemberWrites(this);
   #stopWatching: (() => void) | undefined;
 
   constructor(workspace: Workspace, boardId: string) {
@@ -327,7 +328,7 @@ export class BoardStore {
         this.status = 'failed';
         break;
       case 'members':
-        this.#membersTold += 1;
+        this.#people.told += 1;
         this.members = change.members;
         void this.workspace.learnUsers(change.members.map(memberId), { members: true });
         break;
@@ -369,7 +370,7 @@ export class BoardStore {
     const reading = this.#refreshing;
     const cardsBefore = this.cards.map((card) => card.id);
     const viewsBefore = this.views.map((view) => view.id);
-    const membersTold = this.#membersTold;
+    const membersTold = this.#people.told;
     try {
       const [board, views, cards, members] = await readBoard(this.workspace, this.boardId);
       // A newer reading has begun meanwhile: it is the one that counts.
@@ -379,7 +380,7 @@ export class BoardStore {
       const shown = this.cards;
       const read = cards.map((card) => this.#lastComments.settle(card, heard));
       this.cards = reread(shown, read, cardsBefore, (card) => this.#cardWrites.receive(card));
-      if (membersTold === this.#membersTold) {
+      if (membersTold === this.#people.told) {
         this.members = members;
         void this.workspace.learnUsers(members.map(memberId), { members: true });
       }
@@ -704,46 +705,15 @@ export class BoardStore {
 
   /** Makes a person of the workspace a member. Somebody who is a member already keeps their role. */
   addMember(userId: string, role: BoardRole): Promise<void> {
-    return addMemberTo(this, userId, role);
+    return this.#people.add(userId, role);
   }
 
-  async setMemberRole(userId: string, role: BoardRole): Promise<void> {
-    await this.#memberWrite(
-      this.members.map((member) =>
-        member.userId === userId ? { ...member, ...roleFlags(role) } : member,
-      ),
-      () => this.#backend.setMemberRole(this.boardId, userId, role),
-    );
+  setMemberRole(userId: string, role: BoardRole): Promise<void> {
+    return this.#people.setRole(userId, role);
   }
 
-  async removeMember(userId: string): Promise<void> {
-    await this.#memberWrite(
-      this.members.filter((member) => member.userId !== userId),
-      () => this.#backend.removeMember(this.boardId, userId),
-    );
-  }
-
-  /**
-   * Shows a change of the members at once. Refused, they go back and are read
-   * again: what was put back may be older than what arrived meanwhile.
-   */
-  async #memberWrite(optimistic: BoardMember[], send: () => Promise<unknown>): Promise<void> {
-    const before = this.members;
-    this.members = optimistic;
-    try {
-      await send();
-    } catch (error) {
-      this.members = before;
-      this.workspace.report('save', error);
-      const told = this.#membersTold;
-      try {
-        const members = await this.#backend.members(this.boardId);
-        // Members told meanwhile are newer than this reading.
-        if (told === this.#membersTold) this.members = members;
-      } catch {
-        // The next message, or the next reading, brings them.
-      }
-    }
+  removeMember(userId: string): Promise<void> {
+    return this.#people.remove(userId);
   }
 
   // --------------------------------------------------------- open card

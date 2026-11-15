@@ -1,11 +1,13 @@
 <!--
-  The head of a wiki's tree: its icon, its name and its description; for its
-  editors the way to its deleted pages, and for whoever may manage the wiki a
-  menu to edit those and to delete the wiki.
+  The head of a wiki's tree: its icon, its name and its description; the way
+  to its people (to share it, for its admins; to see its members, for the
+  others), for its editors the way to its deleted pages, and for whoever may
+  manage the wiki a menu to edit those and to delete the wiki.
 -->
 <script lang="ts">
   import EllipsisIcon from '@lucide/svelte/icons/ellipsis';
   import PencilIcon from '@lucide/svelte/icons/pencil';
+  import Share2Icon from '@lucide/svelte/icons/share-2';
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
 
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
@@ -20,9 +22,11 @@
     onDelete: () => void;
     /** Opens the wiki's deleted pages (its editors'). */
     onTrash: () => void;
+    /** Opens the wiki's people: shared by its admins, seen by the others. */
+    onShare: () => void;
   }
 
-  let { wiki, onEdit, onDelete, onTrash }: Props = $props();
+  let { wiki, onEdit, onDelete, onTrash, onShare }: Props = $props();
 
   const title = $derived(wiki.wiki?.title || m.wiki_untitled());
   const actions = $derived<MenuAction[]>([
@@ -55,6 +59,15 @@
       </p>
     {/if}
   </div>
+  <IconButton
+    label={wiki.canManage ? m.shell_share() : m.share_members_title()}
+    data-testid="share-wiki"
+    aria-haspopup="dialog"
+    class="text-muted-foreground"
+    onclick={onShare}
+  >
+    <Share2Icon />
+  </IconButton>
   {#if wiki.canEdit}
     <IconButton
       label={m.wiki_trash()}

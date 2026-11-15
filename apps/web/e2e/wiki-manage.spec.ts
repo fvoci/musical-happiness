@@ -1,7 +1,8 @@
 /**
  * Looking after a wiki in the world in memory: deleting a page with those
  * below it, the wiki's own name, description and icon, deleting the wiki and
- * bringing it back from the trash, joining an open wiki, reading one the
+ * bringing it back from the trash, reading an open wiki before joining it and
+ * writing in it after, sharing a wiki from its head, reading one the
  * reader may not change, the tree with the keyboard alone, and the drawer
  * of a phone's width.
  */
@@ -121,7 +122,9 @@ test.describe('a wiki looked after', () => {
     expect(await treeShape(page)).toEqual(['Welcome', '  Getting started', 'Policies']);
   });
 
-  test('an open wiki somebody else made is joined first, then read', async ({ page }) => {
+  test('an open wiki somebody else made is read before it is joined, and written once joined', async ({
+    page,
+  }) => {
     await openApp(page);
     const made = await wikiBySomebodyElse(page, {
       title: 'Design notes',
@@ -129,11 +132,52 @@ test.describe('a wiki looked after', () => {
       page: 'Hello',
     });
     await goInside(page, wikiPath(made.wikiId));
-    const join = page.getByTestId('wiki-join');
-    await expect(join).toContainText('Design notes');
-    await join.getByRole('button').click();
     await expect(page).toHaveURL(wikiPath(made.wikiId, made.pageId));
+    await expect(page.locator('h1[data-testid="page-title"]')).toHaveText('Hello');
+    await expect(page.getByTestId('page-add-icon')).toHaveCount(0);
+    const join = page.getByTestId('wiki-join');
+    await expect(join).toContainText('Join it to write in it');
+    // Its members are there to see, not to change.
+    await showTree(page);
+    await wikiScreen(page).getByTestId('share-wiki').click();
+    const dialog = page.getByTestId('share-dialog');
+    await expect(dialog.getByTestId('share-members').locator('li')).toHaveCount(1);
+    await expect(dialog.getByTestId('share-open')).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    await join.getByRole('button').click();
+    await expect(join).toHaveCount(0);
     await expect(page.getByTestId('page-title')).toHaveValue('Hello');
+    await expect(wikiScreen(page)).toBeFocused();
+    // Its page is now the reader's to write: the body's room let them in to write.
+    await hideTree(page);
+    const body = pageBody(page);
+    await expect(body).toHaveAttribute('contenteditable', 'true');
+    await body.click();
+    await page.keyboard.type('Written after joining');
+    await expect(body).toContainText('Written after joining');
+  });
+
+  test('a wiki is shared from its head: closed and opened to the workspace, and a member added', async ({
+    page,
+  }) => {
+    await openApp(page);
+    await newWiki(page, 'Shared notes');
+    await showTree(page);
+    await wikiScreen(page).getByTestId('share-wiki').click();
+    const dialog = page.getByTestId('share-dialog');
+    await expect(dialog.getByRole('heading', { name: 'Share wiki' })).toBeVisible();
+    // Made open, as "New wiki" makes it; closed and opened again.
+    const open = dialog.getByTestId('share-open');
+    await expect(dialog).toContainText('can read this wiki and join it');
+    await expect(open).toBeChecked();
+    await open.click();
+    await expect(open).not.toBeChecked();
+    await open.click();
+    await expect(open).toBeChecked();
+    await dialog.getByTestId('share-candidates').getByRole('button').first().click();
+    await expect(dialog.getByTestId('share-members').locator('li')).toHaveCount(2);
+    // A wiki's public link is offered as a board's is.
+    await expect(dialog.getByTestId('share-public')).toBeVisible();
   });
 
   for (const role of ['viewer', 'commenter']) {
@@ -333,7 +377,15 @@ test.describe('screens', () => {
       await shot('sidebar');
       await hideSidebar(page);
 
-      // An open wiki of somebody else's, to be joined.
+      // Its people, from the head of the tree.
+      await showTree(page);
+      await wikiScreen(page).getByTestId('share-wiki').click();
+      await expect(page.getByTestId('share-dialog')).toBeVisible();
+      await shot('share');
+      await page.keyboard.press('Escape');
+      await expect(page.getByTestId('share-dialog')).toHaveCount(0);
+
+      // An open wiki of somebody else's, read before it is joined.
       const made = await wikiBySomebodyElse(page, { title: '디자인 노트', type: 'O', page: '색' });
       await goInside(page, wikiPath(made.wikiId));
       await expect(page.getByTestId('wiki-join')).toBeVisible();

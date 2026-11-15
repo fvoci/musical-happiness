@@ -56,6 +56,7 @@ import type {
 import { ROOM_LIMITS } from '../../logic/doc-room.ts';
 
 import { leftByWriters, roomWrote, typedBy, writersLeft } from './body-versions.ts';
+import { reads } from './board-access.ts';
 import { roleOn } from './comments.ts';
 import { changeOf, imageFileIds, LIMITS } from './shapes.ts';
 import { MemoryCarets } from './room-carets.ts';
@@ -204,7 +205,8 @@ export class MemoryRooms {
   #modeOf(user: RoomUser, boardId: string, cardId: string): DocMode | undefined {
     if (!this.#card(boardId, cardId)) return undefined;
     const role = roleOn(this.#world.members.get(boardId) ?? [], user.userId);
-    if (role === '') return undefined;
+    // An open wiki's page is read by whoever works there: written only by its editors.
+    if (role === '') return reads(this.#world, user.userId, boardId) ? 'read' : undefined;
     return role === 'admin' || role === 'editor' ? 'write' : 'read';
   }
 

@@ -371,6 +371,28 @@ fn wiki_ops() -> Vec<Op> {
             None,
         ),
         op("pages: trash", Method::GET, "/wikis/{c}/trash/pages", None),
+        op(
+            "pages: comments",
+            Method::GET,
+            "/wikis/{c}/pages/{p}/comments",
+            None,
+        ),
+        op(
+            "pages: comment",
+            Method::POST,
+            "/wikis/{c}/pages/{p}/comments",
+            Json(|_, _| {
+                json!({"body": {"type": "doc", "content": [{"type": "paragraph", "content": [
+                    {"type": "text", "text": "said"}
+                ]}]}})
+            }),
+        ),
+        op(
+            "pages: versions",
+            Method::GET,
+            "/wikis/{c}/pages/{p}/body-versions",
+            None,
+        ),
         Op {
             prepare: Prepare::DeletePage,
             ..op(
@@ -383,51 +405,43 @@ fn wiki_ops() -> Vec<Op> {
     ]
 }
 
-/// The operations of a page's comments and of the versions of its body.
+/// The operations of a page's comments and of the versions of its body besides those
+/// with the pages ([`wiki_ops`]: the list, writing one, the list of versions): one
+/// comment's versions, its change, deletion and restoring, a version, going back to it.
 fn page_ops() -> Vec<Op> {
     use Body::{Json, None};
-    const COMMENTS: &str = "/wikis/{c}/pages/{p}/comments";
     const COMMENT: &str = "/wikis/{c}/pages/{p}/comments/{comment}";
-    const VERSIONS: &str = "/wikis/{c}/pages/{p}/body-versions";
     vec![
-        op("page comments: list", Method::GET, COMMENTS, None),
         op(
-            "page comments: write",
-            Method::POST,
-            COMMENTS,
-            Json(|_, _| json!({"body": said("mine")})),
-        ),
-        op(
-            "page comments: versions",
+            "pages: comment versions",
             Method::GET,
             "/wikis/{c}/pages/{p}/comments/{comment}/versions",
             None,
         ),
         op(
-            "page comments: change",
+            "pages: comment change",
             Method::PATCH,
             COMMENT,
             Json(|things, _| json!({"body": said("changed"), "readAt": things.comment_at})),
         ),
-        op("page comments: delete", Method::DELETE, COMMENT, None),
+        op("pages: comment delete", Method::DELETE, COMMENT, None),
         Op {
             prepare: Prepare::DeleteComment,
             ..op(
-                "page comments: undelete",
+                "pages: comment undelete",
                 Method::POST,
                 "/wikis/{c}/pages/{p}/comments/{comment}/undelete",
                 Json(|_, _| json!({})),
             )
         },
-        op("page versions: list", Method::GET, VERSIONS, None),
         op(
-            "page versions: get",
+            "pages: version",
             Method::GET,
             "/wikis/{c}/pages/{p}/body-versions/{version}",
             None,
         ),
         op(
-            "page versions: restore",
+            "pages: version restore",
             Method::POST,
             "/wikis/{c}/pages/{p}/body-versions/{version}/restore",
             None,
@@ -933,10 +947,10 @@ async fn the_wiki_differs_from_the_board_only_where_an_open_wiki_is_read() {
         "references: resolve",
         "pages: tree",
         "pages: get",
-        "page comments: list",
-        "page comments: versions",
-        "page versions: list",
-        "page versions: get",
+        "pages: comments",
+        "pages: versions",
+        "pages: comment versions",
+        "pages: version",
     ];
     let viewer = column("viewer");
     for row in reads {
@@ -959,11 +973,11 @@ async fn the_wiki_differs_from_the_board_only_where_an_open_wiki_is_read() {
     // Nor does who has not joined it write on its pages: a comment, a change or the
     // removal of the admin's, bringing that back, or a version of the body.
     for row in [
-        "page comments: write",
-        "page comments: change",
-        "page comments: delete",
-        "page comments: undelete",
-        "page versions: restore",
+        "pages: comment",
+        "pages: comment change",
+        "pages: comment delete",
+        "pages: comment undelete",
+        "pages: version restore",
     ] {
         assert_eq!(
             row_of(&wiki, row)[unjoined],

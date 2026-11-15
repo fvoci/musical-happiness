@@ -18,6 +18,7 @@ pub(super) async fn exercise(
     account(case).await;
     organization(case).await;
     shared::exercise(case).await;
+    shared::exercise_wiki(case).await;
     invitation(case, server, smtp).await;
     recovery(case, server, smtp).await;
     identity::exercise(case, server, fake).await;

@@ -1,4 +1,9 @@
-/** Content belongs to members: open boards ask others to join; private ones are missing. */
+/**
+ * Content belongs to members: open boards ask others to join; private ones are
+ * missing. An open wiki is read by whoever works in the workspace, as a viewer
+ * reads it, without joining it: only joined do they write in it. This world has
+ * no guests: everybody in it works there.
+ */
 import type { BoardKind } from '../../logic/wire.ts';
 
 import { roleOn, type Role } from './comments.ts';
@@ -19,8 +24,25 @@ export function memberRole(
   if (!board || (kind !== 'any' && (board.kind ?? 'board') !== kind)) fail(404, 'no such board');
   const role = roleOn(world.members.get(boardId) ?? [], userId);
   if (role !== '') return role;
+  if (isOpenWiki(board) && world.workspaceMembers.has(userId)) return 'viewer';
   if (board.type === 'O') fail(403, 'access denied to board');
   fail(404, 'no such board');
+}
+
+/**
+ * Whether the user reads the board: has a role on it, or works in the
+ * workspace of an open wiki.
+ */
+export function reads(world: World, userId: string, boardId: string): boolean {
+  const board = world.boards.get(boardId);
+  if (!board) return false;
+  if (roleOn(world.members.get(boardId) ?? [], userId) !== '') return true;
+  return isOpenWiki(board) && world.workspaceMembers.has(userId);
+}
+
+/** An open wiki: read by whoever works in its workspace. */
+export function isOpenWiki(board: { type: string; kind?: string }): boolean {
+  return board.type === 'O' && board.kind === 'wiki';
 }
 
 /** A local blob URL grants direct access, so do not make or return it for a nonmember. */
@@ -30,8 +52,7 @@ export function memberFileUrl(
   boardId: string,
   fileId: string,
 ): string | undefined {
-  if (!world.boards.has(boardId) || roleOn(world.members.get(boardId) ?? [], userId) === '')
-    return undefined;
+  if (!reads(world, userId, boardId)) return undefined;
   const file = world.files.get(fileId);
   if (file?.boardId !== boardId || !file.blob) return undefined;
   file.url ??= URL.createObjectURL(file.blob);
