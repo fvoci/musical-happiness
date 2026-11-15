@@ -121,18 +121,65 @@ impl App {
                 .await
                 .map_err(refused_without_parent)?
         };
-        let files = self
-            .copy_and_update_card_files(wiki_id, user_id, &mut pages)
-            .await;
+        self.give_copies_their_files(wiki_id, &mut pages).await;
         log_notification(ChangeNotification::Send, ChangeAction::Add, page_id);
-        // The copies are stored whatever became of their files, so they are told of
-        // whatever became of their files.
-        let page = pages.first().cloned().map(Page::from);
+        let page = pages
+            .first()
+            .cloned()
+            .map(Page::from)
+            .ok_or_else(|| AppError::not_found("page"))?;
         let mut told = renumbered;
         told.extend(pages);
         self.announce(&wiki.workspace_id, told);
-        files?;
-        page.ok_or_else(|| AppError::not_found("page"))
+        Ok(page)
+    }
+
+    /// Gives the images of the copies files of their own, as a card's duplicate's are:
+    /// the bodies pointed at them are part of the copy, not a change of it, so the copies
+    /// begin without versions. The copies are stored whatever becomes of their files: a
+    /// failure is logged, and the copies keep showing the files of the originals. Copies
+    /// deleted meanwhile (with a page above them) are left out of `pages`, not to be told.
+    async fn give_copies_their_files(&self, wiki_id: &str, pages: &mut Vec<Block>) {
+        let mut showing: Vec<Block> = pages
+            .iter()
+            .filter(|page| {
+                page.body
+                    .as_ref()
+                    .is_some_and(|body| !body.file_ids().is_empty())
+            })
+            .cloned()
+            .collect();
+        if showing.is_empty() {
+            return;
+        }
+        self.copy_card_files_into(wiki_id, &mut showing).await;
+        let bodies = showing
+            .iter()
+            .map(|page| (page.id.clone(), page.body.clone()))
+            .collect();
+        match self
+            .store()
+            .replace_bodies_as_written(wiki_id, bodies)
+            .await
+        {
+            Ok(()) => {
+                for page in pages.iter_mut() {
+                    if let Some(renamed) = showing.iter_mut().find(|one| one.id == page.id) {
+                        page.body = renamed.body.take();
+                    }
+                }
+            }
+            Err(error) => {
+                tracing::error!(wiki_id, %error, "the copies of pages could not be given their files");
+                if !error.is_not_found() {
+                    return;
+                }
+                if let Ok(tree) = self.store().get_page_tree(wiki_id).await {
+                    let live: PageTree = tree.into_iter().collect();
+                    pages.retain(|page| live.contains(&page.id));
+                }
+            }
+        }
     }
 
     /// The wiki's pages in the trash at the top of what went with them, one page of the

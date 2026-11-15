@@ -39,7 +39,6 @@ fn image_of(body: &Value) -> Option<String> {
 async fn a_page_is_copied_with_those_below_it_its_images_given_files_and_told_of() {
     let ts = Setup::native().start().await.init_basic().await;
     let client = &ts.client;
-    let me = client.me().await.id;
     let (wiki_id, wiki) = wiki(client).await;
     let a = make(client, &wiki, "", "Welcome").await;
     let b = make(client, &wiki, &a.id, "Getting started").await;
@@ -54,7 +53,20 @@ async fn a_page_is_copied_with_those_below_it_its_images_given_files_and_told_of
         .await
         .check_ok();
 
-    let mut socket = WorkspaceSocket::subscribe(&ts, client, TEST_WORKSPACE_ID, &me).await;
+    client
+        .patch(&format!("{wiki}/pages/{}", a.id), &json!({"icon": "📘"}))
+        .await
+        .check_ok();
+    // Another editor of the wiki hears of the copies.
+    let other = ts.client2.me().await.id;
+    client
+        .post(
+            &format!("{TEST_WS}/boards/{wiki_id}/members"),
+            &json!({"boardId": wiki_id, "userId": other, "schemeEditor": true}),
+        )
+        .await
+        .check_ok();
+    let mut socket = WorkspaceSocket::subscribe(&ts, &ts.client2, TEST_WORKSPACE_ID, &other).await;
     let copy: Page = client
         .post(
             &format!("{wiki}/pages/{}/duplicate", a.id),
@@ -63,6 +75,7 @@ async fn a_page_is_copied_with_those_below_it_its_images_given_files_and_told_of
         .await
         .created_json();
     assert_eq!(copy.title, "Welcome (copy)");
+    assert_eq!(copy.icon, "📘", "its icon too");
     assert_ne!(copy.id, a.id);
     let tree: Vec<PageNode> = client.get(&format!("{wiki}/pages")).await.ok_json();
     let top: Vec<&str> = tree
@@ -94,6 +107,14 @@ async fn a_page_is_copied_with_those_below_it_its_images_given_files_and_told_of
         .get(&format!("{TEST_WS}/boards/{wiki_id}/files/{copied_file}"))
         .await
         .check_ok();
+    // The copy begins without versions of its body (no route reads a page's yet), the
+    // original keeps its own.
+    let kept = |id: String| {
+        let store = ts.app.store().clone();
+        async move { store.body_versions(&id).await.expect("the versions").len() }
+    };
+    assert_eq!(kept(copied_b.id.clone()).await, 0);
+    assert_ne!(kept(b.id.clone()).await, 0);
     // The original keeps its own.
     let original: Page = client
         .get(&format!("{wiki}/pages/{}", b.id))

@@ -7,7 +7,7 @@
 //! original's files: the caller gives the copies files of their own afterwards, as a
 //! card's duplicate does.
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 
 use fvoci_model::{Block, PageLimits, generate_block_ids};
 
@@ -78,32 +78,36 @@ impl Store {
     }
 }
 
+/// How many pages are asked for at a time: a wiki's limit may be configured past what
+/// one statement may bind.
+const PAGES_AT_ONCE: usize = 500;
+
 /// The page and the pages below it as they are stored, the page first and then in the
-/// order of `family` (a parent before what is below it), each made anew: no times, no
-/// one who made or changed it.
+/// order of `family` (a parent before what is below it).
 async fn family_of(
     scope: &mut Scope<'_>,
     wiki_id: &str,
     page_id: &str,
     family: &[String],
 ) -> Result<Vec<Block>, StoreError> {
-    let mut sql = select_blocks(scope);
-    sql.push_bind(" WHERE board_id = ", Id(wiki_id))
-        .push(" AND type = 'page' AND id IN (")
-        .bind_list(family.iter().map(|id| Id(id)))
-        .push(")");
-    let mut found = fetch_blocks(scope, sql).await?;
-    let wanted: HashSet<&str> = family.iter().map(String::as_str).collect();
-    found.retain(|block| wanted.contains(block.id.as_str()));
-    found.sort_by_key(|block| family.iter().position(|id| *id == block.id));
+    let mut found = Vec::with_capacity(family.len());
+    for ids in family.chunks(PAGES_AT_ONCE) {
+        let mut sql = select_blocks(scope);
+        sql.push_bind(" WHERE board_id = ", Id(wiki_id))
+            .push(" AND type = 'page' AND id IN (")
+            .bind_list(ids.iter().map(|id| Id(id)))
+            .push(")");
+        found.extend(fetch_blocks(scope, sql).await?);
+    }
+    let rank: HashMap<&str, usize> = family
+        .iter()
+        .enumerate()
+        .map(|(at, id)| (id.as_str(), at))
+        .collect();
+    found.sort_by_cached_key(|block| rank.get(block.id.as_str()).copied());
     if found.first().is_none_or(|block| block.id != page_id) {
         return Err(StoreError::not_found(format_args!("page ID={page_id}")));
     }
-    for block in &mut found {
-        block.created_by.clear();
-        block.modified_by.clear();
-        block.create_at = 0;
-        block.update_at = 0;
-    }
+    // Who made them and when is the copy's: the insert says so.
     Ok(found)
 }
