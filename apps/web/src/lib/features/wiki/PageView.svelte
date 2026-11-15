@@ -19,7 +19,7 @@
   import { onDestroy, untrack, type Snippet } from 'svelte';
 
   import { autosize } from '$lib/components/autosize.ts';
-  import { isComposing } from '$lib/components/keys.ts';
+  import { isComposing } from '$lib/keys.ts';
   import ActionMenu from '$lib/components/menu/ActionMenu.svelte';
   import type { MenuAction } from '$lib/components/menu/actions.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';

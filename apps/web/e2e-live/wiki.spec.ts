@@ -6,6 +6,7 @@
  */
 import { expect, test, type WebSocketRoute } from '@playwright/test';
 
+import { documentBoundary } from '../e2e/keyboard.support.ts';
 import { sidebar } from '../e2e/shell.support.ts';
 import {
   nameThePage,
@@ -375,7 +376,7 @@ test('a connection that drops leaves a page read-only, and once back the reader 
   await expect.poll(() => sockets.length).toBeGreaterThan(count);
   await expect(body).toHaveAttribute('data-editor', 'ready');
   await pageBody(page).click();
-  await page.keyboard.press('Control+End');
+  await documentBoundary(page, 'end');
   await page.keyboard.type(' After it.');
   await expect.poll(storedText, { timeout: 15_000 }).toContain('Before the tunnel. After it.');
   expect(errors).toEqual([]);

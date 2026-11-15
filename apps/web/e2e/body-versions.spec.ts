@@ -13,6 +13,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { boardPath } from './address.ts';
 import { focusAtEnd } from './embeds.support.ts';
+import { primaryKey } from './keyboard.support.ts';
 import { screensDir } from './screens.ts';
 
 test.describe.configure({ mode: 'parallel', timeout: 90_000 });
@@ -162,8 +163,9 @@ test('the versions of a body are listed and read, and one is restored: not an un
 
   // The restore is no step of the editor's undo: undoing brings nothing typed back.
   await editor(page).click();
-  await page.keyboard.press('Control+z');
-  await page.keyboard.press('Control+z');
+  const undo = await primaryKey(page, 'z');
+  await page.keyboard.press(undo);
+  await page.keyboard.press(undo);
   await expect(editor(page).locator('> *')).toHaveText(before);
 
   // What was typed is a version, and the body restored the newest: the card has it now.
