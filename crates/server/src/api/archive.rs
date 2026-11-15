@@ -239,8 +239,8 @@ async fn handle_import(ws: Ws, body: Bytes) -> ApiResult {
 }
 
 /// Sends an archive, written whole before, as the download the original sends, with its
-/// length. The export's `slot` and its file are held until the archive is sent, the
-/// client goes away, or the download stalls (`app::download`).
+/// length. The export's `slot` and its file are held until the last piece of the
+/// archive is read, the client goes away, or the download stalls (`app::download`).
 fn archive_response(
     app: &App,
     archive: ExportedArchive,

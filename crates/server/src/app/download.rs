@@ -1,10 +1,13 @@
 //! Sending an export, and taking it back from a client that stopped reading.
 //!
 //! An export holds its place among the exports that run ([`Slot`]) and its temporary
-//! file until the archive is sent or the client goes away: the limit on exports is a
-//! limit on the disk they take at once. A client that stops reading would hold both as
-//! long as its connection lasts; the body's stream is then not even polled again (the
-//! socket takes nothing more), so no timer inside it would fire. A watch beside it sees
+//! file until the last piece of the archive is read, or the client goes away: the limit
+//! on exports is a limit on the disk they take at once. Both are given back before the
+//! last piece is handed over, so that a client that has the whole archive finds the
+//! file gone and the place free, and its next export is not refused for this one. A
+//! client that stops reading would hold both as long as its connection lasts; the
+//! body's stream is then not even polled again (the socket takes nothing more), so no
+//! timer inside it would fire. A watch beside it sees
 //! how far the sending got, and when nothing went out for the stall time it takes the
 //! file and the place away (the file is closed and removed, then the place is free) and
 //! breaks the connection, with what the handler gave it for that; a stream polled after
@@ -31,17 +34,15 @@ use super::export::ExportedArchive;
 /// How much of the archive one poll of the stream sends.
 const PIECE_BYTES: usize = 64 * 1024;
 
-/// What a download holds while it is sent. Dropped, it removes the archive's file and
-/// then gives the place back, in that order: the place stands for the disk the file takes.
+/// What a download holds while it is read: the archive and the place, or nothing once
+/// they are given back. Dropped, it removes the archive's file and then gives the place
+/// back, in that order: the place stands for the disk the file takes.
 #[derive(Debug)]
-struct Held {
-    archive: Option<ExportedArchive>,
-    slot: Option<Slot>,
-}
+struct Held(Option<(ExportedArchive, Slot)>);
 
 impl Drop for Held {
     fn drop(&mut self) {
-        let (Some(archive), slot) = (self.archive.take(), self.slot.take()) else {
+        let Some((archive, slot)) = self.0.take() else {
             return;
         };
         if let Ok(runtime) = tokio::runtime::Handle::try_current() {
@@ -55,18 +56,42 @@ impl Drop for Held {
     }
 }
 
+impl Held {
+    /// Gives back what the download held, and waits for it. In a task of its own: the
+    /// file goes before the place also when whoever waits is dropped meanwhile.
+    async fn give_back(mut self) {
+        let Some((archive, slot)) = self.0.take() else {
+            return;
+        };
+        if let Err(error) = tokio::spawn(release(archive, slot)).await {
+            tracing::warn!(%error, "an export's file was not seen to be removed");
+        }
+    }
+}
+
 /// Removes the archive's file, and then gives the place back.
-async fn release(archive: ExportedArchive, slot: Option<Slot>) {
+async fn release(archive: ExportedArchive, slot: Slot) {
     archive.remove().await;
     drop(slot);
+}
+
+/// How far a download is.
+#[derive(Debug)]
+enum Progress {
+    /// Pieces are still to be read: the archive and the place are held.
+    Reading(Held),
+    /// The last piece was read, or reading failed: nothing is held.
+    Read,
+    /// The watch took the archive and the place away from a client that took nothing.
+    GivenUp,
 }
 
 /// A download, shared by its stream and its watch.
 #[derive(Debug)]
 struct Sending {
-    /// `None` once the archive is sent, or taken away. Tokio's lock: it is held across
-    /// the read of a piece, so that the watch never takes the file in the middle of one.
-    held: Mutex<Option<Held>>,
+    /// Tokio's lock: it is held across the read of a piece, so that the watch never
+    /// takes the file in the middle of one.
+    progress: Mutex<Progress>,
     /// How many bytes went out so far.
     sent: AtomicU64,
 }
@@ -84,10 +109,7 @@ pub(crate) fn download(
     cut: impl FnOnce() + Send + 'static,
 ) -> impl Stream<Item = io::Result<Bytes>> + Send + 'static {
     let sending = Arc::new(Sending {
-        held: Mutex::new(Some(Held {
-            archive: Some(archive),
-            slot: Some(slot),
-        })),
+        progress: Mutex::new(Progress::Reading(Held(Some((archive, slot))))),
         sent: AtomicU64::new(0),
     });
     tokio::spawn(watch(Arc::downgrade(&sending), stall, cut));
@@ -102,33 +124,47 @@ pub(crate) fn download(
     })
 }
 
-/// The next piece of the archive; `None` at its end, which gives back what the download
-/// held.
+/// The next piece of the archive; `None` at its end. What the download held is given
+/// back, and that waited for, before the last piece is returned: whoever has the whole
+/// archive finds nothing of it left.
 async fn next_piece(sending: &Sending) -> io::Result<Option<Bytes>> {
-    let mut held = sending.held.lock().await;
-    let Some(archive) = held.as_mut().and_then(|held| held.archive.as_mut()) else {
-        return Err(io::Error::new(
-            io::ErrorKind::TimedOut,
-            "the client took nothing for too long; the export was given up",
-        ));
+    let mut progress = sending.progress.lock().await;
+    let archive = match &mut *progress {
+        Progress::Reading(Held(Some((archive, _)))) => archive,
+        Progress::Reading(Held(None)) | Progress::Read => return Ok(None),
+        Progress::GivenUp => {
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "the client took nothing for too long; the export was given up",
+            ));
+        }
     };
     let mut buffer = BytesMut::with_capacity(PIECE_BYTES);
-    match archive.file.read_buf(&mut buffer).await {
-        Ok(0) => {
-            *held = None;
-            Ok(None)
-        }
-        Ok(read) => {
-            sending
+    let outcome = archive.file.read_buf(&mut buffer).await;
+    let size = archive.size;
+    let (piece, ended) = match outcome {
+        Ok(0) => (Ok(None), true),
+        Ok(bytes) => {
+            let bytes = u64::try_from(bytes).unwrap_or(u64::MAX);
+            let sent = sending
                 .sent
-                .fetch_add(u64::try_from(read).unwrap_or(u64::MAX), Ordering::Relaxed);
-            Ok(Some(buffer.freeze()))
+                .fetch_add(bytes, Ordering::Relaxed)
+                .saturating_add(bytes);
+            (Ok(Some(buffer.freeze())), sent >= size)
         }
-        Err(error) => {
-            *held = None;
-            Err(error)
-        }
+        Err(error) => (Err(error), true),
+    };
+    if !ended {
+        return piece;
     }
+    // The lock is for the read: the watch ends on what it finds from here on, and
+    // need not wait for the file to go.
+    let done = std::mem::replace(&mut *progress, Progress::Read);
+    drop(progress);
+    if let Progress::Reading(held) = done {
+        held.give_back().await;
+    }
+    piece
 }
 
 /// Watches a download: when no byte went out for `stall`, takes what it holds away and
@@ -143,8 +179,8 @@ async fn watch(sending: Weak<Sending>, stall: Duration, cut: impl FnOnce()) {
         let Some(sending) = sending.upgrade() else {
             return;
         };
-        let mut held = sending.held.lock().await;
-        if held.is_none() {
+        let mut progress = sending.progress.lock().await;
+        if !matches!(*progress, Progress::Reading(_)) {
             return;
         }
         // Read under the lock: a piece read while the watch waited for it counts.
@@ -154,7 +190,7 @@ async fn watch(sending: Weak<Sending>, stall: Duration, cut: impl FnOnce()) {
             last_progress = Instant::now();
         }
         if last_progress.elapsed() >= stall {
-            *held = None;
+            *progress = Progress::GivenUp;
             cut();
             tracing::info!(
                 sent,
@@ -177,11 +213,19 @@ mod tests {
 
     /// An archive of four pieces in a file of its own; returns it and where it is.
     async fn archive(name: &str) -> (ExportedArchive, std::path::PathBuf) {
-        let bytes = 4 * PIECE_BYTES;
+        archive_of(name, 4 * PIECE_BYTES, 4 * PIECE_BYTES).await
+    }
+
+    /// An archive said to be of `size` bytes, in a file of its own that has `bytes`.
+    async fn archive_of(
+        name: &str,
+        bytes: usize,
+        size: usize,
+    ) -> (ExportedArchive, std::path::PathBuf) {
         let path = std::env::temp_dir().join(format!("download-{}-{name}", std::process::id()));
         std::fs::write(&path, vec![7; bytes]).expect("the archive is written");
         let file = tokio::fs::File::open(&path).await.expect("opened");
-        let size = u64::try_from(bytes).expect("a size");
+        let size = u64::try_from(size).expect("a size");
         (
             ExportedArchive::new(file, size, Doomed::file(path.clone())),
             path,
@@ -211,7 +255,7 @@ mod tests {
 
     /// A client that takes a piece and then pauses, for less than the stall time each
     /// time but longer than it in all, gets the whole archive; the place is held until
-    /// the end, then the file goes and the place is given back. On the paused clock, so
+    /// the last piece, with which the file is gone and the place given back. On the paused clock, so
     /// that how busy the machine is does not matter.
     #[tokio::test(start_paused = true)]
     async fn a_download_taken_slowly_is_not_given_up() {
@@ -228,10 +272,19 @@ mod tests {
         let mut received = 0;
         while let Some(piece) = pieces.next().await {
             received += piece.expect("not given up").len();
-            assert!(
-                slots.take("other").is_err(),
-                "the place is held while it is sent"
-            );
+            if u64::try_from(received).ok() < Some(size) {
+                assert!(
+                    slots.take("other").is_err(),
+                    "the place is held while it is sent"
+                );
+            } else {
+                // The last piece: whoever has it finds nothing held any more, at once.
+                assert!(!path.exists(), "the file went with the last piece");
+                assert!(
+                    slots.take("other").is_ok(),
+                    "the place is free with the last piece"
+                );
+            }
             tokio::time::sleep(stall * 6 / 10).await;
         }
         assert_eq!(
@@ -255,7 +308,7 @@ mod tests {
         let slots = Slots::new(1);
         let (archive, path) = archive("released").await;
         let slot = slots.take("user").expect("a place");
-        let releasing = release(archive, Some(slot));
+        let releasing = release(archive, slot);
         tokio::pin!(releasing);
         loop {
             let done = futures_util::poll!(releasing.as_mut()).is_ready();
@@ -269,6 +322,65 @@ mod tests {
                 return;
             }
             tokio::task::yield_now().await;
+        }
+    }
+
+    /// A file that ends before the size it was said to have, and one of no bytes at
+    /// all: the stream ends where the file does, and by then nothing is held.
+    #[tokio::test]
+    async fn a_download_that_ends_short_holds_nothing_at_its_end() {
+        for (name, bytes) in [("short", PIECE_BYTES), ("empty", 0)] {
+            let slots = Slots::new(1);
+            let (archive, path) = archive_of(name, bytes, 4 * PIECE_BYTES).await;
+            let slot = slots.take("user").expect("a place");
+            let (is_cut, cut) = connection();
+            let pieces = download(archive, slot, Duration::from_secs(60), cut);
+            tokio::pin!(pieces);
+            let mut received = 0;
+            while let Some(piece) = pieces.next().await {
+                received += piece.expect("read").len();
+                assert!(path.exists(), "{name}: held while more may come");
+            }
+            assert_eq!(received, bytes, "{name}: what the file has");
+            assert!(!path.exists(), "{name}: the file went with the end");
+            assert!(slots.take("user").is_ok(), "{name}: and the place");
+            assert!(!is_cut.load(Ordering::Acquire), "{name}: nothing was cut");
+        }
+    }
+
+    /// A download dropped while pieces remain, and one dropped while its last piece
+    /// waits for the file to go: the file goes before the place either way.
+    #[tokio::test]
+    async fn a_download_that_is_dropped_gives_the_file_back_before_the_place() {
+        for (name, taken) in [("dropped", 1), ("dropped-last", 3)] {
+            let slots = Slots::new(1);
+            let (archive, path) = archive(name).await;
+            let slot = slots.take("user").expect("a place");
+            let (_is_cut, cut) = connection();
+            let mut pieces = Box::pin(download(archive, slot, Duration::from_secs(60), cut));
+            for _ in 0..taken {
+                pieces.next().await.expect("a piece").expect("read");
+            }
+            if taken == 3 {
+                // The last piece is read, and waits for what was held to be given back.
+                assert!(
+                    futures_util::poll!(pieces.next()).is_pending(),
+                    "{name}: not handed over before the file is gone"
+                );
+            }
+            drop(pieces);
+            for _ in 0..10_000 {
+                let free = slots.take("user").is_ok();
+                assert!(
+                    !free || !path.exists(),
+                    "{name}: the place is free while the file is there"
+                );
+                if free {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+            assert!(!path.exists(), "{name}: the file is gone");
         }
     }
 

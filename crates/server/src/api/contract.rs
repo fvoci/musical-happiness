@@ -306,7 +306,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("DeleteBoardsAndBlocks", Members::Only(&["boards"])),
     ("FileForm", Members::AsWritten),
     ("FinishPasswordReset", Members::All),
-    ("CompleteEmailVerification", Members::All),
+    ("CompleteEmailVerification", Members::Only(&["token"])),
     ("RequestEmailVerification", Members::Only(&[])),
     ("RequestPasswordReset", Members::Only(&["email"])),
     ("GuestInvitationsChange", Members::All),

@@ -20,6 +20,7 @@ fn signup(username: &str, email: &str, now: i64) -> Signup {
         password_hash: "hash".to_owned(),
         language: String::new(),
         start: SignupStart::Organization("Ours".to_owned()),
+        browser_hash: String::new(),
         create_at: now,
         expires_at: now + SIGNUP_LIFETIME_MILLIS,
     }
@@ -48,7 +49,7 @@ async fn a_registration_and_an_account_hold_their_names_against_each_other() {
     let store = &test.store;
     let now = now_millis();
     store
-        .create_signup(&signup("Pia", "pia@example.test", now), now)
+        .create_signup(&signup("Pia", "pia@example.test", now), None, now)
         .await
         .expect("stored");
     assert_eq!(
@@ -70,7 +71,7 @@ async fn a_registration_and_an_account_hold_their_names_against_each_other() {
     assert_eq!(
         taken(
             store
-                .create_signup(&signup("pia", "x@example.test", now), now)
+                .create_signup(&signup("pia", "x@example.test", now), None, now)
                 .await
         ),
         Taken::Username,
@@ -84,7 +85,7 @@ async fn a_registration_and_an_account_hold_their_names_against_each_other() {
     assert_eq!(
         taken(
             store
-                .create_signup(&signup("QUINN", "q@example.test", now), now)
+                .create_signup(&signup("QUINN", "q@example.test", now), None, now)
                 .await
         ),
         Taken::Username
@@ -92,7 +93,7 @@ async fn a_registration_and_an_account_hold_their_names_against_each_other() {
     assert_eq!(
         taken(
             store
-                .create_signup(&signup("q", &quinns.email.to_uppercase(), now), now)
+                .create_signup(&signup("q", &quinns.email.to_uppercase(), now), None, now)
                 .await
         ),
         Taken::Email
@@ -148,7 +149,10 @@ async fn make_account(store: &Store, barrier: &Barrier, name: &str, email: &str)
 async fn make_signup(store: &Store, barrier: &Barrier, name: &str, email: &str) -> bool {
     barrier.wait().await;
     let now = now_millis();
-    match store.create_signup(&signup(name, email, now), now).await {
+    match store
+        .create_signup(&signup(name, email, now), None, now)
+        .await
+    {
         Ok(()) => true,
         Err(StoreError::Conflict(_)) => false,
         Err(error) => panic!("the registration: {error}"),

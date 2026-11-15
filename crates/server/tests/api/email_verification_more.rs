@@ -10,24 +10,26 @@ use reqwest::StatusCode;
 use serde_json::json;
 
 use crate::common::{PASSWORD, ROOT_WORKSPACE_ID, Setup, TestServer, USER1_USERNAME};
-use crate::email_verification::{link_token, registration, verifying};
+use crate::email_verification::{
+    COMPLETE, SIGNUP_PASSWORD, complete_elsewhere, complete_with_marker, link_token, marker_of,
+    registration, verifying,
+};
 use crate::fake_oidc::{FakeProvider, Person};
 use crate::fake_smtp::{FakeSmtp, Received};
 use crate::oidc::{Browser, org_of, set_provider, with_key_and_private_addresses};
 
 const RESEND: &str = "/email-verification/request";
-const COMPLETE: &str = "/email-verification/complete";
 
 /// The same server and database, started again with registrations confirmed by mail
 /// sent through `smtp`: as an operator turns the switch on.
-async fn switched_on(mut th: TestServer, smtp: &FakeSmtp) -> TestServer {
+pub(crate) async fn switched_on(mut th: TestServer, smtp: &FakeSmtp) -> TestServer {
     th.config.smtp = smtp.settings();
     th.config.mail.email_verification = true;
     th.killed_and_started_again(async |_| {}).await
 }
 
 /// The messages `smtp` holds once the background work is done.
-async fn settled(th: &TestServer, smtp: &FakeSmtp) -> Vec<Received> {
+pub(crate) async fn settled(th: &TestServer, smtp: &FakeSmtp) -> Vec<Received> {
     assert!(
         th.app.finish_background(Duration::from_secs(10)).await,
         "the mail is done with"
@@ -39,10 +41,12 @@ async fn settled(th: &TestServer, smtp: &FakeSmtp) -> Vec<Received> {
 async fn a_new_link_ends_the_one_before_and_an_address_gets_three_an_hour() {
     let smtp = FakeSmtp::start_on(0).await;
     let th = verifying(&smtp).await;
-    th.anonymous()
+    let registered = th
+        .anonymous()
         .post("/register", &registration("kim", "en"))
-        .await
-        .check_status(StatusCode::ACCEPTED);
+        .await;
+    registered.check_status(StatusCode::ACCEPTED);
+    let marker = marker_of(&registered).expect("the marker of the browser that registered");
     let first = link_token(&smtp.received(1).await[0]);
 
     th.anonymous()
@@ -86,10 +90,8 @@ async fn a_new_link_ends_the_one_before_and_an_address_gets_three_an_hour() {
         .post(COMPLETE, &json!({"token": second}))
         .await
         .check_status(StatusCode::BAD_REQUEST);
-    let confirmed = th
-        .anonymous()
-        .post(COMPLETE, &json!({"token": third}))
-        .await;
+    // The browser is the registration's, whichever of its links it opens.
+    let confirmed = complete_with_marker(&th, &third, &marker).await;
     confirmed.check_status(StatusCode::OK);
     assert!(confirmed.session_cookie().is_some(), "signed in");
 
@@ -182,8 +184,7 @@ async fn a_registration_from_before_the_switch_went_off_still_gets_its_link() {
         .await
         .check_no_content();
     let token = link_token(&smtp.received(2).await[1]);
-    th.anonymous()
-        .post(COMPLETE, &json!({"token": token}))
+    complete_elsewhere(&th, &token, SIGNUP_PASSWORD)
         .await
         .check_status(StatusCode::OK);
     th.teardown().await;
@@ -212,12 +213,13 @@ async fn the_hourly_clean_up_removes_the_registrations_that_ended() {
         password_hash: "hash".to_owned(),
         language: String::new(),
         start: fvoci_store::SignupStart::Organization("Old".to_owned()),
+        browser_hash: String::new(),
         create_at: long_ago - 1,
         expires_at: long_ago,
     };
     let store = th.app.store();
     store
-        .create_signup(&ended, long_ago - 1)
+        .create_signup(&ended, None, long_ago - 1)
         .await
         .expect("stored as it was");
     // Not counted here: the clean-up the server runs as it starts may have come first.
