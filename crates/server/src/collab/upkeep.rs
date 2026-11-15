@@ -134,10 +134,12 @@ impl Collab {
         if near_limit && grown && self.remake_and_tell(app, card_id, slot).await {
             return true;
         }
-        if slot
-            .open
-            .as_ref()
-            .is_some_and(|open| open.log_end - open.state_seq >= FOLD_AFTER)
+        // Not by a process that lost the lock of the server, as at closing.
+        if app.holds_server_lock()
+            && slot
+                .open
+                .as_ref()
+                .is_some_and(|open| open.log_end - open.state_seq >= FOLD_AFTER)
             && let Err(error) = self.fold(app, card_id, slot).await
         {
             tracing::error!(%error, card_id, "cannot fold a document's log into its state");
@@ -169,9 +171,12 @@ impl Collab {
     /// a little before (it is tried again after [`REMAKE_RETRY`]); whether it was made
     /// again. A document that could not be made again is closed: the store holds it.
     pub(super) async fn remake_and_tell(&self, app: &App, card_id: &str, slot: &mut Held) -> bool {
-        if slot
-            .remake_failed_at
-            .is_some_and(|at| at.elapsed() < REMAKE_RETRY)
+        // A process that lost the lock of the server would be refused by `remake_from`;
+        // it does not try, and so logs no failure.
+        if !app.holds_server_lock()
+            || slot
+                .remake_failed_at
+                .is_some_and(|at| at.elapsed() < REMAKE_RETRY)
         {
             return false;
         }
@@ -190,6 +195,23 @@ impl Collab {
                 slot.remake_failed_at = Some(Instant::now());
                 false
             }
+        }
+    }
+
+    /// Folds the log of the open document of a slot into its state, if it holds
+    /// updates the state does not, for a document that is closed next: what is stored
+    /// of it is its state alone. A fold that fails is logged; the log stays, and is
+    /// taken again when the document is opened. Not by a process that lost the lock of
+    /// the server (it is going down, and the next server may write the same document).
+    pub(super) async fn fold_as_it_closes(&self, app: &App, card_id: &str, slot: &mut Held) {
+        if app.holds_server_lock()
+            && slot
+                .open
+                .as_ref()
+                .is_some_and(|open| open.state_seq < open.log_end)
+            && let Err(error) = self.fold(app, card_id, slot).await
+        {
+            tracing::error!(%error, card_id, "cannot fold a document's log into its state as it closes");
         }
     }
 
@@ -267,7 +289,9 @@ impl Collab {
     /// worker, and stores it in place of the one before and its log. The one before is
     /// closed first, so that a worker that holds as many documents as it may has room
     /// for it; whatever fails, `open` is no document to go on with: the caller closes
-    /// it (its number is the new one's once that is open).
+    /// it (its number is the new one's once that is open). Refused to a process that
+    /// lost the lock of the server: making a document again empties its log, as a fold
+    /// does, and the log may hold what the server that took the lock wrote since.
     pub(super) async fn remake_from(
         &self,
         app: &App,
@@ -275,6 +299,9 @@ impl Collab {
         open: &mut OpenDoc,
         body: Option<&Body>,
     ) -> Result<(), Opening> {
+        if !app.holds_server_lock() {
+            return Err(Opening::Refused(super::refusals::unavailable()));
+        }
         self.close_number(open.worker, open.generation, open.number)
             .await;
         let number = self.next_number();

@@ -11,6 +11,7 @@
 
 mod connection;
 mod delivery;
+mod inbound;
 mod presence;
 mod readers;
 mod subscriptions;
@@ -359,6 +360,8 @@ struct HubInner {
     subscription_pause: Mutex<Option<SubscriptionPause>>,
     #[cfg(feature = "test-util")]
     dispatch_pause: Mutex<Option<SubscriptionPause>>,
+    /// How long its connections may send nothing ([`inbound::QUIET_LIMIT`]).
+    quiet_limit: inbound::QuietLimit,
 }
 
 impl Hub {
@@ -370,6 +373,16 @@ impl Hub {
         ping_interval: Option<Duration>,
         metrics: Metrics,
     ) -> Self {
+        // The browser's Pong to a Ping is what keeps a page whose timers are stopped;
+        // it needs some time to come back within the quiet limit.
+        let answered_in_time = inbound::QUIET_LIMIT.saturating_sub(inbound::PONG_MARGIN);
+        if ping_interval.is_none_or(|period| period >= answered_in_time) {
+            tracing::warn!(
+                ping = ?ping_interval,
+                quiet_limit = ?inbound::QUIET_LIMIT,
+                "websocket_ping_seconds is 0 or too long for the quiet limit of a connection: pages whose timers are stopped (a frozen tab) can be closed after it, and connect again"
+            );
+        }
         Self {
             inner: Arc::new(HubInner {
                 listeners: Mutex::new(Listeners::default()),
@@ -381,6 +394,7 @@ impl Hub {
                 subscription_pause: Mutex::default(),
                 #[cfg(feature = "test-util")]
                 dispatch_pause: Mutex::default(),
+                quiet_limit: inbound::QuietLimit::default(),
             }),
             audience,
         }
