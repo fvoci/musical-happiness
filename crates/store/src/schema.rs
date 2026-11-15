@@ -383,6 +383,83 @@ pub(crate) async fn migrate(store: &Store, up_to: Option<i64>) -> Result<(), Sto
     })
 }
 
+/// The version of the newest migration.
+pub(crate) fn latest_version() -> i64 {
+    STEPS.last().map_or(0, |step| step.version)
+}
+
+/// Whether the database holds this build's schema exactly: every migration of this
+/// build recorded as applied, with this build's text, and no other. Such a database is
+/// opened without a statement that changes the schema, so that a role that does not own
+/// the tables may serve it.
+///
+/// # Errors
+///
+/// Returns [`StoreError::Database`] if the record cannot be read.
+pub(crate) async fn is_current(store: &Store) -> Result<bool, StoreError> {
+    let migrator = migrator(store.dialect(), None);
+    let known: Vec<(i64, &[u8])> = migrator
+        .iter()
+        .map(|migration| (migration.version, migration.checksum.as_ref()))
+        .collect();
+    store
+        .with_conn(async |scope| {
+            if !table_names(scope)
+                .await?
+                .iter()
+                .any(|table| table == MIGRATIONS_TABLE)
+            {
+                return Ok(false);
+            }
+            let sql = scope
+                .sql("SELECT version, checksum, success FROM _sqlx_migrations ORDER BY version");
+            let recorded = scope
+                .fetch_all(sql)
+                .await?
+                .iter()
+                .map(|row| Ok((row.int(0)?, row.bytes(1)?, row.bool(2)?)))
+                .collect::<Result<Vec<_>, StoreError>>()?;
+            Ok(recorded.len() == known.len()
+                && recorded.iter().zip(&known).all(
+                    |((version, checksum, applied), (known_version, known_checksum))| {
+                        *applied && version == known_version && checksum == known_checksum
+                    },
+                ))
+        })
+        .await
+}
+
+/// Whether the role the store connects as may bring the schema up to date: on
+/// PostgreSQL, a role that owns the record of the migrations (and so the tables the
+/// migrations made), or that may make tables in the schema when there is no record
+/// yet. A superuser may. SQLite has no roles.
+///
+/// # Errors
+///
+/// Returns [`StoreError::Database`] if the catalog cannot be read.
+pub(crate) async fn may_change(store: &Store) -> Result<bool, StoreError> {
+    if store.dialect() == Dialect::Sqlite {
+        return Ok(true);
+    }
+    store
+        .with_conn(async |scope| {
+            let sql = scope.sql(
+                "SELECT COALESCE(( \
+                   SELECT CASE WHEN record IS NULL \
+                     THEN has_schema_privilege(current_schema(), 'CREATE') \
+                     ELSE pg_has_role(current_user, \
+                       (SELECT relowner FROM pg_class WHERE oid = record), 'USAGE') END \
+                   FROM (SELECT to_regclass(quote_ident(current_schema()) \
+                     || '._sqlx_migrations') AS record) AS found), false)",
+            );
+            match scope.fetch_optional(sql).await? {
+                Some(row) => row.bool(0),
+                None => Ok(false),
+            }
+        })
+        .await
+}
+
 /// The migrator of every migration, or of those up to a version: a database as an
 /// older server left it, for the tests of what a migration makes of one.
 fn migrator(dialect: Dialect, up_to: Option<i64>) -> Migrator {

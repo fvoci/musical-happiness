@@ -45,6 +45,11 @@ struct Cli {
     /// check of a container, whose image has no HTTP client. Nothing is opened or served.
     #[arg(long)]
     check_ready: bool,
+    /// Bring the database's schema up to date and exit, holding the lock of the server
+    /// meanwhile: for the role that owns the tables (the configuration's dbconfig),
+    /// when the server connects as one that does not. Nothing is served.
+    #[arg(long, conflicts_with = "check_ready")]
+    migrate: bool,
 }
 
 /// How long the check of readiness waits for the answer: the server answers `ready`
@@ -162,6 +167,9 @@ async fn serve() -> anyhow::Result<()> {
     }
 
     let base_path = std::env::var(BASE_PATH_ENV).unwrap_or_default();
+    if cli.migrate {
+        return fvoci_server::app::migrate_database(&config).await;
+    }
     if cli.check_ready {
         return check_ready(&config, checked_base_path(&base_path)?).await;
     }

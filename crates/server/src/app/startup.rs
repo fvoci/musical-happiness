@@ -38,6 +38,28 @@ pub(crate) async fn prepare_store(store: Store) -> anyhow::Result<Store> {
     Ok(store)
 }
 
+/// Brings the database's schema up to date and ends: `fvoci-server --migrate`, run as
+/// the role that owns the tables when the server connects as one that does not. It
+/// holds the lock of the server meanwhile, so that no server serves the database while
+/// its tables change, and it does not look at the wall: the owner that migrates may be a
+/// superuser.
+///
+/// # Errors
+///
+/// Returns an error if the database cannot be reached, another process serves it for
+/// longer than `server_lock_wait_seconds`, or the schema cannot be brought up to date.
+pub async fn migrate_database(config: &Configuration) -> anyhow::Result<()> {
+    let store = connect(config).await?;
+    let lock = super::take_server_lock(&store, config).await?;
+    let migrated = store.migrate().await;
+    // As a server ends: the database is closed before its lock is let go.
+    store.close().await;
+    lock.release().await;
+    migrated.context("bringing the database's schema up to date")?;
+    tracing::info!("the database's schema is up to date");
+    Ok(())
+}
+
 /// Connects to the database, trying up to `dbpingattempts` times a second apart, so that
 /// a server started together with its database waits for it.
 async fn connect(config: &Configuration) -> anyhow::Result<Store> {

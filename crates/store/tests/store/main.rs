@@ -47,6 +47,7 @@ mod setup;
 mod sharing;
 mod signups;
 mod subscriptions;
+mod table_owner;
 mod tenancy;
 mod trash;
 mod trash_file_race;

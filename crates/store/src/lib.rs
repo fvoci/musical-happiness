@@ -292,12 +292,29 @@ impl Store {
     /// caller that looks at the connection ([`Store::role_past_the_wall`]) before
     /// anything is changed through it.
     ///
+    /// A database whose schema is this build's already is left as it is, so that a role
+    /// that does not own the tables may serve it once their owner brought them up to
+    /// date. Then only the changes of the data the migrations left to the server are
+    /// done, if any are still to do.
+    ///
     /// # Errors
     ///
-    /// Returns [`StoreError::Schema`] if the database is not this server's to open,
-    /// and [`StoreError::Database`] if a statement fails.
+    /// Returns [`StoreError::Schema`] if the database is not this server's to open, or
+    /// its schema is to be changed and the role cannot change it (it does not own the
+    /// tables), and [`StoreError::Database`] if a statement fails.
     pub async fn migrate(&self) -> Result<(), StoreError> {
-        schema::migrate(self, None).await?;
+        if !schema::is_current(self).await? {
+            if !schema::may_change(self).await? {
+                return Err(StoreError::Schema(
+                    "the database's schema is not this server's, and the role the server \
+                     connects as does not own its tables: bring it up to date as the role \
+                     that does (fvoci-server --migrate, with that role's dbconfig), then \
+                     start the server"
+                        .to_owned(),
+                ));
+            }
+            schema::migrate(self, None).await?;
+        }
         data_steps::run(self).await
     }
 

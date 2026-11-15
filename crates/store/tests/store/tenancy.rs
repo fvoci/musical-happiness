@@ -1543,10 +1543,12 @@ async fn the_store_names_a_role_that_is_past_the_wall() {
 /// took that connection for convenience would show nothing of the wall.
 #[test]
 fn few_tests_connect_as_a_superuser() {
-    const ALLOWED: [&str; 4] = [
+    const ALLOWED: [&str; 6] = [
         "server/tests/api/common.rs",
         "server/tests/api/organizations.rs",
+        "server/tests/api/table_owner.rs",
         "store/src/testing.rs",
+        "store/tests/store/table_owner.rs",
         "store/tests/store/tenancy.rs",
     ];
     let crates = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -1561,6 +1563,7 @@ fn few_tests_connect_as_a_superuser() {
             [
                 "create_as_superuser",
                 "create_as_role_with_bypassrls",
+                "create_owned_apart",
                 "connecting_as_superuser",
                 "SUPERUSER_CONN_STRING_ENV",
             ]

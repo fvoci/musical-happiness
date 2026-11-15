@@ -51,7 +51,21 @@ pub fn db_type_of_the_tests() -> DbType {
 pub struct TestDatabase {
     db_type: DbType,
     dbconfig: String,
+    /// The `dbconfig` of the role that owns the tables, where that is another role.
+    owner_dbconfig: Option<String>,
     cleanup: Cleanup,
+}
+
+/// Who owns the tables of a database made by [`TestDatabase::create_owned_apart`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TableOwner {
+    /// The superuser of [`SUPERUSER_CONN_STRING_ENV`], as the administrator of a
+    /// database container is.
+    Superuser,
+    /// A role made for the one test database that is no superuser and has no
+    /// `BYPASSRLS`, as the master user of a managed database is: the policies, which
+    /// are forced, hold it.
+    Role,
 }
 
 /// As whom a test database is made and connected to.
@@ -127,6 +141,7 @@ impl TestDatabase {
                 Self {
                     db_type,
                     dbconfig: format!("{}?_busy_timeout=5000", path.display()),
+                    owner_dbconfig: None,
                     cleanup: Cleanup::SqliteFile(path),
                 }
             }
@@ -189,6 +204,7 @@ impl TestDatabase {
                 Self {
                     db_type,
                     dbconfig: format!("{connect_as}{separator}search_path={schema}"),
+                    owner_dbconfig: None,
                     cleanup: Cleanup::PostgresSchema {
                         url,
                         schema,
@@ -197,6 +213,91 @@ impl TestDatabase {
                 }
             }
         }
+    }
+
+    /// Creates an empty database whose tables are not the tests' role's: on PostgreSQL a
+    /// schema that `owner` owns, in which the role of [`CONN_STRING_ENV`] may only use
+    /// the tables (`SELECT`, `INSERT`, `UPDATE`, `DELETE`, and the sequences), as a server
+    /// is installed apart from the administrator who migrates. [`TestDatabase::dbconfig`]
+    /// connects as the tests' role and [`TestDatabase::owner_dbconfig`] as the owner. On
+    /// SQLite, which has no roles, it is a database like any other.
+    ///
+    /// # Panics
+    ///
+    /// Panics as [`TestDatabase::create_as_superuser`] does.
+    pub async fn create_owned_apart(directory: &Path, owner: TableOwner) -> Self {
+        if db_type_of_the_tests() == DbType::Sqlite {
+            return Self::create(directory).await;
+        }
+        let url_of = |variable: &str| {
+            std::env::var(variable).unwrap_or_else(|_| {
+                panic!("{variable} must hold a PostgreSQL URL for PostgreSQL test runs")
+            })
+        };
+        let tests_url = url_of(CONN_STRING_ENV);
+        let superuser_url = url_of(SUPERUSER_CONN_STRING_ENV);
+        let name = new_id().replace('-', "_");
+        let schema = format!("t_{name}");
+        let user = |url: String| async move {
+            sqlx::query_scalar::<_, String>("SELECT current_user::text")
+                .fetch_one(&mut connect(&url).await)
+                .await
+                .unwrap_or_else(|error| panic!("reading the role of a test URL: {error}"))
+        };
+        let tests_role = user(tests_url.clone()).await;
+        let mut connection = connect(&superuser_url).await;
+        let (owner_role, owner_url, made) = match owner {
+            TableOwner::Superuser => {
+                let role = user(superuser_url.clone()).await;
+                (role, superuser_url.clone(), None)
+            }
+            TableOwner::Role => {
+                let role = format!("o_{name}");
+                let password = new_id();
+                run(
+                    &mut connection,
+                    format!(
+                        "CREATE ROLE {role} LOGIN PASSWORD '{password}' NOSUPERUSER \
+                         NOBYPASSRLS NOCREATEDB NOCREATEROLE"
+                    ),
+                )
+                .await;
+                let url = url_as_role(&superuser_url, &role, &password);
+                (role.clone(), url, Some(role))
+            }
+        };
+        run(
+            &mut connection,
+            format!(
+                "CREATE SCHEMA {schema} AUTHORIZATION \"{owner_role}\"; \
+                 GRANT USAGE ON SCHEMA {schema} TO \"{tests_role}\"; \
+                 ALTER DEFAULT PRIVILEGES FOR ROLE \"{owner_role}\" IN SCHEMA {schema} \
+                   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO \"{tests_role}\"; \
+                 ALTER DEFAULT PRIVILEGES FOR ROLE \"{owner_role}\" IN SCHEMA {schema} \
+                   GRANT USAGE, SELECT ON SEQUENCES TO \"{tests_role}\""
+            ),
+        )
+        .await;
+        let in_schema = |url: &str| {
+            let separator = if url.contains('?') { '&' } else { '?' };
+            format!("{url}{separator}search_path={schema}")
+        };
+        Self {
+            db_type: DbType::Postgres,
+            dbconfig: in_schema(&tests_url),
+            owner_dbconfig: Some(in_schema(&owner_url)),
+            cleanup: Cleanup::PostgresSchema {
+                url: superuser_url,
+                schema,
+                role: made,
+            },
+        }
+    }
+
+    /// The `dbconfig` string that connects as the role that owns the tables: that of a
+    /// database made by [`TestDatabase::create_owned_apart`], else [`TestDatabase::dbconfig`].
+    pub fn owner_dbconfig(&self) -> &str {
+        self.owner_dbconfig.as_deref().unwrap_or(&self.dbconfig)
     }
 
     /// The kind of database this is.
@@ -279,6 +380,28 @@ async fn role_is_past_the_wall(connection: &mut PgConnection) -> bool {
         .fetch_one(connection)
         .await
         .unwrap_or_else(|error| panic!("reading the role of the test connection: {error}"))
+}
+
+/// The version of the newest migration of this build.
+pub fn latest_migration() -> i64 {
+    crate::schema::latest_version()
+}
+
+/// Brings the schema that `dbconfig` connects to up to the migrations up to `version`,
+/// and none of the changes of the data that follow the migrations: a database as an
+/// older server left it.
+///
+/// # Panics
+///
+/// Panics if the database cannot be reached or migrated.
+pub async fn migrate_up_to(db_type: DbType, dbconfig: &str, version: i64) {
+    let store = Store::open(db_type, dbconfig)
+        .await
+        .unwrap_or_else(|error| panic!("connecting to the test database: {error}"));
+    crate::schema::migrate(&store, Some(version))
+        .await
+        .unwrap_or_else(|error| panic!("migrating the test database: {error}"));
+    store.close().await;
 }
 
 /// The tables that are no organization's; every other table of the schema is behind
