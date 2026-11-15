@@ -7840,7 +7840,7 @@
         ]
       },
       "patch": {
-        "description": "Applies a patch to each of several boards of one workspace and to blocks of those\nboards, all or none. The request names at least one board, and every block it names\nis on one of its boards: blocks alone are not changed this way. Each board needs\nwhat `patchBoard` needs, each block what `patchBlock` needs.",
+        "description": "Applies a patch to each of several boards of one workspace and to blocks of those\nboards, all or none. The request names at least one board, and every block it names\nis on one of its boards: blocks alone are not changed this way. Each board needs\nwhat `patchBoard` needs, each block what `patchBlock` needs; a board's patch that\nnames a `kind` is 400 at `/boardPatches/{index}/kind`.",
         "operationId": "patchBoardsAndBlocks",
         "parameters": [
           {

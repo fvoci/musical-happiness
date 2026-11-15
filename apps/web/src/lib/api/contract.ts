@@ -1572,7 +1572,8 @@ export interface paths {
          * @description Applies a patch to each of several boards of one workspace and to blocks of those
          *     boards, all or none. The request names at least one board, and every block it names
          *     is on one of its boards: blocks alone are not changed this way. Each board needs
-         *     what `patchBoard` needs, each block what `patchBlock` needs.
+         *     what `patchBoard` needs, each block what `patchBlock` needs; a board's patch that
+         *     names a `kind` is 400 at `/boardPatches/{index}/kind`.
          */
         patch: operations["patchBoardsAndBlocks"];
         trace?: never;
