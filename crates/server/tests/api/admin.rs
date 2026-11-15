@@ -58,7 +58,7 @@ pub(crate) mod socket {
         pub(crate) status: u16,
         /// The status line and the headers, as sent.
         head: String,
-        body: String,
+        pub(crate) body: String,
     }
 
     impl SocketResponse {

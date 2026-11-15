@@ -467,6 +467,8 @@ async fn administer(store: &Store, workspace_id: &str, user_id: &str) {
 /// too, and so joins its organization. Returns the identifiers of the card that went to
 /// the trash and of the user.
 async fn something_in_every_table(store: &Store, username: &str) -> (String, String) {
+    // As on a server that has a search server: what changes is noted for it.
+    store.keep_search_outbox();
     let user_id = common::user(store, username).await;
     let comment = crate::file_info::posted_comment(store, &user_id).await;
     let board_id = comment.board_id.clone();

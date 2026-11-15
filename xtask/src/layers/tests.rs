@@ -1135,6 +1135,7 @@ fn the_step_holds_a_workspace_to_the_list_on_disk() {
         "metrics",
         "permissions",
         "scheduler",
+        "search",
         "storage",
         "webhook",
     ] {
@@ -1144,7 +1145,7 @@ fn the_step_holds_a_workspace_to_the_list_on_disk() {
         &root,
         "crates/server/src/lib.rs",
         "pub mod api; pub mod app; mod auth; mod collab; mod collab_worker; mod config; mod error; \
-         mod metrics; mod permissions; mod scheduler; mod storage; mod webhook;",
+         mod metrics; mod permissions; mod scheduler; mod search; mod storage; mod webhook;",
     );
     let exact = "crates/server/src/api/mod.rs .store().purge 1\n\
                  crates/server/src/app.rs axum::response::Response 1\n";
@@ -1177,7 +1178,7 @@ fn the_step_holds_a_workspace_to_the_list_on_disk() {
         &root,
         "crates/server/src/lib.rs",
         "pub mod api; pub mod app; mod auth; mod collab; mod collab_worker; mod config; mod error; \
-         mod metrics; mod permissions; mod scheduler; mod storage; mod webhook;",
+         mod metrics; mod permissions; mod scheduler; mod search; mod storage; mod webhook;",
     );
     run(&root).expect("the module is back");
     write(

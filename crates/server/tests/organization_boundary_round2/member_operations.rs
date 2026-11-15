@@ -37,7 +37,7 @@ struct Named {
 /// too, for what the sweep names: one board and one card for every operation. Any
 /// other 404 fails the test, as an answer of the second organization equal to a
 /// wrong first one would hide a lookup in another organization.
-const NOT_THERE_FOR_A_MEMBER: [&str; 27] = [
+const NOT_THERE_FOR_A_MEMBER: [&str; 28] = [
     // The organization's own routes are its administrators'.
     "createOrgWorkspace",
     "deleteOidcFormerProvider",
@@ -71,6 +71,8 @@ const NOT_THERE_FOR_A_MEMBER: [&str; 27] = [
     "completeUpload",
     "putUploadPart",
     "importArchive",
+    // The server of this test has no search server.
+    "searchWorkspaceContent",
 ];
 
 /// The operations the contract publishes: method, path and identifier, in its order.

@@ -11,6 +11,7 @@
 use fvoci_model::{BlockPatch, BlockType, Body, BodyChange};
 
 use crate::Store;
+use crate::block_derived::{self, Before};
 use crate::blocks;
 use crate::body_versions::{self, BodyBefore, BodyWrite};
 use crate::db::{Id, OptId, Param, Row, Scope, now_millis};
@@ -314,10 +315,12 @@ impl Store {
         self.transaction(async |scope| {
             match body {
                 // The block holds the body; what it shows is put down again all the
-                // same, in place of the images the log showed meanwhile.
+                // same, in place of the images the log showed meanwhile. Nothing else
+                // that follows from the block changes: it is as it was stored.
                 None => {
                     let block = blocks::get_block(scope, block_id).await?;
-                    file_refs::refresh(scope, &block, NewImages::Unchecked).await?;
+                    block_derived::refresh(scope, &block, Before::Unchanged, NewImages::Unchecked)
+                        .await?;
                 }
                 Some(body) => {
                     let patch = BlockPatch {

@@ -50,6 +50,7 @@ pub(super) const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
     ("DELETE", "/boards-and-blocks", "deleteBoardsAndBlocks"),
     ("PATCH", "/boards-and-blocks", "patchBoardsAndBlocks"),
     ("GET", "/boards/search?q=secret", "searchWorkspaceBoards"),
+    ("GET", "/search?q=secret", "searchWorkspaceContent"),
     ("DELETE", "/boards/{boardId}", "deleteBoard"),
     ("GET", "/boards/{boardId}", "getBoard"),
     ("PATCH", "/boards/{boardId}", "patchBoard"),
@@ -367,6 +368,13 @@ fn route_body(operation: &str, user_id: &str, workspace: &str) -> Value {
     }
 }
 
+/// Whether the answer says that the server has no search server: what a guest of the
+/// workspace, for whom it is there, is told by the search of bodies in these tests.
+fn no_search_server(response: &super::common::ApiResponse) -> bool {
+    response.status == StatusCode::NOT_FOUND
+        && answer(response).1["reason"] == "search_not_configured"
+}
+
 async fn compare_workspace_routes(client: &Client, user_id: &str, asker: Asker) -> Vec<String> {
     let mut violations = Vec::new();
     for (method, suffix, operation) in WORKSPACE_ROUTES {
@@ -409,6 +417,8 @@ async fn compare_workspace_routes(client: &Client, user_id: &str, asker: Asker) 
             // The workspace is there for its guest: what is refused is what the path
             // names, the operation, or the empty body; nothing is done.
             REFUSED_IN_REACH.contains(&hidden.status) && absent.status == StatusCode::NOT_FOUND
+        } else if *operation == "searchWorkspaceContent" && asker == Asker::Guest {
+            no_search_server(&hidden) && absent.status == StatusCode::NOT_FOUND
         } else if *operation == "exportWorkspaceArchive" && asker == Asker::Guest {
             // The guest's archive has the boards the guest is on, none here.
             hidden.status == StatusCode::OK
