@@ -21,13 +21,13 @@ import {
 import { LockedFile, UnreadableFile, type Drawn, type Report } from './renderer.ts';
 import { RENDERERS } from './renderers.ts';
 
-/** The font rules the documents fall back to (lib/fonts.ts loads the same files in the app). */
-import.meta.glob(
-  ['../styles/fonts/faces-noto-sans.css', '../styles/fonts/faces-noto-sans-kr.css'],
-  {
-    eager: true,
-  },
-);
+/**
+ * The font rules the documents fall back to: the Korean family, whose files
+ * draw Latin text as well (lib/fonts.ts loads the same rules in the app). Not
+ * the Latin family's: the app's main style sheet has those, and a style sheet
+ * both pages took would be split out of it.
+ */
+import.meta.glob('../styles/fonts/faces-noto-sans-kr.css', { eager: true });
 
 function tell(message: FromFrame): void {
   // The parent's origin is not known here (ours is opaque), and nothing sent

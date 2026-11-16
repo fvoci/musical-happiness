@@ -17,7 +17,7 @@ import { renderAsync } from 'docx-preview';
 import { PageFollower, UnreadableFile, type Drawn, type Render, type Report } from './renderer.ts';
 
 /** What every font family of the document falls back to: the app's families, as the frame's style sheet has them. */
-const FALLBACK = '"Noto Sans", "Noto Sans KR", sans-serif';
+const FALLBACK = '"Noto Sans KR", sans-serif';
 /** The room around the pages, in CSS pixels, at each side. */
 const GUTTER = 16;
 
