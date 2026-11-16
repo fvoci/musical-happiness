@@ -99,6 +99,8 @@ test('a PDF opens in the viewer, and its pages are turned with the buttons and t
   await row.getByRole('link', { name: '보고서.pdf' }).click();
 
   await expect(viewer(page)).toHaveAttribute('data-status', 'shown');
+  // The keys that scroll a page scroll the document: the focus is in it.
+  await expect(page.getByTestId('file-viewer-frame')).toBeFocused();
   expect(viewerFiles().some((file) => /\/pdf-[0-9a-f]{16}\.js$/.test(file))).toBe(true);
   expect(viewerFiles().some((file) => file.includes('/docx-'))).toBe(false);
   await expect(viewer(page).getByRole('heading', { name: '보고서.pdf' })).toBeVisible();
@@ -202,7 +204,8 @@ test('a Word document in Korean shows its header, its table and its picture', as
   );
   await row.getByRole('link', { name: '회의록.docx' }).click();
   await expect(viewer(page)).toHaveAttribute('data-status', 'shown');
-  await expect(page.getByTestId('file-viewer-page')).toContainText('1 / 1');
+  // Two pages: the second where Word last broke the page.
+  await expect(page.getByTestId('file-viewer-page')).toContainText('1 / 2');
 
   const frame = frameOf(page);
   const pageOne = frame.locator('section.docx').first();
@@ -230,6 +233,11 @@ test('a Word document in Korean shows its header, its table and its picture', as
   await expect(viewer(page)).toHaveAttribute('data-status', 'shown');
   const inside = page.frames().find((each) => each.url().endsWith('/static/viewer-frame.html'));
   expect(inside, 'the frame is still on its own document').toBeDefined();
+
+  await viewer(page).getByRole('button', { name: 'Next page' }).click();
+  await expect(page.getByTestId('file-viewer-page')).toContainText('2 / 2');
+  await expect(frame.locator('section.docx').nth(1)).toContainText(DOCX_TEXT.second);
+  await expect(frame.locator('section.docx').nth(1)).toBeInViewport();
 });
 
 test('a file of a kind the viewer does not draw is offered as a download', async ({ page }) => {

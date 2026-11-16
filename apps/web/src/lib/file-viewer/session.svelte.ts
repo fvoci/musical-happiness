@@ -10,6 +10,8 @@
  * past either, or when the viewer closes, the frame is taken out of the page,
  * and with it its document, its worker and the memory they held.
  */
+import { tick } from 'svelte';
+
 import { buildUrl, normalizeBasePath } from '$lib/logic/urls.ts';
 
 import { sniffFormat, VIEW_LIMIT_BYTES, type FormatId } from './formats.ts';
@@ -198,7 +200,10 @@ export class ViewerSession {
         this.page = 1;
         this.status = { name: 'shown', format: status.format };
         // The keys that scroll a page (arrows, Page Down, Space) then scroll the document.
-        this.#frame?.focus();
+        // After the update: until then the frame is hidden, and takes no focus.
+        void tick().then(() => {
+          this.#frame?.focus();
+        });
         break;
       case 'page':
         this.page = Math.min(message.page, this.pages);

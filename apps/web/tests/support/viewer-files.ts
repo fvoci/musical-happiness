@@ -163,18 +163,24 @@ export const DOCX_TEXT = {
   cells: ['항목', '담당', '기한', '설계 검토', '김민지', '11월 20일'],
   /** A link to a page on the network, which the viewer must not follow. */
   link: '원본 열기',
+  /** The text of the second page, which Word broke to when it last laid the document out. */
+  second: '둘째 쪽: 다음 회의 안건',
 };
 
 /** Where the document's link points. */
 export const DOCX_LINK = 'https://example.invalid/login';
 
-/** A Word document in Korean with a header, a table of two rows, a picture and a link. */
+/**
+ * A Word document in Korean of two pages, with a header, a table of two rows,
+ * a picture and a link. The second page begins where Word last broke the
+ * page (`lastRenderedPageBreak`), not at a break the writer put in.
+ */
 export function koreanDocx(): Buffer {
   const [h1, h2, h3, c1, c2, c3] = DOCX_TEXT.cells;
   const picture = `<w:p><w:r><w:drawing><wp:inline xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"><wp:extent cx="1905000" cy="952500"/><wp:docPr id="1" name="그림 1"/><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="1" name="image1.png"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="rIdImage"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="1905000" cy="952500"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>`;
   const table = `<w:tbl><w:tblPr><w:tblW w:w="9000" w:type="dxa"/><w:tblBorders><w:top w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:left w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:bottom w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:right w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:insideH w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:insideV w:val="single" w:sz="4" w:space="0" w:color="000000"/></w:tblBorders></w:tblPr><w:tblGrid><w:gridCol w:w="3000"/><w:gridCol w:w="3000"/><w:gridCol w:w="3000"/></w:tblGrid><w:tr>${cell(h1 ?? '')}${cell(h2 ?? '')}${cell(h3 ?? '')}</w:tr><w:tr>${cell(c1 ?? '')}${cell(c2 ?? '')}${cell(c3 ?? '')}</w:tr></w:tbl>`;
   const link = `<w:p><w:hyperlink r:id="rIdLink">${run(DOCX_TEXT.link)}</w:hyperlink></w:p>`;
-  const document = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="${W}" xmlns:r="${R}"><w:body>${paragraph(DOCX_TEXT.title, true)}${paragraph(DOCX_TEXT.body)}${link}${table}${picture}<w:sectPr><w:headerReference w:type="default" r:id="rIdHeader"/><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr></w:body></w:document>`;
+  const document = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="${W}" xmlns:r="${R}"><w:body>${paragraph(DOCX_TEXT.title, true)}${paragraph(DOCX_TEXT.body)}${link}${table}${picture}<w:p><w:r><w:lastRenderedPageBreak/></w:r>${run(DOCX_TEXT.second)}</w:p><w:sectPr><w:headerReference w:type="default" r:id="rIdHeader"/><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr></w:body></w:document>`;
   const header = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:hdr xmlns:w="${W}" xmlns:r="${R}">${paragraph(DOCX_TEXT.header)}</w:hdr>`;
   const types = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/></Types>`;
   const rootRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="${PACKAGE_RELS}"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`;
