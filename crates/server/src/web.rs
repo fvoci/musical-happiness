@@ -7,7 +7,10 @@
 use std::path::{Path, PathBuf};
 
 use axum::body::Body;
-use axum::http::header::{CACHE_CONTROL, CONTENT_TYPE, X_CONTENT_TYPE_OPTIONS};
+use axum::http::header::{
+    ACCESS_CONTROL_ALLOW_ORIGIN, CACHE_CONTROL, CONTENT_SECURITY_POLICY, CONTENT_TYPE,
+    X_CONTENT_TYPE_OPTIONS,
+};
 use axum::http::{HeaderValue, Request, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use tower::ServiceExt as _;
@@ -18,6 +21,12 @@ const NOT_FOUND_BODY: &str = "404 page not found\n";
 
 /// The placeholder in `index.html` that is replaced with the base URL.
 const BASE_URL_PLACEHOLDER: &str = "{{.BaseURL}}";
+
+/// The document under `static/` that the web app's file viewer draws in.
+///
+/// The app frames it with `sandbox="allow-scripts"`; the header below sandboxes it the
+/// same way when it is opened on its own, so that it never runs with the app's origin.
+const VIEWER_FRAME: &str = "viewer-frame.html";
 
 /// The web app directory (`webpath`) and how it is served.
 #[derive(Debug, Clone)]
@@ -44,7 +53,9 @@ impl WebRoot {
     ///
     /// `path` is the request path after `/static/`. Responses carry `Cache-Control`:
     /// a file whose name contains a content hash may be cached forever, any other file
-    /// must be revalidated. A `.zst`, `.br` or `.gz` file next to the requested one is
+    /// must be revalidated. They also allow any origin to read them: the file viewer's
+    /// frame has an opaque origin and loads the app's scripts, style sheets and fonts
+    /// across origins, and these files are the public build, sent without credentials. A `.zst`, `.br` or `.gz` file next to the requested one is
     /// served instead when the client accepts that encoding (the one it prefers; zstd,
     /// then brotli, then gzip on a tie).
     pub async fn serve_static(&self, path: &str, request: Request<Body>) -> Response {
@@ -67,12 +78,21 @@ impl WebRoot {
             return not_found();
         }
 
+        let file_name = path.rsplit('/').next().unwrap_or(path);
+        let headers = response.headers_mut();
+        headers.insert(ACCESS_CONTROL_ALLOW_ORIGIN, HeaderValue::from_static("*"));
+        if file_name == VIEWER_FRAME {
+            headers.insert(
+                CONTENT_SECURITY_POLICY,
+                HeaderValue::from_static("sandbox allow-scripts"),
+            );
+        }
+
         let cacheable = matches!(
             response.status(),
             StatusCode::OK | StatusCode::PARTIAL_CONTENT | StatusCode::NOT_MODIFIED
         );
         if cacheable {
-            let file_name = path.rsplit('/').next().unwrap_or(path);
             let policy = if has_content_hash(file_name) {
                 "public, max-age=31536000, immutable"
             } else {

@@ -1,6 +1,7 @@
 <!--
-  The files attached to a card: their names and sizes, each a link that
-  fetches the file; and, where the reader may edit, attaching more (the
+  The files attached to a card: their names and sizes; a file's name opens it
+  in the viewer (lib/components/file-viewer), and a button beside it
+  downloads it; and, where the reader may edit, attaching more (the
   button, or files dropped on this part of the card; several at once),
   following an upload while it runs, giving it up, and deleting a file.
 
@@ -9,16 +10,18 @@
   marked, until the reader dismisses it.
 -->
 <script lang="ts">
+  import DownloadIcon from '@lucide/svelte/icons/download';
   import FileTextIcon from '@lucide/svelte/icons/file-text';
   import PaperclipIcon from '@lucide/svelte/icons/paperclip';
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
   import UploadIcon from '@lucide/svelte/icons/upload';
   import XIcon from '@lucide/svelte/icons/x';
 
+  import { viewerChunk } from '$lib/components/file-viewer/chunk.svelte.ts';
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { humanFileSize } from '$lib/logic/format.ts';
-  import type { BoardStore, CardStore, Upload } from '$lib/state/index.ts';
+  import type { Attachment, BoardStore, CardStore, Upload } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
   import { saveBlob } from '$lib/save.ts';
@@ -71,15 +74,36 @@
     attach(event.dataTransfer?.files);
   }
 
+  /** The file open in the viewer. */
+  let viewing = $state.raw<Attachment | undefined>(undefined);
+
+  const plainPress = (event: MouseEvent): boolean =>
+    event.button === 0 && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey;
+
   /**
-   * A plain press on a file's link saves it under its own name (download.ts);
-   * one with a modifier key does what the browser does with a link.
+   * A plain press on a file's name opens it in the viewer; one with a modifier
+   * key does what the browser does with a link. Should the viewer not arrive
+   * (the connection dropped), the file is saved instead.
    */
-  function onDownload(event: MouseEvent, fileId: string, name: string): void {
-    if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) {
-      return;
-    }
+  function onView(event: MouseEvent, attachment: Attachment): void {
+    if (!plainPress(event)) return;
     event.preventDefault();
+    void viewerChunk.load().then((arrived) => {
+      if (arrived) viewing = attachment;
+      else download(attachment.fileId, attachment.name);
+    });
+  }
+
+  function closeViewer(): void {
+    const closed = viewing;
+    viewing = undefined;
+    if (!closed) return;
+    // The dialog is gone with its focus: back to the name it was opened from.
+    document.querySelector<HTMLElement>(`[data-attachment="${CSS.escape(closed.id)}"] a`)?.focus();
+  }
+
+  /** Saves a file under its own name (save.ts). */
+  function download(fileId: string, name: string): void {
     // A file being read is not read again by another press.
     if (downloading.includes(fileId)) return;
     downloading = [...downloading, fileId];
@@ -167,10 +191,9 @@
                   href={url}
                   download={attachment.name}
                   onclick={(event) => {
-                    onDownload(event, attachment.fileId, attachment.name);
+                    onView(event, attachment);
                   }}
-                  title={m.card_attachment_download({ name: attachment.name })}
-                  aria-busy={downloading.includes(attachment.fileId)}
+                  title={m.card_attachment_view({ name: attachment.name })}
                   class="block truncate underline-offset-2 hover:underline roomy:py-1"
                 >
                   {attachment.name}
@@ -183,6 +206,17 @@
                 <p class="text-xs text-muted-foreground">{humanFileSize(attachment.size)}</p>
               {/if}
             </div>
+            {#if url}
+              <IconButton
+                label={m.card_attachment_download({ name: attachment.name })}
+                aria-busy={downloading.includes(attachment.fileId)}
+                onclick={() => {
+                  download(attachment.fileId, attachment.name);
+                }}
+              >
+                <DownloadIcon aria-hidden="true" />
+              </IconButton>
+            {/if}
             {#if editable}
               <IconButton
                 label={m.card_attachment_delete({ name: attachment.name })}
@@ -238,4 +272,16 @@
       {/each}
     </ul>
   </section>
+{/if}
+
+{#if viewing && viewerChunk.component}
+  {@const attachment = viewing}
+  <viewerChunk.component
+    file={{
+      name: attachment.name,
+      size: attachment.size,
+      read: () => card.fileBytes(attachment.fileId),
+    }}
+    onClose={closeViewer}
+  />
 {/if}

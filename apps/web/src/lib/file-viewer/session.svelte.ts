@@ -1,0 +1,224 @@
+/**
+ * One file open in the viewer, from reading its bytes to its frame being
+ * thrown away.
+ *
+ * The bytes are read by the app (the frame has no network), told apart by
+ * their first bytes, and handed to a new frame, whose document draws them.
+ * The frame answers through the messages of `protocol.ts`; a message counts
+ * only when it comes from this session's frame and has one of their shapes.
+ * The frame has a time to get ready in and another to draw the file in;
+ * past either, or when the viewer closes, the frame is taken out of the page,
+ * and with it its document, its worker and the memory they held.
+ */
+import { buildUrl, normalizeBasePath } from '$lib/logic/urls.ts';
+
+import { sniffFormat, VIEW_LIMIT_BYTES, type FormatId } from './formats.ts';
+import {
+  readFromFrame,
+  ZOOM_MAX,
+  ZOOM_MIN,
+  type Failure,
+  type Theme,
+  type ToFrame,
+  type ViewerKey,
+} from './protocol.ts';
+
+/** A file to view: what is known before its bytes are read, and how to read them. */
+export interface ViewedFile {
+  name: string;
+  /** Its size as recorded, in bytes; 0 when unknown. */
+  size: number;
+  /** Its bytes; undefined when they could not be read (the reason is told elsewhere). */
+  read: () => Promise<Blob | undefined>;
+}
+
+export interface Limits {
+  /** The largest file opened, in bytes. */
+  bytes: number;
+  /** How long the frame may take to get ready, in milliseconds. */
+  ready: number;
+  /** How long it may take to draw the file once it has it. */
+  draw: number;
+}
+
+export const LIMITS: Limits = { bytes: VIEW_LIMIT_BYTES, ready: 15_000, draw: 30_000 };
+
+export type Status =
+  | { name: 'reading' }
+  | { name: 'too-large' }
+  | { name: 'unknown' }
+  | { name: 'opening'; format: FormatId }
+  | { name: 'shown'; format: FormatId }
+  | { name: 'failed'; reason: Failure | 'unread' | 'slow' };
+
+/** The steps of the zoom buttons. */
+const ZOOMS = [0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4].filter(
+  (zoom) => zoom >= ZOOM_MIN && zoom <= ZOOM_MAX,
+);
+
+/** The address of the frame's document, under the path the app is served at. */
+export function frameAddress(document: Document): string {
+  const raw = document.querySelector('meta[name="fvoci:base"]')?.getAttribute('content') ?? '';
+  return buildUrl('/static/viewer-frame.html', raw.startsWith('{{') ? '' : normalizeBasePath(raw));
+}
+
+export class ViewerSession {
+  status = $state.raw<Status>({ name: 'reading' });
+  pages = $state(0);
+  page = $state(1);
+  zoom = $state(1);
+  /** The file's bytes once read: what "Download" saves. */
+  blob = $state.raw<Blob | undefined>(undefined);
+
+  readonly file: ViewedFile;
+  readonly #limits: Limits;
+  readonly #theme: () => Theme;
+  readonly #onKey: (key: ViewerKey) => void;
+  #bytes: ArrayBuffer | undefined;
+  #frame: HTMLIFrameElement | undefined;
+  #timer: ReturnType<typeof setTimeout> | undefined;
+  #closed = false;
+
+  constructor(
+    file: ViewedFile,
+    options: { theme: () => Theme; onKey: (key: ViewerKey) => void; limits?: Limits },
+  ) {
+    this.file = file;
+    this.#theme = options.theme;
+    this.#onKey = options.onKey;
+    this.#limits = options.limits ?? LIMITS;
+    void this.#read();
+  }
+
+  async #read(): Promise<void> {
+    if (this.file.size > this.#limits.bytes) {
+      this.status = { name: 'too-large' };
+      return;
+    }
+    const blob = await this.file.read();
+    if (this.#gone()) return;
+    if (!blob) {
+      this.status = { name: 'failed', reason: 'unread' };
+      return;
+    }
+    this.blob = blob;
+    if (blob.size > this.#limits.bytes) {
+      this.status = { name: 'too-large' };
+      return;
+    }
+    const bytes = await blob.arrayBuffer();
+    if (this.#gone()) return;
+    const format = sniffFormat(new Uint8Array(bytes));
+    if (!format) {
+      this.status = { name: 'unknown' };
+      return;
+    }
+    this.#bytes = bytes;
+    this.status = { name: 'opening', format };
+  }
+
+  /** For `{@attach}` on the frame: listens to it while it is in the page. */
+  attach = (frame: HTMLIFrameElement): (() => void) => {
+    this.#frame = frame;
+    const onMessage = (event: MessageEvent): void => {
+      if (event.source === null || event.source !== frame.contentWindow) return;
+      this.#receive(event.data);
+    };
+    window.addEventListener('message', onMessage);
+    this.#wait(this.#limits.ready);
+    return () => {
+      window.removeEventListener('message', onMessage);
+      clearTimeout(this.#timer);
+      if (this.#frame === frame) this.#frame = undefined;
+    };
+  };
+
+  #wait(milliseconds: number): void {
+    clearTimeout(this.#timer);
+    this.#timer = setTimeout(() => {
+      // Taking the status off "opening" takes the frame out of the page.
+      this.status = { name: 'failed', reason: 'slow' };
+    }, milliseconds);
+  }
+
+  #send(message: ToFrame, transfer: Transferable[] = []): void {
+    // The frame's origin is opaque, so there is no origin to name; what goes
+    // to it is the file the reader asked to see.
+    this.#frame?.contentWindow?.postMessage(message, '*', transfer);
+  }
+
+  #receive(data: unknown): void {
+    const message = readFromFrame(data);
+    const status = this.status;
+    if (!message || (status.name !== 'opening' && status.name !== 'shown')) return;
+    switch (message.kind) {
+      case 'ready': {
+        const bytes = this.#bytes;
+        if (status.name !== 'opening' || !bytes) return;
+        // Handed over, not copied: the app keeps the blob for "Download".
+        this.#bytes = undefined;
+        this.#send({ kind: 'open', format: status.format, bytes, theme: this.#theme() }, [bytes]);
+        this.#wait(this.#limits.draw);
+        break;
+      }
+      case 'shown':
+        clearTimeout(this.#timer);
+        this.pages = message.pages;
+        this.page = 1;
+        this.status = { name: 'shown', format: status.format };
+        break;
+      case 'page':
+        this.page = Math.min(message.page, this.pages);
+        break;
+      case 'failed':
+        clearTimeout(this.#timer);
+        this.status = { name: 'failed', reason: message.reason };
+        break;
+      case 'key':
+        this.#onKey(message.key);
+        break;
+    }
+  }
+
+  goTo(page: number): void {
+    if (this.status.name !== 'shown') return;
+    const target = Math.min(Math.max(1, page), this.pages);
+    this.page = target;
+    this.#send({ kind: 'page', page: target });
+  }
+
+  /** Zooms one step in (1) or out (-1), or back to 1 (0). */
+  zoomBy(step: -1 | 0 | 1): void {
+    if (this.status.name !== 'shown') return;
+    const at = ZOOMS.indexOf(this.zoom);
+    const next = step === 0 ? 1 : (ZOOMS[Math.min(ZOOMS.length - 1, Math.max(0, at + step))] ?? 1);
+    this.zoom = next;
+    this.#send({ kind: 'zoom', zoom: next });
+  }
+
+  get canZoomIn(): boolean {
+    return this.zoom < (ZOOMS.at(-1) ?? 1);
+  }
+
+  get canZoomOut(): boolean {
+    return this.zoom > (ZOOMS[0] ?? 1);
+  }
+
+  setTheme(theme: Theme): void {
+    if (this.status.name === 'shown' || this.status.name === 'opening') {
+      this.#send({ kind: 'theme', theme });
+    }
+  }
+
+  /** Whether the viewer was closed meanwhile (a method: a field would stay narrowed across `await`). */
+  #gone(): boolean {
+    return this.#closed;
+  }
+
+  /** Stops everything: the frame goes with the component that holds it. */
+  close(): void {
+    this.#closed = true;
+    this.#bytes = undefined;
+    clearTimeout(this.#timer);
+  }
+}

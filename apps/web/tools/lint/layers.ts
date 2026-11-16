@@ -252,6 +252,7 @@ export const LAYERS: Readonly<Record<string, number>> = {
   layout: 1,
   drag: 1,
   editor: 1,
+  'file-viewer': 1,
   state: 2,
   ui: 2,
   components: 3,

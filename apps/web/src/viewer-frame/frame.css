@@ -1,0 +1,114 @@
+/*
+  The frame's own look: a column of pages on the app's page colour, light or
+  dark as the app is. The pages keep the document's colours.
+*/
+:root {
+  --frame-background: #f4f4f5;
+  --page-shadow: 0 1px 3px rgb(0 0 0 / 0.18);
+  color-scheme: light;
+  font-family: 'Noto Sans', 'Noto Sans KR', sans-serif;
+}
+
+:root.dark {
+  --frame-background: #18181b;
+  --page-shadow: 0 1px 3px rgb(0 0 0 / 0.6);
+  color-scheme: dark;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--frame-background);
+}
+
+.pages {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  width: max-content;
+  min-width: calc(100% - 32px);
+}
+
+.page {
+  position: relative;
+  background: white;
+  box-shadow: var(--page-shadow);
+  flex: none;
+}
+
+.page canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* docx-preview's wrapper: its grey and its padding give way to the frame's. */
+.docx-body .docx-wrapper {
+  background: transparent;
+  padding: 16px;
+  gap: 16px;
+}
+
+.docx-body .docx-wrapper > section.docx {
+  box-shadow: var(--page-shadow);
+  margin-bottom: 0;
+}
+
+/*
+  pdf.js's text layer: the page's text, transparent, over the canvas, so that
+  it can be selected and read aloud. From pdf.js's web/pdf_viewer.css
+  (Apache-2.0), cut to what this frame uses.
+*/
+.textLayer {
+  position: absolute;
+  text-align: initial;
+  inset: 0;
+  overflow: clip;
+  opacity: 1;
+  line-height: 1;
+  letter-spacing: normal;
+  word-spacing: normal;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  caret-color: CanvasText;
+  z-index: 0;
+  --scale-round-x: 1px;
+  --scale-round-y: 1px;
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+}
+
+.textLayer :is(span, br) {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+  user-select: text;
+}
+
+.textLayer > :not(.markedContent),
+.textLayer .markedContent span:not(.markedContent) {
+  z-index: 1;
+  --font-height: 0;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  --scale-x: 1;
+  --rotate: 0deg;
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+}
+
+.textLayer .markedContent {
+  display: contents;
+}
+
+.textLayer ::selection {
+  background: rgb(0 0 255 / 0.25);
+}
+
+.textLayer br::selection {
+  background: transparent;
+}
