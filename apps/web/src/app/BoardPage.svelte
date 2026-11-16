@@ -27,7 +27,7 @@
   } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
-  import ManagedBoard from './ManagedBoard.svelte';
+  import ManagedContainer from './ManagedContainer.svelte';
   import { referencePlaces } from './reference-places.ts';
   import type { Router } from './router.svelte.ts';
 
@@ -121,11 +121,11 @@
     <p class="text-muted-foreground" role="status">{m.app_loading()}</p>
   </div>
 {:else if board.missing}
-  <!-- Not there, or there to be managed only: ManagedBoard tells which. -->
+  <!-- Not there, or there to be managed only: ManagedContainer tells which. -->
   {@const store = board}
-  <ManagedBoard
+  <ManagedContainer
     {workspace}
-    board={store}
+    {store}
     shown={() => workspace.board === store}
     {router}
     onJoined={() => {

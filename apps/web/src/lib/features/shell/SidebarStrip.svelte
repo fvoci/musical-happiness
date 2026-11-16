@@ -21,18 +21,18 @@
   import { isGuest, type Workspace } from '$lib/state/index.ts';
 
   import { shownTitle } from './shown-title.ts';
-  import BoardIcon from './BoardIcon.svelte';
+  import ContainerIcon from './ContainerIcon.svelte';
 
   interface Props {
     workspace: Workspace;
-    /** The board on the page. */
-    boardId: string | undefined;
-    boardHref: (board: ContainerPlace) => string;
+    /** The board or wiki on the page. */
+    containerId: string | undefined;
+    containerHref: (container: ContainerPlace) => string;
     /** Out of the layout: the list stands beside the board, or the page is compact. */
     hidden: boolean;
     /** Behind the open drawer: neither pressed nor reached with the keyboard. */
     inert: boolean;
-    onOpenBoard: (board: ContainerPlace) => void;
+    onOpenContainer: (container: ContainerPlace) => void;
     onExpand: (event: MouseEvent) => void;
     onAddBoard: () => void;
     onOpenSettings: () => void;
@@ -40,28 +40,28 @@
 
   let {
     workspace,
-    boardId,
-    boardHref,
+    containerId,
+    containerHref,
     hidden,
     inert,
-    onOpenBoard,
+    onOpenContainer,
     onExpand,
     onAddBoard,
     onOpenSettings,
   }: Props = $props();
 
-  const boards = $derived(workspace.sidebar.flatMap((entry) => entry.containers));
+  const containers = $derived(workspace.sidebar.flatMap((entry) => entry.containers));
   const titleOf = shownTitle;
   const myName = $derived(
     (workspace.me && workspace.userName(workspace.me.id)) ?? m['centerPanel.unknown-user'](),
   );
 
-  function open(event: MouseEvent, board: ContainerPlace): void {
+  function open(event: MouseEvent, container: ContainerPlace): void {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
       return;
     }
     event.preventDefault();
-    onOpenBoard(board);
+    onOpenContainer(container);
   }
 </script>
 
@@ -81,20 +81,25 @@
   <ul
     class="flex min-h-0 w-full flex-1 [scrollbar-width:none] flex-col items-center gap-1 overflow-y-auto overscroll-contain py-1"
   >
-    {#each boards as board (board.id)}
-      {@const title = titleOf(board)}
+    {#each containers as container (container.id)}
+      {@const title = titleOf(container)}
       <li class="shrink-0">
         <a
-          href={boardHref(board)}
-          aria-label={board.kind === 'wiki' ? m.shell_wiki_named({ title }) : title}
+          href={containerHref(container)}
+          aria-label={container.kind === 'wiki' ? m.shell_wiki_named({ title }) : title}
           {title}
-          aria-current={board.id === boardId ? 'page' : undefined}
+          aria-current={container.id === containerId ? 'page' : undefined}
           class="grid size-8 place-items-center rounded-lg hover:bg-sidebar-accent aria-[current=page]:bg-sidebar-accent aria-[current=page]:ring-1 aria-[current=page]:ring-input-border roomy:size-touch"
           onclick={(event) => {
-            open(event, board);
+            open(event, container);
           }}
         >
-          <BoardIcon icon={board.icon} kind={board.kind} {title} locale={workspace.locale} />
+          <ContainerIcon
+            icon={container.icon}
+            kind={container.kind}
+            {title}
+            locale={workspace.locale}
+          />
         </a>
       </li>
     {/each}

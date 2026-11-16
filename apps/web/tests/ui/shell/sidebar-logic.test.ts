@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  boardMoveOf,
+  containerMoveOf,
   categoryOrderAfterStep,
   dragOrder,
   dragZones,
@@ -149,18 +149,18 @@ describe('where a dropped board is filed', () => {
   });
 
   it('a drop at a place in an open category', () => {
-    expect(boardMoveOf({ kind: 'index', listId: 'workspace', index: 1 }, 'goals', SIDEBAR)).toEqual(
-      {
-        boardId: 'goals',
-        categoryId: 'workspace',
-        index: 1,
-      },
-    );
+    expect(
+      containerMoveOf({ kind: 'index', listId: 'workspace', index: 1 }, 'goals', SIDEBAR),
+    ).toEqual({
+      containerId: 'goals',
+      categoryId: 'workspace',
+      index: 1,
+    });
   });
 
   it('a drop on a folded category files the board last there', () => {
-    expect(boardMoveOf({ kind: 'zone', zoneId: 'personal' }, 'plan', SIDEBAR)).toEqual({
-      boardId: 'plan',
+    expect(containerMoveOf({ kind: 'zone', zoneId: 'personal' }, 'plan', SIDEBAR)).toEqual({
+      containerId: 'plan',
       categoryId: 'personal',
       index: 1,
     });
@@ -168,7 +168,7 @@ describe('where a dropped board is filed', () => {
 
   it('"Move to" files the board last, and does not count the board itself', () => {
     expect(moveToEnd('workspace', 'goals', SIDEBAR)).toEqual({
-      boardId: 'goals',
+      containerId: 'goals',
       categoryId: 'workspace',
       index: 2,
     });
@@ -176,7 +176,7 @@ describe('where a dropped board is filed', () => {
   });
 
   it('has no answer for a category that is gone', () => {
-    expect(boardMoveOf({ kind: 'index', listId: 'nowhere', index: 0 }, 'plan', SIDEBAR)).toBe(
+    expect(containerMoveOf({ kind: 'index', listId: 'nowhere', index: 0 }, 'plan', SIDEBAR)).toBe(
       undefined,
     );
     expect(moveToEnd('nowhere', 'plan', SIDEBAR)).toBeUndefined();

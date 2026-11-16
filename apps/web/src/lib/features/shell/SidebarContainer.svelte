@@ -20,10 +20,10 @@
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type { ContainerKind } from '$lib/logic/wire.ts';
 
-  import BoardIcon from './BoardIcon.svelte';
+  import ContainerIcon from './ContainerIcon.svelte';
 
   interface Props {
-    boardId: string;
+    containerId: string;
     /** The title as shown: the board's own, or the words for a board without one. */
     title: string;
     icon: string | undefined;
@@ -44,7 +44,7 @@
   }
 
   let {
-    boardId,
+    containerId,
     title,
     icon,
     kind,
@@ -67,18 +67,18 @@
   }
 </script>
 
-<li class={['group/board relative', lifted && 'hidden']} data-board={boardId}>
+<li class={['group/board relative', lifted && 'hidden']} data-board={containerId}>
   <a
     {href}
     draggable="false"
-    data-drag-item={draggable ? boardId : undefined}
+    data-drag-item={draggable ? containerId : undefined}
     aria-current={current ? 'page' : undefined}
     aria-label={kind === 'wiki' ? m.shell_wiki_named({ title }) : undefined}
     aria-describedby={draggable ? describedBy : undefined}
     class="flex min-h-8 items-center gap-2 rounded-md py-1 pr-9 pl-2 select-none [-webkit-touch-callout:none] hover:bg-sidebar-accent aria-[current=page]:bg-sidebar-accent aria-[current=page]:font-medium roomy:min-h-touch roomy:pr-12"
     {onclick}
   >
-    <BoardIcon {icon} {kind} {title} {locale} />
+    <ContainerIcon {icon} {kind} {title} {locale} />
     <span class="min-w-0 flex-1 truncate">{title}</span>
   </a>
   <!-- A guest's wiki has nothing in its menu (a board's has its export): no button then. -->

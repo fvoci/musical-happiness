@@ -8,23 +8,23 @@ import type { Container } from '$lib/logic/wire.ts';
 import type { Workspace } from '$lib/state/index.ts';
 
 /** Saves an archive of the board or wiki, once it has all arrived. */
-async function exportBoard(workspace: Workspace, boardId: string): Promise<void> {
-  const archive = await workspace.exportContainer(boardId);
+async function exportContainer(workspace: Workspace, containerId: string): Promise<void> {
+  const archive = await workspace.exportContainer(containerId);
   if (archive) saveBlob(archive.bytes, archive.name);
 }
 
 /** The entry of a board's or a wiki's menu that saves it as an archive: a guest's too. */
 export function exportAction(
   workspace: Workspace,
-  board: Pick<Container, 'id' | 'kind'>,
+  container: Pick<Container, 'id' | 'kind'>,
   separated = false,
 ): MenuAction {
-  const boardId = board.id;
+  const containerId = container.id;
   return {
     id: 'export',
-    label: board.kind === 'wiki' ? m.shell_export_wiki() : m.shell_export_board(),
+    label: container.kind === 'wiki' ? m.shell_export_wiki() : m.shell_export_board(),
     icon: DownloadIcon,
     separated,
-    run: () => void exportBoard(workspace, boardId),
+    run: () => void exportContainer(workspace, containerId),
   };
 }

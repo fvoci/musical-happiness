@@ -22,7 +22,7 @@
   import { Button } from '$lib/ui/button/index.js';
   import * as Dialog from '$lib/ui/dialog/index.js';
 
-  import BoardIcon from './BoardIcon.svelte';
+  import ContainerIcon from './ContainerIcon.svelte';
 
   interface Props {
     open: boolean;
@@ -136,7 +136,7 @@
           {#each templates as template (template.id)}
             {@const title = titleOf(template)}
             <li class="flex items-start gap-2 rounded-md p-2 hover:bg-accent" data-template={title}>
-              <BoardIcon icon={template.icon} {title} locale={workspace.locale} />
+              <ContainerIcon icon={template.icon} {title} locale={workspace.locale} />
               <div class="min-w-0 flex-1">
                 <p class="truncate font-medium">{title}</p>
                 {#if template.description}
