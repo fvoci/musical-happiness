@@ -14,7 +14,7 @@ use utoipa_axum::routes;
 use super::contract::bodies::NewBoardsAndBlocks;
 use super::contract::params::MemberWorkspaceId;
 use super::contract::tag;
-use super::workspace::Ws;
+use super::workspace::InWorkspace;
 
 use super::boards::{InvalidBoardMember, take_invalid_board_members, take_invalid_patch_members};
 use super::decode_object_with;
@@ -64,7 +64,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
         body = BoardsAndBlocks,
     )),
 )]
-async fn handle_create_boards_and_blocks(ws: Ws, body: Bytes) -> ApiResult {
+async fn handle_create_boards_and_blocks(ws: InWorkspace, body: Bytes) -> ApiResult {
     let user_id = &ws.session.user_id;
     // Whoever works in the workspace makes boards in it.
     ws.require_board_maker("access denied to create board")?;
@@ -201,7 +201,7 @@ fn new_block_problem(block: &Block, board_ids: &HashSet<&str>) -> Option<(&'stat
         body = BoardsAndBlocks,
     )),
 )]
-async fn handle_patch_boards_and_blocks(ws: Ws, body: Bytes) -> ApiResult {
+async fn handle_patch_boards_and_blocks(ws: InWorkspace, body: Bytes) -> ApiResult {
     let user_id = &ws.session.user_id;
     // The patches' types and minimum roles are validated board by board below, as in the
     // original, not while decoding.
@@ -374,7 +374,7 @@ async fn block_of_boards(
     request_body = DeleteBoardsAndBlocks,
     responses((status = 204, description = "The boards and blocks are deleted.")),
 )]
-async fn handle_delete_boards_and_blocks(ws: Ws, body: Bytes) -> ApiResult {
+async fn handle_delete_boards_and_blocks(ws: InWorkspace, body: Bytes) -> ApiResult {
     let user_id = &ws.session.user_id;
     let request: DeleteBoardsAndBlocks = decode_object(&body)?;
     request.validate().map_err(AppError::bad_request)?;

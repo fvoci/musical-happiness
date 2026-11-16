@@ -10,7 +10,7 @@ use super::cards::page_params;
 use super::contract::params::MemberWorkspaceId;
 use super::contract::params::{BoardId, Page, PerPage, WorkspaceId};
 use super::contract::tag;
-use super::workspace::{TextWsModule, Ws};
+use super::workspace::{InWorkspace, TextInContainer};
 use super::{ApiResult, json_response, require_board_permission};
 use crate::app::App;
 use crate::permissions::BoardPermission;
@@ -38,7 +38,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
     responses((status = 200, description = "The deleted cards of the page.", body = Vec<DeletedItem>)),
 )]
 async fn handle_get_deleted_cards(
-    ws: Ws,
+    ws: InWorkspace,
     Path((_, board_id)): Path<(String, String)>,
     RawQuery(query): RawQuery,
 ) -> ApiResult {
@@ -77,7 +77,7 @@ async fn handle_get_deleted_cards(
     responses((status = 200, description = "The deleted boards of the page.", body = Vec<DeletedItem>)),
 )]
 async fn handle_get_deleted_boards(
-    TextWsModule(ws): TextWsModule,
+    TextInContainer(ws): TextInContainer,
     RawQuery(query): RawQuery,
 ) -> ApiResult {
     let ws = ws.require_no_guest()?;

@@ -18,7 +18,7 @@ use super::contract::params::{
     BoardId, BodyVersionNumber, CardId, DisableNotify, Page, PerPage, Preview,
 };
 use super::contract::tag;
-use super::workspace::Ws;
+use super::workspace::InWorkspace;
 
 use super::blocks::BLOCK_FIELDS;
 use super::change_notification;
@@ -124,7 +124,7 @@ async fn card_with_permission(
     responses((status = 201, description = "The card that was made.", body = Card)),
 )]
 async fn handle_create_card(
-    ws: Ws,
+    ws: InWorkspace,
     Path((_, board_id)): Path<(String, String)>,
     RawQuery(query): RawQuery,
     body: Bytes,
@@ -183,7 +183,7 @@ async fn handle_create_card(
     responses((status = 200, description = "The cards of the page.", body = Vec<Card>)),
 )]
 async fn handle_get_cards(
-    ws: Ws,
+    ws: InWorkspace,
     Path((_, board_id)): Path<(String, String)>,
     RawQuery(query): RawQuery,
 ) -> ApiResult {
@@ -232,7 +232,7 @@ pub(super) async fn cards_page(
     responses((status = 200, description = "The card as it is now.", body = Card)),
 )]
 async fn handle_patch_card(
-    ws: Ws,
+    ws: InWorkspace,
     Path((_, card_id)): Path<(String, String)>,
     RawQuery(query): RawQuery,
     body: Bytes,
@@ -278,7 +278,7 @@ async fn handle_patch_card(
     params(MemberWorkspaceId, CardId),
     responses((status = 200, description = "The card.", body = Card)),
 )]
-async fn handle_get_card(ws: Ws, Path((_, card_id)): Path<(String, String)>) -> ApiResult {
+async fn handle_get_card(ws: InWorkspace, Path((_, card_id)): Path<(String, String)>) -> ApiResult {
     let user_id = ws.session.user_id.as_str();
     let block = card_with_permission(
         &ws.app,
@@ -316,7 +316,7 @@ async fn handle_get_card(ws: Ws, Path((_, card_id)): Path<(String, String)>) -> 
     responses((status = 200, description = "The versions, the newest first.", body = Vec<BodyVersion>)),
 )]
 async fn handle_get_card_body_versions(
-    ws: Ws,
+    ws: InWorkspace,
     Path((_, card_id)): Path<(String, String)>,
 ) -> ApiResult {
     let user_id = ws.session.user_id.as_str();
@@ -346,7 +346,7 @@ async fn handle_get_card_body_versions(
     responses((status = 200, description = "The version.", body = BodyVersionContent)),
 )]
 async fn handle_get_card_body_version(
-    ws: Ws,
+    ws: InWorkspace,
     Path((_, card_id, version)): Path<(String, String, String)>,
 ) -> ApiResult {
     let user_id = ws.session.user_id.as_str();
@@ -385,7 +385,7 @@ async fn handle_get_card_body_version(
     responses((status = 200, description = "The card as it is now.", body = Card)),
 )]
 async fn handle_restore_card_body_version(
-    ws: Ws,
+    ws: InWorkspace,
     Path((_, card_id, version)): Path<(String, String, String)>,
 ) -> ApiResult {
     let user_id = ws.session.user_id.as_str();

@@ -18,7 +18,7 @@ use super::contract::bodies::Binary;
 use super::contract::params::{BoardId, MemberWorkspaceId, WorkspaceId};
 use super::contract::tag;
 use super::require_board_permission;
-use super::workspace::{Ws, WsModule};
+use super::workspace::{InContainer, InWorkspace};
 use super::{ApiResult, RequiredSession, json_response};
 use crate::app::{App, ExportedArchive, Slot, download};
 use crate::connection::{Breaker, Connection};
@@ -60,8 +60,8 @@ pub(super) async fn require_import_access(
     app: &App,
     session: Session,
     workspace_id: String,
-) -> Result<Ws, AppError> {
-    Ws::enter(app, session, workspace_id)
+) -> Result<InWorkspace, AppError> {
+    InWorkspace::enter(app, session, workspace_id)
         .await?
         .require_no_guest()
 }
@@ -100,7 +100,7 @@ pub(super) async fn require_import_access(
     )),
 )]
 async fn handle_export_board(
-    WsModule(ws): WsModule,
+    InContainer(ws): InContainer,
     connection: Option<Extension<ConnectInfo<Connection>>>,
     Path((_, board_id)): Path<(String, String)>,
 ) -> ApiResult {
@@ -159,7 +159,7 @@ async fn handle_export_workspace(
     connection: Option<Extension<ConnectInfo<Connection>>>,
     Path(workspace_id): Path<String>,
 ) -> ApiResult {
-    let ws = Ws::enter(&app, session, workspace_id).await?;
+    let ws = InWorkspace::enter(&app, session, workspace_id).await?;
     let app = &ws.app.clone().reaching(BoardKinds::Every);
     let user_id = &ws.session.user_id;
     let boards = app
@@ -223,7 +223,7 @@ async fn handle_export_workspace(
         body = ImportResult,
     )),
 )]
-async fn handle_import(WsModule(ws): WsModule, body: Bytes) -> ApiResult {
+async fn handle_import(InContainer(ws): InContainer, body: Bytes) -> ApiResult {
     let ws = ws.require_no_guest()?;
     let user_id = ws.session.user_id.clone();
     // Membership is checked before reading the body; the upload belongs to this workspace.

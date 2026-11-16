@@ -9,7 +9,7 @@ use utoipa_axum::routes;
 use super::contract::params::WorkspaceId;
 use super::contract::tag;
 
-use super::workspace::TextWs;
+use super::workspace::TextInWorkspace;
 use super::{ApiResult, json_response};
 use crate::app::{App, as_managed};
 
@@ -29,7 +29,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
     params(WorkspaceId),
     responses((status = 200, description = "The templates.", body = Vec<Board>)),
 )]
-async fn handle_get_templates(TextWs(ws): TextWs) -> ApiResult {
+async fn handle_get_templates(TextInWorkspace(ws): TextInWorkspace) -> ApiResult {
     let ws = ws.require_no_guest()?;
     let (app, user_id, workspace_id) = (&ws.app, ws.session.user_id.as_str(), &ws.workspace_id);
     let boards = app.template_boards(workspace_id, user_id, ws.role).await?;

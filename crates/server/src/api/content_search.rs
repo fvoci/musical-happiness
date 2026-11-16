@@ -8,7 +8,7 @@ use utoipa_axum::routes;
 use super::cards::int_query_param;
 use super::contract::params::{ContentKind, ContentLimit, ContentText, MemberWorkspaceId};
 use super::contract::tag;
-use super::workspace::WsModule;
+use super::workspace::InContainer;
 use super::{ApiResult, json_response, query_param};
 use crate::app::App;
 use crate::error::AppError;
@@ -58,7 +58,10 @@ pub(super) fn routes() -> OpenApiRouter<App> {
     params(MemberWorkspaceId, ContentText, ContentKind, ContentLimit),
     responses((status = 200, description = "What was found.", body = Vec<SearchHit>)),
 )]
-async fn handle_search_content(WsModule(ws): WsModule, RawQuery(query): RawQuery) -> ApiResult {
+async fn handle_search_content(
+    InContainer(ws): InContainer,
+    RawQuery(query): RawQuery,
+) -> ApiResult {
     let query = query.as_deref();
     let kind = match query_param(query, "kind").as_str() {
         "" => None,

@@ -18,7 +18,7 @@ use super::contract::params::{
     SourceBoardId,
 };
 use super::contract::tag;
-use super::workspace::Ws;
+use super::workspace::InWorkspace;
 
 use super::{ApiResult, created, decode_json, json_response, no_content, query_param};
 use super::{
@@ -77,7 +77,7 @@ async fn block_on_board(app: &App, block_id: &str, board_id: &str) -> Result<Blo
 
 /// Checks that a signed-in user may read the blocks of a board: the members of the
 /// board, and for an open template everyone who works in its workspace besides.
-async fn require_read_access(ws: &Ws, board: &Board) -> Result<(), AppError> {
+async fn require_read_access(ws: &InWorkspace, board: &Board) -> Result<(), AppError> {
     let (app, user_id) = (&ws.app, ws.session.user_id.as_str());
     require_board_permission(
         app,
@@ -105,7 +105,10 @@ async fn require_read_access(ws: &Ws, board: &Board) -> Result<(), AppError> {
 /// Security fix: the original copies the files without looking at the source board
 /// (`server/api/blocks.go:297-303`), so a user could make the server copy files out of a
 /// board they cannot see. Whoever may read the board's blocks may copy from it.
-async fn require_source_board_access(ws: &Ws, source_board_id: &str) -> Result<(), AppError> {
+async fn require_source_board_access(
+    ws: &InWorkspace,
+    source_board_id: &str,
+) -> Result<(), AppError> {
     // The same answer for a board that is not there and one the user may not read. A
     // store that failed is neither: it is answered as what it is.
     let refused = |error: AppError| {
@@ -139,7 +142,7 @@ async fn require_source_board_access(ws: &Ws, source_board_id: &str) -> Result<(
     responses((status = 200, description = "The blocks.", body = Vec<Block>)),
 )]
 async fn handle_get_blocks(
-    ws: Ws,
+    ws: InWorkspace,
     Path((_, board_id)): Path<(String, String)>,
     RawQuery(query): RawQuery,
 ) -> ApiResult {
@@ -174,7 +177,7 @@ pub(super) async fn asked_blocks(
 /// Checks that the images of the blocks' bodies show files of the board, or of the board
 /// named by `sourceBoardId`, and copies the files the blocks show from that board.
 async fn check_and_copy_body_files(
-    ws: &Ws,
+    ws: &InWorkspace,
     board_id: &str,
     query: Option<&str>,
     blocks: &mut [Block],
@@ -244,7 +247,7 @@ async fn check_and_copy_body_files(
     )),
 )]
 async fn handle_post_blocks(
-    ws: Ws,
+    ws: InWorkspace,
     Path((_, board_id)): Path<(String, String)>,
     RawQuery(query): RawQuery,
     body: Bytes,
@@ -394,7 +397,7 @@ async fn renew_request_ids(
     responses((status = 204, description = "The block is deleted.")),
 )]
 async fn handle_delete_block(
-    ws: Ws,
+    ws: InWorkspace,
     Path((_, board_id, block_id)): Path<(String, String, String)>,
     RawQuery(query): RawQuery,
 ) -> ApiResult {
@@ -441,7 +444,7 @@ async fn handle_delete_block(
     responses((status = 200, description = "The block as it is again.", body = Block)),
 )]
 async fn handle_undelete_block(
-    ws: Ws,
+    ws: InWorkspace,
     Path((_, board_id, block_id)): Path<(String, String, String)>,
 ) -> ApiResult {
     let user_id = ws.session.user_id.as_str();
@@ -505,7 +508,7 @@ async fn handle_undelete_block(
     responses((status = 200, description = "The earlier versions, the first one first.", body = Vec<CommentVersion>)),
 )]
 async fn handle_get_comment_versions(
-    ws: Ws,
+    ws: InWorkspace,
     Path((_, board_id, block_id)): Path<(String, String, String)>,
 ) -> ApiResult {
     let user_id = ws.session.user_id.as_str();
@@ -555,7 +558,7 @@ async fn handle_get_comment_versions(
     responses((status = 204, description = "The block is changed.")),
 )]
 async fn handle_patch_block(
-    ws: Ws,
+    ws: InWorkspace,
     Path((_, board_id, block_id)): Path<(String, String, String)>,
     RawQuery(query): RawQuery,
     body: Bytes,
@@ -614,7 +617,7 @@ async fn handle_patch_block(
     responses((status = 204, description = "The blocks are changed.")),
 )]
 async fn handle_patch_blocks(
-    ws: Ws,
+    ws: InWorkspace,
     Path((_, board_id)): Path<(String, String)>,
     RawQuery(query): RawQuery,
     body: Bytes,
@@ -698,7 +701,7 @@ async fn handle_patch_blocks(
     )),
 )]
 async fn handle_duplicate_block(
-    ws: Ws,
+    ws: InWorkspace,
     Path((_, board_id, block_id)): Path<(String, String, String)>,
     RawQuery(query): RawQuery,
 ) -> ApiResult {

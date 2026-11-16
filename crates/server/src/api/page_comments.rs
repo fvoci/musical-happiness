@@ -5,7 +5,7 @@
 //! a card is below the card. Who may do what to one is what the card's comments let
 //! (`api/access.rs`), and what is stored and told is what the card's are (`App`'s
 //! blocks); only the routes are a wiki's, under the handle that reaches wikis
-//! (`WsWiki`), so that no operation of a board's blocks reaches a page's comment.
+//! (`InWiki`), so that no operation of a board's blocks reaches a page's comment.
 
 use axum::body::Bytes;
 use axum::extract::Path;
@@ -19,7 +19,7 @@ use utoipa_axum::routes;
 use super::contract::params::{CommentId, MemberWorkspaceId, PageId, WikiId};
 use super::contract::tag;
 use super::wikis::{READ_DENIED, page_with_permission};
-use super::workspace::{Ws, WsWiki};
+use super::workspace::{InWiki, InWorkspace};
 use super::{
     ApiResult, BlockAction, created, decode_with_document, json_response, no_content,
     require_block_permission, require_delete_permission, require_deletion_permission,
@@ -105,7 +105,7 @@ fn text_of(change: BodyChange) -> Result<Body, AppError> {
 /// `denial`; a block that is no comment on this page is no comment, whatever else it
 /// is. `None` is no comment there now.
 async fn comment_with_permission(
-    ws: &Ws,
+    ws: &InWorkspace,
     named: CommentPath<'_>,
     permission: BoardPermission,
     denial: &str,
@@ -121,7 +121,7 @@ async fn comment_with_permission(
 
 /// The comment of [`comment_with_permission`], which is to be there: 404 for none.
 async fn existing_comment(
-    ws: &Ws,
+    ws: &InWorkspace,
     named: CommentPath<'_>,
     permission: BoardPermission,
 ) -> Result<Block, AppError> {
@@ -152,7 +152,7 @@ fn is_comment_on(block: &Block, page: &Block) -> bool {
     responses((status = 200, description = "The comments, oldest first.", body = Vec<Block>)),
 )]
 async fn handle_get_page_comments(
-    WsWiki(ws): WsWiki,
+    InWiki(ws): InWiki,
     Path((_, wiki_id, page_id)): Path<(String, String, String)>,
 ) -> ApiResult {
     let page = page_with_permission(
@@ -187,7 +187,7 @@ async fn handle_get_page_comments(
     responses((status = 201, description = "The comment as it was stored.", body = Block)),
 )]
 async fn handle_create_page_comment(
-    WsWiki(ws): WsWiki,
+    InWiki(ws): InWiki,
     Path((_, wiki_id, page_id)): Path<(String, String, String)>,
     body: Bytes,
 ) -> ApiResult {
@@ -244,7 +244,7 @@ async fn handle_create_page_comment(
     responses((status = 200, description = "The comment as it is now.", body = Block)),
 )]
 async fn handle_patch_page_comment(
-    WsWiki(ws): WsWiki,
+    InWiki(ws): InWiki,
     Path((_, wiki_id, page_id, comment_id)): Path<(String, String, String, String)>,
     body: Bytes,
 ) -> ApiResult {
@@ -301,7 +301,7 @@ async fn handle_patch_page_comment(
     responses((status = 204, description = "The comment is deleted.")),
 )]
 async fn handle_delete_page_comment(
-    WsWiki(ws): WsWiki,
+    InWiki(ws): InWiki,
     Path((_, wiki_id, page_id, comment_id)): Path<(String, String, String, String)>,
 ) -> ApiResult {
     let user_id = ws.session.user_id.as_str();
@@ -339,7 +339,7 @@ async fn handle_delete_page_comment(
     responses((status = 200, description = "The comment as it is again.", body = Block)),
 )]
 async fn handle_undelete_page_comment(
-    WsWiki(ws): WsWiki,
+    InWiki(ws): InWiki,
     Path((_, wiki_id, page_id, comment_id)): Path<(String, String, String, String)>,
 ) -> ApiResult {
     let user_id = ws.session.user_id.as_str();
@@ -394,7 +394,7 @@ async fn handle_undelete_page_comment(
     responses((status = 200, description = "The earlier versions, the first one first.", body = Vec<CommentVersion>)),
 )]
 async fn handle_get_page_comment_versions(
-    WsWiki(ws): WsWiki,
+    InWiki(ws): InWiki,
     Path((_, wiki_id, page_id, comment_id)): Path<(String, String, String, String)>,
 ) -> ApiResult {
     let named = CommentPath {

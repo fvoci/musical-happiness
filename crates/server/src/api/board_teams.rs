@@ -9,7 +9,7 @@ use super::contract::{
     params::{BoardId, TeamId, WorkerWorkspaceId},
     tag,
 };
-use super::workspace::WsModule;
+use super::workspace::InContainer;
 use super::{ApiResult, decode_object, json_response, no_content, require_board_permission};
 use crate::{app::App, permissions::BoardPermission};
 
@@ -40,7 +40,7 @@ struct TeamPlace {
 /// Direct memberships remain separate.
 #[utoipa::path(get, path = "/w/{workspaceId}/boards/{boardId}/teams", operation_id = "getBoardTeams", tag = tag::MEMBERS,
     params(WorkerWorkspaceId, BoardId), responses((status = 200, description = "Assigned teams.", body = Vec<BoardTeam>)))]
-async fn list(WsModule(ws): WsModule, Path(place): Path<BoardPlace>) -> ApiResult {
+async fn list(InContainer(ws): InContainer, Path(place): Path<BoardPlace>) -> ApiResult {
     let ws = ws.require_no_guest()?;
     require_board_permission(
         &ws.app,
@@ -65,7 +65,11 @@ async fn list(WsModule(ws): WsModule, Path(place): Path<BoardPlace>) -> ApiResul
 #[utoipa::path(put, path = "/w/{workspaceId}/boards/{boardId}/teams/{teamId}", operation_id = "setBoardTeam", tag = tag::MEMBERS,
     params(WorkerWorkspaceId, BoardId, TeamId), request_body = BoardTeamRole,
     responses((status = 204, description = "The team has this role.")))]
-async fn assign(WsModule(ws): WsModule, Path(place): Path<TeamPlace>, body: Bytes) -> ApiResult {
+async fn assign(
+    InContainer(ws): InContainer,
+    Path(place): Path<TeamPlace>,
+    body: Bytes,
+) -> ApiResult {
     let ws = ws.require_no_guest()?;
     require_board_permission(
         &ws.app,
@@ -95,7 +99,7 @@ async fn assign(WsModule(ws): WsModule, Path(place): Path<TeamPlace>, body: Byte
 /// roles inherited from other teams remain. Idempotent for an existing team.
 #[utoipa::path(delete, path = "/w/{workspaceId}/boards/{boardId}/teams/{teamId}", operation_id = "removeBoardTeam", tag = tag::MEMBERS,
     params(WorkerWorkspaceId, BoardId, TeamId), responses((status = 204, description = "The team has no role on this board.")))]
-async fn remove(WsModule(ws): WsModule, Path(place): Path<TeamPlace>) -> ApiResult {
+async fn remove(InContainer(ws): InContainer, Path(place): Path<TeamPlace>) -> ApiResult {
     let ws = ws.require_no_guest()?;
     require_board_permission(
         &ws.app,

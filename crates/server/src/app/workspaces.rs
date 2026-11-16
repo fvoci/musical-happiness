@@ -169,7 +169,7 @@ impl App {
     /// Whether the user works in the workspace: a member of the workspace who is no guest.
     /// This is what the routes that name a workspace in their body or query, and not under
     /// `/w/{workspaceId}`, ask before anything else; for anybody else the workspace is not
-    /// there. The routes under a workspace ask it of their path (`Ws::require_no_guest`).
+    /// there. The routes under a workspace ask it of their path (`InWorkspace::require_no_guest`).
     ///
     /// A guest of a workspace is on the boards they were invited to and reaches those
     /// by their board; what a member of the workspace may do (see its boards, make one,

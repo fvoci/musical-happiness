@@ -23,7 +23,7 @@ use super::contract::params::{InvitationId, WorkerWorkspaceId};
 use super::contract::tag;
 use super::session::optional_session_of;
 use super::signup_cookie::{marker_of, with_marker};
-use super::workspace::{Ws, WsModule};
+use super::workspace::{InContainer, InWorkspace};
 use super::{ApiResult, OptionalSession, created, decode_object, json_response, no_content};
 use crate::app::{Accepting, Admission, App, Inviting};
 use crate::client_address::ClientAddress;
@@ -80,7 +80,7 @@ pub(super) fn unauthenticated_routes() -> OpenApiRouter<App> {
     request_body = NewInvitation,
     responses((status = 201, description = "The invitation, with its token.", body = Invitation)),
 )]
-async fn handle_create_invitation(WsModule(ws): WsModule, body: Bytes) -> ApiResult {
+async fn handle_create_invitation(InContainer(ws): InContainer, body: Bytes) -> ApiResult {
     let ws = ws.require_no_guest()?;
     let request: NewInvitation = decode_object(&body)?;
     let inviting = match request.role {
@@ -119,7 +119,10 @@ async fn handle_create_invitation(WsModule(ws): WsModule, body: Bytes) -> ApiRes
 
 /// The board and the role a request invites a guest to, once the user may invite one
 /// there.
-async fn guest_of<'r>(ws: &Ws, request: &'r NewInvitation) -> Result<Inviting<'r>, AppError> {
+async fn guest_of<'r>(
+    ws: &InWorkspace,
+    request: &'r NewInvitation,
+) -> Result<Inviting<'r>, AppError> {
     let Some(board_id) = request.board_id.as_deref() else {
         return Err(
             AppError::bad_request("an invitation for a guest names the board")
@@ -178,7 +181,7 @@ async fn guest_of<'r>(ws: &Ws, request: &'r NewInvitation) -> Result<Inviting<'r
     params(WorkerWorkspaceId),
     responses((status = 200, description = "The invitations.", body = Vec<Invitation>)),
 )]
-async fn handle_get_invitations(ws: Ws) -> ApiResult {
+async fn handle_get_invitations(ws: InWorkspace) -> ApiResult {
     let ws = ws.require_no_guest()?;
     let invitations = ws
         .app
@@ -211,7 +214,10 @@ struct InvitationPlace {
     params(WorkerWorkspaceId, InvitationId),
     responses((status = 204, description = "The invitation is revoked.")),
 )]
-async fn handle_revoke_invitation(ws: Ws, Path(place): Path<InvitationPlace>) -> ApiResult {
+async fn handle_revoke_invitation(
+    ws: InWorkspace,
+    Path(place): Path<InvitationPlace>,
+) -> ApiResult {
     let ws = ws.require_no_guest()?;
     ws.app
         .revoke_invitation(
@@ -242,7 +248,7 @@ async fn handle_revoke_invitation(ws: Ws, Path(place): Path<InvitationPlace>) ->
     request_body = GuestInvitationsChange,
     responses((status = 200, description = "The workspace.", body = Workspace)),
 )]
-async fn handle_set_guest_invitations(ws: Ws, body: Bytes) -> ApiResult {
+async fn handle_set_guest_invitations(ws: InWorkspace, body: Bytes) -> ApiResult {
     let ws = ws.require_no_guest()?;
     let change: GuestInvitationsChange = decode_object(&body)?;
     if !permissions::allows_in_workspace(ws.actor(), WorkspacePermission::SwitchGuestInvitations) {

@@ -1,8 +1,8 @@
 //! Wikis: listing and making them, and their pages.
 //!
 //! A wiki is a board of the kind `wiki`. What is the same for a board and a wiki is
-//! asked under `/boards/{boardId}` (`WsModule`); here is what only a wiki has, and the
-//! handle these routes work with reaches wikis and no board (`WsWiki`).
+//! asked under `/boards/{boardId}` (`InContainer`); here is what only a wiki has, and the
+//! handle these routes work with reaches wikis and no board (`InWiki`).
 
 use axum::body::Bytes;
 use axum::extract::{Path, RawQuery};
@@ -19,7 +19,7 @@ use super::cards::page_params;
 use super::contract::params::Page as PageNumber;
 use super::contract::params::{MemberWorkspaceId, PageId, PerPage, WikiId};
 use super::contract::tag;
-use super::workspace::{Ws, WsWiki};
+use super::workspace::{InWiki, InWorkspace};
 use super::{
     ApiResult, created, decode_object, decode_with_document, json_response, no_content,
     require_board_permission,
@@ -80,7 +80,7 @@ pub(crate) struct NewWiki {
     params(MemberWorkspaceId),
     responses((status = 200, description = "The wikis.", body = Vec<Board>)),
 )]
-async fn handle_get_wikis(WsWiki(ws): WsWiki) -> ApiResult {
+async fn handle_get_wikis(InWiki(ws): InWiki) -> ApiResult {
     let wikis = ws
         .app
         .workspace_boards(&ws.session.user_id, &ws.workspace_id, ws.role)
@@ -102,7 +102,7 @@ async fn handle_get_wikis(WsWiki(ws): WsWiki) -> ApiResult {
     request_body = NewWiki,
     responses((status = 201, description = "The wiki that was made.", body = Board)),
 )]
-async fn handle_create_wiki(WsWiki(ws): WsWiki, body: Bytes) -> ApiResult {
+async fn handle_create_wiki(InWiki(ws): InWiki, body: Bytes) -> ApiResult {
     ws.require_board_maker("access denied to create wiki")?;
     let NewWiki {
         board_type,
@@ -137,7 +137,7 @@ pub(super) const READ_DENIED: &str = "access denied to fetch page";
 /// Who may not read the wiki is told what `require_board_permission` tells; a block
 /// that is no page of this wiki is no page, whatever else it is.
 pub(super) async fn page_with_permission(
-    ws: &Ws,
+    ws: &InWorkspace,
     wiki_id: &str,
     page_id: &str,
     permission: BoardPermission,
@@ -162,7 +162,7 @@ pub(super) async fn page_with_permission(
     responses((status = 200, description = "The pages.", body = Vec<PageNode>)),
 )]
 async fn handle_get_page_tree(
-    WsWiki(ws): WsWiki,
+    InWiki(ws): InWiki,
     Path((_, wiki_id)): Path<(String, String)>,
 ) -> ApiResult {
     require_board_permission(
@@ -204,7 +204,7 @@ async fn handle_get_page_tree(
     responses((status = 201, description = "The page that was made.", body = Page)),
 )]
 async fn handle_create_page(
-    WsWiki(ws): WsWiki,
+    InWiki(ws): InWiki,
     Path((_, wiki_id)): Path<(String, String)>,
     body: Bytes,
 ) -> ApiResult {
@@ -236,7 +236,7 @@ async fn handle_create_page(
     responses((status = 200, description = "The page.", body = Page)),
 )]
 async fn handle_get_page(
-    WsWiki(ws): WsWiki,
+    InWiki(ws): InWiki,
     Path((_, wiki_id, page_id)): Path<(String, String, String)>,
 ) -> ApiResult {
     let block = page_with_permission(
@@ -267,7 +267,7 @@ async fn handle_get_page(
     responses((status = 200, description = "The page as it is now.", body = Page)),
 )]
 async fn handle_patch_page(
-    WsWiki(ws): WsWiki,
+    InWiki(ws): InWiki,
     Path((_, wiki_id, page_id)): Path<(String, String, String)>,
     body: Bytes,
 ) -> ApiResult {
@@ -323,7 +323,7 @@ async fn handle_patch_page(
     responses((status = 200, description = "The page where it is now.", body = Page)),
 )]
 async fn handle_move_page(
-    WsWiki(ws): WsWiki,
+    InWiki(ws): InWiki,
     Path((_, wiki_id, page_id)): Path<(String, String, String)>,
     body: Bytes,
 ) -> ApiResult {
@@ -367,7 +367,7 @@ async fn handle_move_page(
     responses((status = 201, description = "The copy of the page.", body = Page)),
 )]
 async fn handle_duplicate_page(
-    WsWiki(ws): WsWiki,
+    InWiki(ws): InWiki,
     Path((_, wiki_id, page_id)): Path<(String, String, String)>,
     body: Bytes,
 ) -> ApiResult {
@@ -405,7 +405,7 @@ async fn handle_duplicate_page(
     responses((status = 204, description = "The page is deleted.")),
 )]
 async fn handle_delete_page(
-    WsWiki(ws): WsWiki,
+    InWiki(ws): InWiki,
     Path((_, wiki_id, page_id)): Path<(String, String, String)>,
 ) -> ApiResult {
     let user_id = ws.session.user_id.as_str();
@@ -442,7 +442,7 @@ async fn handle_delete_page(
     responses((status = 200, description = "The deleted pages of the wiki.", body = Vec<DeletedPage>)),
 )]
 async fn handle_get_deleted_pages(
-    WsWiki(ws): WsWiki,
+    InWiki(ws): InWiki,
     Path((_, wiki_id)): Path<(String, String)>,
     RawQuery(query): RawQuery,
 ) -> ApiResult {
@@ -482,7 +482,7 @@ async fn handle_get_deleted_pages(
     responses((status = 200, description = "The page as it is again.", body = Page)),
 )]
 async fn handle_undelete_page(
-    WsWiki(ws): WsWiki,
+    InWiki(ws): InWiki,
     Path((_, wiki_id, page_id)): Path<(String, String, String)>,
 ) -> ApiResult {
     let user_id = ws.session.user_id.as_str();

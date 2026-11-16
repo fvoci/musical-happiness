@@ -10,7 +10,7 @@ use utoipa_axum::routes;
 use super::contract::params::WorkspaceId;
 use super::contract::tag;
 
-use super::workspace::TextWs;
+use super::workspace::TextInWorkspace;
 use super::{ApiResult, json_response};
 use crate::app::App;
 
@@ -42,7 +42,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
     params(WorkspaceId),
     responses((status = 200, description = "Where the tour's board is.", body = OnboardingStart)),
 )]
-async fn handle_onboard(TextWs(ws): TextWs) -> ApiResult {
+async fn handle_onboard(TextInWorkspace(ws): TextInWorkspace) -> ApiResult {
     let ws = ws.require_no_guest()?;
     let (app, user_id, workspace_id) = (&ws.app, ws.session.user_id.as_str(), &ws.workspace_id);
     let (workspace_id, board_id) = app.prepare_onboarding_tour(user_id, workspace_id).await?;

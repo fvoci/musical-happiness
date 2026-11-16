@@ -31,7 +31,7 @@ enum Reaches {
 
 /// Every operation whose path names a board, a wiki, or something that is of one (a
 /// block, a file, an upload), and the kinds it reaches: the extractor of its handler
-/// (`Ws` for boards, `WsWiki` for wikis, `WsModule` for both; the token of a shared
+/// (`InWorkspace` for boards, `InWiki` for wikis, `InContainer` for both; the token of a shared
 /// board or wiki opens its own kind's routes). What names one in its body or its query is asked in
 /// [`what_names_a_wiki_in_a_body_or_a_query_is_refused_as_what_names_nothing`].
 const REACHED: &[(&str, Reaches)] = &[

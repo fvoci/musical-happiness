@@ -9,7 +9,7 @@ use utoipa_axum::routes;
 use super::contract::params::{SearchField, SearchTerm, WorkspaceId};
 use super::contract::tag;
 
-use super::workspace::Ws;
+use super::workspace::InWorkspace;
 use super::{ApiResult, json_response, query_param};
 use crate::app::App;
 use crate::error::AppError;
@@ -35,7 +35,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
     params(WorkspaceId, SearchTerm, SearchField),
     responses((status = 200, description = "The boards that match.", body = Vec<Board>)),
 )]
-async fn handle_search_boards(ws: Ws, RawQuery(query): RawQuery) -> ApiResult {
+async fn handle_search_boards(ws: InWorkspace, RawQuery(query): RawQuery) -> ApiResult {
     let ws = ws.require_no_guest()?;
     let term = query_param(query.as_deref(), "q");
     let field_text = query_param(query.as_deref(), "field");

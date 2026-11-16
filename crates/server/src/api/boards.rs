@@ -12,7 +12,7 @@ use super::contract::bodies::NewBoard;
 use super::contract::params::MemberWorkspaceId;
 use super::contract::params::{AsTemplate, BoardId, ToWorkspace};
 use super::contract::tag;
-use super::workspace::{Ws, WsModule};
+use super::workspace::{InContainer, InWorkspace};
 
 use super::{ApiResult, created, decode_json, json_response, no_content, query_param};
 use super::{
@@ -128,7 +128,7 @@ fn decode_board_patch(body: &[u8]) -> Result<BoardPatch, AppError> {
     request_body = NewBoard,
     responses((status = 201, description = "The board that was made.", body = Board)),
 )]
-async fn handle_create_board(ws: Ws, body: Bytes) -> ApiResult {
+async fn handle_create_board(ws: InWorkspace, body: Bytes) -> ApiResult {
     let user_id = &ws.session.user_id;
     // Whoever works in the workspace makes boards in it, open ones and private ones.
     ws.require_board_maker("access denied to create board")?;
@@ -160,7 +160,7 @@ async fn handle_create_board(ws: Ws, body: Bytes) -> ApiResult {
     responses((status = 200, description = "The board.", body = Board)),
 )]
 async fn handle_get_board(
-    WsModule(ws): WsModule,
+    InContainer(ws): InContainer,
     Path((_, board_id)): Path<(String, String)>,
 ) -> ApiResult {
     // An open board is for whoever works in its workspace, a private one for its
@@ -196,7 +196,7 @@ async fn handle_get_board(
     responses((status = 200, description = "The board as it is now.", body = Board)),
 )]
 async fn handle_patch_board(
-    WsModule(ws): WsModule,
+    InContainer(ws): InContainer,
     Path((_, board_id)): Path<(String, String)>,
     body: Bytes,
 ) -> ApiResult {
@@ -256,7 +256,7 @@ async fn handle_patch_board(
     )),
 )]
 async fn handle_reorder_card_properties(
-    ws: Ws,
+    ws: InWorkspace,
     Path((_, board_id)): Path<(String, String)>,
     body: Bytes,
 ) -> ApiResult {
@@ -293,7 +293,7 @@ async fn handle_reorder_card_properties(
     responses((status = 204, description = "The board is deleted.")),
 )]
 async fn handle_delete_board(
-    WsModule(ws): WsModule,
+    InContainer(ws): InContainer,
     Path((_, board_id)): Path<(String, String)>,
 ) -> ApiResult {
     require_board_permission(
@@ -341,7 +341,7 @@ async fn handle_delete_board(
     )),
 )]
 async fn handle_duplicate_board(
-    WsModule(ws): WsModule,
+    InContainer(ws): InContainer,
     Path((_, board_id)): Path<(String, String)>,
     RawQuery(query): RawQuery,
 ) -> ApiResult {
@@ -397,7 +397,7 @@ async fn handle_duplicate_board(
     responses((status = 200, description = "The board as it is again.", body = Board)),
 )]
 async fn handle_undelete_board(
-    WsModule(ws): WsModule,
+    InContainer(ws): InContainer,
     Path((_, board_id)): Path<(String, String)>,
 ) -> ApiResult {
     // The trash keeps the memberships a board had, which is how it is known who may
