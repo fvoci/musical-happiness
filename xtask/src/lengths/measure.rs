@@ -180,7 +180,7 @@ impl<'ast> Visit<'ast> for Meter<'_> {
         // `<Type as Trait<Argument>>`, so that the `from` of one conversion is not
         // taken for the `from` of another.
         let name = match &node.trait_ {
-            Some((_, path, _)) => format!("<{of} as {}>", without_spaces(path)),
+            Some((path, _)) => format!("<{of} as {}>", without_spaces(path)),
             None => of,
         };
         self.inside(name, |meter| visit::visit_item_impl(meter, node));
