@@ -94,7 +94,7 @@ impl std::fmt::Debug for Mailer {
 }
 
 impl Mailer {
-    /// `server_root` is where the links of the mail lead; the way of sending is the one
+    /// `server_url` is where the links of the mail lead; the way of sending is the one
     /// `mail` names (`mail_transport`, or SMTP when `smtp_host` is set).
     ///
     /// # Errors
@@ -102,14 +102,14 @@ impl Mailer {
     pub(super) fn new(
         settings: &SmtpSettings,
         mail: &MailSettings,
-        server_root: &str,
+        server_url: &str,
         metrics: Metrics,
     ) -> anyhow::Result<Self> {
         settings.check()?;
         let way = mail.way(settings)?;
-        if way.is_some() && is_loopback_root(server_root) {
+        if way.is_some() && is_loopback_root(server_url) {
             tracing::warn!(
-                server_root,
+                server_url,
                 "mail is sent, but server_url is a loopback address: its links lead nowhere \
                  for their recipients"
             );
@@ -264,11 +264,11 @@ impl Mailer {
     }
 }
 
-/// Whether `server_root` names no address its recipients reach, as the default does:
+/// Whether `server_url` names no address its recipients reach, as the default does:
 /// `localhost`, a loopback address (also one mapped into IPv6), or the unspecified one.
 /// A root that is no URL is left to the configuration's own checks.
-fn is_loopback_root(server_root: &str) -> bool {
-    reqwest::Url::parse(server_root).is_ok_and(|url| is_loopback_url(&url))
+fn is_loopback_root(server_url: &str) -> bool {
+    reqwest::Url::parse(server_url).is_ok_and(|url| is_loopback_url(&url))
 }
 
 /// One message's place in its queue, held until the message was delivered or given up.

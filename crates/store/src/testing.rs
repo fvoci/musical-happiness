@@ -51,7 +51,8 @@ pub fn db_type_of_the_tests() -> DbType {
 pub struct TestDatabase {
     db_type: DbType,
     database_connection: String,
-    /// The `database_connection` of the role that owns the tables, where that is another role.
+    /// The `database_connection` of the role that owns the tables, where that is
+    /// another role.
     owner_database_connection: Option<String>,
     cleanup: Cleanup,
 }
@@ -218,9 +219,10 @@ impl TestDatabase {
     /// Creates an empty database whose tables are not the tests' role's: on PostgreSQL a
     /// schema that `owner` owns, in which the role of [`CONN_STRING_ENV`] may only use
     /// the tables (`SELECT`, `INSERT`, `UPDATE`, `DELETE`, and the sequences), as a server
-    /// is installed apart from the administrator who migrates. [`TestDatabase::database_connection`]
-    /// connects as the tests' role and [`TestDatabase::owner_database_connection`] as the owner. On
-    /// SQLite, which has no roles, it is a database like any other.
+    /// is installed apart from the administrator who migrates.
+    /// [`TestDatabase::database_connection`] connects as the tests' role and
+    /// [`TestDatabase::owner_database_connection`] as the owner. On SQLite, which has no
+    /// roles, it is a database like any other.
     ///
     /// # Panics
     ///
@@ -295,8 +297,9 @@ impl TestDatabase {
         }
     }
 
-    /// The `database_connection` string that connects as the role that owns the tables: that of a
-    /// database made by [`TestDatabase::create_owned_apart`], else [`TestDatabase::database_connection`].
+    /// The `database_connection` that connects as the role that owns the tables: that of
+    /// a database made by [`TestDatabase::create_owned_apart`], else
+    /// [`TestDatabase::database_connection`].
     pub fn owner_database_connection(&self) -> &str {
         self.owner_database_connection
             .as_deref()
@@ -308,7 +311,7 @@ impl TestDatabase {
         self.db_type
     }
 
-    /// The `database_connection` string that connects to this database.
+    /// The `database_connection` that connects to this database.
     pub fn database_connection(&self) -> &str {
         &self.database_connection
     }
@@ -403,9 +406,9 @@ pub fn latest_migration() -> i64 {
     crate::schema::latest_version()
 }
 
-/// Brings the schema that `database_connection` connects to up to the migrations up to `version`,
-/// and none of the changes of the data that follow the migrations: a database as an
-/// older server left it.
+/// Brings the schema that `database_connection` connects to up to the migrations up to
+/// `version`, and none of the changes of the data that follow the migrations: a database
+/// as an older server left it.
 ///
 /// # Panics
 ///
@@ -420,9 +423,9 @@ pub async fn migrate_up_to(db_type: DbType, database_connection: &str, version: 
     store.close().await;
 }
 
-/// Removes the record of migration `version` from the schema `database_connection` connects to,
-/// as its owner: the schema then reads as behind this build while its tables are
-/// unchanged, for the tests of a migration asked for while a server serves it.
+/// Removes the record of migration `version` from the schema `database_connection`
+/// connects to, as its owner: the schema then reads as behind this build while its
+/// tables are unchanged, for the tests of a migration asked for while a server serves it.
 ///
 /// # Panics
 ///

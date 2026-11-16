@@ -654,8 +654,24 @@ impl Configuration {
         Ok(config)
     }
 
+    /// The warning of the keys of the file that no setting reads, if it has any: their
+    /// names, each quoted as a string is (a key may hold a line break), never their
+    /// values, which may be secrets.
+    #[must_use]
+    pub fn unread_keys_warning(&self) -> Option<String> {
+        let unread = self.unread_keys();
+        (!unread.is_empty()).then(|| {
+            let names: Vec<String> = unread.iter().map(|key| format!("{key:?}")).collect();
+            format!(
+                "the configuration file has keys that no setting reads: {}",
+                names.join(", ")
+            )
+        })
+    }
+
     /// The keys of the file that no setting reads, by name: a key of `file_storage_s3`
     /// as `file_storage_s3.<key>`.
+    #[must_use]
     pub fn unread_keys(&self) -> Vec<String> {
         let nested = self
             .file_storage_s3
@@ -791,15 +807,7 @@ impl Configuration {
     /// The warnings of a configuration that is accepted: keys of the file that no
     /// setting reads, and settings that work against each other.
     fn warnings(&self) -> Vec<String> {
-        let mut warnings = Vec::new();
-        // Its names only: a value may be a secret.
-        let unread = self.unread_keys();
-        if !unread.is_empty() {
-            warnings.push(format!(
-                "the configuration file has keys that no setting reads: {}",
-                unread.join(", ")
-            ));
-        }
+        let mut warnings: Vec<String> = self.unread_keys_warning().into_iter().collect();
         // Reached over HTTPS without ending TLS itself: something in front of the server
         // does, and every request arrives from its address. Unless the server is told
         // which address that is, all clients are one client to the login limits (one
@@ -810,11 +818,11 @@ impl Configuration {
             && self.trusted_proxies.is_empty()
         {
             warnings.push(
-                "server_url is https but the server does not end TLS itself (serve_https is off) and \
-                 trusted_proxies is empty: behind a reverse proxy every client is seen at the \
-                 proxy's address, and the login limits and the readers of a public link \
-                 (public_link_connections_per_address) then count all clients as one; set \
-                 trusted_proxies to the proxy's addresses"
+                "server_url is https but the server does not end TLS itself (serve_https is \
+                 off) and trusted_proxies is empty: behind a reverse proxy every client is \
+                 seen at the proxy's address, and the login limits and the readers of a \
+                 public link (public_link_connections_per_address) then count all clients \
+                 as one; set trusted_proxies to the proxy's addresses"
                     .to_owned(),
             );
         }

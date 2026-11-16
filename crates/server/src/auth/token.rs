@@ -138,14 +138,14 @@ pub struct Origins {
 }
 
 impl Origins {
-    /// Reads the origin of `server_root` and of each of `allowed_origins`.
+    /// Reads the origin of `server_url` and of each of `allowed_origins`.
     ///
     /// # Errors
     ///
     /// Returns the first of them that is no `http` or `https` URL with a host.
-    pub fn new(server_root: &str, allowed_origins: &[String]) -> Result<Self, String> {
-        let own = origin_of(server_root)
-            .ok_or_else(|| format!("server_url {server_root:?} is no http or https URL"))?;
+    pub fn new(server_url: &str, allowed_origins: &[String]) -> Result<Self, String> {
+        let own = origin_of(server_url)
+            .ok_or_else(|| format!("server_url {server_url:?} is no http or https URL"))?;
         let https = if own.starts_with("https://") {
             Https::Yes
         } else {
@@ -421,14 +421,14 @@ mod tests {
 
     #[test]
     fn what_is_no_http_origin_is_refused_at_start() {
-        for server_root in [
+        for server_url in [
             "",
             "localhost:8000",
             "ftp://example.com",
             "https://",
             "/boards",
         ] {
-            assert!(Origins::new(server_root, &[]).is_err(), "{server_root:?}");
+            assert!(Origins::new(server_url, &[]).is_err(), "{server_url:?}");
         }
         assert!(
             Origins::new("http://localhost:8000", &["*".to_owned()]).is_err(),

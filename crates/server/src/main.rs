@@ -36,8 +36,8 @@ struct Cli {
     check_ready: bool,
     /// Bring the database's schema up to date and exit, holding the lock of the server
     /// meanwhile: for the role that owns the tables (the configuration's
-    /// `database_connection`),
-    /// when the server connects as one that does not. Nothing is served.
+    /// `database_connection`), when the server connects as one that does not. Nothing
+    /// is served.
     #[arg(long, conflicts_with = "check_ready")]
     migrate: bool,
 }
@@ -138,6 +138,12 @@ async fn serve() -> anyhow::Result<()> {
     }
 
     let base_path = std::env::var(BASE_PATH_ENV).unwrap_or_default();
+    // A server that starts says it with the other warnings of its configuration.
+    if (cli.migrate || cli.check_ready)
+        && let Some(warning) = config.unread_keys_warning()
+    {
+        tracing::warn!("{warning}");
+    }
     if cli.migrate {
         return fvoci_server::app::migrate_database(&config).await;
     }

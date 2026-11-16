@@ -30,7 +30,7 @@
 | 원본 | Rust | 비고 |
 |---|---|---|
 | `server/server/server.go` `Server`, `New`, `Start`, `Shutdown` | `Server::{new, router, serve, shutdown}` (`src/lib.rs`) | 리스너는 호출자가 넘긴다(테스트는 포트 0). 종료는 future로 받는다 |
-| `server/main/main.go` | `src/main.rs` (`fvoci-server`) | 플래그 `--config`, `--port`, `--dbtype`, `--dbconfig`. `--single-user`는 S6에서 없앴다. `--print-openapi`는 설정을 읽지 않고 계약 문서를 찍고 끝난다(S6 O절) |
+| `server/main/main.go` | `src/main.rs` (`fvoci-server`) | 플래그 `--config`, `--port`, `--database-kind`, `--database-connection`. `--single-user`는 S6에서 없앴다. `--print-openapi`는 설정을 읽지 않고 계약 문서를 찍고 끝난다(S6 O절) |
 | (없음) | `api::contract` (`src/api/contract.rs`, `contract/{params,bodies}.rs`) | API의 계약 `contracts/openapi.json`을 라우트 정의에서 만든다. 핸들러의 `#[utoipa::path]`와 문서 주석이 계약의 글이므로, 핸들러의 문서 주석은 클라이언트가 읽는 글로 쓴다(루트 `PORTING.md` S6 O절) |
 | `server/services/config` | `config::Configuration` | `read`, `parse`, `check` |
 | `server/app/app.go` `App` | `app::App` | `Arc` 하나를 감싼 값. `config()`, `store()`, `ws()`, `files()`, `webhook()` |
@@ -233,19 +233,19 @@ mock 저장소를 쓰던 `server/app`의 테스트는 실제 저장소로 옮겼
 ## 의도적 차이
 
 1. **설정 기본값을 실제로 적용한다.** 원본은 기본값의 키 이름이 설정 키와 달라 `session_expire_time`, `session_refresh_time`, `dbconfig`, `webhook_update` 등에 기본값이 적용되지 않는다(`server/services/config/config.go:75-110`). 포트는 문서화된 기본값(30일, 5시간, `./fvoci.db`)을 쓴다.
-2. **환경 변수는 `FVOCI_<키 대문자>`이고 설정 파일에 키가 없어도 적용된다.** 원본은 파일이나 기본값에 있는 키만 환경 변수로 덮을 수 있다. `featureFlags`는 환경 변수로 줄 수 없다. `filess3config`의 자격이 아닌 키는 `FVOCI_FILESS3CONFIG_<키>`다(사용자 결정 2026-11-11 11:05 KST).
-3. **지원하지 않는 설정은 시작 오류다:** `authMode`가 `native`가 아님, `prometheusaddress`(→ 2026-11-11부터 지표의 주소), `filesdriver`가 `local`/`amazons3`가 아님, `filess3config.SignV2`, `dbtype: mysql`. `logging_cfg_*`, `audit_cfg_*`는 경고만 낸다. → **정리됨(2026-11-11 13:35 KST):** 이 둘과 `filess3config.trace`는 없앤 키다. 값이 있으면 시작하지 않는다(사용자 결정 11:05 KST).
+2. **환경 변수는 `FVOCI_<키 대문자>`이고 설정 파일에 키가 없어도 적용된다.** 원본은 파일이나 기본값에 있는 키만 환경 변수로 덮을 수 있다. `feature_flags`는 환경 변수로 줄 수 없다. `file_storage_s3`의 자격이 아닌 키는 `FVOCI_FILE_STORAGE_S3_<키>`다(사용자 결정 2026-11-11 11:05 KST).
+3. **지원하지 않는 설정은 시작 오류다:** `auth_mode`가 `native`가 아님, `file_storage`가 `local`/`amazons3`가 아님, `database_kind`가 `sqlite3`/`postgres`가 아님. 키는 이 서버의 이름 그대로만 맞고, 원본의 키(`logging_cfg_*`, `audit_cfg_*`, `SignV2` 등)는 읽지 않는 키로서 시작할 때 이름만 경고한다(2026-11-17).
 4. **`/static/` 아래 디렉터리 목록을 보여 주지 않는다.** 원본은 파일 서버가 목록 HTML을 만든다. 포트는 404다.
 5. **캐시 헤더와 사전 압축 파일**: 정적 파일은 이름에 내용 해시가 있으면 `public, max-age=31536000, immutable`, 없으면 `no-cache`(ETag 재검증). `index.html`은 `no-cache`. 요청한 파일 옆에 `.br`/`.gz`가 있고 클라이언트가 받으면 그것을 보낸다. 원본에는 없는 동작이다.
 6. **파일 저장 경로 검사**: 절대 경로나 `..`이 든 저장 경로는 거절한다. 원본은 호스트 애플리케이션의 파일 저장소에 그대로 넘긴다.
 7. **S3 객체 키**: 키 세그먼트에 허용되지 않는 문자는 퍼센트 인코딩된다. 템플릿 보드에 올린 파일(원래 이름을 그대로 쓴다)의 이름에 그런 문자가 있으면 원본이 만든 키와 달라진다. 일반 업로드는 서버가 만든 이름이라 영향이 없다.
 8. **API 응답에 `Cache-Control: no-store`를 붙인다.** 원본에는 캐시 헤더가 없다. 핸들러가 자기 정책을 정한 경우(파일 다운로드)는 그대로 둔다.
-9. **WebSocket ping.** 서버가 `websocket_ping_seconds`(기본 30초, 0이면 끔)마다 ping 프레임을 보내고, 클라이언트의 `PING`에 `PONG`으로 답하며, 90초 동안 아무것도 보내지 않은 연결을 닫는다. 원본은 셋 다 하지 않는다.
+9. **WebSocket ping.** 서버가 `websocket_ping_seconds`(1–59초, 기본 30초)마다 ping 프레임을 보내고, 클라이언트의 `PING`에 `PONG`으로 답하며, 90초 동안 아무것도 보내지 않은 연결을 닫는다. 원본은 셋 다 하지 않는다.
 10. **느린 WebSocket 연결을 끊는다.** 연결마다 보낼 메시지를 512개까지 쌓고, 넘치면 그 연결을 닫는다(클라이언트는 다시 연결하며 전체를 새로 읽는다). 원본은 연결마다 뮤텍스를 잡고 동기적으로 쓰므로 느린 연결 하나가 브로드캐스트 전체를 막는다.
 11. **CSRF 헤더 검사 범위.** 알려진 API 경로를 다른 메서드로, `X-Requested-With` 없이 부르면 포트는 400을 준다. 원본은 메서드까지 맞아야 미들웨어가 돌기 때문에 이 경우 `index.html`(200)을 준다. 헤더가 있으면 둘 다 `index.html`이다.
 12. **웹훅 실패를 견딘다.** 원본은 웹훅 요청이 실패하면 nil 응답을 읽다가 죽는다(`server/services/webhook/webhook.go:33-35`). 포트는 경고를 남기고 다음 주소로 넘어간다. 요청마다 30초 제한을 둔다(원본은 제한 없음).
-13. **로그.** `tracing`을 쓴다. `FVOCI_LOG_LEVEL`(기본 `info`, `tracing` 필터 문법), `FVOCI_LOG_FORMAT=json`. 명령행으로 받은 `--dbconfig` 값은 로그에 남기지 않는다(원본은 남긴다. 접속 문자열에 비밀번호가 들어갈 수 있다).
-14. **다른 접두사의 환경 변수 경고.** `FVOCI_`가 아닌 접두사로 `…_SINGLE_USER_TOKEN`, `…_HTTP_SERVER_BASEPATH`, `…_SERVERROOT`, `…_DBCONFIG` 등 이 서버의 설정 이름이 붙은 환경 변수가 있으면 "무시됨"이라고 경고한다. 옛 접두사를 별칭으로 받지는 않는다.
+13. **로그.** `tracing`을 쓴다. `FVOCI_LOG_LEVEL`(기본 `info`, `tracing` 필터 문법), `FVOCI_LOG_FORMAT=json`. 명령행으로 받은 `--database-connection` 값은 로그에 남기지 않는다(원본은 남긴다. 접속 문자열에 비밀번호가 들어갈 수 있다).
+14. **다른 접두사의 환경 변수는 보지 않는다.** `FVOCI_`가 아닌 접두사의 변수는 읽지도 경고하지도 않는다. 옛 접두사를 별칭으로 받지 않는다.
 15. **텔레메트리 없음.** `/clientConfig`는 원본 웹 앱과의 호환을 위해 `telemetry: false`, `telemetryid: ""`를 고정값으로 내보낸다.
 16. **single-user 토큰과 가입 토큰, 읽기 토큰 비교는 상수 시간**이다.
 17. **관리자 비밀번호 설정의 빈 비밀번호 거절**(`server/api/admin.go:41`, 사용자 결정). 원본의 검사는 항상 참이라 빈 비밀번호가 200으로 저장된다(오라클 확인, 그 사용자는 로그인할 수 없게 된다). 포트는 `{"password":""}`, `{}`, `null`을 400 `password is required`로 거절한다.

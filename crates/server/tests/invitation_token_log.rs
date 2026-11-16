@@ -216,10 +216,10 @@ async fn the_token_of_an_invitation_is_not_logged_stored_or_answered_again() {
     let directory = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
         .join("invitation-token-log")
         .join(new_id());
-    let web_path = directory.join("web");
-    std::fs::create_dir_all(&web_path).expect("the directory is made");
+    let web_app_path = directory.join("web");
+    std::fs::create_dir_all(&web_app_path).expect("the directory is made");
     std::fs::write(
-        web_path.join("index.html"),
+        web_app_path.join("index.html"),
         "<html><body>the app</body></html>",
     )
     .expect("the index page is written");
@@ -227,7 +227,7 @@ async fn the_token_of_an_invitation_is_not_logged_stored_or_answered_again() {
     let config = Configuration {
         database_kind: database.db_type().as_str().to_owned(),
         database_connection: database.database_connection().to_owned(),
-        web_app_path: web_path.display().to_string(),
+        web_app_path: web_app_path.display().to_string(),
         file_storage: "local".to_owned(),
         file_storage_path: directory.join("uploads").display().to_string(),
         skip_template_init: true,

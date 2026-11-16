@@ -276,9 +276,10 @@ enum Pool {
 
 impl Store {
     /// Connects to the database described by the server's `database_kind` and
-    /// `database_connection` settings and brings its schema up to date, as [`Store::migrate`] does: an empty
-    /// database gets the whole schema, an older one the migrations it lacks. A role that
-    /// does not own the tables opens only a schema that is up to date.
+    /// `database_connection` settings and brings its schema up to date, as
+    /// [`Store::migrate`] does: an empty database gets the whole schema, an older one the
+    /// migrations it lacks. A role that does not own the tables opens only a schema that
+    /// is up to date.
     ///
     /// The tables have fixed names. To keep them apart from other tables in one
     /// PostgreSQL database, give the server a schema of its own with `search_path` in
@@ -286,12 +287,12 @@ impl Store {
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::Config`] if `database_connection` cannot be used, [`StoreError::Schema`]
-    /// if the database is not this server's to open (one with this server's tables but
-    /// no migration record, one migrated by a newer server) or the role may not read and
-    /// write its tables, [`StoreError::SchemaNotOwned`] if the schema is to be changed and
-    /// the role does not own the tables, and [`StoreError::Database`] if the database
-    /// cannot be reached.
+    /// Returns [`StoreError::Config`] if `database_connection` cannot be used,
+    /// [`StoreError::Schema`] if the database is not this server's to open (one with this
+    /// server's tables but no migration record, one migrated by a newer server) or the
+    /// role may not read and write its tables, [`StoreError::SchemaNotOwned`] if the
+    /// schema is to be changed and the role does not own the tables, and
+    /// [`StoreError::Database`] if the database cannot be reached.
     pub async fn connect(db_type: DbType, connection: &str) -> Result<Self, StoreError> {
         let store = Self::open(db_type, connection).await?;
         store.migrate().await?;

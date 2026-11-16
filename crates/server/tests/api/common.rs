@@ -274,14 +274,14 @@ impl Setup {
         let directory = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
             .join("api-tests")
             .join(new_id());
-        let web_path = directory.join("web");
-        write_test_web_app(&web_path);
+        let web_app_path = directory.join("web");
+        write_test_web_app(&web_app_path);
 
         let database = test_database(self.database_role, &directory).await;
         let mut config = Configuration {
             database_kind: database.db_type().as_str().to_owned(),
             database_connection: database.database_connection().to_owned(),
-            web_app_path: web_path.display().to_string(),
+            web_app_path: web_app_path.display().to_string(),
             file_storage: "local".to_owned(),
             file_storage_path: directory.join("uploads").display().to_string(),
             allow_public_links: self.public_shared_boards,
@@ -379,15 +379,15 @@ impl Setup {
     }
 }
 
-fn write_test_web_app(web_path: &std::path::Path) {
-    std::fs::create_dir_all(web_path.join("static")).expect("the web directory is created");
+fn write_test_web_app(web_app_path: &std::path::Path) {
+    std::fs::create_dir_all(web_app_path.join("static")).expect("the web directory is created");
     std::fs::write(
-        web_path.join("index.html"),
+        web_app_path.join("index.html"),
         "<html><head><base href=\"{{.BaseURL}}/\"></head><body>test web app</body></html>",
     )
     .expect("the index page is written");
     std::fs::write(
-        web_path.join("static").join("main.js"),
+        web_app_path.join("static").join("main.js"),
         "console.log('test');",
     )
     .expect("a static file is written");

@@ -100,9 +100,9 @@ fn keys_are_read_only_as_written_and_the_others_are_named_in_a_warning() {
     assert_eq!(warnings.len(), 1, "one line: {warnings:?}");
     assert_eq!(
         warnings[0],
-        "the configuration file has keys that no setting reads: Listen_Loopback_Only, PORT, \
-         dbconfig, enablePublicSharedBoards, serverRoot, file_storage_s3.Bucket, \
-         file_storage_s3.accesskeyid"
+        "the configuration file has keys that no setting reads: \"Listen_Loopback_Only\", \
+         \"PORT\", \"dbconfig\", \"enablePublicSharedBoards\", \"serverRoot\", \
+         \"file_storage_s3.Bucket\", \"file_storage_s3.accesskeyid\""
     );
     for value in ["hunter2", "s3cr3t", "hidden.example"] {
         assert!(!warnings[0].contains(value), "{value}: {warnings:?}");
@@ -126,11 +126,22 @@ fn the_keys_of_every_setting_are_read() {
     assert!(config.file_storage_s3.server_side_encryption);
     assert_eq!(config.file_storage_s3.region, "r");
     let defaults = code_defaults();
-    let every_key: Map<String, Value> = defaults
-        .iter()
-        .filter(|(key, _)| !key.contains('.'))
-        .map(|(key, value)| (key.clone(), value.clone()))
-        .collect();
+    let mut every_key = Map::new();
+    for (key, value) in defaults {
+        match key.split_once('.') {
+            Some((outer, inner)) => {
+                let outer = every_key
+                    .entry(outer)
+                    .or_insert_with(|| Value::Object(Map::new()));
+                if let Value::Object(outer) = outer {
+                    outer.insert(inner.to_owned(), value);
+                }
+            }
+            None => {
+                every_key.insert(key, value);
+            }
+        }
+    }
     let config = Configuration::parse(&Value::Object(every_key).to_string(), no_env)
         .expect("the defaults, written out, are read");
     assert_eq!(config.unread_keys(), Vec::<String>::new());

@@ -248,7 +248,9 @@ impl App {
             usize::try_from(config.password_hash_queue).unwrap_or(usize::MAX),
             std::time::Duration::from_secs(config.password_hash_queue_seconds),
         );
-        let ping_interval = (!config.skip_websocket_pings)
+        // `check` refuses a period of 0; a configuration given here unchecked does not
+        // make every connection's timer panic either.
+        let ping_interval = (!config.skip_websocket_pings && config.websocket_ping_seconds > 0)
             .then(|| std::time::Duration::from_secs(config.websocket_ping_seconds));
         let ws = Hub::new(
             Audience::new(store.clone()),

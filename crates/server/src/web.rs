@@ -28,10 +28,10 @@ pub struct WebRoot {
 
 impl WebRoot {
     /// Creates the web root for the `web_app_path` and `server_url` settings.
-    pub fn new(web_path: impl AsRef<Path>, server_root: &str) -> Self {
+    pub fn new(web_app_path: impl AsRef<Path>, server_url: &str) -> Self {
         Self {
-            root: web_path.as_ref().to_path_buf(),
-            base_url: base_url(server_root),
+            root: web_app_path.as_ref().to_path_buf(),
+            base_url: base_url(server_url),
         }
     }
 
@@ -130,8 +130,8 @@ pub fn not_found() -> Response {
 ///
 /// The path is taken as it is: a trailing slash stays, and a URL without a path gives the
 /// empty string. A `server_url` that is not a URL also gives the empty string.
-pub fn base_url(server_root: &str) -> String {
-    let Some((_, rest)) = server_root.split_once("://") else {
+pub fn base_url(server_url: &str) -> String {
+    let Some((_, rest)) = server_url.split_once("://") else {
         return String::new();
     };
     let end = rest.find(['?', '#']).unwrap_or(rest.len());
@@ -165,8 +165,8 @@ mod tests {
             // "should return '/' as base url is not good!"
             ("https://localhost:8080/#!@$@#@", "/"),
         ];
-        for (server_root, want) in cases {
-            assert_eq!(base_url(server_root), want, "server_url {server_root}");
+        for (server_url, want) in cases {
+            assert_eq!(base_url(server_url), want, "server_url {server_url}");
         }
     }
 
