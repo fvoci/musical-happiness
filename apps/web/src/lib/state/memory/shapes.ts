@@ -8,8 +8,8 @@ import { countTasks, MAX_BODY_BYTES, type DocNode } from '../../editor/schema.ts
 import {
   createBoardView,
   createCard,
-  type Board,
-  type BoardMember,
+  type Container,
+  type ContainerMember,
   type BoardView,
 } from '../../logic/wire.ts';
 import {
@@ -45,7 +45,7 @@ export const MEMORY_ARCHIVE = 'fvoci-memory-1';
  * The board with its properties in `propertyIds`, which names every one of
  * them once, as the server takes it; 400 and nothing changes otherwise.
  */
-export function inPropertyOrder(stored: Board, propertyIds: readonly string[]): Board {
+export function inPropertyOrder(stored: Container, propertyIds: readonly string[]): Container {
   const ids = stored.cardProperties.map((template) => template.id);
   if (new Set(propertyIds).size !== propertyIds.length) {
     fail(400, 'the order names each property of the board once');
@@ -98,7 +98,7 @@ export function pageOf(block: StoredBlock): WikiPage {
   const icon = (block.fields as { icon?: unknown }).icon;
   return {
     id: block.id,
-    wikiId: block.boardId,
+    wikiId: block.containerId,
     parentId: block.parentId,
     title: block.title,
     icon: typeof icon === 'string' ? icon : '',
@@ -151,9 +151,9 @@ export function memberOf(
   boardId: string,
   userId: string,
   role: 'admin' | 'editor' | 'commenter' | 'viewer',
-): BoardMember {
+): ContainerMember {
   return {
-    boardId,
+    containerId: boardId,
     userId,
     minimumRole: 'editor',
     schemeAdmin: role === 'admin',

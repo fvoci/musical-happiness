@@ -51,7 +51,7 @@ interface DevBackend {
     body: unknown;
     fields: { icon?: string; properties: Record<string, unknown> };
   }>;
-  board(boardId: string): Promise<{
+  container(containerId: string): Promise<{
     cardProperties: { id: string; name: string; type: string; options: { value: string }[] }[];
   }>;
   patchCard(boardId: string, cardId: string, patch: object): Promise<unknown>;
@@ -455,7 +455,7 @@ test('a property is added, named, changed to another kind after a warning, and d
   const place = await openWelcomeCard(page);
   const definitions = (): Promise<{ name: string; type: string; options: { value: string }[] }[]> =>
     page.evaluate(
-      async ({ boardId }) => (await window.fvociDev.backend.board(boardId)).cardProperties,
+      async ({ boardId }) => (await window.fvociDev.backend.container(boardId)).cardProperties,
       place,
     );
   const count = (await definitions()).length;

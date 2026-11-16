@@ -17,7 +17,7 @@
     const client = await verification;
     const confirmed = await client.complete(token, password);
     history.replaceState(null, '', location.pathname);
-    let boardId = confirmed.boardId;
+    let boardId = confirmed.containerId;
     if (confirmed.organizationStarted) {
       // The account is in: no welcome board is no reason to keep it out.
       boardId = await client.welcome(confirmed.workspaceId).catch(() => undefined);

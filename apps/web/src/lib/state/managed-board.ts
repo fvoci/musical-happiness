@@ -5,7 +5,7 @@
  * which the workspace's members then read in its records. Its content is not
  * there for the reader (404) while it and its members are.
  */
-import type { Board, BoardKind } from '../logic/wire.ts';
+import type { Container, ContainerKind } from '../logic/wire.ts';
 
 import { isBackendError } from './backend.ts';
 import { boardOfWorkspace } from './board-parts.ts';
@@ -15,7 +15,7 @@ import type { LoadStatus } from './workspace.svelte.ts';
 
 /** The store of a board or a wiki that failed to open as missing. */
 export interface Managed extends Shareable {
-  board: Board | undefined;
+  board: Container | undefined;
   readonly status: LoadStatus;
   /** Reads it again, as its member now. */
   load(): Promise<void>;
@@ -27,12 +27,15 @@ export interface Managed extends Shareable {
  * its members, for the members to be managed and the reader to join it; it
  * stays failed.
  */
-export async function readManagedOnly(store: Managed, kind: BoardKind = 'board'): Promise<boolean> {
+export async function readManagedOnly(
+  store: Managed,
+  kind: ContainerKind = 'board',
+): Promise<boolean> {
   const backend = store.workspace.backend;
   try {
     const [board, members] = await Promise.all([
-      boardOfWorkspace(backend, store.boardId, store.workspace.info?.id, kind),
-      backend.members(store.boardId),
+      boardOfWorkspace(backend, store.containerId, store.workspace.info?.id, kind),
+      backend.members(store.containerId),
     ]);
     if (board.type !== 'P' || board.isTemplate) return false;
     store.board = board;
@@ -54,7 +57,7 @@ export async function joinManaged(store: Managed, shown: () => boolean): Promise
   const me = store.workspace.me;
   if (!me) return false;
   try {
-    await store.workspace.backend.addMember(store.boardId, me.id, 'viewer');
+    await store.workspace.backend.addMember(store.containerId, me.id, 'viewer');
   } catch (error) {
     store.workspace.report('save', error);
     return false;

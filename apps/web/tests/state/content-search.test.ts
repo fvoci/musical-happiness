@@ -21,7 +21,7 @@ function block(id: string, boardId: string, title: string, updateAt = NOW): Bloc
   return {
     id,
     type: 'card',
-    boardId,
+    containerId: boardId,
     parentId: boardId,
     createdBy: 'reader',
     modifiedBy: 'reader',

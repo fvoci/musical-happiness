@@ -23,7 +23,7 @@ import {
   parseDateValue,
   parseFilterDate,
   plainPropertyValue,
-  type Board,
+  type Container,
 } from '$lib/logic/wire.ts';
 
 describe('the stored value of a date property', () => {
@@ -181,7 +181,7 @@ describe('stored data with gaps', () => {
 
   it('makes board patches when a board has no properties object', () => {
     const board = createBoard();
-    const bare = { ...board, properties: undefined } as unknown as Board;
+    const bare = { ...board, properties: undefined } as unknown as Container;
     const [patch, undo] = createPatchesFromBoards({ ...board, properties: { a: '1' } }, bare);
     expect(patch.updatedProperties).toEqual({ a: '1' });
     expect(undo.deletedProperties).toEqual(['a']);

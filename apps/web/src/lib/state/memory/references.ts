@@ -10,7 +10,7 @@
  * checked, and a card the value named before is not asked for again. A card
  * of another board is answered as one that is not there.
  */
-import { RELATION_LIMIT, type Board } from '../../logic/wire.ts';
+import { RELATION_LIMIT, type Container } from '../../logic/wire.ts';
 import { BackendError } from '../backend.ts';
 
 import { renameNamed } from './linked.ts';
@@ -67,7 +67,7 @@ function refuse(property: string, reason: RelationReason, member: string): never
 }
 
 /** The relation properties of a board. */
-function relationIds(board: Board): string[] {
+function relationIds(board: Container): string[] {
   return board.cardProperties
     .filter((template) => template.type === 'relation')
     .map((template) => template.id);
@@ -83,9 +83,9 @@ function propertiesOf(block: StoredBlock | undefined): Record<string, unknown> {
 /** The type of the board's block of this identifier, in the trash or not. */
 function typeOnBoard(world: World, boardId: string, id: string): string | undefined {
   const block = world.blocks.get(id);
-  if (block) return block.boardId === boardId ? block.type : undefined;
+  if (block) return block.containerId === boardId ? block.type : undefined;
   for (const deleted of world.deletedBlocks.values()) {
-    if (deleted.boardId !== boardId) continue;
+    if (deleted.containerId !== boardId) continue;
     const found = deleted.blocks.find((each) => each.id === id);
     if (found) return found.type;
   }
@@ -99,7 +99,7 @@ function typeOnBoard(world: World, boardId: string, id: string): string | undefi
  */
 export function checkRelations(
   world: World,
-  board: Board,
+  board: Container,
   card: StoredBlock,
   before: StoredBlock | undefined,
   member: string,
@@ -122,7 +122,7 @@ export function checkRelations(
     if (ids.includes(card.id)) refuse(property, 'relation_to_itself', member);
     if (new Set(ids).size !== ids.length) refuse(property, 'relation_repeated', member);
     for (const id of ids.filter((each) => !had.has(each))) {
-      const type = typeOnBoard(world, card.boardId, id);
+      const type = typeOnBoard(world, card.containerId, id);
       if (type === undefined) refuse(property, 'relation_card_not_found', member);
       if (type !== 'card') refuse(property, 'relation_not_a_card', member);
     }
@@ -140,7 +140,7 @@ export function checkRelations(
  * that is no list becomes null, and at most RELATION_LIMIT stay.
  */
 export function renameCopied(
-  source: Board,
+  source: Container,
   block: StoredBlock,
   renamed: ReadonlyMap<string, string>,
   cardIds: ReadonlySet<string>,

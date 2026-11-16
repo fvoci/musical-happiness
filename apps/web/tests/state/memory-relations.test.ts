@@ -19,7 +19,7 @@ async function relatedBoard() {
   const workspaceId = workspace?.id ?? '';
   const [board] = await backend.boards(workspaceId);
   if (!board) throw new Error('no board');
-  await backend.patchBoard(board.id, {
+  await backend.patchContainer(board.id, {
     updatedCardProperties: [{ id: RELATION, name: 'After', type: 'relation', options: [] }],
   });
   const card = async (title: string) => (await backend.createCard(board.id, { title })).id;
@@ -47,7 +47,7 @@ describe('a relation value written', () => {
       backend.patchCard(boardId, first, { updatedProperties: { [RELATION]: value as string[] } });
     const many = Array.from({ length: RELATION_LIMIT + 1 }, (_, at) => `c${String(at)}`);
     // A card of another board of the same world: one of a copy of this board.
-    const copy = await backend.duplicateBoard(boardId, false, workspaceId);
+    const copy = await backend.duplicateContainer(boardId, false, workspaceId);
     const [elsewhere] = await backend.cards(copy.id);
 
     expect(await reasonOf(write(second))).toBe('relation_not_a_list');
@@ -91,7 +91,7 @@ describe('a copy of a board', () => {
     });
     await backend.deleteBlock(boardId, deleted);
 
-    const copy = await backend.duplicateBoard(boardId, false, workspaceId);
+    const copy = await backend.duplicateContainer(boardId, false, workspaceId);
     const cards = await backend.cards(copy.id);
     const byTitle = (title: string) => cards.find((each) => each.title === title);
     expect(byTitle('Second')?.fields.properties[RELATION]).toEqual([byTitle('First')?.id]);
@@ -143,7 +143,7 @@ describe('a relation value stored before the rules', () => {
 
   it('is made one a write takes in a copy of the board', async () => {
     const { backend, boardId, workspaceId } = await stale();
-    const copy = await backend.duplicateBoard(boardId, false, workspaceId);
+    const copy = await backend.duplicateContainer(boardId, false, workspaceId);
     const cards = await backend.cards(copy.id);
     expect(cards.find((each) => each.title === 'First')?.fields.properties[RELATION]).toEqual([]);
   });

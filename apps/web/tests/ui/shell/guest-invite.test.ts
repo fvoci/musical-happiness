@@ -15,7 +15,7 @@ function link(id: string, extra: Partial<Invitation> = {}): Invitation {
   return {
     id,
     role: 'guest',
-    boardId: 'b1',
+    containerId: 'b1',
     createdBy: 'u1',
     createAt: 0,
     expiresAt: 7 * 86_400_000,
@@ -27,7 +27,7 @@ function link(id: string, extra: Partial<Invitation> = {}): Invitation {
 const LINKS: Invitation[] = [
   link('parent'),
   link('child', { parentId: 'parent', recipient: 'guest@example.test' }),
-  link('other-board', { boardId: 'b2', recipient: 'elsewhere@example.test' }),
+  link('other-board', { containerId: 'b2', recipient: 'elsewhere@example.test' }),
   { ...link('members'), role: 'member' },
 ];
 

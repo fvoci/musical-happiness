@@ -6,7 +6,7 @@
  * "somebody else" change a card while the reader has it open.
  */
 import type { DocNode } from '../../editor/schema.ts';
-import type { Block, Board, BoardMember, BoardView, Card } from '../../logic/wire.ts';
+import type { Block, Container, ContainerMember, BoardView, Card } from '../../logic/wire.ts';
 import type {
   AccountSettings,
   Category,
@@ -20,7 +20,7 @@ import type {
 
 import { reads } from './board-access.ts';
 import type { KeptOfCard } from './body-versions.ts';
-import type { BoardPlace } from './trash.ts';
+import type { ContainerPlace } from './trash.ts';
 
 /** A view, card, comment or attachment as the world stores it. */
 export interface StoredBlock extends Block {
@@ -37,7 +37,7 @@ export type StoredCard = StoredBlock & Card;
 
 export interface StoredFile {
   fileId: string;
-  boardId: string;
+  containerId: string;
   name: string;
   size: number;
   contentType: string;
@@ -47,7 +47,7 @@ export interface StoredFile {
 }
 
 interface DeletedBlocks {
-  boardId: string;
+  containerId: string;
   /** The block that was deleted and everything that went with it. */
   blocks: StoredBlock[];
   deletedAt: number;
@@ -55,13 +55,13 @@ interface DeletedBlocks {
 }
 
 interface DeletedBoard {
-  board: Board;
-  members: BoardMember[];
+  board: Container;
+  members: ContainerMember[];
   blocks: StoredBlock[];
   deletedAt: number;
   deletedBy: string;
   /** Where each person had filed it. */
-  places: BoardPlace[];
+  places: ContainerPlace[];
 }
 
 interface Watcher {
@@ -77,8 +77,8 @@ export class World {
   workspace: WorkspaceInfo = { id: '', title: '' };
   readonly workspaceMembers = new Set<string>();
   readonly users = new Map<string, User>();
-  readonly boards = new Map<string, Board>();
-  readonly members = new Map<string, BoardMember[]>();
+  readonly boards = new Map<string, Container>();
+  readonly members = new Map<string, ContainerMember[]>();
   /** Public links of boards, by board. */
   readonly sharing = new Map<string, Sharing>();
   readonly blocks = new Map<string, StoredBlock>();
@@ -144,7 +144,7 @@ export class World {
   }
 
   blocksOf(boardId: string): StoredBlock[] {
-    return [...this.blocks.values()].filter((block) => block.boardId === boardId);
+    return [...this.blocks.values()].filter((block) => block.containerId === boardId);
   }
 
   childrenOf(parentId: string): StoredBlock[] {

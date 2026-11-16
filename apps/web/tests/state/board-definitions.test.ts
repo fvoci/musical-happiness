@@ -21,8 +21,8 @@ it('a later change of one definition is undone to what was stored, after a refus
       })),
     }));
   let refuse = (): void => undefined;
-  const patch = backend.patchBoard.bind(backend);
-  vi.spyOn(backend, 'patchBoard')
+  const patch = backend.patchContainer.bind(backend);
+  vi.spyOn(backend, 'patchContainer')
     .mockImplementationOnce(
       () =>
         new Promise((_resolve, reject) => {
@@ -39,7 +39,7 @@ it('a later change of one definition is undone to what was stored, after a refus
     refuse();
     await refused;
     const names = async () => {
-      const stored = await backend.board(board.boardId);
+      const stored = await backend.container(board.boardId);
       return [stored, board.board].map((shown) =>
         shown?.cardProperties.slice(0, 2).map((property) => property.name),
       );

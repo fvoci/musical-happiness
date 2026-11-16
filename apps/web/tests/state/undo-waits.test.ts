@@ -234,7 +234,7 @@ describe('a change of the board made while its undo is refused', () => {
   it('stays on the screen, and is undone to the value stored', async () => {
     const { board, backend, workspace } = await openFirstBoard();
     const title = (): string | undefined => board.board?.title;
-    const stored = async (): Promise<string> => (await backend.board(board.boardId)).title;
+    const stored = async (): Promise<string> => (await backend.container(board.boardId)).title;
     const before = title();
     await board.changeBoard((current) => ({ ...current, title: 'One' }));
     let release = (): void => undefined;
@@ -245,9 +245,9 @@ describe('a change of the board made while its undo is refused', () => {
     const started = new Promise<void>((resolve) => {
       entered = resolve;
     });
-    const patchBoard = backend.patchBoard.bind(backend);
-    backend.patchBoard = async () => {
-      backend.patchBoard = patchBoard;
+    const patchBoard = backend.patchContainer.bind(backend);
+    backend.patchContainer = async () => {
+      backend.patchContainer = patchBoard;
       entered();
       await gate;
       throw new BackendError(503);

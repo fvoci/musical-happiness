@@ -17,7 +17,7 @@ export {
   type Attachment,
   type Backend,
   type BoardDraft,
-  type BoardRole,
+  type ContainerRole,
   type CardDetail,
   type CardDraft,
   type CardPatch,
@@ -60,7 +60,7 @@ export { changeDisplayName } from './account.ts';
 export { whileHere } from './here.ts';
 export { administers, isGuest, peopleOf, providePeople, type PeopleAccess } from './people.ts';
 export type {
-  GuestBoardRole,
+  GuestContainerRole,
   Invitation,
   InvitationMail,
   People,

@@ -58,7 +58,7 @@ export class ExamplePeople implements People {
     return {
       id,
       role,
-      ...(role === 'guest' ? { boardId: 'example-board' } : {}),
+      ...(role === 'guest' ? { containerId: 'example-board' } : {}),
       createdBy: 'example-reader',
       createAt: STORY_NOW,
       expiresAt: STORY_NOW + 7 * 86_400_000,

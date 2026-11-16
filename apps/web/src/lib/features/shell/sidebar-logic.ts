@@ -63,7 +63,7 @@ export function dragZones(sidebar: readonly SidebarCategory[]): string[] {
 }
 
 /**
- * Where a board goes in the list a category keeps (`boardIds`) when it is
+ * Where a board goes in the list a category keeps (`containerIds`) when it is
  * put at `index` among the boards the category shows, both counted without
  * the board itself.
  *
@@ -74,12 +74,12 @@ export function dragZones(sidebar: readonly SidebarCategory[]): string[] {
  * board the category does not name, or after the last one, it goes to the end.
  */
 export function filedIndex(
-  category: Pick<Category, 'boardIds'>,
+  category: Pick<Category, 'containerIds'>,
   shown: readonly string[],
   boardId: string,
   index: number,
 ): number {
-  const filed = category.boardIds.filter((id) => id !== boardId);
+  const filed = category.containerIds.filter((id) => id !== boardId);
   const following = shown.filter((id) => id !== boardId)[index];
   const at = following === undefined ? -1 : filed.indexOf(following);
   return at === -1 ? filed.length : at;
@@ -124,6 +124,6 @@ export function moveToEnd(
   return {
     boardId,
     categoryId,
-    index: entry.category.boardIds.filter((id) => id !== boardId).length,
+    index: entry.category.containerIds.filter((id) => id !== boardId).length,
   };
 }

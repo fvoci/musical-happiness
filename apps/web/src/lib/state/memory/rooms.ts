@@ -197,7 +197,7 @@ export class MemoryRooms {
 
   #card(boardId: string, cardId: string): StoredCard | undefined {
     const block = this.#world.blocks.get(cardId);
-    if ((block?.type !== 'card' && block?.type !== 'page') || block.boardId !== boardId) return;
+    if ((block?.type !== 'card' && block?.type !== 'page') || block.containerId !== boardId) return;
     return block as StoredCard;
   }
 
@@ -363,7 +363,7 @@ export class MemoryRooms {
     if (storedSize(body) > LIMITS.bodyBytes) return 'document_too_large';
     // An image shows a file of this board, or none.
     const files = this.#world.files;
-    if (imageFileIds(body).some((fileId) => files.get(fileId)?.boardId !== room.boardId)) {
+    if (imageFileIds(body).some((fileId) => files.get(fileId)?.containerId !== room.boardId)) {
       return 'update_refused';
     }
     return undefined;

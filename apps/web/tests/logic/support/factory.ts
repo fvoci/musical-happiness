@@ -18,7 +18,7 @@ import {
   formatDateValue,
   setCardProperty,
   type Block,
-  type Board,
+  type Container,
   type BoardView,
   type Card,
   type CheckboxBlock,
@@ -30,7 +30,7 @@ import {
 } from '$lib/logic/wire.ts';
 
 /** A board with the default select property and three more, each with one option. */
-export function createTestBoard(): Board {
+export function createTestBoard(): Container {
   const board = createBoard();
   board.title = 'board title';
   board.description = 'description';
@@ -47,7 +47,7 @@ export function createTestBoard(): Board {
   return board;
 }
 
-function createTestView(viewType: 'board' | 'table', board?: Board): BoardView {
+function createTestView(viewType: 'board' | 'table', board?: Container): BoardView {
   const view = createBoardView({
     ...createBoardView(),
     fields: {
@@ -66,17 +66,17 @@ function createTestView(viewType: 'board' | 'table', board?: Board): BoardView {
       }),
     },
   });
-  view.boardId = board ? board.id : 'board';
+  view.containerId = board ? board.id : 'board';
   view.title = 'view title';
   return view;
 }
 
-export const createTestBoardView = (board?: Board): BoardView => createTestView('board', board);
-export const createTestTableView = (board?: Board): BoardView => createTestView('table', board);
+export const createTestBoardView = (board?: Container): BoardView => createTestView('board', board);
+export const createTestTableView = (board?: Container): BoardView => createTestView('table', board);
 
-export function createTestCard(board?: Board): Card {
+export function createTestCard(board?: Container): Card {
   const card = createCard({ ...createCard(), fields: { icon: 'i' } });
-  card.boardId = board ? board.id : 'board';
+  card.containerId = board ? board.id : 'board';
   card.title = 'title';
   setCardProperty(card, 'property1', 'value1');
   return card;
@@ -84,7 +84,7 @@ export function createTestCard(board?: Board): Card {
 
 function addToCard<T extends Block>(block: T, card: Card, isContent = true): T {
   block.parentId = card.id;
-  block.boardId = card.boardId;
+  block.containerId = card.containerId;
   if (isContent) appendCardContent(card, block.id);
   return block;
 }

@@ -8,7 +8,7 @@
  * members, joining it, the sidebar) goes by the board's operations.
  */
 import type { DocNode } from '../editor/schema.ts';
-import type { Board } from '../logic/wire.ts';
+import type { Container } from '../logic/wire.ts';
 import {
   BackendError,
   type BodyWrite,
@@ -130,13 +130,13 @@ export class ServerWikis implements Wikis {
     this.bodyVersions = new ServerPageVersions(request);
   }
 
-  async wikis(workspaceId: string): Promise<Board[]> {
+  async wikis(workspaceId: string): Promise<Container[]> {
     const wikis = await this.#request<Schemas['Container'][]>('/wikis', {}, {}, workspaceId);
     this.#learn(wikis);
     return wikis.map(boardOf);
   }
 
-  async createWiki(workspaceId: string, draft: WikiDraft): Promise<Board> {
+  async createWiki(workspaceId: string, draft: WikiDraft): Promise<Container> {
     const wiki = await this.#request<Schemas['Container']>(
       '/wikis',
       {},

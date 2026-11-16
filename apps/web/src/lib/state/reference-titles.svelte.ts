@@ -125,8 +125,8 @@ export class ReferenceTitles {
     }
     const linked = this.#known.get(key);
     // What is drawn follows its board, from out of the drawing that reads it.
-    if (linked && !this.#watched.has(linked.boardId)) {
-      const { boardId } = linked;
+    if (linked && !this.#watched.has(linked.containerId)) {
+      const { containerId: boardId } = linked;
       queueMicrotask(() => {
         this.#watch(boardId);
       });
@@ -328,10 +328,17 @@ export class ReferenceTitles {
       for (const block of change.blocks) {
         const key = `${workspaceId}/${block.id}`;
         if (!this.#held(key) || !isCardBlock(block)) continue;
-        const { id, title, boardId } = block;
+        const { id, title, containerId: boardId } = block;
         const icon = cardIcon(block);
         this.#changedAt.set(key, this.#tick());
-        this.#known.set(key, { id, kind: 'card', title, icon, boardId, boardKind: 'board' });
+        this.#known.set(key, {
+          id,
+          kind: 'card',
+          title,
+          icon,
+          containerId: boardId,
+          containerKind: 'board',
+        });
       }
     } else if (change.kind === 'pages') {
       for (const page of change.pages) {
@@ -339,18 +346,25 @@ export class ReferenceTitles {
         if (!this.#held(key)) continue;
         const { id, title, icon, wikiId } = page;
         this.#changedAt.set(key, this.#tick());
-        this.#known.set(key, { id, kind: 'page', title, icon, boardId: wikiId, boardKind: 'wiki' });
+        this.#known.set(key, {
+          id,
+          kind: 'page',
+          title,
+          icon,
+          containerId: wikiId,
+          containerKind: 'wiki',
+        });
       }
     } else if (change.kind === 'blocksDeleted') {
       for (const id of change.blockIds) this.#unsee(`${workspaceId}/${id}`);
       // A page goes with those below it, and only it is told of: the rest are asked.
       const { boardId } = change;
       const pages = this.#knownHere(
-        (linked) => linked?.kind === 'page' && linked.boardId === boardId,
+        (linked) => linked?.kind === 'page' && linked.containerId === boardId,
       );
       if (pages.length > 0) void this.#ask(pages);
     } else if (change.kind === 'boardDeleted') {
-      for (const id of this.#knownHere((linked) => linked?.boardId === change.boardId)) {
+      for (const id of this.#knownHere((linked) => linked?.containerId === change.boardId)) {
         this.#unsee(`${workspaceId}/${id}`);
       }
     }
@@ -378,8 +392,8 @@ function recentOf(board: Pick<BoardStore, 'realCards'>): LinkedBlock[] {
       kind: 'card',
       title: card.title,
       icon: cardIcon(card),
-      boardId: card.boardId,
-      boardKind: 'board',
+      containerId: card.containerId,
+      containerKind: 'board',
     }));
 }
 

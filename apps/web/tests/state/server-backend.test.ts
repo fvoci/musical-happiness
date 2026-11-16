@@ -73,7 +73,7 @@ describe('the server backend', () => {
   it('asks for a board read before under its own workspace, also after entering another', async () => {
     const sent = serve({ ...BLOCK, id: 'b9', workspaceId: 'w2', title: 'Elsewhere', type: 'O' });
     const backend = serverBackend('');
-    await backend.board('b9');
+    await backend.container('b9');
     backend.enter('w3');
     await backend.views('b9').catch(() => undefined);
     await backend.patchCard('b9', 'c9', { title: 'x' }).catch(() => undefined);
@@ -410,11 +410,11 @@ describe('joining an open board on the server', () => {
       schemeCommenter: true,
       schemeViewer: true,
     });
-    const member = await serverBackend('').joinBoard('b');
+    const member = await serverBackend('').joinContainer('b');
     expect(sent.map((one) => `${one.method} ${one.url}`)).toEqual([
       'POST /api/v1/w/w1/containers/b/join',
     ]);
-    expect(member).toMatchObject({ boardId: 'b', userId: 'u', schemeEditor: true });
+    expect(member).toMatchObject({ containerId: 'b', userId: 'u', schemeEditor: true });
   });
 });
 
@@ -684,7 +684,7 @@ describe('the sidebar on the server', () => {
     const made = await serverBackend('').createCategory('t', { name: 'Work' });
     expect(sentLines(sent)).toEqual(['GET /api/v1/users/me', 'POST /api/v1/w/t/categories']);
     expect(sent[1]?.body).toEqual({ name: 'Work', userId: 'me', workspaceId: 't' });
-    expect(made).toMatchObject({ id: 'k1', boardIds: [], hiddenBoardIds: [] });
+    expect(made).toMatchObject({ id: 'k1', containerIds: [], hiddenContainerIds: [] });
   });
 
   it('renames a category with its folding as it is, and keeps its boards', async () => {
@@ -704,8 +704,8 @@ describe('the sidebar on the server', () => {
       name: 'Home',
       collapsed: true,
     });
-    expect(renamed).toMatchObject({ name: 'Home', boardIds: ['b1', 'b2', 'b3'] });
-    expect(renamed.hiddenBoardIds).toEqual(['b2']);
+    expect(renamed).toMatchObject({ name: 'Home', containerIds: ['b1', 'b2', 'b3'] });
+    expect(renamed.hiddenContainerIds).toEqual(['b2']);
   });
 
   it('folds a category with its name as it is', async () => {
@@ -750,7 +750,7 @@ describe('the sidebar on the server', () => {
       ],
       ['PUT /api/v1/w/t/categories/k1/container-order', ['b1', 'b9', 'b2', 'b3']],
     ]);
-    await serverBackend('').moveBoardToCategory('t', 'b9', 'k1', 1);
+    await serverBackend('').moveContainerToCategory('t', 'b9', 'k1', 1);
     expect(sentLines(sent)).toEqual([
       'POST /api/v1/w/t/categories/k1/containers/b9',
       'GET /api/v1/w/t/categories',
@@ -767,9 +767,9 @@ describe('the sidebar on the server', () => {
     ]);
     const backend = serverBackend('');
     await Promise.all([
-      backend.moveBoardToCategory('t', 'b3', 'k1', 0),
+      backend.moveContainerToCategory('t', 'b3', 'k1', 0),
       backend.patchCategory('t', 'k1', { collapsed: false }),
-      backend.moveBoardToCategory('t', 'b2', 'k1', 0),
+      backend.moveContainerToCategory('t', 'b2', 'k1', 0),
     ]);
     expect(sentLines(sent)).toEqual([
       'POST /api/v1/w/t/categories/k1/containers/b3',
@@ -786,8 +786,8 @@ describe('the sidebar on the server', () => {
   it('hides a board and shows it again by its routes', async () => {
     const sent = serveRoutes([['PUT /api/v1/w/t/categories/k1/containers/b1/', undefined, 204]]);
     const backend = serverBackend('');
-    await backend.setBoardHidden('t', 'k1', 'b1', true);
-    await backend.setBoardHidden('t', 'k1', 'b1', false);
+    await backend.setContainerHidden('t', 'k1', 'b1', true);
+    await backend.setContainerHidden('t', 'k1', 'b1', false);
     expect(sentLines(sent)).toEqual([
       'PUT /api/v1/w/t/categories/k1/containers/b1/hide',
       'PUT /api/v1/w/t/categories/k1/containers/b1/unhide',
@@ -861,11 +861,11 @@ describe('boards on the server', () => {
       ['POST /api/v1/w/w1/containers/b1/undelete', BOARD],
     ]);
     const backend = serverBackend('');
-    expect((await backend.patchBoard('b1', { title: 'New', minimumRole: 'viewer' })).title).toBe(
-      'New',
-    );
-    await backend.deleteBoard('b1');
-    expect((await backend.restoreBoard('b1')).id).toBe('b1');
+    expect(
+      (await backend.patchContainer('b1', { title: 'New', minimumRole: 'viewer' })).title,
+    ).toBe('New');
+    await backend.deleteContainer('b1');
+    expect((await backend.restoreContainer('b1')).id).toBe('b1');
     expect(sentLines(sent)).toEqual([
       'PATCH /api/v1/w/w1/containers/b1',
       'DELETE /api/v1/w/w1/containers/b1',
@@ -877,7 +877,7 @@ describe('boards on the server', () => {
   it('refuses a minimum role the contract does not have, sending nothing', async () => {
     const sent = serveRoutes([]);
     const refused = await serverBackend('')
-      .patchBoard('b1', { minimumRole: 'admin' })
+      .patchContainer('b1', { minimumRole: 'admin' })
       .catch((error: unknown) => error);
     expect(isBackendError(refused) && refused.status).toBe(400);
     expect(sent).toEqual([]);
@@ -1055,8 +1055,8 @@ describe('templates on the server', () => {
     const backend = serverBackend('');
     const [template] = await backend.templates('t');
     expect(template).toMatchObject({ id: 'tp', isTemplate: true, isBuiltin: true });
-    expect((await backend.duplicateBoard('tp', false, 't')).id).toBe('b2');
-    await backend.duplicateBoard('b2', true, 't');
+    expect((await backend.duplicateContainer('tp', false, 't')).id).toBe('b2');
+    await backend.duplicateContainer('b2', true, 't');
     expect(await backend.onboard('t')).toBe('w1');
     expect(sentLines(sent)).toEqual([
       'GET /api/v1/w/t/templates',

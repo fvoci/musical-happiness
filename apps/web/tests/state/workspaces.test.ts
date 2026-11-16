@@ -123,7 +123,7 @@ describe('entering another workspace', () => {
     expect(workspace.canUndo).toBe(false);
     // The board left hears nothing any more.
     const before = store.board?.title;
-    await backend.patchBoard(board.id, { title: 'Changed elsewhere' });
+    await backend.patchContainer(board.id, { title: 'Changed elsewhere' });
     await settle();
     expect(store.board?.title).toBe(before);
 
@@ -251,7 +251,7 @@ describe('a board of another workspace', () => {
     const stored = world.boards.get(board.id);
     if (!stored) throw new Error('not in the world');
     world.boards.set(board.id, { ...stored, workspaceId: OTHER.id });
-    await backend.patchBoard(board.id, { title: 'Moved' });
+    await backend.patchContainer(board.id, { title: 'Moved' });
     await settle();
     expect(workspace.boards.find((one) => one.id === board.id)?.title).not.toBe('Moved');
   });
@@ -272,7 +272,7 @@ describe('entering another workspace while an undo or redo of the one left is wr
       const pending = new Promise<void>((resolve) => {
         answer = resolve;
       });
-      const writing = vi.spyOn(backend, 'setBoardHidden').mockReturnValueOnce(pending);
+      const writing = vi.spyOn(backend, 'setContainerHidden').mockReturnValueOnce(pending);
       const applying = action === 'undo' ? workspace.undoLast() : workspace.redoLast();
       // Entered once the write has begun: the undo or redo is being carried out, not waiting.
       await vi.waitFor(() => {

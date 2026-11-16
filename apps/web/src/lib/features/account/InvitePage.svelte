@@ -236,11 +236,11 @@
 
 {#snippet invitedTo(found: InvitationPreview)}
   <p class="text-lg font-medium" data-testid="invite-summary">
-    {#if found.boardTitle !== undefined}
-      {(found.boardKind === 'wiki' ? m.invite_summary_wiki : m.invite_summary_board)({
+    {#if found.containerTitle !== undefined}
+      {(found.containerKind === 'wiki' ? m.invite_summary_wiki : m.invite_summary_board)({
         inviter: found.inviterName,
         workspace: found.workspaceName || m.invite_workspace_unnamed(),
-        board: found.boardTitle || m.invite_board_untitled(),
+        board: found.containerTitle || m.invite_board_untitled(),
       })}
     {:else}
       {m.invite_summary({

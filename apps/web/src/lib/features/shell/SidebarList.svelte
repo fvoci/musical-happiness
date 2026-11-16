@@ -26,7 +26,7 @@
   import { readerPointer } from '$lib/components/drag/reader-pointer.ts';
   import { Sortable } from '$lib/drag/sortable.svelte.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
-  import type { Board } from '$lib/logic/wire.ts';
+  import type { Container } from '$lib/logic/wire.ts';
   import type { Category, SidebarCategory, Workspace } from '$lib/state/index.ts';
 
   import { shownTitle } from './shown-title.ts';
@@ -45,20 +45,20 @@
     workspace: Workspace;
     /** The board on the page. */
     boardId: string | undefined;
-    boardHref: (board: Board) => string;
+    boardHref: (board: Container) => string;
     /** What the reader typed into the search of the sidebar. */
     query: string;
     /** What the backend found for the query; those the list shows already are left out. */
-    found: readonly Board[];
+    found: readonly Container[];
     /** The backend has not answered the query yet. */
     searching: boolean;
     /** Whether the reader may delete the board on the page. Of the others the sidebar does not know. */
     canDeleteOpenBoard: boolean;
-    onOpenBoard: (board: Board) => void;
+    onOpenBoard: (board: Container) => void;
     onNewCategory: () => void;
     onRenameCategory: (category: Category) => void;
     onDeleteCategory: (category: Category) => void;
-    onDeleteBoard: (board: Board) => void;
+    onDeleteBoard: (board: Container) => void;
     /** Makes a template of the board, to be changed on its page. */
     onTemplateFromBoard: (boardId: string) => void;
     /** Copies the board or wiki whole, to be opened. */
@@ -109,10 +109,10 @@
       : [],
   );
   const isHidden = (boardId: string): boolean =>
-    workspace.categories.some((category) => category.hiddenBoardIds.includes(boardId));
+    workspace.categories.some((category) => category.hiddenContainerIds.includes(boardId));
 
   const titleOf = shownTitle;
-  const boardOf = (id: string): Board | undefined =>
+  const boardOf = (id: string): Container | undefined =>
     workspace.boards.find((board) => board.id === id);
   const categoryName = (id: string): string => {
     const category = workspace.categories.find((one) => one.id === id);
@@ -159,7 +159,7 @@
   const drag = $derived(sortable.active);
   const lifted = $derived(drag ? boardOf(drag.itemId) : undefined);
 
-  type Row = { kind: 'board'; board: Board } | { kind: 'gap' };
+  type Row = { kind: 'board'; board: Container } | { kind: 'gap' };
 
   /** The boards of a category with the gap among them, where a drag has one there. */
   function rowsOf(entry: SidebarCategory): Row[] {

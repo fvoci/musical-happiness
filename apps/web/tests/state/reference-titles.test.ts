@@ -222,7 +222,7 @@ describe('the titles of what references name', () => {
     titles.of(below.id);
     await settle();
     // Drawn with the answer: the wiki is followed from then on.
-    expect(titles.of(top.id)).toMatchObject({ kind: 'page', title: 'Top', boardKind: 'wiki' });
+    expect(titles.of(top.id)).toMatchObject({ kind: 'page', title: 'Top', containerKind: 'wiki' });
     titles.of(below.id);
     await settle();
 

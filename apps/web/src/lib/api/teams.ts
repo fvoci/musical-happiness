@@ -1,5 +1,5 @@
 /** Workspace groups, through the typed server routes. */
-import type { BoardTeam, Team, TeamRole, Teams } from '../state/team-types.ts';
+import type { ContainerTeam, Team, TeamRole, Teams } from '../state/team-types.ts';
 import type { Schemas } from './convert.ts';
 import type { Http } from './http.ts';
 
@@ -10,31 +10,31 @@ export class ServerTeams implements Teams {
     this.#http = http;
   }
 
-  onBoard(workspaceId: string, boardId: string): Promise<BoardTeam[]> {
+  onContainer(workspaceId: string, containerId: string): Promise<ContainerTeam[]> {
     return this.#http.request<Schemas['ContainerTeam'][]>(
       '/api/v1/w/{workspaceId}/containers/{containerId}/teams',
-      { workspaceId, containerId: boardId },
+      { workspaceId, containerId },
     );
   }
 
   async assign(
     workspaceId: string,
-    boardId: string,
+    containerId: string,
     teamId: string,
     role: TeamRole,
   ): Promise<void> {
     const json: Schemas['ContainerTeamRole'] = { role };
     await this.#http.request(
       '/api/v1/w/{workspaceId}/containers/{containerId}/teams/{teamId}',
-      { workspaceId, containerId: boardId, teamId },
+      { workspaceId, containerId, teamId },
       { method: 'PUT', json },
     );
   }
 
-  async unassign(workspaceId: string, boardId: string, teamId: string): Promise<void> {
+  async unassign(workspaceId: string, containerId: string, teamId: string): Promise<void> {
     await this.#http.request(
       '/api/v1/w/{workspaceId}/containers/{containerId}/teams/{teamId}',
-      { workspaceId, containerId: boardId, teamId },
+      { workspaceId, containerId, teamId },
       { method: 'DELETE' },
     );
   }

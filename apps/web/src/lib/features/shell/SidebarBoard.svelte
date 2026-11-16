@@ -18,7 +18,7 @@
   import ActionMenu from '$lib/components/menu/ActionMenu.svelte';
   import type { MenuAction } from '$lib/components/menu/actions.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
-  import type { BoardKind } from '$lib/logic/wire.ts';
+  import type { ContainerKind } from '$lib/logic/wire.ts';
 
   import BoardIcon from './BoardIcon.svelte';
 
@@ -28,7 +28,7 @@
     title: string;
     icon: string | undefined;
     /** A board when left out; a wiki says so to a screen reader too. */
-    kind?: BoardKind | undefined;
+    kind?: ContainerKind | undefined;
     href: string;
     /** This is the board on the page. */
     current: boolean;

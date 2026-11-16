@@ -1,5 +1,5 @@
 /** The changes the backend tells as they happen, part of the data boundary (`backend.ts`). */
-import type { Board, BoardMember, BoardView } from '../logic/wire.ts';
+import type { Container, ContainerMember, BoardView } from '../logic/wire.ts';
 
 import type { AccountSettings, Attachment, CardSummary, Category, Comment } from './backend.ts';
 import type { WikiPage } from './wiki-types.ts';
@@ -11,7 +11,7 @@ import type { WikiPage } from './wiki-types.ts';
  * does nothing.
  */
 export type Change =
-  | { kind: 'board'; board: Board }
+  | { kind: 'board'; board: Container }
   | { kind: 'boardDeleted'; boardId: string }
   /** Blocks that were added or changed. A card comes as its summary. */
   | { kind: 'blocks'; boardId: string; blocks: (BoardView | CardSummary | Comment | Attachment)[] }
@@ -22,7 +22,7 @@ export type Change =
   | { kind: 'blocksDeleted'; boardId: string; blockIds: string[] }
   /** Pages of a wiki (`boardId`) that were made or changed, without their bodies. */
   | { kind: 'pages'; boardId: string; pages: WikiPage[] }
-  | { kind: 'members'; boardId: string; members: BoardMember[] }
+  | { kind: 'members'; boardId: string; members: ContainerMember[] }
   | { kind: 'categories'; categories: Category[] }
   | { kind: 'settings'; settings: AccountSettings }
   /**

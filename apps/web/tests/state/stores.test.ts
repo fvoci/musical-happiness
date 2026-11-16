@@ -47,8 +47,8 @@ describe('the workspace', () => {
       type: system ? ('system' as const) : ('custom' as const),
       collapsed: false,
       sortOrder,
-      boardIds,
-      hiddenBoardIds: [],
+      containerIds: boardIds,
+      hiddenContainerIds: [],
       createAt: 0,
       updateAt: 0,
     });
@@ -188,7 +188,9 @@ describe('the workspace', () => {
       before.filter((id) => id !== hidden.id),
     );
     const stored = await backend.categories(workspace.info?.id ?? '');
-    expect(stored.find((one) => one.id === first.category.id)?.hiddenBoardIds).toEqual([hidden.id]);
+    expect(stored.find((one) => one.id === first.category.id)?.hiddenContainerIds).toEqual([
+      hidden.id,
+    ]);
     await workspace.undoLast();
     expect(workspace.sidebar[0]?.boards.map((board) => board.id)).toEqual(before);
   });
@@ -245,7 +247,7 @@ describe('the workspace', () => {
     const { workspace, backend } = setup(await loadTemplates());
     await workspace.load();
     const shown = workspace.sidebar[0]?.boards.map((board) => board.id) ?? [];
-    backend.failNext('setBoardHidden', refused());
+    backend.failNext('setContainerHidden', refused());
     await workspace.hideBoard(shown[0] ?? '');
     expect(workspace.sidebar[0]?.boards.map((board) => board.id)).toEqual(shown);
     expect(workspace.problems).toHaveLength(1);
@@ -292,7 +294,7 @@ describe('making and deleting boards', () => {
     await workspace.deleteBoard(gone.id);
     await settle();
     expect(open.missing).toBe(true);
-    expect(workspace.categories.some((category) => category.boardIds.includes(gone.id))).toBe(
+    expect(workspace.categories.some((category) => category.containerIds.includes(gone.id))).toBe(
       false,
     );
     await workspace.undoLast();
@@ -615,7 +617,7 @@ describe('changing views and the board', () => {
           : template,
       ),
     }));
-    const stored = await backend.board(board.boardId);
+    const stored = await backend.container(board.boardId);
     expect(stored.cardProperties[0]?.options.map((option) => option.id)).toContain('later');
     await workspace.undoLast();
     expect(board.board?.cardProperties[0]?.options).toHaveLength(3);
@@ -639,7 +641,7 @@ describe('what other people do', () => {
 
   it('shows a board renamed by someone else in the sidebar too', async () => {
     const { board, other, workspace } = await openFirstBoard();
-    await other.patchBoard(board.boardId, { title: 'Renamed elsewhere' });
+    await other.patchContainer(board.boardId, { title: 'Renamed elsewhere' });
     await settle();
     expect(board.board?.title).toBe('Renamed elsewhere');
     expect(workspace.sidebar.flatMap((entry) => entry.boards)[0]?.title).toBe('Renamed elsewhere');
@@ -763,7 +765,7 @@ describe('an open board the reader is no member of', () => {
     if (!first) throw new Error('the seed has no board');
     const board = await made.workspace.openBoard(first.id);
     board.joinable = true;
-    made.backend.failNext('joinBoard', new BackendError(404));
+    made.backend.failNext('joinContainer', new BackendError(404));
     expect(await board.join()).toBe(false);
     expect(board).toMatchObject({ joinable: false, missing: true, joining: false });
 
@@ -827,7 +829,7 @@ describe('sharing a board', () => {
     const { board, backend } = await openFirstBoard();
     await board.setOpen(true);
     await board.setMinimumRole('commenter');
-    expect(await backend.board(board.boardId)).toMatchObject({
+    expect(await backend.container(board.boardId)).toMatchObject({
       type: 'O',
       minimumRole: 'commenter',
     });
@@ -964,8 +966,8 @@ describe('the sidebar across the steps', () => {
     expect(shown).not.toContain(gone.id);
     const stored = await backend.categories(workspace.info?.id ?? '');
     const home = stored.find((category) => category.id === categoryId);
-    expect(home?.boardIds).toContain(gone.id);
-    expect(home?.hiddenBoardIds).toContain(gone.id);
+    expect(home?.containerIds).toContain(gone.id);
+    expect(home?.hiddenContainerIds).toContain(gone.id);
   });
 
   it('does not show a reading of the sidebar over a write under way, and reads again after it', async () => {
@@ -992,6 +994,6 @@ describe('the sidebar across the steps', () => {
     await workspace.load();
     const made = await workspace.createBoard({ title: 'Fresh' });
     const stored = await backend.categories(workspace.info?.id ?? '');
-    expect(stored.find((category) => category.type === 'system')?.boardIds).toContain(made?.id);
+    expect(stored.find((category) => category.type === 'system')?.containerIds).toContain(made?.id);
   });
 });

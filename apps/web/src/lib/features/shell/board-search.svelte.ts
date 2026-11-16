@@ -4,20 +4,20 @@
  * words in another order). Asked a moment after the typing stops; of two
  * answers, only the one to the latest query counts.
  */
-import type { Board } from '$lib/logic/wire.ts';
+import type { Container } from '$lib/logic/wire.ts';
 
 /** How long the typing has to stop before the backend is asked, in milliseconds. */
 const PAUSE = 250;
 
 export class BoardSearch {
-  found = $state.raw<Board[]>([]);
+  found = $state.raw<Container[]>([]);
   /** A query is waiting for its answer: what was found before is no answer to it. */
   pending = $state(false);
-  readonly #search: (query: string) => Promise<Board[]>;
+  readonly #search: (query: string) => Promise<Container[]>;
   #timer: ReturnType<typeof setTimeout> | undefined;
   #asked = 0;
 
-  constructor(search: (query: string) => Promise<Board[]>) {
+  constructor(search: (query: string) => Promise<Container[]>) {
     this.#search = search;
   }
 

@@ -77,13 +77,13 @@ async function two(body: DocNode, upload?: (file: File) => Promise<string>): Pro
   const fileId = 'file-of-the-board';
   world.files.set(fileId, {
     fileId,
-    boardId: card.boardId,
+    containerId: card.containerId,
     name: 'a.png',
     size: 3,
     contentType: 'image/png',
   });
   const rooms = [backend, other].map((reader) =>
-    reader.openDoc('w', card.boardId, card.id, hears()),
+    reader.openDoc('w', card.containerId, card.id, hears()),
   );
   opened.push(...rooms);
   await vi.waitFor(() => {

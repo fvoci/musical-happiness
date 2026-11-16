@@ -47,10 +47,10 @@ describe('a wiki in memory', () => {
     expect(made.wiki.cardProperties).toEqual([]);
     const categories = await made.backend.categories(made.workspaceId);
     const system = categories.find((category) => category.type === 'system');
-    expect(system?.boardIds).toContain(made.wiki.id);
+    expect(system?.containerIds).toContain(made.wiki.id);
     const [member] = await made.backend.members(made.wiki.id);
     expect(member?.schemeAdmin).toBe(true);
-    expect((await made.backend.board(made.wiki.id)).kind).toBe('wiki');
+    expect((await made.backend.container(made.wiki.id)).kind).toBe('wiki');
   });
 
   it('is among the wikis and not among the boards, the search or the templates', async () => {
@@ -69,12 +69,14 @@ describe('a wiki in memory', () => {
     const top = await made.backend.wiki.createPage(made.wiki.id, { title: 'Welcome' });
     await made.backend.wiki.createPage(made.wiki.id, { title: 'Below', parentId: top.id });
     await made.backend.wiki.createPage(made.wiki.id, { title: 'After' });
-    const copy = await made.backend.duplicateBoard(made.wiki.id, false, made.workspaceId);
+    const copy = await made.backend.duplicateContainer(made.wiki.id, false, made.workspaceId);
     expect(copy).toMatchObject({ kind: 'wiki', title: 'Handbook copy', type: 'P' });
     expect(await shape({ ...made, wiki: copy })).toEqual(await shape(made));
     const pages = await made.backend.wiki.pages(copy.id);
     expect(pages.some((page) => page.id === top.id)).toBe(false);
-    const refused = rejection(made.backend.duplicateBoard(made.wiki.id, true, made.workspaceId));
+    const refused = rejection(
+      made.backend.duplicateContainer(made.wiki.id, true, made.workspaceId),
+    );
     expect((await refused).status).toBe(400);
   });
 
@@ -82,7 +84,7 @@ describe('a wiki in memory', () => {
     const made = await aWiki();
     const top = await made.backend.wiki.createPage(made.wiki.id, { title: 'Welcome' });
     await made.backend.wiki.createPage(made.wiki.id, { title: 'Below', parentId: top.id });
-    const saved = await made.backend.exportBoard(made.wiki.id);
+    const saved = await made.backend.exportContainer(made.wiki.id);
     const all = await made.backend.exportWorkspace(made.workspaceId);
     expect(await all.bytes.text()).toContain(made.wiki.id);
     const file = new File([saved.bytes], saved.name);
@@ -98,7 +100,7 @@ describe('a wiki in memory', () => {
     const top = await made.backend.wiki.createPage(made.wiki.id, { title: 'Welcome' });
     const file = {
       fileId: 'f1',
-      boardId: made.wiki.id,
+      containerId: made.wiki.id,
       name: 'a.png',
       size: 1,
       contentType: 'image/png',
@@ -107,13 +109,13 @@ describe('a wiki in memory', () => {
     const stored = made.world.blocks.get(top.id);
     if (!stored) throw new Error('no page');
     stored.body = { type: 'doc', content: [{ type: 'image', attrs: { fileId: 'f1' } }] };
-    const copy = await made.backend.duplicateBoard(made.wiki.id, false, made.workspaceId);
+    const copy = await made.backend.duplicateContainer(made.wiki.id, false, made.workspaceId);
     const [copied] = await made.backend.wiki.pages(copy.id);
     const body = made.world.blocks.get(copied?.id ?? '')?.body;
     const shown = body?.content?.[0]?.attrs?.fileId;
     expect(shown).not.toBe('f1');
-    expect(made.world.files.get(String(shown))?.boardId).toBe(copy.id);
-    expect(made.world.files.get('f1')?.boardId).toBe(made.wiki.id);
+    expect(made.world.files.get(String(shown))?.containerId).toBe(copy.id);
+    expect(made.world.files.get('f1')?.containerId).toBe(made.wiki.id);
   });
 
   it('is not reached by the operations of cards, nor a board by those of pages', async () => {
@@ -132,7 +134,7 @@ describe('a wiki in memory', () => {
     expect(listed.map((wiki) => wiki.id)).toEqual([made.wiki.id]);
     expect(await made.other.wiki.pages(made.wiki.id)).toEqual([]);
     expect((await rejection(made.other.wiki.createPage(made.wiki.id, {}))).status).toBe(403);
-    await made.other.joinBoard(made.wiki.id);
+    await made.other.joinContainer(made.wiki.id);
     await made.other.wiki.createPage(made.wiki.id, {});
     expect(await made.other.wiki.pages(made.wiki.id)).toHaveLength(1);
   });
@@ -280,8 +282,8 @@ describe('the pages of a wiki in memory', () => {
   it('are written by the wiki’s editors only', async () => {
     const made = await aWiki(setup(), 'O');
     const page = await made.backend.wiki.createPage(made.wiki.id, { title: 'Page' });
-    await made.backend.patchBoard(made.wiki.id, { minimumRole: 'viewer' });
-    await made.other.joinBoard(made.wiki.id);
+    await made.backend.patchContainer(made.wiki.id, { minimumRole: 'viewer' });
+    await made.other.joinContainer(made.wiki.id);
     expect((await made.other.wiki.page(made.wiki.id, page.id)).title).toBe('Page');
     expect((await rejection(made.other.wiki.createPage(made.wiki.id, {}))).status).toBe(403);
     expect(
@@ -293,10 +295,10 @@ describe('the pages of a wiki in memory', () => {
   it('come back with their wiki from the trash', async () => {
     const made = await aWiki();
     const page = await made.backend.wiki.createPage(made.wiki.id, { title: 'Kept' });
-    await made.backend.deleteBoard(made.wiki.id);
-    const trash = await made.backend.deletedBoards(made.workspaceId);
+    await made.backend.deleteContainer(made.wiki.id);
+    const trash = await made.backend.deletedContainers(made.workspaceId);
     expect(trash.find((item) => item.id === made.wiki.id)?.kind).toBe('wiki');
-    await made.backend.restoreBoard(made.wiki.id);
+    await made.backend.restoreContainer(made.wiki.id);
     expect((await made.backend.wiki.page(made.wiki.id, page.id)).title).toBe('Kept');
   });
 });

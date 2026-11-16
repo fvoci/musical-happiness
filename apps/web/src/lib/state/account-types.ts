@@ -1,5 +1,5 @@
 /** Signing in and out and making an account, where a backend has accounts (part of `backend.ts`). */
-import type { BoardKind } from '../logic/wire.ts';
+import type { ContainerKind } from '../logic/wire.ts';
 
 /** What an account is made with. */
 export interface NewAccount {
@@ -24,18 +24,18 @@ export interface InvitationPreview {
   /** Who made the link: the name they are shown by, or the one they sign in with. */
   inviterName: string;
   /** For a guest: the title of the board or the wiki they are invited to. */
-  boardTitle?: string;
+  containerTitle?: string;
   /** For a guest: which of the two it is. */
-  boardKind?: BoardKind;
+  containerKind?: ContainerKind;
 }
 
 /** Where an accepted invitation let somebody in. */
 export interface AcceptedInvitation {
   workspaceId: string;
   /** For a guest: the board or the wiki they were invited to. */
-  boardId?: string;
+  containerId?: string;
   /** For a guest: which of the two it is, for its own address. */
-  boardKind?: BoardKind;
+  containerKind?: ContainerKind;
 }
 
 /** What the login page may know of the server before anybody signs in. */

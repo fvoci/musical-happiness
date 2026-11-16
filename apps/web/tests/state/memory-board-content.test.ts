@@ -38,7 +38,7 @@ function inviteOnlyBoard(): MemoryBackend {
   const block = (id: string, type: Block['type'], title: string): Block => ({
     id,
     type,
-    boardId: 'b',
+    containerId: 'b',
     parentId: 'b',
     createdBy: 'someone-else',
     modifiedBy: 'someone-else',
@@ -69,7 +69,7 @@ function inviteOnlyBoard(): MemoryBackend {
   });
   world.files.set(file.fileId, {
     ...file,
-    boardId: 'b',
+    containerId: 'b',
     blob: new Blob(['Example file']),
     url: 'blob:example',
   });
@@ -111,7 +111,7 @@ describe('a board the reader is not a member of', () => {
 
   it('still lets the reader see the board and its members, to manage them', async () => {
     const backend = inviteOnlyBoard();
-    expect(await statusOf(backend.board('b'))).toBe('ok');
+    expect(await statusOf(backend.container('b'))).toBe('ok');
     expect(await statusOf(backend.members('b'))).toBe('ok');
   });
 });

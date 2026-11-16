@@ -30,7 +30,7 @@ function world(): ReturnType<typeof setup> & {
   const card = [...made.world.blocks.values()].find((block) => block.type === 'card' && block.body);
   if (!card) throw new Error('the seed has no card with a body');
   const [me, them] = [made.backend.userId, made.other.userId];
-  return { ...made, BOARD: card.boardId, cardId: card.id, me, them };
+  return { ...made, BOARD: card.containerId, cardId: card.id, me, them };
 }
 
 async function joined(body: BodyDoc): Promise<Y.Doc> {
@@ -318,7 +318,7 @@ describe('the versions of a body, in memory', () => {
     const { world: stored, BOARD, backend, cardId } = world();
     stored.files.set('f1', {
       fileId: 'f1',
-      boardId: BOARD,
+      containerId: BOARD,
       name: 'p.png',
       size: 1,
       contentType: '',
@@ -385,7 +385,7 @@ describe('the reading of the versions of an open card', () => {
     const card = made.board.cards.find((one) => one.title === 'Alpha');
     if (!card) throw new Error('no card');
     const readAt = made.world.blocks.get(card.id)?.updateAt ?? 0;
-    await made.other.writeCardBody(card.boardId, card.id, { body: text('second'), readAt });
+    await made.other.writeCardBody(card.containerId, card.id, { body: text('second'), readAt });
     const open = await made.board.showCard(card.id);
     const learned = vi.spyOn(made.workspace, 'learnUsers');
     const settled = vi.spyOn(open, 'settleBody');

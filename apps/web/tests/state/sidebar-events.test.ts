@@ -14,8 +14,8 @@ it('keeps a pending filing when the preceding write echoes, then reads the store
   const held = new Promise<void>((resolve) => {
     release = resolve;
   });
-  const send = backend.moveBoardToCategory.bind(backend);
-  vi.spyOn(backend, 'moveBoardToCategory').mockImplementation(async (...args) => {
+  const send = backend.moveContainerToCategory.bind(backend);
+  vi.spyOn(backend, 'moveContainerToCategory').mockImplementation(async (...args) => {
     await held;
     await send(...args);
   });

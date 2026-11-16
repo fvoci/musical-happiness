@@ -2,7 +2,7 @@
  * The order of a board's card properties: what a move up or down makes of
  * it, and a board with its properties in an order (`reorderCardProperties`).
  */
-import type { Board } from './wire.ts';
+import type { Container } from './wire.ts';
 
 /**
  * The identifiers with one moved a place up (`-1`) or down (`1`) among
@@ -24,7 +24,7 @@ export function movedProperty(
 }
 
 /** The board with its properties in `order`; one the order does not name keeps its place after those it names. */
-export function withPropertyOrder(board: Board, order: readonly string[]): Board {
+export function withPropertyOrder(board: Container, order: readonly string[]): Container {
   const rank = new Map(order.map((id, at) => [id, at]));
   const ranked = (id: string): number => rank.get(id) ?? order.length;
   const cardProperties = board.cardProperties

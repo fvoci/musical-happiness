@@ -54,12 +54,12 @@ describe('the memory backend', () => {
     expect(await refused([OWNER])).toBe(400);
     expect(await refused([OWNER, OWNER])).toBe(400);
     expect(await refused([OWNER, STATUS, 'nothing'])).toBe(400);
-    expect(ids(await backend.board(board.boardId))).toEqual([STATUS, OWNER]);
+    expect(ids(await backend.container(board.boardId))).toEqual([STATUS, OWNER]);
     expect(await backend.reorderCardProperties(board.boardId, [OWNER, STATUS])).toEqual([
       OWNER,
       STATUS,
     ]);
-    expect(ids(await backend.board(board.boardId))).toEqual([OWNER, STATUS]);
+    expect(ids(await backend.container(board.boardId))).toEqual([OWNER, STATUS]);
     // Only who may change the properties: an editor or an admin.
     expect(await refused([STATUS, OWNER])).toBe('taken');
     const commenter = backend.as(
@@ -78,7 +78,7 @@ describe('an open board', () => {
   it('shows a move at once, sends it by itself, and undo moves it back', async () => {
     const { board, backend, workspace } = await openFirstBoard();
     const reorder = vi.spyOn(backend, 'reorderCardProperties');
-    const patch = vi.spyOn(backend, 'patchBoard');
+    const patch = vi.spyOn(backend, 'patchContainer');
     const done = board.moveProperty(OWNER, -1);
     await Promise.resolve();
     await Promise.resolve();
@@ -86,11 +86,11 @@ describe('an open board', () => {
     await done;
     expect(reorder).toHaveBeenCalledWith(board.boardId, [OWNER, STATUS]);
     expect(patch).not.toHaveBeenCalled();
-    expect(ids(await backend.board(board.boardId))).toEqual([OWNER, STATUS]);
+    expect(ids(await backend.container(board.boardId))).toEqual([OWNER, STATUS]);
 
     await workspace.undoLast();
     expect(ids(board.board)).toEqual([STATUS, OWNER]);
-    expect(ids(await backend.board(board.boardId))).toEqual([STATUS, OWNER]);
+    expect(ids(await backend.container(board.boardId))).toEqual([STATUS, OWNER]);
     // At an end it does not move, and its undo moves nothing back.
     await board.moveProperty(STATUS, -1);
     expect(reorder).toHaveBeenCalledTimes(2);
@@ -102,8 +102,8 @@ describe('an open board', () => {
   it('undoes a move after somebody else added a property', async () => {
     const { board, backend, other, workspace } = await openFirstBoard();
     await board.moveProperty(OWNER, -1);
-    const stored = await other.board(board.boardId);
-    await other.patchBoard(board.boardId, {
+    const stored = await other.container(board.boardId);
+    await other.patchContainer(board.boardId, {
       updatedCardProperties: [
         ...stored.cardProperties,
         { id: 'later', name: 'Later', type: 'text', options: [] },
@@ -112,7 +112,7 @@ describe('an open board', () => {
     await settle();
     await workspace.undoLast();
     expect(workspace.problems).toEqual([]);
-    expect(ids(await backend.board(board.boardId))).toEqual([STATUS, OWNER, 'later']);
+    expect(ids(await backend.container(board.boardId))).toEqual([STATUS, OWNER, 'later']);
   });
 
   it('sends two quick moves one after the other, each on the order the one before left', async () => {
@@ -121,7 +121,7 @@ describe('an open board', () => {
     const first = board.moveProperty(OWNER, -1);
     const second = board.moveProperty(OWNER, 1);
     await Promise.all([first, second]);
-    expect(ids(await backend.board(board.boardId))).toEqual([STATUS, OWNER]);
+    expect(ids(await backend.container(board.boardId))).toEqual([STATUS, OWNER]);
     expect(ids(board.board)).toEqual([STATUS, OWNER]);
   });
 

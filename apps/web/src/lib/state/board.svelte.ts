@@ -16,8 +16,8 @@ import {
   viewGrouping,
   viewQuery,
   type BlockPatch,
-  type Board,
-  type BoardMember,
+  type Container,
+  type ContainerMember,
   type BoardView,
   type Card,
   type MemberRole,
@@ -29,7 +29,7 @@ import {
   isBackendError,
   isCardBlock,
   isViewBlock,
-  type BoardRole,
+  type ContainerRole,
   type CardDraft,
   type CardPatch,
   type CardSummary,
@@ -66,17 +66,21 @@ export type { CardDrop } from './board-parts.ts';
 export class BoardStore {
   readonly workspace: Workspace;
   readonly boardId: string;
+  /** The board as the dialogs of a board's or a wiki's people name it (`MembersOf`). */
+  get containerId(): string {
+    return this.boardId;
+  }
 
   status = $state<LoadStatus>('idle');
   /** The board does not exist, or the reader may not see it: the two look the same. */
   missing = $state(false);
   /** The board is open and the reader no member of it: shown with a way to join (`join`). */
   joinable = $state(false);
-  board = $state.raw<Board | undefined>(undefined);
+  board = $state.raw<Container | undefined>(undefined);
   views = $state.raw<BoardView[]>([]);
   /** Every card of the board, card templates included, in no order. */
   cards = $state.raw<CardSummary[]>([]);
-  members = $state.raw<BoardMember[]>([]);
+  members = $state.raw<ContainerMember[]>([]);
   /** The card that is open, if one is. */
   openCard = $state.raw<CardStore | undefined>(undefined);
 
@@ -225,7 +229,7 @@ export class BoardStore {
     if (this.joining) return false;
     this.joining = true;
     try {
-      await this.#backend.joinBoard(this.boardId);
+      await this.#backend.joinContainer(this.boardId);
     } catch (error) {
       // Made private or deleted meanwhile: there is nothing to join.
       if (isBackendError(error) && error.status === 404) {
@@ -265,18 +269,13 @@ export class BoardStore {
 
   /** The cards a view shows, in its order, for a search text. */
   cardsOf(view: BoardView, searchText = ''): Card[] {
-    return cardsOfView(
-      this.realCards,
-      this.board?.cardProperties ?? [],
-      viewQuery(view),
-      searchText,
-      {
-        usernameOf: (userId) => this.workspace.userName(userId),
-        locale: this.workspace.locale,
-        timeZone: this.workspace.regional.timeZone,
-        cardTitle: (cardId) => this.cardsById.get(cardId)?.title,
-      },
-    );
+    const properties = this.board?.cardProperties ?? [];
+    return cardsOfView(this.realCards, properties, viewQuery(view), searchText, {
+      usernameOf: (userId) => this.workspace.userName(userId),
+      locale: this.workspace.locale,
+      timeZone: this.workspace.regional.timeZone,
+      cardTitle: (cardId) => this.cardsById.get(cardId)?.title,
+    });
   }
 
   /**
@@ -647,7 +646,7 @@ export class BoardStore {
   // -------------------------------------------------------------- board
 
   /** As `take` (write.ts) does for cards and views. */
-  #takeBoard(board: Board): void {
+  #takeBoard(board: Container): void {
     if (!this.board || board.updateAt >= this.board.updateAt) this.board = board;
   }
 
@@ -656,7 +655,7 @@ export class BoardStore {
    * definitions of its card properties. `change` returns a new object.
    */
   async changeBoard(
-    change: (board: Board) => Board,
+    change: (board: Container) => Container,
     description = 'changeBoard',
     groupId?: string,
   ): Promise<void> {
@@ -699,16 +698,16 @@ export class BoardStore {
   }
 
   /** The role somebody gets by joining the board. Members keep theirs. */
-  async setMinimumRole(role: BoardRole): Promise<void> {
+  async setMinimumRole(role: ContainerRole): Promise<void> {
     await this.changeBoard((board) => ({ ...board, minimumRole: role }), 'changeMinimumRole');
   }
 
   /** Makes a person of the workspace a member. Somebody who is a member already keeps their role. */
-  addMember(userId: string, role: BoardRole): Promise<void> {
+  addMember(userId: string, role: ContainerRole): Promise<void> {
     return this.#people.add(userId, role);
   }
 
-  setMemberRole(userId: string, role: BoardRole): Promise<void> {
+  setMemberRole(userId: string, role: ContainerRole): Promise<void> {
     return this.#people.setRole(userId, role);
   }
 

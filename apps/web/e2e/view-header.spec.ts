@@ -40,7 +40,7 @@ interface Dev {
   backend: {
     workspaces: () => Promise<{ id: string }[]>;
     boards: (workspaceId: string) => Promise<{ id: string; title: string }[]>;
-    board: (boardId: string) => Promise<{
+    container: (containerId: string) => Promise<{
       cardProperties: { id: string; name: string; options: { id: string; value: string }[] }[];
     }>;
     views: (boardId: string) => Promise<StoredView[]>;
@@ -129,7 +129,7 @@ function properties(
 ): Promise<Record<string, { id: string; options: Record<string, string> }>> {
   return page.evaluate(async (boardId) => {
     const { backend } = (window as unknown as { fvociDev: Dev }).fvociDev;
-    const board = await backend.board(boardId);
+    const board = await backend.container(boardId);
     return Object.fromEntries(
       board.cardProperties.map((property) => [
         property.name,

@@ -51,7 +51,7 @@ describe('reading', () => {
 
   it('answers 404 for what is not there', async () => {
     const { backend, boardId } = await firstBoard();
-    expect((await rejection(backend.board('nope'))).status).toBe(404);
+    expect((await rejection(backend.container('nope'))).status).toBe(404);
     expect((await rejection(backend.card(boardId, 'nope'))).status).toBe(404);
   });
 
@@ -163,9 +163,9 @@ describe('deleting', () => {
   it('takes a board out of every sidebar and puts it back with its blocks', async () => {
     const { backend, boardId } = await firstBoard();
     const [workspace] = await backend.workspaces();
-    await backend.deleteBoard(boardId);
+    await backend.deleteContainer(boardId);
     expect(await backend.boards(workspace?.id ?? '')).toHaveLength(0);
-    await backend.restoreBoard(boardId);
+    await backend.restoreContainer(boardId);
     expect(await backend.cards(boardId)).toHaveLength(3);
   });
 });
@@ -281,7 +281,7 @@ describe('the seed made of the built-in templates', () => {
       world.blocks.size + world.boards.size,
     );
     const categories = await backend.categories(workspace?.id ?? '');
-    expect(categories.flatMap((category) => category.boardIds).sort()).toEqual(
+    expect(categories.flatMap((category) => category.containerIds).sort()).toEqual(
       boards.map((board) => board.id).sort(),
     );
   });

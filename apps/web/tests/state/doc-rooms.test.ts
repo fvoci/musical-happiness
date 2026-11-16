@@ -59,7 +59,7 @@ function world(): ReturnType<typeof setup> & { boardId: string; cardId: string }
   const made = setup();
   const card = [...made.world.blocks.values()].find((block) => block.type === 'card' && block.body);
   if (!card) throw new Error('the seed has no card with a body');
-  return { ...made, boardId: card.boardId, cardId: card.id };
+  return { ...made, boardId: card.containerId, cardId: card.id };
 }
 
 async function joined(body: BodyDoc): Promise<Y.Doc> {

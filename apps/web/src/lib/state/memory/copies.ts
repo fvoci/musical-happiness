@@ -35,12 +35,12 @@ export function giveCopiesFiles(world: World, sourceId: string, copyId: string):
   const copies = new Map<string, string>();
   const renamed = (fileId: string): string => {
     const file = world.files.get(fileId);
-    if (file?.boardId !== sourceId) return fileId;
+    if (file?.containerId !== sourceId) return fileId;
     let made = copies.get(fileId);
     if (made === undefined) {
       made = world.newId();
       copies.set(fileId, made);
-      world.files.set(made, { ...file, fileId: made, boardId: copyId });
+      world.files.set(made, { ...file, fileId: made, containerId: copyId });
     }
     return made;
   };

@@ -7,14 +7,14 @@ import { valuesOfCopy } from '../logic/dependencies.ts';
 import {
   cardProperty,
   parseRelationValue,
-  type Board,
-  type BoardKind,
-  type BoardMember,
+  type Container,
+  type ContainerKind,
+  type ContainerMember,
   type Card,
   type MemberRole,
 } from '../logic/wire.ts';
 
-import type { Backend, BoardRole, CardDraft, Paging } from './backend.ts';
+import type { Backend, ContainerRole, CardDraft, Paging } from './backend.ts';
 import { BackendError } from './problems.ts';
 
 /**
@@ -27,9 +27,9 @@ export async function boardOfWorkspace(
   backend: Backend,
   boardId: string,
   workspaceId: string | undefined,
-  kind: BoardKind = 'board',
-): Promise<Board> {
-  const board = await backend.board(boardId);
+  kind: ContainerKind = 'board',
+): Promise<Container> {
+  const board = await backend.container(boardId);
   if (board.workspaceId !== workspaceId) {
     throw new BackendError(404, { detail: 'the board is of another workspace' });
   }
@@ -45,7 +45,7 @@ const ALL: Paging = { page: 0, perPage: 0 };
 /** What a copy of a card is made from: the board it is on, as its store has it. */
 interface CopiedFrom {
   boardId: string;
-  board: Board | undefined;
+  board: Container | undefined;
   cards: readonly Card[];
 }
 
@@ -87,7 +87,7 @@ export async function draftOfCopy(
   };
 }
 
-export function roleOf(member: BoardMember | undefined): MemberRole {
+export function roleOf(member: ContainerMember | undefined): MemberRole {
   if (!member) return '';
   if (member.schemeAdmin) return 'admin';
   if (member.schemeEditor || member.inheritedRole === 'editor') return 'editor';
@@ -112,8 +112,8 @@ export function canChangeComment(
 
 /** The flags of a membership with exactly the one role. */
 export function roleFlags(
-  role: BoardRole,
-): Pick<BoardMember, 'schemeAdmin' | 'schemeEditor' | 'schemeCommenter' | 'schemeViewer'> {
+  role: ContainerRole,
+): Pick<ContainerMember, 'schemeAdmin' | 'schemeEditor' | 'schemeCommenter' | 'schemeViewer'> {
   return {
     schemeAdmin: role === 'admin',
     schemeEditor: role === 'editor',

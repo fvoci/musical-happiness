@@ -46,7 +46,7 @@ describe('the backend of a public link', () => {
   it('reads the board by the token alone, in a place of its own, without the cookie', async () => {
     const sent = serve(BOARD);
     const backend = new SharedBackend('/base', 'b1', 'to/ken');
-    const board = await backend.board('b1');
+    const board = await backend.container('b1');
     expect(board.workspaceId).toBe(SHARED_PLACE);
     expect(sent).toEqual([
       { url: '/base/api/v1/shared/b1?readToken=to%2Fken', method: 'GET', credentials: 'omit' },
@@ -70,7 +70,7 @@ describe('the backend of a public link', () => {
   it('has only the link’s board, and nobody in it', async () => {
     const sent = serve([]);
     const backend = new SharedBackend('', 'b1', 't');
-    const other = await backend.board('b2').catch((error: unknown) => error);
+    const other = await backend.container('b2').catch((error: unknown) => error);
     expect(isBackendError(other) && other.status).toBe(404);
     expect(backend.fileUrl('b2', 'f1')).toBeUndefined();
     expect(await backend.members('b1')).toEqual([]);
@@ -87,7 +87,7 @@ describe('the backend of a public link', () => {
       backend.createComment('b1', 'c1', { type: 'doc', content: [] }).catch((e: unknown) => e),
       backend.deleteBlock('b1', 'c1').catch((error: unknown) => error),
       backend.patchView('b1', 'v1', {}).catch((error: unknown) => error),
-      backend.joinBoard('b1').catch((error: unknown) => error),
+      backend.joinContainer('b1').catch((error: unknown) => error),
     ]);
     for (const refusal of refusals) expect(isBackendError(refusal) && refusal.status).toBe(403);
     expect(sent).toEqual([]);

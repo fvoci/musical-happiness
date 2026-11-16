@@ -27,7 +27,7 @@ import {
 import type { CardPreview } from '../editor/card-preview.ts';
 import type { LinkedBlock } from '../state/references.ts';
 import type { Wikis } from '../state/wiki-types.ts';
-import type { Board } from '../logic/wire.ts';
+import type { Container } from '../logic/wire.ts';
 
 import {
   attachmentOf,
@@ -95,7 +95,7 @@ export class SharedBackend implements Backend {
    */
   readonly references: Backend['references'] = {
     resolve: async (_workspaceId, ids) => {
-      const cards = await this.cards(this.#boardId);
+      const cards = await this.cards(this.#containerId);
       return cards.filter((card) => ids.includes(card.id)).map((card) => this.#linked(card));
     },
     to: nothing,
@@ -134,24 +134,24 @@ export class SharedBackend implements Backend {
     duplicatePage: refused,
   };
   readonly #http: Http;
-  readonly #boardId: string;
+  readonly #containerId: string;
   readonly #readToken: string;
   readonly #settings: AccountSettings;
 
   /**
-   * `basePath` as `ServerBackend` takes it; the board and the token are the
+   * `basePath` as `ServerBackend` takes it; the board or wiki and the token are the
    * link's. `settings` are the device's (its theme and density), which the
    * reader keeps: nobody's account has any here.
    */
   constructor(
     basePath: string,
-    boardId: string,
+    containerId: string,
     readToken: string,
     settings: AccountSettings = DEFAULT_ACCOUNT_SETTINGS,
   ) {
     this.#http = new Http(basePath, 'omit');
-    this.presence = new SharedPresence(basePath, boardId, readToken);
-    this.#boardId = boardId;
+    this.presence = new SharedPresence(basePath, containerId, readToken);
+    this.#containerId = containerId;
     this.#readToken = readToken;
     this.#settings = settings;
   }
@@ -164,19 +164,27 @@ export class SharedBackend implements Backend {
   ): Promise<T> {
     return this.#http.request<T>(
       `/api/v1/shared/{containerId}${path}`,
-      { containerId: this.#boardId, ...params },
+      { containerId: this.#containerId, ...params },
       { query: { ...query, readToken: this.#readToken } },
     );
   }
 
   #linked(card: CardSummary): LinkedBlock {
-    const { id, title, boardId } = card;
-    return { id, kind: 'card', title, icon: card.fields.icon ?? '', boardId, boardKind: 'board' };
+    const { id, title, containerId } = card;
+    return {
+      id,
+      kind: 'card',
+      title,
+      icon: card.fields.icon ?? '',
+      containerId,
+      containerKind: 'board',
+    };
   }
 
-  /** Only the link's board is there: another is as one that does not exist. */
-  #only(boardId: string): void {
-    if (boardId !== this.#boardId) throw new BackendError(404, { detail: 'board not found' });
+  /** Only the link's board or wiki is there: another is as one that does not exist. */
+  #only(containerId: string): void {
+    if (containerId !== this.#containerId)
+      throw new BackendError(404, { detail: 'board not found' });
   }
 
   me(): Promise<User> {
@@ -195,8 +203,8 @@ export class SharedBackend implements Backend {
     return Promise.resolve({});
   }
 
-  async board(boardId: string): Promise<Board> {
-    this.#only(boardId);
+  async container(containerId: string): Promise<Container> {
+    this.#only(containerId);
     const board = boardOf(await this.#read<Schemas['Container']>(''));
     return { ...board, workspaceId: SHARED_PLACE };
   }
@@ -259,7 +267,7 @@ export class SharedBackend implements Backend {
   }
 
   fileUrl(boardId: string, fileId: string): string | undefined {
-    if (boardId !== this.#boardId) return undefined;
+    if (boardId !== this.#containerId) return undefined;
     return this.#http.url(
       '/api/v1/shared/{containerId}/files/{fileId}',
       { containerId: boardId, fileId },
@@ -277,7 +285,7 @@ export class SharedBackend implements Backend {
   searchBoards: Backend['searchBoards'] = nothing;
   searchUsers: Backend['searchUsers'] = nothing;
   commentVersions: Backend['commentVersions'] = nothing;
-  deletedBoards: Backend['deletedBoards'] = nothing;
+  deletedContainers: Backend['deletedContainers'] = nothing;
   deletedCards: Backend['deletedCards'] = nothing;
 
   // What is on the screen alone: kept for the visit.
@@ -291,24 +299,24 @@ export class SharedBackend implements Backend {
   patchMe: Backend['patchMe'] = refused;
   patchSettings: Backend['patchSettings'] = refused;
   createBoard: Backend['createBoard'] = refused;
-  patchBoard: Backend['patchBoard'] = refused;
+  patchContainer: Backend['patchContainer'] = refused;
   reorderCardProperties: Backend['reorderCardProperties'] = refused;
-  duplicateBoard: Backend['duplicateBoard'] = refused;
+  duplicateContainer: Backend['duplicateContainer'] = refused;
   onboard: Backend['onboard'] = refused;
-  deleteBoard: Backend['deleteBoard'] = refused;
-  restoreBoard: Backend['restoreBoard'] = refused;
+  deleteContainer: Backend['deleteContainer'] = refused;
+  restoreContainer: Backend['restoreContainer'] = refused;
   addMember: Backend['addMember'] = refused;
   setMemberRole: Backend['setMemberRole'] = refused;
   removeMember: Backend['removeMember'] = refused;
   sharing: Backend['sharing'] = refused;
   setSharing: Backend['setSharing'] = refused;
-  joinBoard: Backend['joinBoard'] = refused;
+  joinContainer: Backend['joinContainer'] = refused;
   createCategory: Backend['createCategory'] = refused;
   patchCategory: Backend['patchCategory'] = refused;
   deleteCategory: Backend['deleteCategory'] = refused;
   reorderCategories: Backend['reorderCategories'] = refused;
-  moveBoardToCategory: Backend['moveBoardToCategory'] = refused;
-  setBoardHidden: Backend['setBoardHidden'] = refused;
+  moveContainerToCategory: Backend['moveContainerToCategory'] = refused;
+  setContainerHidden: Backend['setContainerHidden'] = refused;
   createView: Backend['createView'] = refused;
   patchView: Backend['patchView'] = refused;
   createCard: Backend['createCard'] = refused;
@@ -319,7 +327,7 @@ export class SharedBackend implements Backend {
   deleteBlock: Backend['deleteBlock'] = refused;
   restoreBlock: Backend['restoreBlock'] = refused;
   upload: Backend['upload'] = refused;
-  exportBoard: Backend['exportBoard'] = refused;
+  exportContainer: Backend['exportContainer'] = refused;
   exportWorkspace: Backend['exportWorkspace'] = refused;
   importArchive: Backend['importArchive'] = refused;
 }

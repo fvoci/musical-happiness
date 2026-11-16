@@ -15,7 +15,7 @@ import type { DocNode } from '../../editor/schema.ts';
 import { DEFAULT_ACCOUNT_SETTINGS } from '../../logic/account-settings.ts';
 import {
   createBoard,
-  type Board,
+  type Container,
   type PropertyTemplate,
   type PropertyType,
   type PropertyValue,
@@ -195,7 +195,7 @@ export function seedWorld(templates: readonly SeedTemplate[]): SeededWorld {
     const others = users.filter((user) => user !== reader);
     // Three or four people per board, a different set on each.
     const people = [reader, ...others.filter((_, index) => (index + templateIndex) % 5 < 3)];
-    const board: Board = {
+    const board: Container = {
       ...createBoard(),
       id: boardId,
       workspaceId: world.workspace.id,
@@ -240,7 +240,7 @@ export function seedWorld(templates: readonly SeedTemplate[]): SeededWorld {
     for (const file of template.files) {
       world.files.set(file.fileId, {
         fileId: file.fileId,
-        boardId,
+        containerId: boardId,
         name: file.archiveMember.split('/').pop() ?? file.fileId,
         size: file.bytes,
         contentType: 'image/png',
@@ -263,7 +263,7 @@ export function seedWorld(templates: readonly SeedTemplate[]): SeededWorld {
       });
       const block: StoredBlock = {
         id,
-        boardId,
+        containerId: boardId,
         parentId: boardId,
         createdBy: author.id,
         modifiedBy: author.id,
@@ -286,7 +286,7 @@ export function seedWorld(templates: readonly SeedTemplate[]): SeededWorld {
         const commentId = world.newId();
         world.blocks.set(commentId, {
           id: commentId,
-          boardId,
+          containerId: boardId,
           parentId: id,
           createdBy: commenter.id,
           modifiedBy: commenter.id,
@@ -313,7 +313,7 @@ export function seedWorld(templates: readonly SeedTemplate[]): SeededWorld {
       const id = world.newId();
       world.blocks.set(id, {
         id,
-        boardId,
+        containerId: boardId,
         parentId: boardId,
         createdBy: reader.id,
         modifiedBy: reader.id,
@@ -335,7 +335,7 @@ export function seedWorld(templates: readonly SeedTemplate[]): SeededWorld {
     const fileId = world.newId();
     world.files.set(fileId, {
       fileId,
-      boardId: firstCard.boardId,
+      containerId: firstCard.containerId,
       name: 'kick-off-notes.txt',
       size: notes.size,
       contentType: 'text/plain',
@@ -345,7 +345,7 @@ export function seedWorld(templates: readonly SeedTemplate[]): SeededWorld {
     const id = world.newId();
     world.blocks.set(id, {
       id,
-      boardId: firstCard.boardId,
+      containerId: firstCard.containerId,
       parentId: firstCard.id,
       createdBy: reader.id,
       modifiedBy: reader.id,
@@ -375,8 +375,8 @@ export function seedWorld(templates: readonly SeedTemplate[]): SeededWorld {
       type: category.type,
       collapsed: false,
       sortOrder: index * 10,
-      boardIds: keys.flatMap((key) => boardIdOf.get(key) ?? []),
-      hiddenBoardIds: [],
+      containerIds: keys.flatMap((key) => boardIdOf.get(key) ?? []),
+      hiddenContainerIds: [],
       createAt: at,
       updateAt: at,
     };

@@ -42,7 +42,7 @@ export function usersNamed(world: World, readerId: string, userIds: readonly str
       }
     }
     for (const deleted of world.deletedBlocks.values()) {
-      if (deleted.boardId !== board.id) continue;
+      if (deleted.containerId !== board.id) continue;
       for (const block of deleted.blocks) {
         if (block.type !== 'comment') continue;
         for (const version of world.commentVersions.get(block.id) ?? [])

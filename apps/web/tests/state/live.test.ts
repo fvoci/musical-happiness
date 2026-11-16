@@ -56,7 +56,7 @@ const reads: LiveReads = {
   members: (boardId) =>
     Promise.resolve([
       {
-        boardId,
+        containerId: boardId,
         userId: 'u',
         minimumRole: '',
         schemeAdmin: true,

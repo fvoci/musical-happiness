@@ -11,7 +11,7 @@
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type { Shareable, Workspace } from '$lib/state/index.ts';
-  import type { BoardTeam, Team, TeamRole, Teams } from '$lib/state/team-types.ts';
+  import type { ContainerTeam, Team, TeamRole, Teams } from '$lib/state/team-types.ts';
   import { Button } from '$lib/ui/button/index.js';
 
   import { shareWords } from './share-words.ts';
@@ -27,7 +27,7 @@
   const words = $derived(shareWords(board.board?.kind));
   const id = $props.id();
   const place = $derived(workspace.info?.id);
-  let assigned = $state.raw<BoardTeam[]>([]);
+  let assigned = $state.raw<ContainerTeam[]>([]);
   let groups = $state.raw<Team[]>([]);
   let selected = $state('');
   let role = $state<TeamRole>('editor');
@@ -52,7 +52,7 @@
     try {
       const [all, onBoard] = await Promise.all([
         teams.list(workspaceId),
-        teams.onBoard(workspaceId, boardId),
+        teams.onContainer(workspaceId, boardId),
       ]);
       if (current !== reading) return;
       groups = all;
@@ -65,7 +65,7 @@
 
   $effect(() => {
     // Member messages also refresh this external view after another person's changes.
-    const request = { place, boardId: board.boardId, members: board.members };
+    const request = { place, boardId: board.containerId, members: board.members };
     if (request.place) void read(request.place, request.boardId);
     return () => {
       reading += 1;
@@ -78,15 +78,15 @@
     busy = true;
     problem = '';
     try {
-      if (next) await teams.assign(place, board.boardId, teamId, next);
-      else await teams.unassign(place, board.boardId, teamId);
+      if (next) await teams.assign(place, board.containerId, teamId, next);
+      else await teams.unassign(place, board.containerId, teamId);
       selected = '';
       return true;
     } catch {
       problem = m.teams_failed();
       return false;
     } finally {
-      await read(place, board.boardId);
+      await read(place, board.containerId);
       busy = false;
     }
   }

@@ -40,7 +40,7 @@
     type Registration,
   } from '$lib/state/index.ts';
   import { userDisplayName } from '$lib/logic/users.ts';
-  import type { BoardPlace } from '$lib/logic/urls.ts';
+  import type { ContainerPlace } from '$lib/logic/urls.ts';
   import { OrgAdmin } from '$lib/state/org-admin.svelte.ts';
   import type { Organizations } from '$lib/state/organization.ts';
   import { Button } from '$lib/ui/button/index.js';
@@ -254,7 +254,7 @@
     if (workspace?.status === 'ready') void orgAdmin?.load();
   });
 
-  const openBoard = (board: BoardPlace): void => {
+  const openBoard = (board: ContainerPlace): void => {
     router.openBoard(board);
   };
 </script>
@@ -413,7 +413,7 @@
       ? (workspaceId: string) => organizations?.workspaceRecords(workspaceId) ?? Promise.resolve([])
       : undefined}
     boardId={router.route.boardId ?? router.route.wikiId}
-    boardHref={(board: BoardPlace) => router.href(placeRoute(board))}
+    boardHref={(board: ContainerPlace) => router.href(placeRoute(board))}
     sharedHref={(boardId: string, readToken: string) => router.href({ boardId, readToken })}
     onOpenBoard={openBoard}
     {locales}

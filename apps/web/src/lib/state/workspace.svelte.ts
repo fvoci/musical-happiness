@@ -17,7 +17,7 @@ import { DEFAULT_ACCOUNT_SETTINGS } from '../logic/account-settings.ts';
 import { resolveRegional, type Regional } from '../logic/regional.ts';
 import { UndoManager } from '../logic/undo.ts';
 import { userDisplayName } from '../logic/users.ts';
-import { createBoard as createEmptyBoard, type Board } from '../logic/wire.ts';
+import { createBoard as createEmptyBoard, type Container } from '../logic/wire.ts';
 import { browserTimeZone, setRegionalSettings } from '../regional.ts';
 
 import {
@@ -89,7 +89,7 @@ export class Workspace {
   users = $state.raw<User[]>([]);
   /** The workspace's list as the backend gives it without a search: on the server, its oldest ten (D2). */
   workspaceUsers = $state.raw<User[]>([]);
-  boards = $state.raw<Board[]>([]);
+  boards = $state.raw<Container[]>([]);
   categories = $state.raw<Category[]>([]);
   settings = $state.raw<AccountSettings>(DEFAULT_SETTINGS);
   problems = $state.raw<Problem[]>([]);
@@ -109,7 +109,7 @@ export class Workspace {
   );
 
   /** The boards the reader hid from the sidebar, by title. */
-  readonly hiddenBoards = $derived<Board[]>(
+  readonly hiddenBoards = $derived<Container[]>(
     hiddenBoardsOf(this.categories, this.boards, this.sidebar, this.locale),
   );
 
@@ -446,7 +446,7 @@ export class Workspace {
     draft: BoardDraft,
     viewTitle = '',
     statusName = 'Status',
-  ): Promise<Board | undefined> {
+  ): Promise<Container | undefined> {
     if (!this.info) return undefined;
     try {
       const cardProperties =
@@ -468,7 +468,7 @@ export class Workspace {
    * The boards the reader may find by `query` (every word of the title) in each of their
    * workspaces the session opens, oldest first. A failure finds nothing there; a session over signs out.
    */
-  async searchBoards(query: string): Promise<Board[]> {
+  async searchBoards(query: string): Promise<Container[]> {
     if (!this.info || query.trim() === '') return [];
     const found = this.workspaces.filter(entry.isOpen).map((workspace) =>
       this.backend.searchBoards(workspace.id, query.trim()).catch((error: unknown) => {
@@ -481,20 +481,20 @@ export class Workspace {
   }
 
   /** The templates a board can be made from; none when they cannot be read (told). */
-  templates(): Promise<Board[]> {
+  templates(): Promise<Container[]> {
     return entry.templatesOf(this);
   }
 
   /** A board or a wiki as the backend just answered it: in the sidebar at once (`createWiki`). */
-  receiveBoard(board: Board): void {
+  receiveBoard(board: Container): void {
     this.#apply({ kind: 'board', board });
   }
 
   /** Copies a board, a wiki or a template into a board (`duplicateContainer`), in the sidebar at once. */
-  async duplicateBoard(boardId: string): Promise<Board | undefined> {
+  async duplicateBoard(boardId: string): Promise<Container | undefined> {
     if (!this.info) return undefined;
     try {
-      const board = await this.backend.duplicateBoard(boardId, false, this.info.id);
+      const board = await this.backend.duplicateContainer(boardId, false, this.info.id);
       this.#apply({ kind: 'board', board });
       return board;
     } catch (error) {
@@ -504,10 +504,10 @@ export class Workspace {
   }
 
   /** Makes a template of the workspace from a board. A template is no board of the sidebar. */
-  async createTemplateFromBoard(boardId: string): Promise<Board | undefined> {
+  async createTemplateFromBoard(boardId: string): Promise<Container | undefined> {
     if (!this.info) return undefined;
     try {
-      return await this.backend.duplicateBoard(boardId, true, this.info.id);
+      return await this.backend.duplicateContainer(boardId, true, this.info.id);
     } catch (error) {
       this.report('save', error);
       return undefined;
@@ -529,7 +529,7 @@ export class Workspace {
       return undefined;
     }
     try {
-      this.#apply({ kind: 'board', board: await this.backend.board(boardId) });
+      this.#apply({ kind: 'board', board: await this.backend.container(boardId) });
     } catch {
       // It is made; the server's message, or the next reading, shows it.
     }
@@ -547,7 +547,7 @@ export class Workspace {
   exportBoard(boardId: string): Promise<DownloadedFile | undefined> {
     const board = this.boards.find((one) => one.id === boardId);
     return this.transfers.run('export', `board ${boardId}`, board?.title ?? '', (options) =>
-      this.backend.exportBoard(boardId, options),
+      this.backend.exportContainer(boardId, options),
     );
   }
 
@@ -584,7 +584,7 @@ export class Workspace {
     try {
       await this.undo.perform(
         async () => {
-          await this.backend.deleteBoard(boardId);
+          await this.backend.deleteContainer(boardId);
           this.#apply({ kind: 'boardDeleted', boardId });
         },
         () => this.restoreBoard(boardId),
@@ -597,7 +597,7 @@ export class Workspace {
 
   /** Brings a deleted board back, the sidebar read first so it shows where it was filed. */
   async restoreBoard(boardId: string): Promise<void> {
-    const board = await this.backend.restoreBoard(boardId);
+    const board = await this.backend.restoreContainer(boardId);
     await this.#refresh();
     this.#apply({ kind: 'board', board });
   }
@@ -691,8 +691,8 @@ export class Workspace {
           category.type === 'system'
             ? {
                 ...category,
-                boardIds: [...category.boardIds, ...gone.boardIds],
-                hiddenBoardIds: [...category.hiddenBoardIds, ...gone.hiddenBoardIds],
+                containerIds: [...category.containerIds, ...gone.containerIds],
+                hiddenContainerIds: [...category.hiddenContainerIds, ...gone.hiddenContainerIds],
               }
             : category,
         ),
@@ -719,13 +719,13 @@ export class Workspace {
     if (!workspace) return;
     await this.#categoryWrite(
       this.categories.map((category) => {
-        const boardIds = category.boardIds.filter((id) => id !== boardId);
+        const containerIds = category.containerIds.filter((id) => id !== boardId);
         if (category.id === categoryId) {
-          boardIds.splice(Math.max(0, Math.min(index, boardIds.length)), 0, boardId);
+          containerIds.splice(Math.max(0, Math.min(index, containerIds.length)), 0, boardId);
         }
-        return { ...category, boardIds };
+        return { ...category, containerIds };
       }),
-      () => this.backend.moveBoardToCategory(workspace.id, boardId, categoryId, index),
+      () => this.backend.moveContainerToCategory(workspace.id, boardId, categoryId, index),
     );
   }
 
@@ -750,7 +750,7 @@ export class Workspace {
 
   /** Shows a hidden board in the sidebar again, in the category that hides it. */
   async unhideBoard(boardId: string): Promise<void> {
-    const category = this.categories.find((one) => one.hiddenBoardIds.includes(boardId));
+    const category = this.categories.find((one) => one.hiddenContainerIds.includes(boardId));
     if (!category) return;
     try {
       await this.#setBoardHidden(category.id, boardId, false);
@@ -770,27 +770,27 @@ export class Workspace {
     const category = before.find((one) => one.id === categoryId);
     // A board no category files (one brought back from the trash) is shown in
     // the default category but cannot be hidden there until it is filed there.
-    const loose = hidden && category !== undefined && !category.boardIds.includes(boardId);
+    const loose = hidden && category !== undefined && !category.containerIds.includes(boardId);
     this.categories = before.map((one) => {
       if (one.id !== categoryId) return one;
-      const others = one.hiddenBoardIds.filter((id) => id !== boardId);
+      const others = one.hiddenContainerIds.filter((id) => id !== boardId);
       return {
         ...one,
-        boardIds: loose ? [...one.boardIds, boardId] : one.boardIds,
-        hiddenBoardIds: hidden ? [...others, boardId] : others,
+        containerIds: loose ? [...one.containerIds, boardId] : one.containerIds,
+        hiddenContainerIds: hidden ? [...others, boardId] : others,
       };
     });
     this.#sidebarWrites.begin();
     try {
       if (loose) {
-        await this.backend.moveBoardToCategory(
+        await this.backend.moveContainerToCategory(
           workspace.id,
           boardId,
           categoryId,
-          category.boardIds.length,
+          category.containerIds.length,
         );
       }
-      await this.backend.setBoardHidden(workspace.id, categoryId, boardId, hidden);
+      await this.backend.setContainerHidden(workspace.id, categoryId, boardId, hidden);
     } catch (error) {
       this.#sidebarRefused(before, workspace);
       throw error;

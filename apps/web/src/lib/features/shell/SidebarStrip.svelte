@@ -17,7 +17,7 @@
   import Avatar from '$lib/components/avatar/Avatar.svelte';
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
-  import type { BoardPlace } from '$lib/logic/urls.ts';
+  import type { ContainerPlace } from '$lib/logic/urls.ts';
   import { isGuest, type Workspace } from '$lib/state/index.ts';
 
   import { shownTitle } from './shown-title.ts';
@@ -27,12 +27,12 @@
     workspace: Workspace;
     /** The board on the page. */
     boardId: string | undefined;
-    boardHref: (board: BoardPlace) => string;
+    boardHref: (board: ContainerPlace) => string;
     /** Out of the layout: the list stands beside the board, or the page is compact. */
     hidden: boolean;
     /** Behind the open drawer: neither pressed nor reached with the keyboard. */
     inert: boolean;
-    onOpenBoard: (board: BoardPlace) => void;
+    onOpenBoard: (board: ContainerPlace) => void;
     onExpand: (event: MouseEvent) => void;
     onAddBoard: () => void;
     onOpenSettings: () => void;
@@ -56,7 +56,7 @@
     (workspace.me && workspace.userName(workspace.me.id)) ?? m['centerPanel.unknown-user'](),
   );
 
-  function open(event: MouseEvent, board: BoardPlace): void {
+  function open(event: MouseEvent, board: ContainerPlace): void {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
       return;
     }

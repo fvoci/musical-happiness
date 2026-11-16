@@ -4,17 +4,17 @@
  * goes back, is told (`workspace.report`), and the members are read again,
  * unless a list told meanwhile is newer than that reading.
  */
-import type { Board, BoardMember } from '../logic/wire.ts';
+import type { Container, ContainerMember } from '../logic/wire.ts';
 
-import type { BoardRole } from './backend.ts';
+import type { ContainerRole } from './backend.ts';
 import { roleFlags } from './board-parts.ts';
 import type { Workspace } from './workspace.svelte.ts';
 
 /** What holds the members of one board or wiki. */
 export interface MembersOf {
   readonly workspace: Workspace;
-  readonly boardId: string;
-  members: BoardMember[];
+  readonly containerId: string;
+  members: ContainerMember[];
 }
 
 /**
@@ -23,12 +23,12 @@ export interface MembersOf {
  * its members.
  */
 export interface Shareable extends MembersOf {
-  readonly board: Board | undefined;
-  readonly orderedMembers: BoardMember[];
+  readonly board: Container | undefined;
+  readonly orderedMembers: ContainerMember[];
   setOpen(open: boolean): Promise<void>;
-  setMinimumRole(role: BoardRole): Promise<void>;
-  addMember(userId: string, role: BoardRole): Promise<void>;
-  setMemberRole(userId: string, role: BoardRole): Promise<void>;
+  setMinimumRole(role: ContainerRole): Promise<void>;
+  addMember(userId: string, role: ContainerRole): Promise<void>;
+  setMemberRole(userId: string, role: ContainerRole): Promise<void>;
   removeMember(userId: string): Promise<void>;
 }
 
@@ -42,10 +42,10 @@ export class MemberWrites {
   }
 
   /** Makes a person of the workspace a member. Somebody who is a member already keeps their role. */
-  async add(userId: string, role: BoardRole): Promise<void> {
+  async add(userId: string, role: ContainerRole): Promise<void> {
     const of = this.#of;
     try {
-      const member = await of.workspace.backend.addMember(of.boardId, userId, role);
+      const member = await of.workspace.backend.addMember(of.containerId, userId, role);
       of.members = [...of.members.filter((one) => one.userId !== userId), member];
       void of.workspace.learnUsers([userId], { members: true });
     } catch (error) {
@@ -53,13 +53,13 @@ export class MemberWrites {
     }
   }
 
-  async setRole(userId: string, role: BoardRole): Promise<void> {
+  async setRole(userId: string, role: ContainerRole): Promise<void> {
     const of = this.#of;
     await this.#write(
       of.members.map((member) =>
         member.userId === userId ? { ...member, ...roleFlags(role) } : member,
       ),
-      () => of.workspace.backend.setMemberRole(of.boardId, userId, role),
+      () => of.workspace.backend.setMemberRole(of.containerId, userId, role),
     );
   }
 
@@ -67,7 +67,7 @@ export class MemberWrites {
     const of = this.#of;
     await this.#write(
       of.members.filter((member) => member.userId !== userId),
-      () => of.workspace.backend.removeMember(of.boardId, userId),
+      () => of.workspace.backend.removeMember(of.containerId, userId),
     );
   }
 
@@ -75,7 +75,7 @@ export class MemberWrites {
    * Shows a change of the members at once. Refused, they go back and are read
    * again: what was put back may be older than what arrived meanwhile.
    */
-  async #write(optimistic: BoardMember[], send: () => Promise<unknown>): Promise<void> {
+  async #write(optimistic: ContainerMember[], send: () => Promise<unknown>): Promise<void> {
     const of = this.#of;
     const before = of.members;
     of.members = optimistic;
@@ -86,7 +86,7 @@ export class MemberWrites {
       of.workspace.report('save', error);
       const told = this.told;
       try {
-        const members = await of.workspace.backend.members(of.boardId);
+        const members = await of.workspace.backend.members(of.containerId);
         // Members told meanwhile are newer than this reading.
         if (told === this.told) of.members = members;
       } catch {

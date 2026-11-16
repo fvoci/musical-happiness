@@ -98,7 +98,7 @@ describe('an open wiki, read without joining', () => {
     await made.backend.wiki.patchPage(made.wikiId, made.pageId, { title: 'Once' });
     await settle();
     expect(told).toEqual(['pages']);
-    await made.backend.patchBoard(made.wikiId, { type: 'P' });
+    await made.backend.patchContainer(made.wikiId, { type: 'P' });
     await made.backend.wiki.patchPage(made.wikiId, made.pageId, { title: 'Twice' });
     await settle();
     expect(told).toEqual(['pages', 'boardDeleted']);
@@ -131,7 +131,7 @@ describe('a wiki shared by its admins', () => {
     await store.setOpen(true);
     await store.setMinimumRole('commenter');
     expect([store.wiki?.type, store.wiki?.minimumRole]).toEqual(['O', 'commenter']);
-    expect((await made.backend.board(made.wikiId)).minimumRole).toBe('commenter');
+    expect((await made.backend.container(made.wikiId)).minimumRole).toBe('commenter');
     await made.workspace.undoLast();
     await made.workspace.undoLast();
     expect([store.wiki?.type, store.wiki?.minimumRole]).toEqual(['P', 'editor']);
@@ -140,12 +140,12 @@ describe('a wiki shared by its admins', () => {
 
   it('keeps a change told while it was read over the older reading', async () => {
     const made = await wikiOf('O');
-    const read = made.other.board.bind(made.other);
+    const read = made.other.container.bind(made.other);
     let release = (): void => undefined;
     const held = new Promise<void>((resolve) => {
       release = resolve;
     });
-    made.other.board = async (boardId) => {
+    made.other.container = async (boardId) => {
       const board = await read(boardId);
       await held;
       return board;
@@ -153,7 +153,7 @@ describe('a wiki shared by its admins', () => {
     const store = new WikiStore(made.theirs, made.wikiId);
     const loading = store.load();
     await settle();
-    await made.backend.patchBoard(made.wikiId, { minimumRole: 'viewer' });
+    await made.backend.patchContainer(made.wikiId, { minimumRole: 'viewer' });
     await settle();
     release();
     await loading;
@@ -196,16 +196,16 @@ describe('a wiki shared by its admins', () => {
 describe('an invitation accepted', () => {
   it('leads to its wiki at a wiki’s address, and to its board at a board’s', () => {
     const workspaceId = 'w';
-    expect(acceptedRoute({ workspaceId, boardId: 'a', boardKind: 'wiki' })).toEqual({
+    expect(acceptedRoute({ workspaceId, containerId: 'a', containerKind: 'wiki' })).toEqual({
       workspaceId,
       wikiId: 'a',
     });
-    expect(acceptedRoute({ workspaceId, boardId: 'b', boardKind: 'board' })).toEqual({
+    expect(acceptedRoute({ workspaceId, containerId: 'b', containerKind: 'board' })).toEqual({
       workspaceId,
       boardId: 'b',
     });
     // An answer that does not say: a board's address, which says what there is to say.
-    expect(acceptedRoute({ workspaceId, boardId: 'c' })).toEqual({ workspaceId, boardId: 'c' });
+    expect(acceptedRoute({ workspaceId, containerId: 'c' })).toEqual({ workspaceId, boardId: 'c' });
     expect(acceptedRoute({ workspaceId })).toEqual({ workspaceId });
   });
 });

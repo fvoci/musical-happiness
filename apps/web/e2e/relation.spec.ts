@@ -21,7 +21,7 @@ interface Dev {
     boards(workspaceId: string): Promise<{ id: string; title: string }[]>;
     views(boardId: string): Promise<{ id: string; title: string }[]>;
     cards(boardId: string): Promise<StoredCard[]>;
-    board(boardId: string): Promise<{ cardProperties: { id: string; name: string }[] }>;
+    container(containerId: string): Promise<{ cardProperties: { id: string; name: string }[] }>;
   };
 }
 
@@ -78,7 +78,7 @@ async function storedValue(page: Page, place: Place, cardId: string): Promise<un
   return page.evaluate(
     async ({ boardId, cardId: id }) => {
       const { backend } = (window as unknown as { fvociDev: Dev }).fvociDev;
-      const board = await backend.board(boardId);
+      const board = await backend.container(boardId);
       const after = board.cardProperties.find((each) => each.name === 'After')?.id ?? '';
       const card = (await backend.cards(boardId)).find((each) => each.id === id);
       return card?.fields.properties[after];
@@ -90,7 +90,7 @@ async function storedValue(page: Page, place: Place, cardId: string): Promise<un
 async function propertyId(page: Page, place: Place): Promise<string> {
   return page.evaluate(async ({ boardId }) => {
     const { backend } = (window as unknown as { fvociDev: Dev }).fvociDev;
-    const board = await backend.board(boardId);
+    const board = await backend.container(boardId);
     return board.cardProperties.find((each) => each.name === 'After')?.id ?? '';
   }, place);
 }

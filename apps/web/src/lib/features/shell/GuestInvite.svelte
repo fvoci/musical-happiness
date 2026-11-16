@@ -10,10 +10,10 @@
 <script lang="ts">
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { displayDate } from '$lib/logic/format.ts';
-  import type { BoardKind } from '$lib/logic/wire.ts';
+  import type { ContainerKind } from '$lib/logic/wire.ts';
   import {
     isBackendError,
-    type GuestBoardRole,
+    type GuestContainerRole,
     type Invitation,
     type PeopleAccess,
     type Workspace,
@@ -27,7 +27,7 @@
     workspace: Workspace;
     access: PeopleAccess;
     boardId: string;
-    kind?: BoardKind | undefined;
+    kind?: ContainerKind | undefined;
   }
 
   let { workspace, access, boardId, kind }: Props = $props();
@@ -36,20 +36,20 @@
   const workspaceName = $derived(workspace.info?.title || m.shell_workspace_unnamed());
 
   const uid = $props.id();
-  const ROLES: readonly GuestBoardRole[] = ['editor', 'commenter', 'viewer'];
-  const ROLE_LABELS: Record<GuestBoardRole, () => string> = {
+  const ROLES: readonly GuestContainerRole[] = ['editor', 'commenter', 'viewer'];
+  const ROLE_LABELS: Record<GuestContainerRole, () => string> = {
     editor: () => m['BoardMember.schemeEditor'](),
     commenter: () => m['BoardMember.schemeCommenter'](),
     viewer: () => m['BoardMember.schemeViewer'](),
   };
 
-  let role = $state<GuestBoardRole>('editor');
+  let role = $state<GuestContainerRole>('editor');
   let made = $state.raw<{ address: string; token: string } | undefined>(undefined);
   let working = $state(false);
   let problem = $state<string | undefined>(undefined);
   let links = $state.raw<Invitation[]>([]);
   const boardLinks = $derived(
-    links.filter((link) => link.role === 'guest' && link.boardId === boardId),
+    links.filter((link) => link.role === 'guest' && link.containerId === boardId),
   );
   const context = $derived({
     locale: workspace.locale,

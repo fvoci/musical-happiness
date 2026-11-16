@@ -5,7 +5,7 @@
  * reader's own and reading their workspaces, and reading the trash.
  * `ServerBackend` is made of these and the rest (`backend.ts`).
  */
-import type { Board } from '../logic/wire.ts';
+import type { Container } from '../logic/wire.ts';
 import type {
   AcceptedInvitation,
   DeletedItem,
@@ -108,7 +108,7 @@ export class ServerRequests implements TrashReads {
   ): Promise<T> {
     return this.inWorkspace<T>(
       path,
-      { ...params, boardId: params.wikiId ?? '' },
+      { ...params, containerId: params.wikiId ?? '' },
       options,
       workspaceId,
     );
@@ -178,7 +178,7 @@ export class ServerRequests implements TrashReads {
     return this.#http.url(underWorkspace(path), this.workspaceOf(params));
   }
 
-  async boards(workspaceId: string): Promise<Board[]> {
+  async boards(workspaceId: string): Promise<Container[]> {
     const boards = await this.#http.request<Schemas['Container'][]>(underWorkspace('/boards'), {
       workspaceId,
     });
@@ -186,7 +186,7 @@ export class ServerRequests implements TrashReads {
     return boards.map(boardOf);
   }
 
-  async board(boardId: string): Promise<Board> {
+  async container(boardId: string): Promise<Container> {
     const board = boardOf(
       await this.inWorkspace<Schemas['Container']>('/containers/{containerId}', {
         containerId: boardId,
@@ -247,8 +247,10 @@ export class ServerRequests implements TrashReads {
     return {
       workspaceName: preview.workspaceName,
       inviterName: preview.inviterName,
-      ...(typeof preview.containerTitle === 'string' ? { boardTitle: preview.containerTitle } : {}),
-      ...(preview.containerKind ? { boardKind: preview.containerKind } : {}),
+      ...(typeof preview.containerTitle === 'string'
+        ? { containerTitle: preview.containerTitle }
+        : {}),
+      ...(preview.containerKind ? { containerKind: preview.containerKind } : {}),
     };
   }
 
@@ -271,8 +273,8 @@ export class ServerRequests implements TrashReads {
     if (accepted === undefined) return 'waiting';
     return {
       workspaceId: accepted.workspaceId,
-      ...(accepted.containerId ? { boardId: accepted.containerId } : {}),
-      ...(accepted.containerKind ? { boardKind: accepted.containerKind } : {}),
+      ...(accepted.containerId ? { containerId: accepted.containerId } : {}),
+      ...(accepted.containerKind ? { containerKind: accepted.containerKind } : {}),
     };
   }
 
@@ -368,7 +370,7 @@ export class ServerRequests implements TrashReads {
     );
   }
 
-  async deletedBoards(workspaceId: string, paging?: Paging): Promise<DeletedItem[]> {
+  async deletedContainers(workspaceId: string, paging?: Paging): Promise<DeletedItem[]> {
     const items = await this.#http.request<Schemas['DeletedItem'][]>(
       underWorkspace('/trash/containers'),
       { workspaceId },

@@ -13,7 +13,7 @@
  * write is then taken for stored, and its undo writes back a value the
  * reader did make.
  */
-import type { BlockPatch, Board, BoardPatch, BoardView } from '../logic/wire.ts';
+import type { BlockPatch, Container, ContainerPatch, BoardView } from '../logic/wire.ts';
 
 import { isBackendError, type CardPatch, type CardSummary } from './backend.ts';
 import type { BoardStore } from './board.svelte.ts';
@@ -28,32 +28,32 @@ const viewValues = new InverseValues('updatedFields', 'deletedFields');
 
 export class BoardWrites {
   readonly #host: BoardStore;
-  readonly #pending = new PendingWrites<Board>();
-  readonly #inverses = new Inverses<BoardPatch>('updatedProperties', 'deletedProperties');
+  readonly #pending = new PendingWrites<Container>();
+  readonly #inverses = new Inverses<ContainerPatch>('updatedProperties', 'deletedProperties');
 
   constructor(host: BoardStore) {
     this.#host = host;
   }
 
-  receive(board: Board): boolean {
+  receive(board: Container): boolean {
     return this.#pending.receive(board);
   }
 
   /** Keeps the inverse of a change; returns what its undo is to wait for (`Inverses.ready`). */
-  keep(reverse: BoardPatch): () => Promise<void> | undefined {
+  keep(reverse: ContainerPatch): () => Promise<void> | undefined {
     this.#inverses.keep(this.#host.boardId, reverse);
     return () => this.#inverses.ready(reverse);
   }
 
-  async write(patch: BoardPatch, reverse: BoardPatch): Promise<void> {
+  async write(patch: ContainerPatch, reverse: ContainerPatch): Promise<void> {
     const host = this.#host;
     if (!host.board) return;
     // Inverses can be corrected while requests wait. A request already sent has fixed values.
     const written = structuredClone(patch);
     host.board = applyBoardPatch(host.board, written);
     this.#pending.begin(host.boardId);
-    let answer: Board | undefined;
-    let restore: BoardPatch = {};
+    let answer: Container | undefined;
+    let restore: ContainerPatch = {};
     try {
       answer = await this.#inverses.write(
         host.boardId,
@@ -72,7 +72,7 @@ export class BoardWrites {
     }
   }
 
-  #restore(shown: Board, written: BoardPatch, restore: BoardPatch): Board {
+  #restore(shown: Container, written: ContainerPatch, restore: ContainerPatch): Container {
     // Changes outside this writer may have replaced a field too: keep those values.
     const current = propertyValues.read({
       ...shown,
@@ -191,21 +191,21 @@ async function answeredOrStored<T>(
 
 export function patchBoardOrStored(
   store: BoardStore,
-  patch: BoardPatch,
+  patch: ContainerPatch,
   own: (key: string) => boolean,
-): Promise<Board> {
+): Promise<Container> {
   const { backend } = store.workspace;
   return answeredOrStored(
     patch,
     propertyValues,
-    (board: Board) => ({
+    (board: Container) => ({
       ...board,
       updatedProperties: board.properties,
       updatedCardProperties: board.cardProperties,
     }),
     {
-      send: () => backend.patchBoard(store.boardId, patch),
-      read: () => backend.board(store.boardId),
+      send: () => backend.patchContainer(store.boardId, patch),
+      read: () => backend.container(store.boardId),
       own,
     },
   );

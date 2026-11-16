@@ -9,7 +9,7 @@ import { propertiesThatMeetFilterGroup } from '$lib/logic/filter.ts';
 import type { Regional } from '$lib/logic/regional.ts';
 import {
   createId,
-  type Board,
+  type Container,
   type BoardView,
   type Card,
   type PropertyOption,
@@ -59,7 +59,7 @@ export function columnValue(card: Card, groupById: string): string {
  * The column of cards without a value sets none.
  */
 export function propertiesForColumn(
-  board: Board,
+  board: Container,
   view: BoardView,
   groupById: string,
   optionId: string,
@@ -74,10 +74,10 @@ export function propertiesForColumn(
 
 /** The board with the options of one property changed. */
 function withOptions(
-  board: Board,
+  board: Container,
   propertyId: string,
   change: (options: PropertyOption[]) => PropertyOption[],
-): Board {
+): Container {
   return {
     ...board,
     cardProperties: board.cardProperties.map((template) =>

@@ -122,7 +122,7 @@ export function boardTrash(workspace: Workspace): Trash {
     workspace,
     async (paging) => {
       const info = workspace.info;
-      return info ? workspace.backend.deletedBoards(info.id, paging) : [];
+      return info ? workspace.backend.deletedContainers(info.id, paging) : [];
     },
     (boardId) => workspace.restoreBoard(boardId),
   );

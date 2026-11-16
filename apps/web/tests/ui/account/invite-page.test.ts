@@ -73,7 +73,7 @@ describe('the page of an invitation', () => {
   it('names the board a guest is invited to', async () => {
     mount({
       preview: () =>
-        Promise.resolve({ workspaceName: 'Acme', inviterName: 'Ada', boardTitle: 'Roadmap' }),
+        Promise.resolve({ workspaceName: 'Acme', inviterName: 'Ada', containerTitle: 'Roadmap' }),
     });
     expect(await screen.findByTestId('invite-summary')).toHaveTextContent(
       'Ada invited you to the board “Roadmap” of Acme',
@@ -99,7 +99,7 @@ describe('the page of an invitation', () => {
             Promise.resolve({
               workspaceName: '',
               inviterName: 'Ada',
-              ...(board === undefined ? {} : { boardTitle: board }),
+              ...(board === undefined ? {} : { containerTitle: board }),
             }),
         });
         const summary = await screen.findByTestId('invite-summary');
@@ -119,7 +119,7 @@ describe('the page of an invitation', () => {
     const { accept, onSignIn, onJoined } = mount({
       accept: () => {
         order.push('accept');
-        return Promise.resolve({ workspaceId: 'w1', boardId: 'b1' });
+        return Promise.resolve({ workspaceId: 'w1', containerId: 'b1' });
       },
       onSignIn: () => {
         order.push('signIn');
@@ -133,7 +133,7 @@ describe('the page of an invitation', () => {
     await fill(/^password$/i, 'a long password');
     await fireEvent.click(screen.getByRole('button', { name: 'Create account and join' }));
     await waitFor(() => {
-      expect(onJoined).toHaveBeenCalledExactlyOnceWith({ workspaceId: 'w1', boardId: 'b1' });
+      expect(onJoined).toHaveBeenCalledExactlyOnceWith({ workspaceId: 'w1', containerId: 'b1' });
     });
     expect(accept).toHaveBeenCalledExactlyOnceWith('the-token', {
       username: 'grace',

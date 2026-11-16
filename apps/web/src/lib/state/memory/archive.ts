@@ -3,7 +3,7 @@
  * own version, then each board and its blocks, one per line. What the rooms
  * of their cards took is written into the cards first (`flushBoards`).
  */
-import type { Board } from '../../logic/wire.ts';
+import type { Container } from '../../logic/wire.ts';
 import type { DownloadedFile, DownloadOptions } from '../backend.ts';
 
 import { flushBoards } from './bodies.ts';
@@ -13,7 +13,7 @@ import type { World } from './world.ts';
 
 export function archiveOf(
   world: World,
-  boards: readonly Board[],
+  boards: readonly Container[],
   options: DownloadOptions | undefined,
 ): DownloadedFile {
   flushBoards(world, boards);
@@ -30,7 +30,7 @@ export function archiveOf(
   return { bytes, name: `archive-${day}.boardarchive` };
 }
 
-/** The lines of an archive of the memory backend; 400 for what is none (`exportBoard`). */
+/** The lines of an archive of the memory backend; 400 for what is none (`exportContainer`). */
 export async function archiveLines(
   file: File,
 ): Promise<{ type?: string; version?: string; data?: unknown }[]> {

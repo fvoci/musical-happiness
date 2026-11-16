@@ -217,12 +217,12 @@ describe('the backend in memory keeps a wiki from the operations of cards', () =
     ).toBe(404);
     expect(await status(made.backend.deleteBlock(made.wikiId, page.id))).toBe(404);
     // Copied whole as a board is, but as no template.
-    expect(await status(made.backend.duplicateBoard(made.wikiId, true, made.workspaceId))).toBe(
+    expect(await status(made.backend.duplicateContainer(made.wikiId, true, made.workspaceId))).toBe(
       400,
     );
     expect(await status(made.backend.deletedCards(made.wikiId))).toBe(404);
     // Saved as an archive as a board is.
-    expect(await status(made.backend.exportBoard(made.wikiId))).toBe(200);
+    expect(await status(made.backend.exportContainer(made.wikiId))).toBe(200);
     // A refused change of a page changes nothing of it.
     expect(
       await status(made.backend.wiki.patchPage(made.wikiId, page.id, { title: 'New', icon: 'ab' })),

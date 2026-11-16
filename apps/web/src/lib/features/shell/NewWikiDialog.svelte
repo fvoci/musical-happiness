@@ -6,7 +6,7 @@
 -->
 <script lang="ts">
   import { m } from '$lib/i18n/paraglide/messages.js';
-  import type { BoardType } from '$lib/logic/wire.ts';
+  import type { ContainerType } from '$lib/logic/wire.ts';
   import type { WikiDraft } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
   import * as Dialog from '$lib/ui/dialog/index.js';
@@ -23,7 +23,7 @@
 
   const uid = $props.id();
   let title = $state('');
-  let type = $state<BoardType>('O');
+  let type = $state<ContainerType>('O');
 
   /** Each opening starts afresh. */
   function opened(): void {

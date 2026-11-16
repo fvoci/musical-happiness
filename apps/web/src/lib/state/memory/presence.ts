@@ -61,7 +61,7 @@ export class MemoryPresence implements Presence {
     if (!place.cardId) return true;
     const card = this.#world.blocks.get(place.cardId);
     // A wiki's page is visited as a card is.
-    return card?.boardId === board.id && (card.type === 'card' || card.type === 'page');
+    return card?.containerId === board.id && (card.type === 'card' || card.type === 'page');
   }
 
   #start(): void {

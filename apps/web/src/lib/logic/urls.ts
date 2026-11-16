@@ -1,8 +1,8 @@
 /** Addresses inside the app. Nothing here reads `window`: the caller passes what is needed. */
-import type { Board } from './wire.ts';
+import type { Container } from './wire.ts';
 
 /** A board or a wiki (`kind`) as far as its address goes: itself, and the workspace it is of. */
-export type BoardPlace = Pick<Board, 'id' | 'workspaceId' | 'kind'>;
+export type ContainerPlace = Pick<Container, 'id' | 'workspaceId' | 'kind'>;
 
 /** The base path as the server gives it, without slashes at either end. */
 export function normalizeBasePath(raw: string | undefined): string {

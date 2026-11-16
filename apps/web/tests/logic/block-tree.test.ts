@@ -20,11 +20,11 @@ test('duplicateBlockTree: Card', () => {
   expect(newSourceBlock.type).toBe(sourceBlock.type);
 
   // When duplicating a non-root block, the boardId should not be re-mapped
-  expect(newSourceBlock.boardId).toBe(sourceBlock.boardId);
+  expect(newSourceBlock.containerId).toBe(sourceBlock.containerId);
   expect(idMap[sourceBlock.id]).toBe(newSourceBlock.id);
 
   for (const newBlock of newBlocks) {
-    expect(newBlock.boardId).toBe(newSourceBlock.boardId);
+    expect(newBlock.containerId).toBe(newSourceBlock.containerId);
   }
 
   for (const textBlock of newBlocks.filter((o) => o.type === 'text')) {
@@ -66,7 +66,7 @@ function createCardTree(): [Block[], Block] {
 
   const card = createTestCard();
   card.id = 'card1';
-  card.boardId = 'board1';
+  card.containerId = 'board1';
   blocks.push(card);
 
   for (let i = 0; i < 5; i++) {

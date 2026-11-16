@@ -20,8 +20,8 @@ it.each(['title', 'description'] as const)(
     const before = board.board?.title;
     const failed = held();
     const later = held();
-    const patch = backend.patchBoard.bind(backend);
-    vi.spyOn(backend, 'patchBoard')
+    const patch = backend.patchContainer.bind(backend);
+    vi.spyOn(backend, 'patchContainer')
       .mockImplementationOnce(async () => {
         await failed.promise;
         throw new BackendError(403);
@@ -41,7 +41,7 @@ it.each(['title', 'description'] as const)(
       await second;
       await workspace.undoLast();
       expect(board.board?.title).toBe(before);
-      expect((await backend.board(board.boardId)).title).toBe(before);
+      expect((await backend.container(board.boardId)).title).toBe(before);
     } finally {
       failed.release();
       later.release();
@@ -56,14 +56,14 @@ it.each([false, true])(
     const { board, backend, other, workspace } = await openFirstBoard();
     const before = board.board?.title;
     const failed = held();
-    vi.spyOn(backend, 'patchBoard').mockImplementationOnce(async () => {
+    vi.spyOn(backend, 'patchContainer').mockImplementationOnce(async () => {
       await failed.promise;
       throw new BackendError(403);
     });
     try {
       const writing = board.changeBoard((current) => ({ ...current, title: 'refused' }));
       // The change message is held while the first write is pending.
-      const version = await other.patchBoard(board.boardId, { icon: 'remote' });
+      const version = await other.patchContainer(board.boardId, { icon: 'remote' });
       const shown = board.board;
       if (!shown) throw new Error('missing board');
       // A separate operation put a newer board version on screen directly.
@@ -93,7 +93,7 @@ it('restores array properties when both writes are refused in reverse order', as
   }));
   const first = held();
   const second = held();
-  vi.spyOn(backend, 'patchBoard')
+  vi.spyOn(backend, 'patchContainer')
     .mockImplementationOnce(async () => {
       await first.promise;
       throw new BackendError(403);
@@ -117,7 +117,7 @@ it('restores array properties when both writes are refused in reverse order', as
     first.release();
     await one;
     expect(board.board?.properties.p).toEqual(['base']);
-    expect((await backend.board(board.boardId)).properties.p).toEqual(['base']);
+    expect((await backend.container(board.boardId)).properties.p).toEqual(['base']);
   } finally {
     first.release();
     second.release();

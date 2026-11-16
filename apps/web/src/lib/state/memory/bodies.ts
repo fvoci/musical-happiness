@@ -36,7 +36,7 @@ export function checkedBody(world: World, boardId: string, body: DocNode | null)
     fail(400, 'the body is too large', { field: 'body', limit: LIMITS.bodyBytes });
   }
   for (const fileId of imageFileIds(body)) {
-    if (world.files.get(fileId)?.boardId !== boardId) {
+    if (world.files.get(fileId)?.containerId !== boardId) {
       fail(400, 'an image names a file that is not of this board', { field: 'body' });
     }
   }

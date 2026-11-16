@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import ManagedBoard from '../src/app/ManagedBoard.svelte';
   import { Router } from '../src/app/router.svelte.ts';
-  import { BackendError, type BoardRole } from '$lib/state/index.ts';
+  import { BackendError, type ContainerRole } from '$lib/state/index.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
 
   import { exampleWorkspace, loadWorkspace } from './workspace.ts';
@@ -18,7 +18,7 @@
     };
   });
   const addMember = example.backend.addMember.bind(example.backend);
-  example.backend.addMember = (boardId: string, userId: string, role: BoardRole) =>
+  example.backend.addMember = (boardId: string, userId: string, role: ContainerRole) =>
     failJoin
       ? Promise.reject(new BackendError(503, { detail: 'Example refusal' }))
       : addMember(boardId, userId, role);

@@ -4,7 +4,7 @@
  * reads it, without joining it: only joined do they write in it. This world has
  * no guests: everybody in it works there.
  */
-import type { BoardKind } from '../../logic/wire.ts';
+import type { ContainerKind } from '../../logic/wire.ts';
 
 import { roleOn, type Role } from './comments.ts';
 import { fail } from './refuse.ts';
@@ -18,7 +18,7 @@ export function memberRole(
   world: World,
   userId: string,
   boardId: string,
-  kind: BoardKind | 'any' = 'board',
+  kind: ContainerKind | 'any' = 'board',
 ): Exclude<Role, ''> {
   const board = world.boards.get(boardId);
   if (!board || (kind !== 'any' && (board.kind ?? 'board') !== kind)) fail(404, 'no such board');
@@ -54,7 +54,7 @@ export function memberFileUrl(
 ): string | undefined {
   if (!reads(world, userId, boardId)) return undefined;
   const file = world.files.get(fileId);
-  if (file?.boardId !== boardId || !file.blob) return undefined;
+  if (file?.containerId !== boardId || !file.blob) return undefined;
   file.url ??= URL.createObjectURL(file.blob);
   return file.url;
 }

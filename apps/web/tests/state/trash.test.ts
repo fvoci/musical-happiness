@@ -82,10 +82,12 @@ describe('the boards in the trash, in memory', () => {
   it('are listed for who was their admin, and brought back by them only', async () => {
     const { backend, other, world, workspaceId, boardId, otherId } = await firstBoard();
     await backend.setMemberRole(boardId, otherId, 'editor');
-    await backend.deleteBoard(boardId);
-    expect((await backend.deletedBoards(workspaceId)).map((item) => item.id)).toEqual([boardId]);
-    expect(await other.deletedBoards(workspaceId)).toEqual([]);
-    expect((await rejection(other.restoreBoard(boardId))).status).toBe(403);
+    await backend.deleteContainer(boardId);
+    expect((await backend.deletedContainers(workspaceId)).map((item) => item.id)).toEqual([
+      boardId,
+    ]);
+    expect(await other.deletedContainers(workspaceId)).toEqual([]);
+    expect((await rejection(other.restoreContainer(boardId))).status).toBe(403);
     const stranger = backend.as(
       [...world.users.keys()].find(
         (userId) =>
@@ -94,49 +96,49 @@ describe('the boards in the trash, in memory', () => {
           ),
       ) ?? '',
     );
-    expect((await rejection(stranger.restoreBoard(boardId))).status).toBe(404);
-    await backend.restoreBoard(boardId);
-    expect(await backend.deletedBoards(workspaceId)).toEqual([]);
+    expect((await rejection(stranger.restoreContainer(boardId))).status).toBe(404);
+    await backend.restoreContainer(boardId);
+    expect(await backend.deletedContainers(workspaceId)).toEqual([]);
   });
 
   it('come back where each person had filed them, hidden or not, and the sidebar is told', async () => {
     const { backend, workspaceId, boardId } = await firstBoard();
     const projects = await backend.createCategory(workspaceId, { name: 'Projects' });
-    await backend.moveBoardToCategory(workspaceId, boardId, projects.id, 0);
+    await backend.moveContainerToCategory(workspaceId, boardId, projects.id, 0);
     const second = await backend.createBoard(
       workspaceId,
       { title: 'Second' },
       { title: 'View', fields: createBoardView().fields },
     );
-    await backend.moveBoardToCategory(workspaceId, second.board.id, projects.id, 1);
-    await backend.setBoardHidden(workspaceId, projects.id, boardId, true);
+    await backend.moveContainerToCategory(workspaceId, second.board.id, projects.id, 1);
+    await backend.setContainerHidden(workspaceId, projects.id, boardId, true);
     const before = (await backend.categories(workspaceId)).find((one) => one.id === projects.id);
-    expect(before?.boardIds).toEqual([boardId, second.board.id]);
+    expect(before?.containerIds).toEqual([boardId, second.board.id]);
 
-    await backend.deleteBoard(boardId);
+    await backend.deleteContainer(boardId);
     const changes: Change[] = [];
     backend.watchSelf((change) => changes.push(change));
-    await backend.restoreBoard(boardId);
+    await backend.restoreContainer(boardId);
     await settle();
     const after = (await backend.categories(workspaceId)).find((one) => one.id === projects.id);
-    expect(after?.boardIds).toEqual([boardId, second.board.id]);
-    expect(after?.hiddenBoardIds).toEqual([boardId]);
+    expect(after?.containerIds).toEqual([boardId, second.board.id]);
+    expect(after?.hiddenContainerIds).toEqual([boardId]);
     const told = changes.find((change) => change.kind === 'categories');
     expect(
       told?.kind === 'categories' &&
-        told.categories.find((one) => one.id === projects.id)?.boardIds,
+        told.categories.find((one) => one.id === projects.id)?.containerIds,
     ).toEqual([boardId, second.board.id]);
   });
 
   it('go to the default category when theirs went meanwhile', async () => {
     const { backend, workspaceId, boardId } = await firstBoard();
     const projects = await backend.createCategory(workspaceId, { name: 'Projects' });
-    await backend.moveBoardToCategory(workspaceId, boardId, projects.id, 0);
-    await backend.deleteBoard(boardId);
+    await backend.moveContainerToCategory(workspaceId, boardId, projects.id, 0);
+    await backend.deleteContainer(boardId);
     await backend.deleteCategory(workspaceId, projects.id);
-    await backend.restoreBoard(boardId);
+    await backend.restoreContainer(boardId);
     const system = (await backend.categories(workspaceId)).find((one) => one.type === 'system');
-    expect(system?.boardIds).toContain(boardId);
+    expect(system?.containerIds).toContain(boardId);
   });
 });
 
@@ -176,7 +178,7 @@ describe('the list of a trash', () => {
       deletedBy: '',
     }));
     const asked: unknown[] = [];
-    vi.spyOn(workspace.backend, 'deletedBoards').mockImplementation((_workspaceId, paging) => {
+    vi.spyOn(workspace.backend, 'deletedContainers').mockImplementation((_workspaceId, paging) => {
       asked.push(paging);
       return Promise.resolve(items.slice(0, paging?.perPage ?? 100));
     });
@@ -195,7 +197,7 @@ describe('the list of a trash', () => {
 
   it('says a list that could not be read failed, once: in the list, not also on the page', async () => {
     const { workspace } = await openFirstBoard();
-    vi.spyOn(workspace.backend, 'deletedBoards').mockRejectedValue(new BackendError(500));
+    vi.spyOn(workspace.backend, 'deletedContainers').mockRejectedValue(new BackendError(500));
     const trash = boardTrash(workspace);
     await trash.read();
     expect(trash.status).toBe('failed');
@@ -207,7 +209,7 @@ describe('the list of a trash', () => {
     const { workspace } = await openFirstBoard();
     const item = { id: 'b1', title: 'One', deletedAt: 1, deletedBy: '' };
     let answer: (items: (typeof item)[]) => void = () => undefined;
-    vi.spyOn(workspace.backend, 'deletedBoards')
+    vi.spyOn(workspace.backend, 'deletedContainers')
       .mockResolvedValueOnce([item])
       .mockImplementationOnce(
         () =>
@@ -240,7 +242,7 @@ describe('the trash, on the server', () => {
     expect(await backend.deletedCards('b1', { page: 2, perPage: 50 })).toEqual([
       { id: 'x', title: 'X', deletedAt: 5, deletedBy: 'u' },
     ]);
-    await backend.deletedBoards('t1');
+    await backend.deletedContainers('t1');
     expect(sent).toEqual([
       'GET /api/v1/w/w1/boards/b1/trash/cards?page=2&perPage=50',
       'GET /api/v1/w/t1/trash/containers',
@@ -258,7 +260,7 @@ describe('a trash read again after a failure', () => {
       deletedBy: '',
     }));
     const asked: unknown[] = [];
-    vi.spyOn(workspace.backend, 'deletedBoards').mockImplementation((_workspaceId, paging) => {
+    vi.spyOn(workspace.backend, 'deletedContainers').mockImplementation((_workspaceId, paging) => {
       asked.push(paging);
       if (asked.length === 2) return Promise.reject(new BackendError(500));
       return Promise.resolve(items.slice(0, paging?.perPage ?? 100));

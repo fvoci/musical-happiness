@@ -4,14 +4,14 @@
  * bring them back; and the places a deleted board had in its people's
  * sidebars, to file it there again when it comes back.
  */
-import type { Board, BoardMember } from '../../logic/wire.ts';
+import type { Container, ContainerMember } from '../../logic/wire.ts';
 import type { Category, DeletedItem, Paging } from '../backend.ts';
 
 import { fail } from './refuse.ts';
 import type { World } from './world.ts';
 
 /** Where a board was filed for one person: the category, the place in it, hidden or not. */
-export interface BoardPlace {
+export interface ContainerPlace {
   userId: string;
   categoryId: string;
   index: number;
@@ -44,7 +44,7 @@ export function deletedCardsOf(
   const items: DeletedItem[] = [];
   for (const [id, deleted] of world.deletedBlocks) {
     const [first] = deleted.blocks;
-    if (deleted.boardId !== boardId || first?.id !== id || first.type !== 'card') continue;
+    if (deleted.containerId !== boardId || first?.id !== id || first.type !== 'card') continue;
     items.push({
       id,
       title: first.title,
@@ -69,7 +69,7 @@ export function deletedPagesOf(
   const items: DeletedItem[] = [];
   for (const [id, deleted] of world.deletedBlocks) {
     const [first] = deleted.blocks;
-    if (deleted.boardId !== wikiId || first?.id !== id || first.type !== 'page') continue;
+    if (deleted.containerId !== wikiId || first?.id !== id || first.type !== 'page') continue;
     items.push({
       id,
       title: first.title,
@@ -85,7 +85,7 @@ export function deletedPagesOf(
 }
 
 /** Whether a member was an admin of the board, which bringing it back takes. */
-export const wasAdmin = (members: readonly BoardMember[], userId: string): boolean =>
+export const wasAdmin = (members: readonly ContainerMember[], userId: string): boolean =>
   members.some((member) => member.userId === userId && member.schemeAdmin);
 
 /** The boards of the workspace in the trash that the user was an admin of. The last deleted first. */
@@ -108,17 +108,17 @@ export function deletedBoardsOf(
 }
 
 /** Where everybody had filed the board, read before it goes. */
-export function placesOf(world: World, boardId: string): BoardPlace[] {
-  const places: BoardPlace[] = [];
+export function placesOf(world: World, boardId: string): ContainerPlace[] {
+  const places: ContainerPlace[] = [];
   for (const [userId, categories] of world.categories) {
     for (const category of categories) {
-      const index = category.boardIds.indexOf(boardId);
+      const index = category.containerIds.indexOf(boardId);
       if (index < 0) continue;
       places.push({
         userId,
         categoryId: category.id,
         index,
-        hidden: category.hiddenBoardIds.includes(boardId),
+        hidden: category.hiddenContainerIds.includes(boardId),
       });
     }
   }
@@ -131,7 +131,11 @@ export function placesOf(world: World, boardId: string): BoardPlace[] {
  * meanwhile. A private board only for its members. Answers the people whose
  * sidebar changed.
  */
-export function putBack(world: World, board: Board, places: readonly BoardPlace[]): string[] {
+export function putBack(
+  world: World,
+  board: Container,
+  places: readonly ContainerPlace[],
+): string[] {
   const memberIds = (world.members.get(board.id) ?? []).map((member) => member.userId);
   const told: string[] = [];
   for (const place of places) {
@@ -139,11 +143,15 @@ export function putBack(world: World, board: Board, places: readonly BoardPlace[
     const theirs: Category[] = world.categories.get(place.userId) ?? [];
     const kept = theirs.find((category) => category.id === place.categoryId);
     const category = kept ?? theirs.find((each) => each.type === 'system');
-    if (!category || category.boardIds.includes(board.id)) continue;
+    if (!category || category.containerIds.includes(board.id)) continue;
     if (kept)
-      category.boardIds.splice(Math.min(place.index, category.boardIds.length), 0, board.id);
-    else category.boardIds.push(board.id);
-    if (place.hidden) category.hiddenBoardIds.push(board.id);
+      category.containerIds.splice(
+        Math.min(place.index, category.containerIds.length),
+        0,
+        board.id,
+      );
+    else category.containerIds.push(board.id);
+    if (place.hidden) category.hiddenContainerIds.push(board.id);
     told.push(place.userId);
   }
   return told;
@@ -182,7 +190,7 @@ export function mayManageCards(
  * was no member (404). Each person who had filed it finds it where it was,
  * and is told. Answers the board.
  */
-export function takeBoardBack(world: World, userId: string, boardId: string): Board {
+export function takeBoardBack(world: World, userId: string, boardId: string): Container {
   const deleted = world.deletedBoards.get(boardId);
   if (!deleted?.members.some((member) => member.userId === userId)) fail(404, 'no such board');
   if (!wasAdmin(deleted.members, userId)) fail(403, 'access denied to undelete board');

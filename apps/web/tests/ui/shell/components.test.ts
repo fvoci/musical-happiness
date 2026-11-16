@@ -14,7 +14,7 @@ import BoardTitle from '$lib/features/shell/BoardTitle.svelte';
 import SettingChoice from '$lib/features/shell/SettingChoice.svelte';
 import SettingsDialog from '$lib/features/shell/SettingsDialog.svelte';
 import Sidebar from '$lib/features/shell/Sidebar.svelte';
-import type { BoardPlace } from '$lib/logic/urls.ts';
+import type { ContainerPlace } from '$lib/logic/urls.ts';
 
 import { loadTemplates, settle, setup } from '../../state/support.ts';
 
@@ -212,7 +212,7 @@ describe('the sidebar over a workspace', () => {
       props: {
         workspace,
         boardId: first?.id,
-        boardHref: (board: BoardPlace) =>
+        boardHref: (board: ContainerPlace) =>
           routePath({ workspaceId: board.workspaceId, boardId: board.id }, ''),
         beside: true,
         ...handlers,

@@ -17,7 +17,7 @@
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { closeOnBack } from '$lib/layout/back.svelte.ts';
   import { page } from '$lib/layout/room.svelte.ts';
-  import type { Board } from '$lib/logic/wire.ts';
+  import type { Container } from '$lib/logic/wire.ts';
   import type { Workspace } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
   import * as Dialog from '$lib/ui/dialog/index.js';
@@ -28,9 +28,9 @@
     open: boolean;
     workspace: Workspace;
     onEmptyBoard: () => void;
-    onFromTemplate: (template: Board) => void;
+    onFromTemplate: (template: Container) => void;
     /** Opens a template of the workspace on its page, to be changed. */
-    onEditTemplate: (template: Board) => void;
+    onEditTemplate: (template: Container) => void;
     /** Asks for a new wiki; left out where there are none. */
     onNewWiki?: (() => void) | undefined;
   }
@@ -45,7 +45,7 @@
   }: Props = $props();
 
   const compact = $derived(page.stage === 'compact');
-  let templates = $state.raw<Board[] | undefined>(undefined);
+  let templates = $state.raw<Container[] | undefined>(undefined);
   /** Readings of the templates begun: only the latest is shown. */
   let readings = 0;
 
@@ -68,7 +68,7 @@
     });
   }
 
-  const titleOf = (board: Board): string => board.title || m['View.NewTemplateDefaultTitle']();
+  const titleOf = (board: Container): string => board.title || m['View.NewTemplateDefaultTitle']();
 </script>
 
 <Dialog.Root bind:open>

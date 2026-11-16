@@ -65,5 +65,5 @@ function sum(text: string): string {
 /** What makes two tabs' rooms one: the card, its making, the epoch and the body the document came from. */
 export function tabKey(card: StoredCard | undefined, cardId: string, epoch: number): string {
   const made = sum(JSON.stringify(card?.body ?? null));
-  return `${card?.boardId ?? ''} ${cardId} ${String(card?.createAt ?? 0)} ${String(epoch)} ${made}`;
+  return `${card?.containerId ?? ''} ${cardId} ${String(card?.createAt ?? 0)} ${String(epoch)} ${made}`;
 }

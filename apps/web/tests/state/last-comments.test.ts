@@ -90,7 +90,7 @@ describe('an open board', () => {
       const at = world.now();
       world.blocks.set(id, {
         id,
-        boardId: board.boardId,
+        containerId: board.boardId,
         parentId: betaId,
         createdBy: backend.userId,
         modifiedBy: backend.userId,

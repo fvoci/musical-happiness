@@ -40,7 +40,7 @@ describe('an export', () => {
       );
     });
     const seen: [number, number][] = [];
-    const archive = await serverBackend('/base').exportBoard('b1', {
+    const archive = await serverBackend('/base').exportContainer('b1', {
       onProgress: (progress) => seen.push([progress.sentBytes, progress.totalBytes]),
     });
     expect(urls).toEqual(['/base/api/v1/w/w1/containers/b1/archive/export']);
@@ -166,7 +166,7 @@ describe('an export that does not arrive whole', () => {
       ),
     );
     const refused = await serverBackend('')
-      .exportBoard('b1')
+      .exportContainer('b1')
       .catch((error: unknown) => error);
     expect(isBackendError(refused) && refused.status).toBe(0);
   });

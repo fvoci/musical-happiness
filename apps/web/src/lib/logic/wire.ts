@@ -17,7 +17,7 @@
  * `modifiedBy`, `createAt`, `updateAt`, `deleteAt` and `limited`.
  */
 import type { MemberRole } from './board-members.ts';
-export type { BoardMember, MemberRole } from './board-members.ts';
+export type { ContainerMember, MemberRole } from './board-members.ts';
 import { parseCalendarDate, type CalendarDate, type DatePoint, type DateValue } from './dates.ts';
 import { diagnostics } from './diagnostics.ts';
 import { encodeBase32 } from './base32.ts';
@@ -92,7 +92,7 @@ export type BlockType = (typeof BLOCK_TYPES)[number];
 
 export interface Block {
   id: string;
-  boardId: string;
+  containerId: string;
   parentId: string;
   createdBy: string;
   modifiedBy: string;
@@ -126,7 +126,7 @@ export function createBlock(source?: Block): Block {
   return {
     id: source?.id || createId(idKindOfBlockType(source?.type)),
     schema: 1,
-    boardId: source?.boardId || '',
+    containerId: source?.containerId || '',
     parentId: source?.parentId || '',
     createdBy: source?.createdBy || '',
     modifiedBy: source?.modifiedBy || '',
@@ -472,11 +472,11 @@ export function remapBlockReferences(block: Block, idMap: Readonly<Record<string
 
 // ----------------------------------------------------------------- boards
 
-export const BOARD_TYPE_OPEN = 'O';
-export const BOARD_TYPE_PRIVATE = 'P';
-export type BoardType = typeof BOARD_TYPE_OPEN | typeof BOARD_TYPE_PRIVATE;
+export const CONTAINER_TYPE_OPEN = 'O';
+export const CONTAINER_TYPE_PRIVATE = 'P';
+export type ContainerType = typeof CONTAINER_TYPE_OPEN | typeof CONTAINER_TYPE_PRIVATE;
 /** What a board is for: `board` for cards and views, `wiki` for pages. It never changes. */
-export type BoardKind = 'board' | 'wiki';
+export type ContainerKind = 'board' | 'wiki';
 
 export type PropertyType =
   | 'text'
@@ -512,15 +512,15 @@ export interface PropertyTemplate {
   options: PropertyOption[];
 }
 
-export interface Board {
+export interface Container {
   id: string;
   workspaceId: string;
   channelId?: string;
   createdBy: string;
   modifiedBy: string;
-  type: BoardType;
+  type: ContainerType;
   /** Absent: a board, as the server reads one stored without it. */
-  kind?: BoardKind;
+  kind?: ContainerKind;
   minimumRole: MemberRole;
   title: string;
   description: string;
@@ -537,8 +537,8 @@ export interface Board {
   deleteAt: number;
 }
 
-export interface BoardPatch {
-  type?: BoardType;
+export interface ContainerPatch {
+  type?: ContainerType;
   minimumRole?: MemberRole;
   title?: string;
   description?: string;
@@ -551,13 +551,13 @@ export interface BoardPatch {
 }
 
 export interface BoardsAndBlocks {
-  boards: Board[];
+  boards: Container[];
   blocks: Block[];
 }
 
 export interface BoardsAndBlocksPatch {
   boardIDs: string[];
-  boardPatches: BoardPatch[];
+  boardPatches: ContainerPatch[];
   blockIDs: string[];
   blockPatches: BlockPatch[];
 }
@@ -569,7 +569,7 @@ export interface BoardsAndBlocksPatch {
  * A new board starts with one select property. `statusName` is its name; the
  * caller passes the translated word.
  */
-export function createBoard(source?: Board, statusName = 'Status'): Board {
+export function createBoard(source?: Container, statusName = 'Status'): Container {
   const now = Date.now();
   const cardProperties: PropertyTemplate[] = source?.cardProperties
     ? source.cardProperties.map((template) => ({
@@ -586,7 +586,7 @@ export function createBoard(source?: Board, statusName = 'Status'): Board {
     channelId: source?.channelId || '',
     createdBy: source?.createdBy || '',
     modifiedBy: source?.modifiedBy || '',
-    type: source?.type || BOARD_TYPE_PRIVATE,
+    type: source?.type || CONTAINER_TYPE_PRIVATE,
     minimumRole: source?.minimumRole || '',
     title: source?.title || '',
     description: source?.description || '',
@@ -797,7 +797,7 @@ function missingTemplateIds(
 export function createCardPropertiesPatches(
   newCardProperties: readonly PropertyTemplate[],
   oldCardProperties: readonly PropertyTemplate[],
-): [BoardPatch, BoardPatch] {
+): [ContainerPatch, ContainerPatch] {
   return [
     {
       updatedCardProperties: changedTemplates(newCardProperties, oldCardProperties),
@@ -814,9 +814,9 @@ const BOARD_MEMBERS_WITH_OWN_PATCH = ['properties', 'cardProperties'];
 
 /** The patch that turns `oldBoard` into `newBoard`, and the one that undoes it. */
 export function createPatchesFromBoards(
-  newBoard: Board,
-  oldBoard: Board,
-): [BoardPatch, BoardPatch] {
+  newBoard: Container,
+  oldBoard: Container,
+): [ContainerPatch, ContainerPatch] {
   const [cardPropertiesPatch, cardPropertiesUndoPatch] = createCardPropertiesPatches(
     newBoard.cardProperties,
     oldBoard.cardProperties,
@@ -843,8 +843,8 @@ export function createPatchesFromBoards(
  * block `updatedBlockIds[i]`.
  */
 export function createPatchesFromBoardsAndBlocks(
-  updatedBoard: Board,
-  oldBoard: Board,
+  updatedBoard: Container,
+  oldBoard: Container,
   updatedBlockIds: string[],
   updatedBlocks: readonly Block[],
   oldBlocks: readonly Block[],

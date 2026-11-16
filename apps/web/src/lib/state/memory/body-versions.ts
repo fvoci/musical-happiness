@@ -219,7 +219,7 @@ export class MemoryBodyVersions implements BodyVersions {
   #card(boardId: string, cardId: string): StoredCard {
     memberRole(this.#world, this.#userId, boardId, this.#kind);
     const block = this.#world.blocks.get(cardId);
-    if (block?.type !== this.#of || block.boardId !== boardId) fail(404, `no such ${this.#of}`);
+    if (block?.type !== this.#of || block.containerId !== boardId) fail(404, `no such ${this.#of}`);
     return block as StoredCard;
   }
 

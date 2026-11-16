@@ -11,8 +11,8 @@ import {
   createPatchesFromBlocks,
   createPatchesFromBoards,
   type BlockPatch,
-  type Board,
-  type BoardPatch,
+  type Container,
+  type ContainerPatch,
   type BoardView,
   type Card,
 } from '../logic/wire.ts';
@@ -108,11 +108,11 @@ export function applyViewPatch(view: BoardView, patch: BlockPatch): BoardView {
 }
 
 /** The patch that turns the board `prev` into `next`, and the one that turns it back. */
-export function boardPatches(next: Board, prev: Board): [BoardPatch, BoardPatch] {
+export function boardPatches(next: Container, prev: Container): [ContainerPatch, ContainerPatch] {
   return createPatchesFromBoards(next, prev);
 }
 
-export function isEmptyBoardPatch(patch: BoardPatch): boolean {
+export function isEmptyBoardPatch(patch: ContainerPatch): boolean {
   return Object.values(patch).every((value: unknown) => {
     if (Array.isArray(value)) return value.length === 0;
     if (typeof value === 'object' && value !== null) return Object.keys(value).length === 0;
@@ -120,7 +120,7 @@ export function isEmptyBoardPatch(patch: BoardPatch): boolean {
   });
 }
 
-export function applyBoardPatch(board: Board, patch: BoardPatch): Board {
+export function applyBoardPatch(board: Container, patch: ContainerPatch): Container {
   let cardProperties = board.cardProperties.map((template) => ({
     ...template,
     options: template.options.map((option) => ({ ...option })),
@@ -137,7 +137,7 @@ export function applyBoardPatch(board: Board, patch: BoardPatch): Board {
   }
   const properties = {
     ...board.properties,
-    ...(patch.updatedProperties as Board['properties'] | undefined),
+    ...(patch.updatedProperties as Container['properties'] | undefined),
   };
   for (const key of patch.deletedProperties ?? []) {
     // eslint-disable-next-line @typescript-eslint/no-dynamic-delete -- a patch names the keys to drop

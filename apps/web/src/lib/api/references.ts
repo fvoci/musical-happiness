@@ -10,11 +10,6 @@ import type { Schemas } from './convert.ts';
 import type { RequestOptions } from './http.ts';
 import type { WorkspacePath } from './requests.ts';
 
-/** A block the API names, as the screens name it. */
-function linkedOf({ containerId, containerKind, ...rest }: Schemas['LinkedBlock']): LinkedBlock {
-  return { ...rest, boardId: containerId, boardKind: containerKind };
-}
-
 /** A request under the workspace `workspaceId`. */
 type Ask = <T>(
   path: WorkspacePath,
@@ -47,7 +42,7 @@ export class ServerReferences implements References {
         ),
       ),
     );
-    return answers.flat().map(linkedOf);
+    return answers.flat();
   }
 
   to(workspaceId: string, blockId: string, paging?: Paging): Promise<LinkedBlock[]> {
@@ -57,7 +52,7 @@ export class ServerReferences implements References {
       { blockId },
       { query },
       workspaceId,
-    ).then((linked) => linked.map(linkedOf));
+    );
   }
 
   search(workspaceId: string, term: string): Promise<LinkedBlock[]> {
@@ -66,6 +61,6 @@ export class ServerReferences implements References {
       {},
       { query: { q: term } },
       workspaceId,
-    ).then((linked) => linked.map(linkedOf));
+    );
   }
 }

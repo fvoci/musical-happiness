@@ -35,7 +35,7 @@
     isBackendError,
     isGuest,
     peopleOf,
-    type BoardRole,
+    type ContainerRole,
     type Shareable,
     type Sharing,
     type User,
@@ -92,7 +92,7 @@
     },
   );
 
-  const ROLE_LABELS: Record<BoardRole, () => string> = {
+  const ROLE_LABELS: Record<ContainerRole, () => string> = {
     admin: () => m['BoardMember.schemeAdmin'](),
     editor: () => m['BoardMember.schemeEditor'](),
     commenter: () => m['BoardMember.schemeCommenter'](),
@@ -108,13 +108,13 @@
   const access = $derived(peopleOf(workspace));
 
   const isOpen = $derived(board.board?.type === 'O');
-  const minimumRole = $derived<BoardRole>(
+  const minimumRole = $derived<ContainerRole>(
     board.board?.minimumRole && board.board.minimumRole !== 'admin'
       ? board.board.minimumRole
       : 'editor',
   );
   /** The role a person is added with: what joining gives on an open board, an editor otherwise. */
-  const addedRole = $derived<BoardRole>(isOpen ? minimumRole : 'editor');
+  const addedRole = $derived<ContainerRole>(isOpen ? minimumRole : 'editor');
 
   // ------------------------------------------------------- adding people
 
@@ -160,7 +160,7 @@
     sharing = undefined;
     sharingOff = false;
     try {
-      sharing = await workspace.backend.sharing(board.boardId);
+      sharing = await workspace.backend.sharing(board.containerId);
     } catch (error) {
       workspace.report('load', error);
     }
@@ -171,7 +171,7 @@
     sharingBusy = true;
     copied = false;
     try {
-      sharing = await workspace.backend.setSharing(board.boardId, { enabled, regenerate });
+      sharing = await workspace.backend.setSharing(board.containerId, { enabled, regenerate });
     } catch (error) {
       if (isBackendError(error) && error.reason === 'sharing_disabled') sharingOff = true;
       else workspace.report('save', error);
@@ -277,7 +277,7 @@
                 data-testid="share-minimum-role"
                 value={minimumRole}
                 onchange={(event) =>
-                  void board.setMinimumRole(event.currentTarget.value as BoardRole)}
+                  void board.setMinimumRole(event.currentTarget.value as ContainerRole)}
               >
                 {#each MINIMUM_ROLES as role (role)}
                   <option value={role}>{ROLE_LABELS[role]()}</option>
@@ -289,7 +289,7 @@
       {/if}
 
       {#if access && !readOnly && !isGuest(workspace) && !board.board?.isTemplate}
-        <GuestInvite {workspace} {access} boardId={board.boardId} kind={board.board?.kind} />
+        <GuestInvite {workspace} {access} boardId={board.containerId} kind={board.board?.kind} />
       {/if}
 
       <!-- The members. -->
@@ -329,7 +329,10 @@
                   disabled={mine}
                   value={memberRole}
                   onchange={(event) =>
-                    void board.setMemberRole(member.userId, event.currentTarget.value as BoardRole)}
+                    void board.setMemberRole(
+                      member.userId,
+                      event.currentTarget.value as ContainerRole,
+                    )}
                 >
                   {#if memberRole === 'none'}
                     <option value="none" disabled>{m.share_role_none()}</option>

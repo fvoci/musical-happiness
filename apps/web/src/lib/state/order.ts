@@ -6,7 +6,7 @@
  * told two different things apart (the identifier settles what is left).
  * The order of the cards of a view is the business of `logic/sort.ts`.
  */
-import type { Block, Board, BoardMember, BoardView } from '../logic/wire.ts';
+import type { Block, Container, ContainerMember, BoardView } from '../logic/wire.ts';
 
 import type { Category } from './backend.ts';
 
@@ -46,10 +46,10 @@ export function orderViews(views: readonly BoardView[], locale: string): BoardVi
 
 /** The members of a board by the name they are shown under. */
 export function orderMembers(
-  members: readonly BoardMember[],
+  members: readonly ContainerMember[],
   nameOf: (userId: string) => string,
   locale: string,
-): BoardMember[] {
+): ContainerMember[] {
   const compare = textOrder(locale);
   return [...members].sort(
     (first, second) =>
@@ -60,7 +60,7 @@ export function orderMembers(
 
 export interface SidebarCategory {
   category: Category;
-  boards: Board[];
+  boards: Container[];
 }
 
 /**
@@ -71,7 +71,7 @@ export interface SidebarCategory {
  */
 export function sidebarOf(
   categories: readonly Category[],
-  boards: readonly Board[],
+  boards: readonly Container[],
   locale: string,
 ): SidebarCategory[] {
   const compare = textOrder(locale);
@@ -82,16 +82,16 @@ export function sidebarOf(
   const known = new Map(boards.map((board) => [board.id, board]));
   const filed = new Set<string>();
   const result = ordered.map((category) => {
-    const own: Board[] = [];
-    for (const boardId of category.boardIds) {
+    const own: Container[] = [];
+    for (const boardId of category.containerIds) {
       const board = known.get(boardId);
-      if (!board || filed.has(boardId) || category.hiddenBoardIds.includes(boardId)) continue;
+      if (!board || filed.has(boardId) || category.hiddenContainerIds.includes(boardId)) continue;
       filed.add(boardId);
       own.push(board);
     }
     return { category, boards: own };
   });
-  const hidden = new Set(categories.flatMap((category) => category.hiddenBoardIds));
+  const hidden = new Set(categories.flatMap((category) => category.hiddenContainerIds));
   const loose = byTitle(
     boards.filter((board) => !filed.has(board.id) && !hidden.has(board.id)),
     locale,
@@ -104,11 +104,11 @@ export function sidebarOf(
 /** The boards a category hides that the sidebar does not show elsewhere, by title. */
 export function hiddenBoardsOf(
   categories: readonly Category[],
-  boards: readonly Board[],
+  boards: readonly Container[],
   sidebar: readonly SidebarCategory[],
   locale: string,
-): Board[] {
-  const hidden = new Set(categories.flatMap((category) => category.hiddenBoardIds));
+): Container[] {
+  const hidden = new Set(categories.flatMap((category) => category.hiddenContainerIds));
   const shown = new Set(sidebar.flatMap((entry) => entry.boards.map((board) => board.id)));
   return byTitle(
     boards.filter((board) => hidden.has(board.id) && !shown.has(board.id)),
@@ -120,7 +120,7 @@ export function hiddenBoardsOf(
 export function withoutBoard(categories: readonly Category[], boardId: string): Category[] {
   return categories.map((category) => ({
     ...category,
-    boardIds: category.boardIds.filter((id) => id !== boardId),
-    hiddenBoardIds: category.hiddenBoardIds.filter((id) => id !== boardId),
+    containerIds: category.containerIds.filter((id) => id !== boardId),
+    hiddenContainerIds: category.hiddenContainerIds.filter((id) => id !== boardId),
   }));
 }
