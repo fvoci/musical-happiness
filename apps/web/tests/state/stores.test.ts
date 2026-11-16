@@ -665,10 +665,10 @@ describe('reading again after changes may have been missed', () => {
   it('takes what was missed into an open board, and keeps it on screen meanwhile', async () => {
     const made = setup();
     const listeners: ChangeListener[] = [];
-    const watch = made.backend.watchBoard.bind(made.backend);
-    vi.spyOn(made.backend, 'watchBoard').mockImplementation((boardId, listener) => {
+    const watch = made.backend.watchContainer.bind(made.backend);
+    vi.spyOn(made.backend, 'watchContainer').mockImplementation((containerId, listener) => {
       listeners.push(listener);
-      return watch(boardId, listener);
+      return watch(containerId, listener);
     });
     const { world, board } = await openFirstBoard(made);
     const card = board.cards.find((each) => each.title === 'Alpha');
@@ -737,10 +737,10 @@ describe('an open board the reader is no member of', () => {
   it('is shown to join again when the reader is taken off it while it is open', async () => {
     const made = setup();
     const listeners: ChangeListener[] = [];
-    const watch = made.backend.watchBoard.bind(made.backend);
-    vi.spyOn(made.backend, 'watchBoard').mockImplementation((boardId, listener) => {
+    const watch = made.backend.watchContainer.bind(made.backend);
+    vi.spyOn(made.backend, 'watchContainer').mockImplementation((containerId, listener) => {
       listeners.push(listener);
-      return watch(boardId, listener);
+      return watch(containerId, listener);
     });
     await made.workspace.load();
     const first = made.workspace.sidebar.flatMap((entry) => entry.containers)[0];
@@ -755,7 +755,8 @@ describe('an open board the reader is no member of', () => {
     // connection tells that as the board gone), and so are its views.
     made.backend.failNext('views', new BackendError(403));
     // Over a copy, as the live connection tells: reading again listens again.
-    for (const listener of [...listeners]) listener({ kind: 'boardDeleted', boardId: first.id });
+    for (const listener of [...listeners])
+      listener({ kind: 'containerDeleted', containerId: first.id });
     await vi.waitFor(() => {
       expect(board.joinable).toBe(true);
     });

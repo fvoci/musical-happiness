@@ -234,11 +234,13 @@ describe('the pages of a wiki in memory', () => {
     await wiki.createPage(made.wiki.id, { title: 'Grandchild', parentId: child.id });
     await wiki.createPage(made.wiki.id, { title: 'Other' });
     const told: Change[] = [];
-    made.backend.watchBoard(made.wiki.id, (change) => told.push(change));
+    made.backend.watchContainer(made.wiki.id, (change) => told.push(change));
     await wiki.deletePage(made.wiki.id, top.id);
     await settle();
     expect(await shape(made)).toEqual(['Other']);
-    expect(told).toEqual([{ kind: 'blocksDeleted', boardId: made.wiki.id, blockIds: [top.id] }]);
+    expect(told).toEqual([
+      { kind: 'blocksDeleted', containerId: made.wiki.id, blockIds: [top.id] },
+    ]);
     expect((await rejection(wiki.page(made.wiki.id, child.id))).status).toBe(404);
   });
 
@@ -264,7 +266,7 @@ describe('the pages of a wiki in memory', () => {
     const made = await aWiki();
     const page = await made.backend.wiki.createPage(made.wiki.id, { title: 'Page' });
     const told: Change[] = [];
-    made.backend.watchBoard(made.wiki.id, (change) => told.push(change));
+    made.backend.watchContainer(made.wiki.id, (change) => told.push(change));
     await made.backend.wiki.patchPage(made.wiki.id, page.id, { title: 'Renamed', icon: '📘' });
     await settle();
     const [change] = told;

@@ -250,7 +250,7 @@ async fn handle_patch_container(
 /// The body names every card property of the board (`cardProperties`, by `id`) once,
 /// in the new order, as `reorderCategories` names categories; one left out, one named
 /// twice or one the board does not have is 400, and nothing changes. For who may manage
-/// the board's properties, as `patchContainer`. The board's listeners get `UPDATE_BOARD`, as
+/// the board's properties, as `patchContainer`. The board's listeners get `UPDATE_CONTAINER`, as
 /// for any change of the board.
 #[utoipa::path(
     put,
@@ -394,8 +394,8 @@ async fn handle_duplicate_container(
 /// Restores a board from the trash with its blocks and its members. Each user who had
 /// filed it, and can see it again, finds it where it was in the sidebar (the same
 /// category and place, hidden or not) or in the default category if that one was
-/// deleted since, and is told with `UPDATE_BOARD_CATEGORY` and the category's
-/// `REORDER_CATEGORY_BOARDS`. Its sharing and the subscriptions to its blocks ended with
+/// deleted since, and is told with `UPDATE_CONTAINER_CATEGORY` and the category's
+/// `REORDER_CATEGORY_CONTAINERS`. Its sharing and the subscriptions to its blocks ended with
 /// the deletion and stay ended. Surviving teams regain their saved roles for their
 /// current members; deleted teams are skipped. For who was an admin of the board when
 /// it was deleted, and for the workspace's administrators (who, if they were no member,

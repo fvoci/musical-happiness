@@ -57,7 +57,7 @@ function strayRequestsOf(page: Page, boardId: string): string[] {
       if (
         command.action !== 'SET_PRESENCE' ||
         !command.readToken ||
-        (command.boardId !== '' && command.boardId !== boardId) ||
+        (command.containerId !== '' && command.containerId !== boardId) ||
         command.workspaceId !== ''
       ) {
         stray.push(`unexpected socket command ${String(command.action)}`);

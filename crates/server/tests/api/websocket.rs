@@ -277,7 +277,7 @@ async fn workspace_subscription_needs_authentication() {
     );
     assert_eq!(message["category"]["name"], json!("Projects"), "{message}");
     assert_eq!(message["category"]["userId"], json!(user1.id), "{message}");
-    assert!(message.get("boardCategories").is_none(), "{message}");
+    assert!(message.get("containerCategories").is_none(), "{message}");
 
     assert_eq!(
         anonymous.next(QUIET).await,
@@ -374,14 +374,14 @@ async fn board_changes_go_to_subscribed_members() {
         .next_json(PATIENCE)
         .await
         .expect("the member is told");
-    assert_eq!(message["action"], json!("UPDATE_BOARD"), "{message}");
+    assert_eq!(message["action"], json!("UPDATE_CONTAINER"), "{message}");
     assert_eq!(
         message["workspaceId"],
         json!(ROOT_WORKSPACE_ID),
         "{message}"
     );
-    assert_eq!(message["board"]["id"], json!(board.id), "{message}");
-    assert_eq!(message["board"]["title"], json!("Roadmap"), "{message}");
+    assert_eq!(message["container"]["id"], json!(board.id), "{message}");
+    assert_eq!(message["container"]["title"], json!("Roadmap"), "{message}");
 
     let mut block = Block {
         id: new_id(),
@@ -1220,7 +1220,7 @@ async fn messages_match_the_websocket_contract() {
 
     ws.broadcast_container_change(ROOT_WORKSPACE_ID, &board)
         .await;
-    contract_check.hear(&mut socket, "UPDATE_BOARD").await;
+    contract_check.hear(&mut socket, "UPDATE_CONTAINER").await;
     ws.broadcast_block_change(ROOT_WORKSPACE_ID, &block).await;
     contract_check.hear(&mut socket, "UPDATE_BLOCK").await;
     ws.broadcast_block_delete(ROOT_WORKSPACE_ID, &block.id, &board.id)
@@ -1248,7 +1248,7 @@ async fn messages_match_the_websocket_contract() {
     )
     .await;
     contract_check
-        .hear(&mut socket, "UPDATE_BOARD_CATEGORY")
+        .hear(&mut socket, "UPDATE_CONTAINER_CATEGORY")
         .await;
     ws.broadcast_category_reorder(
         ROOT_WORKSPACE_ID,
@@ -1265,7 +1265,7 @@ async fn messages_match_the_websocket_contract() {
     )
     .await;
     contract_check
-        .hear(&mut socket, "REORDER_CATEGORY_BOARDS")
+        .hear(&mut socket, "REORDER_CATEGORY_CONTAINERS")
         .await;
     ws.broadcast_config_change(&th.app.client_config()).await;
     contract_check
@@ -1274,7 +1274,7 @@ async fn messages_match_the_websocket_contract() {
     // The board deletion goes to the former members, with the board's identifiers only.
     ws.broadcast_container_delete(ROOT_WORKSPACE_ID, &board.id, of_the_invited(&members))
         .await;
-    contract_check.hear(&mut socket, "UPDATE_BOARD").await;
+    contract_check.hear(&mut socket, "UPDATE_CONTAINER").await;
     hear_the_endings(&th, &mut socket, &mut contract_check, &block, &user1.id).await;
     hear_the_answers(&mut socket, &mut contract_check, &board.id).await;
 
@@ -1305,7 +1305,7 @@ async fn hear_the_answers(
     socket
         .send(
             json!({"action": "SET_PRESENCE", "workspaceId": ROOT_WORKSPACE_ID,
-            "boardId": board_id}),
+            "containerId": board_id}),
         )
         .await;
     contract_check.hear(socket, "UPDATE_PRESENCE").await;
@@ -1363,7 +1363,7 @@ async fn board_with_three_properties(th: &TestServer, admin: &str) -> Container 
 
 /// Not in the original (user decision 2026-11-11 14:25 KST). The card properties of a
 /// board are put in a new order by naming all of them: the answer is the order, the
-/// board has it, and the listeners hear `UPDATE_BOARD`. An order that leaves one out,
+/// board has it, and the listeners hear `UPDATE_CONTAINER`. An order that leaves one out,
 /// names one twice or names one the board does not have is 400 and changes nothing; a
 /// commenter may not, nor a stranger.
 #[tokio::test]
@@ -1407,8 +1407,11 @@ async fn card_properties_are_put_in_order_and_the_board_is_told() {
         .next_json(PATIENCE)
         .await
         .expect("the board's listeners are told");
-    assert_eq!(message["action"], json!("UPDATE_BOARD"), "{message}");
-    assert_eq!(ids(&message["board"]), [json!("c"), json!("a"), json!("b")]);
+    assert_eq!(message["action"], json!("UPDATE_CONTAINER"), "{message}");
+    assert_eq!(
+        ids(&message["container"]),
+        [json!("c"), json!("a"), json!("b")]
+    );
     let stored = th
         .client
         .get(&format!("{ROOT_WS}/containers/{}", board.id))

@@ -80,7 +80,6 @@ impl std::fmt::Debug for Identity {
 struct Command {
     action: String,
     workspace_id: String,
-    #[serde(rename = "boardId")]
     container_id: String,
     card_id: String,
     read_token: String,
@@ -107,7 +106,6 @@ struct UpdateBlockMessage<'a> {
 struct UpdateContainerMessage<'a> {
     action: &'static str,
     workspace_id: &'a str,
-    #[serde(rename = "board")]
     container: &'a Container,
 }
 
@@ -127,7 +125,6 @@ struct UpdateCategoryMessage<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     category: Option<&'a Category>,
     #[serde(skip_serializing_if = "<[_]>::is_empty")]
-    #[serde(rename = "boardCategories")]
     container_categories: &'a [ContainerCategoryWebsocketData],
 }
 
@@ -144,7 +141,6 @@ struct CategoryReorderMessage<'a> {
 struct CategoryContainersReorderMessage<'a> {
     action: &'static str,
     category_id: &'a str,
-    #[serde(rename = "boardOrder")]
     container_order: &'a [String],
     workspace_id: &'a str,
 }
@@ -517,7 +513,7 @@ impl Hub {
     /// Tells the board's members in the workspace that the board changed.
     pub async fn broadcast_container_change(&self, workspace_id: &str, container: &Container) {
         let message = UpdateContainerMessage {
-            action: "UPDATE_BOARD",
+            action: "UPDATE_CONTAINER",
             workspace_id,
             container,
         };
@@ -548,7 +544,7 @@ impl Hub {
     ) {
         let container = gone_container(workspace_id, container_id);
         let message = UpdateContainerMessage {
-            action: "UPDATE_BOARD",
+            action: "UPDATE_CONTAINER",
             workspace_id,
             container: &container,
         };
@@ -567,7 +563,7 @@ impl Hub {
     ) {
         let container = gone_container(workspace_id, container_id);
         let message = UpdateContainerMessage {
-            action: "UPDATE_BOARD",
+            action: "UPDATE_CONTAINER",
             workspace_id,
             container: &container,
         };
@@ -712,7 +708,7 @@ impl Hub {
         container_categories: &[ContainerCategoryWebsocketData],
     ) {
         let message = UpdateCategoryMessage {
-            action: "UPDATE_BOARD_CATEGORY",
+            action: "UPDATE_CONTAINER_CATEGORY",
             workspace_id,
             category: None,
             container_categories,
@@ -744,7 +740,7 @@ impl Hub {
         container_order: &[String],
     ) {
         let message = CategoryContainersReorderMessage {
-            action: "REORDER_CATEGORY_BOARDS",
+            action: "REORDER_CATEGORY_CONTAINERS",
             category_id,
             container_order,
             workspace_id,

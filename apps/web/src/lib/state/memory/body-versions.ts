@@ -211,8 +211,13 @@ export class MemoryBodyVersions implements BodyVersions {
     });
     world.bodyWritten?.(cardId);
     if (this.#of === 'page') {
-      world.tellBoard(boardId, { kind: 'pages', boardId, pages: [pageOf(card)] });
-    } else world.tellBoard(boardId, { kind: 'blocks', boardId, blocks: [wireOf(card)] });
+      world.tellContainer(boardId, { kind: 'pages', containerId: boardId, pages: [pageOf(card)] });
+    } else
+      world.tellContainer(boardId, {
+        kind: 'blocks',
+        containerId: boardId,
+        blocks: [wireOf(card)],
+      });
   }
 
   /** A card of the board (a page of the wiki), for a member of it: the versions are theirs to read. */

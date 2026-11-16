@@ -266,7 +266,7 @@ async fn a_guest_is_told_the_changes_of_its_boards_and_of_no_other() {
         messages.extend(socket.drain().await);
         if messages
             .iter()
-            .any(|message| message["board"]["id"] == json!(invited))
+            .any(|message| message["container"]["id"] == json!(invited))
         {
             break;
         }
@@ -275,13 +275,13 @@ async fn a_guest_is_told_the_changes_of_its_boards_and_of_no_other() {
 
     let heard: Vec<&Value> = messages
         .iter()
-        .filter(|message| message["action"] == json!("UPDATE_BOARD"))
+        .filter(|message| message["action"] == json!("UPDATE_CONTAINER"))
         .collect();
     assert!(
         heard
             .iter()
-            .any(|message| message["board"]["id"] == json!(invited)
-                && message["board"]["title"] == json!("Renamed")),
+            .any(|message| message["container"]["id"] == json!(invited)
+                && message["container"]["title"] == json!("Renamed")),
         "the change of the invited board is told: {messages:?}"
     );
     let about_other = messages

@@ -241,7 +241,6 @@ struct Person {
 struct Snapshot {
     action: &'static str,
     workspace_id: String,
-    #[serde(rename = "boardId")]
     container_id: String,
     people: Vec<Person>,
     anonymous_count: usize,

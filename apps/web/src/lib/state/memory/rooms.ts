@@ -227,7 +227,7 @@ export class MemoryRooms {
       tab: tabKey(card, cardId, 1),
     };
     this.#world.watch({
-      boardId,
+      containerId: boardId,
       userId: '',
       listener: (change) => {
         if (change.kind === 'members') this.#recheck(room);
@@ -407,7 +407,7 @@ export class MemoryRooms {
     card.body = body;
     card.updateAt = this.#world.now();
     card.modifiedBy = room.lastWriter ?? card.modifiedBy;
-    this.#world.tellBoard(room.boardId, changeOf(room.boardId, card));
+    this.#world.tellContainer(room.boardId, changeOf(room.boardId, card));
     roomWrote(this.#world, card);
   }
 

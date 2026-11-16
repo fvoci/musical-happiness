@@ -30,7 +30,7 @@ export class CardPreviews {
 
   /** Reads the previews and follows the board. Returns the function that stops it. */
   start(): () => void {
-    const stop = this.#backend.watchBoard(this.#boardId, (change) => {
+    const stop = this.#backend.watchContainer(this.#boardId, (change) => {
       if (change.kind === 'blocks') {
         for (const block of change.blocks) {
           if (!isCardBlock(block) || !block.preview) continue;

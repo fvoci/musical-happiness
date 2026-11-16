@@ -600,7 +600,7 @@ async fn the_boards_and_wikis_copied_whole_are_counted_by_work_and_kind() {
     let copied = |body: &str, work: &str, kind: &str| {
         sample(
             body,
-            "fvoci_boards_copied_total",
+            "fvoci_containers_copied_total",
             &[("kind", kind), ("work", work)],
         )
     };
@@ -658,7 +658,7 @@ async fn the_boards_and_wikis_copied_whole_are_counted_by_work_and_kind() {
     // Two values of `kind`, three of `work`: nothing else is counted.
     let series = body
         .lines()
-        .filter(|line| line.starts_with("fvoci_boards_copied_total{"))
+        .filter(|line| line.starts_with("fvoci_containers_copied_total{"))
         .count();
     assert_eq!(series, 6, "{body}");
     server.teardown().await;

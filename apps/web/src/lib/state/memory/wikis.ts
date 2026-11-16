@@ -149,7 +149,11 @@ export class MemoryWikis extends MemoryPageComments implements Wikis {
   }
 
   #tellPages(wikiId: string, blocks: readonly StoredBlock[]): void {
-    this.#world.tellBoard(wikiId, { kind: 'pages', boardId: wikiId, pages: blocks.map(pageOf) });
+    this.#world.tellContainer(wikiId, {
+      kind: 'pages',
+      containerId: wikiId,
+      pages: blocks.map(pageOf),
+    });
   }
 
   /** As the server: the reader's wikis and the workspace's open ones, in no order to count on. */
@@ -194,8 +198,8 @@ export class MemoryWikis extends MemoryPageComments implements Wikis {
     // Filed under the maker's default category, as a board is.
     const fallback = world.categories.get(userId)?.find((category) => category.type === 'system');
     fallback?.containerIds.push(wiki.id);
-    world.tellBoard(wiki.id, { kind: 'board', board: copy(wiki) });
-    world.tellUsers([userId], { kind: 'board', board: copy(wiki) });
+    world.tellContainer(wiki.id, { kind: 'container', container: copy(wiki) });
+    world.tellUsers([userId], { kind: 'container', container: copy(wiki) });
     if (fallback)
       world.tellUsers([userId], {
         kind: 'categories',
@@ -383,7 +387,11 @@ export class MemoryWikis extends MemoryPageComments implements Wikis {
       ...deletion({ world: this.#world, userId: this.#host.userId }),
     });
     for (const block of gone) this.#world.blocks.delete(block.id);
-    this.#world.tellBoard(wikiId, { kind: 'blocksDeleted', boardId: wikiId, blockIds: [pageId] });
+    this.#world.tellContainer(wikiId, {
+      kind: 'blocksDeleted',
+      containerId: wikiId,
+      blockIds: [pageId],
+    });
   }
 
   async deletedPages(wikiId: string, paging?: Paging): Promise<DeletedItem[]> {
@@ -439,7 +447,11 @@ export class MemoryWikis extends MemoryPageComments implements Wikis {
     // And the comments that came back with them, as the server tells them.
     const comments = blocks.filter((block) => block.type === 'comment');
     if (comments.length > 0) {
-      world.tellBoard(wikiId, { kind: 'blocks', boardId: wikiId, blocks: comments.map(commentOf) });
+      world.tellContainer(wikiId, {
+        kind: 'blocks',
+        containerId: wikiId,
+        blocks: comments.map(commentOf),
+      });
     }
     return detailOf(top);
   }

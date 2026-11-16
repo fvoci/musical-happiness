@@ -1,7 +1,7 @@
-/** Ephemeral visits: a connection views one board and at most one card. */
+/** Ephemeral visits: a connection views one board or wiki and at most one card or page. */
 export interface PresenceVisit {
   workspaceId: string;
-  boardId: string;
+  containerId: string;
   cardId?: string;
 }
 
@@ -19,7 +19,7 @@ export interface PresenceSnapshot {
 
 export interface Presence {
   setPresence(visit: PresenceVisit | null): void;
-  watchPresence(boardId: string, hear: (snapshot: PresenceSnapshot) => void): () => void;
+  watchPresence(containerId: string, hear: (snapshot: PresenceSnapshot) => void): () => void;
 }
 
 /** Where a backend keeps who is on its boards. */

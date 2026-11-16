@@ -2,7 +2,7 @@
 
 적은 때: 2026-11-11 04:14 KST(본문의 공동 편집, 6절은 2026-11-13 04:41 KST, 그 커서는 2026-11-14 23:20 KST, 다시 들기는 2026-11-15 04:10 KST, 보드의 있음 7절은 2026-11-13 19:41 KST. 서버가 구독을 끝낼 때의 알림, 3절은 2026-11-14 01:35 KST. 죽은 연결의 `PING`·`PONG`, 3절은 2026-11-15 19:02 KST. 팀의 조작, 3절과 6절은 2026-11-14 06:55 KST). 서버가 **지금** 주고받는 것을 모양을 바꾸지 않고 적었다(`crates/server/src/ws.rs`, 핸드셰이크는 `crates/server/src/lib.rs`의 `handle_websocket`). OpenAPI는 WebSocket을 적지 못하므로 계약 파일 `contracts/openapi.json` 밖에 둔다.
 
-- 메시지마다의 멤버와 타입은 기계가 읽는 `contracts/websocket.json`에 있다. 서버의 테스트(`crates/server/tests/api/websocket.rs`의 `messages_match_the_websocket_contract`, 본문의 공동 편집(6절)의 `DOC_…`은 `rooms_contract.rs`의 `the_messages_of_the_rooms_match_the_websocket_contract`)가 서버가 실제로 보낸 메시지를 그 파일과 견준다: 맨 위 멤버가 정확히 그 이름들이고, 실린 객체(`board`, `block` 등)의 멤버는 계약 파일의 같은 이름의 스키마에 있는 것들이다. 테스트가 보는 것은 **메시지**뿐이다. 명령(2절)과 `session`·`sent` 표시는 이 문서와 코드를 사람이 맞춰 둔다. 실린 객체의 멤버는 이름만 견주고 타입은 계약 파일의 스키마를 따른다. Binary 프레임(6절)의 바이트는 `crates/server/src/collab/frame.rs`의 테스트와 `rooms.rs`의 테스트가 따로 쓴 부호화로 견준다. 커서의 바이트는 편집기의 라이브러리(y-protocols, Yjs)로 찍은 `contracts/caret-vectors.json`에 서버(`collab/caret.rs`)와 웹앱의 테스트가 함께 견준다.
+- 메시지마다의 멤버와 타입은 기계가 읽는 `contracts/websocket.json`에 있다. 서버의 테스트(`crates/server/tests/api/websocket.rs`의 `messages_match_the_websocket_contract`, 본문의 공동 편집(6절)의 `DOC_…`은 `rooms_contract.rs`의 `the_messages_of_the_rooms_match_the_websocket_contract`)가 서버가 실제로 보낸 메시지를 그 파일과 견준다: 맨 위 멤버가 정확히 그 이름들이고, 실린 객체(`container`, `block` 등)의 멤버는 계약 파일의 같은 이름의 스키마에 있는 것들이다. 테스트가 보는 것은 **메시지**뿐이다. 명령(2절)과 `session`·`sent` 표시는 이 문서와 코드를 사람이 맞춰 둔다. 실린 객체의 멤버는 이름만 견주고 타입은 계약 파일의 스키마를 따른다. Binary 프레임(6절)의 바이트는 `crates/server/src/collab/frame.rs`의 테스트와 `rooms.rs`의 테스트가 따로 쓴 부호화로 견준다. 커서의 바이트는 편집기의 라이브러리(y-protocols, Yjs)로 찍은 `contracts/caret-vectors.json`에 서버(`collab/caret.rs`)와 웹앱의 테스트가 함께 견준다.
 - 메시지가 싣는 보드, 블록, 멤버, 카테고리는 계약의 `Container`, `Block`, `ContainerMember`, `Category`와 같은 모양이다. `Block`은 본문(`body`, `docs/contract-pending.md` 1절)을 싣는다.
 - 이 문서의 모양을 바꾸는 일은 계약을 바꾸는 일이다. 바꿀 때는 이 문서, `websocket.json`, `docs/contract-pending.md`를 같은 커밋에서 고친다.
 
@@ -37,7 +37,7 @@
 | `UNSUBSCRIBE_BLOCKS` | 없어도 된다 | 같다 | 그 블록들을 그만 따라간다. 같은 검사를 한다(저장소에서 읽지 못하면 검사 없이 그만 따라간다) |
 | `JOIN_DOC` | 필요 | `workspaceId`, `cardId`, 문서를 쥔 채 다시 들 때만 `epoch`, `stateVector` | 카드나 위키 페이지의 본문을 함께 고치는 방에 들어간다(6절). `cardId`는 카드의 ID이거나 페이지의 ID다. 답은 `DOC_JOINED`나 `DOC_REFUSED` |
 | `LEAVE_DOC` | 필요 | `doc` | `DOC_JOINED`가 알려 준 번호의 방에서 나온다. 답이 없다 |
-| `SET_PRESENCE` | 읽기 토큰이면 불필요 | `workspaceId`, `boardId`, `cardId`, `readToken` | 보드 방문과 연 카드를, 위키 방문과 연 페이지를 알린다(7절). 답이 없다 |
+| `SET_PRESENCE` | 읽기 토큰이면 불필요 | `workspaceId`, `containerId`, `cardId`, `readToken` | 보드 방문과 연 카드를, 위키 방문과 연 페이지를 알린다(7절). 답이 없다 |
 | `PING` | 없어도 된다 | 없음 | 연결이 아직 이어져 있는지 묻는다. 서버는 곧바로 `PONG`으로 답한다(3절의 "죽은 연결"). 멤버를 더 싣지 않는다: 64바이트를 넘는 메시지는 `PING`으로 보지 않는다 |
 
 - 세션이 필요한 명령을 익명 연결이 보내면 무시한다(`JOIN_DOC`은 `DOC_REFUSED`로 답한다, 6절).
@@ -53,14 +53,14 @@
 
 | `action` | 싣는 것 | 누가 받나 |
 |---|---|---|
-| `UPDATE_BOARD` | `workspaceId`, `board`(`Container` 전체) | 그 워크스페이스를 구독한 연결 가운데 사용자가 보드를 읽는 사람인 것(아래 "받는 사람의 규칙") |
+| `UPDATE_CONTAINER` | `workspaceId`, `container`(`Container` 전체) | 그 워크스페이스를 구독한 연결 가운데 사용자가 보드를 읽는 사람인 것(아래 "받는 사람의 규칙") |
 | `UPDATE_BLOCK` | `workspaceId`, `block`(`Block` 전체) | 위와 같은 연결, 그리고 그 블록이나 그 블록의 부모를 `SUBSCRIBE_BLOCKS`로 따라가는 연결 |
 | `UPDATE_MEMBER` | `workspaceId`, `member`(`ContainerMember`) | 그 워크스페이스를 구독한 연결 가운데 사용자가 보드를 읽는 사람인 것 |
 | `DELETE_MEMBER` | `workspaceId`, `member`(`containerId`, `userId`만 뜻이 있고 역할은 모두 `false`) | 위와 같은 연결, 그리고 빠진 사용자의 연결 |
 | `UPDATE_CATEGORY` | `workspaceId`, `category`(`Category`) | 카테고리 주인의, 그 워크스페이스를 구독한 연결 모두(아래) |
-| `UPDATE_BOARD_CATEGORY` | `workspaceId`, `boardCategories`(`{boardId, categoryId, hidden}`의 목록). **목록은 바꾼 항목들이지 전체가 아니다**: `setContainerCategory`와 보드를 기본 카테고리에 넣는 조작은 그 카테고리의 보드 전부를, `hideContainer`·`unhideContainer`·`undeleteContainer`는 항목 하나를 싣는다. 받는 쪽은 항목마다 덮어쓴다(목록으로 갈아 끼우면 보드를 잃는다) | 그 사용자의 연결 모두 |
+| `UPDATE_CONTAINER_CATEGORY` | `workspaceId`, `containerCategories`(`{containerId, categoryId, hidden}`의 목록). **목록은 바꾼 항목들이지 전체가 아니다**: `setContainerCategory`와 보드를 기본 카테고리에 넣는 조작은 그 카테고리의 보드 전부를, `hideContainer`·`unhideContainer`·`undeleteContainer`는 항목 하나를 싣는다. 받는 쪽은 항목마다 덮어쓴다(목록으로 갈아 끼우면 보드를 잃는다) | 그 사용자의 연결 모두 |
 | `REORDER_CATEGORIES` | `workspaceId`, `categoryOrder`(카테고리 ID의 새 순서) | 그 사용자의 연결 모두 |
-| `REORDER_CATEGORY_BOARDS` | `workspaceId`, `categoryId`, `boardOrder`(그 카테고리의 보드 ID의 새 순서) | 그 사용자의 연결 모두 |
+| `REORDER_CATEGORY_CONTAINERS` | `workspaceId`, `categoryId`, `containerOrder`(그 카테고리의 보드 ID의 새 순서) | 그 사용자의 연결 모두 |
 | `UPDATE_CLIENT_CONFIG` | `clientConfig` | 모든 연결. **지금은 보내는 곳이 없다**(서버 설정이 실행 중에 바뀌지 않는다) |
 | `UNSUBSCRIBED_WORKSPACE` | `workspaceId`, `reason`(`workspace access ended`, `sso required`) | 서버가 그 워크스페이스의 구독을 끝낸 연결(아래 "서버가 구독을 끝낼 때"). 연결과 다른 구독은 그대로다(방은 아래 "서버가 구독을 끝낼 때") |
 | `PONG` | 없음 | `PING`을 보낸 연결. 곧바로 간다: 그 연결이 앞서 보낸 것의 답(`DOC_JOINED` 같은 것)보다 먼저 올 수 있다. 연결의 보낼 줄(512개)이 차 있으면 가지 않는다 |
@@ -71,7 +71,7 @@
 ### 받는 사람의 규칙
 
 - "보드의 멤버"는 메시지를 보낼 때 유효한 멤버 목록이다: 직접 역할을 받은 사람과 보드에 역할이 있는 팀의 사람. 그 조직의 구성원·역할·팀·공유 상태가 바뀌면 무효화되는 캐시(조직마다 따로이고, 휴지통 비우기 같은 시스템의 집안일은 건드리지 않는다)로 검사하며 워크스페이스 역할도 다시 확인한다. 워크스페이스를 구독하지 않은 연결은 멤버여도 받지 않는다.
-- "보드를 읽는 사람"은 보드의 멤버이고, **워크스페이스에 열린 위키**면 그 워크스페이스의 구성원(손님 아님) 모두다: 열린 위키는 참여하지 않고 읽는다(`App::board_access`와 같은 규칙). 공개 보드와 열린 템플릿은 멤버만이어서, 공개 보드라도 멤버가 아닌 사용자는 보드와 블록의 변경을 받지 않는다. 권한을 바꾸는 DB 쓰기가 취소되어 완료 여부를 모르면 그 뒤 60초 동안은 캐시를 쓰지 않고 보낼 때마다 저장소에서 다시 읽는다. 확인된 롤백은 이에 해당하지 않는다.
+- "보드를 읽는 사람"은 보드의 멤버이고, **워크스페이스에 열린 위키**면 그 워크스페이스의 구성원(손님 아님) 모두다: 열린 위키는 참여하지 않고 읽는다(`App::container_access`와 같은 규칙). 공개 보드와 열린 템플릿은 멤버만이어서, 공개 보드라도 멤버가 아닌 사용자는 보드와 블록의 변경을 받지 않는다. 권한을 바꾸는 DB 쓰기가 취소되어 완료 여부를 모르면 그 뒤 60초 동안은 캐시를 쓰지 않고 보낼 때마다 저장소에서 다시 읽는다. 확인된 롤백은 이에 해당하지 않는다.
 - **카테고리의 네 메시지는 그 사용자의 연결 가운데 그 워크스페이스를 구독한 것 모두에 간다.** 같은 사용자의 다른 탭도 받는다(원본은 먼저 구독한 하나에만 보냈다).
 - `SUBSCRIBE_BLOCKS`로 따라가는 연결 가운데 읽기 토큰만으로 읽는 독자(세션 없는 연결, 보드의 역할이 없거나 그 워크스페이스에 없거나 세션이 그 조직을 열지 못하는 사용자)가 받는 `UPDATE_BLOCK`은 HTTP의 `getBlocks`가 그 독자에게 주는 모양이다(`docs/contract-pending.md` 1절): `createdBy`, `modifiedBy`, 본문의 모든 멘션의 `userId`, 사람 속성이 가리키는 사람이 비어 있다. 사용자 ID가 가입 시각을 드러낸다. 그 보드를 멤버로 보는 사용자(보드의 역할이 있고, 그 워크스페이스에 있고, 세션이 그 조직을 연다)의 연결은 같은 링크로 따라가도 멤버가 받는 모양을 받는다.
 - 한 연결이 워크스페이스 구독과 블록 구독을 함께 해서 두 길로 다 해당하면 메시지를 두 번 받는다(보드를 멤버로 보면 둘 다 멤버의 모양, 아니면 블록 구독의 것은 사용자 ID를 비운 모양).
@@ -81,24 +81,24 @@
 
 | 조작(계약의 `operationId`) | 메시지 |
 |---|---|
-| `createBoard`, `createBoardsAndBlocks`, `duplicateContainer`(템플릿에서 만들기 포함), `onboard` | 새 보드마다 `UPDATE_BOARD`, 블록마다 `UPDATE_BLOCK`, 멤버마다 `UPDATE_MEMBER`. 템플릿이 아닌 새 보드는 만든 사람의 기본 카테고리에 들어가며 `UPDATE_BOARD_CATEGORY`를 낸다. `onboard`는 보드를 고친 뒤 `UPDATE_BOARD`를 한 번 더 낸다 |
-| `importArchive` | 보드·블록의 `UPDATE_BOARD`·`UPDATE_BLOCK`이 멤버가 생기기 전에 나가 **아무도 받지 않는다**. 그 뒤 `UPDATE_MEMBER`, `UPDATE_BOARD_CATEGORY`, 이미지를 고친 블록의 `UPDATE_BLOCK` |
-| `patchContainer` | `UPDATE_BOARD`. **템플릿**의 패치에 `type`이 있으면(바뀌지 않았어도) 멤버가 아닌 워크스페이스 사용자마다: 비공개면 `DELETE_MEMBER`, 공개면 보기 역할의 `UPDATE_MEMBER`. 템플릿이 아닌 보드는 종류가 바뀌어도 `UPDATE_BOARD`뿐이다. 다만 **열린 위키**를 비공개로 바꾸면 그 위키를 멤버 아니게 읽던 사람의 연결에 `deleteContainer`와 같은 `UPDATE_BOARD`(`deleteAt`이 0이 아님)가 간다: 그 사람에게는 위키가 없어졌다 |
-| `patchBoardsAndBlocks` | 바뀐 블록마다 `UPDATE_BLOCK`, 바뀐 보드마다 `UPDATE_BOARD` |
-| `reorderCardProperties` | 새 순서의 `cardProperties`를 실은 `UPDATE_BOARD` |
-| `deleteContainer`, `deleteBoardsAndBlocks` | `UPDATE_BOARD`, `board`는 `id`, `workspaceId`, `updateAt`, `deleteAt`(0이 아님)만 뜻이 있고 나머지는 빈 값. 받는 사람은 지우기 직전에 그 보드를 읽던 사람(멤버, 열린 위키면 워크스페이스의 구성원도). `deleteBoardsAndBlocks`는 그 앞에 블록마다 삭제 `UPDATE_BLOCK`(모양은 아래 `deleteBlock`)을 내는데, 이것도 그 사람들에게만 가고 `SUBSCRIBE_BLOCKS`로 따라가던 연결은 받지 않는다. 둘 다 보드의 공유 토큰으로 따라가던 블록 구독을 끝낸다(`UNSUBSCRIBED_BLOCKS`) |
-| `undeleteContainer` | 돌아온 보드의 `UPDATE_BOARD` 하나, 그리고 보드를 사이드바에 다시 둔 사용자마다 그 사람의 연결에 `UPDATE_BOARD_CATEGORY`(그 보드의 항목 하나: 원래 카테고리, 그사이 지워졌으면 기본 카테고리)와 그 카테고리의 `REORDER_CATEGORY_BOARDS`(원래 자리로 들어가며 뒤의 보드가 밀린 순서). 비공개 보드는 다시 구성원이 된 사람에게만. **함께 돌아온 블록과 멤버의 메시지는 없다** |
+| `createBoard`, `createBoardsAndBlocks`, `duplicateContainer`(템플릿에서 만들기 포함), `onboard` | 새 보드마다 `UPDATE_CONTAINER`, 블록마다 `UPDATE_BLOCK`, 멤버마다 `UPDATE_MEMBER`. 템플릿이 아닌 새 보드는 만든 사람의 기본 카테고리에 들어가며 `UPDATE_CONTAINER_CATEGORY`를 낸다. `onboard`는 보드를 고친 뒤 `UPDATE_CONTAINER`를 한 번 더 낸다 |
+| `importArchive` | 보드·블록의 `UPDATE_CONTAINER`·`UPDATE_BLOCK`이 멤버가 생기기 전에 나가 **아무도 받지 않는다**. 그 뒤 `UPDATE_MEMBER`, `UPDATE_CONTAINER_CATEGORY`, 이미지를 고친 블록의 `UPDATE_BLOCK` |
+| `patchContainer` | `UPDATE_CONTAINER`. **템플릿**의 패치에 `type`이 있으면(바뀌지 않았어도) 멤버가 아닌 워크스페이스 사용자마다: 비공개면 `DELETE_MEMBER`, 공개면 보기 역할의 `UPDATE_MEMBER`. 템플릿이 아닌 보드는 종류가 바뀌어도 `UPDATE_CONTAINER`뿐이다. 다만 **열린 위키**를 비공개로 바꾸면 그 위키를 멤버 아니게 읽던 사람의 연결에 `deleteContainer`와 같은 `UPDATE_CONTAINER`(`deleteAt`이 0이 아님)가 간다: 그 사람에게는 위키가 없어졌다 |
+| `patchBoardsAndBlocks` | 바뀐 블록마다 `UPDATE_BLOCK`, 바뀐 보드마다 `UPDATE_CONTAINER` |
+| `reorderCardProperties` | 새 순서의 `cardProperties`를 실은 `UPDATE_CONTAINER` |
+| `deleteContainer`, `deleteBoardsAndBlocks` | `UPDATE_CONTAINER`, `container`는 `id`, `workspaceId`, `updateAt`, `deleteAt`(0이 아님)만 뜻이 있고 나머지는 빈 값. 받는 사람은 지우기 직전에 그 보드를 읽던 사람(멤버, 열린 위키면 워크스페이스의 구성원도). `deleteBoardsAndBlocks`는 그 앞에 블록마다 삭제 `UPDATE_BLOCK`(모양은 아래 `deleteBlock`)을 내는데, 이것도 그 사람들에게만 가고 `SUBSCRIBE_BLOCKS`로 따라가던 연결은 받지 않는다. 둘 다 보드의 공유 토큰으로 따라가던 블록 구독을 끝낸다(`UNSUBSCRIBED_BLOCKS`) |
+| `undeleteContainer` | 돌아온 보드의 `UPDATE_CONTAINER` 하나, 그리고 보드를 사이드바에 다시 둔 사용자마다 그 사람의 연결에 `UPDATE_CONTAINER_CATEGORY`(그 보드의 항목 하나: 원래 카테고리, 그사이 지워졌으면 기본 카테고리)와 그 카테고리의 `REORDER_CATEGORY_CONTAINERS`(원래 자리로 들어가며 뒤의 보드가 밀린 순서). 비공개 보드는 다시 구성원이 된 사람에게만. **함께 돌아온 블록과 멤버의 메시지는 없다** |
 | `createBlocks`, `patchBlock`, `patchBlocks`, `createCard`, `patchCard`, `duplicateBlock`, `undeleteBlock` | 바뀌거나 생긴 블록마다 `UPDATE_BLOCK`. `undeleteBlock`은 되살린 블록 하나만 알린다(함께 돌아온 아래 블록은 알리지 않는다) |
 | `deleteBlock` | `UPDATE_BLOCK`, `block`은 `id`, `containerId`, `updateAt`, `deleteAt`(0이 아님)만 뜻이 있고 나머지는 빈 값. **지운 블록 하나만** 알린다. 함께 휴지통에 간 아래 블록(카드의 댓글·첨부)은 따로 알리지 않는다 |
-| `createWiki`, `createPage`, `patchPage`, `deletePage`, `createPageComment`, `patchPageComment`, `deletePageComment`, `undeletePageComment`, `restorePageBodyVersion` | 위키는 보드의 한 종류(`kind`가 `wiki`)이고 페이지는 블록(`type`이 `page`)이어서 같은 메시지가 나간다: `createWiki`는 `createBoard`와 같고(`UPDATE_BOARD`의 `board.kind`가 `wiki`), `createPage`·`patchPage`는 그 페이지의 `UPDATE_BLOCK`(아이콘과 순서는 `fields`의 `icon`·`order`), `deletePage`는 `deleteBlock`과 같다(지운 페이지 하나만. 함께 휴지통에 간 아래 페이지와 그 댓글은 따로 알리지 않는다). 위 표의 보드 조작 가운데 위키도 받는 것(`patchContainer`, `deleteContainer`, `undeleteContainer`, 멤버·팀)은 위키에도 같은 메시지를 낸다. 페이지의 댓글은 카드의 댓글과 같다: `createPageComment`·`patchPageComment`는 그 댓글(`type`이 `comment`, `parentId`가 페이지)의 `UPDATE_BLOCK`, `deletePageComment`는 `deleteBlock`과, `undeletePageComment`는 `undeleteBlock`과 같다. `restorePageBodyVersion`은 `restoreCardBodyVersion`과 같다(그 페이지의 `UPDATE_BLOCK`, 방에는 새 문서) |
-| `addMember`, `joinContainer`, `updateMember` | `UPDATE_MEMBER`. 이미 멤버인 사용자의 `addMember`·`joinContainer`, 멤버가 아닌 사용자의 `updateMember`는 아무것도 내지 않는다. 템플릿이 아닌 보드에 새로 든 멤버는 기본 카테고리에 들어가며 `UPDATE_BOARD_CATEGORY`도 받는다 |
+| `createWiki`, `createPage`, `patchPage`, `deletePage`, `createPageComment`, `patchPageComment`, `deletePageComment`, `undeletePageComment`, `restorePageBodyVersion` | 위키는 보드의 한 종류(`kind`가 `wiki`)이고 페이지는 블록(`type`이 `page`)이어서 같은 메시지가 나간다: `createWiki`는 `createBoard`와 같고(`UPDATE_CONTAINER`의 `board.kind`가 `wiki`), `createPage`·`patchPage`는 그 페이지의 `UPDATE_BLOCK`(아이콘과 순서는 `fields`의 `icon`·`order`), `deletePage`는 `deleteBlock`과 같다(지운 페이지 하나만. 함께 휴지통에 간 아래 페이지와 그 댓글은 따로 알리지 않는다). 위 표의 보드 조작 가운데 위키도 받는 것(`patchContainer`, `deleteContainer`, `undeleteContainer`, 멤버·팀)은 위키에도 같은 메시지를 낸다. 페이지의 댓글은 카드의 댓글과 같다: `createPageComment`·`patchPageComment`는 그 댓글(`type`이 `comment`, `parentId`가 페이지)의 `UPDATE_BLOCK`, `deletePageComment`는 `deleteBlock`과, `undeletePageComment`는 `undeleteBlock`과 같다. `restorePageBodyVersion`은 `restoreCardBodyVersion`과 같다(그 페이지의 `UPDATE_BLOCK`, 방에는 새 문서) |
+| `addMember`, `joinContainer`, `updateMember` | `UPDATE_MEMBER`. 이미 멤버인 사용자의 `addMember`·`joinContainer`, 멤버가 아닌 사용자의 `updateMember`는 아무것도 내지 않는다. 템플릿이 아닌 보드에 새로 든 멤버는 기본 카테고리에 들어가며 `UPDATE_CONTAINER_CATEGORY`도 받는다 |
 | `removeMember`, `leaveContainer` | `DELETE_MEMBER` |
 | `addTeamMember`, `removeTeamMember`, `deleteTeam`, `setContainerTeam`, `removeContainerTeam` | 역할이 바뀐 보드와 사람마다 `DELETE_MEMBER`(역할이 생기거나 오른 때에도): 받은 클라이언트는 보드의 멤버를 다시 읽는다. 사람을 넣고 빼면 그 팀이 걸린 보드마다 그 사람의 것, 팀을 지우면 그 팀이 걸린 보드마다 그 팀의 사람 모두의 것, 보드의 팀 역할을 주고 바꾸고 떼면 그 보드에서 그 팀의 사람 모두의 것이다. 팀이 이미 그 역할이었거나 뗄 역할이 없었으면, 이미 팀에 있는 사람을 넣거나 팀에 없는 사람을 빼면, 또 팀이 걸린 보드나 팀의 사람이 없으면 아무것도 내지 않는다 |
-| `createCategory`, `updateCategory`, `deleteCategory` | `UPDATE_CATEGORY`. 지운 카테고리는 `deleteAt`이 0이 아니다. `deleteCategory`는 그 보드들을 기본 카테고리로 옮기며 `UPDATE_BOARD_CATEGORY`도 낸다 |
-| `getCategories`와 기본 카테고리를 쓰는 위의 조작 | 사용자에게 기본 카테고리가 아직 없으면 만들면서 `UPDATE_CATEGORY`와 `UPDATE_BOARD_CATEGORY`를 낸다(읽기인 `GET`도) |
+| `createCategory`, `updateCategory`, `deleteCategory` | `UPDATE_CATEGORY`. 지운 카테고리는 `deleteAt`이 0이 아니다. `deleteCategory`는 그 보드들을 기본 카테고리로 옮기며 `UPDATE_CONTAINER_CATEGORY`도 낸다 |
+| `getCategories`와 기본 카테고리를 쓰는 위의 조작 | 사용자에게 기본 카테고리가 아직 없으면 만들면서 `UPDATE_CATEGORY`와 `UPDATE_CONTAINER_CATEGORY`를 낸다(읽기인 `GET`도) |
 | `reorderCategories` | `REORDER_CATEGORIES` |
-| `setContainerCategory`, `hideContainer`, `unhideContainer` | `UPDATE_BOARD_CATEGORY` |
-| `reorderCategoryContainers` | `REORDER_CATEGORY_BOARDS` |
+| `setContainerCategory`, `hideContainer`, `unhideContainer` | `UPDATE_CONTAINER_CATEGORY` |
+| `reorderCategoryContainers` | `REORDER_CATEGORY_CONTAINERS` |
 | `setSharing`(끄기, 새 토큰) | 옛 토큰으로 따라가던 연결에 `UNSUBSCRIBED_BLOCKS` |
 | `patchUserSettings`, `patchClientState` | 메시지 없음 |
 
@@ -115,7 +115,7 @@
 | 조직이 비밀번호를 받지 않게 됨(`ssoRequired`) | 그 조직의 워크스페이스를 그 공급자로 만들지 않은 세션으로 구독하던 것(`sso required`). 조직의 워크스페이스를 읽지 못하면 그런 세션의 워크스페이스 구독 모두 |
 | 공유를 끄거나 새 토큰을 내거나 보드·워크스페이스를 휴지통에 넣거나 조직의 공개 링크를 끔 | 그 보드의 옛 읽기 토큰으로 따라가던 블록(`UNSUBSCRIBED_BLOCKS`, `public link access ended`) |
 | 보낼 때의 검사가 권한이 끝났거나 역할이 바뀌었거나 세션이 그 조직을 열지 못함을 봄(앞의 알림이 없던 회수) | 그 연결의 그 구독(같은 알림) |
-| 공개 링크로 그 보드를 읽는 연결이 이미 `public_link_connections_per_board`(기본 200)개, 또는 그 가운데 같은 주소(IPv6는 /64)의 것이 `public_link_connections_per_address`(기본 10)개 | 새로 오는 그 연결의 블록 구독을 받지 않는다(`UNSUBSCRIBED_BLOCKS`, `public link connections full`. `docs/configuration.md`). 읽기 토큰으로 블록을 따라가거나 방문(7절)하는 연결을 하나로 센다. 이미 읽는 연결은 막지 않고, 구성원이 보통으로 여는 연결(읽기 토큰 없이)은 세지도 막지도 않는다. 받지 않은 구독은 다시 보내지 않으면 그대로이고, 방문은 30초마다의 갱신에 자리가 있으면 받는다 |
+| 공개 링크로 그 보드를 읽는 연결이 이미 `public_link_connections_per_container`(기본 200)개, 또는 그 가운데 같은 주소(IPv6는 /64)의 것이 `public_link_connections_per_address`(기본 10)개 | 새로 오는 그 연결의 블록 구독을 받지 않는다(`UNSUBSCRIBED_BLOCKS`, `public link connections full`. `docs/configuration.md`). 읽기 토큰으로 블록을 따라가거나 방문(7절)하는 연결을 하나로 센다. 이미 읽는 연결은 막지 않고, 구성원이 보통으로 여는 연결(읽기 토큰 없이)은 세지도 막지도 않는다. 받지 않은 구독은 다시 보내지 않으면 그대로이고, 방문은 30초마다의 갱신에 자리가 있으면 받는다 |
 
 ### 죽은 연결
 
@@ -156,8 +156,8 @@
 
 | # | 웹앱의 가정 | 지금 서버 |
 |---|---|---|
-| G1 | 구독은 둘: 보드 하나(`watchBoard`), 나 자신(`watchSelf`) | 구독의 단위는 **워크스페이스**(`SUBSCRIBE_WORKSPACE`)와 **블록**(`SUBSCRIBE_BLOCKS`, 읽기 토큰으로)이다. 보드 하나만 구독하는 명령은 없다. 워크스페이스를 구독하면 내가 멤버인 모든 보드의 보드·블록·멤버 변경과 내 카테고리의 변경이 온다. 그러니 `watchBoard`와 `watchSelf`는 연결 하나의 워크스페이스 구독에서 화면이 보드 ID로 갈라 쓴다. 설정(`patchUserSettings`)의 변경은 메시지가 없다. 카테고리 메시지는 그 워크스페이스를 구독한 내 연결 모두에 간다(3절) |
-| G2 | 변경의 종류 일곱 | 보드: `UPDATE_BOARD`(전체). 보드 삭제: `deleteAt`이 0이 아닌 `UPDATE_BOARD`(따로 된 종류가 없다). 블록: `UPDATE_BLOCK`이 **블록 하나씩**, `Block` 전체를 싣는다. 카드도 요약이 아니라 블록 전체이고 본문(최대 1 MiB)을 함께 싣는다. 블록 삭제: `deleteAt`이 0이 아닌 `UPDATE_BLOCK`, 지운 블록 하나만(아래 것은 싣지 않는다). 구성원: 전체 목록이 아니라 멤버 한 명씩(`UPDATE_MEMBER`, `DELETE_MEMBER`). 카테고리: 전체 목록이 아니라 카테고리 하나(`UPDATE_CATEGORY`), 보드의 자리(`UPDATE_BOARD_CATEGORY`), 순서(`REORDER_CATEGORIES`, `REORDER_CATEGORY_BOARDS`). 설정: 메시지 없음 |
+| G1 | 구독은 둘: 보드나 위키 하나(`watchContainer`), 나 자신(`watchSelf`) | 구독의 단위는 **워크스페이스**(`SUBSCRIBE_WORKSPACE`)와 **블록**(`SUBSCRIBE_BLOCKS`, 읽기 토큰으로)이다. 보드 하나만 구독하는 명령은 없다. 워크스페이스를 구독하면 내가 멤버인 모든 보드의 보드·블록·멤버 변경과 내 카테고리의 변경이 온다. 그러니 `watchContainer`와 `watchSelf`는 연결 하나의 워크스페이스 구독에서 화면이 보드 ID로 갈라 쓴다. 설정(`patchUserSettings`)의 변경은 메시지가 없다. 카테고리 메시지는 그 워크스페이스를 구독한 내 연결 모두에 간다(3절) |
+| G2 | 변경의 종류 일곱 | 보드: `UPDATE_CONTAINER`(전체). 보드 삭제: `deleteAt`이 0이 아닌 `UPDATE_CONTAINER`(따로 된 종류가 없다). 블록: `UPDATE_BLOCK`이 **블록 하나씩**, `Block` 전체를 싣는다. 카드도 요약이 아니라 블록 전체이고 본문(최대 1 MiB)을 함께 싣는다. 블록 삭제: `deleteAt`이 0이 아닌 `UPDATE_BLOCK`, 지운 블록 하나만(아래 것은 싣지 않는다). 구성원: 전체 목록이 아니라 멤버 한 명씩(`UPDATE_MEMBER`, `DELETE_MEMBER`). 카테고리: 전체 목록이 아니라 카테고리 하나(`UPDATE_CATEGORY`), 보드의 자리(`UPDATE_CONTAINER_CATEGORY`), 순서(`REORDER_CATEGORIES`, `REORDER_CATEGORY_CONTAINERS`). 설정: 메시지 없음 |
 | G3 | 내 쓰기도 내게 온다 | 맞다. 보낸 연결도 받는다 |
 | G4 | `updateAt`이 블록마다 단조 증가 | **있는 블록을 고칠 때는 그렇다**: 고칠 때마다 앞의 값보다 커진다(4절). 휴지통에서 돌아온 블록은 그때의 서버 시각을 받으므로, 시계가 뒤로 갔다면 지우기 전보다 작을 수 있다. 판을 가르는 다른 값(카운터)은 없다 |
 | G5 | 남이 본문을 고치면 카드의 요약이 온다 | **요약이 아니라 블록 전체가 온다.** 카드의 본문이 저장된 뒤로(`docs/contract-pending.md` 1절) `UPDATE_BLOCK`의 `block`은 `body`(문서 하나, 최대 1 MiB)를 싣는다. 할 일 수는 싣지 않는다(`Block`에 없다. 받는 쪽이 본문에서 센다). 요약만 보내자는 것은 메시지의 모양을 바꾸는 일이라 사용자 결정 필요(`docs/contract-pending.md` 9절의 G5) |
@@ -284,12 +284,12 @@ sync 종류부터 끝까지는 y-protocols의 sync 메시지 그대로다(`write
 
 ## 7. 보드의 있음
 
-`SET_PRESENCE`는 `workspaceId`, `boardId`, `cardId`(열지 않았으면 빈 문자열),
-`readToken`(구성원은 생략)을 받는다. `boardId`가 비면 떠난다. 답은 없다.
+`SET_PRESENCE`는 `workspaceId`, `containerId`, `cardId`(열지 않았으면 빈 문자열),
+`readToken`(구성원은 생략)을 받는다. `containerId`가 비면 떠난다. 답은 없다.
 연결당 한 보드·한 카드이며 새 명령이 앞의 것을 바꾼다. 보드의 읽기 권한은
-`App::board_access`, 세션의 조직 접근은 `enter_workspace_as`로 확인한다.
+`App::container_access`, 세션의 조직 접근은 `enter_workspace_as`로 확인한다.
 카드가 같은 보드의 지우지 않은 카드가 아니면 카드 없이 보드에 있는 것으로 받고, 연
-카드가 나중에 지워져도 카드 없이 남는다. 위키도 같다: `boardId`에 위키의 ID를, `cardId`에
+카드가 나중에 지워져도 카드 없이 남는다. 위키도 같다: `containerId`에 위키의 ID를, `cardId`에
 그 위키의 페이지의 ID를 싣고, 명단의 `cardIds`가 연 페이지들이다. 위키의 읽기 토큰으로도
 보드와 같이 익명으로 방문한다(블록 구독은 보드의 토큰만 받는다). 식별자는 방과 같은 최대 64바이트다.
 명령은 `collab_frames_per_second`의 속도와 한 초의 버스트로 제한하고, 떠나기는
@@ -297,7 +297,7 @@ sync 종류부터 끝까지는 y-protocols의 sync 메시지 그대로다(`write
 보드를 읽을 수 없어 거절된 명령은 그 연결의 앞선 방문도 끝낸다.
 
 연결마다 250ms 간격으로 변경을 모아 `UPDATE_PRESENCE`의 전체 명단을 보낸다:
-`workspaceId`, `boardId`, `people: [{userId, cardIds}]`, `anonymousCount`, `hiddenCount`.
+`workspaceId`, `containerId`, `people: [{userId, cardIds}]`, `anonymousCount`, `hiddenCount`.
 사람과 카드 ID는 오름차순이며 같은 사람의 탭은 하나로, 카드는 합집합으로 센다.
 사용자 조회에서 보이지 않는 사람은 `hiddenCount`로만 센다. 읽기 토큰을 명시한
 연결은 세션이 있어도 익명 하나로 세고 명단은 받지 않는다. 익명은 연결별 수다.

@@ -213,7 +213,7 @@ export class ReferenceTitles {
 
   #watch(boardId: string): void {
     if (this.#watched.has(boardId)) return;
-    const stop = this.#workspace.backend.watchBoard(boardId, (change) => {
+    const stop = this.#workspace.backend.watchContainer(boardId, (change) => {
       this.#heard(change);
     });
     this.#watched.set(boardId, stop);
@@ -315,9 +315,9 @@ export class ReferenceTitles {
     this.#following = true;
     this.#workspace.backend.watchSelf((change) => {
       if (change.kind === 'resync') void this.#ask(this.#knownHere(() => true));
-      else if (change.kind === 'board') void this.#ask(this.#knownHere((linked) => !linked));
+      else if (change.kind === 'container') void this.#ask(this.#knownHere((linked) => !linked));
       // A board the reader is taken off.
-      else if (change.kind === 'boardDeleted') this.#heard(change);
+      else if (change.kind === 'containerDeleted') this.#heard(change);
     });
   }
 
@@ -328,7 +328,7 @@ export class ReferenceTitles {
       for (const block of change.blocks) {
         const key = `${workspaceId}/${block.id}`;
         if (!this.#held(key) || !isCardBlock(block)) continue;
-        const { id, title, containerId: boardId } = block;
+        const { id, title, containerId } = block;
         const icon = cardIcon(block);
         this.#changedAt.set(key, this.#tick());
         this.#known.set(key, {
@@ -336,7 +336,7 @@ export class ReferenceTitles {
           kind: 'card',
           title,
           icon,
-          containerId: boardId,
+          containerId,
           containerKind: 'board',
         });
       }
@@ -358,13 +358,13 @@ export class ReferenceTitles {
     } else if (change.kind === 'blocksDeleted') {
       for (const id of change.blockIds) this.#unsee(`${workspaceId}/${id}`);
       // A page goes with those below it, and only it is told of: the rest are asked.
-      const { boardId } = change;
+      const { containerId } = change;
       const pages = this.#knownHere(
-        (linked) => linked?.kind === 'page' && linked.containerId === boardId,
+        (linked) => linked?.kind === 'page' && linked.containerId === containerId,
       );
       if (pages.length > 0) void this.#ask(pages);
-    } else if (change.kind === 'boardDeleted') {
-      for (const id of this.#knownHere((linked) => linked?.containerId === change.boardId)) {
+    } else if (change.kind === 'containerDeleted') {
+      for (const id of this.#knownHere((linked) => linked?.containerId === change.containerId)) {
         this.#unsee(`${workspaceId}/${id}`);
       }
     }

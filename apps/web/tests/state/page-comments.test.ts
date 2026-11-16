@@ -100,7 +100,7 @@ describe('the comments on a page, in memory', () => {
   it('are told to whoever listens to the wiki', async () => {
     const made = await aPage();
     const told: Change[] = [];
-    made.backend.watchBoard(made.wikiId, (change) => told.push(change));
+    made.backend.watchContainer(made.wikiId, (change) => told.push(change));
     const comment = await made.other.wiki.createComment(made.wikiId, made.pageId, text('hi'));
     await made.other.wiki.deleteComment(made.wikiId, made.pageId, comment.id);
     await settle();
@@ -249,7 +249,7 @@ describe('the versions of a page’s body, in memory', () => {
       ),
     ).toBe(403);
     const told: Change[] = [];
-    made.backend.watchBoard(made.wikiId, (change) => told.push(change));
+    made.backend.watchContainer(made.wikiId, (change) => told.push(change));
     await wiki.bodyVersions.restore(made.wikiId, made.pageId, older.version);
     await settle();
     expect((await wiki.page(made.wikiId, made.pageId)).body).toEqual(text('first'));

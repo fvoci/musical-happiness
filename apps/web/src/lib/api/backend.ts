@@ -925,9 +925,9 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     return this.inWorkspaceUrl('/containers/{containerId}/files/{fileId}', { containerId, fileId });
   }
 
-  /** The board's changes, from the one connection of the page (`live.ts`). */
-  watchBoard(boardId: string, listener: ChangeListener): () => void {
-    return this.#live.watch(boardId, listener);
+  /** The board's or the wiki's changes, from the one connection of the page (`live.ts`). */
+  watchContainer(containerId: string, listener: ChangeListener): () => void {
+    return this.#live.watch(containerId, listener);
   }
 
   /** The reader's own changes: boards and the sidebar. Settings have no message. */

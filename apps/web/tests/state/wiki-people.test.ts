@@ -94,14 +94,14 @@ describe('an open wiki, read without joining', () => {
   it('tells who watches it unjoined each change, that it is gone once when made private, and nothing after', async () => {
     const made = await wikiOf('O');
     const told: string[] = [];
-    const stop = made.other.watchBoard(made.wikiId, (change) => told.push(change.kind));
+    const stop = made.other.watchContainer(made.wikiId, (change) => told.push(change.kind));
     await made.backend.wiki.patchPage(made.wikiId, made.pageId, { title: 'Once' });
     await settle();
     expect(told).toEqual(['pages']);
     await made.backend.patchContainer(made.wikiId, { type: 'P' });
     await made.backend.wiki.patchPage(made.wikiId, made.pageId, { title: 'Twice' });
     await settle();
-    expect(told).toEqual(['pages', 'boardDeleted']);
+    expect(told).toEqual(['pages', 'containerDeleted']);
     stop();
   });
 });

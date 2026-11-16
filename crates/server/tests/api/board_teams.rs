@@ -308,7 +308,9 @@ async fn losing_the_last_team_role_ends_subscriptions_and_live_board_messages() 
         .patch(&path, &json!({"title":"Heard"}))
         .await
         .check_ok();
-    socket.expect("UPDATE_BOARD", "/board/title", "Heard").await;
+    socket
+        .expect("UPDATE_CONTAINER", "/container/title", "Heard")
+        .await;
     th.client
         .delete(&format!(
             "/w/{ROOT_WORKSPACE_ID}/teams/{}/members/{user}",
@@ -486,7 +488,7 @@ async fn a_template_turned_private_or_open_says_nothing_of_its_team_readers() {
             .await
             .check_ok();
         socket
-            .expect("UPDATE_BOARD", "/board/id", &template.id)
+            .expect("UPDATE_CONTAINER", "/container/id", &template.id)
             .await;
         let messages = socket.drain().await;
         assert_eq!(

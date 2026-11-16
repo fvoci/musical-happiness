@@ -269,22 +269,22 @@ export class Workspace {
 
   #apply(change: Change): void {
     switch (change.kind) {
-      case 'board': {
+      case 'container': {
         // A board of another workspace than the one shown is not of its sidebar.
-        if (change.board.workspaceId !== this.info?.id) break;
+        if (change.container.workspaceId !== this.info?.id) break;
         // Two tellings of one board may arrive out of order: the older one is let go.
-        const known = this.containers.find((board) => board.id === change.board.id);
-        if (known && known.updateAt > change.board.updateAt) break;
+        const known = this.containers.find((board) => board.id === change.container.id);
+        if (known && known.updateAt > change.container.updateAt) break;
         // A template is no board of the sidebar, as the server's list of boards says.
-        const others = this.containers.filter((board) => board.id !== change.board.id);
-        this.containers = change.board.isTemplate ? others : [...others, change.board];
+        const others = this.containers.filter((board) => board.id !== change.container.id);
+        this.containers = change.container.isTemplate ? others : [...others, change.container];
         break;
       }
-      case 'boardDeleted':
-        this.containers = this.containers.filter((board) => board.id !== change.boardId);
+      case 'containerDeleted':
+        this.containers = this.containers.filter((board) => board.id !== change.containerId);
         // A deleted board leaves every category (no message says so). Brought
         // back, it is filed again where it was, and the sidebar is told.
-        this.categories = withoutContainer(this.categories, change.boardId);
+        this.categories = withoutContainer(this.categories, change.containerId);
         break;
       case 'categories':
         // Of this workspace, after pending writes: an earlier echo must not undo a move.
@@ -456,7 +456,7 @@ export class Workspace {
         { ...draft, cardProperties },
         entry.firstKanban(cardProperties, viewTitle),
       );
-      this.#apply({ kind: 'board', board });
+      this.#apply({ kind: 'container', container: board });
       return board;
     } catch (error) {
       this.report('save', error);
@@ -487,7 +487,7 @@ export class Workspace {
 
   /** A board or a wiki as the backend just answered it: in the sidebar at once (`createWiki`). */
   receiveContainer(board: Container): void {
-    this.#apply({ kind: 'board', board });
+    this.#apply({ kind: 'container', container: board });
   }
 
   /** Copies a board, a wiki or a template into a board (`duplicateContainer`), in the sidebar at once. */
@@ -495,7 +495,7 @@ export class Workspace {
     if (!this.info) return undefined;
     try {
       const board = await this.backend.duplicateContainer(containerId, false, this.info.id);
-      this.#apply({ kind: 'board', board });
+      this.#apply({ kind: 'container', container: board });
       return board;
     } catch (error) {
       this.report('save', error);
@@ -529,7 +529,7 @@ export class Workspace {
       return undefined;
     }
     try {
-      this.#apply({ kind: 'board', board: await this.backend.container(boardId) });
+      this.#apply({ kind: 'container', container: await this.backend.container(boardId) });
     } catch {
       // It is made; the server's message, or the next reading, shows it.
     }
@@ -585,7 +585,7 @@ export class Workspace {
       await this.undo.perform(
         async () => {
           await this.backend.deleteContainer(containerId);
-          this.#apply({ kind: 'boardDeleted', boardId: containerId });
+          this.#apply({ kind: 'containerDeleted', containerId });
         },
         () => this.restoreContainer(containerId),
         'deleteContainer',
@@ -599,7 +599,7 @@ export class Workspace {
   async restoreContainer(containerId: string): Promise<void> {
     const board = await this.backend.restoreContainer(containerId);
     await this.#refresh();
-    this.#apply({ kind: 'board', board });
+    this.#apply({ kind: 'container', container: board });
   }
 
   // --------------------------------------------------------- categories

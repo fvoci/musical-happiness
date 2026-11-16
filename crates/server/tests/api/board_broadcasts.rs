@@ -134,13 +134,15 @@ async fn board_changes_are_broadcast_to_the_members() {
         ))
         .await
         .created_json();
-    let message = socket1.expect("UPDATE_BOARD", "/board/id", &board.id).await;
+    let message = socket1
+        .expect("UPDATE_CONTAINER", "/container/id", &board.id)
+        .await;
     assert_eq!(
         message["workspaceId"],
         json!(TEST_WORKSPACE_ID),
         "{message}"
     );
-    assert_eq!(message["board"]["title"], json!("Roadmap"), "{message}");
+    assert_eq!(message["container"]["title"], json!("Roadmap"), "{message}");
     let message = socket1
         .expect("UPDATE_MEMBER", "/member/containerId", &board.id)
         .await;
@@ -150,23 +152,33 @@ async fn board_changes_are_broadcast_to_the_members() {
     patch_board(&th.client, &board.id, &title_patch("Roadmap 2"))
         .await
         .check_ok();
-    let message = socket1.expect("UPDATE_BOARD", "/board/id", &board.id).await;
-    assert_eq!(message["board"]["title"], json!("Roadmap 2"), "{message}");
+    let message = socket1
+        .expect("UPDATE_CONTAINER", "/container/id", &board.id)
+        .await;
+    assert_eq!(
+        message["container"]["title"],
+        json!("Roadmap 2"),
+        "{message}"
+    );
 
     th.client
         .delete(&format!("{TEST_WS}/containers/{}", board.id))
         .await
         .check_no_content();
-    let message = socket1.expect("UPDATE_BOARD", "/board/id", &board.id).await;
+    let message = socket1
+        .expect("UPDATE_CONTAINER", "/container/id", &board.id)
+        .await;
     assert!(
-        message["board"]["deleteAt"].as_i64() > Some(0),
+        message["container"]["deleteAt"].as_i64() > Some(0),
         "a deletion: {message}"
     );
 
     undelete_board(&th.client, &board.id).await.check_ok();
-    let message = socket1.expect("UPDATE_BOARD", "/board/id", &board.id).await;
+    let message = socket1
+        .expect("UPDATE_CONTAINER", "/container/id", &board.id)
+        .await;
     assert_eq!(
-        message["board"]["deleteAt"],
+        message["container"]["deleteAt"],
         json!(0),
         "restored: {message}"
     );
@@ -340,7 +352,9 @@ async fn patch_board_type_of_a_template_is_broadcast_to_the_workspace_users() {
     patch_board(&th.client, &board.id, &json!({"type": "P"}))
         .await
         .check_ok();
-    socket1.expect("UPDATE_BOARD", "/board/id", &board.id).await;
+    socket1
+        .expect("UPDATE_CONTAINER", "/container/id", &board.id)
+        .await;
     let rest = socket1.drain().await;
     assert_eq!(
         with_action(&rest, "DELETE_MEMBER"),
@@ -377,7 +391,9 @@ async fn duplicate_board_is_broadcast() {
         .created_json();
 
     let copy_id = &copy.containers[0].id;
-    socket.expect("UPDATE_BOARD", "/board/id", copy_id).await;
+    socket
+        .expect("UPDATE_CONTAINER", "/container/id", copy_id)
+        .await;
     socket
         .expect("UPDATE_BLOCK", "/block/id", &copy.blocks[0].id)
         .await;

@@ -5,7 +5,7 @@
  *
  * The wiki is read as a board of the kind `wiki`: at the address of a board it
  * is not there, and a board is not there at a wiki's. Changes are heard as
- * the board's are (`watchBoard`): the wiki renamed or deleted, its members,
+ * the board's are (`watchContainer`): the wiki renamed or deleted, its members,
  * its pages made, changed and deleted (`pages`, `blocksDeleted`), and the
  * comments on the page shown (`blocks`, handed to `PageStore.comments`). A page
  * deleted takes the pages below it along, and only it is told: the store
@@ -38,7 +38,7 @@ import {
 import { containerOfWorkspace, roleOf } from './board-parts.ts';
 import { isCommentBlock } from './changes.ts';
 import { MemberWrites } from './member-writes.ts';
-import { BoardPresence } from './board-presence.svelte.ts';
+import { ContainerPresence } from './board-presence.svelte.ts';
 import { orderMembers } from './order.ts';
 import { PageStore } from './page.svelte.ts';
 import { TreeWrites } from './tree-writes.ts';
@@ -115,7 +115,7 @@ export class WikiStore {
   #readings = 0;
 
   /** Who else is on the wiki, and on which page: started while it is shown (`start`). */
-  readonly presence: BoardPresence;
+  readonly presence: ContainerPresence;
   /** Making, moving and deleting pages (`tree-writes.ts`). */
   readonly #writes: TreeWrites;
   /** Adding, changing and taking off members (`member-writes.ts`). */
@@ -124,7 +124,7 @@ export class WikiStore {
   constructor(workspace: Workspace, wikiId: string) {
     this.workspace = workspace;
     this.wikiId = wikiId;
-    this.presence = new BoardPresence({ workspace, boardId: wikiId });
+    this.presence = new ContainerPresence({ workspace, containerId: wikiId });
     this.#writes = new TreeWrites({
       wikiId,
       workspace,
@@ -163,7 +163,7 @@ export class WikiStore {
     try {
       // Listen first: a change made while the lists are being read is not lost.
       this.#stopWatching?.();
-      this.#stopWatching = this.workspace.backend.watchBoard(this.wikiId, (change) => {
+      this.#stopWatching = this.workspace.backend.watchContainer(this.wikiId, (change) => {
         this.#apply(change);
       });
       const backend = this.workspace.backend;
@@ -241,14 +241,14 @@ export class WikiStore {
 
   #apply(change: Change): void {
     switch (change.kind) {
-      case 'board':
-        if (change.board.id !== this.wikiId) break;
+      case 'container':
+        if (change.container.id !== this.wikiId) break;
         // Deleted and brought back, or joined: everything of it is read again.
         if (this.missing) void this.load();
-        else this.#takeWiki(change.board);
+        else this.#takeWiki(change.container);
         break;
-      case 'boardDeleted':
-        if (change.boardId !== this.wikiId) break;
+      case 'containerDeleted':
+        if (change.containerId !== this.wikiId) break;
         // An open wiki may only have been closed to the reader: read again, it may be one to join.
         if (this.wiki?.type === 'O' && !this.#closed) void this.load();
         else [this.missing, this.status] = [true, 'failed'];
@@ -265,7 +265,7 @@ export class WikiStore {
         this.openPage?.comments.forget(change.blockIds);
         break;
       case 'members':
-        if (change.boardId !== this.wikiId) break;
+        if (change.containerId !== this.wikiId) break;
         this.#people.told += 1;
         this.members = change.members;
         void this.workspace.learnUsers(change.members.map(memberId), { members: true });

@@ -1,5 +1,5 @@
 //! How many connections may read one shared board by its public link at once
-//! (`public_link_connections_per_board`), and how many of those may come from one
+//! (`public_link_connections_per_container`), and how many of those may come from one
 //! address (`public_link_connections_per_address`; an IPv6 address counts by its /64).
 //!
 //! A connection reads a board by its link when it follows the board's blocks by the
@@ -23,7 +23,7 @@ impl ReaderLimits {
     pub(super) fn of(app: &App) -> Self {
         let config = app.config();
         Self {
-            per_container: as_count(config.public_link_connections_per_board),
+            per_container: as_count(config.public_link_connections_per_container),
             per_address: as_count(config.public_link_connections_per_address),
         }
     }

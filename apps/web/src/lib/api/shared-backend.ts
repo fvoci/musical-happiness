@@ -292,7 +292,7 @@ export class SharedBackend implements Backend {
   patchScreenState: Backend['patchScreenState'] = done;
 
   // Nothing changes while the board is read.
-  watchBoard: Backend['watchBoard'] = unwatched;
+  watchContainer: Backend['watchContainer'] = unwatched;
   watchSelf: Backend['watchSelf'] = unwatched;
 
   // Every change is refused before it is sent.

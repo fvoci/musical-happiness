@@ -129,7 +129,7 @@ describe('moving a page in memory', () => {
       if (block) block.fields = { ...block.fields, order: 'V' };
     }
     const told: string[] = [];
-    const stop = made.backend.watchBoard(made.wikiId, (change) => {
+    const stop = made.backend.watchContainer(made.wikiId, (change) => {
       if (change.kind === 'pages') told.push(...change.pages.map((page) => page.id));
     });
     const listed = (await made.backend.wiki.pages(made.wikiId))
@@ -164,7 +164,7 @@ describe('the rules of a move in memory, as the server’s', () => {
     const refused = await rejection(wikis.movePage(made.wikiId, top, { parentId: c }));
     expect(refused.reason).toBe('page_too_deep');
     const told: string[] = [];
-    const stop = made.backend.watchBoard(made.wikiId, (change) => {
+    const stop = made.backend.watchContainer(made.wikiId, (change) => {
       if (change.kind === 'pages') told.push(...change.pages.map((page) => page.id));
     });
     const before = (await wikis.page(made.wikiId, c)).updateAt;

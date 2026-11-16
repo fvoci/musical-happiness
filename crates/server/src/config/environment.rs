@@ -57,7 +57,7 @@ pub(super) const ENV_KEYS: [(&str, EnvKind); 61] = [
     ("oidc_former_provider_days", EnvKind::Number),
     ("org_creation", EnvKind::Text),
     ("websocket_ping_seconds", EnvKind::Number),
-    ("public_link_connections_per_board", EnvKind::Number),
+    ("public_link_connections_per_container", EnvKind::Number),
     ("public_link_connections_per_address", EnvKind::Number),
     ("compress_responses", EnvKind::Flag),
     ("max_request_bytes", EnvKind::Number),

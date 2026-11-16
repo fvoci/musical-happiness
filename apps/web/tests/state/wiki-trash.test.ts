@@ -203,14 +203,14 @@ describe('the trash of pages in an open wiki', () => {
       return pages;
     };
     // And what the undo brought back is heard only after its answer, as from a server.
-    const tell = made.world.tellBoard.bind(made.world);
+    const tell = made.world.tellContainer.bind(made.world);
     const late: Parameters<typeof tell>[] = [];
-    made.world.tellBoard = (...told) => {
+    made.world.tellContainer = (...told) => {
       if (told[1].kind === 'pages') late.push(told);
       else tell(...told);
     };
     await made.workspace.undoLast();
-    made.world.tellBoard = tell;
+    made.world.tellContainer = tell;
     for (const told of late) tell(...told);
     await settle();
     expect(titles(made.store.pages)).toEqual(['A', '  B', 'C']);
@@ -311,15 +311,15 @@ describe('a page copied with the pages below it', () => {
       await held;
       return pages;
     };
-    const tell = made.world.tellBoard.bind(made.world);
+    const tell = made.world.tellContainer.bind(made.world);
     const late: Parameters<typeof tell>[] = [];
-    made.world.tellBoard = (...told) => {
+    made.world.tellContainer = (...told) => {
       if (told[1].kind === 'pages') late.push(told);
       else tell(...told);
     };
     await made.store.duplicatePage(a, 'A (copy)');
     await made.workspace.undoLast();
-    made.world.tellBoard = tell;
+    made.world.tellContainer = tell;
     for (const told of late) tell(...told);
     release();
     await settle();

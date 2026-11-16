@@ -17,7 +17,7 @@ export interface Dev {
   backend: {
     world: { users: Map<string, Record<string, unknown>> };
     as(userId: string): {
-      presence: { setPresence(visit: { workspaceId: string; boardId: string } | null): void };
+      presence: { setPresence(visit: { workspaceId: string; containerId: string } | null): void };
     };
   };
 }
@@ -50,7 +50,7 @@ export async function othersArrive(page: Page, count: number): Promise<number> {
     // Kept on the page: a visit lasts as long as its presence is not let go of.
     const visits = others.map((id) => dev.backend.as(id).presence);
     for (const presence of visits)
-      presence.setPresence({ workspaceId: store.board.workspaceId, boardId: store.boardId });
+      presence.setPresence({ workspaceId: store.board.workspaceId, containerId: store.boardId });
     Object.assign(window, { visits });
     return store.members.length;
   }, count);

@@ -208,8 +208,8 @@ describe('telling about changes', () => {
     const { backend, other, boardId, byTitle } = await firstBoard();
     const mine: Change[] = [];
     const theirs: Change[] = [];
-    const stopMine = backend.watchBoard(boardId, (change) => mine.push(change));
-    other.watchBoard(boardId, (change) => theirs.push(change));
+    const stopMine = backend.watchContainer(boardId, (change) => mine.push(change));
+    other.watchContainer(boardId, (change) => theirs.push(change));
     await other.patchCard(boardId, byTitle('Alpha').id, { title: 'Alpha!' });
     await settle();
     for (const seen of [mine, theirs]) {

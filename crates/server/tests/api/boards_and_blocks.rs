@@ -592,7 +592,9 @@ async fn create_boards_and_blocks_is_broadcast() {
     // The board and block messages are sent before the creator is a member in the eyes
     // of the hub only if the membership were written later; it is written with the
     // board, so all three arrive.
-    socket.expect("UPDATE_BOARD", "/board/id", board_id).await;
+    socket
+        .expect("UPDATE_CONTAINER", "/container/id", board_id)
+        .await;
     let message = socket
         .expect("UPDATE_BLOCK", "/block/id", &created.blocks[0].id)
         .await;
@@ -895,8 +897,10 @@ async fn patch_boards_and_blocks_patches_should_be_applied_if_valid_and_related(
         assert_eq!(message["block"]["title"], json!(new_title), "{message}");
     }
     for board in [&boards.board1, &boards.board2] {
-        let message = socket.expect("UPDATE_BOARD", "/board/id", &board.id).await;
-        assert_eq!(message["board"]["title"], json!(new_title), "{message}");
+        let message = socket
+            .expect("UPDATE_CONTAINER", "/container/id", &board.id)
+            .await;
+        assert_eq!(message["container"]["title"], json!(new_title), "{message}");
     }
 
     th.teardown().await;
@@ -1270,9 +1274,11 @@ async fn delete_boards_and_blocks_all_boards_and_blocks_should_be_deleted() {
         );
     }
     for board_id in &board_ids {
-        let message = socket.expect("UPDATE_BOARD", "/board/id", board_id).await;
+        let message = socket
+            .expect("UPDATE_CONTAINER", "/container/id", board_id)
+            .await;
         assert!(
-            message["board"]["deleteAt"].as_i64() > Some(0),
+            message["container"]["deleteAt"].as_i64() > Some(0),
             "a deletion: {message}"
         );
     }

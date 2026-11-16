@@ -177,7 +177,7 @@ export class BoardStore {
     try {
       // Listen first: a change made while the lists are being read is not lost.
       this.#stopWatching?.();
-      this.#stopWatching = this.#backend.watchBoard(this.boardId, (change) => {
+      this.#stopWatching = this.#backend.watchContainer(this.boardId, (change) => {
         this.#apply(change);
       });
       const [board, views, cards, members] = await readBoard(this.workspace, this.boardId);
@@ -300,15 +300,15 @@ export class BoardStore {
 
   #apply(change: Change): void {
     switch (change.kind) {
-      case 'board':
+      case 'container':
         // Deleted and brought back: everything of it is read again.
         if (this.missing) {
           void this.load();
           break;
         }
-        if (this.#boardWrites.receive(change.board)) this.#takeBoard(change.board);
+        if (this.#boardWrites.receive(change.container)) this.#takeBoard(change.container);
         break;
-      case 'boardDeleted':
+      case 'containerDeleted':
         // An open board may only have been closed to the reader (taken off
         // it): read again, it shows as one to join, or as gone.
         if (this.board?.type === 'O' && !this.board.isTemplate && !this.#closed) {

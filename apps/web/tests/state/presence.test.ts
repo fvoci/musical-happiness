@@ -18,7 +18,7 @@ describe('presence in memory', () => {
     const card = [...world.blocks.values()].find((block) => block.type === 'card');
     if (!card) throw new Error('a seeded card');
     await backend.addMember(board.id, other.userId, 'viewer');
-    const place = { workspaceId: board.workspaceId, boardId: board.id };
+    const place = { workspaceId: board.workspaceId, containerId: board.id };
     const heard: PresenceSnapshot[] = [];
     const stop = backend.presence.watchPresence(board.id, (snapshot) => heard.push(snapshot));
     backend.presence.setPresence(place);
@@ -50,7 +50,7 @@ describe('presence in memory', () => {
     });
     const page = await backend.wiki.createPage(wiki.id, { title: 'Welcome' });
     await backend.addMember(wiki.id, other.userId, 'editor');
-    const place = { workspaceId: wiki.workspaceId, boardId: wiki.id };
+    const place = { workspaceId: wiki.workspaceId, containerId: wiki.id };
     const heard: PresenceSnapshot[] = [];
     const stop = backend.presence.watchPresence(wiki.id, (snapshot) => heard.push(snapshot));
     backend.presence.setPresence(place);
@@ -71,7 +71,7 @@ describe('presence in memory', () => {
       { title: 'Private', type: 'P' },
       { title: 'Board', fields: createBoardView().fields },
     );
-    const place = { workspaceId: board.workspaceId, boardId: board.id };
+    const place = { workspaceId: board.workspaceId, containerId: board.id };
     const heard: PresenceSnapshot[] = [];
     const stop = backend.presence.watchPresence(board.id, (snapshot) => heard.push(snapshot));
     backend.presence.setPresence(place);
@@ -97,18 +97,18 @@ it('the live connection renews after reconnect, clears stale rosters and stops i
   const live = new LivePresence(send, vi.fn());
   const hear = vi.fn();
   const stop = live.watchPresence('board', hear);
-  live.setPresence({ workspaceId: 'workspace', boardId: 'board', cardId: 'card' });
+  live.setPresence({ workspaceId: 'workspace', containerId: 'board', cardId: 'card' });
   expect(send).not.toHaveBeenCalled();
   live.up();
   expect(send).toHaveBeenLastCalledWith({
     action: 'SET_PRESENCE',
     workspaceId: 'workspace',
-    boardId: 'board',
+    containerId: 'board',
     cardId: 'card',
   });
   live.text({
     action: 'UPDATE_PRESENCE',
-    boardId: 'board',
+    containerId: 'board',
     people: [{ userId: 'other', cardIds: [] }],
     anonymousCount: 0,
     hiddenCount: 0,
@@ -135,7 +135,7 @@ it('separate worlds exchange visits through BroadcastChannel and close the chann
   if (!board) throw new Error('a seeded board');
   await first.backend.addMember(board.id, second.other.userId, 'viewer');
   await second.backend.addMember(board.id, second.other.userId, 'viewer');
-  const place = { workspaceId: board.workspaceId, boardId: board.id };
+  const place = { workspaceId: board.workspaceId, containerId: board.id };
   let latest: PresenceSnapshot | undefined;
   const stop = first.backend.presence.watchPresence(board.id, (snapshot) => {
     latest = snapshot;
@@ -167,7 +167,9 @@ it('a hidden page leaves after one minute, returns when visible, and releases it
   const { boardPresence } = await import('$lib/state/board-presence.svelte.ts');
   const stop = boardPresence(board).start();
   try {
-    expect(send).toHaveBeenLastCalledWith(expect.objectContaining({ boardId: board.boardId }));
+    expect(send).toHaveBeenLastCalledWith(
+      expect.objectContaining({ containerId: board.containerId }),
+    );
     hidden = true;
     document.dispatchEvent(new Event('visibilitychange'));
     await vi.advanceTimersByTimeAsync(59_999);
@@ -176,11 +178,15 @@ it('a hidden page leaves after one minute, returns when visible, and releases it
     expect(send).toHaveBeenLastCalledWith(null);
     hidden = false;
     document.dispatchEvent(new Event('visibilitychange'));
-    expect(send).toHaveBeenLastCalledWith(expect.objectContaining({ boardId: board.boardId }));
+    expect(send).toHaveBeenLastCalledWith(
+      expect.objectContaining({ containerId: board.containerId }),
+    );
     window.dispatchEvent(new Event('pagehide'));
     expect(send).toHaveBeenLastCalledWith(null);
     window.dispatchEvent(new Event('pageshow'));
-    expect(send).toHaveBeenLastCalledWith(expect.objectContaining({ boardId: board.boardId }));
+    expect(send).toHaveBeenLastCalledWith(
+      expect.objectContaining({ containerId: board.containerId }),
+    );
   } finally {
     stop();
     hiddenRead.mockRestore();
@@ -195,7 +201,7 @@ it('the live connection asks once for the same visit, and leaving forgets the ro
   const hear = vi.fn();
   const stop = live.watchPresence('board', hear);
   live.up();
-  const place = { workspaceId: 'workspace', boardId: 'board' };
+  const place = { workspaceId: 'workspace', containerId: 'board' };
   live.setPresence(place);
   live.setPresence({ ...place });
   live.setPresence({ ...place, cardId: '' });
@@ -204,13 +210,13 @@ it('the live connection asks once for the same visit, and leaving forgets the ro
   expect(send).toHaveBeenCalledTimes(2);
   live.text({
     action: 'UPDATE_PRESENCE',
-    boardId: 'board',
+    containerId: 'board',
     people: [{ userId: 'other', cardIds: ['card'] }],
     anonymousCount: 1,
     hiddenCount: 0,
   });
   live.setPresence(null);
-  expect(send).toHaveBeenLastCalledWith({ action: 'SET_PRESENCE', boardId: '' });
+  expect(send).toHaveBeenLastCalledWith({ action: 'SET_PRESENCE', containerId: '' });
   expect(hear).toHaveBeenLastCalledWith({ people: [], anonymousCount: 0, hiddenCount: 0 });
   stop();
   live.down();

@@ -59,7 +59,7 @@
       "members": {
         "action": "string",
         "workspaceId": "string",
-        "boardId": "string",
+        "containerId": "string",
         "cardId": "string",
         "readToken": "string"
       }
@@ -72,11 +72,11 @@
     }
   },
   "messages": {
-    "UPDATE_BOARD": {
+    "UPDATE_CONTAINER": {
       "members": {
         "action": "string",
         "workspaceId": "string",
-        "board": "#Container"
+        "container": "#Container"
       }
     },
     "UPDATE_BLOCK": {
@@ -107,13 +107,13 @@
         "category": "#Category"
       }
     },
-    "UPDATE_BOARD_CATEGORY": {
+    "UPDATE_CONTAINER_CATEGORY": {
       "members": {
         "action": "string",
         "workspaceId": "string",
-        "boardCategories": [
+        "containerCategories": [
           {
-            "boardId": "string",
+            "containerId": "string",
             "categoryId": "string",
             "hidden": "boolean"
           }
@@ -129,12 +129,12 @@
         ]
       }
     },
-    "REORDER_CATEGORY_BOARDS": {
+    "REORDER_CATEGORY_CONTAINERS": {
       "members": {
         "action": "string",
         "workspaceId": "string",
         "categoryId": "string",
-        "boardOrder": [
+        "containerOrder": [
           "string"
         ]
       }
@@ -222,7 +222,7 @@
       "members": {
         "action": "string",
         "workspaceId": "string",
-        "boardId": "string",
+        "containerId": "string",
         "people": [
           {
             "userId": "string",

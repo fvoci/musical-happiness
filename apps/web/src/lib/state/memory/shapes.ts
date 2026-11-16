@@ -110,8 +110,8 @@ export function pageOf(block: StoredBlock): WikiPage {
 
 /** What the listeners of a board are told of a block made or changed: a page, or another block. */
 export function changeOf(boardId: string, block: StoredBlock): Change {
-  if (block.type === 'page') return { kind: 'pages', boardId, pages: [pageOf(block)] };
-  return { kind: 'blocks', boardId, blocks: [wireOf(block)] };
+  if (block.type === 'page') return { kind: 'pages', containerId: boardId, pages: [pageOf(block)] };
+  return { kind: 'blocks', containerId: boardId, blocks: [wireOf(block)] };
 }
 
 export function wireOf(block: StoredBlock): BoardView | CardSummary | Comment | Attachment {

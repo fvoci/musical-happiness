@@ -66,7 +66,7 @@ interface DeletedContainer {
 
 interface Watcher {
   /** Undefined: listens to the reader's own things. */
-  boardId: string | undefined;
+  containerId: string | undefined;
   userId: string;
   listener: ChangeListener;
   /** Of a wiki: whether the watcher reads it, as of the last change told. */
@@ -152,7 +152,8 @@ export class World {
   }
 
   watch(watcher: Watcher): () => void {
-    if (watcher.boardId !== undefined) watcher.reads = reads(this, watcher.userId, watcher.boardId);
+    if (watcher.containerId !== undefined)
+      watcher.reads = reads(this, watcher.userId, watcher.containerId);
     this.#watchers.add(watcher);
     return () => {
       this.#watchers.delete(watcher);
@@ -165,32 +166,33 @@ export class World {
    * (made private, or taken off it) is told that it is gone for them, once;
    * who does not read it is told nothing.
    */
-  tellBoard(boardId: string, change: Change): void {
-    if (this.containers.get(boardId)?.kind !== 'wiki') {
-      this.#tell((watcher) => watcher.boardId === boardId, change);
+  tellContainer(containerId: string, change: Change): void {
+    if (this.containers.get(containerId)?.kind !== 'wiki') {
+      this.#tell((watcher) => watcher.containerId === containerId, change);
       return;
     }
-    const watching = [...this.#watchers].filter((watcher) => watcher.boardId === boardId);
+    const watching = [...this.#watchers].filter((watcher) => watcher.containerId === containerId);
     const before = new Map(watching.map((watcher) => [watcher, watcher.reads === true]));
-    for (const watcher of watching) watcher.reads = reads(this, watcher.userId, boardId);
-    this.#tell((watcher) => watcher.boardId === boardId && watcher.reads === true, change);
+    for (const watcher of watching) watcher.reads = reads(this, watcher.userId, containerId);
+    this.#tell((watcher) => watcher.containerId === containerId && watcher.reads === true, change);
     this.#tell((watcher) => before.get(watcher) === true && watcher.reads !== true, {
-      kind: 'boardDeleted',
-      boardId,
+      kind: 'containerDeleted',
+      containerId,
     });
   }
 
   /** Tells the given users, wherever they are. */
   tellUsers(userIds: readonly string[], change: Change): void {
     this.#tell(
-      (watcher) => watcher.boardId === undefined && userIds.includes(watcher.userId),
+      (watcher) => watcher.containerId === undefined && userIds.includes(watcher.userId),
       change,
     );
   }
 
-  /** Tells the user, wherever they are, that a board is gone for them, unless they still read it (an open wiki). */
-  tellGone(userId: string, boardId: string): void {
-    if (!reads(this, userId, boardId)) this.tellUsers([userId], { kind: 'boardDeleted', boardId });
+  /** Tells the user, wherever they are, that a board or wiki is gone for them, unless they still read it (an open wiki). */
+  tellGone(userId: string, containerId: string): void {
+    if (!reads(this, userId, containerId))
+      this.tellUsers([userId], { kind: 'containerDeleted', containerId });
   }
 
   #tell(wanted: (watcher: Watcher) => boolean, change: Change): void {

@@ -456,7 +456,7 @@ export interface Backend
 
   // Changes as they happen.
   /** Listens to the changes of one board. Returns the function that stops listening. */
-  watchBoard(boardId: string, listener: ChangeListener): () => void;
+  watchContainer(containerId: string, listener: ChangeListener): () => void;
   /**
    * Listens to the changes of the reader's own things: the boards they can
    * see and the sidebar of the workspace entered (`enter`), and their settings.

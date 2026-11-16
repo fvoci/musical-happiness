@@ -46,7 +46,7 @@ async fn reader(
     socket
         .send(json!({
             "action": "SET_PRESENCE", "workspaceId": TEST_WORKSPACE_ID,
-            "boardId": board_id, "readToken": token,
+            "containerId": board_id, "readToken": token,
         }))
         .await;
     let told = socket.unsubscribed_message(QUIET).await;
@@ -58,7 +58,7 @@ async fn member_on(th: &TestServer, board_id: &str) -> Socket {
     let mut member = Socket::connect_as(&th.client).await;
     member
         .send(json!({
-            "action": "SET_PRESENCE", "workspaceId": TEST_WORKSPACE_ID, "boardId": board_id,
+            "action": "SET_PRESENCE", "workspaceId": TEST_WORKSPACE_ID, "containerId": board_id,
         }))
         .await;
     member
@@ -109,7 +109,7 @@ async fn visit(socket: &mut Socket, board_id: &str, token: &str) {
     socket
         .send(json!({
             "action": "SET_PRESENCE", "workspaceId": TEST_WORKSPACE_ID,
-            "boardId": board_id, "readToken": token,
+            "containerId": board_id, "readToken": token,
         }))
         .await;
 }
@@ -135,7 +135,7 @@ fn is_refusal(told: Option<&Value>) -> bool {
 #[tokio::test]
 async fn one_address_reads_a_board_up_to_its_limit_and_others_go_on() {
     let th = server(|config| {
-        config.public_link_connections_per_board = 5;
+        config.public_link_connections_per_container = 5;
         config.public_link_connections_per_address = 2;
     })
     .await;
@@ -167,7 +167,7 @@ async fn one_address_reads_a_board_up_to_its_limit_and_others_go_on() {
 #[tokio::test]
 async fn a_board_reads_up_to_its_limit_and_takes_one_again_when_one_leaves() {
     let th = server(|config| {
-        config.public_link_connections_per_board = 2;
+        config.public_link_connections_per_container = 2;
         config.public_link_connections_per_address = 10;
     })
     .await;
@@ -196,7 +196,7 @@ async fn a_board_reads_up_to_its_limit_and_takes_one_again_when_one_leaves() {
 #[tokio::test]
 async fn visitors_alone_fill_a_board_and_a_renewal_takes_a_place_freed() {
     let th = server(|config| {
-        config.public_link_connections_per_board = 2;
+        config.public_link_connections_per_container = 2;
         config.public_link_connections_per_address = 10;
     })
     .await;
@@ -213,7 +213,7 @@ async fn visitors_alone_fill_a_board_and_a_renewal_takes_a_place_freed() {
     );
     // The first leaves the board, its connection open.
     first
-        .send(json!({"action": "SET_PRESENCE", "boardId": ""}))
+        .send(json!({"action": "SET_PRESENCE", "containerId": ""}))
         .await;
     anonymous_reaches(&mut member, 1).await;
     visit(&mut third, &board_id, &token).await;
@@ -226,7 +226,7 @@ async fn visitors_alone_fill_a_board_and_a_renewal_takes_a_place_freed() {
 #[tokio::test]
 async fn unsubscribing_frees_a_place() {
     let th = server(|config| {
-        config.public_link_connections_per_board = 1;
+        config.public_link_connections_per_container = 1;
         config.public_link_connections_per_address = 10;
     })
     .await;

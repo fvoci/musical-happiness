@@ -180,7 +180,7 @@ export async function typeAsSomebodyElse(
     async ({ wikiId, pageId, waitFor: expected, typed: text }) => {
       const workspaceId = location.pathname.split('/')[2] ?? '';
       const other = (window as unknown as DevWindow).fvociDev.someoneElse();
-      other.presence.setPresence({ workspaceId, boardId: wikiId, cardId: pageId });
+      other.presence.setPresence({ workspaceId, containerId: wikiId, cardId: pageId });
       const opened = other.openDoc(workspaceId, wikiId, pageId, {
         state: () => undefined,
         discarded: () => undefined,

@@ -208,13 +208,13 @@ export class MemoryBackend implements Backend {
     block.modifiedBy = this.userId;
   }
 
-  #tellBlocks(boardId: string, blocks: readonly StoredBlock[]): void {
-    this.world.tellBoard(boardId, { kind: 'blocks', boardId, blocks: blocks.map(wireOf) });
+  #tellBlocks(id: string, blocks: readonly StoredBlock[]): void {
+    this.world.tellContainer(id, { kind: 'blocks', containerId: id, blocks: blocks.map(wireOf) });
   }
 
   #tellContainer(board: Container): void {
-    this.world.tellBoard(board.id, { kind: 'board', board: copy(board) });
-    this.world.tellUsers(this.#memberIds(board.id), { kind: 'board', board: copy(board) });
+    this.world.tellContainer(board.id, { kind: 'container', container: copy(board) });
+    this.world.tellUsers(this.#memberIds(board.id), { kind: 'container', container: copy(board) });
   }
 
   #newBlock(boardId: string, parentId: string, type: StoredBlock['type']): StoredBlock {
@@ -401,8 +401,8 @@ export class MemoryBackend implements Backend {
       }
     }
     const userIds = members.map((member) => member.userId);
-    this.world.tellBoard(id, { kind: 'boardDeleted', boardId: id });
-    this.world.tellUsers(userIds, { kind: 'boardDeleted', boardId: id });
+    this.world.tellContainer(id, { kind: 'containerDeleted', containerId: id });
+    this.world.tellUsers(userIds, { kind: 'containerDeleted', containerId: id });
   }
 
   /** As the server: for who was its admin; filed again where each person had it. */
@@ -591,7 +591,7 @@ export class MemoryBackend implements Backend {
     const member = memberOf(id, userId, role);
     this.#setMembers(id, [...members, member]);
     this.#fileAsNew(userId, this.#container(id));
-    this.world.tellUsers([userId], { kind: 'board', board: copy(this.#container(id)) });
+    this.world.tellUsers([userId], { kind: 'container', container: copy(this.#container(id)) });
     return copy(member);
   }
 
@@ -627,7 +627,7 @@ export class MemoryBackend implements Backend {
 
   #setMembers(id: string, members: ContainerMember[]): void {
     this.world.members.set(id, members);
-    this.world.tellBoard(id, { kind: 'members', boardId: id, members: copy(members) });
+    this.world.tellContainer(id, { kind: 'members', containerId: id, members: copy(members) });
   }
 
   async sharing(id: string): Promise<Sharing> {
@@ -995,9 +995,9 @@ export class MemoryBackend implements Backend {
     }
     for (const each of gone) this.world.blocks.delete(each.id);
     this.world.deletedBlocks.set(blockId, entry);
-    this.world.tellBoard(boardId, {
+    this.world.tellContainer(boardId, {
       kind: 'blocksDeleted',
-      boardId,
+      containerId: boardId,
       blockIds: gone.map((each) => each.id),
     });
   }
@@ -1075,12 +1075,12 @@ export class MemoryBackend implements Backend {
     return memberFileUrl(this.world, this.userId, id, fileId);
   }
 
-  watchBoard(boardId: string, listener: ChangeListener): () => void {
-    return this.world.watch({ boardId, userId: this.userId, listener });
+  watchContainer(containerId: string, listener: ChangeListener): () => void {
+    return this.world.watch({ containerId, userId: this.userId, listener });
   }
 
   watchSelf(listener: ChangeListener): () => void {
-    return this.world.watch({ boardId: undefined, userId: this.userId, listener });
+    return this.world.watch({ containerId: undefined, userId: this.userId, listener });
   }
 
   openDoc(_workspaceId: string, boardId: string, cardId: string, hears: BodyDocHears): BodyDoc {

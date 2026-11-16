@@ -53,10 +53,10 @@ const BLOCK = {
 };
 
 const reads: LiveReads = {
-  members: (boardId) =>
+  members: (containerId) =>
     Promise.resolve([
       {
-        containerId: boardId,
+        containerId,
         userId: 'u',
         minimumRole: '',
         schemeAdmin: true,
@@ -139,8 +139,8 @@ describe('changes from the server', () => {
     });
     await settle();
     expect(board).toMatchObject([
-      { kind: 'blocks', boardId: 'b1', blocks: [{ id: 'c1', type: 'card', title: 'A card' }] },
-      { kind: 'blocksDeleted', boardId: 'b1', blockIds: ['c1'] },
+      { kind: 'blocks', containerId: 'b1', blocks: [{ id: 'c1', type: 'card', title: 'A card' }] },
+      { kind: 'blocksDeleted', containerId: 'b1', blockIds: ['c1'] },
     ]);
     expect(other).toEqual([]);
     expect(self).toEqual([]);
@@ -167,18 +167,18 @@ describe('changes from the server', () => {
       updateAt: 2,
     };
     socket.message({
-      action: 'UPDATE_BOARD',
+      action: 'UPDATE_CONTAINER',
       workspaceId: 't',
-      board: { ...shape, id: 'b1', deleteAt: 0 },
+      container: { ...shape, id: 'b1', deleteAt: 0 },
     });
     socket.message({
-      action: 'UPDATE_BOARD',
+      action: 'UPDATE_CONTAINER',
       workspaceId: 't',
-      board: { ...shape, id: 'b1', deleteAt: 9 },
+      container: { ...shape, id: 'b1', deleteAt: 9 },
     });
     await settle();
-    expect(board.map((change) => change.kind)).toEqual(['board', 'boardDeleted']);
-    expect(self.map((change) => change.kind)).toEqual(['board', 'boardDeleted']);
+    expect(board.map((change) => change.kind)).toEqual(['container', 'containerDeleted']);
+    expect(self.map((change) => change.kind)).toEqual(['container', 'containerDeleted']);
   });
 
   it('reads all the members of a watched board when one changes, and the sidebar soon after', async () => {
@@ -196,7 +196,9 @@ describe('changes from the server', () => {
       member: { containerId: 'b9', userId: 'u2' },
     });
     await settle();
-    expect(board).toMatchObject([{ kind: 'members', boardId: 'b1', members: [{ userId: 'u' }] }]);
+    expect(board).toMatchObject([
+      { kind: 'members', containerId: 'b1', members: [{ userId: 'u' }] },
+    ]);
     expect(members.mock.calls).toEqual([['b1']]);
     // Being added to a board, or taken off one, shows in the sidebar: read once for both.
     expect(self).toEqual([]);
@@ -227,7 +229,7 @@ describe('changes from the server', () => {
     await settle();
     answer([]);
     await settle();
-    expect(board).toEqual([{ kind: 'boardDeleted', boardId: 'b1' }]);
+    expect(board).toEqual([{ kind: 'containerDeleted', containerId: 'b1' }]);
     members.mockRestore();
   });
 
@@ -294,16 +296,16 @@ describe('changes from the server', () => {
       { action: 'SUBSCRIBE_WORKSPACE', workspaceId: 't2' },
     ]);
     const board = (workspaceId: string, id: string): unknown => ({
-      action: 'UPDATE_BOARD',
+      action: 'UPDATE_CONTAINER',
       workspaceId,
-      board: { id, workspaceId, deleteAt: 0, title: id, cardProperties: [], properties: {} },
+      container: { id, workspaceId, deleteAt: 0, title: id, cardProperties: [], properties: {} },
     });
     socket.message(board('t', 'old'));
     socket.message(board('t2', 'new'));
     await settle();
-    expect(self.map((change) => (change.kind === 'board' ? change.board.id : change.kind))).toEqual(
-      ['new'],
-    );
+    expect(
+      self.map((change) => (change.kind === 'container' ? change.container.id : change.kind)),
+    ).toEqual(['new']);
   });
 
   it('subscribes a connection that opens after entering to the workspace entered last', async () => {

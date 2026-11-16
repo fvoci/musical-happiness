@@ -75,7 +75,7 @@ describe('the rooms of the backend in memory', () => {
   it('lets two readers edit one body together, and writes the card from it', async () => {
     const { world: stored, backend, other, boardId, cardId } = world();
     const changes: Change[] = [];
-    backend.watchBoard(boardId, (change) => changes.push(change));
+    backend.watchContainer(boardId, (change) => changes.push(change));
     const mine = backend.openDoc('w', boardId, cardId, listener());
     const theirs = other.openDoc('w', boardId, cardId, listener());
     const [a, b] = await Promise.all([joined(mine), joined(theirs)]);
@@ -347,7 +347,7 @@ describe('a room on the page connection', () => {
       mode: 'write',
     });
     // A message of the subscription comes between the join and the whole: no harm.
-    socket().message({ action: 'UPDATE_BOARD', workspaceId: 'w1', board: { id: 'b' } });
+    socket().message({ action: 'UPDATE_CONTAINER', workspaceId: 'w1', container: { id: 'b' } });
     socket().binary(encodeDocFrame({ doc: 5, epoch: 2, sync: SYNC_STEP_2, payload: whole() }));
     expect(body.state.status).toBe('joined');
     const doc = body.state.doc;

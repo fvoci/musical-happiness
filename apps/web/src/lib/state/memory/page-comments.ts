@@ -69,9 +69,9 @@ function commentOn(on: OnPage, commentId: string): StoredBlock {
 }
 
 function tell(on: OnPage, comment: StoredBlock): void {
-  on.world.tellBoard(on.wikiId, {
+  on.world.tellContainer(on.wikiId, {
     kind: 'blocks',
-    boardId: on.wikiId,
+    containerId: on.wikiId,
     blocks: [commentOf(comment)],
   });
 }
@@ -142,9 +142,9 @@ export function deleteComment(on: OnPage, commentId: string): void {
     blocks: [comment],
     ...deletion(on),
   });
-  on.world.tellBoard(on.wikiId, {
+  on.world.tellContainer(on.wikiId, {
     kind: 'blocksDeleted',
-    boardId: on.wikiId,
+    containerId: on.wikiId,
     blockIds: [commentId],
   });
 }

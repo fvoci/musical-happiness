@@ -160,16 +160,15 @@ pub struct CategoryContainers {
     pub container_metadata: Vec<CategoryContainerMetadata>,
 }
 
-/// The payload of the websocket message sent when a board moves between categories or is
-/// hidden.
+/// The payload of the websocket message sent when a board or a wiki moves between categories
+/// or is hidden.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct ContainerCategoryWebsocketData {
-    /// The identifier of the board.
-    #[serde(rename = "boardId")]
+    /// The identifier of the board or wiki.
     pub container_id: String,
-    /// The identifier of the category the board is now in.
+    /// The identifier of the category it is now in.
     pub category_id: String,
-    /// Whether the board is hidden from the sidebar.
+    /// Whether it is hidden from the sidebar.
     pub hidden: bool,
 }
