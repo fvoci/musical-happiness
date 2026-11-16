@@ -365,7 +365,7 @@ describe('an import from the settings', () => {
     const line = () => screen.getByTestId('import-left-out');
 
     await choose();
-    expect(line()).toHaveTextContent(/^Members left out of the archive's boards, .*: 2\.$/);
+    expect(line()).toHaveTextContent(/^Members left out of the archive's boards and wikis, .*: 2\.$/);
     expect(line()).toHaveAttribute('role', 'status');
     await choose();
     expect(line()).toBeEmptyDOMElement();

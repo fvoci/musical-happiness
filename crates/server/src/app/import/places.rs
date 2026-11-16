@@ -12,6 +12,7 @@ use fvoci_model::{
 };
 use fvoci_store::StoreError;
 
+use crate::app::pages::refused_without_member;
 use crate::error::AppError;
 
 /// Checks the blocks of each board of `boards_and_blocks` against the kind of their
@@ -143,12 +144,12 @@ fn check_tree(wiki_id: &str, blocks: &[&Block], limits: PageLimits) -> Result<()
         .copied()
         .filter(|block| block.block_type == BlockType::Page)
         .collect();
-    let refused_whole = |source| -> AppError {
-        StoreError::InvalidBlock {
+    // Of the whole wiki: as a copy of it is refused, naming no member of a request.
+    let refused_whole = |source| {
+        refused_without_member(StoreError::InvalidBlock {
             id: wiki_id.to_owned(),
             source,
-        }
-        .into()
+        })
     };
     // Counted before anything is walked: an archive of many pages is refused at once.
     if usize::try_from(limits.pages).is_ok_and(|most| pages.len() > most) {
@@ -175,18 +176,15 @@ fn check_tree(wiki_id: &str, blocks: &[&Block], limits: PageLimits) -> Result<()
             ..PageNode::default()
         })
         .collect();
-    // Each page below the top once: a page that the top does not lead to is below itself.
-    let reached: usize = tree
-        .siblings("", "")
+    // A page that the top does not lead to is below itself, or below one that is.
+    let mut reached: HashSet<&str> = HashSet::with_capacity(tree.len());
+    for top in tree.siblings("", "") {
+        reached.extend(tree.below(&top.id));
+    }
+    if let Some(looped) = pages
         .iter()
-        .map(|top| tree.below(&top.id).len())
-        .sum();
-    if reached < tree.len() {
-        let looped = pages
-            .iter()
-            .find(|page| tree.depth(&page.id) > tree.len())
-            .copied()
-            .unwrap_or(pages[0]);
+        .find(|page| !reached.contains(page.id.as_str()))
+    {
         return Err(refused(looped, BlockError::ParentBelowBlock));
     }
     tree.check_whole(limits).map_err(refused_whole)

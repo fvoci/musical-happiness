@@ -4,6 +4,7 @@ import DownloadIcon from '@lucide/svelte/icons/download';
 import type { MenuAction } from '$lib/components/menu/actions.ts';
 import { m } from '$lib/i18n/paraglide/messages.js';
 import { saveBlob } from '$lib/save.ts';
+import type { Board } from '$lib/logic/wire.ts';
 import type { Workspace } from '$lib/state/index.ts';
 
 /** Saves an archive of the board or wiki, once it has all arrived. */
@@ -15,7 +16,7 @@ async function exportBoard(workspace: Workspace, boardId: string): Promise<void>
 /** The entry of a board's or a wiki's menu that saves it as an archive: a guest's too. */
 export function exportAction(
   workspace: Workspace,
-  board: { id: string; kind?: string },
+  board: Pick<Board, 'id' | 'kind'>,
   separated = false,
 ): MenuAction {
   const boardId = board.id;
