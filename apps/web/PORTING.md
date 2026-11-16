@@ -107,7 +107,7 @@ apps/web/
 
 ## 고정한 판
 
-2026-11-10 16:50 KST에 확인했다.
+2026-11-10 16:50 KST에 확인했고, 2026-11-16 10:44 KST에 패치·마이너 판을 다시 올렸다.
 
 출처는 npm 레지스트리다. 패키지마다 `npm view <이름> version`(dist-tag `latest`)과 `npm view <이름> "time[<판>]"`(공개 시각)을 조회했고, 호환 범위는 `npm view <이름> peerDependencies`로 확인했다. 기억으로 정한 판은 없다.
 
@@ -115,42 +115,42 @@ apps/web/
 
 | 패키지                                               | 고정 판 | 공개 (UTC) | 메모                                                                                                                             |
 | ---------------------------------------------------- | ------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| pnpm                                                 | 12.18.0 | 2026-11-05 | `packageManager`에 sha512와 함께 적었다                                                                                          |
+| pnpm                                                 | 12.21.0 | 2026-11-13 | `packageManager`에 sha512와 함께 적었다                                                                                          |
 | svelte                                               | 5.57.3  | 2026-10-26 |                                                                                                                                  |
-| vite                                                 | 8.3.6   | 2026-11-05 | `latest`는 8.3.7(2026-11-09 10:25, 확인 시점에 22시간 전). 변경 기록상 Rolldown 갱신이고 보안 수정이 아니어서 직전 판으로 뒀다   |
+| vite                                                 | 8.3.8   | 2026-11-11 |                                                                                                                                  |
 | @sveltejs/vite-plugin-svelte                         | 7.3.1   | 2026-09-23 |                                                                                                                                  |
 | typescript                                           | 6.0.3   | 2026-04-16 | `latest`는 7.0.2. `svelte-check` 4.7.8의 peer가 `^5 \|\| ^6`, `typescript-eslint` 8.72의 peer가 `<6.1.0`이라 6.x의 최신으로 뒀다 |
 | tailwindcss, @tailwindcss/vite                       | 4.3.5   | 2026-11-06 |                                                                                                                                  |
-| bits-ui                                              | 2.20.6  | 2026-11-05 |                                                                                                                                  |
-| shadcn-svelte (CLI, CSS)                             | 1.8.0   | 2026-11-03 | `shadcn-svelte/tailwind.css`를 가져오므로 의존성이기도 하다                                                                      |
+| bits-ui                                              | 2.21.0  | 2026-11-11 |                                                                                                                                  |
+| shadcn-svelte (CLI, CSS)                             | 1.8.1   | 2026-11-11 | `shadcn-svelte/tailwind.css`를 가져오므로 의존성이기도 하다                                                                      |
 | cn                                                   | 0.5.2   | 2026-11-02 | 생성된 `utils.ts`가 쓴다                                                                                                         |
 | tailwind-variants                                    | 3.3.1   | 2026-08-03 | `latest`는 4.0.2. CLI가 요구한 범위가 `^3.3.0`이고 4.x는 새 메이저다                                                             |
 | tw-animate-css                                       | 1.4.0   | 2025-09-24 |                                                                                                                                  |
-| @lucide/svelte                                       | 1.70.0  | 2026-11-06 | `latest` 1.71.0은 확인 2시간 전에 공개됐다                                                                                       |
+| @lucide/svelte                                       | 1.73.0  | 2026-11-14 |                                                                                                                                  |
 | svelte-sonner                                        | 1.2.3   | 2026-11-02 |                                                                                                                                  |
 | @internationalized/date                              | 3.12.4  | 2026-09-01 | bits-ui의 peer, 달력 컴포넌트가 쓴다                                                                                             |
-| @inlang/paraglide-js                                 | 3.2.1   | 2026-11-07 |                                                                                                                                  |
+| @inlang/paraglide-js                                 | 3.2.2   | 2026-11-10 |                                                                                                                                  |
 | @inlang/plugin-message-format                        | 4.6.0   | 2026-11-03 | `project.inlang/settings.json`이 CDN 주소가 아니라 `node_modules`의 파일을 가리킨다                                              |
 | vitest                                               | 5.1.0   | 2026-11-02 |                                                                                                                                  |
-| jsdom                                                | 31.0.0  | 2026-11-05 |                                                                                                                                  |
+| jsdom                                                | 31.0.1  | 2026-11-13 |                                                                                                                                  |
 | @testing-library/svelte                              | 5.4.2   | 2026-06-23 |                                                                                                                                  |
 | @testing-library/jest-dom                            | 7.0.1   | 2026-08-09 |                                                                                                                                  |
-| @playwright/test                                     | 1.65.0  | 2026-11-05 | Chromium 빌드 1254                                                                                                               |
-| storybook, @storybook/svelte, @storybook/svelte-vite | 10.6.6  | 2026-11-05 |                                                                                                                                  |
+| @playwright/test                                     | 1.65.1  | 2026-11-13 | Chromium 빌드 1255                                                                                                               |
+| storybook, @storybook/svelte, @storybook/svelte-vite | 10.6.7  | 2026-11-10 |                                                                                                                                  |
 | svelte-check                                         | 4.7.8   | 2026-11-01 |                                                                                                                                  |
-| eslint                                               | 10.14.0 | 2026-10-30 |                                                                                                                                  |
+| eslint                                               | 10.15.0 | 2026-11-13 |                                                                                                                                  |
 | @eslint/js                                           | 10.0.1  | 2026-02-06 |                                                                                                                                  |
-| typescript-eslint                                    | 8.72.1  | 2026-10-26 | `latest` 8.72.2는 확인 15시간 전에 공개됐다                                                                                      |
+| typescript-eslint                                    | 8.72.2  | 2026-11-09 |                                                                                                                                  |
 | eslint-plugin-svelte                                 | 3.24.1  | 2026-11-07 |                                                                                                                                  |
 | eslint-config-prettier                               | 10.1.8  | 2025-07-18 |                                                                                                                                  |
 | globals                                              | 17.14.0 | 2026-11-01 |                                                                                                                                  |
-| prettier                                             | 3.9.10  | 2026-10-10 |                                                                                                                                  |
+| prettier                                             | 3.10.1  | 2026-11-12 |                                                                                                                                  |
 | prettier-plugin-svelte                               | 4.1.1   | 2026-06-15 |                                                                                                                                  |
 | prettier-plugin-tailwindcss                          | 0.8.1   | 2026-07-15 |                                                                                                                                  |
 | @types/node                                          | 26.6.6  | 2026-10-28 | Node 26.13.0에서 작업했다                                                                                                        |
 | subset-font                                          | 2.9.0   | 2026-09-20 | 글꼴 도구. HarfBuzz의 WebAssembly 빌드를 쓴다                                                                                    |
 | @tiptap/core, @tiptap/pm, 확장 15개                  | 3.33.0  | 2026-11-05 | 편집기 스파이크(2026-11-10 18:26 KST 확인). 묶음(`starter-kit`)은 쓰지 않는다                                                    |
-| marked                                               | 18.1.3  | 2026-11-02 | 마크다운 가져오기. `latest` 18.2.0은 확인 10시간 전에 공개됐다                                                                   |
+| marked                                               | 18.2.0  | 2026-11-09 | 마크다운 가져오기                                                                                                                |
 | fast-check                                           | 4.10.2  | 2026-09-19 | 속성 기반 테스트(2026-11-10 18:45 KST 확인)                                                                                      |
 
 Tiptap은 편집기 스파이크에서 넣었다(`docs/spike-editor.md`).

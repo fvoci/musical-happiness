@@ -21,6 +21,11 @@
       "reason": "Glob matcher used by ESLint and other tools. Not in the output."
     },
     {
+      "name": "@isaacs/nonrecursive-glob-match",
+      "license": "BlueOak-1.0.0",
+      "reason": "Part of minimatch since 11.0.8, which ESLint uses. Not in the output."
+    },
+    {
       "name": "tslib",
       "license": "0BSD",
       "reason": "Runtime helpers of the WebAssembly loaders inside Storybook and the message compiler. Not in the output."

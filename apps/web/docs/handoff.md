@@ -81,7 +81,7 @@
 
   ```bash
   cd <워크트리 루트>
-  npm install --prefix target/tools/node pnpm@12.18.0
+  npm install --prefix target/tools/node pnpm@12.21.0
   export PATH=$PWD/target/tools/node/node_modules/.bin:$PATH
   ```
 
