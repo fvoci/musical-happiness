@@ -446,11 +446,13 @@ async fn forgeries_are_refused() {
     let users_now = users(&ts).await;
     for forgery in [
         Forgery::Audience,
+        Forgery::AudienceNotText,
         Forgery::Issuer,
         Forgery::Expired,
         Forgery::Nonce,
         Forgery::OtherKey,
         Forgery::AlgNone,
+        Forgery::UnknownCritical,
     ] {
         fake.forge(forgery);
         assert_eq!(

@@ -7,11 +7,12 @@ generated; see about.toml.
 ================================================================================
 Overview
 ================================================================================
-MIT License (306)
+MIT License (307)
 ISC License (26)
 Unicode License v3 (21)
 BSD 3-Clause "New" or "Revised" License (13)
 Apache License 2.0 (6)
+BSD 2-Clause "Simplified" License (1)
 Community Data License Agreement Permissive 2.0 (1)
 MIT No Attribution (1)
 zlib License (1)
@@ -802,6 +803,43 @@ limitations under the License.
 
 
 --------------------------------------------------------------------------------
+BSD 2-Clause "Simplified" License
+--------------------------------------------------------------------------------
+Used by:
+  zstd-sys 2.1.3+zstd.1.5.7 (https://github.com/gyscos/zstd-rs)
+
+The decoders for legacy formats, in zstd/lib/legacy/, include code under the
+2-clause BSD license:
+
+BSD 2-Clause License
+
+Copyright (C) 2013-2016, Yann Collet.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are
+met:
+
+    * Redistributions of source code must retain the above copyright
+notice, this list of conditions and the following disclaimer.
+    * Redistributions in binary form must reproduce the above
+copyright notice, this list of conditions and the following disclaimer
+in the documentation and/or other materials provided with the
+distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+
+--------------------------------------------------------------------------------
 BSD 3-Clause "New" or "Revised" License
 --------------------------------------------------------------------------------
 Used by:
@@ -904,9 +942,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 BSD 3-Clause "New" or "Revised" License
 --------------------------------------------------------------------------------
 Used by:
-  zstd-safe 8.2.0 (https://github.com/gyscos/zstd-rs)
-  zstd-sys 2.1.2+zstd.1.5.7 (https://github.com/gyscos/zstd-rs)
-  zstd 0.14.3 (https://github.com/gyscos/zstd-rs)
+  zstd-safe 8.3.0 (https://github.com/gyscos/zstd-rs)
+  zstd-sys 2.1.3+zstd.1.5.7 (https://github.com/gyscos/zstd-rs)
+  zstd 0.14.4 (https://github.com/gyscos/zstd-rs)
 
 BSD 3-Clause License
 
@@ -942,7 +980,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 BSD 3-Clause "New" or "Revised" License
 --------------------------------------------------------------------------------
 Used by:
-  zstd-sys 2.1.2+zstd.1.5.7 (https://github.com/gyscos/zstd-rs)
+  zstd-sys 2.1.3+zstd.1.5.7 (https://github.com/gyscos/zstd-rs)
 
 BSD License
 
@@ -981,7 +1019,7 @@ BSD 3-Clause "New" or "Revised" License
 --------------------------------------------------------------------------------
 Used by:
   alloc-no-stdlib 3.0.0 (https://github.com/dropbox/rust-alloc-no-stdlib)
-  brotli 9.1.1 (https://github.com/dropbox/rust-brotli)
+  brotli 9.1.3 (https://github.com/dropbox/rust-brotli)
 
 Copyright (c) 2016 Dropbox, Inc.
 All rights reserved.
@@ -1092,7 +1130,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 BSD 3-Clause "New" or "Revised" License
 --------------------------------------------------------------------------------
 Used by:
-  zstd-sys 2.1.2+zstd.1.5.7 (https://github.com/gyscos/zstd-rs)
+  zstd-sys 2.1.3+zstd.1.5.7 (https://github.com/gyscos/zstd-rs)
 
 The auto-generated bindings are under the 3-clause BSD license:
 
@@ -1132,7 +1170,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 Community Data License Agreement Permissive 2.0
 --------------------------------------------------------------------------------
 Used by:
-  webpki-root-certs 1.0.11 (https://github.com/rustls/webpki-roots)
+  webpki-root-certs 1.0.12 (https://github.com/rustls/webpki-roots)
 
 # Community Data License Agreement - Permissive - Version 2.0
 
@@ -1924,7 +1962,7 @@ CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ISC License
 --------------------------------------------------------------------------------
 Used by:
-  rustls-webpki 0.103.16 (https://github.com/rustls/webpki)
+  rustls-webpki 0.103.17 (https://github.com/rustls/webpki)
 
 Except as otherwise noted, this project is licensed under the following
 (ISC-style) terms:
@@ -2118,7 +2156,7 @@ DEALINGS IN THE SOFTWARE.
 MIT License
 --------------------------------------------------------------------------------
 Used by:
-  brotli 9.1.1 (https://github.com/dropbox/rust-brotli)
+  brotli 9.1.3 (https://github.com/dropbox/rust-brotli)
 
 Copyright (c) 2009, 2010, 2013-2016 by the Brotli Authors.
 
@@ -2317,7 +2355,7 @@ DEALINGS IN THE SOFTWARE.
 MIT License
 --------------------------------------------------------------------------------
 Used by:
-  mio 1.2.4 (https://github.com/tokio-rs/mio)
+  mio 1.2.5 (https://github.com/tokio-rs/mio)
 
 Copyright (c) 2014 Carl Lerche and other MIO contributors
 
@@ -2344,7 +2382,7 @@ THE SOFTWARE.
 MIT License
 --------------------------------------------------------------------------------
 Used by:
-  errno 0.3.14 (https://github.com/lambda-fairy/rust-errno)
+  errno 0.3.15 (https://github.com/lambda-fairy/rust-errno)
 
 Copyright (c) 2014 Chris Wong
 
@@ -3968,39 +4006,6 @@ DEALINGS IN THE SOFTWARE.
 MIT License
 --------------------------------------------------------------------------------
 Used by:
-  signature 2.2.0 (https://github.com/RustCrypto/traits/tree/master/signature)
-
-Copyright (c) 2018-2023 RustCrypto Developers
-
-Permission is hereby granted, free of charge, to any
-person obtaining a copy of this software and associated
-documentation files (the "Software"), to deal in the
-Software without restriction, including without
-limitation the rights to use, copy, modify, merge,
-publish, distribute, sublicense, and/or sell copies of
-the Software, and to permit persons to whom the Software
-is furnished to do so, subject to the following
-conditions:
-
-The above copyright notice and this permission notice
-shall be included in all copies or substantial portions
-of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
-ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
-TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
-PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
-SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
-IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-DEALINGS IN THE SOFTWARE.
-
-
---------------------------------------------------------------------------------
-MIT License
---------------------------------------------------------------------------------
-Used by:
   try-lock 0.2.5 (https://github.com/seanmonstar/try-lock)
 
 Copyright (c) 2018-2023 Sean McArthur
@@ -4101,6 +4106,39 @@ Used by:
 
 Copyright (c) 2018-2025 The rust-random Project Developers
 Copyright (c) 2014 The Rust Project Developers
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+
+--------------------------------------------------------------------------------
+MIT License
+--------------------------------------------------------------------------------
+Used by:
+  signature 3.0.0 (https://github.com/RustCrypto/traits)
+
+Copyright (c) 2018-2026 RustCrypto Developers
 
 Permission is hereby granted, free of charge, to any
 person obtaining a copy of this software and associated
@@ -4351,7 +4389,7 @@ DEALINGS IN THE SOFTWARE.
 MIT License
 --------------------------------------------------------------------------------
 Used by:
-  bumpalo 3.20.3 (https://github.com/fitzgen/bumpalo)
+  bumpalo 3.20.4 (https://github.com/fitzgen/bumpalo)
 
 Copyright (c) 2019 Nick Fitzgerald
 
@@ -4725,7 +4763,7 @@ DEALINGS IN THE SOFTWARE.
 MIT License
 --------------------------------------------------------------------------------
 Used by:
-  const-oid 0.10.2 (https://github.com/RustCrypto/formats)
+  const-oid 0.10.3 (https://github.com/RustCrypto/formats)
   cpufeatures 0.3.1 (https://github.com/RustCrypto/utils)
 
 Copyright (c) 2020-2026 The RustCrypto Project Developers
@@ -4893,7 +4931,7 @@ DEALINGS IN THE SOFTWARE.
 MIT License
 --------------------------------------------------------------------------------
 Used by:
-  rustls-pki-types 1.15.1 (https://github.com/rustls/pki-types)
+  rustls-pki-types 1.16.0 (https://github.com/rustls/pki-types)
 
 Copyright (c) 2023 Dirkjan Ochtman <dirkjan@ochtman.nl>
 
@@ -5120,7 +5158,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 MIT License
 --------------------------------------------------------------------------------
 Used by:
-  rand 0.10.3 (https://github.com/rust-random/rand)
+  rand 0.10.4 (https://github.com/rust-random/rand)
   rand 0.9.5 (https://github.com/rust-random/rand)
   rand_chacha 0.9.0 (https://github.com/rust-random/rand)
   rand_core 0.9.5 (https://github.com/rust-random/rand)
@@ -5655,7 +5693,7 @@ Used by:
   fvoci-model 0.1.0
   fvoci-server 0.1.0
   fvoci-store 0.1.0
-  brotli-decompressor 6.3.1 (https://github.com/dropbox/rust-brotli-decompressor)
+  brotli-decompressor 6.3.2 (https://github.com/dropbox/rust-brotli-decompressor)
   chrono-tz 0.10.4 (https://github.com/chronotope/chrono-tz)
   chrono 0.4.45 (https://github.com/chronotope/chrono)
   jni-macros 0.22.4 (https://github.com/jni-rs/jni-rs)
@@ -5676,6 +5714,7 @@ Used by:
   windows-result 0.4.1 (https://github.com/microsoft/windows-rs)
   windows-strings 0.5.1 (https://github.com/microsoft/windows-rs)
   windows-sys 0.52.0 (https://github.com/microsoft/windows-rs)
+  windows-sys 0.59.0 (https://github.com/microsoft/windows-rs)
   windows-sys 0.61.2 (https://github.com/microsoft/windows-rs)
   windows-targets 0.52.6 (https://github.com/microsoft/windows-rs)
   windows_aarch64_gnullvm 0.52.6 (https://github.com/microsoft/windows-rs)
@@ -6090,7 +6129,7 @@ MIT License
 --------------------------------------------------------------------------------
 Used by:
   tracing-core 0.1.36 (https://github.com/tokio-rs/tracing)
-  zip 9.5.0 (https://github.com/zip-rs/zip2)
+  zip 9.6.0 (https://github.com/zip-rs/zip2)
 
 The MIT License (MIT)
 
@@ -6236,7 +6275,7 @@ THE SOFTWARE.
 MIT License
 --------------------------------------------------------------------------------
 Used by:
-  nix 0.31.3 (https://github.com/nix-rust/nix)
+  nix 0.32.0 (https://github.com/nix-rust/nix)
 
 The MIT License (MIT)
 
@@ -6355,7 +6394,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 MIT License
 --------------------------------------------------------------------------------
 Used by:
-  jsonwebtoken 11.1.0 (https://github.com/Keats/jsonwebtoken)
+  jsonwebtoken 12.0.0 (https://github.com/Keats/jsonwebtoken)
 
 The MIT License (MIT)
 

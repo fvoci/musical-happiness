@@ -18,7 +18,7 @@ proc-macro2 = { version = "1", features = ["span-locations"] }
 quote = { version = "1", default-features = false }
 # Reading what docker and the server answer in `cargo xtask docker`.
 serde_json.workspace = true
-syn = { version = "2", default-features = false, features = ["full", "parsing", "printing", "visit"] }
+syn = { version = "3", default-features = false, features = ["full", "parsing", "printing", "visit"] }
 
 [lints]
 workspace = true

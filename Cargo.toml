@@ -29,7 +29,7 @@ aws-lc-rs = "1"
 argon2 = "0.6"
 axum = { version = "0.8", features = ["ws", "multipart", "macros"] }
 # The alphabet of the secrets: tokens and stored file names. License: MIT OR Apache-2.0.
-base64 = "0.22"
+base64 = "0.23"
 # Brotli, to read compressed answers in the tests (the server's compression has it
 # already). License: BSD-3-Clause AND MIT.
 brotli = "9"
@@ -47,7 +47,7 @@ libc = "0.2"
 # The signatures of the ID tokens of the OpenID Connect providers, checked with aws-lc-rs.
 # The `openidconnect` crate is not used: its 4.x line depends on `rsa` 0.9, which has an
 # advisory (RUSTSEC-2023-0071) with no fixed 0.9 release, and on reqwest 0.12. License: MIT.
-jsonwebtoken = { version = "11", default-features = false, features = ["aws_lc_rs"] }
+jsonwebtoken = { version = "12", default-features = false, features = ["aws_lc_rs"] }
 md-5 = { version = "0.11", default-features = false }
 mime_guess = "2"
 clap = { version = "4", features = ["derive"] }
