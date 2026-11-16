@@ -75,7 +75,7 @@ describe('going somewhere else from inside a drawer', () => {
     const router = new Router('');
     const stop = router.listen();
     const drawer = open();
-    router.openBoard({ id: 'other', workspaceId: 't' });
+    router.openContainer({ id: 'other', workspaceId: 't' });
     drawer.open = false;
     flushSync();
     await settle();

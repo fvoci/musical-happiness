@@ -84,7 +84,7 @@
   const guestLinks = $derived(links.filter((link) => link.role === 'guest'));
 
   const containerTitle = (containerId: string | undefined): string =>
-    workspace.containers.find((board) => board.id === containerId)?.title ||
+    workspace.containers.find((container) => container.id === containerId)?.title ||
     m.invite_board_untitled();
 
   function problemOf(error: unknown, otherwise: string): string {

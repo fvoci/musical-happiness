@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import ManagedBoard from '../src/app/ManagedBoard.svelte';
+  import ManagedContainer from '../src/app/ManagedContainer.svelte';
   import { Router } from '../src/app/router.svelte.ts';
   import { BackendError, type ContainerRole } from '$lib/state/index.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
@@ -18,19 +18,19 @@
     };
   });
   const addMember = example.backend.addMember.bind(example.backend);
-  example.backend.addMember = (boardId: string, userId: string, role: ContainerRole) =>
+  example.backend.addMember = (containerId: string, userId: string, role: ContainerRole) =>
     failJoin
       ? Promise.reject(new BackendError(503, { detail: 'Example refusal' }))
-      : addMember(boardId, userId, role);
+      : addMember(containerId, userId, role);
 </script>
 
 <div class="h-[32rem]" data-testid="managed-example">
   {#if joined}
     <output data-testid="joined-board">{example.workspace.board?.role}</output>
   {:else if example.workspace.board?.missing}
-    <ManagedBoard
+    <ManagedContainer
       workspace={example.workspace}
-      board={example.workspace.board}
+      store={example.workspace.board}
       shown={() => true}
       {router}
       onJoined={() => {

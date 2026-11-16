@@ -254,8 +254,8 @@
     if (workspace?.status === 'ready') void orgAdmin?.load();
   });
 
-  const openBoard = (board: ContainerPlace): void => {
-    router.openBoard(board);
+  const openContainer = (container: ContainerPlace): void => {
+    router.openContainer(container);
   };
 </script>
 
@@ -347,7 +347,7 @@
           const welcome = await whileHere(signedIn, () => signedIn.onboard());
           // The page may be on it already (the first board is shown by itself).
           if (welcome && where && router.route.boardId !== welcome) {
-            router.openBoard({ id: welcome, workspaceId: where });
+            router.openContainer({ id: welcome, workspaceId: where });
           }
         }
       }
@@ -412,10 +412,11 @@
     readRecords={organizations
       ? (workspaceId: string) => organizations?.workspaceRecords(workspaceId) ?? Promise.resolve([])
       : undefined}
-    boardId={router.route.boardId ?? router.route.wikiId}
-    boardHref={(board: ContainerPlace) => router.href(placeRoute(board))}
-    sharedHref={(boardId: string, readToken: string) => router.href({ boardId, readToken })}
-    onOpenBoard={openBoard}
+    containerId={router.route.boardId ?? router.route.wikiId}
+    containerHref={(container: ContainerPlace) => router.href(placeRoute(container))}
+    sharedHref={(containerId: string, readToken: string) =>
+      router.href({ boardId: containerId, readToken })}
+    onOpenContainer={openContainer}
     {locales}
     language={shownLanguage(workspace.settings.language)}
     autoLocale={browserLocale()}

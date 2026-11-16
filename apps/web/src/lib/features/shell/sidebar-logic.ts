@@ -26,7 +26,7 @@ export function filterSidebar(
   return sidebar
     .map((entry) => ({
       category: entry.category,
-      containers: entry.containers.filter((board) => titleHas(board.title, query)),
+      containers: entry.containers.filter((container) => titleHas(container.title, query)),
     }))
     .filter((entry) => entry.containers.length > 0);
 }
@@ -54,7 +54,10 @@ export function categoryOrderAfterStep(
 export function dragOrder(sidebar: readonly SidebarCategory[]): ListOrder[] {
   return sidebar
     .filter((entry) => !entry.category.collapsed)
-    .map((entry) => ({ id: entry.category.id, items: entry.containers.map((board) => board.id) }));
+    .map((entry) => ({
+      id: entry.category.id,
+      items: entry.containers.map((container) => container.id),
+    }));
 }
 
 /** The categories a board can only be dropped onto, not placed in: the folded ones. */
@@ -76,17 +79,17 @@ export function dragZones(sidebar: readonly SidebarCategory[]): string[] {
 export function filedIndex(
   category: Pick<Category, 'containerIds'>,
   shown: readonly string[],
-  boardId: string,
+  containerId: string,
   index: number,
 ): number {
-  const filed = category.containerIds.filter((id) => id !== boardId);
-  const following = shown.filter((id) => id !== boardId)[index];
+  const filed = category.containerIds.filter((id) => id !== containerId);
+  const following = shown.filter((id) => id !== containerId)[index];
   const at = following === undefined ? -1 : filed.indexOf(following);
   return at === -1 ? filed.length : at;
 }
 
-export interface BoardMove {
-  boardId: string;
+export interface ContainerMove {
+  containerId: string;
   categoryId: string;
   /** The place in the category's own list, as `Workspace.moveContainer` takes it. */
   index: number;
@@ -96,34 +99,34 @@ export interface BoardMove {
  * What a drop of a board means: into an open category at a place, or onto a
  * folded one, where it goes last. Undefined for a category that is gone.
  */
-export function boardMoveOf(
+export function containerMoveOf(
   to: Destination,
-  boardId: string,
+  containerId: string,
   sidebar: readonly SidebarCategory[],
-): BoardMove | undefined {
-  if (to.kind === 'zone') return moveToEnd(to.zoneId, boardId, sidebar);
-  if (to.kind === 'list') return moveToEnd(to.listId, boardId, sidebar);
+): ContainerMove | undefined {
+  if (to.kind === 'zone') return moveToEnd(to.zoneId, containerId, sidebar);
+  if (to.kind === 'list') return moveToEnd(to.listId, containerId, sidebar);
   const entry = sidebar.find((candidate) => candidate.category.id === to.listId);
   if (!entry) return undefined;
-  const shown = entry.containers.map((board) => board.id);
+  const shown = entry.containers.map((container) => container.id);
   return {
-    boardId,
+    containerId,
     categoryId: to.listId,
-    index: filedIndex(entry.category, shown, boardId, to.index),
+    index: filedIndex(entry.category, shown, containerId, to.index),
   };
 }
 
 /** Files a board last in a category: what the menu's "Move to" and a drop on a folded category do. */
 export function moveToEnd(
   categoryId: string,
-  boardId: string,
+  containerId: string,
   sidebar: readonly SidebarCategory[],
-): BoardMove | undefined {
+): ContainerMove | undefined {
   const entry = sidebar.find((candidate) => candidate.category.id === categoryId);
   if (!entry) return undefined;
   return {
-    boardId,
+    containerId,
     categoryId,
-    index: entry.category.containerIds.filter((id) => id !== boardId).length,
+    index: entry.category.containerIds.filter((id) => id !== containerId).length,
   };
 }

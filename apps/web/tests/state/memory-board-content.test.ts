@@ -2,7 +2,7 @@
  * The content of a board for the invited only, in the memory backend as on
  * the server: a reader who is not among its members is told it is not there
  * (404), while the board and its members stay readable for those who manage
- * it (`src/lib/state/managed-board.ts`). The e2e tests and the Storybook's
+ * it (`src/lib/state/managed-container.ts`). The e2e tests and the Storybook's
  * managed board run on this backend, with the same refusal as the server.
  */
 import { describe, expect, it } from 'vitest';

@@ -8,7 +8,7 @@
   identifier at a wiki's address, and a page that is not there show the same
   "not found" as the rest of the app; one for the invited only that the
   reader manages without reading it shows a way to its members and to join
-  it (`ManagedBoard`). An open wiki the reader has not joined
+  it (`ManagedContainer`). An open wiki the reader has not joined
   is read as its viewers read it, under a bar to join it and write in it.
 
   The page's body is the card's kind of body (`CardBody`), edited together in
@@ -52,7 +52,7 @@
 
   import { Button } from '$lib/ui/button/index.js';
 
-  import ManagedBoard from './ManagedBoard.svelte';
+  import ManagedContainer from './ManagedContainer.svelte';
   import NotFound from './NotFound.svelte';
   import { referencePlaces } from './reference-places.ts';
   import type { Router } from './router.svelte.ts';
@@ -152,7 +152,7 @@
     // The reader went elsewhere meanwhile: they stay there.
     if (router.route.wikiId !== store.wikiId) return;
     const next = workspace.sidebar.flatMap((entry) => entry.containers)[0];
-    if (next) router.openBoard(next);
+    if (next) router.openContainer(next);
   }
 
   // The page of the address is the one open; none without one.
@@ -168,11 +168,11 @@
     <p class="text-muted-foreground" role="status">{m.app_loading()}</p>
   </div>
 {:else if wiki.missing}
-  <!-- Not there, or there to be managed only: ManagedBoard tells which. -->
+  <!-- Not there, or there to be managed only: ManagedContainer tells which. -->
   {@const store = wiki}
-  <ManagedBoard
+  <ManagedContainer
     {workspace}
-    board={store}
+    {store}
     kind="wiki"
     shown={() => shownWiki(workspace).current === store}
     {router}
@@ -236,7 +236,7 @@
         {#snippet body(page: PageStore)}
           <!-- The page's body is edited together as a card's is, in the page's own room. -->
           <CardBody
-            board={wiki}
+            container={wiki}
             card={page}
             of="page"
             testId="page-body"
@@ -289,7 +289,7 @@
   </div>
   <!-- Another page shown, the dialog of the one before goes with it. -->
   {#if versions && versions.pageId === pageId}
-    <BodyVersions bind:open={versionsOpen} reading={versions.reading} board={wiki} of="page" />
+    <BodyVersions bind:open={versionsOpen} reading={versions.reading} container={wiki} of="page" />
   {/if}
   {@const title = deleting?.title || m.wiki_page_untitled()}
   <ConfirmDialog
