@@ -47,8 +47,9 @@ impl App {
     }
 
     /// Stores boards and their blocks as [`App::create_imported_containers_and_blocks`]
-    /// does and makes `user_id` an admin and editor of each board. Each image of a body
-    /// shows a file of its board ([`fvoci_store::NewBodyFiles::Recorded`]).
+    /// does and makes `user_id` an admin and editor of each board. Each image and file
+    /// block of a body names a file of its board
+    /// ([`fvoci_store::NewBodyFiles::Recorded`]).
     ///
     /// # Errors
     ///

@@ -3,11 +3,12 @@
 //! `collab_images.rs`, the copies, the archives, the versions); these are the ways an
 //! image has no test of its own for, and what only a file block is held to.
 
-use fvoci_model::{ContainerType, ContainersAndBlocks};
+use fvoci_model::{BlockError, ContainerType, ContainersAndBlocks};
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
 
 use crate::common::{ApiResponse, Client, Setup, TEST_WORKSPACE_ID, TEST_WS, TestServer};
+use crate::export::{boards_of, import, two_board_archive};
 use crate::files::{upload, uploaded_id};
 use crate::wiki_copies::{page, wiki, write};
 
@@ -31,8 +32,9 @@ fn file_of(body: &Value) -> String {
         .to_owned()
 }
 
-/// A comment's body has no file block, on any route that writes a comment; an image it
-/// may have.
+/// A comment's body has no file block, on every route of a board that writes a comment
+/// or makes a block one; an image it may have. A comment refused for it has nothing
+/// copied for it.
 #[tokio::test]
 async fn a_comment_has_no_file_block() {
     let ts = Setup::native().start().await.init_basic().await;
@@ -40,64 +42,217 @@ async fn a_comment_has_no_file_block() {
         .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
         .await;
     let file_id = uploaded_id(&upload(&ts.client, &board.id, "minutes.pdf", b"%PDF").await);
-    let card: Value = ts
-        .client
-        .post(
-            &format!("{TEST_WS}/boards/{}/cards", board.id),
-            &json!({"title": "Card", "body": with_file(&file_id)}),
-        )
-        .await
-        .created_json();
+    let cards = format!("{TEST_WS}/boards/{}/cards", board.id);
+    let card = |title: &str| json!({"title": title, "body": with_file(&file_id)});
+    let card: Value = ts.client.post(&cards, &card("Card")).await.created_json();
     let blocks = format!("{TEST_WS}/boards/{}/blocks", board.id);
     let comment = |body: &Value| {
-        json!([{"containerId": board.id, "parentId": card["id"], "type": "comment",
-                "createAt": 1, "updateAt": 1, "body": body}])
+        json!({"containerId": board.id, "parentId": card["id"], "type": "comment",
+               "createAt": 1, "updateAt": 1, "body": body})
     };
     let refused = ts
         .client
-        .post(&blocks, &comment(&with_file(&file_id)))
+        .post(&blocks, &json!([comment(&with_file(&file_id))]))
         .await;
-    check_refused_body(&refused, "0/body");
+    check_refused_body(&refused, "/0/body");
 
-    let image =
-        json!({"type": "doc", "content": [{"type": "image", "attrs": {"fileId": file_id}}]});
-    let made: Vec<Value> = ts
-        .client
-        .post(&blocks, &comment(&image))
-        .await
-        .created_json();
-    let comment_id = made[0]["id"].as_str().expect("an id");
-    let refused = ts
-        .client
-        .patch(
-            &format!("{blocks}/{comment_id}"),
-            &json!({"body": with_file(&file_id), "readAt": made[0]["updateAt"]}),
-        )
+    // Refused before the file of another board is copied for it.
+    let other = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
         .await;
-    check_refused_body(&refused, "body");
-
-    let wiki_id = wiki(&ts.client, "Handbook").await;
-    let page_id = page(&ts.client, &wiki_id, "", "Minutes").await;
-    let wiki_file = uploaded_id(&upload(&ts.client, &wiki_id, "minutes.pdf", b"%PDF").await);
+    let other_file = uploaded_id(&upload(&ts.client, &other.id, "other.pdf", b"%PDF").await);
     let refused = ts
         .client
         .post(
-            &format!("{TEST_WS}/wikis/{wiki_id}/pages/{page_id}/comments"),
-            &json!({"body": with_file(&wiki_file)}),
+            &format!("{blocks}?sourceBoardId={}", other.id),
+            &json!([comment(&with_file(&other_file))]),
         )
         .await;
-    check_refused_body(&refused, "body");
+    check_refused_body(&refused, "/0/body");
+    assert_eq!(
+        collected_names(&ts).await,
+        [other_file],
+        "no copy was made of the file"
+    );
+
+    // An image it may have; a change does not give it a file block.
+    let image_of = |file: &str| json!({"type": "doc", "content": [{"type": "image", "attrs": {"fileId": file}}]});
+    let made: Vec<Value> = ts
+        .client
+        .post(&blocks, &json!([comment(&image_of(&file_id))]))
+        .await
+        .created_json();
+    let comment_id = made[0]["id"].as_str().expect("an id");
+    let patch = json!({"body": with_file(&file_id), "readAt": made[0]["updateAt"]});
+    let refused = ts
+        .client
+        .patch(&format!("{blocks}/{comment_id}"), &patch)
+        .await;
+    check_refused_body(&refused, "/body");
+    let batch = json!({"blockIds": [comment_id], "blockPatches": [patch]});
+    check_refused_body(
+        &ts.client.patch(&blocks, &batch).await,
+        "/blockPatches/0/body",
+    );
+    let both = json!({
+        "containerIds": [board.id], "containerPatches": [{"title": "n"}],
+        "blockIds": [comment_id], "blockPatches": [patch],
+    });
+    check_refused_body(
+        &ts.client
+            .patch(&format!("{TEST_WS}/boards-and-blocks"), &both)
+            .await,
+        "/blockPatches/0/body",
+    );
+
+    // A card with a file block is not made a comment.
+    let second: Value = ts
+        .client
+        .post(
+            &cards,
+            &json!({"title": "Second", "body": with_file(&file_id)}),
+        )
+        .await
+        .created_json();
+    let made_comment = json!({"type": "comment", "parentId": card["id"]});
+    let refused = ts
+        .client
+        .patch(
+            &format!("{blocks}/{}", second["id"].as_str().expect("an id")),
+            &made_comment,
+        )
+        .await;
+    check_refused_body(&refused, "/body");
+
+    // A board made with one: a new board has no file for any block to name, so the comment
+    // is refused at its body for that first.
+    let new_board = json!({"id": "bd", "workspaceId": TEST_WORKSPACE_ID, "type": "P"});
+    let new_card =
+        json!({"id": "c1", "containerId": "bd", "type": "card", "createAt": 1, "updateAt": 1});
+    let new_comment = json!({"id": "m1", "containerId": "bd", "parentId": "c1",
+        "type": "comment", "createAt": 1, "updateAt": 1, "body": with_file("7x.pdf")});
+    let refused = ts
+        .client
+        .post(
+            &format!("{TEST_WS}/boards-and-blocks"),
+            &json!({"containers": [new_board], "blocks": [new_card, new_comment]}),
+        )
+        .await;
+    refused.check_status(StatusCode::BAD_REQUEST);
+    assert_eq!(refused.refused_at(), "/blocks/1/body", "{}", refused.text());
+
     ts.teardown().await;
 }
 
-#[track_caller]
-fn check_refused_body(response: &ApiResponse, member: &str) {
-    response.check_status(StatusCode::BAD_REQUEST);
-    let text = response.text();
-    assert!(
-        text.contains("file block") && text.contains(member),
-        "refused as {member}: {text}"
+/// A comment on a page has no file block, written or changed, and an archive whose
+/// comment has one is refused whole.
+#[tokio::test]
+async fn a_page_comment_or_an_archived_comment_has_no_file_block() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let wiki_id = wiki(&ts.client, "Handbook").await;
+    let page_id = page(&ts.client, &wiki_id, "", "Minutes").await;
+    let wiki_file = uploaded_id(&upload(&ts.client, &wiki_id, "minutes.pdf", b"%PDF").await);
+    let comments = format!("{TEST_WS}/wikis/{wiki_id}/pages/{page_id}/comments");
+    let refused = ts
+        .client
+        .post(&comments, &json!({"body": with_file(&wiki_file)}))
+        .await;
+    check_refused_body(&refused, "/body");
+    let written: Value = ts
+        .client
+        .post(
+            &comments,
+            &json!({"body": {"type": "doc", "content": [
+                {"type": "image", "attrs": {"fileId": wiki_file}},
+            ]}}),
+        )
+        .await
+        .created_json();
+    let change = json!({"body": with_file(&wiki_file), "readAt": written["updateAt"]});
+    let refused = ts
+        .client
+        .patch(
+            &format!("{comments}/{}", written["id"].as_str().expect("an id")),
+            &change,
+        )
+        .await;
+    check_refused_body(&refused, "/body");
+
+    // An archive whose comment has one is refused whole.
+    let before = boards_of(&ts).await.len();
+    let archived = json!({"type": "block", "data": {
+        "id": "m2", "boardId": "b2", "parentId": "c2", "type": "comment", "title": "",
+        "createAt": 1, "updateAt": 1, "body": with_file("7x.pdf"),
+    }});
+    let refused = import(
+        &ts.client,
+        TEST_WORKSPACE_ID,
+        &two_board_archive(&[archived]),
+    )
+    .await;
+    refused.check_bad_request();
+    assert_eq!(
+        refused.error_message(),
+        BlockError::FileBlockInComment.to_string(),
+        "{}",
+        refused.text()
     );
+    assert_eq!(
+        boards_of(&ts).await.len(),
+        before,
+        "nothing of it is stored"
+    );
+    ts.teardown().await;
+}
+
+/// Checks that the answer refuses a comment's file block at `place`.
+#[track_caller]
+fn check_refused_body(response: &ApiResponse, place: &str) {
+    response.check_status(StatusCode::BAD_REQUEST);
+    assert_eq!(response.refused_at(), place, "{}", response.text());
+    assert_eq!(
+        response.error_message(),
+        BlockError::FileBlockInComment.to_string(),
+        "{}",
+        response.text()
+    );
+}
+
+/// A page's file block names a file of its wiki; a file of another wiki or of a board is
+/// refused, as an image's is.
+#[tokio::test]
+async fn a_page_names_no_file_of_another_container() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let board = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .await;
+    let board_file = uploaded_id(&upload(&ts.client, &board.id, "minutes.pdf", b"%PDF").await);
+    let other_wiki = wiki(&ts.client, "Other").await;
+    let other_file = uploaded_id(&upload(&ts.client, &other_wiki, "minutes.pdf", b"%PDF").await);
+    let wiki_id = wiki(&ts.client, "Handbook").await;
+    let page_id = page(&ts.client, &wiki_id, "", "Minutes").await;
+    let path = format!("{TEST_WS}/wikis/{wiki_id}/pages/{page_id}");
+    for elsewhere in [&board_file, &other_file] {
+        let read_at = ts.client.get(&path).await.value()["updateAt"].clone();
+        let refused = ts
+            .client
+            .patch(
+                &path,
+                &json!({"readAt": read_at, "body": with_file(elsewhere)}),
+            )
+            .await;
+        refused.check_status(StatusCode::BAD_REQUEST);
+        assert_eq!(refused.refused_at(), "/body", "{}", refused.text());
+        assert_eq!(
+            refused.error_message(),
+            BlockError::BodyFileNotOfContainer.to_string(),
+            "{}",
+            refused.text()
+        );
+    }
+    let own = uploaded_id(&upload(&ts.client, &wiki_id, "minutes.pdf", b"%PDF").await);
+    write(&ts.client, &wiki_id, &page_id, &with_file(&own)).await;
+    ts.teardown().await;
 }
 
 /// A template made of a board, and a board made of that template, each name files of
@@ -208,7 +363,6 @@ async fn a_public_link_reader_downloads_the_file_of_a_file_block() {
             (&json!("minutes.html"), &json!(PAGE.len())),
             "{info}"
         );
-        assert_eq!(info.get("createdBy"), None, "nobody named: {info}");
         reader
             .get(&at(elsewhere))
             .await

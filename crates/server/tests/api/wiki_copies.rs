@@ -220,6 +220,11 @@ async fn wiki_copied_with_its_files(kind: &str) {
         .expect("the copy shows an image")
         .to_owned();
     assert_ne!(copied_file, file, "{kind}");
+    assert_eq!(
+        body["content"][0]["type"],
+        json!(kind),
+        "still the same node"
+    );
     let read = client
         .get(&format!(
             "{TEST_WS}/containers/{}/files/{copied_file}",
@@ -389,6 +394,11 @@ async fn wiki_copied_into_another_workspace(kind: &str) {
         .expect("the copy shows the picture")
         .to_owned();
     assert_ne!(copied_file, file, "{kind}");
+    assert_eq!(
+        body["content"][0]["type"],
+        json!(kind),
+        "still the same node"
+    );
     let read = client
         .get(&format!("{at}/containers/{}/files/{copied_file}", copy.id))
         .await;

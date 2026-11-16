@@ -60,7 +60,7 @@ fn card_showing(board_id: &str, names: &[&str]) -> Block {
     }
 }
 
-fn is_image_without_file(error: &StoreError) -> bool {
+fn is_file_not_of_the_board(error: &StoreError) -> bool {
     matches!(
         error,
         StoreError::InvalidBlock {
@@ -75,7 +75,7 @@ fn is_image_without_file(error: &StoreError) -> bool {
 /// not asked again, nor are the files of a copy, which a duplicate points at copies
 /// afterwards.
 #[tokio::test]
-async fn a_write_that_shows_an_image_newly_needs_the_boards_file() {
+async fn a_write_that_shows_a_file_newly_needs_the_boards_file() {
     let test = common::setup().await;
     let user_id = common::user(&test, "kelly.kapoor").await;
     let workspace_id = common::workspace(&test).await;
@@ -96,7 +96,7 @@ async fn a_write_that_shows_an_image_newly_needs_the_boards_file() {
             .insert_block(&mut card, &user_id)
             .await
             .expect_err("an image of no file of the board");
-        assert!(is_image_without_file(&error), "{name}: {error:?}");
+        assert!(is_file_not_of_the_board(&error), "{name}: {error:?}");
         assert!(
             test.get_block(&card.id).await.is_err(),
             "{name}: nothing is stored"
@@ -114,7 +114,7 @@ async fn a_write_that_shows_an_image_newly_needs_the_boards_file() {
             .patch_block(&card.id, &patch, &user_id)
             .await
             .expect_err("a patch that names no file");
-        assert!(is_image_without_file(&error), "{missing}: {error:?}");
+        assert!(is_file_not_of_the_board(&error), "{missing}: {error:?}");
     }
 
     // The record of a file the card shows goes, as a wrong call of the store could
@@ -160,7 +160,7 @@ async fn a_write_that_shows_an_image_newly_needs_the_boards_file() {
         .create_containers_and_blocks(&mut checked, &user_id, new_files)
         .await
         .expect_err("a new board has no files");
-    assert!(is_image_without_file(&error), "{error:?}");
+    assert!(is_file_not_of_the_board(&error), "{error:?}");
     let (mut imported, new_files) = new(NewBodyFiles::Unchecked);
     test.create_containers_and_blocks(&mut imported, &user_id, new_files)
         .await

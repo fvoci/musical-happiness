@@ -427,8 +427,10 @@ impl Block {
     /// serialized fields exceed their size limits (the latter by type), the title holds
     /// U+0000, the fields hold `properties` that are not well-formed card property
     /// values, or the block is a card whose `icon` or `isTemplate` is of another kind
-    /// (a string and a boolean, or `null`). `properties` among a block's fields always means card
-    /// property values, whatever the block's type.
+    /// (a string and a boolean, or `null`), a block of a type without a body has one
+    /// ([`BlockError::BodyNotAllowed`]), or a comment's body has a file block
+    /// ([`BlockError::FileBlockInComment`]). `properties` among a block's fields always
+    /// means card property values, whatever the block's type.
     pub fn validate(&self) -> Result<(), BlockError> {
         if self.container_id.is_empty() {
             return Err(BlockError::EmptyContainerId);
@@ -533,9 +535,10 @@ impl Block {
     }
 
     /// The stored names of the files the block shows, each once: the file of an
-    /// attachment block (`fileId`, or failing that `attachmentId`), and the images of the
-    /// body. The store's migration of file references (`0003_file_refs.sql`) put down
-    /// the same rule in SQL, with the image blocks of then.
+    /// attachment block (`fileId`, or failing that `attachmentId`), and the images and
+    /// file blocks of the body. The store's migration of file references
+    /// (`0003_file_refs.sql`) put down the same rule in SQL, with the image blocks of
+    /// then.
     #[must_use]
     pub fn shown_files(&self) -> Vec<String> {
         if self.block_type == BlockType::Attachment {

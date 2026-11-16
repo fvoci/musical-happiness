@@ -112,6 +112,11 @@ async fn copied_with_those_below_it_and_given_files(kind: &str) {
     let body = serde_json::to_value(&read.body).expect("JSON");
     let copied_file = image_of(&body).expect("the copy shows an image");
     assert_ne!(copied_file, file, "{kind}");
+    assert_eq!(
+        body["content"][0]["type"],
+        json!(kind),
+        "still the same node"
+    );
     client
         .get(&format!(
             "{TEST_WS}/containers/{wiki_id}/files/{copied_file}"

@@ -175,8 +175,8 @@ async fn handle_get_page_comments(
 ///
 /// For the wiki's members from the commenter's role up. The server chooses the
 /// identifier, the author and the times. Every image of the text shows a file of the
-/// wiki (400 otherwise); a comment has no file block (400). Who reads the wiki is told with `UPDATE_BLOCK`, as of a
-/// comment on a card.
+/// wiki (400 otherwise), and the text has no file block (400). Who reads the wiki is
+/// told with `UPDATE_BLOCK`, as of a comment on a card.
 #[utoipa::path(
     post,
     path = "/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/comments",
@@ -233,7 +233,7 @@ async fn handle_create_page_comment(
 /// author from the commenter's role up, and the comment of somebody else by the wiki's
 /// admins only (403, `access denied to change other users' comments`); an editor may
 /// not change it. The text it had is kept (`getPageCommentVersions`), and the comment's
-/// `editedAt` says when it last changed.
+/// `editedAt` says when it last changed. The text has no file block (400).
 #[utoipa::path(
     patch,
     path = "/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/comments/{commentId}",

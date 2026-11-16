@@ -150,7 +150,7 @@ impl Body {
         let mut ids: Vec<&str> = Vec::new();
         let mut seen = HashSet::new();
         visit(&self.document, &mut |node| {
-            if let Some(id) = body_file(node)
+            if let Some(id) = named_file(node, &FILE_NODES)
                 && seen.insert(id)
             {
                 ids.push(id);
@@ -180,7 +180,7 @@ impl Body {
     /// (also inside lists and tables), if it has one. Stops at that image. A file block
     /// is no picture and is passed over.
     #[must_use]
-    pub fn first_file_id(&self) -> Option<&str> {
+    pub fn first_image_file_id(&self) -> Option<&str> {
         first_image(&self.document)
     }
 
@@ -192,14 +192,13 @@ impl Body {
         clear_mentions_in(&mut self.document);
     }
 
-    /// Whether the body has a file block, which a comment's body may not have.
+    /// Whether the body has a file block, which a comment's body may not have. Stops at
+    /// the first.
     #[must_use]
     pub fn has_file_blocks(&self) -> bool {
-        let mut found = false;
-        visit(&self.document, &mut |node| {
-            found |= node.get("type").and_then(Value::as_str) == Some(FILE_BLOCK);
-        });
-        found
+        any_node(&self.document, &|node| {
+            node.get("type").and_then(Value::as_str) == Some(FILE_BLOCK)
+        })
     }
 
     /// Empties the `id` of every reference that names none of `shown`: the body as it
@@ -238,18 +237,13 @@ const IMAGE: &str = "image";
 /// The kind of node that is a file to download.
 const FILE_BLOCK: &str = "file";
 
-/// The stored name of the file an image node or a file block names.
-fn body_file(node: &Value) -> Option<&str> {
-    let kind = node.get("type").and_then(Value::as_str)?;
-    if kind != IMAGE && kind != FILE_BLOCK {
-        return None;
-    }
-    node.get("attrs")?.get("fileId")?.as_str()
-}
+/// The kinds of node that name a file of the board in `fileId`.
+const FILE_NODES: [&str; 2] = [IMAGE, FILE_BLOCK];
 
-/// The stored name of the file of an image node.
-fn image_file(node: &Value) -> Option<&str> {
-    if node.get("type").and_then(Value::as_str) != Some(IMAGE) {
+/// The stored name of the file a node names, if it is of one of `kinds`.
+fn named_file<'v>(node: &'v Value, kinds: &[&str]) -> Option<&'v str> {
+    let kind = node.get("type").and_then(Value::as_str)?;
+    if !kinds.contains(&kind) {
         return None;
     }
     node.get("attrs")?.get("fileId")?.as_str()
@@ -297,7 +291,7 @@ fn rename_references_in(node: &mut Value, rename: &impl Fn(&str) -> Option<Strin
 /// Renames the file of every image and file block below and at `node`, and turns one
 /// whose file has no new name into an empty paragraph.
 fn rename_in(node: &mut Value, rename: &impl Fn(&str) -> Option<String>) {
-    if let Some(old_name) = body_file(node) {
+    if let Some(old_name) = named_file(node, &FILE_NODES) {
         match rename(old_name) {
             Some(new_name) => {
                 if let Some(attrs) = node.get_mut("attrs").and_then(Value::as_object_mut) {
@@ -468,12 +462,21 @@ fn check_size(value: &Value) -> Result<(), BodyError> {
 
 /// The file of the first image at or below `node`, in document order.
 fn first_image(node: &Value) -> Option<&str> {
-    image_file(node).or_else(|| {
+    named_file(node, &[IMAGE]).or_else(|| {
         node.get("content")?
             .as_array()?
             .iter()
             .find_map(first_image)
     })
+}
+
+/// Whether `test` holds of `node` or of a node below it; stops at the first that does.
+fn any_node(node: &Value, test: &impl Fn(&Value) -> bool) -> bool {
+    test(node)
+        || node
+            .get("content")
+            .and_then(Value::as_array)
+            .is_some_and(|children| children.iter().any(|child| any_node(child, test)))
 }
 
 /// Calls `f` for every node of the document, the document first.
@@ -772,8 +775,8 @@ mod tests {
             ]},
             image("after.png"),
         ]}));
-        assert_eq!(body.first_file_id(), Some("in-a-list.png"));
+        assert_eq!(body.first_image_file_id(), Some("in-a-list.png"));
         let none = Body::from_stored(json!({"type": "doc", "content": [paragraph("text")]}));
-        assert_eq!(none.first_file_id(), None);
+        assert_eq!(none.first_image_file_id(), None);
     }
 }

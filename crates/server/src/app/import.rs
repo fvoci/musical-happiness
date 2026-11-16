@@ -202,7 +202,7 @@ impl App {
             file_map.insert((container.id.clone(), filename), new_name);
         }
 
-        self.fix_images_attachments(&stored, &file_map, &copies, &options.modified_by)
+        self.point_at_stored_files(&stored, &file_map, &copies, &options.modified_by)
             .await;
         tracing::debug!(containers_imported = stored.len(), "import archive - done");
         Ok(Imported {

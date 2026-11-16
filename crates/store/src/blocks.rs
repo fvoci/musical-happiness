@@ -567,7 +567,7 @@ fn preview_from_row(row: &Row) -> Result<BodyPreview, StoreError> {
     let first_image = match row.json(LISTED_BODY, "body")? {
         Value::Null => None,
         document => Body::from_stored(document)
-            .first_file_id()
+            .first_image_file_id()
             .map(str::to_owned),
     };
     Ok(BodyPreview {
@@ -693,8 +693,8 @@ async fn type_of_parent(
 }
 
 /// Stores a block as created or changed at `at`, or now, once its board is held, if
-/// that is `None`. The images it shows newly are asked as `new_files` says, and the
-/// versions of a card's body are kept as `body_write` says. Returns the cards its
+/// that is `None`. The files its body names newly are asked as `new_files` says, and
+/// the versions of a card's body are kept as `body_write` says. Returns the cards its
 /// relation values newly name, which the caller asks for once the write is stored
 /// ([`card_values::check_named_cards`]).
 async fn insert_block_at(
@@ -790,7 +790,7 @@ async fn insert_block_at(
 }
 
 /// Inserts a block row with every column as `block` has it. For a new block, and for
-/// one that comes back from the trash; its images are asked as `new_files` says.
+/// one that comes back from the trash; its body's files are asked as `new_files` says.
 pub(crate) async fn insert_block_row(
     scope: &mut Scope<'_>,
     block: &Block,

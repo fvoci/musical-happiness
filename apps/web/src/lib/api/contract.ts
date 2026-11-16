@@ -1691,7 +1691,8 @@ export interface paths {
          *     only link its blocks to each other. All blocks are inserted or none, and they are
          *     listed afterwards in the order the request had them in. Comments need the role of a
          *     commenter, everything else that of an editor. A comment is on a card of the board,
-         *     and no block is below a comment (400 at the block's `parentId`).
+         *     and no block is below a comment (400 at the block's `parentId`). A comment's body
+         *     has no file block (400 at its `body`), and nothing is copied for one that has.
          */
         post: operations["createBlocks"];
         delete?: never;
@@ -1736,7 +1737,8 @@ export interface paths {
          *     moving a comment to another card (`parentId`) or making it a block of another type
          *     is for editors, and making a block of somebody else a comment for the board's admins.
          *     A comment goes only on a card of the board, no block goes below a comment (400 at
-         *     `parentId`), and a card with comments stays a card (400 at `type`). The block's
+         *     `parentId`), and a card with comments stays a card (400 at `type`). A comment's body
+         *     has no file block, nor does a block made a comment (400 at `body`). The block's
          *     `modifiedBy` and `updateAt` say who changed it and when.
          */
         patch: operations["patchBlock"];
@@ -3533,8 +3535,8 @@ export interface paths {
          * Write a comment on a page
          * @description For the wiki's members from the commenter's role up. The server chooses the
          *     identifier, the author and the times. Every image of the text shows a file of the
-         *     wiki (400 otherwise); a comment has no file block (400). Who reads the wiki is told with `UPDATE_BLOCK`, as of a
-         *     comment on a card.
+         *     wiki (400 otherwise), and the text has no file block (400). Who reads the wiki is
+         *     told with `UPDATE_BLOCK`, as of a comment on a card.
          */
         post: operations["createPageComment"];
         delete?: never;
@@ -3569,7 +3571,7 @@ export interface paths {
          *     author from the commenter's role up, and the comment of somebody else by the wiki's
          *     admins only (403, `access denied to change other users' comments`); an editor may
          *     not change it. The text it had is kept (`getPageCommentVersions`), and the comment's
-         *     `editedAt` says when it last changed.
+         *     `editedAt` says when it last changed. The text has no file block (400).
          */
         patch: operations["patchPageComment"];
         trace?: never;

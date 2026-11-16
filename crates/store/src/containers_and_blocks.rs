@@ -68,7 +68,7 @@ impl Store {
             let doomed: Vec<_> = files.iter().map(|file| (file.path.clone(), None)).collect();
             loose_objects::doom(scope, &doomed).await?;
             containers::remove_builtin_templates(scope).await?;
-            // Their images are pointed at the templates' files once those are stored.
+            // Their bodies are pointed at the templates' files once those are stored.
             create_containers_and_blocks(scope, templates, "", NewBodyFiles::Unchecked).await?;
             Ok(Some(files))
         })
@@ -77,7 +77,7 @@ impl Store {
 
     /// Inserts or updates every board and then every block, as [`Store::insert_container`]
     /// and [`Store::insert_block`] do. `containers_and_blocks` is updated to what was stored.
-    /// The images the blocks show newly are asked as `new_files` says.
+    /// The files the blocks' bodies name newly are asked as `new_files` says.
     ///
     /// # Errors
     ///

@@ -603,6 +603,11 @@ async fn an_archive_carries_the_files_of_bodies(kind: &str) {
         .expect("the image names a file")
         .to_owned();
     assert_ne!(new_file, file_id, "a file of the new board");
+    assert_eq!(
+        blocks[0]["body"]["content"][0]["type"],
+        serde_json::json!(kind),
+        "still the same node"
+    );
     let file = ts
         .client
         .get(&format!(
@@ -832,7 +837,7 @@ async fn an_archive_reads_back_whatever_an_attachment_names() {
 
 /// A workspace's archive of two boards: the first is fine, the second has a card and the
 /// given blocks below it.
-fn two_board_archive(second_blocks: &[serde_json::Value]) -> Vec<u8> {
+pub(crate) fn two_board_archive(second_blocks: &[serde_json::Value]) -> Vec<u8> {
     let board = |id: &str| {
         serde_json::json!({"type": "board", "data": {
             "id": id, "workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": id, "createAt": 1,

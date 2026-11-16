@@ -8337,7 +8337,7 @@
         ]
       },
       "post": {
-        "description": "Inserts blocks under identifiers the server makes; the identifiers of the request\nonly link its blocks to each other. All blocks are inserted or none, and they are\nlisted afterwards in the order the request had them in. Comments need the role of a\ncommenter, everything else that of an editor. A comment is on a card of the board,\nand no block is below a comment (400 at the block's `parentId`).",
+        "description": "Inserts blocks under identifiers the server makes; the identifiers of the request\nonly link its blocks to each other. All blocks are inserted or none, and they are\nlisted afterwards in the order the request had them in. Comments need the role of a\ncommenter, everything else that of an editor. A comment is on a card of the board,\nand no block is below a comment (400 at the block's `parentId`). A comment's body\nhas no file block (400 at its `body`), and nothing is copied for one that has.",
         "operationId": "createBlocks",
         "parameters": [
           {
@@ -8484,7 +8484,7 @@
         ]
       },
       "patch": {
-        "description": "For editors. A comment is changed by its author with the commenter's role, and the\ncomment of somebody else by the board's admins only (as `deleteBlock` has it): an\neditor may not change it. The commenter's role changes a comment's text (its body);\nmoving a comment to another card (`parentId`) or making it a block of another type\nis for editors, and making a block of somebody else a comment for the board's admins.\nA comment goes only on a card of the board, no block goes below a comment (400 at\n`parentId`), and a card with comments stays a card (400 at `type`). The block's\n`modifiedBy` and `updateAt` say who changed it and when.",
+        "description": "For editors. A comment is changed by its author with the commenter's role, and the\ncomment of somebody else by the board's admins only (as `deleteBlock` has it): an\neditor may not change it. The commenter's role changes a comment's text (its body);\nmoving a comment to another card (`parentId`) or making it a block of another type\nis for editors, and making a block of somebody else a comment for the board's admins.\nA comment goes only on a card of the board, no block goes below a comment (400 at\n`parentId`), and a card with comments stays a card (400 at `type`). A comment's body\nhas no file block, nor does a block made a comment (400 at `body`). The block's\n`modifiedBy` and `updateAt` say who changed it and when.",
         "operationId": "patchBlock",
         "parameters": [
           {
@@ -13463,7 +13463,7 @@
         ]
       },
       "post": {
-        "description": "For the wiki's members from the commenter's role up. The server chooses the\nidentifier, the author and the times. Every image of the text shows a file of the\nwiki (400 otherwise); a comment has no file block (400). Who reads the wiki is told with `UPDATE_BLOCK`, as of a\ncomment on a card.",
+        "description": "For the wiki's members from the commenter's role up. The server chooses the\nidentifier, the author and the times. Every image of the text shows a file of the\nwiki (400 otherwise), and the text has no file block (400). Who reads the wiki is\ntold with `UPDATE_BLOCK`, as of a comment on a card.",
         "operationId": "createPageComment",
         "parameters": [
           {
@@ -13595,7 +13595,7 @@
         ]
       },
       "patch": {
-        "description": "Writes a new text over the comment, as the card's comments are changed: by its\nauthor from the commenter's role up, and the comment of somebody else by the wiki's\nadmins only (403, `access denied to change other users' comments`); an editor may\nnot change it. The text it had is kept (`getPageCommentVersions`), and the comment's\n`editedAt` says when it last changed.",
+        "description": "Writes a new text over the comment, as the card's comments are changed: by its\nauthor from the commenter's role up, and the comment of somebody else by the wiki's\nadmins only (403, `access denied to change other users' comments`); an editor may\nnot change it. The text it had is kept (`getPageCommentVersions`), and the comment's\n`editedAt` says when it last changed. The text has no file block (400).",
         "operationId": "patchPageComment",
         "parameters": [
           {
