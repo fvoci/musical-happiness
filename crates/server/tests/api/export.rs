@@ -581,6 +581,23 @@ async fn an_archive_carries_the_files_of_bodies(kind: &str) {
         "the body's image is in the archive: {:?}",
         archive.file_names().collect::<Vec<_>>()
     );
+    // The board's line names the file as it was uploaded; the original reads past it.
+    let mut archive = archive;
+    let mut lines = String::new();
+    std::io::Read::read_to_string(
+        &mut archive
+            .by_name(&format!("{}/board.jsonl", board.id))
+            .expect("the board's lines"),
+        &mut lines,
+    )
+    .expect("text");
+    let board_line: serde_json::Value =
+        serde_json::from_str(lines.lines().next().expect("a first line")).expect("JSON");
+    assert_eq!(
+        board_line["data"]["fileNames"],
+        serde_json::json!({ file_id.as_str(): "picture.png" }),
+        "{board_line}"
+    );
 
     import(&ts.client, TEST_WORKSPACE_ID, &exported.body)
         .await
@@ -621,6 +638,16 @@ async fn an_archive_carries_the_files_of_bodies(kind: &str) {
         b"png",
         "with the content of the old one"
     );
+    // Under the name it was uploaded with, which a file block shows, not its stored name.
+    let info: serde_json::Value = ts
+        .client
+        .get(&format!(
+            "{TEST_WS}/containers/{}/files/{new_file}/info",
+            imported.id
+        ))
+        .await
+        .ok_json();
+    assert_eq!(info["name"], serde_json::json!("picture.png"), "{info}");
     ts.teardown().await;
 }
 

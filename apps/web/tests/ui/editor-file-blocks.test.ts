@@ -263,14 +263,18 @@ describe('a file block', () => {
         'shown',
       );
     });
-    URL.createObjectURL = vi.fn(() => 'blob:minutes');
-    URL.revokeObjectURL = vi.fn();
+    // Put back after the test, as every mock of the file is.
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:minutes');
+    vi.spyOn(URL, 'revokeObjectURL').mockReturnValue(undefined);
     editor.view.dispatch(editor.state.tr.setSelection(NodeSelection.create(editor.state.doc, 3)));
     expect(press(editor, 'Enter')).toBe(true);
     expect(bytes).toHaveBeenCalledWith('7minutes.pdf');
+    // The bytes are saved under the file's name: the press of a link to them, not the block's own.
     await vi.waitFor(() => {
-      const names = saved.mock.contexts.map((link) => (link as HTMLAnchorElement).download);
-      expect(names).toContain('회의록 2026-11.pdf');
+      const links = saved.mock.contexts.map((link) => link as HTMLAnchorElement);
+      expect(links.find((link) => link.href === 'blob:minutes')?.download).toBe(
+        '회의록 2026-11.pdf',
+      );
     });
     expect(editor.getJSON()).toEqual(body);
   });

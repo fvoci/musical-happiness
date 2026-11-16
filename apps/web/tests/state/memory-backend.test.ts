@@ -325,6 +325,35 @@ describe('file blocks', () => {
     expect(changed).toMatchObject({ status: 400, errors: [{ pointer: '/body' }] });
   });
 
+  it('refuses an archive whose comment has a file block, whole, as the server does', async () => {
+    const { backend, boardId, byTitle } = await firstBoard();
+    const exported = await backend.exportContainer(boardId);
+    const comment = {
+      type: 'block',
+      data: {
+        id: 'comment-with-a-file',
+        boardId,
+        parentId: byTitle('Alpha').id,
+        type: 'comment',
+        title: '',
+        fields: {},
+        createAt: 1,
+        updateAt: 1,
+        body: withFile('7x.pdf'),
+      },
+    };
+    const archive = `${await exported.bytes.text()}${JSON.stringify(comment)}
+`;
+    const [workspace] = await backend.workspaces();
+    const workspaceId = workspace?.id ?? '';
+    const before = (await backend.boards(workspaceId)).length;
+    const refused = await rejection(
+      backend.importArchive(workspaceId, new File([archive], 'with-a-file.boardarchive')),
+    );
+    expect(refused).toMatchObject({ status: 400, errors: [{ pointer: '/body' }] });
+    expect(await backend.boards(workspaceId)).toHaveLength(before);
+  });
+
   it('gives a copy of the board files of its own for its file blocks, with the same bytes', async () => {
     const { backend, boardId, byTitle } = await firstBoard();
     const uploaded = await backend.upload(boardId, new File(['%PDF'], 'minutes.pdf'));

@@ -70,6 +70,26 @@ impl BlockType {
         matches!(self, Self::Card | Self::Comment | Self::Page)
     }
 
+    /// Checks that a block of this type may have `body`: only a type that has a body
+    /// ([`BlockType::has_body`]) has one, and a comment's has no file block.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BlockError::BodyNotAllowed`] for a body of a type without one, and
+    /// [`BlockError::FileBlockInComment`] for a comment's body with a file block.
+    pub fn check_body(&self, body: Option<&Body>) -> Result<(), BlockError> {
+        let Some(body) = body else {
+            return Ok(());
+        };
+        if !self.has_body() {
+            return Err(BlockError::BodyNotAllowed);
+        }
+        if *self == Self::Comment && body.has_file_blocks() {
+            return Err(BlockError::FileBlockInComment);
+        }
+        Ok(())
+    }
+
     /// Returns `true` for the types a comment may be on: a card of a board and a page of
     /// a wiki.
     #[must_use]
@@ -468,15 +488,7 @@ impl Block {
             _ => return Err(BlockError::FieldsSizeLimitExceeded),
         }
         validate_block_properties(&self.fields)?;
-        if self.body.is_some() && !self.block_type.has_body() {
-            return Err(BlockError::BodyNotAllowed);
-        }
-        if self.block_type == BlockType::Comment
-            && self.body.as_ref().is_some_and(Body::has_file_blocks)
-        {
-            return Err(BlockError::FileBlockInComment);
-        }
-        Ok(())
+        self.block_type.check_body(self.body.as_ref())
     }
 
     /// Removes the fields that a block can no longer be stored with but that one stored

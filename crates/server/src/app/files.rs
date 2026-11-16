@@ -529,7 +529,7 @@ pub(crate) fn base_name(name: &str) -> &str {
 
 /// The lower-cased extension of a name, with its leading dot, as kept in the record.
 /// `.jpeg` is stored as `.jpg`.
-fn stored_extension(name: &str) -> String {
+pub(crate) fn stored_extension(name: &str) -> String {
     let extension = match name.rfind('.') {
         Some(index) => name[index..].to_lowercase(),
         None => String::new(),

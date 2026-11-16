@@ -4,10 +4,12 @@
 //! `board.jsonl` and the board's files. Each line of `board.jsonl` is a board, a block
 //! or a member as the contract has them (`contracts/openapi.json`), bodies included; the
 //! files are those the blocks show, those of the images and file blocks of bodies among them
-//! (`docs/s6-design.md` 3.10). The container is the original's
-//! (`server/app/export.go`); version 2 was its own.
+//! (`docs/s6-design.md` 3.10). A board's line also carries `fileNames`: the name each of
+//! its files was uploaded with, by its stored name, which a file block shows. The
+//! original reads the board alone; an import gives the files it stores those names. The
+//! container is the original's (`server/app/export.go`); version 2 was its own.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::io::{BufWriter, Write as _};
 use std::path::Path;
 
@@ -28,6 +30,16 @@ use crate::metrics::ContainerWork;
 
 /// The archive format version this server writes.
 pub(super) const ARCHIVE_VERSION: i64 = 3;
+
+/// A board's line of an archive: the board, and the name each of its files was uploaded
+/// with, by its stored name (`fileNames`, left out when there is none).
+#[derive(Serialize)]
+struct ArchivedContainer<'a> {
+    #[serde(flatten)]
+    container: &'a Container,
+    #[serde(rename = "fileNames", skip_serializing_if = "BTreeMap::is_empty")]
+    file_names: BTreeMap<String, String>,
+}
 
 /// The directory of the temporary directory exports are written in.
 pub(crate) const EXPORTS_DIR: &str = "exports";
@@ -159,8 +171,6 @@ impl App {
         writer
             .start_entry(&format!("{}/board.jsonl", container.id))
             .await?;
-        writer.write_line("board", container).await?;
-
         let blocks = self.blocks_for_container(&container.id).await?;
         // Two blocks may name the same file. The original then writes two entries of the
         // same name; this archive writer refuses a second entry of a name, and an
@@ -168,7 +178,6 @@ impl App {
         let mut files = Vec::new();
         let mut seen = HashSet::new();
         for block in &blocks {
-            writer.write_line("block", block).await?;
             for filename in block.shown_files() {
                 // An attachment block names its file as a client wrote it. A name that cannot
                 // be a stored name would be read back as another entry of the archive,
@@ -177,6 +186,15 @@ impl App {
                     files.push(filename);
                 }
             }
+        }
+        let file_names = self.file_names(&container.id, &files).await?;
+        let board = ArchivedContainer {
+            container,
+            file_names,
+        };
+        writer.write_line("board", &board).await?;
+        for block in &blocks {
+            writer.write_line("block", block).await?;
         }
 
         for member in self.present_members_for_container(&container.id).await? {
@@ -188,6 +206,22 @@ impl App {
                 .await?;
         }
         Ok(())
+    }
+
+    /// The name each of `files` of the board was uploaded with, by its stored name; a file
+    /// without a record is left out.
+    async fn file_names(
+        &self,
+        container_id: &str,
+        files: &[String],
+    ) -> Result<BTreeMap<String, String>, AppError> {
+        let mut names = BTreeMap::new();
+        for stored_name in files {
+            if let Some(info) = self.file_info(container_id, stored_name).await? {
+                names.insert(stored_name.clone(), info.name);
+            }
+        }
+        Ok(names)
     }
 
     /// Writes a board file as its own archive entry; a missing file leaves an empty

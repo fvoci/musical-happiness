@@ -142,3 +142,36 @@ fn split_entry_name_takes_the_base_name() {
         "a bare name is in the current directory"
     );
 }
+
+/// A board line's names of its files are taken as an upload's name would be, with the
+/// extension of the entry's name; any other is left out, and its file keeps the name of
+/// its entry.
+#[test]
+fn the_names_of_files_are_taken_as_an_upload_names_them() {
+    let board = serde_json::json!({"id": "b1", "fileNames": {
+        "7a.pdf": "회의록.pdf",
+        "7b.pdf": "renamed.exe",
+        "7c.pdf": "  ",
+        "7d.pdf": "nul\u{0}.pdf",
+        "7e.pdf": format!("{}.pdf", "x".repeat(MAX_UPLOAD_NAME_CHARS)),
+        "7f.pdf": 3,
+    }});
+    let names = file_names_of(&board);
+    assert_eq!(
+        names,
+        FileNames::from([("7a.pdf".to_owned(), "회의록.pdf".to_owned())]),
+        "only the name that fits"
+    );
+    assert!(
+        file_names_of(&serde_json::json!({"id": "b1"})).is_empty(),
+        "an archive of before"
+    );
+    let by_dir = HashMap::from([("b1".to_owned(), names)]);
+    assert_eq!(name_in(&by_dir, "b1", "7a.pdf"), "회의록.pdf");
+    assert_eq!(name_in(&by_dir, "b1", "7b.pdf"), "7b.pdf", "left out");
+    assert_eq!(
+        name_in(&by_dir, "b2", "7a.pdf"),
+        "7a.pdf",
+        "another board's"
+    );
+}

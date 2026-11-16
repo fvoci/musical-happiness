@@ -90,7 +90,8 @@ impl Collab {
                 }
                 return Err(match error {
                     StoreError::InvalidBlock { .. } => AppError::bad_request(
-                        "the update shows an image whose file the board does not have",
+                        "the update names a file (of an image or a file block) the board or \
+                         wiki does not have",
                     )
                     .with_reason(Reason::UpdateRefused),
                     other => other.into(),

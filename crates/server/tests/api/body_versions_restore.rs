@@ -291,7 +291,8 @@ async fn version_that_cannot_be_stored(kind: &str) {
         ),
         (
             pictured,
-            "the version shows an image whose file is not there any more",
+            "the version names a file (of an image or a file block) that is not there any \
+             more",
         ),
     ] {
         // As a version kept before the server was told to store less, or whose file

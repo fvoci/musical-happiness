@@ -233,23 +233,15 @@ async fn check_and_copy_body_files(
     Ok(())
 }
 
-/// Gives each new block the body the request had for it. A body on a block of a type
-/// without one, and a file block in a comment's, are refused here, before anything is
-/// copied for them, at the block's place in the request.
+/// Gives each new block the body the request had for it. A body its type may not have
+/// ([`BlockType::check_body`]) is refused here, before anything is copied for it, at the
+/// block's place in the request.
 fn give_bodies(blocks: &mut [Block], bodies: Vec<Option<Body>>) -> Result<(), AppError> {
     for (index, (block, body)) in blocks.iter_mut().zip(bodies).enumerate() {
-        let refused = if body.is_some() && !block.block_type.has_body() {
-            Some(BlockError::BodyNotAllowed)
-        } else if block.block_type == BlockType::Comment
-            && body.as_ref().is_some_and(Body::has_file_blocks)
-        {
-            Some(BlockError::FileBlockInComment)
-        } else {
-            None
-        };
-        if let Some(refused) = refused {
-            return Err(AppError::from(refused).under(&element_pointer(Some(""), index)));
-        }
+        block
+            .block_type
+            .check_body(body.as_ref())
+            .map_err(|refused| AppError::from(refused).under(&element_pointer(Some(""), index)))?;
         block.body = body;
     }
     Ok(())

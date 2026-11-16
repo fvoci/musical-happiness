@@ -190,10 +190,12 @@ function onPress(event: MouseEvent, link: HTMLAnchorElement, fileId: string, nam
   if (!bytes) return;
   event.preventDefault();
   link.setAttribute('aria-busy', 'true');
-  void bytes
+  // Pressed before the file's record came (or after it could not be read), the bytes are
+  // saved under its name once that is known, and under the drawn one only failing that.
+  void Promise.all([bytes, fileDetails(fileId)])
     .then(
-      (blob) => {
-        saveBlob(blob, name);
+      ([blob, details]) => {
+        saveBlob(blob, details?.name ?? name);
       },
       () => {
         const block = link.closest<HTMLElement>(FILE_BLOCK_SELECTOR);
