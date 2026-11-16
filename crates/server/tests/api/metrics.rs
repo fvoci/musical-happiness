@@ -591,6 +591,77 @@ async fn the_archives_that_hold_their_place_are_counted() {
 }
 
 #[tokio::test]
+async fn the_boards_and_wikis_copied_whole_are_counted_by_work_and_kind() {
+    let server = server_with_metrics().await.init_basic().await;
+    let client = &server.client;
+    let copied = |body: &str, work: &str, kind: &str| {
+        sample(
+            body,
+            "fvoci_boards_copied_total",
+            &[("kind", kind), ("work", work)],
+        )
+    };
+    let before = scrape(&server).await;
+    for work in ["export", "import", "duplicate"] {
+        for kind in ["board", "wiki"] {
+            assert_eq!(
+                copied(&before, work, kind),
+                Some(0.0),
+                "{work} {kind}: {before}"
+            );
+        }
+    }
+    let board = server
+        .create_board(
+            crate::common::TEST_WORKSPACE_ID,
+            fvoci_model::BoardType::Open,
+        )
+        .await;
+    let wiki = crate::wiki_copies::wiki(client, "Counted").await;
+    for (id, times) in [(&board.id, 1), (&wiki, 2)] {
+        for _ in 0..times {
+            let export = client
+                .get(&format!("{TEST_WS}/boards/{id}/archive/export"))
+                .await;
+            export.check_ok();
+            crate::export::import(client, crate::common::TEST_WORKSPACE_ID, &export.body)
+                .await
+                .check_ok();
+        }
+        client
+            .post(
+                &format!("{TEST_WS}/boards/{id}/duplicate"),
+                &serde_json::json!({}),
+            )
+            .await
+            .check_created();
+    }
+    let body = scrape(&server).await;
+    let counted = [
+        ("export", "board", 1.0),
+        ("import", "board", 1.0),
+        ("duplicate", "board", 1.0),
+        ("export", "wiki", 2.0),
+        ("import", "wiki", 2.0),
+        ("duplicate", "wiki", 1.0),
+    ];
+    for (work, kind, times) in counted {
+        assert_eq!(
+            copied(&body, work, kind),
+            Some(times),
+            "{work} {kind}: {body}"
+        );
+    }
+    // Two values of `kind`, three of `work`: nothing else is counted.
+    let series = body
+        .lines()
+        .filter(|line| line.starts_with("fvoci_boards_copied_total{"))
+        .count();
+    assert_eq!(series, 6, "{body}");
+    server.teardown().await;
+}
+
+#[tokio::test]
 async fn the_background_jobs_are_counted_from_their_first_run() {
     let server = server_with_metrics().await;
     let job = |body: &str, name: &str, job: &str| sample(body, name, &[("job", job)]);

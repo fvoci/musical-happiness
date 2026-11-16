@@ -1,10 +1,11 @@
 //! The metrics of the database and the files: the connection pool, the open uploads,
-//! and the exports and imports of archives that hold their place.
+//! the exports and imports of archives that hold their place, and the boards and wikis
+//! copied whole.
 
 use std::fmt::Display;
 use std::time::Duration;
 
-use prometheus::{IntGauge, IntGaugeVec, Opts, Registry};
+use prometheus::{IntCounterVec, IntGauge, IntGaugeVec, Opts, Registry};
 
 use super::{Metrics, PREFIX, ScrapeRead};
 
@@ -31,6 +32,51 @@ impl ArchiveWork {
         match self {
             Self::Export => "export",
             Self::Import => "import",
+        }
+    }
+}
+
+/// The work that copies a board or a wiki whole.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BoardWork {
+    /// Written into an archive that was written whole.
+    Export,
+    /// Made from an archive.
+    Import,
+    /// Copied where it is (`duplicateBoard`).
+    Duplicate,
+}
+
+impl BoardWork {
+    const ALL: [Self; 3] = [Self::Export, Self::Import, Self::Duplicate];
+
+    /// The value of the `work` label.
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Export => "export",
+            Self::Import => "import",
+            Self::Duplicate => "duplicate",
+        }
+    }
+}
+
+/// What is copied: a board or a wiki, the modules of a workspace.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Module {
+    /// A board.
+    Board,
+    /// A wiki.
+    Wiki,
+}
+
+impl Module {
+    const ALL: [Self; 2] = [Self::Board, Self::Wiki];
+
+    /// The value of the `kind` label.
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Board => "board",
+            Self::Wiki => "wiki",
         }
     }
 }
@@ -66,6 +112,7 @@ pub(super) struct StorageMetrics {
     /// The scrapes' reads of the open uploads.
     uploads_read: ScrapeRead,
     archives: IntGaugeVec,
+    copied: IntCounterVec,
 }
 
 impl StorageMetrics {
@@ -121,6 +168,24 @@ impl StorageMetrics {
         for work in [ArchiveWork::Export, ArchiveWork::Import] {
             archives.with_label_values(&[work.as_str()]).set(0);
         }
+        let copied = IntCounterVec::new(
+            Opts::new(
+                "boards_copied_total",
+                "How many boards and wikis were copied whole, by work: export (written \
+                 into an archive, once the archive is written), import (made from an \
+                 archive), duplicate (copied by duplicateBoard); and by kind: board, wiki.",
+            )
+            .namespace(PREFIX),
+            &["work", "kind"],
+        )?;
+        registry.register(Box::new(copied.clone()))?;
+        for work in BoardWork::ALL {
+            for kind in Module::ALL {
+                copied
+                    .with_label_values(&[work.as_str(), kind.as_str()])
+                    .reset();
+            }
+        }
         Ok(Self {
             pool_connections,
             pool_idle,
@@ -129,6 +194,7 @@ impl StorageMetrics {
             uploads_open_bytes,
             uploads_read,
             archives,
+            copied,
         })
     }
 }
@@ -147,6 +213,16 @@ impl Metrics {
                 .archives
                 .with_label_values(&[work.as_str()])
                 .set(i64::try_from(running).unwrap_or(i64::MAX));
+        }
+    }
+
+    /// Counts a board or a wiki copied whole by `work`.
+    pub(crate) fn board_copied(&self, work: BoardWork, kind: Module) {
+        if let Some(kept) = &self.kept {
+            kept.storage
+                .copied
+                .with_label_values(&[work.as_str(), kind.as_str()])
+                .inc();
         }
     }
 

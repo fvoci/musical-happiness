@@ -22,9 +22,11 @@ use serde_json::Value;
 use tokio::fs;
 
 use super::App;
+use super::board_copies::counted_as;
 use super::export::ARCHIVE_VERSION;
 use crate::auth::now_millis;
 use crate::error::{AppError, ErrorKind};
+use crate::metrics::BoardWork;
 use crate::permissions;
 use fvoci_store::StoreError;
 
@@ -283,6 +285,8 @@ impl App {
             .map_err(|error| error.context("error inserting archive blocks"))?;
 
         for board in &created.boards {
+            self.metrics()
+                .board_copied(BoardWork::Import, counted_as(board.kind));
             let admin = BoardMember {
                 board_id: board.id.clone(),
                 user_id: options.modified_by.clone(),

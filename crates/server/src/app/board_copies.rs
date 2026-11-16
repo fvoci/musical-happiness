@@ -6,6 +6,7 @@ use fvoci_store::DuplicateAs;
 use super::App;
 use super::pages::refused_without_member;
 use crate::error::AppError;
+use crate::metrics::{BoardWork, Module};
 
 impl App {
     /// Copies a board and its blocks, except comments, into `to_workspace` for a user, who
@@ -79,6 +80,9 @@ impl App {
             }
         }
 
+        self.metrics()
+            .board_copied(BoardWork::Duplicate, counted_as(kind));
+
         let app = self.clone();
         let broadcast = copies.clone();
         let new_members = members.clone();
@@ -133,5 +137,13 @@ impl App {
                     .await
             }
         }
+    }
+}
+
+/// What a board of `kind` is counted as among the boards copied whole.
+pub(super) fn counted_as(kind: BoardKind) -> Module {
+    match kind {
+        BoardKind::Board => Module::Board,
+        BoardKind::Wiki => Module::Wiki,
     }
 }
