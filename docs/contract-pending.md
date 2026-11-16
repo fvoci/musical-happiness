@@ -141,8 +141,8 @@
 **들어간 것(tracer-bullet 8, 2026-11-11 09:53 KST).** 조작과 모양은 그대로이고, 한도와 정리가 들어갔다.
 
 - **열린 업로드의 한도.** 사용자 한 명은 업로드를 8개까지 열어 둔다. 사용자의 열린 업로드가 걸어 두는 크기(선언한 `size`의 합)는 가장 큰 파일 한도의 두 배까지(9b부터는 파일과 아카이브 한도 가운데 큰 것의 두 배), 서버 전체는 설정 `max_pending_upload_bytes`(기본 2 GiB)까지다. 넘는 `createUpload`는 429이고 `reason`이 `too_many_uploads`, `uploads_pending`, `server_uploads_pending` 가운데 하나다. `Retry-After`는 없다: 자리는 업로드를 끝내거나 버려야 난다. 완료하는 중인(닫힌) 업로드는 세지 않는다. 같은 순간에 연 세션들도 한도를 함께 넘지 못한다.
-- **파일 하나의 한도.** `maxFileSize`(설정 `max_file_bytes`)의 기본이 0(한도 없음)에서 100 MiB가 됐다(설계 결정 16).
-- **`uploadFile`.** 파일을 메모리에 모으지 않고 저장소로 흘려 쓴다. 부분 하나의 크기(`partSize`, 기본 8 MiB)까지만 받고, 그보다 크면 413이고 `reason`이 `upload_in_parts`다. 그 파일이 `maxFileSize` 안이면 `createUpload`로 보낼 수 있다(흘려 받으며 거절하므로 서버는 전체 크기를 모른다). `maxFileSize`가 부분보다 작으면 `maxFileSize`까지이고 413에 `reason`이 없다. `maxFileSize`는 이제 0(한도 없음)일 수 없다. 요청이 선언한 길이가 한도를 크게 넘으면 읽기 전에, 아니면 읽다가 거절한다. 거절하거나 끊긴 파일은 남지 않는다.
+- **파일 하나의 한도.** `maxFileBytes`(설정 `max_file_bytes`)의 기본이 0(한도 없음)에서 100 MiB가 됐다(설계 결정 16).
+- **`uploadFile`.** 파일을 메모리에 모으지 않고 저장소로 흘려 쓴다. 부분 하나의 크기(`partSize`, 기본 8 MiB)까지만 받고, 그보다 크면 413이고 `reason`이 `upload_in_parts`다. 그 파일이 `maxFileBytes` 안이면 `createUpload`로 보낼 수 있다(흘려 받으며 거절하므로 서버는 전체 크기를 모른다). `maxFileBytes`가 부분보다 작으면 `maxFileBytes`까지이고 413에 `reason`이 없다. `maxFileBytes`는 이제 0(한도 없음)일 수 없다. 요청이 선언한 길이가 한도를 크게 넘으면 읽기 전에, 아니면 읽다가 거절한다. 거절하거나 끊긴 파일은 남지 않는다.
 - **정리.** 끝난(24시간이 지난) 열린 업로드와, 닫힌 채 한 시간이 지난 업로드(서버가 완료 중에 멈춘 것. 끝나기 직전에 시작한 완료도 이 한 시간을 받는다)는 서버가 한 시간마다, 그리고 시작할 때 부분과 함께 버린다. 시작할 때는 어느 업로드의 것도 아닌 부분과, 로컬 저장소가 쓰다 만 파일도 지운다.
 
 들어간 것(tracer-bullet 8b, 2026-11-11 10:23 KST): S3 멀티파트. 연산의 모양과 뜻은 그대로다.
@@ -186,14 +186,14 @@
 
 **들어간 것(tracer-bullet 9b, 2026-11-11 11:19 KST).** 가져오기가 4절의 올리기 세션을 쓴다. **`importArchive`의 요청 모양이 바뀌었다**(결정된 변경이다).
 
-- 새 조작 `createImportUpload`(`POST /w/{workspaceId}/archive/uploads`). 요청과 답은 `createUpload`와 같다(`name`, `size`, `contentType` → `uploadId`, `partSize`, `partCount`, `expiresAt`). 권한은 가져오기와 같다(그 워크스페이스에서 일하는 사용자이고 서버의 게스트가 아님). `size`가 `maxImportSize`를 넘으면 413이다.
+- 새 조작 `createImportUpload`(`POST /w/{workspaceId}/archive/uploads`). 요청과 답은 `createUpload`와 같다(`name`, `size`, `contentType` → `uploadId`, `partSize`, `partCount`, `expiresAt`). 권한은 가져오기와 같다(그 워크스페이스에서 일하는 사용자이고 서버의 게스트가 아님). `size`가 `maxImportBytes`를 넘으면 413이다.
 - 부분은 `putUploadPart`로 보낸다(파일과 같다). 아카이브의 부분은 저장소가 S3여도 서버의 임시 자리에 받는다(가져오기가 ZIP을 임의 접근으로 읽는다).
 - `importArchive`(`POST /w/{workspaceId}/archive/import`)의 본문은 `multipart/form-data`가 아니라 JSON `{"uploadId": "…"}`다. 답은 그대로 204다. 설계 5.6의 9번은 "완료가 가져오기를 실행한다"였는데, `completeUpload`의 답(`fileId`)과 권한(보드)이 파일의 것이라 가져오기는 제 조작에서 업로드를 이름으로 받게 했다. 빠진 부분이 있으면 400이고 업로드는 열린 채 남는다. 그 밖에는 가져오기가 성공하든 실패하든 업로드가 끝난다. 다른 사용자의 업로드와 끝난 업로드는 404, 파일의 업로드나 다른 워크스페이스의 업로드는 400(`errors`가 `uploadId`의 자리를 가리킨다)이다. 가져올 때 권한이 없으면 403이고 업로드를 버린다(완료와 같다).
 - `completeUpload`에 아카이브의 업로드를 주면 400(`errors`가 `uploadId`의 자리를 가리킨다)이고 업로드는 남는다.
 - `getUpload`의 답에 `purpose`(`file` | `import`)와 `workspaceId`가 생겼다. 아카이브의 업로드는 `containerId`가 빈 문자열, 파일의 업로드는 `workspaceId`가 빈 문자열이다.
-- `getClientConfig`에 `maxImportSize`(설정 `max_import_bytes`, 기본 256 MiB)가 생겼다. 사용자 한 명의 열린 업로드가 걸어 두는 크기의 한도는 `maxFileSize`와 `maxImportSize` 가운데 큰 것의 두 배가 됐다(기본 512 MiB).
-- 아카이브의 한도(설계 4.2): 항목 10,000개, 풀린 합계 1 GiB, `board.jsonl` 64 MiB(전에는 70 MiB이고 400), 파일 항목 하나는 `maxFileSize`(전에는 항목마다 256 MiB이고 400). 넘으면 413이고 `limit`이 그 한도다(항목 수는 개수, 나머지는 바이트). 무엇을 만들기 전에 모든 항목을 한 번 읽어 보므로 한도를 넘는 아카이브는 아무것도 만들지 않는다.
-- 맨 위의 `version.json`이 64 KiB를 넘으면 이 서버의 아카이브가 아니라서 400이다(다른 판의 것과 같다). 보드 디렉터리 안의 같은 이름은 파일 항목의 한도(`maxFileSize`)를 받고, 가져오지는 않는다.
+- `getClientConfig`에 `maxImportBytes`(설정 `max_import_bytes`, 기본 256 MiB)가 생겼다. 사용자 한 명의 열린 업로드가 걸어 두는 크기의 한도는 `maxFileBytes`와 `maxImportBytes` 가운데 큰 것의 두 배가 됐다(기본 512 MiB).
+- 아카이브의 한도(설계 4.2): 항목 10,000개, 풀린 합계 1 GiB, `board.jsonl` 64 MiB(전에는 70 MiB이고 400), 파일 항목 하나는 `maxFileBytes`(전에는 항목마다 256 MiB이고 400). 넘으면 413이고 `limit`이 그 한도다(항목 수는 개수, 나머지는 바이트). 무엇을 만들기 전에 모든 항목을 한 번 읽어 보므로 한도를 넘는 아카이브는 아무것도 만들지 않는다.
+- 맨 위의 `version.json`이 64 KiB를 넘으면 이 서버의 아카이브가 아니라서 400이다(다른 판의 것과 같다). 보드 디렉터리 안의 같은 이름은 파일 항목의 한도(`maxFileBytes`)를 받고, 가져오지는 않는다.
 - 항목 수는 ZIP의 디렉터리를 읽기 전에 파일 전체에서 중앙 헤더의 서명을 세어 본다. 끝 레코드가 적은 수를 말해도 헤더가 10,000개를 넘으면 413이다. 이것은 읽어 들이는 항목의 수를 묶을 뿐, ZIP 크레이트가 디렉터리를 읽기 전에 끝 레코드가 말하는 수만큼 잡아 두는 자리(가상 메모리. 꾸미면 아카이브 크기의 약 3배)는 묶지 못한다. 보통의 메모리 과할당 설정에서는 쓰이지 않고 400으로 끝나지만, 과할당을 막은 기기에서는 프로세스가 멈출 수 있다(사용자에게 알렸고 코드는 그대로 둔다. `docs/configuration.md`의 `max_import_bytes`). 압축하지 않고 저장한 ZIP(첨부한 `.zip`, `.xlsx` 등)을 담은 아카이브는 그 안의 헤더도 세어진다. 이 서버가 내보낸 아카이브는 항목을 모두 압축하므로 해당하지 않는다.
 - 서버는 아카이브를 메모리에 올리지 않는다. 부분을 임시 자리에서 차례로 한 파일에 이어 붙이며(붙인 부분은 지운다) 그 파일에서 항목을 하나씩 읽고, 파일 항목은 임시 파일로 풀어 저장소에 흘려 쓴다. 가져오는 동안 임시 자리는 아카이브 하나와 부분 하나, 파일 항목 하나만큼 쓴다. 가져오는 중인 아카이브는 열린 업로드의 한도에 들지 않는다. 동시에 하는 가져오기와 내보내기는 한 사람에 하나, 서버 전체에 설정값(기본 2)까지이고 넘으면 429다(사용자 결정 2026-11-11 14:25 KST).
 
@@ -295,13 +295,13 @@
 | B3 | 아니다. `completeUpload`·`uploadFile`은 파일만 만들고(`UploadedFile`의 `fileId`) 첨부 블록은 클라이언트가 만든다 |
 | B4 | 답(`UploadedFile`)은 `fileId`뿐이다. 이름·크기는 `getFileInfo` |
 | B5 | 맞다. 파일은 `getFile`(`/containers/{containerId}/files/{fileId}`)로 받는다 |
-| B6 | `getClientConfig`의 `maxFileSize`, `maxImportSize`. 조각 크기는 `createUpload`의 답(`partSize`) |
+| B6 | `getClientConfig`의 `maxFileBytes`, `maxImportBytes`. 조각 크기는 `createUpload`의 답(`partSize`) |
 | C1, 6절 작업 공간 3 | `createBoardsAndBlocks`가 보드와 첫 뷰를 한 요청으로(한 트랜잭션) 만든다. 서버가 기본 뷰를 넣지는 않는다 |
 | C5 | 맞다. 지워진 보드, 없는 보드, 볼 수 없는 보드는 모두 404다. 열린 보드(`O`)는 구성원이 아니어도 보드는 읽지만, 카드·블록·구성원은 403이다 |
 | C3 | `cardOrder`는 뷰의 `fields`에 그대로 둔다 |
 | D1 | 지금 워크스페이스는 조직마다 하나다. 지금대로 둔다, 그 계획에서 다시 본다 |
 | D2, H1 | 검색 없이 오래된 열 명, 검색으로 열 명까지(대소문자 무시). 구성원의 사용자는 `getMembers` 뒤 `getWorkspaceUsersById`. 워크스페이스 전부를 읽는 길은 없다. 지금대로 둔다, 그 계획에서 다시 본다 |
-| D4 | `getClientConfig`의 `teammateNameDisplay` |
+| D4 | `getClientConfig`의 `nameDisplay` |
 | E1 | 가정과 다르다: `containerMetadata: [{containerId, hidden}]` |
 | E2, 6절 작업 공간 1 | 넣기(`setContainerCategory`)와 순서(`reorderCategoryContainers`, 그 카테고리의 보드 ID 전부를 새 순서로)가 따로다. 넣기에는 자리가 없다 |
 | E3 | 넣어 준다. 템플릿이 아닌 새 보드와 새로 든 보드는 그 사용자의 기본 카테고리에 들어간다 |

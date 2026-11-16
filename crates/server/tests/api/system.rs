@@ -96,11 +96,11 @@ async fn get_client_config() {
     assert_eq!(
         response.ok_json::<serde_json::Value>(),
         json!({
-            "enablePublicSharedBoards": true,
-            "teammateNameDisplay": "username",
+            "allowPublicLinks": true,
+            "nameDisplay": "username",
             "featureFlags": {"newBoardsEditor": "true"},
-            "maxFileSize": 1234,
-            "maxImportSize": 268_435_456,
+            "maxFileBytes": 1234,
+            "maxImportBytes": 268_435_456,
             "searchEnabled": true,
         }),
         "the client configuration"

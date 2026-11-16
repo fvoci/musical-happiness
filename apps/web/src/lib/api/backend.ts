@@ -820,11 +820,11 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
 
   /**
    * Uploads a file in parts (`upload.ts`). A file over the server's limit
-   * (`getClientConfig`'s `maxFileSize`) is refused before anything is sent,
+   * (`getClientConfig`'s `maxFileBytes`) is refused before anything is sent,
    * with the limit, as the server would refuse it (413).
    */
   async upload(containerId: string, file: File, options?: UploadOptions): Promise<UploadedFile> {
-    const limit = (await this.#config.read()).maxFileSize;
+    const limit = (await this.#config.read()).maxFileBytes;
     if (file.size > limit) {
       throw new BackendError(413, { detail: 'the file is too large', limit });
     }
@@ -891,12 +891,12 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
 
   /**
    * Imports an archive sent in parts (`upload.ts`). An archive over the
-   * server's `maxImportSize` is refused before anything is sent, with the
+   * server's `maxImportBytes` is refused before anything is sent, with the
    * limit, as the server would (413). It takes a turn among the uploads: it
    * counts toward the same open uploads of the reader.
    */
   async importArchive(workspaceId: string, file: File, options?: UploadOptions) {
-    const limit = (await this.#config.read()).maxImportSize;
+    const limit = (await this.#config.read()).maxImportBytes;
     if (file.size > limit) {
       // The reason is this app's: the server's 413 may count entries, this one counts bytes.
       throw new BackendError(413, {

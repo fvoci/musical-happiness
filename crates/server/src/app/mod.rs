@@ -592,11 +592,11 @@ impl App {
         let config = self.config();
         let limits = self.limits();
         ClientConfig {
-            enable_public_shared_boards: config.allow_public_links,
-            teammate_name_display: config.name_display.clone(),
+            allow_public_links: config.allow_public_links,
+            name_display: config.name_display.clone(),
             feature_flags: config.feature_flags.clone(),
-            max_file_size: limits.largest_file,
-            max_import_size: limits.largest_import,
+            max_file_bytes: limits.largest_file,
+            max_import_bytes: limits.largest_import,
             // Every server searches bodies: on its search server, or on its database
             // where none is configured. One that cannot hold the index answers 503.
             search_enabled: true,

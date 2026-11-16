@@ -20,7 +20,7 @@ interface Call {
 /** A server that takes uploads in parts of `partSize` bytes; `fail` decides a part's answer. */
 function uploadServer(options: {
   partSize: number;
-  maxFileSize?: number;
+  maxFileBytes?: number;
   fail?: (number: number, attempt: number) => number | undefined;
 }): Call[] {
   const calls: Call[] = [];
@@ -43,7 +43,7 @@ function uploadServer(options: {
     const problem = (status: number, name: string, detail: string): Response =>
       answer(status, { type: `/problems/${name}`, title: name, status, detail });
     if (url.endsWith('/client-config')) {
-      return answer(200, { maxFileSize: options.maxFileSize ?? 1000 });
+      return answer(200, { maxFileBytes: options.maxFileBytes ?? 1000 });
     }
     if (method === 'POST' && url.endsWith('/uploads')) {
       const size = (calls.at(-1)?.json as { size: number }).size;
@@ -159,7 +159,7 @@ describe('uploading a file to the server', () => {
   });
 
   it('refuses a file over the server’s limit before sending anything, with the limit', async () => {
-    const calls = uploadServer({ partSize: 4, maxFileSize: 5 });
+    const calls = uploadServer({ partSize: 4, maxFileBytes: 5 });
     const error = await serverBackend('')
       .upload('b1', new File(['0123456789'], 'big.bin'))
       .catch((caught: unknown) => caught);

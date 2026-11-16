@@ -190,9 +190,9 @@ pub(super) async fn container_file_info(
 /// Stores a file with the board. The request is a `multipart/form-data` form whose
 /// part `file` carries the file and a file name. The file is limited to one part of an
 /// upload in parts (8 MiB unless the server is configured otherwise), and to the
-/// `maxFileSize` of `getClientConfig` where that is less; a larger one is 413. Where
+/// `maxFileBytes` of `getClientConfig` where that is less; a larger one is 413. Where
 /// the limit is the part, the refusal has the reason `upload_in_parts`: a file within
-/// `maxFileSize` can be sent with `createUpload`. A file that is refused or cut off is
+/// `maxFileBytes` can be sent with `createUpload`. A file that is refused or cut off is
 /// not kept. The `fileId` of the answer ends in the extension of the file name, in lower
 /// case, with `.jpeg` written `.jpg`; an extension of more than 17 bytes, or with
 /// anything but letters and digits in it, is left off. For editors.

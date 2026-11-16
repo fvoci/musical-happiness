@@ -7,8 +7,7 @@
 #
 # `*` stands for any part of a name, `**` for any number of folders.
 
-# A person one works with: the setting of how people's names are shown, which keeps
-# the original's name (teammatenamedisplay, teammateNameDisplay).
+# A person one works with: a built-in template's card says "@mention teammates".
 ** | teammate
 
 # Skills copied as they are from their sources by `npx skills add` (skills-lock.json):

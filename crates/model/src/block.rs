@@ -40,8 +40,6 @@ pub const CARD_FIELDS_MAX_CHARS: usize = 64_000;
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(from = "String", into = "String")]
 pub enum BlockType {
-    /// A legacy board block.
-    Board,
     /// A card.
     Card,
     /// A board view.
@@ -102,14 +100,13 @@ impl BlockType {
     pub fn fields_max_chars(&self) -> usize {
         match self {
             Self::Card | Self::Comment | Self::Attachment | Self::Page => CARD_FIELDS_MAX_CHARS,
-            Self::View | Self::Board | Self::Other(_) => BLOCK_FIELDS_MAX_CHARS,
+            Self::View | Self::Other(_) => BLOCK_FIELDS_MAX_CHARS,
         }
     }
 
     /// Returns the wire string of this type.
     pub fn as_str(&self) -> &str {
         match self {
-            Self::Board => "board",
             Self::Card => "card",
             Self::View => "view",
             Self::Comment => "comment",
@@ -127,7 +124,6 @@ impl BlockType {
     /// Maps an exact wire string to a known type, if it is one.
     fn known(name: &str) -> Option<Self> {
         Some(match name {
-            "board" => Self::Board,
             "card" => Self::Card,
             "view" => Self::View,
             "comment" => Self::Comment,

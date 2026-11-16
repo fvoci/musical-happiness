@@ -175,7 +175,7 @@ Cloudflare R2는 같은 규칙이 기본으로 7일이다. 다른 S3 호환 저�
 |---|---|---|---|---|
 | `allow_public_links` | `FVOCI_ALLOW_PUBLIC_LINKS` | 참·거짓 | `false` | 참이면 보드를 읽기 토큰으로 공개 공유할 수 있다. 거짓이면 어느 읽기 토큰도 맞지 않는다 |
 | `feature_flags` | — | 문자열에서 문자열로의 객체 | `{}` | 웹앱에 넘기는 기능 표시(`getClientConfig`의 `featureFlags`) |
-| `name_display` | `FVOCI_NAME_DISPLAY` | 문자열 | `"username"` | 웹앱이 다른 사용자의 이름을 보이는 방식(`getClientConfig`의 `teammateNameDisplay`) |
+| `name_display` | `FVOCI_NAME_DISPLAY` | 문자열 | `"username"` | 웹앱이 다른 사용자의 이름을 보이는 방식(`getClientConfig`의 `nameDisplay`) |
 | `show_email_addresses` | `FVOCI_SHOW_EMAIL_ADDRESSES` | 참·거짓 | `false` | 사용자 목록에 이메일을 싣는지 |
 | `show_full_names` | `FVOCI_SHOW_FULL_NAMES` | 참·거짓 | `false` | 사용자 목록에 이름과 성을 싣는지 |
 

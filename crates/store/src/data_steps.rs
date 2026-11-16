@@ -19,15 +19,13 @@ const DATE_VALUES: &str = "date_values";
 const CONTENT_BLOCKS: &str = "content_blocks";
 
 /// The block types that stay: those a block may be given ([`BlockType::is_current`]),
-/// the page, which its own operations make, and the legacy board block of the
-/// original, which is no content block.
-const KEPT_TYPES: [BlockType; 6] = [
+/// and the page, which its own operations make.
+const KEPT_TYPES: [BlockType; 5] = [
     BlockType::Card,
     BlockType::View,
     BlockType::Comment,
     BlockType::Attachment,
     BlockType::Page,
-    BlockType::Board,
 ];
 
 /// Does the steps that are still to be done.
@@ -187,10 +185,10 @@ fn definitions(list: &serde_json::Value) -> impl Iterator<Item = &fvoci_model::J
 mod tests {
     use super::*;
 
-    /// The step keeps what a block may be given, and the page and the legacy board
-    /// block besides: a type that becomes current is kept too.
+    /// The step keeps what a block may be given, and the page besides: a type that
+    /// becomes current is kept too.
     #[test]
-    fn the_kept_types_are_the_current_ones_and_the_board() {
+    fn the_kept_types_are_the_current_ones_and_the_page() {
         let current = [
             "card",
             "view",
@@ -211,6 +209,6 @@ mod tests {
             .iter()
             .filter(|kept| !kept.is_current())
             .collect();
-        assert_eq!(besides, [&BlockType::Page, &BlockType::Board]);
+        assert_eq!(besides, [&BlockType::Page]);
     }
 }

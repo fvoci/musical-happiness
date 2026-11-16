@@ -118,7 +118,7 @@ mod tests {
             BlockType::Comment,
             BlockType::View,
             BlockType::Attachment,
-            BlockType::Board,
+            BlockType::Other("board".to_owned()),
             BlockType::Other("text".to_owned()),
         ] {
             assert_eq!(

@@ -282,7 +282,7 @@ async fn an_upload_of_an_archive_is_kept_to_its_purpose() {
         .init_basic()
         .await;
     let config = ts.client.get("/client-config").await;
-    assert_eq!(config.value()["maxImportSize"], json!(1000));
+    assert_eq!(config.value()["maxImportBytes"], json!(1000));
 
     let response = open_import(&ts.client, TEST_WORKSPACE_ID, 1001).await;
     response.check_status(StatusCode::PAYLOAD_TOO_LARGE);

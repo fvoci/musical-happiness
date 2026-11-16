@@ -23,7 +23,7 @@
 - 둘 다 오면 Bearer를 쓴다.
 - 브라우저는 같은 출처의 페이지에서 `new WebSocket(…)`으로 열면 쿠키를 저절로 싣는다. 스크립트가 토큰을 알 필요가 없다.
 - 익명 연결은 공유 보드의 블록 구독(`SUBSCRIBE_BLOCKS`)과 보드·위키의 읽기 토큰의 방문 알림(`SET_PRESENCE`, 7절)을 할 수 있다.
-- **공유 보드는 설정 `enable_public_shared_boards`가 켜져 있을 때만 있다. 기본값은 꺼짐이고, 꺼져 있으면 어느 읽기 토큰도 맞지 않아 `SUBSCRIBE_BLOCKS`는 늘 무시된다.**
+- **공유 보드는 설정 `allow_public_links`가 켜져 있을 때만 있다. 기본값은 꺼짐이고, 꺼져 있으면 어느 읽기 토큰도 맞지 않아 `SUBSCRIBE_BLOCKS`는 늘 무시된다.**
 
 ## 2. 클라이언트가 보내는 명령
 
