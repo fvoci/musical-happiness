@@ -236,7 +236,8 @@ async fn indexes(database: &fvoci_store::testing::TestDatabase) -> Vec<String> {
 /// organization's administrator, and the records of two people put on it; and the
 /// trash's JSON as the server wrote it, two members' and two files' board and a block's
 /// after its fields, which hold a `\u0000` (PostgreSQL's `json` keeps it, `jsonb`
-/// refuses it) and a member of their own named `boardId`, which is not the block's.
+/// refuses it) and a member of their own named `boardId`, which is not the block's; and
+/// the same block as a data step wrote it again, its members in the order of their names.
 fn rows_of_the_later_tables(before: &Before, team: &str, invitation: &str) -> String {
     let board = before.id("board");
     let card = before.id("card");
@@ -245,7 +246,7 @@ fn rows_of_the_later_tables(before: &Before, team: &str, invitation: &str) -> St
     let member = before.id("member");
     let deleted = before.id("deleted_board");
     let deleted_card = before.id("deleted_card");
-    let (added, joined) = (new_id(), new_id());
+    let (added, joined, rewritten) = (new_id(), new_id(), new_id());
     let org = format!("(SELECT org_id FROM workspaces WHERE id = '{workspace}')");
     let body_links = match db_type() {
         DbType::Sqlite => format!(
@@ -256,6 +257,16 @@ fn rows_of_the_later_tables(before: &Before, team: &str, invitation: &str) -> St
             "INSERT INTO body_links (source_id, target_id, board_id, org_id) VALUES \
              ('{card}', '{card}', '{board}', {org});"
         ),
+    };
+    let trash_columns = match db_type() {
+        DbType::Sqlite => "id, board_id, parent_id, deleted_at, deleted_by, deletion_id, block",
+        DbType::Postgres => {
+            "id, board_id, parent_id, deleted_at, deleted_by, deletion_id, block, org_id"
+        }
+    };
+    let trash_values = match db_type() {
+        DbType::Sqlite => "",
+        DbType::Postgres => ", org_id",
     };
     format!(
         "INSERT INTO teams (id, org_id, workspace_id, name, name_key) VALUES \
@@ -287,6 +298,10 @@ fn rows_of_the_later_tables(before: &Before, team: &str, invitation: &str) -> St
          block = '{{\"type\":\"card\",\"fields\":{{\"note\":\"a\\u0000b\",\"boardId\":\"kept\"}}, \
          \"boardId\":\"{board}\"}}' \
          WHERE id = '{deleted_card}'; \
+         INSERT INTO deleted_blocks ({trash_columns}) SELECT '{rewritten}', board_id, \
+         parent_id, deleted_at, deleted_by, deletion_id, \
+         '{{\"boardId\":\"{board}\",\"fields\":{{\"boardId\":\"kept\",\"note\":\"a\\u0000b\"}}, \
+         \"type\":\"card\"}}'{trash_values} FROM deleted_blocks WHERE id = '{deleted_card}'; \
          DELETE FROM data_steps;"
     )
 }

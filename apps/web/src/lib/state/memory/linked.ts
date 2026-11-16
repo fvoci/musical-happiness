@@ -9,7 +9,7 @@ import type { DocNode } from '../../editor/schema.ts';
 import { REFERENCES_AT_ONCE, type LinkedBlock, type References } from '../references.ts';
 import type { Paging } from '../trash-reads.ts';
 
-import { reads } from './board-access.ts';
+import { reads } from './container-access.ts';
 import { fail } from './refuse.ts';
 import type { StoredBlock, World } from './world.ts';
 

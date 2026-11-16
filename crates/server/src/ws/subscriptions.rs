@@ -252,7 +252,7 @@ impl Hub {
         for block_id in &command.block_ids {
             let Some(of_block) = self
                 .audience
-                .container_of_shared_block(&command.workspace_id, block_id, &command.read_token)
+                .board_of_shared_block(&command.workspace_id, block_id, &command.read_token)
                 .await?
             else {
                 return Ok(None);

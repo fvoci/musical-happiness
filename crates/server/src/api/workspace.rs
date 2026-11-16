@@ -35,7 +35,7 @@ const WORKSPACE_ID: &str = "workspaceId";
 pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new()
         .routes(routes!(handle_get_my_workspaces))
-        .routes(routes!(handle_get_workspace_containers))
+        .routes(routes!(handle_get_workspace_boards))
         .routes(routes!(handle_get_workspace))
         .routes(routes!(
             handle_get_workspace_users,
@@ -317,12 +317,12 @@ async fn handle_get_my_workspaces(
     params(MemberWorkspaceId),
     responses((status = 200, description = "The boards.", body = Vec<Container>)),
 )]
-async fn handle_get_workspace_containers(ws: InWorkspace) -> ApiResult {
-    let containers = ws
+async fn handle_get_workspace_boards(ws: InWorkspace) -> ApiResult {
+    let boards = ws
         .app
         .workspace_containers(&ws.session.user_id, &ws.workspace_id, ws.role)
         .await?;
-    Ok(json_response(&containers))
+    Ok(json_response(&boards))
 }
 
 /// A workspace

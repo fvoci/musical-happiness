@@ -109,9 +109,9 @@ async fn require_read_access(ws: &InWorkspace, container: &Container) -> Result<
 /// Security fix: the original copies the files without looking at the source board
 /// (`server/api/blocks.go:297-303`), so a user could make the server copy files out of a
 /// board they cannot see. Whoever may read the board's blocks may copy from it.
-async fn require_source_container_access(
+async fn require_source_board_access(
     ws: &InWorkspace,
-    source_container_id: &str,
+    source_board_id: &str,
 ) -> Result<(), AppError> {
     // The same answer for a board that is not there and one the user may not read. A
     // store that failed is neither: it is answered as what it is.
@@ -122,12 +122,8 @@ async fn require_source_container_access(
             error
         }
     };
-    let container = ws
-        .app
-        .container(source_container_id)
-        .await
-        .map_err(refused)?;
-    require_read_access(ws, &container).await.map_err(refused)
+    let board = ws.app.container(source_board_id).await.map_err(refused)?;
+    require_read_access(ws, &board).await.map_err(refused)
 }
 
 /// The blocks of a board
@@ -151,13 +147,13 @@ async fn require_source_container_access(
 )]
 async fn handle_get_blocks(
     ws: InWorkspace,
-    Path((_, container_id)): Path<(String, String)>,
+    Path((_, board_id)): Path<(String, String)>,
     RawQuery(query): RawQuery,
 ) -> ApiResult {
-    let container = ws.app.container(&container_id).await?;
-    require_read_access(&ws, &container).await?;
-    let blocks = asked_blocks(&ws.app, &container_id, query.as_deref()).await?;
-    tracing::debug!(container_id, block_count = blocks.len(), "GetBlocks");
+    let board = ws.app.container(&board_id).await?;
+    require_read_access(&ws, &board).await?;
+    let blocks = asked_blocks(&ws.app, &board_id, query.as_deref()).await?;
+    tracing::debug!(board_id, block_count = blocks.len(), "GetBlocks");
     Ok(json_response(&blocks))
 }
 
@@ -188,18 +184,18 @@ pub(super) async fn asked_blocks(
 /// named by `sourceBoardId`, and copies the files the blocks show from that board.
 async fn check_and_copy_body_files(
     ws: &InWorkspace,
-    container_id: &str,
+    board_id: &str,
     query: Option<&str>,
     blocks: &mut [Block],
 ) -> Result<(), AppError> {
     let (app, user_id) = (&ws.app, ws.session.user_id.as_str());
     // Set when a template is made from a board or a board from a template: the files
     // the blocks refer to are then copied over from that board.
-    let source_container_id = query_param(query, "sourceBoardId");
+    let source_board_id = query_param(query, "sourceBoardId");
     // Copying files into the board is an editor's: a commenter, who may post comments
     // with bodies, may not upload either.
     // A request with anything but comments needed the editor's permission already.
-    if !source_container_id.is_empty()
+    if !source_board_id.is_empty()
         && blocks
             .iter()
             .all(|block| block.block_type == BlockType::Comment)
@@ -208,7 +204,7 @@ async fn check_and_copy_body_files(
         require_container_permission(
             app,
             user_id,
-            container_id,
+            board_id,
             ContainerPermission::ManageCards,
             CHANGES_DENIED,
         )
@@ -216,21 +212,21 @@ async fn check_and_copy_body_files(
     }
     // The images of a body show files of the board, or of the board they are copied
     // from.
-    let files_container_id = if source_container_id.is_empty() {
-        container_id
+    let files_board_id = if source_board_id.is_empty() {
+        board_id
     } else {
-        require_source_container_access(ws, &source_container_id).await?;
-        &source_container_id
+        require_source_board_access(ws, &source_board_id).await?;
+        &source_board_id
     };
     for (index, block) in blocks.iter().enumerate() {
-        app.check_body_files(files_container_id, block.body.as_ref())
+        app.check_body_files(files_board_id, block.body.as_ref())
             .await
             .map_err(|error| error.under(&element_pointer(Some(""), index)))?;
     }
-    if !source_container_id.is_empty() {
+    if !source_board_id.is_empty() {
         // The blocks are not stored yet: each is pointed at its copy here, and stored
         // with that below.
-        app.copy_card_files_into(&source_container_id, blocks).await;
+        app.copy_card_files_into(&source_board_id, blocks).await;
     }
 
     Ok(())
@@ -258,7 +254,7 @@ async fn check_and_copy_body_files(
 )]
 async fn handle_post_blocks(
     ws: InWorkspace,
-    Path((_, container_id)): Path<(String, String)>,
+    Path((_, board_id)): Path<(String, String)>,
     RawQuery(query): RawQuery,
     body: Bytes,
 ) -> ApiResult {
@@ -270,7 +266,7 @@ async fn handle_post_blocks(
     require_container_permission(
         &ws.app,
         user_id,
-        &container_id,
+        &board_id,
         ContainerPermission::View,
         CHANGES_DENIED,
     )
@@ -327,7 +323,7 @@ async fn handle_post_blocks(
                     .under(&place),
             );
         }
-        if block.container_id != container_id {
+        if block.container_id != board_id {
             return Err(AppError::bad_request(format_args!(
                 "invalid containerId for block id {id}"
             ))
@@ -339,7 +335,7 @@ async fn handle_post_blocks(
         require_container_permission(
             &ws.app,
             user_id,
-            &container_id,
+            &board_id,
             ContainerPermission::ManageCards,
             CHANGES_DENIED,
         )
@@ -349,17 +345,17 @@ async fn handle_post_blocks(
         require_container_permission(
             &ws.app,
             user_id,
-            &container_id,
+            &board_id,
             ContainerPermission::CommentCards,
             "access denied to post card comments",
         )
         .await?;
     }
 
-    renew_request_ids(&ws.app, &container_id, &mut blocks).await?;
+    renew_request_ids(&ws.app, &board_id, &mut blocks).await?;
     stamp_modification_metadata(user_id, &mut blocks, now_millis());
 
-    check_and_copy_body_files(&ws, &container_id, query, &mut blocks).await?;
+    check_and_copy_body_files(&ws, &board_id, query, &mut blocks).await?;
 
     // The store names a block it refuses by its identifier.
     let ids: Vec<String> = blocks.iter().map(|block| block.id.clone()).collect();
@@ -411,7 +407,7 @@ async fn renew_request_ids(
 )]
 async fn handle_delete_block(
     ws: InWorkspace,
-    Path((_, container_id, block_id)): Path<(String, String, String)>,
+    Path((_, board_id, block_id)): Path<(String, String, String)>,
     RawQuery(query): RawQuery,
 ) -> ApiResult {
     let user_id = ws.session.user_id.as_str();
@@ -420,17 +416,17 @@ async fn handle_delete_block(
     require_container_permission(
         &ws.app,
         user_id,
-        &container_id,
+        &board_id,
         ContainerPermission::CommentCards,
         CHANGES_DENIED,
     )
     .await?;
-    let block = block_on_container(&ws.app, &block_id, &container_id).await?;
+    let block = block_on_container(&ws.app, &block_id, &board_id).await?;
     require_delete_permission(&ws.app, user_id, &block, CHANGES_DENIED).await?;
     ws.app
         .delete_block(&block_id, user_id, notification)
         .await?;
-    tracing::debug!(container_id, block_id, "DELETE Block");
+    tracing::debug!(board_id, block_id, "DELETE Block");
     Ok(no_content())
 }
 
@@ -458,26 +454,26 @@ async fn handle_delete_block(
 )]
 async fn handle_undelete_block(
     ws: InWorkspace,
-    Path((_, container_id, block_id)): Path<(String, String, String)>,
+    Path((_, board_id, block_id)): Path<(String, String, String)>,
 ) -> ApiResult {
     let user_id = ws.session.user_id.as_str();
     // Nobody below the commenter's role brings anything back, whatever the block is.
     require_container_permission(
         &ws.app,
         user_id,
-        &container_id,
+        &board_id,
         ContainerPermission::CommentCards,
         CHANGES_DENIED,
     )
     .await?;
-    let container = ws.app.container(&container_id).await?;
+    let board = ws.app.container(&board_id).await?;
     // What is restored is what the trash has of this board: the whole deletion the
     // block went with, all of one board. A block that exists, one that never did and
     // one of another board are all not there to restore.
     let deletion = ws.app.deletion(&block_id).await?;
     let Some((top, below)) = deletion
         .split_first()
-        .filter(|(top, _)| top.container_id == container.id)
+        .filter(|(top, _)| top.container_id == board.id)
     else {
         return Err(AppError::not_found("block"));
     };
@@ -522,25 +518,25 @@ async fn handle_undelete_block(
 )]
 async fn handle_get_comment_versions(
     ws: InWorkspace,
-    Path((_, container_id, block_id)): Path<(String, String, String)>,
+    Path((_, board_id, block_id)): Path<(String, String, String)>,
 ) -> ApiResult {
     let user_id = ws.session.user_id.as_str();
     require_container_permission(
         &ws.app,
         user_id,
-        &container_id,
+        &board_id,
         ContainerPermission::View,
         "access denied to board",
     )
     .await?;
-    let comment = match block_on_container(&ws.app, &block_id, &container_id).await {
+    let comment = match block_on_container(&ws.app, &block_id, &board_id).await {
         Ok(block) => block,
         Err(error) if error.is_not_found() => ws
             .app
             .deleted_block(&block_id)
             .await?
             .map(|deleted| deleted.block)
-            .filter(|block| block.container_id == container_id)
+            .filter(|block| block.container_id == board_id)
             .ok_or_else(|| AppError::not_found("comment"))?,
         Err(error) => return Err(error),
     };
@@ -572,7 +568,7 @@ async fn handle_get_comment_versions(
 )]
 async fn handle_patch_block(
     ws: InWorkspace,
-    Path((_, container_id, block_id)): Path<(String, String, String)>,
+    Path((_, board_id, block_id)): Path<(String, String, String)>,
     RawQuery(query): RawQuery,
     body: Bytes,
 ) -> ApiResult {
@@ -582,12 +578,12 @@ async fn handle_patch_block(
     require_container_permission(
         &ws.app,
         user_id,
-        &container_id,
+        &board_id,
         ContainerPermission::CommentCards,
         CHANGES_DENIED,
     )
     .await?;
-    let block = block_on_container(&ws.app, &block_id, &container_id).await?;
+    let block = block_on_container(&ws.app, &block_id, &board_id).await?;
     require_block_permission(
         &ws.app,
         user_id,
@@ -601,7 +597,7 @@ async fn handle_patch_block(
     put_patch_bodies([&mut patch], changes?, None)?;
     require_block_patch_permission(&ws.app, user_id, &block, &patch, CHANGES_DENIED).await?;
     ws.app
-        .check_body_files(&container_id, patch.body.new_body())
+        .check_body_files(&board_id, patch.body.new_body())
         .await?;
 
     // The store names what it refuses as a block has it; a patch has it under another
@@ -610,7 +606,7 @@ async fn handle_patch_block(
         .patch_block(&block_id, &patch, user_id, notification)
         .await
         .map_err(|error| error.moved(BLOCK_FIELDS, PATCH_FIELDS))?;
-    tracing::debug!(container_id, block_id, "PATCH Block");
+    tracing::debug!(board_id, block_id, "PATCH Block");
     Ok(no_content())
 }
 
@@ -631,7 +627,7 @@ async fn handle_patch_block(
 )]
 async fn handle_patch_blocks(
     ws: InWorkspace,
-    Path((_, container_id)): Path<(String, String)>,
+    Path((_, board_id)): Path<(String, String)>,
     RawQuery(query): RawQuery,
     body: Bytes,
 ) -> ApiResult {
@@ -641,12 +637,12 @@ async fn handle_patch_blocks(
     require_container_permission(
         &ws.app,
         user_id,
-        &container_id,
+        &board_id,
         ContainerPermission::CommentCards,
         CHANGES_DENIED,
     )
     .await?;
-    let container = ws.app.container(&container_id).await?;
+    let board = ws.app.container(&board_id).await?;
     let (mut batch, changes): (BlockPatchBatch, _) = decode_object_with(&body, |batch| {
         take_patch_bodies(objects_mut(batch, "blockPatches"), Some(PATCHES))
     })?;
@@ -667,7 +663,7 @@ async fn handle_patch_blocks(
         }
     }
     for (block_id, patch) in batch.block_ids.iter().zip(&batch.block_patches) {
-        let block = block_on_container(&ws.app, block_id, &container_id).await?;
+        let block = block_on_container(&ws.app, block_id, &board_id).await?;
         require_block_permission(
             &ws.app,
             user_id,
@@ -680,13 +676,13 @@ async fn handle_patch_blocks(
     }
     for (index, patch) in batch.block_patches.iter().enumerate() {
         ws.app
-            .check_body_files(&container_id, patch.body.new_body())
+            .check_body_files(&board_id, patch.body.new_body())
             .await
             .map_err(|error| error.under(&element_pointer(Some(PATCHES), index)))?;
     }
 
     ws.app
-        .patch_blocks(&container.workspace_id, &batch, user_id, notification)
+        .patch_blocks(&board.workspace_id, &batch, user_id, notification)
         .await
         .map_err(|error| {
             error
@@ -715,7 +711,7 @@ async fn handle_patch_blocks(
 )]
 async fn handle_duplicate_block(
     ws: InWorkspace,
-    Path((_, container_id, block_id)): Path<(String, String, String)>,
+    Path((_, board_id, block_id)): Path<(String, String, String)>,
     RawQuery(query): RawQuery,
 ) -> ApiResult {
     let user_id = ws.session.user_id.as_str();
@@ -724,18 +720,18 @@ async fn handle_duplicate_block(
     require_container_permission(
         &ws.app,
         user_id,
-        &container_id,
+        &board_id,
         ContainerPermission::View,
         "access denied to modify board cards",
     )
     .await?;
-    let container = ws.app.container(&container_id).await?;
-    let block = block_on_container(&ws.app, &block_id, &container.id).await?;
+    let board = ws.app.container(&board_id).await?;
+    let block = block_on_container(&ws.app, &block_id, &board.id).await?;
     if block.block_type == BlockType::Comment {
         require_container_permission(
             &ws.app,
             user_id,
-            &container_id,
+            &board_id,
             ContainerPermission::CommentCards,
             "access denied to comment on board cards",
         )
@@ -747,16 +743,16 @@ async fn handle_duplicate_block(
     require_container_permission(
         &ws.app,
         user_id,
-        &container_id,
+        &board_id,
         ContainerPermission::ManageCards,
         "access denied to modify board cards",
     )
     .await?;
 
-    tracing::debug!(container_id, block_id, "DuplicateBlock");
+    tracing::debug!(board_id, block_id, "DuplicateBlock");
     let blocks = ws
         .app
-        .duplicate_block(&container_id, &block_id, user_id, duplicate_as)
+        .duplicate_block(&board_id, &block_id, user_id, duplicate_as)
         .await?;
     Ok(created(&blocks))
 }

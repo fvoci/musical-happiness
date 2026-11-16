@@ -1,7 +1,7 @@
 /** The memory directory distinguishes current members from the authors of readable work. */
 import type { User } from '../backend.ts';
 
-import { isOpenWiki } from './board-access.ts';
+import { isOpenWiki } from './container-access.ts';
 import { roleOn } from './comments.ts';
 import { fail } from './refuse.ts';
 import { copy, scramble } from './shapes.ts';

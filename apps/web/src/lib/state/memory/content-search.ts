@@ -26,7 +26,7 @@ import {
   type SnippetPart,
 } from '../content-search.ts';
 
-import { reads } from './board-access.ts';
+import { reads } from './container-access.ts';
 import { fail } from './refuse.ts';
 import type { StoredBlock, World } from './world.ts';
 

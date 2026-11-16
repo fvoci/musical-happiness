@@ -14,7 +14,7 @@ import type { DocNode } from '../../editor/schema.ts';
 import type { BodyWrite, Comment, CommentVersion } from '../backend.ts';
 import type { Wikis } from '../wiki-types.ts';
 
-import { memberRole } from './board-access.ts';
+import { memberRole } from './container-access.ts';
 import { checkedBody } from './bodies.ts';
 import {
   earlierVersions,

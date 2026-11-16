@@ -26,7 +26,7 @@ use crate::permissions::{ContainerPermission, Grant};
 
 pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new()
-        .routes(routes!(handle_create_container))
+        .routes(routes!(handle_create_board))
         .routes(routes!(
             handle_get_container,
             handle_patch_container,
@@ -135,26 +135,23 @@ fn decode_container_patch(body: &[u8]) -> Result<ContainerPatch, AppError> {
     request_body = NewBoard,
     responses((status = 201, description = "The board that was made.", body = Container)),
 )]
-async fn handle_create_container(ws: InWorkspace, body: Bytes) -> ApiResult {
+async fn handle_create_board(ws: InWorkspace, body: Bytes) -> ApiResult {
     let user_id = &ws.session.user_id;
     // Whoever works in the workspace makes boards in it, open ones and private ones.
     ws.require_container_maker("access denied to create board")?;
     let mut requested = json_object(decode_json(&body)?)?;
     let invalid = take_invalid_container_members(&mut requested);
-    let mut container: Container =
+    let mut board: Container =
         serde_json::from_value(Value::Object(requested)).map_err(AppError::bad_request)?;
-    ws.place_container(&mut container, "workspaceId")?;
+    ws.place_container(&mut board, "workspaceId")?;
 
-    container.validate().map_err(AppError::bad_request)?;
+    board.validate().map_err(AppError::bad_request)?;
     if let Some(invalid) = invalid {
         return Err(invalid.into_error());
     }
 
-    let container = ws
-        .app
-        .create_container_with_admin(container, user_id)
-        .await?;
-    Ok(created(&container))
+    let board = ws.app.create_container_with_admin(board, user_id).await?;
+    Ok(created(&board))
 }
 
 /// A board
@@ -267,14 +264,14 @@ async fn handle_patch_container(
 )]
 async fn handle_reorder_card_properties(
     ws: InWorkspace,
-    Path((_, container_id)): Path<(String, String)>,
+    Path((_, board_id)): Path<(String, String)>,
     body: Bytes,
 ) -> ApiResult {
     let user_id = &ws.session.user_id;
     require_container_permission(
         &ws.app,
         user_id,
-        &container_id,
+        &board_id,
         ContainerPermission::ManageProperties,
         "access denied to modifying board properties",
     )
@@ -282,7 +279,7 @@ async fn handle_reorder_card_properties(
     let order: Vec<String> = decode_json(&body)?;
     let order = ws
         .app
-        .reorder_card_properties(&container_id, &order, user_id)
+        .reorder_card_properties(&board_id, &order, user_id)
         .await?;
     Ok(json_response(&order))
 }

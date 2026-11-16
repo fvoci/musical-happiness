@@ -29,7 +29,7 @@ import type {
   Wikis,
 } from '../wiki-types.ts';
 
-import { memberRole } from './board-access.ts';
+import { memberRole } from './container-access.ts';
 import { checkedWhole } from './bodies.ts';
 import { MemoryBodyVersions, writtenWhole } from './body-versions.ts';
 import { MemoryPageComments, type OnPage } from './page-comments.ts';

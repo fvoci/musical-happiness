@@ -39,21 +39,21 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 )]
 async fn handle_get_deleted_cards(
     ws: InWorkspace,
-    Path((_, container_id)): Path<(String, String)>,
+    Path((_, board_id)): Path<(String, String)>,
     RawQuery(query): RawQuery,
 ) -> ApiResult {
     let query = query.as_deref();
     require_container_permission(
         &ws.app,
         &ws.session.user_id,
-        &container_id,
+        &board_id,
         ContainerPermission::ManageCards,
         "access denied to the trash of the board",
     )
     .await?;
     let (page, per_page) = page_params(query)?;
     Ok(json_response(
-        &ws.app.deleted_cards(&container_id, page, per_page).await?,
+        &ws.app.deleted_cards(&board_id, page, per_page).await?,
     ))
 }
 

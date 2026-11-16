@@ -76,7 +76,7 @@ import { pause } from './pause.ts';
 import { MemoryPresence } from './presence.ts';
 import { MemoryWikis } from './wikis.ts';
 import { copiedBlocks, giveCopiesFiles } from './copies.ts';
-import { memberRole, memberFileUrl } from './board-access.ts';
+import { memberRole, memberFileUrl } from './container-access.ts';
 import { usersAmong, usersNamed } from './users.ts';
 import { changeDisplayName } from './account.ts';
 import { archiveLines, archiveOf, blockOfLine } from './archive.ts';

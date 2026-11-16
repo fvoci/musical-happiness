@@ -680,7 +680,7 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if either lookup fails.
-    pub async fn container_of_shared_block(
+    pub async fn board_of_shared_block(
         &self,
         workspace_id: &str,
         block_id: &str,

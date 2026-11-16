@@ -5,7 +5,7 @@ import {
   type PresenceSnapshot,
   type PresenceVisit,
 } from '../presence.ts';
-import { reads } from './board-access.ts';
+import { reads } from './container-access.ts';
 import type { World } from './world.ts';
 
 interface Visit {

@@ -363,7 +363,7 @@ impl Hub {
     async fn link_opens(&self, id: ListenerId, permit: &ReadPermit) -> bool {
         match self
             .audience
-            .shared_container(&permit.container, &permit.token)
+            .shared_board(&permit.container, &permit.token)
             .await
         {
             Ok(true) => true,

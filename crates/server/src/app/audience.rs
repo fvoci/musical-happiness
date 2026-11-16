@@ -70,20 +70,16 @@ impl Audience {
     /// # Errors
     ///
     /// Returns the store's error if the sharing cannot be read: that is no "no".
-    pub async fn shared_container(
-        &self,
-        container_id: &str,
-        read_token: &str,
-    ) -> Result<bool, StoreError> {
+    pub async fn shared_board(&self, board_id: &str, read_token: &str) -> Result<bool, StoreError> {
         self.cache
             .shares
             .read(
                 &self.store,
-                (container_id.to_owned(), read_token.to_owned()),
+                (board_id.to_owned(), read_token.to_owned()),
                 || async {
                     Ok(self
                         .store
-                        .shared_container(container_id, read_token)
+                        .shared_container(board_id, read_token)
                         .await?
                         .is_some_and(|shared| shared.kind == ContainerKind::Board))
                 },
@@ -96,14 +92,14 @@ impl Audience {
     /// # Errors
     ///
     /// Returns the store's error if either lookup fails.
-    pub async fn container_of_shared_block(
+    pub async fn board_of_shared_block(
         &self,
         workspace_id: &str,
         block_id: &str,
         read_token: &str,
     ) -> Result<Option<String>, StoreError> {
         self.store
-            .container_of_shared_block(workspace_id, block_id, read_token)
+            .board_of_shared_block(workspace_id, block_id, read_token)
             .await
     }
 

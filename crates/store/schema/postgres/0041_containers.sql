@@ -160,10 +160,16 @@ ALTER TABLE audit_log ADD CONSTRAINT audit_log_action_check CHECK (action IN (
 -- `containerId`, and a file's `container_id`, as the model does from now on. The JSON
 -- is rewritten as text, never parsed: PostgreSQL's `jsonb` and `json_each` refuse a
 -- `\u0000` that a `json` value keeps. A member and a file are flat objects, so every
--- member so named is theirs. A block's own comes after its `fields` and `body` (as the
--- server writes a block, and as `jsonb` orders its members), so it is the last one.
+-- member so named is theirs. A block's own comes after its `fields` and `body` as the
+-- server writes a block and as `jsonb` orders its members, so it is the last one; a
+-- block that a data step wrote again has its members in the order of their names, so
+-- its own is the first.
 UPDATE deleted_blocks
-SET block = regexp_replace(block::text, '^(.*)"boardId"(\s*):', '\1"containerId"\2:')::json
+SET block = (CASE
+    WHEN block::text ~ '^\s*\{\s*"boardId"\s*:'
+        THEN regexp_replace(block::text, '^(\s*\{\s*)"boardId"(\s*):', '\1"containerId"\2:')
+    ELSE regexp_replace(block::text, '^(.*)"boardId"(\s*):', '\1"containerId"\2:')
+END)::json
 WHERE block::text ~ '"boardId"\s*:';
 UPDATE deleted_containers
 SET members = regexp_replace(members::text, '"boardId"(\s*):', '"containerId"\1:', 'g')::json

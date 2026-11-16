@@ -144,7 +144,7 @@ mod tests {
     }
 
     #[test]
-    fn connections_without_an_address_are_held_to_the_boards_limit_alone() {
+    fn connections_without_an_address_are_held_to_the_containers_limit_alone() {
         let mut listeners = Listeners::default();
         for _ in 0..3 {
             let id = add_listener_from(&mut listeners, "", None);

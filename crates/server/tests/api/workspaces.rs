@@ -792,7 +792,7 @@ async fn a_path_that_is_no_text_is_malformed_but_for_the_boards_of_a_workspace()
         .get("/w/%FF/boards")
         .await
         .check_error(reqwest::StatusCode::NOT_FOUND, "workspace not found");
-    // The routes that moved under `/w/` (`InWorkspace`): the workspace that is no text is one of
+    // The routes that moved under `/w/` (`InContainer`): the workspace that is no text is one of
     // others, another parameter that is none a malformed request.
     ts.client
         .get("/w/%FF/containers/x")

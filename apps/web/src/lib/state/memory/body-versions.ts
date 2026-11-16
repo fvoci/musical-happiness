@@ -22,7 +22,7 @@ import type { BodyVersion, BodyVersionContent, BodyVersions } from '../body-vers
 
 import { BackendError } from '../problems.ts';
 
-import { memberRole } from './board-access.ts';
+import { memberRole } from './container-access.ts';
 import { checkedBody } from './bodies.ts';
 import { fail } from './refuse.ts';
 import { copy, pageOf, wireOf } from './shapes.ts';

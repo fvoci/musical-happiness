@@ -18,7 +18,7 @@ import type {
   User,
 } from '../backend.ts';
 
-import { reads } from './board-access.ts';
+import { reads } from './container-access.ts';
 import type { KeptOfCard } from './body-versions.ts';
 import type { ContainerPlace } from './trash.ts';
 

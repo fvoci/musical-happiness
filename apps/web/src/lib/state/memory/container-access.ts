@@ -20,12 +20,13 @@ export function memberRole(
   containerId: string,
   kind: ContainerKind | 'any' = 'board',
 ): Exclude<Role, ''> {
-  const board = world.containers.get(containerId);
-  if (!board || (kind !== 'any' && (board.kind ?? 'board') !== kind)) fail(404, 'no such board');
+  const container = world.containers.get(containerId);
+  if (!container || (kind !== 'any' && (container.kind ?? 'board') !== kind))
+    fail(404, 'no such board');
   const role = roleOn(world.members.get(containerId) ?? [], userId);
   if (role !== '') return role;
-  if (isOpenWiki(board) && world.workspaceMembers.has(userId)) return 'viewer';
-  if (board.type === 'O') fail(403, 'access denied to board');
+  if (isOpenWiki(container) && world.workspaceMembers.has(userId)) return 'viewer';
+  if (container.type === 'O') fail(403, 'access denied to board');
   fail(404, 'no such board');
 }
 
@@ -34,15 +35,15 @@ export function memberRole(
  * workspace of an open wiki.
  */
 export function reads(world: World, userId: string, containerId: string): boolean {
-  const board = world.containers.get(containerId);
-  if (!board) return false;
+  const container = world.containers.get(containerId);
+  if (!container) return false;
   if (roleOn(world.members.get(containerId) ?? [], userId) !== '') return true;
-  return isOpenWiki(board) && world.workspaceMembers.has(userId);
+  return isOpenWiki(container) && world.workspaceMembers.has(userId);
 }
 
 /** An open wiki: read by whoever works in its workspace. */
-export function isOpenWiki(board: { type: string; kind?: string }): boolean {
-  return board.type === 'O' && board.kind === 'wiki';
+export function isOpenWiki(container: { type: string; kind?: string }): boolean {
+  return container.type === 'O' && container.kind === 'wiki';
 }
 
 /** A local blob URL grants direct access, so do not make or return it for a nonmember. */

@@ -16,8 +16,8 @@
  * top level: `id`, `title`, `type`, `boardId`, `parentId`, `createdBy`,
  * `modifiedBy`, `createAt`, `updateAt`, `deleteAt` and `limited`.
  */
-import type { MemberRole } from './board-members.ts';
-export type { ContainerMember, MemberRole } from './board-members.ts';
+import type { MemberRole } from './container-members.ts';
+export type { ContainerMember, MemberRole } from './container-members.ts';
 import { parseCalendarDate, type CalendarDate, type DatePoint, type DateValue } from './dates.ts';
 import { diagnostics } from './diagnostics.ts';
 import { encodeBase32 } from './base32.ts';

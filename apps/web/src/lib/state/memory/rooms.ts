@@ -56,7 +56,7 @@ import type {
 import { ROOM_LIMITS } from '../../logic/doc-room.ts';
 
 import { leftByWriters, roomWrote, typedBy, writersLeft } from './body-versions.ts';
-import { reads } from './board-access.ts';
+import { reads } from './container-access.ts';
 import { roleOn } from './comments.ts';
 import { changeOf, imageFileIds, LIMITS } from './shapes.ts';
 import { MemoryCarets } from './room-carets.ts';
