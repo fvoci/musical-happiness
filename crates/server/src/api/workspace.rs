@@ -44,7 +44,8 @@ pub(super) fn routes() -> OpenApiRouter<App> {
         .routes(routes!(handle_get_workspace_audit))
 }
 
-/// The workspace a request names in its path, for a member of it.
+/// The workspace a request names in its path, for a member of it, reaching its boards
+/// and no wiki: an operation on wikis takes [`InWiki`], one on both kinds [`InContainer`].
 ///
 /// Extraction fails with 401 without a session, and with 404 unless the session's user
 /// is a member of the workspace: one that is another's and one that does not exist
