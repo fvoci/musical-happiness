@@ -41,6 +41,28 @@ async function wikiWithPages(page: Page): Promise<string> {
 }
 
 test.describe('a wiki looked after', () => {
+  test('a wiki is copied whole from its menu in the sidebar, and the copy is opened', async ({
+    page,
+  }) => {
+    await openApp(page);
+    const wikiId = await wikiWithPages(page);
+    await showSidebar(page);
+    await sidebar(page)
+      .getByRole('button', { name: 'Menu of the wiki Handbook', exact: true })
+      .click();
+    await page.getByRole('menuitem', { name: 'Duplicate wiki' }).click();
+    await expect(page).not.toHaveURL(new RegExp(wikiId));
+    await expect(page).toHaveURL(ON_A_WIKI);
+    await showSidebar(page);
+    await expect(sidebar(page).getByRole('link', { name: 'Handbook copy' })).toBeVisible();
+    await hideSidebar(page);
+    // The copy opens folded: its pages below are there once "Welcome" is opened.
+    await showTree(page);
+    await treeItem(page, 'Welcome').focus();
+    await page.keyboard.press('ArrowRight');
+    expect(await treeShape(page)).toEqual(['Welcome', '  Getting started', 'Policies']);
+  });
+
   test('deleting a page asks first, says those below go too, and takes them along', async ({
     page,
   }) => {

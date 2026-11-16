@@ -9133,7 +9133,7 @@
     },
     "/api/v1/w/{workspaceId}/boards/{boardId}/duplicate": {
       "post": {
-        "description": "Copies a board with its blocks, except comments, as a board or as a template. The\nuser becomes the admin of the copy, which is always private. A copy of the same kind\nhas the title of the original with ` copy` after it; a template made from a board is\ntitled `New board template`, and a board made from a template keeps the title. The\nboard's members may copy it; an open template is for everyone in its workspace, and a\nbuilt-in template for everyone.",
+        "description": "Copies a board with its blocks, except comments, as a board or as a template. The\nuser becomes the admin of the copy, which is always private. A copy of the same kind\nhas the title of the original with ` copy` after it; a template made from a board is\ntitled `New board template`, and a board made from a template keeps the title. The\nboard's members may copy it; an open template is for everyone in its workspace, and a\nbuilt-in template for everyone.\n\nA wiki is copied as a board is, with its pages as they stand: their tree and order,\ntitles, icons and bodies, the images of the bodies given files of their own, and\nwhat a body names among the wiki's pages named in the copy by its copy (what it\nnames elsewhere stays as it was). The comments on the pages, the versions of their\nbodies, the pages in the trash, the wiki's other members and teams and its public\nlink are not copied. A wiki is no template: `asTemplate=true` is 400. A copy deeper\nor with more pages than the organization's limits allow, lowered since the wiki\ngrew, is 400 with the reason `page_too_deep` or `too_many_pages` and the `limit`.",
         "operationId": "duplicateBoard",
         "parameters": [
           {
@@ -9195,7 +9195,7 @@
             "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
           }
         },
-        "summary": "Copy a board",
+        "summary": "Copy a board or a wiki",
         "tags": [
           "boards"
         ]

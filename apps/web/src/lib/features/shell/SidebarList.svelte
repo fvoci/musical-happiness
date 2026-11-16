@@ -61,6 +61,8 @@
     onDeleteBoard: (board: Board) => void;
     /** Makes a template of the board, to be changed on its page. */
     onTemplateFromBoard: (boardId: string) => void;
+    /** Copies the board or wiki whole, to be opened. */
+    onDuplicateBoard: (boardId: string) => void;
   }
 
   let {
@@ -77,6 +79,7 @@
     onDeleteCategory,
     onDeleteBoard,
     onTemplateFromBoard,
+    onDuplicateBoard,
   }: Props = $props();
 
   const uid = $props.id();
@@ -129,6 +132,7 @@
     onDeleteCategory,
     onDeleteBoard,
     onTemplateFromBoard,
+    onDuplicateBoard,
   });
 
   const sortable = new Sortable({

@@ -311,7 +311,7 @@ async fn handle_delete_board(
     Ok(no_content())
 }
 
-/// Copy a board
+/// Copy a board or a wiki
 ///
 /// Copies a board with its blocks, except comments, as a board or as a template. The
 /// user becomes the admin of the copy, which is always private. A copy of the same kind
@@ -319,6 +319,15 @@ async fn handle_delete_board(
 /// titled `New board template`, and a board made from a template keeps the title. The
 /// board's members may copy it; an open template is for everyone in its workspace, and a
 /// built-in template for everyone.
+///
+/// A wiki is copied as a board is, with its pages as they stand: their tree and order,
+/// titles, icons and bodies, the images of the bodies given files of their own, and
+/// what a body names among the wiki's pages named in the copy by its copy (what it
+/// names elsewhere stays as it was). The comments on the pages, the versions of their
+/// bodies, the pages in the trash, the wiki's other members and teams and its public
+/// link are not copied. A wiki is no template: `asTemplate=true` is 400. A copy deeper
+/// or with more pages than the organization's limits allow, lowered since the wiki
+/// grew, is 400 with the reason `page_too_deep` or `too_many_pages` and the `limit`.
 #[utoipa::path(
     post,
     path = "/w/{workspaceId}/boards/{boardId}/duplicate",
@@ -332,7 +341,7 @@ async fn handle_delete_board(
     )),
 )]
 async fn handle_duplicate_board(
-    ws: Ws,
+    WsModule(ws): WsModule,
     Path((_, board_id)): Path<(String, String)>,
     RawQuery(query): RawQuery,
 ) -> ApiResult {

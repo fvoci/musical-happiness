@@ -437,7 +437,9 @@ export class MemoryBackend implements Backend {
 
   async duplicateBoard(boardId: string, asTemplate: boolean, workspaceId: string): Promise<Board> {
     await this.#enterWorkspace('duplicateBoard', workspaceId);
-    return this.#copyBoard(this.#board(boardId, 'board'), asTemplate);
+    const source = this.#board(boardId);
+    if (source.kind === 'wiki' && asTemplate) fail(400, 'a wiki is no template');
+    return this.#copyBoard(source, asTemplate);
   }
 
   /** As the server: a copy of the built-in welcome template, without its mark. */
@@ -459,10 +461,7 @@ export class MemoryBackend implements Backend {
     return this.world.blocksOf(board.id).filter((block) => block.type !== 'comment');
   }
 
-  /**
-   * A copy of a board with its views, cards and attachments (comments stay
-   * behind), every identifier new.
-   */
+  /** A copy of a board or a wiki with its blocks but the comments, every identifier new. */
   #copyBoard(source: Board, asTemplate: boolean): Board {
     // The server's titles: a copy of the same kind is "… copy", a template
     // made from a board "New board template", a board from a template keeps it.

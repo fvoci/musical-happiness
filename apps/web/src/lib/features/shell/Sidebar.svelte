@@ -173,6 +173,12 @@
     if (made) onOpenBoard(made);
   }
 
+  /** Copies the board or wiki whole and opens the copy. */
+  async function duplicateBoard(boardId: string): Promise<void> {
+    const made = await whileHere(workspace, () => workspace.duplicateBoard(boardId));
+    if (made) onOpenBoard(made);
+  }
+
   function confirmed(): void {
     if (asked?.kind === 'board') void deleteBoard(asked.board);
     else if (asked?.kind === 'category') void workspace.deleteCategory(asked.category.id);
@@ -263,6 +269,7 @@
       askOpen = true;
     }}
     onTemplateFromBoard={(id: string) => void templateFromBoard(id)}
+    onDuplicateBoard={(id: string) => void duplicateBoard(id)}
     onDeleteBoard={(board: Board) => {
       asked = { kind: 'board', board };
       askOpen = true;

@@ -64,6 +64,20 @@ describe('a wiki in memory', () => {
     expect(templates.some((board) => board.id === made.wiki.id)).toBe(false);
   });
 
+  it('is copied whole as the server copies it: its tree, under new identifiers; no template', async () => {
+    const made = await aWiki();
+    const top = await made.backend.wiki.createPage(made.wiki.id, { title: 'Welcome' });
+    await made.backend.wiki.createPage(made.wiki.id, { title: 'Below', parentId: top.id });
+    await made.backend.wiki.createPage(made.wiki.id, { title: 'After' });
+    const copy = await made.backend.duplicateBoard(made.wiki.id, false, made.workspaceId);
+    expect(copy).toMatchObject({ kind: 'wiki', title: 'Handbook copy', type: 'P' });
+    expect(await shape({ ...made, wiki: copy })).toEqual(await shape(made));
+    const pages = await made.backend.wiki.pages(copy.id);
+    expect(pages.some((page) => page.id === top.id)).toBe(false);
+    const refused = rejection(made.backend.duplicateBoard(made.wiki.id, true, made.workspaceId));
+    expect((await refused).status).toBe(400);
+  });
+
   it('is not reached by the operations of cards, nor a board by those of pages', async () => {
     const made = await aWiki();
     expect((await rejection(made.backend.views(made.wiki.id))).status).toBe(404);

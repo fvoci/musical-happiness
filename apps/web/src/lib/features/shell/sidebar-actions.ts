@@ -7,6 +7,7 @@
  */
 import ArrowDownIcon from '@lucide/svelte/icons/arrow-down';
 import ArrowUpIcon from '@lucide/svelte/icons/arrow-up';
+import CopyIcon from '@lucide/svelte/icons/copy';
 import EyeOffIcon from '@lucide/svelte/icons/eye-off';
 import FolderInputIcon from '@lucide/svelte/icons/folder-input';
 import FolderPlusIcon from '@lucide/svelte/icons/folder-plus';
@@ -45,6 +46,7 @@ export interface SidebarMenus {
   onDeleteCategory: (category: Category) => void;
   onDeleteBoard: (board: Board) => void;
   onTemplateFromBoard: (boardId: string) => void;
+  onDuplicateBoard: (boardId: string) => void;
 }
 
 function stepCategory(menus: SidebarMenus, category: Category, step: -1 | 1): void {
@@ -135,6 +137,14 @@ export function boardActions(menus: SidebarMenus, board: Board, home: Category):
   return [
     ...moves,
     ...saving,
+    {
+      id: 'duplicate',
+      label: wiki ? m.shell_duplicate_wiki() : m['Sidebar.duplicate-board'](),
+      icon: CopyIcon,
+      run: () => {
+        menus.onDuplicateBoard(board.id);
+      },
+    },
     ...(wiki
       ? []
       : [

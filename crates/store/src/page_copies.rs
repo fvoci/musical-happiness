@@ -1,4 +1,5 @@
-//! Duplicating a page of a wiki with every page below it, within the wiki.
+//! Duplicating a page of a wiki with every page below it, within the wiki, and a wiki
+//! whole.
 //!
 //! The copies are new pages: new identifiers, made by whoever duplicates them, now. Each
 //! keeps its title (the copy of the page asked for takes the title it is given), its
@@ -9,9 +10,12 @@
 
 use std::collections::HashMap;
 
-use fvoci_model::{Block, PageLimits, generate_block_ids};
+use fvoci_model::{
+    Block, BoardKind, BoardMember, BoardsAndBlocks, PageLimits, PageTree, generate_block_ids,
+};
 
-use crate::blocks::{fetch_blocks, insert_blocks, select_blocks};
+use crate::blocks::{DuplicateAs, fetch_blocks, insert_blocks, select_blocks};
+use crate::boards_and_blocks::duplicate_board;
 use crate::db::{Id, Scope};
 use crate::file_refs::NewImages;
 use crate::pages::{page_tree, write_place};
@@ -73,6 +77,51 @@ impl Store {
                 pages: copies,
                 renumbered,
             })
+        })
+        .await
+    }
+}
+
+impl Store {
+    /// Copies a wiki with its pages as they stand, as a board is copied
+    /// ([`Store::duplicate_board`]): new identifiers, the references of their bodies to
+    /// each other pointed at the copies, a private wiki of `user_id`, who administers
+    /// it, in `to_workspace` or else in the workspace of the original. The comments on
+    /// the pages and the versions of their bodies are not copied, nor the pages in the
+    /// trash. The copy is held to `limits`, which may have been lowered since the
+    /// original grew; the wiki is held from before its tree is read.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::NotFound`] if there is no such wiki, or if `user_id` does
+    /// not work in the copy's workspace, [`StoreError::InvalidBlock`] if the copy would
+    /// be deeper or larger than `limits` let a wiki be, and the store's error if the copy
+    /// cannot be written.
+    pub async fn duplicate_wiki(
+        &self,
+        wiki_id: &str,
+        user_id: &str,
+        to_workspace: Option<&str>,
+        limits: PageLimits,
+    ) -> Result<(BoardsAndBlocks, Vec<BoardMember>), StoreError> {
+        self.transaction(async |scope| {
+            if boards::lock_board_of_kind(scope, wiki_id).await? != Some(BoardKind::Wiki) {
+                return Err(StoreError::not_found(format_args!("wiki ID={wiki_id}")));
+            }
+            let tree = page_tree(scope, wiki_id).await?;
+            let height = tree
+                .siblings("", "")
+                .iter()
+                .map(|top| tree.height(&top.id))
+                .max()
+                .unwrap_or(0);
+            PageTree::default()
+                .check_room("", height, tree.len(), limits)
+                .map_err(|source| StoreError::InvalidBlock {
+                    id: wiki_id.to_owned(),
+                    source,
+                })?;
+            duplicate_board(scope, wiki_id, user_id, to_workspace, DuplicateAs::Copy).await
         })
         .await
     }

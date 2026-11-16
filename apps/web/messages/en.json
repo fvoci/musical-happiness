@@ -1264,6 +1264,7 @@
   "wiki_page_untitled": "Untitled",
   "shell_wiki_menu": "Menu of the wiki {name}",
   "shell_hide_wiki": "Hide wiki",
+  "shell_duplicate_wiki": "Duplicate wiki",
   "shell_wiki_named": "{title}, wiki",
   "wiki_page_gone": "The page you were on, “{title}”, was deleted.",
   "wiki_pages": "Pages",

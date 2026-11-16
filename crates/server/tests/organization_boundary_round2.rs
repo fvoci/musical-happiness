@@ -33,6 +33,9 @@ mod transfers;
 #[path = "organization_boundary_round2/webhooks.rs"]
 mod webhooks;
 
+#[path = "organization_boundary_round2/wiki_transfers.rs"]
+mod wiki_transfers;
+
 use fvoci_model::{Board, OrgRole, Workspace, WorkspaceRole, new_id};
 use fvoci_store::DbType;
 use fvoci_store::testing::db_type_of_the_tests;

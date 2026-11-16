@@ -1264,6 +1264,7 @@
   "wiki_page_untitled": "제목 없음",
   "shell_wiki_menu": "{name} 위키 메뉴",
   "shell_hide_wiki": "위키 숨기기",
+  "shell_duplicate_wiki": "위키 복제",
   "shell_wiki_named": "{title}, 위키",
   "wiki_page_gone": "보고 있던 페이지를 다른 사람이 지웠습니다: “{title}”",
   "wiki_pages": "페이지",

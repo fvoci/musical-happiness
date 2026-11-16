@@ -490,11 +490,11 @@ export class Workspace {
     this.#apply({ kind: 'board', board });
   }
 
-  /** Makes a board from a template; it keeps the template's title, views and cards. */
-  async createBoardFromTemplate(templateId: string): Promise<Board | undefined> {
+  /** Copies a board, a wiki or a template into a board (`duplicateBoard`), in the sidebar at once. */
+  async duplicateBoard(boardId: string): Promise<Board | undefined> {
     if (!this.info) return undefined;
     try {
-      const board = await this.backend.duplicateBoard(templateId, false, this.info.id);
+      const board = await this.backend.duplicateBoard(boardId, false, this.info.id);
       this.#apply({ kind: 'board', board });
       return board;
     } catch (error) {
