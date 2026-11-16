@@ -50,7 +50,7 @@ async fn the_comparison_reports_and_dooms_only_when_asked(ts: &TestServer) {
             id: new_secret(),
             user_id: ts.client.me().await.id,
             purpose: UploadPurpose::File,
-            board_id: board_id.clone(),
+            container_id: board_id.clone(),
             name: "uploading.txt".to_owned(),
             size: 5,
             part_size: 5,

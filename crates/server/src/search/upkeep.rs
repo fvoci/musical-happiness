@@ -96,7 +96,7 @@ async fn sync_index(store: &Store, engine: &Engine) -> Result<Synced, Stopped> {
         uuid,
         version,
     };
-    let listed = store.list_every_board_for_search(&made).await?;
+    let listed = store.list_every_container_for_search(&made).await?;
     tracing::info!(
         listed,
         "made the search index; every board is to be sent to it"

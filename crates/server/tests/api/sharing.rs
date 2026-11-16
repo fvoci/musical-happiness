@@ -6,7 +6,7 @@
 //! one server and turns public sharing on halfway. A server's configuration is fixed
 //! here, so each has a server of its own with the configuration it needs.
 
-use fvoci_model::{Board, BoardMember, BoardType, Sharing, new_id};
+use fvoci_model::{Container, ContainerMember, ContainerType, Sharing, new_id};
 use fvoci_server::auth::secret::SECRET_LENGTH;
 use fvoci_store::SharingChange;
 use reqwest::{Method, StatusCode};
@@ -17,16 +17,16 @@ use crate::common::{ApiResponse, Client, ROOT_WORKSPACE_ID, Setup, TestServer, U
 
 /// Puts a board into the store without going through the board routes, with `user_id` as
 /// its administrator.
-async fn board_with_admin(th: &TestServer, user_id: &str, board_type: BoardType) -> Board {
-    let mut board = Board {
+async fn board_with_admin(th: &TestServer, user_id: &str, board_type: ContainerType) -> Container {
+    let mut board = Container {
         id: new_id(),
         workspace_id: ROOT_WORKSPACE_ID.to_owned(),
-        board_type,
-        ..Board::default()
+        container_type: board_type,
+        ..Container::default()
     };
     th.app
         .store()
-        .insert_board_with_admin(&mut board, user_id)
+        .insert_container_with_admin(&mut board, user_id)
         .await
         .expect("the board is inserted");
     board
@@ -66,10 +66,10 @@ fn check_never_shared(response: &ApiResponse) {
 }
 
 /// A server with public sharing turned on, two users, and a board of the first.
-async fn shared_setup() -> (TestServer, Board) {
+async fn shared_setup() -> (TestServer, Container) {
     let th = Setup::local_mode().start().await.init_basic().await;
     let user = th.client.me().await;
-    let board = board_with_admin(&th, &user.id, BoardType::Open).await;
+    let board = board_with_admin(&th, &user.id, ContainerType::Open).await;
     (th, board)
 }
 
@@ -99,7 +99,7 @@ async fn sharing_an_unauthenticated_client_should_not_be_able_to_get_a_sharing()
 async fn sharing_check_no_initial_sharing() {
     let th = Setup::native().start().await.init_basic().await;
     let user = th.client.me().await;
-    let board = board_with_admin(&th, &user.id, BoardType::Open).await;
+    let board = board_with_admin(&th, &user.id, ContainerType::Open).await;
 
     let sharing = th
         .app
@@ -120,7 +120,7 @@ async fn sharing_check_no_initial_sharing() {
 async fn sharing_post_sharing_config_false() {
     let th = Setup::native().start().await.init_basic().await;
     let user = th.client.me().await;
-    let board = board_with_admin(&th, &user.id, BoardType::Open).await;
+    let board = board_with_admin(&th, &user.id, ContainerType::Open).await;
 
     for body in [json!({"enabled": true}), json!({"enabled": false})] {
         let response = post_sharing(&th.client, &board.id, body).await;
@@ -223,7 +223,7 @@ async fn a_request_cannot_set_the_read_token() {
 async fn a_shared_board_keeps_its_token_until_a_new_one_is_asked_for() {
     let (th, board) = shared_setup().await;
     let user = th.client.me().await;
-    let second = board_with_admin(&th, &user.id, BoardType::Private).await;
+    let second = board_with_admin(&th, &user.id, ContainerType::Private).await;
 
     let first = share(&th.client, &board.id).await;
     let other = share(&th.client, &second.id).await;
@@ -338,7 +338,7 @@ async fn sharing_needs_the_permission_to_share_the_board() {
     let (th, board) = shared_setup().await;
     let owner = th.client.me().await;
     let other = th.client2.me().await;
-    let private = board_with_admin(&th, &owner.id, BoardType::Private).await;
+    let private = board_with_admin(&th, &owner.id, ContainerType::Private).await;
     let request = || json!({"enabled": true});
     let refusal = "access denied to sharing the board";
 
@@ -363,11 +363,11 @@ async fn sharing_needs_the_permission_to_share_the_board() {
     }
 
     // A member who is an editor, not an administrator.
-    let editor = BoardMember {
-        board_id: board.id.clone(),
+    let editor = ContainerMember {
+        container_id: board.id.clone(),
         user_id: other.id.clone(),
         scheme_editor: true,
-        ..BoardMember::default()
+        ..ContainerMember::default()
     };
     th.app
         .store()
@@ -412,7 +412,7 @@ async fn sharing_needs_the_permission_to_share_the_board() {
 async fn post_sharing_takes_the_board_and_the_modifier_from_the_request() {
     let (th, board) = shared_setup().await;
     let user = th.client.me().await;
-    let other_board = board_with_admin(&th, &user.id, BoardType::Open).await;
+    let other_board = board_with_admin(&th, &user.id, ContainerType::Open).await;
 
     let shared: Sharing = post_sharing(
         &th.client,
@@ -502,7 +502,7 @@ async fn post_sharing_wants_a_boolean_and_refuses_the_rest() {
 async fn get_sharing_does_not_depend_on_the_configuration() {
     let th = Setup::native().start().await.init_basic().await;
     let user = th.client.me().await;
-    let board = board_with_admin(&th, &user.id, BoardType::Open).await;
+    let board = board_with_admin(&th, &user.id, ContainerType::Open).await;
     // A board shared at a time when sharing was turned on.
     let token = th.share(&board.id).await;
 
@@ -528,7 +528,7 @@ async fn get_sharing_does_not_depend_on_the_configuration() {
 async fn app_sharing_is_set_and_read() {
     let th = Setup::native().start().await;
     let user_id = th.stranger().await;
-    let board = board_with_admin(&th, &user_id, BoardType::Open).await;
+    let board = board_with_admin(&th, &user_id, ContainerType::Open).await;
 
     let set = th
         .app
@@ -537,7 +537,7 @@ async fn app_sharing_is_set_and_read() {
         .expect("the board is shared");
     let got = th.app.sharing(&board.id).await.expect("the state is read");
     assert_eq!(got, set, "what was stored");
-    assert_eq!(got.board_id, board.id, "of the board");
+    assert_eq!(got.container_id, board.id, "of the board");
     assert_eq!(got.modified_by, user_id, "by the user");
     assert!(got.update_at > 0, "the store set the time");
 

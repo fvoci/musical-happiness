@@ -185,7 +185,7 @@ async fn leaving_and_reentering_within_one_batch_gets_a_new_roster() {
 async fn a_guest_sees_an_unshared_template_reader_only_as_a_count() {
     use crate::common::{PASSWORD, ROOT_WORKSPACE_ID, ROOT_WS};
     use crate::rooms::give_in;
-    use fvoci_model::{Board, BoardType};
+    use fvoci_model::{Container, ContainerType};
 
     let th = Setup::native().start().await.init_basic().await;
     let third = th
@@ -193,9 +193,9 @@ async fn a_guest_sees_an_unshared_template_reader_only_as_a_count() {
         .await;
     let third_id = third.me().await.id;
     let guest_id = th.client2.me().await.id;
-    let mut template = crate::boards::new_board(ROOT_WORKSPACE_ID, BoardType::Open, "Template");
+    let mut template = crate::boards::new_board(ROOT_WORKSPACE_ID, ContainerType::Open, "Template");
     template.is_template = true;
-    let template: Board = th.client.create_board(&template).await.created_json();
+    let template: Container = th.client.create_board(&template).await.created_json();
     give_in(&th, ROOT_WORKSPACE_ID, &template.id, &guest_id, "viewer").await;
     th.client
         .put(
@@ -227,7 +227,9 @@ async fn a_guest_sees_an_unshared_template_reader_only_as_a_count() {
         0,
         "a workspace member sees the reader"
     );
-    let private = th.create_board(ROOT_WORKSPACE_ID, BoardType::Private).await;
+    let private = th
+        .create_board(ROOT_WORKSPACE_ID, ContainerType::Private)
+        .await;
     let mut uninvited = Socket::connect_as(&th.client2).await;
     uninvited
         .send(
@@ -369,7 +371,7 @@ async fn a_refused_visit_ends_the_one_before_and_a_deleted_card_leaves_the_board
     );
     // A board the reader may not read: the visit asked before ends as well.
     let private = th
-        .create_board(TEST_WORKSPACE_ID, fvoci_model::BoardType::Private)
+        .create_board(TEST_WORKSPACE_ID, fvoci_model::ContainerType::Private)
         .await;
     visit(&mut two, &private.id, "").await;
     let alone = people(&mut one, 1).await;

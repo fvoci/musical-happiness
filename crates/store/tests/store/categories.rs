@@ -10,7 +10,7 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use fvoci_model::{Category, CategoryBoardMetadata, CategoryType, new_id};
+use fvoci_model::{Category, CategoryContainerMetadata, CategoryType, new_id};
 use fvoci_store::{Store, StoreError};
 
 use crate::common::{self, TestStore};
@@ -47,9 +47,9 @@ pub(crate) fn ids(ids: &[&str]) -> Vec<String> {
 }
 
 /// `model.CategoryBoardMetadata{BoardID: board_id, Hidden: false}`.
-pub(crate) fn visible(board_id: &str) -> CategoryBoardMetadata {
-    CategoryBoardMetadata {
-        board_id: board_id.to_owned(),
+pub(crate) fn visible(board_id: &str) -> CategoryContainerMetadata {
+    CategoryContainerMetadata {
+        container_id: board_id.to_owned(),
         hidden: false,
     }
 }
@@ -349,7 +349,7 @@ async fn get_user_categories() {
         .expect("category 3 is created");
 
     let user_categories = store
-        .get_user_category_boards(&user_id, &workspace_id)
+        .get_user_category_containers(&user_id, &workspace_id)
         .await
         .expect("the categories are listed");
     assert_eq!(user_categories.len(), 3, "got {user_categories:?}");
@@ -471,7 +471,7 @@ async fn reorder_category_boards() {
     let [board1, board2, board3, board4] = create_boards(store, &workspace_id, &user_id).await;
 
     store
-        .add_update_category_board(
+        .add_update_category_container(
             &user_id,
             &category_id,
             &ids(&[&board1, &board2, &board3, &board4]),
@@ -481,11 +481,11 @@ async fn reorder_category_boards() {
 
     // verify current order
     let category_boards = store
-        .get_user_category_boards(&user_id, &workspace_id)
+        .get_user_category_containers(&user_id, &workspace_id)
         .await
         .expect("the categories are listed");
     assert_eq!(category_boards.len(), 1, "got {category_boards:?}");
-    let metadata = &category_boards[0].board_metadata;
+    let metadata = &category_boards[0].container_metadata;
     assert_eq!(metadata.len(), 4, "got {metadata:?}");
     for board_id in [&board1, &board2, &board3, &board4] {
         assert!(
@@ -497,19 +497,19 @@ async fn reorder_category_boards() {
     // reordering
     let order = ids(&[&board3, &board1, &board2, &board4]);
     let new_order = store
-        .reorder_category_boards(&category_id, order.clone())
+        .reorder_category_containers(&category_id, order.clone())
         .await
         .expect("the boards are reordered");
     assert_eq!(new_order, order, "the order is returned as it was given");
 
     // verify new order
     let category_boards = store
-        .get_user_category_boards(&user_id, &workspace_id)
+        .get_user_category_containers(&user_id, &workspace_id)
         .await
         .expect("the categories are listed");
     assert_eq!(category_boards.len(), 1, "got {category_boards:?}");
-    let metadata = &category_boards[0].board_metadata;
-    let listed: Vec<&String> = metadata.iter().map(|board| &board.board_id).collect();
+    let metadata = &category_boards[0].container_metadata;
+    let listed: Vec<&String> = metadata.iter().map(|board| &board.container_id).collect();
     assert_eq!(
         listed,
         [&board3, &board1, &board2, &board4],
@@ -844,7 +844,7 @@ async fn delete_category_matches_owner_and_workspace_and_happens_once() {
         .expect_err("neither brings the deleted category back");
     assert!(matches!(error, StoreError::NotFound(_)), "got {error:?}");
     let listed = store
-        .get_user_category_boards(&user_id, &workspace_id)
+        .get_user_category_containers(&user_id, &workspace_id)
         .await
         .expect("the categories are listed");
     assert!(listed.is_empty(), "still not listed: {listed:?}");
@@ -935,7 +935,7 @@ async fn categories_written_by_others() {
     .await;
 
     let listed = store
-        .get_user_category_boards(&user_id, &workspace_id)
+        .get_user_category_containers(&user_id, &workspace_id)
         .await
         .expect("the categories are listed");
     assert_eq!(listed.len(), 2, "got {listed:?}");
@@ -956,7 +956,7 @@ async fn categories_written_by_others() {
         .find(|entry| entry.category.id == custom_type)
         .expect("the category is listed");
     assert_eq!(
-        with_board.board_metadata,
+        with_board.container_metadata,
         [visible(&board_id)],
         "the board of the category"
     );

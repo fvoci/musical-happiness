@@ -60,7 +60,7 @@ async fn a_block_the_store_refused_is_found_in_the_list_of_the_request() {
         "a block the request does not list: nowhere to point"
     );
     let board = || {
-        AppError::from(StoreError::InvalidBoard(BoardError::NulCharacter {
+        AppError::from(StoreError::InvalidContainer(ContainerError::NulCharacter {
             member: "properties",
         }))
     };
@@ -122,7 +122,7 @@ fn what_a_client_sent_and_the_store_refused_is_a_bad_request() {
         StoreError::from(category),
         block(BlockError::TitleSizeLimitExceeded),
         block(BlockError::FieldsSizeLimitExceeded),
-        StoreError::InvalidBoardsAndBlocks(fvoci_model::BoardsAndBlocksError::NoBoards),
+        StoreError::InvalidContainersAndBlocks(fvoci_model::ContainersAndBlocksError::NoContainers),
     ];
     for error in errors {
         let text = error.to_string();
@@ -155,14 +155,14 @@ fn any_other_store_error_is_a_server_error() {
 fn block_without_board() -> StoreError {
     StoreError::InvalidBlock {
         id: "c1".to_owned(),
-        source: BlockError::EmptyBoardId,
+        source: BlockError::EmptyContainerId,
     }
 }
 
 #[test]
 fn card_errors_are_the_clients_or_the_servers() {
     assert_eq!(
-        AppError::from(CardError::BoardIdMismatch).kind(),
+        AppError::from(CardError::ContainerIdMismatch).kind(),
         ErrorKind::BadRequest,
         "a card for another board"
     );

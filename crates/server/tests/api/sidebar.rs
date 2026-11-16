@@ -7,10 +7,9 @@
 //! real one, so each checks what the mock sequence stood for.
 
 use fvoci_model::{
-    Board, BoardType, Category, CategoryBoardMetadata, CategoryBoards, CategoryType, User, is_id,
-    new_id,
+    Category, CategoryContainerMetadata, CategoryContainers, CategoryType, Container,
+    ContainerType, User, is_id, new_id,
 };
-use fvoci_store::StoreError;
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
 
@@ -21,7 +20,7 @@ use crate::common::{
 };
 
 /// What a write answers that was given text where it needs an identifier.
-const NOT_AN_IDENTIFIER: &str = "an identifier in the request is not a valid identifier";
+pub(crate) const NOT_AN_IDENTIFIER: &str = "an identifier in the request is not a valid identifier";
 
 /// Stores the user of an application-level test, a member of [`TEST_WORKSPACE_ID`] who never
 /// signs in, and returns the identifier; somebody else is the harness's stranger.
@@ -52,32 +51,32 @@ pub(crate) fn category(workspace_id: &str, user_id: &str, name: &str) -> Categor
 
 /// Puts a board into the store without going through the board routes, with `user_id` as
 /// its administrator.
-async fn board_with_admin(th: &TestServer, workspace_id: &str, user_id: &str) -> Board {
-    let mut board = Board {
+async fn board_with_admin(th: &TestServer, workspace_id: &str, user_id: &str) -> Container {
+    let mut board = Container {
         id: new_id(),
         workspace_id: workspace_id.to_owned(),
-        board_type: BoardType::Open,
-        ..Board::default()
+        container_type: ContainerType::Open,
+        ..Container::default()
     };
     th.app
         .store()
-        .insert_board_with_admin(&mut board, user_id)
+        .insert_container_with_admin(&mut board, user_id)
         .await
         .expect("the board is inserted");
     board
 }
 
 /// Puts an open board into the store that `creator_id` created but is not a member of.
-async fn board_without_member(th: &TestServer, workspace_id: &str, creator_id: &str) -> Board {
-    let mut board = Board {
+async fn board_without_member(th: &TestServer, workspace_id: &str, creator_id: &str) -> Container {
+    let mut board = Container {
         id: new_id(),
         workspace_id: workspace_id.to_owned(),
-        board_type: BoardType::Open,
-        ..Board::default()
+        container_type: ContainerType::Open,
+        ..Container::default()
     };
     th.app
         .store()
-        .insert_board(&mut board, creator_id)
+        .insert_container(&mut board, creator_id)
         .await
         .expect("the board is inserted");
     board
@@ -92,7 +91,7 @@ pub(crate) async fn open_board(th: &TestServer, workspace_id: &str) -> String {
 }
 
 /// Puts `count` open boards into the store, as [`open_board`] does.
-async fn open_boards(th: &TestServer, workspace_id: &str, count: usize) -> Vec<String> {
+pub(crate) async fn open_boards(th: &TestServer, workspace_id: &str, count: usize) -> Vec<String> {
     let mut boards = Vec::with_capacity(count);
     for _ in 0..count {
         boards.push(open_board(th, workspace_id).await);
@@ -103,15 +102,15 @@ async fn open_boards(th: &TestServer, workspace_id: &str, count: usize) -> Vec<S
 /// Puts a private board into the store that the test's users are no members of, and
 /// returns its identifier.
 async fn board_of_somebody_else(th: &TestServer, workspace_id: &str) -> String {
-    let mut board = Board {
+    let mut board = Container {
         id: new_id(),
         workspace_id: workspace_id.to_owned(),
-        board_type: BoardType::Private,
-        ..Board::default()
+        container_type: ContainerType::Private,
+        ..Container::default()
     };
     th.app
         .store()
-        .insert_board(&mut board, &th.stranger().await)
+        .insert_container(&mut board, &th.stranger().await)
         .await
         .expect("the board is inserted");
     board.id
@@ -122,7 +121,10 @@ fn categories_path(workspace_id: &str) -> String {
 }
 
 /// `GetUserCategoryBoards`
-pub(crate) async fn category_boards(client: &Client, workspace_id: &str) -> Vec<CategoryBoards> {
+pub(crate) async fn category_boards(
+    client: &Client,
+    workspace_id: &str,
+) -> Vec<CategoryContainers> {
     client.get(&categories_path(workspace_id)).await.ok_json()
 }
 
@@ -153,25 +155,25 @@ pub(crate) async fn put_empty(client: &Client, path: &str) -> ApiResponse {
     Client::send(client.request(Method::PUT, path)).await
 }
 
-fn names(category_boards: &[CategoryBoards]) -> Vec<&str> {
+fn names(category_boards: &[CategoryContainers]) -> Vec<&str> {
     category_boards
         .iter()
         .map(|entry| entry.category.name.as_str())
         .collect()
 }
 
-fn ids(category_boards: &[CategoryBoards]) -> Vec<&str> {
+pub(crate) fn ids(category_boards: &[CategoryContainers]) -> Vec<&str> {
     category_boards
         .iter()
         .map(|entry| entry.category.id.as_str())
         .collect()
 }
 
-fn board_ids(entry: &CategoryBoards) -> Vec<&str> {
+pub(crate) fn board_ids(entry: &CategoryContainers) -> Vec<&str> {
     entry
-        .board_metadata
+        .container_metadata
         .iter()
-        .map(|metadata| metadata.board_id.as_str())
+        .map(|metadata| metadata.container_id.as_str())
         .collect()
 }
 
@@ -180,16 +182,19 @@ fn sorted(mut values: Vec<&str>) -> Vec<&str> {
     values
 }
 
-fn visible(board_id: &str) -> CategoryBoardMetadata {
-    CategoryBoardMetadata {
-        board_id: board_id.to_owned(),
+fn visible(board_id: &str) -> CategoryContainerMetadata {
+    CategoryContainerMetadata {
+        container_id: board_id.to_owned(),
         hidden: false,
     }
 }
 
 /// The one entry with the given category identifier.
 #[track_caller]
-fn entry<'a>(category_boards: &'a [CategoryBoards], category_id: &str) -> &'a CategoryBoards {
+pub(crate) fn entry<'a>(
+    category_boards: &'a [CategoryContainers],
+    category_id: &str,
+) -> &'a CategoryContainers {
     category_boards
         .iter()
         .find(|entry| entry.category.id == category_id)
@@ -197,7 +202,7 @@ fn entry<'a>(category_boards: &'a [CategoryBoards], category_id: &str) -> &'a Ca
 }
 
 #[track_caller]
-fn check_error(response: &ApiResponse, status: StatusCode, message: &str) {
+pub(crate) fn check_error(response: &ApiResponse, status: StatusCode, message: &str) {
     response.check_error(status, message);
 }
 
@@ -215,14 +220,18 @@ async fn sidebar() {
     let user_id = th.client.me().await.id;
 
     // A new board ends up in the default "Boards" category.
-    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+    let board = th
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
 
     let listed = category_boards(&th.client, TEST_WORKSPACE_ID).await;
     assert_eq!(names(&listed), ["Boards"], "only the default category");
     assert_eq!(board_ids(&listed[0]), [board.id.as_str()], "the new board");
 
     // A second board is moved into a new category.
-    let board2 = th.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+    let board2 = th
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
     let created = create_category(
         &th.client,
         &category(TEST_WORKSPACE_ID, &user_id, "Category 2"),
@@ -250,13 +259,17 @@ async fn sidebar() {
         .check_no_content();
     let listed = category_boards(&th.client, TEST_WORKSPACE_ID).await;
     assert_eq!(names(&listed), ["Boards"], "the default category is left");
-    assert_eq!(listed[0].board_metadata.len(), 2, "both boards are in it");
+    assert_eq!(
+        listed[0].container_metadata.len(),
+        2,
+        "both boards are in it"
+    );
     assert!(
-        listed[0].board_metadata.contains(&visible(&board.id)),
+        listed[0].container_metadata.contains(&visible(&board.id)),
         "the first board is there"
     );
     assert!(
-        listed[0].board_metadata.contains(&visible(&board2.id)),
+        listed[0].container_metadata.contains(&visible(&board2.id)),
         "the second board is there"
     );
 
@@ -318,7 +331,7 @@ async fn sidebar_with_boards_from_the_store() {
     );
     assert!(
         listed[0]
-            .board_metadata
+            .container_metadata
             .iter()
             .all(|metadata| !metadata.hidden),
         "and neither is hidden"
@@ -340,17 +353,18 @@ async fn hide_unhide_board() {
     // The board is not hidden to begin with.
     let listed = category_boards(&th.client, TEST_WORKSPACE_ID).await;
     assert_eq!(names(&listed), ["Boards"], "only the default category");
-    assert_eq!(listed[0].board_metadata.len(), 1, "one board");
-    assert!(!listed[0].board_metadata[0].hidden, "not hidden");
+    assert_eq!(listed[0].container_metadata.len(), 1, "one board");
+    assert!(!listed[0].container_metadata[0].hidden, "not hidden");
 
     let place = format!(
         "{}/{}/boards/{}",
         categories_path(TEST_WORKSPACE_ID),
         listed[0].category.id,
-        listed[0].board_metadata[0].board_id
+        listed[0].container_metadata[0].container_id
     );
-    let hidden =
-        async || category_boards(&th.client, TEST_WORKSPACE_ID).await[0].board_metadata[0].hidden;
+    let hidden = async || {
+        category_boards(&th.client, TEST_WORKSPACE_ID).await[0].container_metadata[0].hidden
+    };
 
     let response = put_empty(&th.client, &format!("{place}/hide")).await;
     response.check_no_content();
@@ -645,12 +659,12 @@ async fn the_answer_that_creates_the_default_category_is_the_next_one() {
     }
     let creating = th
         .app
-        .user_category_boards(&user_id, TEST_WORKSPACE_ID)
+        .user_category_containers(&user_id, TEST_WORKSPACE_ID)
         .await
         .expect("listed");
     let next = th
         .app
-        .user_category_boards(&user_id, TEST_WORKSPACE_ID)
+        .user_category_containers(&user_id, TEST_WORKSPACE_ID)
         .await
         .expect("listed");
     assert_eq!(creating, next);
@@ -662,7 +676,7 @@ async fn the_answer_that_creates_the_default_category_is_the_next_one() {
 async fn default_category(th: &TestServer, user_id: &str, workspace_id: &str) -> Category {
     let listed = th
         .app
-        .user_category_boards(user_id, workspace_id)
+        .user_category_containers(user_id, workspace_id)
         .await
         .expect("the categories are listed");
     listed
@@ -766,7 +780,7 @@ async fn delete_category_base_case() {
     assert!(deleted.delete_at > 0, "marked as deleted");
     let listed = th
         .app
-        .user_category_boards(&user_id, TEST_WORKSPACE_ID)
+        .user_category_containers(&user_id, TEST_WORKSPACE_ID)
         .await
         .expect("the categories are listed");
     assert_eq!(
@@ -857,7 +871,12 @@ async fn move_boards_to_default_category_when_default_category_already_exists() 
         .expect("the category is created");
     let board_ids_filed = open_boards(&th, TEST_WORKSPACE_ID, 2).await;
     th.app
-        .add_update_user_category_board(TEST_WORKSPACE_ID, &user_id, &custom.id, &board_ids_filed)
+        .add_update_user_category_container(
+            TEST_WORKSPACE_ID,
+            &user_id,
+            &custom.id,
+            &board_ids_filed,
+        )
         .await
         .expect("the boards are filed");
 
@@ -868,7 +887,7 @@ async fn move_boards_to_default_category_when_default_category_already_exists() 
 
     let listed = th
         .app
-        .user_category_boards(&user_id, TEST_WORKSPACE_ID)
+        .user_category_containers(&user_id, TEST_WORKSPACE_ID)
         .await
         .expect("the categories are listed");
     assert_eq!(
@@ -900,7 +919,7 @@ async fn move_boards_to_default_category_when_default_category_doesnt_already_ex
     let board_id = open_board(&th, TEST_WORKSPACE_ID).await;
     th.app
         .store()
-        .add_update_category_board(&user_id, &custom.id, std::slice::from_ref(&board_id))
+        .add_update_category_container(&user_id, &custom.id, std::slice::from_ref(&board_id))
         .await
         .expect("the board is filed");
     let stored = th
@@ -918,7 +937,7 @@ async fn move_boards_to_default_category_when_default_category_doesnt_already_ex
 
     let listed = th
         .app
-        .user_category_boards(&user_id, TEST_WORKSPACE_ID)
+        .user_category_containers(&user_id, TEST_WORKSPACE_ID)
         .await
         .expect("the categories are listed");
     assert_eq!(names(&listed), ["Boards"], "a default category was created");
@@ -948,7 +967,7 @@ async fn three_categories(th: &TestServer, user_id: &str) -> Vec<String> {
     }
     let listed = th
         .app
-        .user_category_boards(user_id, TEST_WORKSPACE_ID)
+        .user_category_containers(user_id, TEST_WORKSPACE_ID)
         .await
         .expect("the categories are listed");
     assert_eq!(
@@ -961,7 +980,7 @@ async fn three_categories(th: &TestServer, user_id: &str) -> Vec<String> {
 
 async fn listed_ids(th: &TestServer, user_id: &str) -> Vec<String> {
     th.app
-        .user_category_boards(user_id, TEST_WORKSPACE_ID)
+        .user_category_containers(user_id, TEST_WORKSPACE_ID)
         .await
         .expect("the categories are listed")
         .into_iter()
@@ -1117,10 +1136,14 @@ async fn get_user_category_boards_user_had_no_default_category_and_had_boards() 
         ["Boards"],
         "the default category was created"
     );
-    assert_eq!(listed[0].board_metadata.len(), 3, "with the three boards");
+    assert_eq!(
+        listed[0].container_metadata.len(),
+        3,
+        "with the three boards"
+    );
     for board_id in &boards {
         assert!(
-            listed[0].board_metadata.contains(&visible(board_id)),
+            listed[0].container_metadata.contains(&visible(board_id)),
             "board {board_id} is in it, not hidden"
         );
     }
@@ -1135,13 +1158,13 @@ async fn get_user_category_boards_user_had_no_default_category_but_had_no_boards
 
     let response = th.client.get(&format!("{ROOT_WS}/categories")).await;
 
-    let listed: Vec<CategoryBoards> = response.ok_json();
+    let listed: Vec<CategoryContainers> = response.ok_json();
     assert_eq!(
         names(&listed),
         ["Boards"],
         "the default category was created"
     );
-    assert!(listed[0].board_metadata.is_empty(), "with no boards");
+    assert!(listed[0].container_metadata.is_empty(), "with no boards");
     // The exact wire format of an entry.
     let user = th.client.me().await;
     let entry = &response.value()[0];
@@ -1176,7 +1199,11 @@ async fn get_user_category_boards_user_already_had_a_default_boards_category_wit
     board_with_admin(&th, ROOT_WORKSPACE_ID, &user.id).await;
     board_with_admin(&th, ROOT_WORKSPACE_ID, &user.id).await;
     let first = category_boards(&th.client, ROOT_WORKSPACE_ID).await;
-    assert_eq!(first[0].board_metadata.len(), 2, "two boards to begin with");
+    assert_eq!(
+        first[0].container_metadata.len(),
+        2,
+        "two boards to begin with"
+    );
 
     // A board that appears later is not filed by listing the categories.
     board_with_admin(&th, ROOT_WORKSPACE_ID, &user.id).await;
@@ -1197,12 +1224,12 @@ async fn create_boards_category_user_doesnt_have_any_boards_implicit_or_explicit
 
     let listed = th
         .app
-        .user_category_boards(&user_id, TEST_WORKSPACE_ID)
+        .user_category_containers(&user_id, TEST_WORKSPACE_ID)
         .await
         .expect("the categories are listed");
 
     assert_eq!(names(&listed), ["Boards"], "the default category");
-    assert!(listed[0].board_metadata.is_empty(), "with no boards");
+    assert!(listed[0].container_metadata.is_empty(), "with no boards");
     assert_eq!(listed[0].category.user_id, user_id, "of the user");
     assert_eq!(
         listed[0].category.workspace_id, TEST_WORKSPACE_ID,
@@ -1226,13 +1253,13 @@ async fn create_boards_category_user_has_implicit_access_to_some_board() {
 
     let listed = th
         .app
-        .user_category_boards(&user_id, TEST_WORKSPACE_ID)
+        .user_category_containers(&user_id, TEST_WORKSPACE_ID)
         .await
         .expect("the categories are listed");
 
     assert_eq!(names(&listed), ["Boards"], "the default category");
     assert!(
-        listed[0].board_metadata.is_empty(),
+        listed[0].container_metadata.is_empty(),
         "boards the user is not a member of are not filed"
     );
 
@@ -1253,7 +1280,7 @@ async fn create_boards_category_user_has_explicit_access_to_some_board() {
 
     let listed = th
         .app
-        .user_category_boards(&user_id, TEST_WORKSPACE_ID)
+        .user_category_containers(&user_id, TEST_WORKSPACE_ID)
         .await
         .expect("the categories are listed");
 
@@ -1266,7 +1293,7 @@ async fn create_boards_category_user_has_explicit_access_to_some_board() {
     // What was returned at creation is what is stored.
     let again = th
         .app
-        .user_category_boards(&user_id, TEST_WORKSPACE_ID)
+        .user_category_containers(&user_id, TEST_WORKSPACE_ID)
         .await
         .expect("the categories are listed");
     assert_eq!(ids(&again), ids(&listed), "the same category");
@@ -1290,7 +1317,7 @@ async fn create_boards_category_user_has_both_implicit_and_explicit_access_to_so
 
     let listed = th
         .app
-        .user_category_boards(&user_id, TEST_WORKSPACE_ID)
+        .user_category_containers(&user_id, TEST_WORKSPACE_ID)
         .await
         .expect("the categories are listed");
 
@@ -1318,12 +1345,17 @@ async fn category_with_boards(
         .expect("the category is created");
     let board_ids_filed = open_boards(th, TEST_WORKSPACE_ID, count).await;
     th.app
-        .add_update_user_category_board(TEST_WORKSPACE_ID, user_id, &created.id, &board_ids_filed)
+        .add_update_user_category_container(
+            TEST_WORKSPACE_ID,
+            user_id,
+            &created.id,
+            &board_ids_filed,
+        )
         .await
         .expect("the boards are filed");
     let order = th
         .app
-        .reorder_category_boards(user_id, TEST_WORKSPACE_ID, &created.id, board_ids_filed)
+        .reorder_category_containers(user_id, TEST_WORKSPACE_ID, &created.id, board_ids_filed)
         .await
         .expect("the boards are put in order");
     (created, order)
@@ -1332,7 +1364,7 @@ async fn category_with_boards(
 async fn listed_board_ids(th: &TestServer, user_id: &str, category_id: &str) -> Vec<String> {
     let listed = th
         .app
-        .user_category_boards(user_id, TEST_WORKSPACE_ID)
+        .user_category_containers(user_id, TEST_WORKSPACE_ID)
         .await
         .expect("the categories are listed");
     board_ids(entry(&listed, category_id))
@@ -1356,7 +1388,7 @@ async fn reorder_category_boards_base_case() {
 
     let new_order = th
         .app
-        .reorder_category_boards(&user_id, TEST_WORKSPACE_ID, &created.id, reversed.clone())
+        .reorder_category_containers(&user_id, TEST_WORKSPACE_ID, &created.id, reversed.clone())
         .await
         .expect("an order that names every board is accepted");
 
@@ -1379,7 +1411,7 @@ async fn reorder_category_boards_not_specifying_all_boards() {
 
     let error = th
         .app
-        .reorder_category_boards(
+        .reorder_category_containers(
             &user_id,
             TEST_WORKSPACE_ID,
             &created.id,
@@ -2262,7 +2294,11 @@ async fn hiding_a_board_that_is_not_in_the_category_changes_nothing() {
     let user = th.client.me().await;
     let board = board_with_admin(&th, ROOT_WORKSPACE_ID, &user.id).await;
     let before = category_boards(&th.client, ROOT_WORKSPACE_ID).await;
-    assert_eq!(before[0].board_metadata, [visible(&board.id)], "one board");
+    assert_eq!(
+        before[0].container_metadata,
+        [visible(&board.id)],
+        "one board"
+    );
     let default_id = &before[0].category.id;
 
     // What does not exist is asked for by an identifier of nothing and by text that is
@@ -2411,7 +2447,7 @@ impl TwoUsers {
     }
 
     /// What the owner sees of their categories.
-    async fn owner_view(&self) -> Vec<CategoryBoards> {
+    async fn owner_view(&self) -> Vec<CategoryContainers> {
         category_boards(&self.th.client, ROOT_WORKSPACE_ID).await
     }
 }
@@ -2582,246 +2618,4 @@ async fn another_users_category_cannot_be_changed() {
     );
 
     two.th.teardown().await;
-}
-
-/// Text as one segment of a path, with every byte that is no letter or digit
-/// percent-encoded, so that the server is handed exactly this text.
-fn path_segment(text: &str) -> String {
-    text.bytes()
-        .map(|byte| {
-            if byte.is_ascii_alphanumeric() {
-                char::from(byte).to_string()
-            } else {
-                format!("%{byte:02X}")
-            }
-        })
-        .collect()
-}
-
-/// Checks that the store refused to write because `text` is no identifier.
-#[track_caller]
-fn check_not_an_identifier<T: std::fmt::Debug>(written: Result<T, StoreError>, text: &str) {
-    match written {
-        Err(StoreError::InvalidId(refused)) => {
-            assert_eq!(refused, text, "the text that was refused");
-        }
-        other => panic!("the store refuses to write with {text:?}, but answered {other:?}"),
-    }
-}
-
-/// The stored categories of a user in the root workspace, places included.
-async fn stored_categories(th: &TestServer, user_id: &str) -> Vec<Category> {
-    th.app
-        .store()
-        .get_user_categories(user_id, ROOT_WORKSPACE_ID)
-        .await
-        .expect("the categories are read")
-}
-
-/// Security fix of the store, checked through the route. The original builds the reorder
-/// statement by pasting the identifiers into it, and a category's identifier is the
-/// client's to choose (`server/services/store/sqlstore/category.go:221`): with the first
-/// identifier below, the original answers 200 and lists the categories in another order
-/// than the one asked for.
-///
-/// Here the server makes the identifiers, and text that is not one reaches a statement
-/// as a bound value only: no category can be stored under it, an order that names it is
-/// refused, the store does not run a statement that would write with it, and in a path
-/// it names nothing. None of that changes a row, the user's or anybody else's.
-#[tokio::test]
-async fn reorder_categories_treats_a_hostile_identifier_as_data() {
-    let th = Setup::native().start().await.init_basic().await;
-    let user = th.client.me().await;
-    let other = th.client2.me().await;
-    let default_id = category_boards(&th.client, ROOT_WORKSPACE_ID).await[0]
-        .category
-        .id
-        .clone();
-    let plain = create_category(&th.client, &category(ROOT_WORKSPACE_ID, &user.id, "plain")).await;
-    let second =
-        create_category(&th.client, &category(ROOT_WORKSPACE_ID, &user.id, "second")).await;
-    category_boards(&th.client2, ROOT_WORKSPACE_ID).await;
-    create_category(
-        &th.client2,
-        &category(ROOT_WORKSPACE_ID, &other.id, "theirs"),
-    )
-    .await;
-    let before = stored_categories(&th, &user.id).await;
-    let others_before = stored_categories(&th, &other.id).await;
-    let path = &format!("{ROOT_WS}/category-order");
-
-    for hostile_id in [
-        "a' THEN 777 WHEN 'zz",
-        "q'q",
-        "x'; DROP TABLE categories; --",
-        "zz' OR '1'='1",
-    ] {
-        // The API makes its own identifiers. Past it, where the original took any text
-        // (as it could from an import or an older database), the category is refused.
-        let hostile = Category {
-            id: hostile_id.to_owned(),
-            ..category(ROOT_WORKSPACE_ID, &user.id, "hostile")
-        };
-        let error = th
-            .app
-            .create_category(hostile)
-            .await
-            .expect_err("no category is stored under text that is no identifier");
-        assert_eq!(error.status(), StatusCode::BAD_REQUEST, "{error}");
-        assert_eq!(error.to_string(), NOT_AN_IDENTIFIER, "for {hostile_id:?}");
-
-        // An order that names it where a category belongs is refused like any other
-        // that names something the user does not have.
-        let order = [second.id.as_str(), hostile_id, default_id.as_str()];
-        let response = th.client.put(path, &order).await;
-        response.check_bad_request();
-        assert_eq!(
-            response.problem_type(),
-            "/problems/bad-request",
-            "for {hostile_id:?}"
-        );
-
-        // Asked past that check, the store does not run the statement.
-        let written = th
-            .app
-            .store()
-            .reorder_categories(&user.id, ROOT_WORKSPACE_ID, order.map(str::to_owned).into())
-            .await;
-        check_not_an_identifier(written, hostile_id);
-
-        // In a path it names no category.
-        let named = format!("{ROOT_WS}/categories/{}", path_segment(hostile_id));
-        let change = category(ROOT_WORKSPACE_ID, &user.id, "renamed");
-        let response = th.client.put(&named, &change).await;
-        check_error(&response, StatusCode::NOT_FOUND, "category not found");
-        let response = th.client.delete(&named).await;
-        check_error(&response, StatusCode::NOT_FOUND, "category not found");
-    }
-
-    assert_eq!(
-        stored_categories(&th, &user.id).await,
-        before,
-        "the user's categories are as they were, each in its place"
-    );
-    assert_eq!(
-        stored_categories(&th, &other.id).await,
-        others_before,
-        "and so are another user's"
-    );
-
-    // An order of identifiers is still taken, and is exactly the order asked for.
-    let new_order = [plain.id.as_str(), default_id.as_str(), second.id.as_str()];
-    let response = th.client.put(path, &new_order).await;
-    assert_eq!(response.ok_json::<Vec<String>>(), new_order, "the answer");
-    let listed = category_boards(&th.client, ROOT_WORKSPACE_ID).await;
-    assert_eq!(ids(&listed), new_order, "exactly the order asked for");
-    assert_eq!(
-        stored_categories(&th, &other.id).await,
-        others_before,
-        "which moves nobody else's categories"
-    );
-
-    th.teardown().await;
-}
-
-/// Security fix of the store, checked through the route. The original pastes the board
-/// identifiers into the statement too (`server/services/store/sqlstore/category_boards.go:144`),
-/// and the identifier comes from the path of the request that files the board: with
-/// `q'q` filed, the original answers the reorder request with 500 (a syntax error).
-///
-/// Here only a board that exists is filed, and no board has text that is no identifier
-/// for its identifier: the request that would file it finds no such board, an order
-/// that names it is refused, the store does not run a statement that would write with
-/// it, and as the category of a path it names nothing. None of that changes what is
-/// filed where, nor in which order.
-#[tokio::test]
-async fn reorder_category_boards_treats_a_hostile_identifier_as_data() {
-    let th = Setup::native().start().await.init_basic().await;
-    let user = th.client.me().await;
-    category_boards(&th.client, ROOT_WORKSPACE_ID).await;
-    let created =
-        create_category(&th.client, &category(ROOT_WORKSPACE_ID, &user.id, "Cat A")).await;
-    let other = create_category(&th.client, &category(ROOT_WORKSPACE_ID, &user.id, "Cat B")).await;
-    let bystander = open_board(&th, ROOT_WORKSPACE_ID).await;
-    file_board(&th.client, ROOT_WORKSPACE_ID, &other.id, &bystander).await;
-    let boards = open_boards(&th, ROOT_WORKSPACE_ID, 3).await;
-    for board_id in &boards {
-        file_board(&th.client, ROOT_WORKSPACE_ID, &created.id, board_id).await;
-    }
-    let category_path = format!("{ROOT_WS}/categories/{}", created.id);
-    let path = format!("{category_path}/board-order");
-    let new_order = [boards[2].as_str(), boards[0].as_str(), boards[1].as_str()];
-    let response = th.client.put(&path, &new_order).await;
-    assert_eq!(response.ok_json::<Vec<String>>(), new_order, "the answer");
-    let before = category_boards(&th.client, ROOT_WORKSPACE_ID).await;
-    assert_eq!(
-        board_ids(entry(&before, &created.id)),
-        new_order,
-        "exactly the order asked for"
-    );
-
-    for hostile_id in [
-        "q'q",
-        "b' THEN 5 WHEN 'c",
-        "x' OR category_id <> '",
-        "x'; DROP TABLE category_boards; --",
-    ] {
-        let segment = path_segment(hostile_id);
-
-        // The request that files a board finds no board of that name, and the store,
-        // asked past the route, does not file one.
-        let response = th
-            .client
-            .post_empty(&format!("{category_path}/boards/{segment}"))
-            .await;
-        check_error(&response, StatusCode::NOT_FOUND, "board not found");
-        let filed = th
-            .app
-            .store()
-            .add_update_category_board(&user.id, &created.id, &[hostile_id.to_owned()])
-            .await;
-        check_not_an_identifier(filed, hostile_id);
-
-        // An order that names it where a board belongs is refused like any other that
-        // names a board the category does not have; the store does not run the statement.
-        let order = [boards[0].as_str(), hostile_id, boards[2].as_str()];
-        let response = th.client.put(&path, &order).await;
-        response.check_bad_request();
-        assert_eq!(
-            response.problem_type(),
-            "/problems/bad-request",
-            "for {hostile_id:?}"
-        );
-        let written = th
-            .app
-            .store()
-            .reorder_category_boards(&created.id, order.map(str::to_owned).into())
-            .await;
-        check_not_an_identifier(written, hostile_id);
-
-        // As the category of the path it names nothing.
-        let response = th
-            .client
-            .put(
-                &format!("{ROOT_WS}/categories/{segment}/board-order"),
-                &new_order,
-            )
-            .await;
-        check_error(&response, StatusCode::NOT_FOUND, "category not found");
-    }
-
-    let listed = category_boards(&th.client, ROOT_WORKSPACE_ID).await;
-    assert_eq!(
-        board_ids(entry(&listed, &created.id)),
-        new_order,
-        "the boards of the category are in the order they were"
-    );
-    assert_eq!(
-        board_ids(entry(&listed, &other.id)),
-        [bystander.as_str()],
-        "the other category is untouched"
-    );
-    assert_eq!(listed, before, "and nothing else changed either");
-
-    th.teardown().await;
 }

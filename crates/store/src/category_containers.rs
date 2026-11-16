@@ -8,8 +8,8 @@
 use std::collections::HashSet;
 
 use fvoci_model::{
-    CATEGORY_BOARDS_SORT_ORDER_GAP, CategoryBoardMetadata, CategoryBoards, DEFAULT_CATEGORY_NAME,
-    new_id,
+    CATEGORY_CONTAINERS_SORT_ORDER_GAP, CategoryContainerMetadata, CategoryContainers,
+    DEFAULT_CATEGORY_NAME, new_id,
 };
 
 use crate::Store;
@@ -19,7 +19,7 @@ use crate::error::StoreError;
 
 /// Whether a board shows in its user's sidebar.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BoardVisibility {
+pub enum ContainerVisibility {
     /// The board shows.
     Visible,
     /// The user has hidden the board.
@@ -34,13 +34,15 @@ impl Store {
     ///
     /// Returns [`StoreError::Corrupt`] if the stored type of a category is not one this
     /// server knows, and [`StoreError::Database`] if a query fails.
-    pub async fn get_user_category_boards(
+    pub async fn get_user_category_containers(
         &self,
         user_id: &str,
         workspace_id: &str,
-    ) -> Result<Vec<CategoryBoards>, StoreError> {
-        self.with_conn(async |scope| get_user_category_boards(scope, user_id, workspace_id).await)
-            .await
+    ) -> Result<Vec<CategoryContainers>, StoreError> {
+        self.with_conn(async |scope| {
+            get_user_category_containers(scope, user_id, workspace_id).await
+        })
+        .await
     }
 
     /// Puts boards into a category of a user. A board named more than once counts once.
@@ -55,14 +57,14 @@ impl Store {
     /// Returns [`StoreError::NotFound`] if the category, a board or the user does not
     /// exist, and [`StoreError::InvalidId`] for text that is no identifier; nothing is
     /// written in either case.
-    pub async fn add_update_category_board(
+    pub async fn add_update_category_container(
         &self,
         user_id: &str,
         category_id: &str,
-        board_ids: &[String],
+        container_ids: &[String],
     ) -> Result<(), StoreError> {
         self.with_conn(async |scope| {
-            add_update_category_board(scope, user_id, category_id, board_ids).await
+            add_update_category_container(scope, user_id, category_id, container_ids).await
         })
         .await
     }
@@ -78,7 +80,7 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if the statement fails.
-    pub async fn reorder_category_boards(
+    pub async fn reorder_category_containers(
         &self,
         category_id: &str,
         new_order: Vec<String>,
@@ -92,8 +94,9 @@ impl Store {
             // Preserved quirk: consecutive boards are one apart, starting at the gap. The
             // original adds the gap to the position where it means to multiply by it
             // (server/services/store/sqlstore/category_boards.go:144).
-            for (sort_order, board_id) in (CATEGORY_BOARDS_SORT_ORDER_GAP..).zip(&new_order) {
-                sql.push_bind(" WHEN ", Id(board_id))
+            for (sort_order, container_id) in (CATEGORY_CONTAINERS_SORT_ORDER_GAP..).zip(&new_order)
+            {
+                sql.push_bind(" WHEN ", Id(container_id))
                     .push_bind(" THEN ", sort_order);
             }
             // A board of the category that the order leaves out keeps its place.
@@ -113,19 +116,19 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if the statement fails.
-    pub async fn set_board_visibility(
+    pub async fn set_container_visibility(
         &self,
         user_id: &str,
         category_id: &str,
-        board_id: &str,
-        visibility: BoardVisibility,
+        container_id: &str,
+        visibility: ContainerVisibility,
     ) -> Result<(), StoreError> {
         self.with_conn(async |scope| {
             let mut sql = scope.sql("UPDATE category_containers SET hidden = ");
-            sql.bind(visibility == BoardVisibility::Hidden)
+            sql.bind(visibility == ContainerVisibility::Hidden)
                 .push_bind(" WHERE user_id = ", Id(user_id))
                 .push_bind(" AND category_id = ", Id(category_id))
-                .push_bind(" AND container_id = ", Id(board_id));
+                .push_bind(" AND container_id = ", Id(container_id));
             scope.execute(sql).await?;
             Ok(())
         })
@@ -143,30 +146,30 @@ fn filed_once(scope: &Scope<'_>) -> &'static str {
     }
 }
 
-pub(crate) async fn get_user_category_boards(
+pub(crate) async fn get_user_category_containers(
     scope: &mut Scope<'_>,
     user_id: &str,
     workspace_id: &str,
-) -> Result<Vec<CategoryBoards>, StoreError> {
+) -> Result<Vec<CategoryContainers>, StoreError> {
     let categories = get_user_categories(scope, user_id, workspace_id).await?;
-    let mut user_category_boards = Vec::with_capacity(categories.len());
+    let mut user_category_containers = Vec::with_capacity(categories.len());
     for category in categories {
-        let board_metadata = category_board_metadata(scope, &category.id).await?;
-        user_category_boards.push(CategoryBoards {
+        let container_metadata = category_container_metadata(scope, &category.id).await?;
+        user_category_containers.push(CategoryContainers {
             category,
-            board_metadata,
+            container_metadata,
         });
     }
-    Ok(user_category_boards)
+    Ok(user_category_containers)
 }
 
 /// Returns the boards of a category by ascending sort order. Boards with equal sort
 /// orders, such as those never reordered, come by identifier: in the order they were
 /// made in.
-async fn category_board_metadata(
+async fn category_container_metadata(
     scope: &mut Scope<'_>,
     category_id: &str,
-) -> Result<Vec<CategoryBoardMetadata>, StoreError> {
+) -> Result<Vec<CategoryContainerMetadata>, StoreError> {
     let mut sql =
         scope.sql("SELECT container_id, hidden FROM category_containers WHERE category_id = ");
     // Preserved quirk: the rows are not narrowed to the user the category belongs to, so
@@ -179,43 +182,43 @@ async fn category_board_metadata(
         .await?
         .iter()
         .map(|row| {
-            Ok(CategoryBoardMetadata {
-                board_id: row.id(0)?,
+            Ok(CategoryContainerMetadata {
+                container_id: row.id(0)?,
                 hidden: row.bool(1)?,
             })
         })
         .collect()
 }
 
-pub(crate) async fn add_update_category_board(
+pub(crate) async fn add_update_category_container(
     scope: &mut Scope<'_>,
     user_id: &str,
     category_id: &str,
-    board_ids: &[String],
+    container_ids: &[String],
 ) -> Result<(), StoreError> {
     // One statement must not name a board twice: PostgreSQL refuses an upsert that would
     // touch the same row a second time. The rows are written in the order the boards are
     // first named; the original writes them in the random order of a hash map, and no
     // reader depends on either.
-    let mut seen = HashSet::with_capacity(board_ids.len());
-    let board_ids: Vec<&str> = board_ids
+    let mut seen = HashSet::with_capacity(container_ids.len());
+    let container_ids: Vec<&str> = container_ids
         .iter()
         .map(String::as_str)
-        .filter(|&board_id| seen.insert(board_id))
+        .filter(|&container_id| seen.insert(container_id))
         .collect();
-    if board_ids.is_empty() {
+    if container_ids.is_empty() {
         return Ok(());
     }
 
     let now = now_millis();
     let mut sql = scope.sql("INSERT INTO category_containers (id, user_id, category_id, container_id, create_at, update_at, sort_order, \
          hidden) VALUES ");
-    for (index, board_id) in board_ids.into_iter().enumerate() {
+    for (index, container_id) in container_ids.into_iter().enumerate() {
         sql.push(if index == 0 { "(" } else { ", (" })
             .bind(Id(&new_id()))
             .push_bind(", ", Id(user_id))
             .push_bind(", ", Id(category_id))
-            .push_bind(", ", Id(board_id))
+            .push_bind(", ", Id(container_id))
             .push_bind(", ", now)
             .push_bind(", ", now)
             .push(", 0, false)");
@@ -235,7 +238,7 @@ pub(crate) async fn add_update_category_board(
 /// Where a user filed a board: the category, the board's place in it, and whether it is
 /// hidden there.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BoardPlace {
+pub struct ContainerPlace {
     /// The user who filed the board.
     pub user_id: String,
     /// The category the board is filed under.
@@ -252,26 +255,29 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if the query fails.
-    pub async fn get_board_places(&self, board_id: &str) -> Result<Vec<BoardPlace>, StoreError> {
-        self.with_conn(async |scope| places_of_board(scope, board_id).await)
+    pub async fn get_container_places(
+        &self,
+        container_id: &str,
+    ) -> Result<Vec<ContainerPlace>, StoreError> {
+        self.with_conn(async |scope| places_of_container(scope, container_id).await)
             .await
     }
 }
 
-pub(crate) async fn places_of_board(
+pub(crate) async fn places_of_container(
     scope: &mut Scope<'_>,
-    board_id: &str,
-) -> Result<Vec<BoardPlace>, StoreError> {
+    container_id: &str,
+) -> Result<Vec<ContainerPlace>, StoreError> {
     let mut sql = scope.sql(
         "SELECT user_id, category_id, sort_order, hidden FROM category_containers WHERE container_id = ",
     );
-    sql.bind(Id(board_id)).push(" ORDER BY user_id");
+    sql.bind(Id(container_id)).push(" ORDER BY user_id");
     scope
         .fetch_all(sql)
         .await?
         .iter()
         .map(|row| {
-            Ok(BoardPlace {
+            Ok(ContainerPlace {
                 user_id: row.id(0)?,
                 category_id: row.id(1)?,
                 sort_order: row.int(2)?,
@@ -290,9 +296,9 @@ pub(crate) async fn places_of_board(
 /// filed by naming it before the routes compared the workspaces, counts as gone.
 pub(crate) async fn put_back(
     scope: &mut Scope<'_>,
-    board_id: &str,
+    container_id: &str,
     workspace_id: &str,
-    place: &BoardPlace,
+    place: &ContainerPlace,
 ) -> Result<(), StoreError> {
     let mut sql = scope.sql("SELECT id FROM categories WHERE id = ");
     sql.bind(Id(&place.category_id))
@@ -325,7 +331,7 @@ pub(crate) async fn put_back(
     sql.bind(Id(&new_id()))
         .push_bind(", ", Id(&place.user_id))
         .push_bind(", ", Id(&category_id))
-        .push_bind(", ", Id(board_id))
+        .push_bind(", ", Id(container_id))
         .push_bind(", ", now)
         .push_bind(", ", now)
         .push_bind(", ", sort_order)

@@ -33,7 +33,7 @@ pub enum CardError {
     },
     /// The card belongs to a different board than the one named in the request.
     #[error("Board IDs do not match")]
-    BoardIdMismatch,
+    ContainerIdMismatch,
     /// A new body is sent without the time the card was read at.
     #[error("a new body is sent with readAt, the updateAt of the card as it was read")]
     ReadAtMissing,
@@ -48,7 +48,8 @@ pub struct Card {
     pub id: String,
     /// The identifier of the board the card belongs to.
     #[serde(deserialize_with = "null_as_default")]
-    pub board_id: String,
+    #[serde(rename = "boardId")]
+    pub container_id: String,
     /// The identifier of the user who created the card.
     #[serde(deserialize_with = "null_as_default")]
     pub created_by: String,
@@ -214,7 +215,7 @@ impl Card {
         if self.id.is_empty() {
             return Err(CardError::Invalid("ID is missing"));
         }
-        if self.board_id.is_empty() {
+        if self.container_id.is_empty() {
             return Err(CardError::Invalid("BoardID is missing"));
         }
         check_icon(&self.icon)?;
@@ -273,7 +274,7 @@ impl Card {
         let summary = block.body.as_ref().map(Body::summary).unwrap_or_default();
         let mut card = Self {
             id: block.id.clone(),
-            board_id: block.board_id.clone(),
+            container_id: block.container_id.clone(),
             created_by: block.created_by.clone(),
             modified_by: block.modified_by.clone(),
             title: block.title.clone(),
@@ -318,7 +319,7 @@ impl From<Card> for Block {
             create_at: card.create_at,
             update_at: card.update_at,
             delete_at: card.delete_at,
-            board_id: card.board_id,
+            container_id: card.container_id,
             edited_at: 0,
         }
     }

@@ -3,27 +3,27 @@
 //! This and `Store::resolve_workspace` (by `App::actor`, and `Store::org_role_of_user` by
 //! `App::org_actor` for the organization alone) are where the facts of a permission are
 //! read.
-//! Every check of a route that names a board asks [`App::board_access`], and decides by
+//! Every check of a route that names a board asks [`App::container_access`], and decides by
 //! the [`Grant`] it gives; nothing else reads a membership to decide what a user may do.
 
-use fvoci_model::{Board, BoardMember, BoardRole, Upload, UploadPart, UploadPurpose};
-use fvoci_store::DeletedBoard;
+use fvoci_model::{Container, ContainerMember, ContainerRole, Upload, UploadPart, UploadPurpose};
+use fvoci_store::DeletedContainer;
 
 use super::App;
 use crate::error::AppError;
-use crate::permissions::{self, Actor, BoardFacts, BoardScope, Grant};
+use crate::permissions::{self, Actor, ContainerFacts, ContainerScope, Grant};
 
 /// A board, and what one user is and may do there.
 #[derive(Debug, Clone)]
-pub struct BoardAccess {
+pub struct ContainerAccess {
     /// The board as it is stored.
-    pub board: Board,
+    pub container: Container,
     /// What the user is in the board's workspace and organization.
     pub actor: Actor,
     /// The user's membership of the board as stored; `None` for who is no member.
-    pub member: Option<BoardMember>,
+    pub member: Option<ContainerMember>,
     /// The inherited role observed with the direct membership.
-    pub team_role: Option<BoardRole>,
+    pub team_role: Option<ContainerRole>,
     /// What the user may do on the board.
     pub grant: Grant,
 }
@@ -31,9 +31,9 @@ pub struct BoardAccess {
 /// A board in the trash, and what one user may do with it: what the role they had
 /// when it was deleted would let them do, as what they are in its workspace now.
 #[derive(Debug, Clone)]
-pub struct DeletedBoardAccess {
+pub struct DeletedContainerAccess {
     /// The board as the trash keeps it.
-    pub deleted: DeletedBoard,
+    pub deleted: DeletedContainer,
     /// What the user may do with the board.
     pub grant: Grant,
 }
@@ -52,18 +52,18 @@ impl App {
     ///
     /// Returns the store's error if a fact cannot be read: that is no "no", which would
     /// tell every member that their board does not exist.
-    pub async fn board_access(
+    pub async fn container_access(
         &self,
         user_id: &str,
-        board_id: &str,
-    ) -> Result<Option<BoardAccess>, AppError> {
-        let (board, member, team_role) = tokio::join!(
-            self.store().get_board(board_id),
-            self.store().get_member_for_board(board_id, user_id),
-            self.store().board_team_role(board_id, user_id),
+        container_id: &str,
+    ) -> Result<Option<ContainerAccess>, AppError> {
+        let (container, member, team_role) = tokio::join!(
+            self.store().get_container(container_id),
+            self.store().get_member_for_container(container_id, user_id),
+            self.store().container_team_role(container_id, user_id),
         );
-        let board = match board {
-            Ok(board) => Some(board).filter(|board| self.reaches_board(board)),
+        let container = match container {
+            Ok(container) => Some(container).filter(|container| self.reaches_container(container)),
             Err(error) if error.is_not_found() => None,
             Err(error) => {
                 return Err(AppError::from(error).context("reading a board to check access"));
@@ -78,9 +78,11 @@ impl App {
         };
         let team_role = team_role
             .map_err(|error| AppError::from(error).context("reading the team roles on a board"))?;
-        let workspace_id = board.as_ref().map_or("", |board| &board.workspace_id);
+        let workspace_id = container
+            .as_ref()
+            .map_or("", |container| &container.workspace_id);
         let actor = self.actor(user_id, workspace_id).await?;
-        let Some(board) = board else {
+        let Some(container) = container else {
             return Ok(None);
         };
         let grant = if user_id.is_empty() {
@@ -88,15 +90,15 @@ impl App {
         } else {
             permissions::grant(
                 actor,
-                BoardFacts {
+                ContainerFacts {
                     team_role,
-                    scope: BoardScope::of(&board),
+                    scope: ContainerScope::of(&container),
                     role: member.as_ref().and_then(permissions::role_of),
                 },
             )
         };
-        Ok(Some(BoardAccess {
-            board,
+        Ok(Some(ContainerAccess {
+            container,
             actor,
             member,
             team_role,
@@ -113,13 +115,13 @@ impl App {
     /// # Errors
     ///
     /// Returns 400 naming `kind`.
-    pub(super) fn require_makes(&self, board: &Board) -> Result<(), AppError> {
-        if self.kinds.holds(board.kind) {
+    pub(super) fn require_makes(&self, container: &Container) -> Result<(), AppError> {
+        if self.kinds.holds(container.kind) {
             return Ok(());
         }
         Err(AppError::bad_request(format_args!(
             "this operation makes no {}",
-            board.kind.as_str()
+            container.kind.as_str()
         ))
         .with_field("kind"))
     }
@@ -145,12 +147,12 @@ impl App {
         }
         let reached = match upload.purpose {
             UploadPurpose::Import => self.reaches_workspace(&upload.workspace_id),
-            UploadPurpose::File => match self.store().get_board(&upload.board_id).await {
-                Ok(board) => self.reaches_board(&board),
+            UploadPurpose::File => match self.store().get_container(&upload.container_id).await {
+                Ok(container) => self.reaches_container(&container),
                 Err(error) if error.is_not_found() => self
-                    .deleted_board(&upload.board_id)
+                    .deleted_container(&upload.container_id)
                     .await?
-                    .is_none_or(|deleted| self.reaches_board(&deleted.board)),
+                    .is_none_or(|deleted| self.reaches_container(&deleted.container)),
                 Err(error) => return Err(error.into()),
             },
         };
@@ -166,9 +168,13 @@ impl App {
     /// # Errors
     ///
     /// Returns the store's error if a fact cannot be read.
-    pub async fn board_grant(&self, user_id: &str, board_id: &str) -> Result<Grant, AppError> {
+    pub async fn container_grant(
+        &self,
+        user_id: &str,
+        container_id: &str,
+    ) -> Result<Grant, AppError> {
         Ok(self
-            .board_access(user_id, board_id)
+            .container_access(user_id, container_id)
             .await?
             .map_or(Grant::NONE, |access| access.grant))
     }
@@ -180,8 +186,16 @@ impl App {
     /// # Errors
     ///
     /// Returns the store's error if the membership cannot be read.
-    pub async fn invited_to_board(&self, user_id: &str, board_id: &str) -> Result<bool, AppError> {
-        match self.store().get_member_for_board(board_id, user_id).await {
+    pub async fn invited_to_container(
+        &self,
+        user_id: &str,
+        container_id: &str,
+    ) -> Result<bool, AppError> {
+        match self
+            .store()
+            .get_member_for_container(container_id, user_id)
+            .await
+        {
             Ok(member) => Ok(permissions::role_of(&member).is_some()),
             Err(error) if error.is_not_found() => Ok(false),
             Err(error) => Err(error.into()),
@@ -193,24 +207,24 @@ impl App {
     /// The role is the one the trash kept of the user, and counts as what the user is in
     /// the board's workspace now: who has left the
     /// workspace since brings nothing back. A board in the trash is open to nobody
-    /// (`BoardScope::in_the_trash`).
+    /// (`ContainerScope::in_the_trash`).
     ///
     /// # Errors
     ///
     /// Returns the store's error if a fact cannot be read.
-    pub async fn deleted_board_access(
+    pub async fn deleted_container_access(
         &self,
         user_id: &str,
-        board_id: &str,
-    ) -> Result<Option<DeletedBoardAccess>, AppError> {
+        container_id: &str,
+    ) -> Result<Option<DeletedContainerAccess>, AppError> {
         let Some(deleted) = self
-            .deleted_board(board_id)
+            .deleted_container(container_id)
             .await?
-            .filter(|deleted| self.reaches_board(&deleted.board))
+            .filter(|deleted| self.reaches_container(&deleted.container))
         else {
             return Ok(None);
         };
-        let actor = self.actor(user_id, &deleted.board.workspace_id).await?;
+        let actor = self.actor(user_id, &deleted.container.workspace_id).await?;
         let role = deleted
             .members
             .iter()
@@ -221,14 +235,14 @@ impl App {
         } else {
             permissions::grant(
                 actor,
-                BoardFacts {
+                ContainerFacts {
                     team_role: None,
-                    scope: BoardScope::of(&deleted.board).in_the_trash(),
+                    scope: ContainerScope::of(&deleted.container).in_the_trash(),
                     role,
                 },
             )
         };
-        Ok(Some(DeletedBoardAccess { deleted, grant }))
+        Ok(Some(DeletedContainerAccess { deleted, grant }))
     }
 
     /// What the user is in the organization alone, of no workspace of it, as
@@ -267,9 +281,9 @@ impl App {
 /// The board as who only manages it sees it ([`Grant::manages_only`]): its name, kind
 /// and times, without its description and properties, which are its content.
 #[must_use]
-pub fn as_managed(mut board: Board) -> Board {
-    board.description.clear();
-    board.properties.clear();
-    board.card_properties.clear();
-    board
+pub fn as_managed(mut container: Container) -> Container {
+    container.description.clear();
+    container.properties.clear();
+    container.card_properties.clear();
+    container
 }

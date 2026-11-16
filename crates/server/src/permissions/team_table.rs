@@ -1,8 +1,8 @@
 //! Team roles combine with direct roles without admitting guests or board admins.
 
 use super::table::{GUEST, MEMBER, REMOVED, WORKSPACE_ADMIN};
-use super::{BoardFacts, BoardScope, grant};
-use fvoci_model::BoardRole::{Admin, Commenter, Editor, Viewer};
+use super::{ContainerFacts, ContainerScope, grant};
+use fvoci_model::ContainerRole::{Admin, Commenter, Editor, Viewer};
 
 #[test]
 fn direct_and_team_roles_take_the_highest_within_the_team_limit() {
@@ -55,15 +55,15 @@ fn direct_and_team_roles_take_the_highest_within_the_team_limit() {
     ];
     for (case, actor, role, team_role, effective) in rows {
         for scope in [
-            BoardScope::InvitedOnly,
-            BoardScope::Open,
-            BoardScope::OpenWiki,
-            BoardScope::InvitedOnlyTemplate,
+            ContainerScope::InvitedOnly,
+            ContainerScope::Open,
+            ContainerScope::OpenWiki,
+            ContainerScope::InvitedOnlyTemplate,
         ] {
             assert_eq!(
                 grant(
                     actor,
-                    BoardFacts {
+                    ContainerFacts {
                         scope,
                         role,
                         team_role
@@ -71,7 +71,7 @@ fn direct_and_team_roles_take_the_highest_within_the_team_limit() {
                 ),
                 grant(
                     actor,
-                    BoardFacts {
+                    ContainerFacts {
                         scope,
                         role: effective,
                         team_role: None

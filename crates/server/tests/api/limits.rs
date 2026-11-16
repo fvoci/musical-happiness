@@ -5,7 +5,7 @@
 use std::time::Duration;
 
 use futures_util::{SinkExt as _, StreamExt as _};
-use fvoci_model::BoardType;
+use fvoci_model::ContainerType;
 use reqwest::multipart::{Form, Part};
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
@@ -72,7 +72,9 @@ async fn board_count(th: &TestServer) -> usize {
 #[tokio::test]
 async fn a_json_body_over_the_default_limit_is_refused_with_413() {
     let th = Setup::native().start().await.init_basic().await;
-    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+    let board = th
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
 
     let at_the_limit = json_of_length(DEFAULT_JSON_LIMIT);
     let response = th
@@ -146,7 +148,8 @@ async fn the_json_limit_is_the_configured_one() {
     check_read_and_refused(&response);
 
     // A request that fits goes through as ever.
-    th.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+    th.create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
     assert_eq!(board_count(&th).await, 1, "the board was created");
     th.teardown().await;
 }
@@ -315,7 +318,9 @@ async fn uploads_are_not_behind_the_json_limit() {
         .await
         .init_basic()
         .await;
-    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+    let board = th
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
 
     let part = Part::bytes(vec![b'x'; 8000])
         .file_name("larger.bin")

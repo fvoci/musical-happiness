@@ -1,6 +1,6 @@
 //! The workspace app is usable by a person who starts the second organization.
 
-use fvoci_model::{Board, Category, UserWorkspace};
+use fvoci_model::{Category, Container, UserWorkspace};
 use fvoci_store::DbType;
 use serde_json::json;
 
@@ -67,7 +67,7 @@ async fn exercise_workspace(client: &Client, workspace: &str, name: &str) {
         )
         .await
         .created_json();
-    let templates: Vec<Board> = client.get(&format!("{path}/templates")).await.ok_json();
+    let templates: Vec<Container> = client.get(&format!("{path}/templates")).await.ok_json();
     assert!(
         !templates.is_empty(),
         "built-in templates are offered to both founders"
@@ -116,7 +116,7 @@ async fn exercise_workspace(client: &Client, workspace: &str, name: &str) {
         categories.text().contains(&board),
         "the board is in its category"
     );
-    let found: Vec<Board> = client
+    let found: Vec<Container> = client
         .get(&format!("{path}/boards/search?q={name}"))
         .await
         .ok_json();

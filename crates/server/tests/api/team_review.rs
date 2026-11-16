@@ -4,7 +4,7 @@
 
 use crate::boards::{board_with_admin, new_board};
 use crate::common::{ROOT_WORKSPACE_ID, Setup, TestServer};
-use fvoci_model::{Block, BlockType, BoardType, Subscription, Team, new_id};
+use fvoci_model::{Block, BlockType, ContainerType, Subscription, Team, new_id};
 use reqwest::StatusCode;
 use serde_json::json;
 
@@ -140,7 +140,7 @@ async fn following_through_a_team(th: &TestServer, name: &str) -> (String, Team)
     let user = th.client2.me().await.id;
     let board = board_with_admin(
         th,
-        new_board(ROOT_WORKSPACE_ID, BoardType::Private, name),
+        new_board(ROOT_WORKSPACE_ID, ContainerType::Private, name),
         &owner,
     )
     .await;
@@ -168,7 +168,7 @@ async fn following_through_a_team(th: &TestServer, name: &str) -> (String, Team)
         .check_no_content();
     let mut block = Block {
         id: new_id(),
-        board_id: board.id.clone(),
+        container_id: board.id.clone(),
         block_type: BlockType::Card,
         ..Block::default()
     };

@@ -469,7 +469,7 @@ async fn the_pool_and_the_open_uploads_are_measured() {
     let board = server
         .create_board(
             crate::common::TEST_WORKSPACE_ID,
-            fvoci_model::BoardType::Open,
+            fvoci_model::ContainerType::Open,
         )
         .await;
     let mut uploads = Vec::new();
@@ -526,7 +526,7 @@ async fn the_archives_that_hold_their_place_are_counted() {
     let board = server
         .create_board(
             crate::common::TEST_WORKSPACE_ID,
-            fvoci_model::BoardType::Open,
+            fvoci_model::ContainerType::Open,
         )
         .await;
     let export = server
@@ -614,7 +614,7 @@ async fn the_boards_and_wikis_copied_whole_are_counted_by_work_and_kind() {
     let board = server
         .create_board(
             crate::common::TEST_WORKSPACE_ID,
-            fvoci_model::BoardType::Open,
+            fvoci_model::ContainerType::Open,
         )
         .await;
     let wiki = crate::wiki_copies::wiki(client, "Counted").await;

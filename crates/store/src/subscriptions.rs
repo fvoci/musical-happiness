@@ -222,16 +222,16 @@ fn subscription_not_found(block_id: &str, subscriber_id: &str) -> StoreError {
 }
 
 /// Ends every subscription of a subscriber to a block of the board.
-pub(crate) async fn end_subscriptions_to_board(
+pub(crate) async fn end_subscriptions_to_container(
     scope: &mut Scope<'_>,
-    board_id: &str,
+    container_id: &str,
     subscriber_id: &str,
 ) -> Result<(), StoreError> {
     let mut sql = scope.sql("DELETE FROM subscriptions WHERE subscriber_id = ");
     sql.bind(Id(subscriber_id))
         .push_bind(
             " AND block_id IN (SELECT id FROM blocks WHERE container_id = ",
-            Id(board_id),
+            Id(container_id),
         )
         .push(")");
     scope.execute(sql).await?;

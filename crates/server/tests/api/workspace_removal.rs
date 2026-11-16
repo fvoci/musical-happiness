@@ -3,7 +3,7 @@
 //! exports nothing but a 404; and an import leaves out who is not in the workspace,
 //! saying how many.
 
-use fvoci_model::{Board, BoardMember, BoardType};
+use fvoci_model::{Container, ContainerMember, ContainerType};
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
@@ -39,11 +39,11 @@ pub(crate) async fn remove_from_the_test_workspace(th: &TestServer, user_id: &st
 async fn who_left_a_workspace_finds_none_of_its_boards() {
     let th = Setup::native().start().await.init_basic().await;
     let user2 = th.client2.me().await.id;
-    let board: Board = th
+    let board: Container = th
         .client2
         .create_board(&new_board(
             TEST_WORKSPACE_ID,
-            BoardType::Private,
+            ContainerType::Private,
             "Quarterly secret",
         ))
         .await
@@ -54,7 +54,7 @@ async fn who_left_a_workspace_finds_none_of_its_boards() {
         .client2
         .get(&format!("{TEST_WS}/boards/search?q=Quarterly"))
         .await;
-    let found_from_root: Vec<Board> = th
+    let found_from_root: Vec<Container> = th
         .client2
         .get(&format!(
             "/w/{}/boards/search?q=Quarterly",
@@ -62,14 +62,16 @@ async fn who_left_a_workspace_finds_none_of_its_boards() {
         ))
         .await
         .ok_json();
-    let memberships: Vec<BoardMember> = th.client2.get("/users/me/memberships").await.ok_json();
+    let memberships: Vec<ContainerMember> = th.client2.get("/users/me/memberships").await.ok_json();
     let export = th.client2.get(&format!("{TEST_WS}/archive/export")).await;
     th.teardown().await;
 
     search_where_left.check_not_found();
     assert!(found_from_root.is_empty(), "{found_from_root:?}");
     assert!(
-        memberships.iter().all(|member| member.board_id != board.id),
+        memberships
+            .iter()
+            .all(|member| member.container_id != board.id),
         "{memberships:?}"
     );
     export.check_not_found();
@@ -99,20 +101,24 @@ async fn an_admin_who_cannot_act_as_one_does_not_keep_a_board_from_its_last_admi
     let th = Setup::native().start().await.init_basic().await;
     let user1 = th.client.me().await.id;
     let user2 = th.client2.me().await.id;
-    let board: Board = th
+    let board: Container = th
         .client
-        .create_board(&new_board(TEST_WORKSPACE_ID, BoardType::Private, "Ours"))
+        .create_board(&new_board(
+            TEST_WORKSPACE_ID,
+            ContainerType::Private,
+            "Ours",
+        ))
         .await
         .created_json();
     // The second user is stored as an admin of the board, past the routes, and then
     // leaves the workspace: the role is left and opens nothing.
     th.app
         .store()
-        .save_member(&BoardMember {
-            board_id: board.id.clone(),
+        .save_member(&ContainerMember {
+            container_id: board.id.clone(),
             user_id: user2.clone(),
             scheme_admin: true,
-            ..BoardMember::default()
+            ..ContainerMember::default()
         })
         .await
         .expect("a second admin is stored");
@@ -122,7 +128,11 @@ async fn an_admin_who_cannot_act_as_one_does_not_keep_a_board_from_its_last_admi
         .client
         .post(&format!("{TEST_WS}/boards/{}/leave", board.id), &json!({}))
         .await;
-    let stored = th.app.store().get_member_for_board(&board.id, &user1).await;
+    let stored = th
+        .app
+        .store()
+        .get_member_for_container(&board.id, &user1)
+        .await;
     th.teardown().await;
 
     assert_eq!(left.status, StatusCode::CONFLICT, "{}", left.text());
@@ -134,13 +144,17 @@ async fn an_admin_who_cannot_act_as_one_does_not_keep_a_board_from_its_last_admi
 async fn an_import_leaves_out_who_is_not_in_the_workspace_and_says_how_many() {
     let th = Setup::native().start().await.init_basic().await;
     let user2 = th.client2.me().await.id;
-    let board: Board = th
+    let board: Container = th
         .client
-        .create_board(&new_board(TEST_WORKSPACE_ID, BoardType::Private, "Shared"))
+        .create_board(&new_board(
+            TEST_WORKSPACE_ID,
+            ContainerType::Private,
+            "Shared",
+        ))
         .await
         .created_json();
     th.client
-        .add_member(&BoardMember {
+        .add_member(&ContainerMember {
             scheme_editor: true,
             ..crate::boards::member(&board.id, &user2)
         })
@@ -155,13 +169,13 @@ async fn an_import_leaves_out_who_is_not_in_the_workspace_and_says_how_many() {
     let kept = crate::export::import(&th.client, TEST_WORKSPACE_ID, &archive.body).await;
     remove_from_the_test_workspace(&th, &user2).await;
     let left_out = crate::export::import(&th.client, TEST_WORKSPACE_ID, &archive.body).await;
-    let shared: Vec<Board> = th.client.get(&format!("{TEST_WS}/boards")).await.ok_json();
+    let shared: Vec<Container> = th.client.get(&format!("{TEST_WS}/boards")).await.ok_json();
     let mut held = 0;
     for listed in shared.iter().filter(|listed| listed.title == "Shared") {
         let members = th
             .app
             .store()
-            .get_members_for_board(&listed.id)
+            .get_members_for_container(&listed.id)
             .await
             .expect("the members of a board");
         held += members
@@ -184,13 +198,13 @@ async fn an_import_counts_each_user_once_and_no_membership_without_a_role() {
     let third = th.add_user("third").await.me().await.id;
     let mut boards = Vec::new();
     for title in ["One", "Two"] {
-        let board: Board = th
+        let board: Container = th
             .client
-            .create_board(&new_board(TEST_WORKSPACE_ID, BoardType::Private, title))
+            .create_board(&new_board(TEST_WORKSPACE_ID, ContainerType::Private, title))
             .await
             .created_json();
         th.client
-            .add_member(&BoardMember {
+            .add_member(&ContainerMember {
                 scheme_editor: true,
                 ..crate::boards::member(&board.id, &user2)
             })

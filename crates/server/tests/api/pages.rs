@@ -268,7 +268,7 @@ async fn the_operations_of_blocks_and_cards_neither_make_nor_reach_a_page() {
     let board = ts
         .create_board(
             crate::common::TEST_WORKSPACE_ID,
-            fvoci_model::BoardType::Private,
+            fvoci_model::ContainerType::Private,
         )
         .await;
     let card = client
@@ -363,7 +363,7 @@ async fn a_page_is_no_block_to_subscribe_to_or_to_bring_back() {
     let board = ts
         .create_board(
             crate::common::TEST_WORKSPACE_ID,
-            fvoci_model::BoardType::Private,
+            fvoci_model::ContainerType::Private,
         )
         .await;
     let blocks = format!("{TEST_WS}/boards/{}/blocks", board.id);

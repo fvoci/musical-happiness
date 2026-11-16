@@ -3,38 +3,38 @@
 use std::collections::{HashMap, HashSet};
 
 use fvoci_model::{
-    Board, BoardCategoryWebsocketData, BoardKinds, CATEGORY_BOARDS_SORT_ORDER_GAP, Category,
-    CategoryBoardMetadata, CategoryBoards, CategoryType,
+    CATEGORY_CONTAINERS_SORT_ORDER_GAP, Category, CategoryContainerMetadata, CategoryContainers,
+    CategoryType, Container, ContainerCategoryWebsocketData, ContainerKinds,
 };
-use fvoci_store::{BoardVisibility, PublicBoards};
+use fvoci_store::{ContainerVisibility, PublicContainers};
 
 use super::App;
 use super::category::CATEGORY;
 use crate::error::AppError;
 
 /// The name of the category every user has, which collects the boards filed nowhere else.
-pub const DEFAULT_CATEGORY_BOARDS: &str = fvoci_model::DEFAULT_CATEGORY_NAME;
+pub const DEFAULT_CATEGORY_CONTAINERS: &str = fvoci_model::DEFAULT_CATEGORY_NAME;
 
 /// The default category of a user who has `existing` categories in the workspace: it
 /// goes after them.
 fn default_category(user_id: &str, workspace_id: &str, existing: usize) -> Category {
     Category {
-        name: DEFAULT_CATEGORY_BOARDS.to_owned(),
+        name: DEFAULT_CATEGORY_CONTAINERS.to_owned(),
         user_id: user_id.to_owned(),
         workspace_id: workspace_id.to_owned(),
         collapsed: false,
         category_type: CategoryType::System,
         sort_order: i64::try_from(existing)
             .unwrap_or(i64::MAX)
-            .saturating_mul(CATEGORY_BOARDS_SORT_ORDER_GAP),
+            .saturating_mul(CATEGORY_CONTAINERS_SORT_ORDER_GAP),
         ..Category::default()
     }
 }
 
-fn has_default_category(category_boards: &[CategoryBoards]) -> bool {
-    category_boards
+fn has_default_category(category_containers: &[CategoryContainers]) -> bool {
+    category_containers
         .iter()
-        .any(|entry| entry.category.name == DEFAULT_CATEGORY_BOARDS)
+        .any(|entry| entry.category.name == DEFAULT_CATEGORY_CONTAINERS)
 }
 
 impl App {
@@ -45,17 +45,17 @@ impl App {
     ///
     /// Returns the store's error if the categories cannot be read or the default
     /// category cannot be created.
-    pub async fn user_category_boards(
+    pub async fn user_category_containers(
         &self,
         user_id: &str,
         workspace_id: &str,
-    ) -> Result<Vec<CategoryBoards>, AppError> {
-        let category_boards = self
+    ) -> Result<Vec<CategoryContainers>, AppError> {
+        let category_containers = self
             .store()
-            .get_user_category_boards(user_id, workspace_id)
+            .get_user_category_containers(user_id, workspace_id)
             .await?;
-        if has_default_category(&category_boards) {
-            return Ok(category_boards);
+        if has_default_category(&category_containers) {
+            return Ok(category_containers);
         }
 
         // The original looks and then creates without holding anything in between, so
@@ -65,59 +65,59 @@ impl App {
         // exists before boards are filed under it, so the nested call that filing makes
         // returns above and does not wait for this turn again.
         let _turn = self.default_category_turn().await;
-        let mut category_boards = self
+        let mut category_containers = self
             .store()
-            .get_user_category_boards(user_id, workspace_id)
+            .get_user_category_containers(user_id, workspace_id)
             .await?;
-        if !has_default_category(&category_boards) {
-            self.create_boards_category(user_id, workspace_id, &category_boards)
+        if !has_default_category(&category_containers) {
+            self.create_containers_category(user_id, workspace_id, &category_containers)
                 .await?;
             // Read again: making the category moved the others, and the list is in the
             // order of the categories as they are now.
-            category_boards = self
+            category_containers = self
                 .store()
-                .get_user_category_boards(user_id, workspace_id)
+                .get_user_category_containers(user_id, workspace_id)
                 .await?;
         }
-        Ok(category_boards)
+        Ok(category_containers)
     }
 
     /// The sidebar of a guest of the workspace: their categories as
-    /// [`App::user_category_boards`] has them, with the boards they are on now and no
+    /// [`App::user_category_containers`] has them, with the boards they are on now and no
     /// other. A board they filed while they worked in the workspace, or before they
     /// left it and came back as a guest, is not theirs to know of any more.
     ///
     /// # Errors
     ///
     /// Returns the store's error if the categories or the boards cannot be read.
-    pub async fn category_boards_of_guest(
+    pub async fn category_containers_of_guest(
         &self,
         user_id: &str,
         workspace_id: &str,
-    ) -> Result<Vec<CategoryBoards>, AppError> {
-        let mut category_boards = self.user_category_boards(user_id, workspace_id).await?;
+    ) -> Result<Vec<CategoryContainers>, AppError> {
+        let mut category_containers = self.user_category_containers(user_id, workspace_id).await?;
         let on: HashSet<String> = self
-            .readable_workspace_boards(user_id, workspace_id, fvoci_model::WorkspaceRole::Guest)
+            .readable_workspace_containers(user_id, workspace_id, fvoci_model::WorkspaceRole::Guest)
             .await?
             .into_iter()
-            .map(|board| board.id)
+            .map(|container| container.id)
             .collect();
-        for category in &mut category_boards {
+        for category in &mut category_containers {
             category
-                .board_metadata
-                .retain(|entry| on.contains(&entry.board_id));
+                .container_metadata
+                .retain(|entry| on.contains(&entry.container_id));
         }
-        Ok(category_boards)
+        Ok(category_containers)
     }
 
     /// Creates the default category and files under it every board the user is an
     /// explicit member of that is in no category yet.
-    async fn create_boards_category(
+    async fn create_containers_category(
         &self,
         user_id: &str,
         workspace_id: &str,
-        existing: &[CategoryBoards],
-    ) -> Result<CategoryBoards, AppError> {
+        existing: &[CategoryContainers],
+    ) -> Result<CategoryContainers, AppError> {
         let category = default_category(user_id, workspace_id, existing.len());
         let created = self.create_category(category).await.map_err(|error| {
             error.context("createBoardsCategory default category creation failed")
@@ -128,13 +128,13 @@ impl App {
         // boards but not in its list of memberships, and the request fails.
         // Boards and wikis alike, whichever the request is about that makes the category:
         // it is made once, and files what the user is on.
-        let boards = self
+        let containers = self
             .store()
-            .get_boards_for_user_and_workspace(
+            .get_containers_for_user_and_workspace(
                 user_id,
                 workspace_id,
-                PublicBoards::Exclude,
-                BoardKinds::Every,
+                PublicContainers::Exclude,
+                ContainerKinds::Every,
             )
             .await
             .map_err(|error| {
@@ -153,14 +153,14 @@ impl App {
             .into_iter()
             .map(|member| {
                 (
-                    member.board_id,
+                    member.container_id,
                     member.synthetic && member.inherited_role.is_none(),
                 )
             })
             .collect();
-        let mut board_ids = Vec::new();
-        for board in boards {
-            let Some(synthetic) = memberships.get(&board.id) else {
+        let mut container_ids = Vec::new();
+        for container in containers {
+            let Some(synthetic) = memberships.get(&container.id) else {
                 return Err(AppError::internal(
                     "createBoardsCategory: board membership not found for user's board",
                 ));
@@ -171,27 +171,27 @@ impl App {
             }
             let filed = existing
                 .iter()
-                .flat_map(|entry| &entry.board_metadata)
-                .any(|metadata| metadata.board_id == board.id);
+                .flat_map(|entry| &entry.container_metadata)
+                .any(|metadata| metadata.container_id == container.id);
             if !filed {
-                board_ids.push(board.id);
+                container_ids.push(container.id);
             }
         }
 
-        let board_metadata = board_ids
+        let container_metadata = container_ids
             .iter()
-            .map(|board_id| CategoryBoardMetadata {
-                board_id: board_id.clone(),
+            .map(|container_id| CategoryContainerMetadata {
+                container_id: container_id.clone(),
                 hidden: false,
             })
             .collect();
-        if !board_ids.is_empty() {
+        if !container_ids.is_empty() {
             // Boxed: this function and the one it calls call each other.
-            Box::pin(self.add_update_user_category_board(
+            Box::pin(self.add_update_user_category_container(
                 workspace_id,
                 user_id,
                 &created.id,
-                &board_ids,
+                &container_ids,
             ))
             .await
             .map_err(|error| {
@@ -202,9 +202,9 @@ impl App {
                 ))
             })?;
         }
-        Ok(CategoryBoards {
+        Ok(CategoryContainers {
             category: created,
-            board_metadata,
+            container_metadata,
         })
     }
 
@@ -219,14 +219,14 @@ impl App {
     /// Returns a not-found error if the category is not one of the user's categories in
     /// the workspace, or a board is not there or is one of another workspace; or the store's error
     /// if the boards cannot be filed. Nothing is written in any of these cases.
-    pub async fn add_update_user_category_board(
+    pub async fn add_update_user_category_container(
         &self,
         workspace_id: &str,
         user_id: &str,
         category_id: &str,
-        board_ids: &[String],
+        container_ids: &[String],
     ) -> Result<(), AppError> {
-        if board_ids.is_empty() {
+        if container_ids.is_empty() {
             return Ok(());
         }
         // The original writes first and only then finds that the user has no such
@@ -234,32 +234,32 @@ impl App {
         // (server/app/category_boards.go:150-170). The check comes first here.
         self.user_category(workspace_id, user_id, category_id)
             .await?;
-        for board_id in board_ids {
-            self.require_board_of_workspace(workspace_id, board_id)
+        for container_id in container_ids {
+            self.require_container_of_workspace(workspace_id, container_id)
                 .await?;
         }
         self.store()
-            .add_update_category_board(user_id, category_id, board_ids)
+            .add_update_category_container(user_id, category_id, container_ids)
             .await?;
 
-        let category_boards = self.user_category_boards(user_id, workspace_id).await?;
-        let Some(updated) = category_boards
+        let category_containers = self.user_category_containers(user_id, workspace_id).await?;
+        let Some(updated) = category_containers
             .iter()
             .find(|entry| entry.category.id == category_id)
         else {
             return Err(AppError::not_found(CATEGORY));
         };
-        let payload: Vec<BoardCategoryWebsocketData> = updated
-            .board_metadata
+        let payload: Vec<ContainerCategoryWebsocketData> = updated
+            .container_metadata
             .iter()
-            .map(|metadata| BoardCategoryWebsocketData {
-                board_id: metadata.board_id.clone(),
+            .map(|metadata| ContainerCategoryWebsocketData {
+                container_id: metadata.container_id.clone(),
                 category_id: category_id.to_owned(),
                 hidden: metadata.hidden,
             })
             .collect();
         self.ws()
-            .broadcast_category_board_change(workspace_id, user_id, &payload)
+            .broadcast_category_container_change(workspace_id, user_id, &payload)
             .await;
         Ok(())
     }
@@ -273,14 +273,14 @@ impl App {
     /// the workspace, a bad request if `new_order` does not name exactly as many boards as
     /// the category has, or names one that is not in it, and the store's error if a
     /// read or write fails.
-    pub async fn reorder_category_boards(
+    pub async fn reorder_category_containers(
         &self,
         user_id: &str,
         workspace_id: &str,
         category_id: &str,
         new_order: Vec<String>,
     ) -> Result<Vec<String>, AppError> {
-        self.verify_new_category_boards_match_existing(
+        self.verify_new_category_containers_match_existing(
             user_id,
             workspace_id,
             category_id,
@@ -289,10 +289,10 @@ impl App {
         .await?;
         let new_order = self
             .store()
-            .reorder_category_boards(category_id, new_order)
+            .reorder_category_containers(category_id, new_order)
             .await?;
         self.ws()
-            .broadcast_category_boards_reorder(workspace_id, user_id, category_id, &new_order)
+            .broadcast_category_containers_reorder(workspace_id, user_id, category_id, &new_order)
             .await;
         Ok(new_order)
     }
@@ -302,36 +302,36 @@ impl App {
     /// Preserved quirk: only the count and the membership are compared, so an order that
     /// names one board twice and leaves another out passes
     /// (server/app/category_boards.go:212-263).
-    async fn verify_new_category_boards_match_existing(
+    async fn verify_new_category_containers_match_existing(
         &self,
         user_id: &str,
         workspace_id: &str,
         category_id: &str,
         new_order: &[String],
     ) -> Result<(), AppError> {
-        let category_boards = self.user_category_boards(user_id, workspace_id).await?;
-        let Some(target) = category_boards
+        let category_containers = self.user_category_containers(user_id, workspace_id).await?;
+        let Some(target) = category_containers
             .iter()
             .find(|entry| entry.category.id == category_id)
         else {
             return Err(AppError::not_found(CATEGORY));
         };
-        if target.board_metadata.len() != new_order.len() {
+        if target.container_metadata.len() != new_order.len() {
             return Err(AppError::bad_request(format_args!(
                 "the new order must list every board of the category once: it has {}, the \
                  category has {}",
                 new_order.len(),
-                target.board_metadata.len(),
+                target.container_metadata.len(),
             )));
         }
         let existing_ids: HashSet<&str> = target
-            .board_metadata
+            .container_metadata
             .iter()
-            .map(|metadata| metadata.board_id.as_str())
+            .map(|metadata| metadata.container_id.as_str())
             .collect();
         match new_order
             .iter()
-            .find(|board_id| !existing_ids.contains(board_id.as_str()))
+            .find(|container_id| !existing_ids.contains(container_id.as_str()))
         {
             Some(unknown) => Err(AppError::bad_request(format_args!(
                 "the new order names {unknown}, which is no board of the category"
@@ -354,32 +354,32 @@ impl App {
     /// Returns a not-found error if the category is not one of the user's categories in
     /// the workspace, or the board is not there or is one of another workspace; and the store's
     /// error if the write fails.
-    pub async fn set_board_visibility(
+    pub async fn set_container_visibility(
         &self,
         workspace_id: &str,
         user_id: &str,
         category_id: &str,
-        board_id: &str,
-        visibility: BoardVisibility,
+        container_id: &str,
+        visibility: ContainerVisibility,
     ) -> Result<(), AppError> {
         self.user_category(workspace_id, user_id, category_id)
             .await?;
-        self.require_board_of_workspace(workspace_id, board_id)
+        self.require_container_of_workspace(workspace_id, container_id)
             .await?;
         self.store()
-            .set_board_visibility(user_id, category_id, board_id, visibility)
+            .set_container_visibility(user_id, category_id, container_id, visibility)
             .await
             .map_err(|error| {
                 AppError::from(error)
                     .context("SetBoardVisibility: failed to update board visibility")
             })?;
-        let change = BoardCategoryWebsocketData {
-            board_id: board_id.to_owned(),
+        let change = ContainerCategoryWebsocketData {
+            container_id: container_id.to_owned(),
             category_id: category_id.to_owned(),
-            hidden: visibility == BoardVisibility::Hidden,
+            hidden: visibility == ContainerVisibility::Hidden,
         };
         self.ws()
-            .broadcast_category_board_change(workspace_id, user_id, &[change])
+            .broadcast_category_container_change(workspace_id, user_id, &[change])
             .await;
         Ok(())
     }
@@ -393,19 +393,19 @@ impl App {
     ///
     /// Returns a not-found error for a board that is not there or is another workspace's, and
     /// the store's error if the board cannot be read.
-    pub(crate) async fn require_board_of_workspace(
+    pub(crate) async fn require_container_of_workspace(
         &self,
         workspace_id: &str,
-        board_id: &str,
+        container_id: &str,
     ) -> Result<(), AppError> {
         // The workspace named, which may be another than the handle's (a board filed
-        // back in its own): compared here, not by `App::board`.
-        let board = match self.store().get_board(board_id).await {
-            Ok(board) => board,
+        // back in its own): compared here, not by `App::container`.
+        let container = match self.store().get_container(container_id).await {
+            Ok(container) => container,
             Err(error) if error.is_not_found() => return Err(AppError::not_found("board")),
             Err(error) => return Err(error.into()),
         };
-        if category_of_workspace_takes(&board, workspace_id) {
+        if category_of_workspace_takes(&container, workspace_id) {
             Ok(())
         } else {
             Err(AppError::not_found("board"))
@@ -415,6 +415,6 @@ impl App {
 
 /// Whether a category of the workspace takes the board: one of the workspace, or a built-in
 /// template.
-pub(super) fn category_of_workspace_takes(board: &Board, workspace_id: &str) -> bool {
-    board.workspace_id == workspace_id || board.is_builtin
+pub(super) fn category_of_workspace_takes(container: &Container, workspace_id: &str) -> bool {
+    container.workspace_id == workspace_id || container.is_builtin
 }

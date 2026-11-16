@@ -57,7 +57,7 @@ fn sample_block() -> Block {
         create_at: NOW,
         update_at: NOW,
         delete_at: 0,
-        board_id,
+        container_id: board_id,
         edited_at: 0,
     }
 }
@@ -92,7 +92,7 @@ fn card_from_block_not_a_card() {
 fn card_from_block_fills_missing_fields_and_times() {
     let block = Block {
         id: "card-id".to_owned(),
-        board_id: "board-id".to_owned(),
+        container_id: "board-id".to_owned(),
         block_type: BlockType::Card,
         ..Block::default()
     };
@@ -159,7 +159,7 @@ fn card_into_block_round_trips() {
 fn card_validate_reports_the_first_problem() {
     let valid = Card {
         id: "card-id".to_owned(),
-        board_id: "board-id".to_owned(),
+        container_id: "board-id".to_owned(),
         icon: "🎨".to_owned(),
         create_at: NOW,
         update_at: NOW,
@@ -177,7 +177,7 @@ fn card_validate_reports_the_first_problem() {
         ),
         (
             Card {
-                board_id: String::new(),
+                container_id: String::new(),
                 ..valid.clone()
             },
             "BoardID is missing",
@@ -218,7 +218,7 @@ fn card_icon_may_be_one_multi_scalar_grapheme() {
     // A family emoji is seven scalar values joined into one grapheme cluster.
     let card = Card {
         id: "card-id".to_owned(),
-        board_id: "board-id".to_owned(),
+        container_id: "board-id".to_owned(),
         icon: "👨‍👩‍👧‍👦".to_owned(),
         create_at: NOW,
         update_at: NOW,

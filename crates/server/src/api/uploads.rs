@@ -24,11 +24,11 @@ use super::limits::discard;
 use super::workspace::InContainer;
 use super::{
     ApiResult, RequiredSession, body::decode_object, created, json_response, no_content,
-    require_board_permission,
+    require_container_permission,
 };
 use crate::app::{App, FileToUpload, PartDigest};
 use crate::error::AppError;
-use crate::permissions::BoardPermission;
+use crate::permissions::ContainerPermission;
 
 /// What is refused to a user who may not upload files to the board.
 const DENIAL: &str = "access denied to make board changes";
@@ -79,7 +79,8 @@ struct UploadState {
     #[schema(inline)]
     purpose: Purpose,
     /// The board the file is for; empty for an archive.
-    board_id: String,
+    #[serde(rename = "boardId")]
+    container_id: String,
     /// The workspace the archive is for; empty for a file.
     workspace_id: String,
     /// The name of the file.
@@ -134,7 +135,7 @@ impl UploadState {
                 UploadPurpose::File => Purpose::File,
                 UploadPurpose::Import => Purpose::Import,
             },
-            board_id: upload.board_id,
+            container_id: upload.container_id,
             workspace_id: upload.workspace_id,
             name: upload.name,
             size: upload.size,
@@ -189,15 +190,15 @@ pub(super) fn part_routes() -> OpenApiRouter<App> {
 )]
 async fn handle_create_upload(
     InContainer(ws): InContainer,
-    Path((_, board_id)): Path<(String, String)>,
+    Path((_, container_id)): Path<(String, String)>,
     body: Bytes,
 ) -> ApiResult {
     let user_id = ws.session.user_id.as_str();
-    require_board_permission(
+    require_container_permission(
         &ws.app,
         user_id,
-        &board_id,
-        BoardPermission::ManageBoardCards,
+        &container_id,
+        ContainerPermission::ManageCards,
         DENIAL,
     )
     .await?;
@@ -210,7 +211,7 @@ async fn handle_create_upload(
         .app
         .create_upload(
             user_id,
-            &board_id,
+            &container_id,
             FileToUpload {
                 name,
                 size,
@@ -368,11 +369,11 @@ async fn handle_complete_upload(
         )
         .with_parameter("uploadId"));
     }
-    if let Err(refusal) = require_board_permission(
+    if let Err(refusal) = require_container_permission(
         &ws.app,
         user_id,
-        &upload.board_id,
-        BoardPermission::ManageBoardCards,
+        &upload.container_id,
+        ContainerPermission::ManageCards,
         DENIAL,
     )
     .await

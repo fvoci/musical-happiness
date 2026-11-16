@@ -2,7 +2,7 @@
 //! tried again when the removal fails, and finished when a run was cut off. And what
 //! keeps an object: a record of any board or organization.
 
-use fvoci_model::{BoardType, FileInfo, Upload, UploadPurpose, Workspace, new_id};
+use fvoci_model::{ContainerType, FileInfo, Upload, UploadPurpose, Workspace, new_id};
 use fvoci_server::app::{RemovedObjects, WRITING_GRACE_MILLIS};
 use fvoci_server::auth::now_millis;
 use fvoci_server::auth::secret::new_secret;
@@ -22,7 +22,9 @@ const DAY_MILLIS: i64 = 24 * 60 * 60 * 1000;
 /// Uploads a file to a new board and returns the board and the file's place in the
 /// file storage.
 pub(crate) async fn uploaded(ts: &TestServer, data: &[u8]) -> (String, String) {
-    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+    let board = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
     let response = upload(&ts.client, &board.id, "a.txt", data).await;
     response.check_created();
     let info = ts
@@ -189,7 +191,7 @@ async fn recorded_file(ts: &TestServer, owner: &Store, board_id: &str) -> String
     owner
         .save_file_info(&FileInfo {
             id: new_id(),
-            board_id: board_id.to_owned(),
+            container_id: board_id.to_owned(),
             stored_name,
             path: path.clone(),
             size: 8,
@@ -204,12 +206,14 @@ async fn recorded_file(ts: &TestServer, owner: &Store, board_id: &str) -> String
 /// An upload session of the second user, on a board of the test's organization, that
 /// makes its file at `path`: as only a wrong call of the store could store one.
 async fn misbound_upload(ts: &TestServer, path: &str) -> Upload {
-    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+    let board = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
     let upload = Upload {
         id: new_secret(),
         user_id: ts.client2.me().await.id,
         purpose: UploadPurpose::File,
-        board_id: board.id,
+        container_id: board.id,
         name: "misbound.txt".to_owned(),
         size: 8,
         part_size: 8,
@@ -247,7 +251,9 @@ async fn abandoning_it_keeps_the_file(ts: &TestServer, path: &str) {
 #[tokio::test]
 async fn abandoning_a_misbound_upload_keeps_another_boards_file() {
     let ts = Setup::native().start().await.init_basic().await;
-    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+    let board = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
     let path = recorded_file(&ts, ts.app.store(), &board.id).await;
     abandoning_it_keeps_the_file(&ts, &path).await;
     ts.teardown().await;
@@ -281,14 +287,14 @@ async fn another_organizations_board(ts: &TestServer) -> (Store, String) {
         .await
         .expect("a second organization is made");
     let theirs = ts.app.store().for_org(&org_id).expect("an identifier");
-    let mut board = fvoci_model::Board {
+    let mut board = fvoci_model::Container {
         id: new_id(),
         workspace_id: workspace.id.clone(),
-        board_type: BoardType::Open,
-        ..fvoci_model::Board::default()
+        container_type: ContainerType::Open,
+        ..fvoci_model::Container::default()
     };
     theirs
-        .insert_board(&mut board, &ts.client.me().await.id)
+        .insert_container(&mut board, &ts.client.me().await.id)
         .await
         .expect("their board is stored");
     (theirs, board.id)
@@ -329,7 +335,9 @@ async fn a_doomed_object_that_is_held_is_kept(ts: &TestServer, path: &str) {
 #[tokio::test]
 async fn a_doomed_object_that_another_board_holds_is_kept() {
     let ts = Setup::native().start().await.init_basic().await;
-    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+    let board = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
     let path = recorded_file(&ts, ts.app.store(), &board.id).await;
     a_doomed_object_that_is_held_is_kept(&ts, &path).await;
     ts.teardown().await;
@@ -359,7 +367,9 @@ async fn slow_write(
     tokio::io::DuplexStream,
     tokio::task::JoinHandle<Result<String, fvoci_server::error::AppError>>,
 ) {
-    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+    let board = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
     let (mut writer, mut reader) = tokio::io::duplex(64);
     let app = ts.app.clone();
     let board_id = board.id.clone();
@@ -410,7 +420,9 @@ async fn a_file_that_is_not_recorded_leaves_nothing(ts: &TestServer) {
     assert!(!exists(ts, &path).await, "the object went with the failure");
     assert_eq!(all_listed(ts).await, [], "and nothing is left listed");
 
-    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+    let board = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
     let faults = ts
         .app
         .files()
@@ -561,7 +573,7 @@ async fn a_copied_file_is_marked_until_it_is_recorded() {
     let stored_name = path.rsplit('/').next().unwrap_or_default().to_owned();
     let attachment = || fvoci_model::Block {
         id: new_id(),
-        board_id: board_id.clone(),
+        container_id: board_id.clone(),
         block_type: fvoci_model::BlockType::Attachment,
         fields: serde_json::json!({ "fileId": stored_name })
             .as_object()

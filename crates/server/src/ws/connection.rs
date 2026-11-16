@@ -209,7 +209,7 @@ impl Listener {
             workspaces: Vec::new(),
             workspace_roles: HashMap::new(),
             blocks: Vec::new(),
-            shared_boards: Vec::new(),
+            shared_containers: Vec::new(),
             presence: presence::State::default(),
         }
     }

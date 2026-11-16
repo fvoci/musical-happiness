@@ -3,7 +3,7 @@
 //! using a browser's cookie (the request-forgery header, the origin check, and the
 //! origin check of the websocket handshake).
 
-use fvoci_model::{Board, BoardType, User};
+use fvoci_model::{Container, ContainerType, User};
 use reqwest::{Method, StatusCode};
 use serde_json::json;
 
@@ -193,11 +193,15 @@ async fn a_change_with_the_cookie_needs_the_request_forgery_header() {
             .check_ok();
     }
     // With the cookie and the header: the server's own pages.
-    let made: Board = browser
+    let made: Container = browser
         .post(&format!("{ROOT_WS}/boards"), &board_body())
         .await
         .created_json();
-    assert_eq!(made.board_type, BoardType::Private, "the board was made");
+    assert_eq!(
+        made.container_type,
+        ContainerType::Private,
+        "the board was made"
+    );
 
     // With the token in the `Authorization` header: no header of the check needed.
     let request = th
@@ -438,7 +442,9 @@ async fn a_changed_password_puts_a_new_token_in_the_cookie() {
 #[tokio::test]
 async fn a_file_is_read_with_the_cookie_alone_and_served_sandboxed() {
     let th = Setup::native().start().await.init_basic().await;
-    let board = th.create_board(ROOT_WORKSPACE_ID, BoardType::Private).await;
+    let board = th
+        .create_board(ROOT_WORKSPACE_ID, ContainerType::Private)
+        .await;
     let uploaded = th
         .client
         .request(

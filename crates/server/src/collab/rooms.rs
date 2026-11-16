@@ -222,7 +222,7 @@ pub(super) struct Room {
     card_id: String,
     /// The board the card was on as the room was made: a card is not moved to another
     /// board while it has a room.
-    board_id: String,
+    container_id: String,
     /// The workspace the room's first connection named: the board's, as admission
     /// lets nobody in through another ([`admission::admit`]).
     workspace_id: String,
@@ -483,7 +483,7 @@ impl Collab {
         let room = Arc::new(Room {
             deleted: AtomicBool::new(false),
             card_id: card_id.to_owned(),
-            board_id: admitted.board_id.clone(),
+            container_id: admitted.container_id.clone(),
             workspace_id: workspace_id.to_owned(),
             app: app.clone(),
             turn: tokio::sync::Mutex::new(Turn::default()),

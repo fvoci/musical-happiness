@@ -9,7 +9,8 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use fvoci_model::{
-    Block, Board, BoardMember, BoardType, LoginRequest, RegisterRequest, User, Workspace, new_id,
+    Block, Container, ContainerMember, ContainerType, LoginRequest, RegisterRequest, User,
+    Workspace, new_id,
 };
 use fvoci_server::app::App;
 use fvoci_server::collab::worker::WorkerCommand;
@@ -646,11 +647,15 @@ impl TestServer {
     }
 
     /// `CreateBoard`: creates an empty board as the first client's user.
-    pub(crate) async fn create_board(&self, workspace_id: &str, board_type: BoardType) -> Board {
-        let board = Board {
+    pub(crate) async fn create_board(
+        &self,
+        workspace_id: &str,
+        board_type: ContainerType,
+    ) -> Container {
+        let board = Container {
             workspace_id: workspace_id.to_owned(),
-            board_type,
-            ..Board::default()
+            container_type: board_type,
+            ..Container::default()
         };
         self.client
             .post(&format!("/w/{workspace_id}/boards"), &board)
@@ -1035,7 +1040,7 @@ impl Client {
     }
 
     /// Creates a board with the given fields as this client's user.
-    pub(crate) async fn create_board(&self, board: &Board) -> ApiResponse {
+    pub(crate) async fn create_board(&self, board: &Container) -> ApiResponse {
         self.post(&format!("/w/{}/boards", board.workspace_id), board)
             .await
     }
@@ -1061,7 +1066,7 @@ impl Client {
     }
 
     /// `AddMemberToBoard` on a board of the test workspace (`TEST_WORKSPACE_ID`).
-    pub(crate) async fn add_member(&self, member: &BoardMember) -> ApiResponse {
+    pub(crate) async fn add_member(&self, member: &ContainerMember) -> ApiResponse {
         self.add_member_in(TEST_WORKSPACE_ID, member).await
     }
 
@@ -1069,10 +1074,10 @@ impl Client {
     pub(crate) async fn add_member_in(
         &self,
         workspace_id: &str,
-        member: &BoardMember,
+        member: &ContainerMember,
     ) -> ApiResponse {
         self.post(
-            &format!("/w/{workspace_id}/boards/{}/members", member.board_id),
+            &format!("/w/{workspace_id}/boards/{}/members", member.container_id),
             member,
         )
         .await

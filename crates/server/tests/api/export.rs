@@ -10,12 +10,12 @@ use crate::common::TEST_WS;
 use crate::common::{ApiResponse, Client, ROOT_WORKSPACE_ID, Setup, TEST_WORKSPACE_ID, TestServer};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
-use fvoci_model::{Block, BlockType, Board, BoardType, new_id};
+use fvoci_model::{Block, BlockType, Container, ContainerType, new_id};
 use reqwest::{Method, StatusCode};
 use sha2::{Digest as _, Sha256};
 
 /// `GET /boards/{id}/archive/export` for a board.
-async fn export_board(client: &Client, board: &Board) -> ApiResponse {
+async fn export_board(client: &Client, board: &Container) -> ApiResponse {
     client
         .get(&format!(
             "/w/{}/boards/{}/archive/export",
@@ -89,12 +89,12 @@ pub(crate) async fn put_part(
 }
 
 /// Makes a board with one card for the first client.
-async fn board_with_card(ts: &TestServer, workspace_id: &str) -> Board {
-    let board = ts.create_board(workspace_id, BoardType::Open).await;
+async fn board_with_card(ts: &TestServer, workspace_id: &str) -> Container {
+    let board = ts.create_board(workspace_id, ContainerType::Open).await;
     let card = Block {
         id: new_id(),
         parent_id: board.id.clone(),
-        board_id: board.id.clone(),
+        container_id: board.id.clone(),
         block_type: BlockType::Card,
         title: "a card for export".to_owned(),
         create_at: 1,
@@ -126,10 +126,10 @@ async fn export_single_board_round_trips() {
     let user_id = ts.client.me().await.id;
     let boards = ts
         .app
-        .boards_for_user_and_workspace(
+        .containers_for_user_and_workspace(
             &user_id,
             ROOT_WORKSPACE_ID,
-            fvoci_store::PublicBoards::Include,
+            fvoci_store::PublicContainers::Include,
         )
         .await
         .expect("the imported boards");
@@ -137,7 +137,7 @@ async fn export_single_board_round_trips() {
     let board_id = boards[0].id.clone();
     let blocks = ts
         .app
-        .blocks_for_board(&board_id)
+        .blocks_for_container(&board_id)
         .await
         .expect("the imported blocks");
     assert!(
@@ -154,7 +154,9 @@ async fn export_single_board_round_trips() {
 #[tokio::test]
 async fn export_of_a_board_without_blocks_round_trips() {
     let ts = Setup::native().start().await.init_basic().await;
-    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+    let board = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
 
     let exported = export_board(&ts.client, &board).await;
     exported.check_ok();
@@ -165,17 +167,17 @@ async fn export_of_a_board_without_blocks_round_trips() {
     let user_id = ts.client.me().await.id;
     let boards = ts
         .app
-        .boards_for_user_and_workspace(
+        .containers_for_user_and_workspace(
             &user_id,
             ROOT_WORKSPACE_ID,
-            fvoci_store::PublicBoards::Include,
+            fvoci_store::PublicContainers::Include,
         )
         .await
         .expect("the imported boards");
     assert_eq!(boards.len(), 1, "the board was imported into workspace 0");
     let blocks = ts
         .app
-        .blocks_for_board(&boards[0].id)
+        .blocks_for_container(&boards[0].id)
         .await
         .expect("the imported blocks");
     assert!(blocks.is_empty(), "without blocks");
@@ -381,7 +383,7 @@ async fn export_of_a_board_whose_blocks_share_a_file() {
         );
         fvoci_model::Block {
             id: fvoci_model::new_id(),
-            board_id: board.id.clone(),
+            container_id: board.id.clone(),
             parent_id: board.id.clone(),
             block_type: fvoci_model::BlockType::Attachment,
             fields,
@@ -431,7 +433,7 @@ async fn export_of_a_board_whose_blocks_share_a_file() {
 }
 
 /// The boards of a workspace that the first client sees.
-pub(crate) async fn boards_of(ts: &TestServer) -> Vec<Board> {
+pub(crate) async fn boards_of(ts: &TestServer) -> Vec<Container> {
     ts.client.get(&format!("{TEST_WS}/boards")).await.ok_json()
 }
 
@@ -490,7 +492,9 @@ async fn archives_of_the_former_formats_are_refused() {
 #[tokio::test]
 async fn an_archive_carries_the_images_of_bodies() {
     let ts = Setup::native().start().await.init_basic().await;
-    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
+    let board = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .await;
     let file_id = crate::files::uploaded_id(
         &crate::files::upload(&ts.client, &board.id, "picture.png", b"png").await,
     );
@@ -507,7 +511,7 @@ async fn an_archive_carries_the_images_of_bodies() {
     let without_file = Block {
         id: new_id(),
         parent_id: board.id.clone(),
-        board_id: board.id.clone(),
+        container_id: board.id.clone(),
         block_type: BlockType::Attachment,
         create_at: 1,
         update_at: 1,
@@ -573,7 +577,9 @@ async fn an_archive_carries_the_images_of_bodies() {
 #[tokio::test]
 async fn an_imported_comment_with_an_image_is_not_edited() {
     let ts = Setup::native().start().await.init_basic().await;
-    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
+    let board = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .await;
     let file_id = crate::files::uploaded_id(
         &crate::files::upload(&ts.client, &board.id, "picture.png", b"png").await,
     );
@@ -745,7 +751,7 @@ async fn an_archive_reads_back_whatever_an_attachment_names() {
         );
         Block {
             id: new_id(),
-            board_id: board.id.clone(),
+            container_id: board.id.clone(),
             parent_id: board.id.clone(),
             block_type: BlockType::Attachment,
             fields,
@@ -898,7 +904,9 @@ async fn an_export_is_sent_with_its_length_and_leaves_nothing() {
 #[tokio::test]
 async fn a_large_file_is_whole_in_the_archive() {
     let ts = Setup::native().start().await.init_basic().await;
-    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+    let board = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
     let data: Vec<u8> = (0..5 * 1024 * 1024 / 2)
         .map(|index: usize| u8::try_from(index % 251).expect("below 251"))
         .collect();
@@ -908,7 +916,7 @@ async fn a_large_file_is_whole_in_the_archive() {
     let attachment = Block {
         id: new_id(),
         parent_id: board.id.clone(),
-        board_id: board.id.clone(),
+        container_id: board.id.clone(),
         block_type: BlockType::Attachment,
         fields: serde_json::json!({"fileId": file_id})
             .as_object()
@@ -979,8 +987,10 @@ async fn exports_run_one_per_user_and_two_on_the_server() {
 
 /// A board with three attachments of 6 MiB that do not compress (a request takes 8 MiB at
 /// most), so that its archive is larger than what the connection's buffers take in.
-async fn board_with_large_archive(ts: &TestServer) -> Board {
-    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+async fn board_with_large_archive(ts: &TestServer) -> Container {
+    let board = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
     let mut state: u64 = 0x2545_f491_4f6c_dd1d;
     let mut attachments = Vec::new();
     for index in 0..3 {
@@ -998,7 +1008,7 @@ async fn board_with_large_archive(ts: &TestServer) -> Board {
         attachments.push(Block {
             id: new_id(),
             parent_id: board.id.clone(),
-            board_id: board.id.clone(),
+            container_id: board.id.clone(),
             block_type: BlockType::Attachment,
             fields: serde_json::json!({"fileId": crate::files::uploaded_id(&response)})
                 .as_object()

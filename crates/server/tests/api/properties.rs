@@ -9,7 +9,7 @@
 
 use std::io::{Cursor, Write as _};
 
-use fvoci_model::{Block, Board, Card};
+use fvoci_model::{Block, Card, Container};
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
@@ -90,8 +90,8 @@ fn check_refused(response: &ApiResponse, what: &str) {
 
 /// A private board of the first user with one well-formed definition and one card that
 /// has a value for it.
-async fn board_with_card(th: &TestServer) -> (Board, Card) {
-    let board: Board = new_board(
+async fn board_with_card(th: &TestServer) -> (Container, Card) {
+    let board: Container = new_board(
         &th.client,
         json!([{"id": "p1", "name": "Status", "type": "select", "options": []}]),
     )
@@ -109,7 +109,7 @@ async fn board_with_card(th: &TestServer) -> (Board, Card) {
 }
 
 async fn board_count(client: &Client) -> usize {
-    let boards: Vec<Board> = client.get(&format!("{TEST_WS}/boards")).await.ok_json();
+    let boards: Vec<Container> = client.get(&format!("{TEST_WS}/boards")).await.ok_json();
     boards.len()
 }
 
@@ -158,7 +158,7 @@ async fn a_board_patch_with_a_malformed_card_property_definition_changes_nothing
             .await;
         check_refused(&response, what);
     }
-    let stored: Board = th.client.get(&path).await.ok_json();
+    let stored: Container = th.client.get(&path).await.ok_json();
     assert_eq!(
         stored.title, "Properties",
         "the title was not changed either"
@@ -208,7 +208,7 @@ async fn well_formed_card_property_definitions_are_stored_as_sent() {
 #[tokio::test]
 async fn a_block_with_malformed_properties_is_not_inserted() {
     let th = Setup::native().start().await.init_basic().await;
-    let board: Board = new_board(&th.client, json!([])).await.created_json();
+    let board: Container = new_board(&th.client, json!([])).await.created_json();
     let path = format!("{TEST_WS}/boards/{}/blocks", board.id);
 
     for (what, value) in malformed_values() {
@@ -464,7 +464,7 @@ async fn boards_and_blocks_with_malformed_property_data_are_refused_as_a_whole()
             .await;
         check_refused(&response, what);
     }
-    let board: Board = th
+    let board: Container = th
         .client
         .get(&format!("{TEST_WS}/boards/{board_id}"))
         .await
@@ -539,7 +539,7 @@ async fn an_archive_with_malformed_property_data_is_refused() {
 #[tokio::test]
 async fn date_properties_hold_date_values() {
     let th = Setup::native().start().await.init_basic().await;
-    let board: Board = new_board(
+    let board: Container = new_board(
         &th.client,
         json!([
             {"id": "due", "name": "Due", "type": "date"},
@@ -639,7 +639,7 @@ async fn date_properties_hold_date_values() {
 #[tokio::test]
 async fn values_left_behind_by_a_change_of_definitions_stay_until_written() {
     let th = Setup::native().start().await.init_basic().await;
-    let board: Board = new_board(
+    let board: Container = new_board(
         &th.client,
         json!([
             {"id": "due", "name": "Due", "type": "date"},
@@ -756,7 +756,7 @@ async fn date_values_on_the_patch_routes_and_in_an_archive() {
     )
     .await
     .check_ok();
-    let boards: Vec<Board> = th.client.get(&format!("{TEST_WS}/boards")).await.ok_json();
+    let boards: Vec<Container> = th.client.get(&format!("{TEST_WS}/boards")).await.ok_json();
     let imported = boards
         .iter()
         .find(|board| board.title == "Imported")

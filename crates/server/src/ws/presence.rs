@@ -26,12 +26,12 @@ const LONGEST_ID: usize = 64;
 const UPDATE_PRESENCE: &str = "UPDATE_PRESENCE";
 
 /// A board as the visits of one roster share it: its organization, workspace and ID.
-type BoardKey = (Wall, String, String);
+type ContainerKey = (Wall, String, String);
 
 #[derive(Clone, PartialEq, Eq)]
 struct Visit {
     workspace_id: String,
-    board_id: String,
+    container_id: String,
     /// The open card, checked to be one of the board's; empty if none.
     card_id: String,
     read_token: String,
@@ -44,12 +44,21 @@ impl Visit {
     /// change not told (`None`, the listener lagged) may have.
     fn reached_by(&self, change: Option<&AccessChange>) -> bool {
         change.is_none_or(|change| {
-            change.reaches(self.wall, &self.workspace_id, &self.board_id, &self.card_id)
+            change.reaches(
+                self.wall,
+                &self.workspace_id,
+                &self.container_id,
+                &self.card_id,
+            )
         })
     }
 
-    fn board(&self) -> BoardKey {
-        (self.wall, self.workspace_id.clone(), self.board_id.clone())
+    fn container(&self) -> ContainerKey {
+        (
+            self.wall,
+            self.workspace_id.clone(),
+            self.container_id.clone(),
+        )
     }
 }
 
@@ -57,7 +66,7 @@ impl std::fmt::Debug for Visit {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Visit")
             .field("workspace_id", &self.workspace_id)
-            .field("board_id", &self.board_id)
+            .field("container_id", &self.container_id)
             .field("card_id", &self.card_id)
             .finish_non_exhaustive()
     }
@@ -85,78 +94,78 @@ impl State {
                 .is_some_and(|renewed| renewed.elapsed() < LEASE)
     }
 
-    pub(super) fn reads_shared_board(&self, board_id: &str) -> bool {
+    pub(super) fn reads_shared_container(&self, container_id: &str) -> bool {
         self.visit
             .as_ref()
-            .is_some_and(|visit| visit.board_id == board_id && !visit.read_token.is_empty())
+            .is_some_and(|visit| visit.container_id == container_id && !visit.read_token.is_empty())
     }
 }
 
 /// The visits of each board, and when they last changed: a reader reads its board's
 /// roster again only when it did (or when its own access is asked again).
 #[derive(Debug, Default)]
-pub(super) struct Boards {
-    by_board: HashMap<BoardKey, OnBoard>,
+pub(super) struct Containers {
+    by_container: HashMap<ContainerKey, OnContainer>,
     /// How many changes the visits of every board had, numbering them.
     changes: u64,
 }
 
 #[derive(Debug, Default)]
-struct OnBoard {
+struct OnContainer {
     visitors: BTreeSet<ListenerId>,
     /// The number of the board's latest change.
     changed: u64,
 }
 
-impl Boards {
+impl Containers {
     /// Forgets a connection that went away with `state`.
     pub(super) fn forget(&mut self, id: ListenerId, state: &State) {
         if let Some(visit) = &state.visit {
-            self.leave(&visit.board(), id);
+            self.leave(&visit.container(), id);
         }
     }
 
-    /// The number of the latest change of `board`'s visits.
-    fn changed(&self, board: &BoardKey) -> Option<u64> {
-        self.by_board.get(board).map(|on| on.changed)
+    /// The number of the latest change of `container`'s visits.
+    fn changed(&self, container: &ContainerKey) -> Option<u64> {
+        self.by_container.get(container).map(|on| on.changed)
     }
 
-    fn enter(&mut self, board: BoardKey, id: ListenerId) {
+    fn enter(&mut self, container: ContainerKey, id: ListenerId) {
         self.changes += 1;
-        let on = self.by_board.entry(board).or_default();
+        let on = self.by_container.entry(container).or_default();
         on.visitors.insert(id);
         on.changed = self.changes;
     }
 
-    /// Counts a change of `board`'s roster that changed no visit (a lapsed visit
+    /// Counts a change of `container`'s roster that changed no visit (a lapsed visit
     /// renewed: the rosters built meanwhile left it out).
-    fn touch(&mut self, board: &BoardKey) {
+    fn touch(&mut self, container: &ContainerKey) {
         self.changes += 1;
-        if let Some(on) = self.by_board.get_mut(board) {
+        if let Some(on) = self.by_container.get_mut(container) {
             on.changed = self.changes;
         }
     }
 
-    fn leave(&mut self, board: &BoardKey, id: ListenerId) {
+    fn leave(&mut self, container: &ContainerKey, id: ListenerId) {
         self.changes += 1;
-        if let Some(on) = self.by_board.get_mut(board) {
+        if let Some(on) = self.by_container.get_mut(container) {
             on.visitors.remove(&id);
             on.changed = self.changes;
             if on.visitors.is_empty() {
-                self.by_board.remove(board);
+                self.by_container.remove(container);
             }
         }
     }
 }
 
 impl Listeners {
-    /// Ends the visits made by a read token of `board_id`: the token stops opening the
+    /// Ends the visits made by a read token of `container_id`: the token stops opening the
     /// board (sharing ended, a new token, the board deleted).
-    pub(super) fn end_shared_visits(&mut self, board_id: &str) {
+    pub(super) fn end_shared_visits(&mut self, container_id: &str) {
         let ids: Vec<ListenerId> = self
             .by_id
             .iter()
-            .filter(|(_, listener)| listener.presence.reads_shared_board(board_id))
+            .filter(|(_, listener)| listener.presence.reads_shared_container(container_id))
             .map(|(id, _)| *id)
             .collect();
         for id in ids {
@@ -185,10 +194,10 @@ impl Listeners {
             return;
         }
         if let Some(before) = state.visit.take() {
-            self.visits.leave(&before.board(), id);
+            self.visits.leave(&before.container(), id);
         }
         if let Some(visit) = &visit {
-            self.visits.enter(visit.board(), id);
+            self.visits.enter(visit.container(), id);
         }
         state.visit = visit;
     }
@@ -232,7 +241,8 @@ struct Person {
 struct Snapshot {
     action: &'static str,
     workspace_id: String,
-    board_id: String,
+    #[serde(rename = "boardId")]
+    container_id: String,
     people: Vec<Person>,
     anonymous_count: usize,
     hidden_count: usize,
@@ -247,16 +257,20 @@ impl Outgoing for Snapshot {
 impl Hub {
     pub(super) async fn set_presence(&self, app: &App, id: ListenerId, command: Command) {
         // Leaving is always allowed, as LEAVE_DOC is, even after a burst.
-        if command.board_id.is_empty() {
+        if command.container_id.is_empty() {
             self.clear_presence(id, None);
             return;
         }
         let Some(identity) = self.rated_identity(app, id) else {
             return;
         };
-        if [&command.workspace_id, &command.board_id, &command.card_id]
-            .iter()
-            .any(|id| id.len() > LONGEST_ID)
+        if [
+            &command.workspace_id,
+            &command.container_id,
+            &command.card_id,
+        ]
+        .iter()
+        .any(|id| id.len() > LONGEST_ID)
             || (!command.read_token.is_empty() && command.read_token.len() != SECRET_LENGTH)
         {
             return;
@@ -266,7 +280,7 @@ impl Hub {
             made_through: identity.1.as_deref(),
         };
         // Changes made while the lookup runs may not be in what it read: access changes
-        // of the rooms, and links taken back (`end_readers_of_board`).
+        // of the rooms, and links taken back (`end_readers_of_container`).
         let mut meanwhile = app.collab().access_changes();
         let since = self.listeners().revoked.now();
         let access = tokio::time::timeout(
@@ -274,7 +288,7 @@ impl Hub {
             app.presence_access(
                 asker,
                 &command.workspace_id,
-                &command.board_id,
+                &command.container_id,
                 &command.card_id,
                 &command.read_token,
             ),
@@ -295,7 +309,7 @@ impl Hub {
         };
         let visit = Visit {
             workspace_id: access.workspace_id,
-            board_id: command.board_id,
+            container_id: command.container_id,
             card_id: access.card_id,
             read_token: command.read_token,
             wall: access.wall,
@@ -345,8 +359,8 @@ impl Hub {
         if by_link
             && (listeners
                 .revoked
-                .of_board_since(&user_id, &visit.board_id, since)
-                || !listeners.admits_reader(id, &visit.board_id, limits))
+                .of_container_since(&user_id, &visit.container_id, since)
+                || !listeners.admits_reader(id, &visit.container_id, limits))
         {
             listeners.end_visit(id);
             return;
@@ -356,7 +370,7 @@ impl Hub {
         };
         let state = &mut listener.presence;
         if state.visit.as_ref().is_none_or(|before| {
-            before.board_id != visit.board_id || before.read_token != visit.read_token
+            before.container_id != visit.container_id || before.read_token != visit.read_token
         }) {
             state.entry = state.entry.wrapping_add(1);
         }
@@ -366,10 +380,10 @@ impl Hub {
         state.renewed = Some(Instant::now());
         state.revision = state.revision.wrapping_add(1);
         state.recheck |= read_too_early;
-        let board = visit.board();
+        let container = visit.container();
         listeners.place(id, Some(visit));
         if lapsed {
-            listeners.visits.touch(&board);
+            listeners.visits.touch(&container);
         }
     }
 
@@ -418,17 +432,17 @@ async fn watch_access(hub: Weak<HubInner>, mut changes: broadcast::Receiver<Acce
 /// access and whom the reader may see of those present, so a change of somebody's
 /// facts elsewhere changes no roster here.
 fn flag_reached(listeners: &mut Listeners, change: Option<&AccessChange>) {
-    let boards: HashSet<BoardKey> = listeners
+    let containers: HashSet<ContainerKey> = listeners
         .by_id
         .values()
         .filter_map(|listener| {
             let visit = listener.presence.visit.as_ref()?;
             let concerned = change.is_none_or(|change| change.concerns(&listener.user_id));
-            (concerned && visit.reached_by(change)).then(|| visit.board())
+            (concerned && visit.reached_by(change)).then(|| visit.container())
         })
         .collect();
-    for board in &boards {
-        let Some(on) = listeners.visits.by_board.get(board) else {
+    for container in &containers {
+        let Some(on) = listeners.visits.by_container.get(container) else {
             continue;
         };
         for id in &on.visitors {
@@ -463,8 +477,8 @@ fn snapshot(visit: &Visit, listeners: &Listeners) -> Snapshot {
     let mut anonymous_count = 0;
     let visitors = listeners
         .visits
-        .by_board
-        .get(&visit.board())
+        .by_container
+        .get(&visit.container())
         .map(|on| &on.visitors);
     for id in visitors.into_iter().flatten() {
         let Some(listener) = listeners.by_id.get(id) else {
@@ -490,7 +504,7 @@ fn snapshot(visit: &Visit, listeners: &Listeners) -> Snapshot {
     Snapshot {
         action: UPDATE_PRESENCE,
         workspace_id: visit.workspace_id.clone(),
-        board_id: visit.board_id.clone(),
+        container_id: visit.container_id.clone(),
         anonymous_count,
         hidden_count: 0,
         people: people

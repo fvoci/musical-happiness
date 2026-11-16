@@ -5,7 +5,7 @@ mod common;
 
 use std::time::Duration;
 
-use fvoci_model::{Board, Invitation, new_id};
+use fvoci_model::{Container, Invitation, new_id};
 use fvoci_store::testing::db_type_of_the_tests;
 use fvoci_store::{DbType, Store, StoreError};
 use reqwest::StatusCode;
@@ -101,7 +101,7 @@ fn member_path(user_id: &str) -> String {
     format!("/w/{ROOT_WORKSPACE_ID}/members/{user_id}")
 }
 
-async fn private_board(client: &Client, title: &str) -> Board {
+async fn private_board(client: &Client, title: &str) -> Container {
     client
         .post(
             &format!("/w/{ROOT_WORKSPACE_ID}/boards"),
@@ -213,7 +213,7 @@ async fn a_new_board_keeps_an_admin_during(loss: MembershipLoss) {
     let members = th
         .app
         .store()
-        .get_members_for_board(&created.id)
+        .get_members_for_container(&created.id)
         .await
         .expect("the new board's roles are read");
     th.teardown().await;

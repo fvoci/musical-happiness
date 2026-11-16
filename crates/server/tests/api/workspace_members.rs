@@ -3,7 +3,8 @@
 
 use fvoci_model::AuditAction;
 use fvoci_model::{
-    Board, BoardMember, BoardRole, Invitation, UserWorkspace, WorkspaceMember, WorkspaceRole,
+    Container, ContainerMember, ContainerRole, Invitation, UserWorkspace, WorkspaceMember,
+    WorkspaceRole,
 };
 use reqwest::StatusCode;
 use serde_json::{Value, json};
@@ -49,7 +50,7 @@ async fn role_of(client: &Client) -> Option<WorkspaceRole> {
 
 /// A board for the invited only in the root workspace, made by `client`, who is its
 /// admin.
-async fn private_board(client: &Client, title: &str) -> Board {
+async fn private_board(client: &Client, title: &str) -> Container {
     client
         .post(
             &format!("/w/{ROOT_WORKSPACE_ID}/boards"),
@@ -59,11 +60,11 @@ async fn private_board(client: &Client, title: &str) -> Board {
         .created_json()
 }
 
-async fn add_to_board(client: &Client, board: &Board, user_id: &str, role: BoardRole) {
-    let member = BoardMember {
-        board_id: board.id.clone(),
+async fn add_to_board(client: &Client, board: &Container, user_id: &str, role: ContainerRole) {
+    let member = ContainerMember {
+        container_id: board.id.clone(),
         user_id: user_id.to_owned(),
-        ..BoardMember::default()
+        ..ContainerMember::default()
     }
     .with_role(Some(role));
     client
@@ -73,10 +74,10 @@ async fn add_to_board(client: &Client, board: &Board, user_id: &str, role: Board
 }
 
 /// The roles on a board by the identifier of the user, as the store has them.
-async fn roles_on(th: &TestServer, board: &Board) -> Vec<(String, Option<BoardRole>)> {
+async fn roles_on(th: &TestServer, board: &Container) -> Vec<(String, Option<ContainerRole>)> {
     th.app
         .store()
-        .get_members_for_board(&board.id)
+        .get_members_for_container(&board.id)
         .await
         .expect("the members of the board")
         .into_iter()
@@ -94,14 +95,14 @@ async fn boards_taken_by(th: &TestServer, user_id: &str) -> Vec<String> {
         .into_iter()
         .filter(|entry| {
             entry.actor.person_id() == Some(user_id)
-                && entry.action == AuditAction::SelfAddedToBoard
+                && entry.action == AuditAction::SelfAddedToContainer
         })
         .map(|entry| entry.target_id)
         .collect()
 }
 
 /// A guest of the board, made by a link.
-async fn guest_of(th: &TestServer, inviter: &Client, board: &Board, username: &str) -> Client {
+async fn guest_of(th: &TestServer, inviter: &Client, board: &Container, username: &str) -> Client {
     let link: Invitation = inviter
         .post(
             &format!("/w/{ROOT_WORKSPACE_ID}/invitations"),
@@ -291,19 +292,19 @@ async fn a_member_made_a_guest_edits_their_boards_and_administers_none() {
     let (first_id, second_id) = (th.client.me().await.id, th.client2.me().await.id);
     let theirs = private_board(&th.client2, "Theirs alone").await;
     let shared = private_board(&th.client2, "With another admin").await;
-    add_to_board(&th.client2, &shared, &first_id, BoardRole::Admin).await;
+    add_to_board(&th.client2, &shared, &first_id, ContainerRole::Admin).await;
     let viewed = private_board(&th.client, "They view").await;
-    add_to_board(&th.client, &viewed, &second_id, BoardRole::Viewer).await;
+    add_to_board(&th.client, &viewed, &second_id, ContainerRole::Viewer).await;
 
     let made: WorkspaceMember = set_role(&th.client, &second_id, "guest").await.ok_json();
     assert_eq!(made.role, WorkspaceRole::Guest);
     assert_eq!(role_of(&th.client2).await, Some(WorkspaceRole::Guest));
 
-    let sorted = |mut roles: Vec<(String, Option<BoardRole>)>| {
+    let sorted = |mut roles: Vec<(String, Option<ContainerRole>)>| {
         roles.sort();
         roles
     };
-    let both = |first: BoardRole, second: BoardRole| {
+    let both = |first: ContainerRole, second: ContainerRole| {
         sorted(vec![
             (first_id.clone(), Some(first)),
             (second_id.clone(), Some(second)),
@@ -311,17 +312,17 @@ async fn a_member_made_a_guest_edits_their_boards_and_administers_none() {
     };
     assert_eq!(
         sorted(roles_on(&th, &theirs).await),
-        both(BoardRole::Admin, BoardRole::Editor),
+        both(ContainerRole::Admin, ContainerRole::Editor),
         "the board passed to who made the change"
     );
     assert_eq!(
         sorted(roles_on(&th, &shared).await),
-        both(BoardRole::Admin, BoardRole::Editor),
+        both(ContainerRole::Admin, ContainerRole::Editor),
         "the other admin was there"
     );
     assert_eq!(
         sorted(roles_on(&th, &viewed).await),
-        both(BoardRole::Admin, BoardRole::Viewer),
+        both(ContainerRole::Admin, ContainerRole::Viewer),
         "a role below is as it was"
     );
     assert_eq!(
@@ -363,7 +364,7 @@ async fn a_member_taken_out_finds_no_workspace_and_their_boards_pass_on() {
     let (first_id, second) = (th.client.me().await.id, th.client2.me().await);
     let theirs = private_board(&th.client2, "Theirs alone").await;
     let shared = private_board(&th.client2, "With another admin").await;
-    add_to_board(&th.client2, &shared, &first_id, BoardRole::Admin).await;
+    add_to_board(&th.client2, &shared, &first_id, ContainerRole::Admin).await;
     let card: Value = th
         .client2
         .post(
@@ -417,7 +418,7 @@ async fn a_member_taken_out_finds_no_workspace_and_their_boards_pass_on() {
         .check_status(StatusCode::NOT_FOUND);
 
     // Their boards: the one they alone managed passed on, and they are on neither.
-    let admin_alone = vec![(first_id.clone(), Some(BoardRole::Admin))];
+    let admin_alone = vec![(first_id.clone(), Some(ContainerRole::Admin))];
     assert_eq!(roles_on(&th, &theirs).await, admin_alone);
     assert_eq!(roles_on(&th, &shared).await, admin_alone);
     assert_eq!(
@@ -516,7 +517,7 @@ async fn the_sidebar_of_a_guest_has_the_boards_they_are_on_and_no_other() {
     let th = Setup::native().start().await.init_basic().await;
     let second_id = th.client2.me().await.id;
     let joined = private_board(&th.client2, "Theirs").await;
-    let open: Board = th
+    let open: Container = th
         .client
         .post(
             &format!("/w/{ROOT_WORKSPACE_ID}/boards"),

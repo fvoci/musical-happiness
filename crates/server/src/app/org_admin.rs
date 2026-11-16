@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 
 use fvoci_model::{
-    AuditAction, AuditRecord, BoardKinds, MAX_NAME_CHARS, OrgMember, OrgRole, OrgWorkspace,
+    AuditAction, AuditRecord, ContainerKinds, MAX_NAME_CHARS, OrgMember, OrgRole, OrgWorkspace,
     Organization, OrganizationPatch, Workspace, is_id, new_id,
 };
 use fvoci_store::{
@@ -136,8 +136,8 @@ impl App {
     /// Ends what connections follow of a board of the organization, or of one of its
     /// workspaces, by its read token, and tells them: its links open nothing now.
     async fn end_shared_readers(&self, workspace_id: Option<&str>) -> Result<(), AppError> {
-        for board_id in self.store().shared_board_ids(workspace_id).await? {
-            self.ws().end_readers_of_board(&board_id);
+        for container_id in self.store().shared_container_ids(workspace_id).await? {
+            self.ws().end_readers_of_container(&container_id);
         }
         Ok(())
     }
@@ -427,22 +427,22 @@ impl App {
             .await?;
         let mut titles: HashMap<String, Option<String>> = HashMap::new();
         // A user is added to a board or to a wiki alike.
-        let every_kind = self.clone().reaching(BoardKinds::Every);
+        let every_kind = self.clone().reaching(ContainerKinds::Every);
         for record in &mut records {
             if !matches!(
                 record.action,
-                AuditAction::SelfAddedToBoard | AuditAction::AddedToBoard
+                AuditAction::SelfAddedToContainer | AuditAction::AddedToContainer
             ) {
                 continue;
             }
             if !titles.contains_key(&record.target_id) {
                 let title = every_kind
-                    .board_access(reader_id, &record.target_id)
+                    .container_access(reader_id, &record.target_id)
                     .await?
                     .filter(|access| {
-                        access.grant.sees() && access.board.workspace_id == workspace_id
+                        access.grant.sees() && access.container.workspace_id == workspace_id
                     })
-                    .map(|access| access.board.title);
+                    .map(|access| access.container.title);
                 titles.insert(record.target_id.clone(), title);
             }
             record.target_name = titles.get(&record.target_id).cloned().flatten();

@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use axum::body::Bytes;
 use axum::extract::{Extension, Path, State};
 use fvoci_model::{
-    BoardMember, LinkedIdentity, Problem, RefusalReason, Refusals, UnlinkRequest, User,
+    ContainerMember, LinkedIdentity, Problem, RefusalReason, Refusals, UnlinkRequest, User,
     UserPreferencesPatch, UserSettings, UserSettingsPatch, display_name, shown_name,
 };
 use fvoci_store::{InstanceRole, Preference};
@@ -137,13 +137,13 @@ async fn handle_patch_me(
     path = "/users/me/memberships",
     operation_id = "getMyMemberships",
     tag = tag::USERS,
-    responses((status = 200, description = "The memberships.", body = Vec<BoardMember>)),
+    responses((status = 200, description = "The memberships.", body = Vec<ContainerMember>)),
 )]
 async fn handle_get_my_memberships(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
 ) -> ApiResult {
-    let members = app.board_memberships(&session).await?;
+    let members = app.container_memberships(&session).await?;
     Ok(json_response(&members))
 }
 

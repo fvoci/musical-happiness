@@ -393,17 +393,17 @@ impl Store {
             }
             let mut sql = scope.sql("SELECT id FROM containers WHERE workspace_id = ");
             sql.bind(Id(workspace_id)).push(" ORDER BY id");
-            let boards: Vec<String> = scope
+            let containers: Vec<String> = scope
                 .fetch_all(sql)
                 .await?
                 .iter()
                 .map(|row| row.id(0))
                 .collect::<Result<_, _>>()?;
-            for board_id in &boards {
-                trash::delete_board(scope, board_id, "").await?;
+            for container_id in &containers {
+                trash::delete_container(scope, container_id, "").await?;
             }
             let mut purged =
-                trash::remove_boards(scope, Trashed::OfWorkspace(workspace_id)).await?;
+                trash::remove_containers(scope, Trashed::OfWorkspace(workspace_id)).await?;
             purged.records += trash::remove_what_they_left(scope).await?;
             for table in ["categories", "workspace_members"] {
                 let mut sql = scope.sql(&format!("DELETE FROM {table} WHERE workspace_id = "));
@@ -749,7 +749,8 @@ async fn end_joining(
 ) -> Result<(), StoreError> {
     joinings::give_back_roles(scope, workspace_id, user_id, &joined.held).await?;
     if joined.prior.is_none() || joined.prior == Some(WorkspaceRole::Guest) {
-        crate::board_team_membership::remove_workspace_teams(scope, workspace_id, user_id).await?;
+        crate::container_team_membership::remove_workspace_teams(scope, workspace_id, user_id)
+            .await?;
     }
     let mut sql = match joined.prior {
         Some(prior) => {

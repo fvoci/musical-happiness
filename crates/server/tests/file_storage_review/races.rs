@@ -82,7 +82,7 @@ async fn an_overlapping_worker_without_the_lock_of_the_server_does_not_run() {
     let still_recorded = ts
         .app
         .store()
-        .get_file_info(&replacement.board_id, &replacement.stored_name)
+        .get_file_info(&replacement.container_id, &replacement.stored_name)
         .await
         .is_ok();
     let still_present = ts

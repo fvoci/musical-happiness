@@ -6,7 +6,8 @@
 use std::collections::HashMap;
 
 use fvoci_model::{
-    BoardKind, BoardMember, BoardType, BoardsAndBlocks, NewPage, PageLimits, PageNode,
+    ContainerKind, ContainerMember, ContainerType, ContainersAndBlocks, NewPage, PageLimits,
+    PageNode,
 };
 use serde_json::{Value, json};
 
@@ -99,6 +100,10 @@ async fn duplicate(client: &Client, board_id: &str, query: &str) -> crate::commo
 }
 
 #[tokio::test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "the pages, their bodies and their images, checked on one copy"
+)]
 async fn a_wiki_is_copied_with_its_pages_bodies_and_images_and_names_its_own_copies() {
     let ts = Setup::local_mode().start().await.init_basic().await;
     let client = &ts.client;
@@ -141,15 +146,19 @@ async fn a_wiki_is_copied_with_its_pages_bodies_and_images_and_names_its_own_cop
         .await
         .check_ok();
 
-    let copies: BoardsAndBlocks = duplicate(client, &wiki, "").await.created_json();
-    let copy = &copies.boards[0];
-    assert_eq!(copy.kind, BoardKind::Wiki);
+    let copies: ContainersAndBlocks = duplicate(client, &wiki, "").await.created_json();
+    let copy = &copies.containers[0];
+    assert_eq!(copy.kind, ContainerKind::Wiki);
     assert_eq!(copy.title, "Handbook copy");
     assert_eq!(
         (copy.description.as_str(), copy.icon.as_str()),
         ("how we work", "📗")
     );
-    assert_eq!(copy.board_type, BoardType::Private, "a copy is private");
+    assert_eq!(
+        copy.container_type,
+        ContainerType::Private,
+        "a copy is private"
+    );
     assert_ne!(copy.id, wiki);
 
     // The same tree, in the same order, without the page in the trash.
@@ -225,7 +234,7 @@ async fn check_left_behind(ts: &TestServer, copy: &str, copy_a: &str) {
         .await
         .expect("the trash");
     assert!(trash.is_empty(), "nothing of the trash is copied");
-    let members: Vec<BoardMember> = client
+    let members: Vec<ContainerMember> = client
         .get(&format!("{TEST_WS}/boards/{copy}/members"))
         .await
         .ok_json();
@@ -341,10 +350,10 @@ async fn a_wiki_is_copied_into_another_workspace_of_its_copier_with_its_files() 
     write(client, &wiki, &a, &image).await;
     let me = client.me().await.id;
     let other = crate::boards::another_workspace(&ts, &me).await;
-    let copies: BoardsAndBlocks = duplicate(client, &wiki, &format!("?toWorkspace={other}"))
+    let copies: ContainersAndBlocks = duplicate(client, &wiki, &format!("?toWorkspace={other}"))
         .await
         .created_json();
-    let copy = &copies.boards[0];
+    let copy = &copies.containers[0];
     assert_eq!(copy.workspace_id, other);
     let at = format!("/w/{other}");
     let copy_a = titled_id(&tree_of(client, &at, &copy.id).await, "Welcome");

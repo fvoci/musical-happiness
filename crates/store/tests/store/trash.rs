@@ -10,7 +10,7 @@ use crate::common::{self, sorted_ids};
 fn block(id: &str, board_id: &str, parent_id: &str, block_type: BlockType) -> Block {
     Block {
         id: id.to_owned(),
-        board_id: board_id.to_owned(),
+        container_id: board_id.to_owned(),
         parent_id: parent_id.to_owned(),
         block_type,
         ..Block::default()

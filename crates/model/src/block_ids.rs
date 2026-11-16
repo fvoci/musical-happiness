@@ -21,14 +21,14 @@ pub enum UnmatchedRelation {
 
 /// Gives every block a new identifier while keeping references between them intact.
 ///
-/// A reference is another block's identifier appearing as a `board_id`, a `parent_id`,
+/// A reference is another block's identifier appearing as a `container_id`, a `parent_id`,
 /// inside the `contentOrder`, `cardOrder` or `defaultTemplateId` fields, or in a
 /// reference of the body (a card or a page a body names). References to
 /// identifiers outside `blocks` are left as they are, so the tree keeps its shape and
 /// stays attached to whatever it pointed at.
 ///
 /// Fields of an unexpected JSON type are left untouched. A block that comes without an
-/// identifier gets one like any other, and an empty `parent_id` or `board_id` stays
+/// identifier gets one like any other, and an empty `parent_id` or `container_id` stays
 /// empty. Card relation values are left as they are; [`renew_block_ids`] renames them.
 pub fn generate_block_ids(blocks: &mut [Block]) {
     renew_block_ids(blocks, &RelationProperties::new(), UnmatchedRelation::Kept);
@@ -62,7 +62,7 @@ pub(crate) fn renew_block_ids_told(
     let card_boards: HashMap<String, String> = blocks
         .iter()
         .filter(|block| block.block_type == BlockType::Card)
-        .map(|block| (block.id.clone(), block.board_id.clone()))
+        .map(|block| (block.id.clone(), block.container_id.clone()))
         .collect();
     let referenced = referenced_ids(blocks, relations);
 
@@ -97,7 +97,7 @@ pub(crate) fn renew_block_ids_told(
 
     for (block, new) in blocks.iter_mut().zip(new_ids) {
         block.id = new;
-        renamed_or_same(&mut block.board_id);
+        renamed_or_same(&mut block.container_id);
         renamed_or_same(&mut block.parent_id);
 
         for field in ["contentOrder", "cardOrder"] {
@@ -134,7 +134,7 @@ fn referenced_ids<'b>(blocks: &'b [Block], relations: &RelationProperties) -> Ha
     let mut referenced: HashSet<&str> = HashSet::new();
     for block in blocks {
         referenced.extend(related_ids(block, relations));
-        referenced.insert(&block.board_id);
+        referenced.insert(&block.container_id);
         referenced.insert(&block.parent_id);
         if let Some(body) = &block.body {
             referenced.extend(body.reference_ids());
@@ -181,10 +181,12 @@ fn rename_all_relations(
         UnmatchedRelation::Dropped => RELATION_LIMIT,
     };
     for block in blocks.iter_mut() {
-        let board_id = block.board_id.clone();
+        let container_id = block.container_id.clone();
         let rename = |id: &str| match (renamed.get(id), unmatched) {
             (Some(new), UnmatchedRelation::Kept) => Some(new.clone()),
-            (Some(new), UnmatchedRelation::Dropped) if card_boards.get(id) == Some(&board_id) => {
+            (Some(new), UnmatchedRelation::Dropped)
+                if card_boards.get(id) == Some(&container_id) =>
+            {
                 Some(new.clone())
             }
             (None, UnmatchedRelation::Kept) => Some(id.to_owned()),
@@ -197,7 +199,7 @@ fn rename_all_relations(
 /// The identifiers the relation values of a card name.
 fn related_ids<'b>(block: &'b Block, relations: &RelationProperties) -> Vec<&'b str> {
     let (Some(properties), Some(Value::Object(values))) = (
-        relations.of(&block.board_id),
+        relations.of(&block.container_id),
         block.fields.get("properties"),
     ) else {
         return Vec::new();
@@ -222,7 +224,7 @@ fn rename_relations(
     rename: impl Fn(&str) -> Option<String>,
     keep_at_most: usize,
 ) {
-    let Some(properties) = relations.of(&block.board_id) else {
+    let Some(properties) = relations.of(&block.container_id) else {
         return;
     };
     if block.block_type != BlockType::Card {

@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use fvoci_model::{Category, CategoryType};
 
 use super::App;
-use super::category_boards::{DEFAULT_CATEGORY_BOARDS, category_of_workspace_takes};
+use super::category_containers::{DEFAULT_CATEGORY_CONTAINERS, category_of_workspace_takes};
 use crate::auth::now_millis;
 use crate::error::AppError;
 
@@ -88,7 +88,7 @@ impl App {
             return Err(AppError::forbidden("a system category cannot be deleted"));
         }
 
-        self.move_boards_to_default_category(user_id, workspace_id, category_id)
+        self.move_containers_to_default_category(user_id, workspace_id, category_id)
             .await?;
         self.store()
             .delete_category(category_id, user_id, workspace_id)
@@ -133,60 +133,64 @@ impl App {
     /// categories took the boards of their own workspace only, goes to the user's default
     /// category of its own workspace if the user works there, and is filed nowhere if not. A
     /// board that is gone meanwhile is left out.
-    async fn move_boards_to_default_category(
+    async fn move_containers_to_default_category(
         &self,
         user_id: &str,
         workspace_id: &str,
         source_category_id: &str,
     ) -> Result<(), AppError> {
-        let category_boards = self.user_category_boards(user_id, workspace_id).await?;
-        let Some(source) = category_boards
+        let category_containers = self.user_category_containers(user_id, workspace_id).await?;
+        let Some(source) = category_containers
             .iter()
             .find(|entry| entry.category.id == source_category_id)
         else {
             return Err(AppError::not_found(CATEGORY));
         };
-        let Some(default) = category_boards
+        let Some(default) = category_containers
             .iter()
-            .find(|entry| entry.category.name == DEFAULT_CATEGORY_BOARDS)
+            .find(|entry| entry.category.name == DEFAULT_CATEGORY_CONTAINERS)
         else {
             return Err(AppError::internal(
                 "moveBoardsToDefaultCategory: no default category found",
             ));
         };
 
-        let mut board_ids = Vec::with_capacity(source.board_metadata.len());
+        let mut container_ids = Vec::with_capacity(source.container_metadata.len());
         let mut elsewhere = Vec::new();
-        for metadata in &source.board_metadata {
+        for metadata in &source.container_metadata {
             // Of any workspace: a board of another is filed in its own (below), which a
-            // handle of this workspace would not find (`App::board`).
-            let board = match self.store().get_board(&metadata.board_id).await {
-                Ok(board) => board,
+            // handle of this workspace would not find (`App::container`).
+            let container = match self.store().get_container(&metadata.container_id).await {
+                Ok(container) => container,
                 Err(error) if error.is_not_found() => continue,
                 Err(error) => return Err(error.into()),
             };
-            if category_of_workspace_takes(&board, workspace_id) {
-                board_ids.push(board.id);
+            if category_of_workspace_takes(&container, workspace_id) {
+                container_ids.push(container.id);
             } else {
-                elsewhere.push(board);
+                elsewhere.push(container);
             }
         }
-        self.add_update_user_category_board(
+        self.add_update_user_category_container(
             workspace_id,
             user_id,
             &default.category.id,
-            &board_ids,
+            &container_ids,
         )
         .await
         .map_err(|error| error.context("moveBoardsToDefaultCategory"))?;
-        for board in elsewhere {
+        for container in elsewhere {
             if self
-                .works_in_workspace(user_id, &board.workspace_id)
+                .works_in_workspace(user_id, &container.workspace_id)
                 .await?
             {
-                self.add_boards_to_default_category(user_id, &board.workspace_id, &[board.id])
-                    .await
-                    .map_err(|error| error.context("moveBoardsToDefaultCategory"))?;
+                self.add_containers_to_default_category(
+                    user_id,
+                    &container.workspace_id,
+                    &[container.id],
+                )
+                .await
+                .map_err(|error| error.context("moveBoardsToDefaultCategory"))?;
             }
         }
         Ok(())

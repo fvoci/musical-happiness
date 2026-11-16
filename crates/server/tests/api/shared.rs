@@ -1,7 +1,7 @@
 //! A shared board read by its link: `/shared/{boardId}` with the read token, and no
 //! session.
 
-use fvoci_model::{Board, Sharing, Workspace, WorkspaceRole, new_id};
+use fvoci_model::{Container, Sharing, Workspace, WorkspaceRole, new_id};
 use fvoci_store::DbType;
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
@@ -14,7 +14,7 @@ use crate::common::{ApiResponse, Client, Setup, TEST_WORKSPACE_ID, TestServer, U
 /// second user, and a file.
 struct Fixture {
     ts: TestServer,
-    board: Board,
+    board: Container,
     card_id: String,
     file_id: String,
     token: String,
@@ -26,7 +26,7 @@ async fn fixture() -> Fixture {
     let ts = Setup::local_mode().start().await.init_basic().await;
     let me = ts.client.me().await;
     let other = ts.client2.me().await;
-    let board: Board = ts
+    let board: Container = ts
         .client
         .post(
             &format!("{TEST_WS}/boards"),
@@ -205,7 +205,7 @@ async fn a_shared_board_is_not_there_without_its_token() {
         assert_eq!(not_there(path.clone()).await, absent, "{path}");
     }
     // Another board's file, with this board's token, is a file that is not there.
-    let other: Board =
+    let other: Container =
         f.ts.client
             .post(
                 &format!("{TEST_WS}/boards"),
@@ -339,14 +339,14 @@ async fn a_board_of_a_second_organization_is_read_by_its_link() {
         .add_workspace_member(&workspace.id, &owner.id, WorkspaceRole::Member)
         .await
         .expect("a member of the second organization");
-    let mut board = Board {
+    let mut board = Container {
         id: new_id(),
         workspace_id: workspace.id.clone(),
         title: "Elsewhere".to_owned(),
-        ..Board::default()
+        ..Container::default()
     };
     theirs
-        .insert_board_with_admin(&mut board, &owner.id)
+        .insert_container_with_admin(&mut board, &owner.id)
         .await
         .expect("a board of the second organization");
     let token = ts

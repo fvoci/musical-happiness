@@ -335,7 +335,7 @@ impl Drop for Writing<'_> {
 }
 
 /// Whether a statement writes a table of who may see what, by the tables it writes and
-/// not those it only reads: not the trash (`deleted_boards`, `deleted_blocks`), nor
+/// not those it only reads: not the trash (`deleted_containers`, `deleted_blocks`), nor
 /// blocks, whose going changes nobody's access, as the purge of the trash writes them;
 /// a user's row only as it goes, with the user's memberships.
 fn writes_access(text: &str) -> bool {

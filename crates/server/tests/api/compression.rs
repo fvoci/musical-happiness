@@ -3,7 +3,7 @@
 
 use std::io::Read as _;
 
-use fvoci_model::BoardType;
+use fvoci_model::ContainerType;
 use reqwest::header::{ACCEPT_ENCODING, CONTENT_ENCODING, CONTENT_LENGTH, VARY};
 use reqwest::{Method, StatusCode};
 
@@ -55,7 +55,8 @@ fn decoded(response: &ApiResponse) -> Vec<u8> {
 async fn json_answers_are_compressed_as_the_client_asks() {
     let ts = Setup::native().start().await.init_basic().await;
     for _ in 0..3 {
-        ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+        ts.create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+            .await;
     }
     let path = format!("{TEST_WS}/boards");
     let plain = ts.client.get(&path).await;
@@ -88,7 +89,9 @@ async fn json_answers_are_compressed_as_the_client_asks() {
 #[tokio::test]
 async fn an_export_is_not_compressed() {
     let ts = Setup::native().start().await.init_basic().await;
-    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+    let board = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
     let response = get_encoded(
         &ts.client,
         &format!("{TEST_WS}/boards/{}/archive/export", board.id),
@@ -114,7 +117,8 @@ async fn compression_can_be_turned_off() {
         .await
         .init_basic()
         .await;
-    ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+    ts.create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
     let response = get_encoded(&ts.client, &format!("{TEST_WS}/boards"), "gzip, zstd").await;
     response.check_ok();
     assert_eq!(encoding(&response), "", "not compressed");

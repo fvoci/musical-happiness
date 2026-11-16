@@ -25,7 +25,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use fvoci_model::{
     BLOCK_FIELDS_MAX_CHARS, BLOCK_TITLE_MAX_CHARS, BODY_VERSION, Block, BlockError, BlockPatch,
-    BlockPatchBatch, BlockType, BoardsAndBlocksError, Body, BodyChange, FileInfo, JsonMap,
+    BlockPatchBatch, BlockType, Body, BodyChange, ContainersAndBlocksError, FileInfo, JsonMap,
     SubscriberType, Subscription, new_id,
 };
 use fvoci_store::{BlockFilter, DbType, DeletedBlock, DuplicateAs, Paging, Store, StoreError};
@@ -113,7 +113,7 @@ async fn users<const N: usize>(store: &Store) -> [String; N] {
 pub(crate) fn block(id: &str, board_id: &str) -> Block {
     Block {
         id: id.to_owned(),
-        board_id: board_id.to_owned(),
+        container_id: board_id.to_owned(),
         ..Block::default()
     }
 }
@@ -247,9 +247,9 @@ fn assert_invalid_id(error: &StoreError, text: &str) {
 }
 
 /// `GetBlocksForBoard` followed by `require.NoError`.
-async fn board_blocks(store: &Store, board_id: &str) -> Vec<Block> {
+pub(crate) async fn board_blocks(store: &Store, board_id: &str) -> Vec<Block> {
     store
-        .get_blocks(&BlockFilter::board(board_id))
+        .get_blocks(&BlockFilter::container(board_id))
         .await
         .expect("the blocks of a board are read")
 }
@@ -263,7 +263,7 @@ pub(crate) async fn existing_block(store: &Store, block_id: &str) -> Block {
 }
 
 /// `GetBlock` followed by `require.ErrorAs(t, err, &nf)` and `require.Nil(t, block)`.
-async fn assert_no_block(store: &Store, block_id: &str) {
+pub(crate) async fn assert_no_block(store: &Store, block_id: &str) {
     match store.get_block(block_id).await {
         Ok(block) => panic!("block {block_id} should not exist, got {block:?}"),
         Err(error) => assert_not_found(&error),
@@ -312,7 +312,7 @@ async fn create_test_blocks_for_card(store: &Store, card_id: &str, count: usize)
             block_type: BlockType::Attachment,
             created_by: card.created_by.clone(),
             title: format!("text {index}"),
-            ..block(&new_id(), &card.board_id)
+            ..block(&new_id(), &card.container_id)
         };
         store
             .insert_block(&mut text, &card.created_by)
@@ -336,7 +336,7 @@ async fn sqlite_connection(test: &common::TestStore) -> SqliteConnection {
 async fn save_file(store: &Store, board_id: &str, stored_name: &str) -> FileInfo {
     let file_info = FileInfo {
         id: new_id(),
-        board_id: board_id.to_owned(),
+        container_id: board_id.to_owned(),
         stored_name: stored_name.to_owned(),
         name: format!("uploaded as {stored_name}"),
         size: 1,
@@ -355,12 +355,12 @@ async fn save_file(store: &Store, board_id: &str, stored_name: &str) -> FileInfo
 async fn assert_file_records_are(store: &Store, files: &[FileInfo], when: &str) {
     for file in files {
         let stored = store
-            .get_file_info(&file.board_id, &file.stored_name)
+            .get_file_info(&file.container_id, &file.stored_name)
             .await
             .unwrap_or_else(|error| {
                 panic!(
                     "file {} of board {} should have a record {when}: {error:?}",
-                    file.stored_name, file.board_id
+                    file.stored_name, file.container_id
                 )
             });
         assert_eq!(
@@ -372,7 +372,7 @@ async fn assert_file_records_are(store: &Store, files: &[FileInfo], when: &str) 
 }
 
 /// `get_deleted_block` followed by a check that the block is in the trash.
-async fn block_in_trash(store: &Store, block_id: &str) -> DeletedBlock {
+pub(crate) async fn block_in_trash(store: &Store, block_id: &str) -> DeletedBlock {
     store
         .get_deleted_block(block_id)
         .await
@@ -436,7 +436,7 @@ async fn insert_block() {
         .insert_block(&mut without_board, &user1)
         .await
         .expect_err("a block without a board is rejected");
-    assert_invalid_block(&error, &BlockError::EmptyBoardId);
+    assert_invalid_block(&error, &BlockError::EmptyContainerId);
     let blocks = board_blocks(store, board_id).await;
     assert_eq!(
         blocks.len(),
@@ -589,6 +589,17 @@ async fn insert_block() {
     assert_invalid_block(&error, &BlockError::FieldsSizeLimitExceeded);
 
     // "data tamper attempt"
+    insert_a_block_with_tampered_data(store, &other_board_id, [user1, user5, user6]).await;
+    test.teardown().await;
+}
+
+/// The last subtest of [`insert_block`], "data tamper attempt": `user1` inserts a block
+/// that names another creator and modifier (`user5`, `user6`) and other times.
+async fn insert_a_block_with_tampered_data(
+    store: &Store,
+    other_board_id: &str,
+    [user1, user5, user6]: [String; 3],
+) {
     // `01 Jan 90 01:00` and `02 Jan 90 01:00`; the original parses them with a zone
     // abbreviation that its parser reads as UTC.
     let created_at = 631_155_600_000;
@@ -600,7 +611,7 @@ async fn insert_block() {
         update_at: updated_at,
         created_by: user5,
         modified_by: user6,
-        ..block(&id10, &other_board_id)
+        ..block(&id10, other_board_id)
     };
     store
         .insert_block(&mut tampered, &user1)
@@ -609,7 +620,10 @@ async fn insert_block() {
     let expected_time = now_millis();
 
     let retrieved = existing_block(store, &id10).await;
-    assert_eq!(retrieved.board_id, other_board_id, "the board is as given");
+    assert_eq!(
+        retrieved.container_id, other_board_id,
+        "the board is as given"
+    );
     assert_eq!(
         retrieved.created_by, user1,
         "the creator is the inserting user, not the one given"
@@ -626,8 +640,6 @@ async fn insert_block() {
         (retrieved.create_at, retrieved.update_at),
         "the argument has the times that were stored, not the ones given"
     );
-
-    test.teardown().await;
 }
 
 /// `testInsertBlocks`.
@@ -648,7 +660,7 @@ async fn insert_blocks() {
         .insert_blocks(&mut new_blocks, &user_id)
         .await
         .expect_err("a batch with an invalid block is rejected");
-    assert_invalid_block(&error, &BlockError::EmptyBoardId);
+    assert_invalid_block(&error, &BlockError::EmptyContainerId);
 
     let blocks = board_blocks(store, &board_id).await;
     assert_eq!(
@@ -903,7 +915,10 @@ async fn a_preview_reads_one_character_past_its_length() {
         .expect("the card is inserted");
 
     let listed = store
-        .get_listed_blocks(&BlockFilter::board(&board_id), fvoci_store::Previews::With)
+        .get_listed_blocks(
+            &BlockFilter::container(&board_id),
+            fvoci_store::Previews::With,
+        )
         .await
         .expect("the cards are listed");
     let [listed] = listed.as_slice() else {
@@ -1133,7 +1148,7 @@ async fn get_blocks() {
         user_id, board_id, ..
     } = fixture(store).await;
     let board_id = board_id.as_str();
-    let board = || BlockFilter::board(board_id);
+    let board = || BlockFilter::container(board_id);
 
     let mut blocks_to_insert = typed_sample_blocks(board_id);
     common::insert_blocks(store, &mut blocks_to_insert, &user_id).await;
@@ -1278,7 +1293,7 @@ async fn get_block() {
 
     let fetched = existing_block(store, &block_id).await;
     assert_eq!(fetched.id, block_id, "the identifier is as inserted");
-    assert_eq!(fetched.board_id, board_id, "the board is as inserted");
+    assert_eq!(fetched.container_id, board_id, "the board is as inserted");
     assert_eq!(
         fetched.created_by, user1,
         "the creator is the inserting user"
@@ -1420,7 +1435,7 @@ async fn undelete_block_children() {
     let deleted_card = &cards_delete[0];
     let kept_card = &cards_keep[0];
     let text_children = |card: &Block| {
-        BlockFilter::board(&card.board_id)
+        BlockFilter::container(&card.container_id)
             .with_parent(&card.id)
             .with_type(BlockType::Attachment)
     };
@@ -1479,20 +1494,20 @@ async fn undelete_block_children() {
 
     // "undelete block children for board"
     store
-        .delete_board(&board_delete_id, user_id)
+        .delete_container(&board_delete_id, user_id)
         .await
         .expect("the board is deleted");
 
     // The board was deleted,
     let error = store
-        .get_board(&board_delete_id)
+        .get_container(&board_delete_id)
         .await
         .expect_err("the deleted board is gone");
     assert_not_found(&error);
 
     // and so were all its cards and blocks,
     let blocks = store
-        .get_blocks(&BlockFilter::board(&board_delete_id))
+        .get_blocks(&BlockFilter::container(&board_delete_id))
         .await
         .expect("the blocks of the deleted board are read");
     assert!(
@@ -1502,7 +1517,7 @@ async fn undelete_block_children() {
 
     // while the cards and blocks of the other board remain.
     let blocks = store
-        .get_blocks(&BlockFilter::board(&board_keep_id))
+        .get_blocks(&BlockFilter::container(&board_keep_id))
         .await
         .expect("the blocks of the other board are read");
     assert_eq!(
@@ -1512,19 +1527,19 @@ async fn undelete_block_children() {
     );
 
     store
-        .undelete_board(&board_delete_id, user_id)
+        .undelete_container(&board_delete_id, user_id)
         .await
         .expect("the board is undeleted");
 
     // The board was restored,
     store
-        .get_board(&board_delete_id)
+        .get_container(&board_delete_id)
         .await
         .expect("the board is back");
 
     // and so were its cards and blocks.
     let blocks = store
-        .get_blocks(&BlockFilter::board(&board_delete_id))
+        .get_blocks(&BlockFilter::container(&board_delete_id))
         .await
         .expect("the blocks of the restored board are read");
     assert_eq!(
@@ -1587,7 +1602,7 @@ impl Writer {
                 .await
                 .map_err(|error| failed(round, "patch of the shared block", error))?;
             store
-                .get_blocks(&BlockFilter::board(&board_id).with_parent(&shared_id))
+                .get_blocks(&BlockFilter::container(&board_id).with_parent(&shared_id))
                 .await
                 .map_err(|error| failed(round, "read", error))?;
             if round % 2 == 0 {
@@ -1830,7 +1845,7 @@ async fn get_blocks_pages_the_result() {
     // Cards only, as the handler that lists the cards of a board asks for them.
     let page = |page: u32, per_page: u32| BlockFilter {
         paging: Some(Paging { page, per_page }),
-        ..BlockFilter::board(&board_id).with_type(BlockType::Card)
+        ..BlockFilter::container(&board_id).with_type(BlockType::Card)
     };
 
     let mut seen = BTreeSet::new();
@@ -1894,7 +1909,7 @@ async fn get_blocks_does_not_filter_by_the_empty_or_the_unknown_type() {
     common::insert_blocks(store, &mut sample, &user_id).await;
 
     for block_type in ["", "unknown"] {
-        let filter = BlockFilter::board(&board_id).with_type(BlockType::from(block_type));
+        let filter = BlockFilter::container(&board_id).with_type(BlockType::from(block_type));
         let blocks = store.get_blocks(&filter).await.expect("the query runs");
         assert_eq!(
             blocks.len(),
@@ -1955,7 +1970,9 @@ async fn patch_blocks_with_more_ids_than_patches_changes_nothing() {
     assert!(
         matches!(
             error,
-            StoreError::InvalidBoardsAndBlocks(BoardsAndBlocksError::BlockIdsAndPatchesMismatch)
+            StoreError::InvalidContainersAndBlocks(
+                ContainersAndBlocksError::BlockIdsAndPatchesMismatch
+            )
         ),
         "expected a mismatch error, got {error:?}"
     );
@@ -2974,7 +2991,7 @@ async fn insert_block_refuses_a_parent_that_is_not_a_block_of_the_board() {
             Err(error) => assert!(
                 matches!(
                     &error,
-                    StoreError::InvalidBlock { id, source: BlockError::ParentNotOnBoard }
+                    StoreError::InvalidBlock { id, source: BlockError::ParentNotOnContainer }
                         if *id == child_id
                 ),
                 "a block whose parent is {what} should be refused over its parent, got \
@@ -3062,7 +3079,7 @@ async fn a_block_that_names_its_board_as_parent_is_stored_without_a_parent() {
         "the text of the batch is on the card"
     );
     let on_the_board = store
-        .get_blocks(&BlockFilter::board(&board_id).with_parent(&board_id))
+        .get_blocks(&BlockFilter::container(&board_id).with_parent(&board_id))
         .await
         .expect("the query runs");
     let mut cards = vec![card_id.clone(), batch[0].id.clone()];
@@ -3143,7 +3160,7 @@ async fn insert_blocks_stores_children_given_before_their_parents() {
         .insert_blocks(&mut late, &user_id)
         .await
         .expect_err("a batch with a block on a block that does not exist is refused");
-    assert_invalid_block(&error, &BlockError::ParentNotOnBoard);
+    assert_invalid_block(&error, &BlockError::ParentNotOnContainer);
     assert_eq!(
         board_blocks(store, &board_id).await,
         stored,
@@ -3177,7 +3194,7 @@ async fn lists_of_blocks_are_ordered_by_creation_time_then_identifier() {
     let Fixture {
         user_id, board_id, ..
     } = fixture(store).await;
-    let board = || BlockFilter::board(&board_id);
+    let board = || BlockFilter::container(&board_id);
 
     let mut ids: Vec<String> = (0..CHILDREN.len()).map(|_| new_id()).collect();
     ids.sort();
@@ -3708,7 +3725,7 @@ async fn a_block_inserted_while_its_card_is_deleted_goes_with_the_card_or_is_ref
                 );
             }
             Err(error) => {
-                assert_invalid_block(&error, &BlockError::ParentNotOnBoard);
+                assert_invalid_block(&error, &BlockError::ParentNotOnContainer);
                 assert_not_in_trash(store, &late.id).await;
             }
         }
@@ -3740,7 +3757,7 @@ async fn insert_block_on_a_board_that_does_not_exist_is_not_found() {
         .expect("a card of the board that exists is inserted");
     let deleted_board_id = another_board(store, &workspace_id, user_id).await;
     store
-        .delete_board(&deleted_board_id, user_id)
+        .delete_container(&deleted_board_id, user_id)
         .await
         .expect("a board is deleted");
     let all_blocks = async || {
@@ -4044,114 +4061,6 @@ async fn two_blocks_moved_onto_each_other_at_once_never_form_a_cycle() {
         assert!(
             left.is_empty(),
             "round {round}: both blocks went with the one at the top: {left:?}"
-        );
-    }
-
-    test.teardown().await;
-}
-
-/// A block is put on a board, directly or on a card, while the board is deleted. Either
-/// it came first, and then it is in the trash with the board and comes back with it, or
-/// the board was gone, and then that is a not-found error and the block is nowhere. It
-/// is never lost, and neither call fails for another reason.
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_block_inserted_while_its_board_is_deleted_goes_with_the_board_or_is_not_found() {
-    let test = common::setup().await;
-    let store = &test.store;
-    let Fixture {
-        user_id,
-        workspace_id,
-        ..
-    } = fixture(store).await;
-
-    for round in 0..RACE_ROUNDS {
-        let raced_board_id = another_board(store, &workspace_id, &user_id).await;
-        let mut card = Block {
-            block_type: BlockType::Card,
-            title: "card".to_owned(),
-            ..block(&new_id(), &raced_board_id)
-        };
-        store
-            .insert_block(&mut card, &user_id)
-            .await
-            .expect("a card of the board is inserted");
-        let late_id = new_id();
-        let mut late = Block {
-            parent_id: if round % 2 == 0 {
-                card.id.clone()
-            } else {
-                String::new()
-            },
-            block_type: BlockType::Attachment,
-            title: "late".to_owned(),
-            ..block(&late_id, &raced_board_id)
-        };
-
-        let start = Arc::new(Barrier::new(2));
-        let deleting = tokio::spawn({
-            let (store, start) = (store.clone(), Arc::clone(&start));
-            let (board_id, user_id) = (raced_board_id.clone(), user_id.clone());
-            async move {
-                start.wait().await;
-                store.delete_board(&board_id, &user_id).await
-            }
-        });
-        let inserting = tokio::spawn({
-            let (store, start) = (store.clone(), Arc::clone(&start));
-            let user_id = user_id.clone();
-            async move {
-                start.wait().await;
-                store.insert_block(&mut late, &user_id).await
-            }
-        });
-        let deleted = deleting.await.expect("the deleting task runs to its end");
-        let inserted = inserting.await.expect("the inserting task runs to its end");
-
-        assert!(
-            deleted.is_ok(),
-            "round {round}: the board is deleted, got {deleted:?}"
-        );
-        let blocks = board_blocks(store, &raced_board_id).await;
-        assert!(
-            blocks.is_empty(),
-            "round {round}: the deleted board has no blocks: {blocks:?}"
-        );
-        block_in_trash(store, &card.id).await;
-        assert_no_block(store, &late_id).await;
-        let in_trash = store.get_deleted_block(&late_id).await;
-        let expected_back = match &inserted {
-            Ok(()) => {
-                assert!(
-                    in_trash.is_ok(),
-                    "round {round}: the block that was stored went into the trash with its \
-                     board, got {in_trash:?}"
-                );
-                vec!["card", "late"]
-            }
-            Err(error) => {
-                assert!(
-                    matches!(error, StoreError::NotFound(_)),
-                    "round {round}: a block that comes after its board is gone is a \
-                     not-found error, got {error:?}"
-                );
-                assert!(
-                    matches!(in_trash, Err(StoreError::NotFound(_))),
-                    "round {round}: the block that was refused is not in the trash, got \
-                     {in_trash:?}"
-                );
-                vec!["card"]
-            }
-        };
-
-        store
-            .undelete_board(&raced_board_id, &user_id)
-            .await
-            .unwrap_or_else(|error| panic!("round {round}: the board is restored: {error:?}"));
-        let back = board_blocks(store, &raced_board_id).await;
-        assert_eq!(
-            sorted_names(&back),
-            expected_back,
-            "round {round}: the board came back with what went into the trash with it"
         );
     }
 

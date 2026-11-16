@@ -110,11 +110,11 @@ pub(super) async fn work_off(
             return Err(Stopped::IndexLost);
         }
         looked_at += changes.len();
-        let (boards, blocks): (Vec<SearchChange>, Vec<SearchChange>) = changes
+        let (containers, blocks): (Vec<SearchChange>, Vec<SearchChange>) = changes
             .into_iter()
-            .partition(|change| change.target == SearchTarget::Board);
-        for board in &boards {
-            send_board(store, client, versions, metrics, board).await?;
+            .partition(|change| change.target == SearchTarget::Container);
+        for container in &containers {
+            send_container(store, client, versions, metrics, container).await?;
         }
         for blocks in blocks.chunks(DOCUMENTS_AT_ONCE) {
             send_blocks(store, client, versions, metrics, blocks).await?;
@@ -162,7 +162,7 @@ async fn send_blocks(
 /// search server holds of it, those of cards and pages that are gone among them, and
 /// puts the documents it has now. A board or a wiki that is gone, or is a template,
 /// has none.
-async fn send_board(
+async fn send_container(
     store: &Store,
     client: &Client,
     versions: &Versions,

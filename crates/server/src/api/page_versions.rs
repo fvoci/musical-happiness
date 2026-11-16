@@ -17,7 +17,7 @@ use super::wikis::{READ_DENIED, page_with_permission};
 use super::workspace::InWiki;
 use super::{ApiResult, json_response};
 use crate::app::App;
-use crate::permissions::BoardPermission;
+use crate::permissions::ContainerPermission;
 
 pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new()
@@ -48,7 +48,7 @@ async fn handle_get_page_body_versions(
         &ws,
         &wiki_id,
         &page_id,
-        BoardPermission::ViewBoard,
+        ContainerPermission::View,
         READ_DENIED,
     )
     .await?;
@@ -77,7 +77,7 @@ async fn handle_get_page_body_version(
         &ws,
         &wiki_id,
         &page_id,
-        BoardPermission::ViewBoard,
+        ContainerPermission::View,
         READ_DENIED,
     )
     .await?;
@@ -114,7 +114,7 @@ async fn handle_restore_page_body_version(
         &ws,
         &wiki_id,
         &page_id,
-        BoardPermission::ManageBoardCards,
+        ContainerPermission::ManageCards,
         "access denied to restore a version of the page's body",
     )
     .await?;

@@ -1,8 +1,8 @@
 //! Departed authors remain named only through work the reader can read.
 
 use fvoci_model::{
-    Block, BlockPatch, BlockType, Board, BoardMember, BoardType, Body, BodyChange, NewPage, User,
-    new_id,
+    Block, BlockPatch, BlockType, Body, BodyChange, Container, ContainerMember, ContainerType,
+    NewPage, User, new_id,
 };
 use serde_json::json;
 
@@ -29,9 +29,9 @@ fn body(text: &str) -> Body {
 }
 
 /// A wiki of the owner with a page whose body the leaver wrote a version of.
-async fn authored_wiki(th: &TestServer, leaver: &str) -> Board {
+async fn authored_wiki(th: &TestServer, leaver: &str) -> Container {
     let owner = th.client.me().await.id;
-    let wiki: Board = th
+    let wiki: Container = th
         .client
         .post(&format!("{TEST_WS}/wikis"), &json!({"type": "P"}))
         .await
@@ -40,7 +40,7 @@ async fn authored_wiki(th: &TestServer, leaver: &str) -> Board {
     wiki
 }
 
-async fn authored_board(th: &TestServer, authorship: Authorship, leaver: &str) -> Board {
+async fn authored_board(th: &TestServer, authorship: Authorship, leaver: &str) -> Container {
     let owner = th.client.me().await.id;
     let creator = match authorship {
         Authorship::Board => &th.client2,
@@ -49,17 +49,17 @@ async fn authored_board(th: &TestServer, authorship: Authorship, leaver: &str) -
         | Authorship::BodyVersion
         | Authorship::PageVersion => &th.client,
     };
-    let board: Board = creator
+    let board: Container = creator
         .create_board(&new_board(
             TEST_WORKSPACE_ID,
-            BoardType::Private,
+            ContainerType::Private,
             "Authored",
         ))
         .await
         .created_json();
     if matches!(authorship, Authorship::Board) {
         creator
-            .add_member(&BoardMember {
+            .add_member(&ContainerMember {
                 scheme_admin: true,
                 ..member(&board.id, &owner)
             })
@@ -70,7 +70,7 @@ async fn authored_board(th: &TestServer, authorship: Authorship, leaver: &str) -
     } else {
         let mut card = Block {
             id: new_id(),
-            board_id: board.id.clone(),
+            container_id: board.id.clone(),
             block_type: BlockType::Card,
             ..Block::default()
         };
@@ -81,7 +81,7 @@ async fn authored_board(th: &TestServer, authorship: Authorship, leaver: &str) -
             .expect("a card");
         let mut comment = Block {
             id: new_id(),
-            board_id: board.id.clone(),
+            container_id: board.id.clone(),
             parent_id: card.id,
             block_type: BlockType::Comment,
             body: Some(body("Original")),
@@ -144,7 +144,7 @@ async fn versioned_card(th: &TestServer, board_id: &str, owner: &str, leaver: &s
     let store = th.app.store();
     let mut card = Block {
         id: new_id(),
-        board_id: board_id.to_owned(),
+        container_id: board_id.to_owned(),
         block_type: BlockType::Card,
         body: Some(body("Original")),
         ..Block::default()
@@ -249,7 +249,7 @@ async fn check_authorship(authorship: Authorship) {
         found.is_empty(),
         "an author is not offered among current people"
     );
-    let members: Vec<BoardMember> = th
+    let members: Vec<ContainerMember> = th
         .client
         .get(&format!("{TEST_WS}/boards/{}/members", board.id))
         .await
@@ -273,7 +273,7 @@ async fn check_authorship(authorship: Authorship) {
         "a guest cannot name an unread author"
     );
     th.client
-        .add_member(&BoardMember {
+        .add_member(&ContainerMember {
             scheme_viewer: true,
             ..member(&board.id, &guest_id)
         })

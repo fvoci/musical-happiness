@@ -203,7 +203,7 @@ async fn handle_reconcile_files(State(app): State<App>, body: Bytes) -> ApiResul
 async fn handle_reindex_search(State(app): State<App>) -> ApiResult {
     let result = crate::search::reindex(&app)
         .await
-        .map(|boards| json_response(&serde_json::json!({"boards": boards})));
+        .map(|containers| json_response(&serde_json::json!({"boards": containers})));
     record_operator(Command::ReindexSearch, result)
 }
 

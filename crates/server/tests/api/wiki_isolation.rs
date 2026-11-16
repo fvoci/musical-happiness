@@ -4,7 +4,9 @@
 //! wiki what that role is let do. Who a wiki is not there for is answered as for no
 //! wiki, over HTTP and at the door of a page's room.
 
-use fvoci_model::{Board, BoardKind, BoardMember, BoardType, NewPage, WorkspaceRole};
+use fvoci_model::{
+    Container, ContainerKind, ContainerMember, ContainerType, NewPage, WorkspaceRole,
+};
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
@@ -68,9 +70,9 @@ async fn asked(client: &Client, at: &str, wiki_id: &str, page_id: &str) -> Answe
 
 /// The wikis `client` lists under the workspace path `at`, by identifier.
 async fn listed(client: &Client, at: &str) -> Vec<String> {
-    let wikis: Vec<Board> = client.get(&format!("{at}/wikis")).await.ok_json();
+    let wikis: Vec<Container> = client.get(&format!("{at}/wikis")).await.ok_json();
     assert!(
-        wikis.iter().all(|wiki| wiki.kind == BoardKind::Wiki),
+        wikis.iter().all(|wiki| wiki.kind == ContainerKind::Wiki),
         "the list of wikis has a board: {wikis:?}"
     );
     wikis.into_iter().map(|wiki| wiki.id).collect()
@@ -97,13 +99,13 @@ pub(crate) async fn put_on(admin: &Client, wiki_id: &str, user_id: &str, role: &
         ["viewer", "commenter", "editor"].contains(&role),
         "no such role: {role}"
     );
-    let member = BoardMember {
-        board_id: wiki_id.to_owned(),
+    let member = ContainerMember {
+        container_id: wiki_id.to_owned(),
         user_id: user_id.to_owned(),
         scheme_viewer: role == "viewer",
         scheme_commenter: role == "commenter",
         scheme_editor: role == "editor",
-        ..BoardMember::default()
+        ..ContainerMember::default()
     };
     let path = format!("{TEST_WS}/boards/{wiki_id}/members");
     admin.post(&path, &member).await.check_ok();
@@ -176,18 +178,18 @@ async fn a_wiki_of_another_organization_is_reached_through_its_workspace_only() 
     }
     let th = Setup::native().start().await.init_basic().await;
     let (theirs, their_workspace, their_board) = crate::workspaces::another_organization(&th).await;
-    let members = theirs.get_members_for_board(&their_board).await;
+    let members = theirs.get_members_for_container(&their_board).await;
     let owner = members.expect("their members")[0].user_id.clone();
-    let mut wiki = Board {
+    let mut wiki = Container {
         id: fvoci_model::new_id(),
         workspace_id: their_workspace.clone(),
-        board_type: BoardType::Open,
-        kind: BoardKind::Wiki,
+        container_type: ContainerType::Open,
+        kind: ContainerKind::Wiki,
         title: "theirs".to_owned(),
-        ..Board::default()
+        ..Container::default()
     };
     theirs
-        .insert_board_with_admin(&mut wiki, &owner)
+        .insert_container_with_admin(&mut wiki, &owner)
         .await
         .expect("their wiki is stored");
     let page = theirs
@@ -229,11 +231,11 @@ async fn a_wiki_of_another_organization_is_reached_through_its_workspace_only() 
         .add_workspace_member(&their_workspace, &user1, WorkspaceRole::Guest)
         .await
         .expect("let into their workspace");
-    let member = BoardMember {
-        board_id: wiki.clone(),
+    let member = ContainerMember {
+        container_id: wiki.clone(),
         user_id: user1,
         scheme_editor: true,
-        ..BoardMember::default()
+        ..ContainerMember::default()
     };
     theirs.save_member(&member).await.expect("invited");
     assert_eq!(
@@ -337,16 +339,16 @@ async fn who_only_manages_a_wiki_reads_none_of_its_pages() {
     let (wiki, page) = wiki_of(maker, "P").await;
 
     assert!(listed(admin_client, TEST_WS).await.contains(&wiki));
-    let seen: Board = admin_client
+    let seen: Container = admin_client
         .get(&format!("{TEST_WS}/boards/{wiki}"))
         .await
         .ok_json();
     assert_eq!(
         (seen.kind, seen.id.as_str(), seen.description.as_str()),
-        (BoardKind::Wiki, wiki.as_str(), ""),
+        (ContainerKind::Wiki, wiki.as_str(), ""),
         "what the wiki says of itself is for its readers"
     );
-    let of_maker: Board = maker
+    let of_maker: Container = maker
         .get(&format!("{TEST_WS}/boards/{wiki}"))
         .await
         .ok_json();

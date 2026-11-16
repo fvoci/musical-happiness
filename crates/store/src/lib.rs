@@ -10,25 +10,25 @@ mod accounts;
 mod audit;
 mod block_derived;
 mod blocks;
-mod board_kinds;
-mod board_membership;
-mod board_search;
-mod board_team_access;
-mod board_team_membership;
-mod board_team_trash;
-mod board_teams;
-mod boards;
-mod boards_and_blocks;
 mod body_digest;
 mod body_docs;
 mod body_links;
 mod body_versions;
 mod card_values;
 mod categories;
-mod category_boards;
+mod category_containers;
 mod comment_places;
 mod comment_versions;
 mod connect;
+mod container_kinds;
+mod container_membership;
+mod container_search;
+mod container_team_access;
+mod container_team_membership;
+mod container_team_trash;
+mod container_teams;
+mod containers;
+mod containers_and_blocks;
 mod data_steps;
 mod db;
 mod directory;
@@ -85,21 +85,23 @@ use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
 pub use accounts::Founding;
 pub use audit::{AuditEntry, AuditPlace};
 pub use blocks::{BlockFilter, BodyPreview, DuplicateAs, ListedBlock, Paging, Previews};
-pub use board_membership::Standing;
-pub use boards::{Joined, MemberChange, PublicBoards};
 pub use body_digest::body_digest;
 pub use body_docs::{LoggedUpdate, StoredDoc};
 pub use body_versions::{BodyBefore, DEFAULT_BODY_VERSIONS_KEPT, KeptVersion};
-pub use category_boards::{BoardPlace, BoardVisibility};
+pub use category_containers::{ContainerPlace, ContainerVisibility};
 pub use comment_versions::DEFAULT_COMMENT_VERSIONS_KEPT;
 pub use connect::DbType;
+pub use container_membership::Standing;
+pub use containers::{Joined, MemberChange, PublicContainers};
 pub use db::Dialect;
 pub use directory::{
     Looking, Reach, SYSTEM_ORG_ID, SYSTEM_WORKSPACE_ID, SharedContainer, Sight, WorkspaceAccess,
 };
 pub use error::{StoreError, Taken};
 pub use file_refs::NewImages;
-pub use invitations::{Acceptance, Accepted, Acceptor, Inviter, InviterOfBoard, MailedTo, NewLink};
+pub use invitations::{
+    Acceptance, Accepted, Acceptor, Inviter, InviterOfContainer, MailedTo, NewLink,
+};
 pub use invited_signups::InvitedConfirmation;
 pub use loose_objects::{LooseCounts, LooseObject, LooseState};
 pub use observe::{Access, Call, Observer, Outcome};
@@ -124,7 +126,7 @@ pub use signups::{
     Confirmed, Proof, SIGNUP_LIFETIME_MILLIS, SIGNUP_LINK_LIFETIME_MILLIS, Signup, SignupLookup,
     SignupStart,
 };
-pub use trash::{DeletedBlock, DeletedBoard, Purged};
+pub use trash::{DeletedBlock, DeletedContainer, Purged};
 pub use uploads::{OpenUploads, PartRecord, UploadUsage};
 pub use users::{AdminChange, InstanceRole, Preference};
 pub use visibility::{VisibilityScope, VisibilityVersion};

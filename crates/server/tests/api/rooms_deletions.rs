@@ -244,7 +244,7 @@ async fn a_card_below_the_deleted_block_keeps_its_rooms_last_body() {
     let table = crate::rooms::table(&th, &paragraphs(&["parent"])).await;
     let child = Block {
         id: fvoci_model::new_id(),
-        board_id: table.board_id.clone(),
+        container_id: table.board_id.clone(),
         parent_id: table.card_id.clone(),
         block_type: BlockType::Card,
         title: "below".to_owned(),

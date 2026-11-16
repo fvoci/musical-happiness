@@ -3,8 +3,8 @@
 //! store that keeps it, and what the worker reads and takes off.
 
 use fvoci_model::{
-    Block, BlockPatch, BlockType, Board, BoardKind, BoardType, Body, BodyChange, NewPage,
-    PageLimits, new_id,
+    Block, BlockPatch, BlockType, Body, BodyChange, Container, ContainerKind, ContainerType,
+    NewPage, PageLimits, new_id,
 };
 use fvoci_store::{DbType, SearchChange, SearchIndexMark, SearchTarget, Store, Tenant};
 use serde_json::json;
@@ -23,7 +23,7 @@ fn body(text: &str) -> Body {
 }
 
 /// A board of a new workspace of the store's organization, by a new user.
-async fn board(store: &Store) -> (Board, String) {
+async fn board(store: &Store) -> (Container, String) {
     let user_id = common::user(store, &format!("u{}", &new_id()[24..])).await;
     let workspace_id = common::workspace(store).await;
     let mut boards = common::create_test_boards(store, &workspace_id, &user_id, 1).await;
@@ -33,7 +33,7 @@ async fn board(store: &Store) -> (Board, String) {
 async fn block(store: &Store, board_id: &str, block_type: BlockType, user_id: &str) -> Block {
     let mut block = Block {
         id: new_id(),
-        board_id: board_id.to_owned(),
+        container_id: board_id.to_owned(),
         block_type,
         title: "환불 규정".to_owned(),
         ..Block::default()
@@ -95,7 +95,7 @@ async fn a_store_that_keeps_no_list_notes_nothing() {
         .await
         .expect("deleted");
     store
-        .delete_board(&board.id, &user_id)
+        .delete_container(&board.id, &user_id)
         .await
         .expect("deleted");
 
@@ -131,7 +131,7 @@ async fn what_a_search_would_find_differently_is_noted_with_its_write() {
     block(store, &board.id, BlockType::View, &user_id).await;
     let mut comment = Block {
         id: new_id(),
-        board_id: board.id.clone(),
+        container_id: board.id.clone(),
         parent_id: card.id.clone(),
         block_type: BlockType::Comment,
         ..Block::default()
@@ -312,12 +312,12 @@ async fn the_trash_and_the_way_back_are_noted() {
     settle_all(store).await;
 
     store
-        .delete_board(&board.id, &user_id)
+        .delete_container(&board.id, &user_id)
         .await
         .expect("deleted");
     assert_eq!(
         listed(store).await,
-        [(SearchTarget::Board, board.id.clone())]
+        [(SearchTarget::Container, board.id.clone())]
     );
     assert_eq!(
         store
@@ -330,7 +330,7 @@ async fn the_trash_and_the_way_back_are_noted() {
     settle_all(store).await;
 
     store
-        .undelete_board(&board.id, &user_id)
+        .undelete_container(&board.id, &user_id)
         .await
         .expect("restored");
     let mut expected = vec![
@@ -360,15 +360,15 @@ async fn a_template_and_what_is_built_in_have_no_documents() {
     let test = common::setup().await;
     let store = &test.store;
     let (board, user_id) = board(store).await;
-    let mut template = Board {
+    let mut template = Container {
         id: new_id(),
         workspace_id: board.workspace_id.clone(),
-        board_type: BoardType::Open,
+        container_type: ContainerType::Open,
         is_template: true,
-        ..Board::default()
+        ..Container::default()
     };
     store
-        .insert_board(&mut template, &user_id)
+        .insert_container(&mut template, &user_id)
         .await
         .expect("the template is stored");
     let on_template = card(store, &template.id, &user_id).await;
@@ -402,7 +402,7 @@ async fn a_card_template_of_a_board_has_no_document() {
     let with_template_field = async |is_template: bool| {
         let mut block = Block {
             id: new_id(),
-            board_id: board.id.clone(),
+            container_id: board.id.clone(),
             block_type: BlockType::Card,
             title: "환불 규정".to_owned(),
             ..Block::default()
@@ -419,15 +419,15 @@ async fn a_card_template_of_a_board_has_no_document() {
     let template = with_template_field(true).await;
     let not_a_template = with_template_field(false).await;
     let without_the_field = card(store, &board.id, &user_id).await.id;
-    let mut wiki = Board {
+    let mut wiki = Container {
         id: new_id(),
         workspace_id: board.workspace_id.clone(),
-        board_type: BoardType::Open,
-        kind: BoardKind::Wiki,
-        ..Board::default()
+        container_type: ContainerType::Open,
+        kind: ContainerKind::Wiki,
+        ..Container::default()
     };
     store
-        .insert_board(&mut wiki, &user_id)
+        .insert_container(&mut wiki, &user_id)
         .await
         .expect("the wiki is stored");
     let page = store
@@ -598,15 +598,15 @@ async fn every_board_is_listed_for_an_index_and_the_index_remembered() {
     let store = &test.store;
     store.keep_search_outbox();
     let (board, user_id) = board(store).await;
-    let mut template = Board {
+    let mut template = Container {
         id: new_id(),
         workspace_id: board.workspace_id.clone(),
-        board_type: BoardType::Open,
+        container_type: ContainerType::Open,
         is_template: true,
-        ..Board::default()
+        ..Container::default()
     };
     store
-        .insert_board(&mut template, &user_id)
+        .insert_container(&mut template, &user_id)
         .await
         .expect("the template is stored");
     let mut all = vec![board.id.clone()];
@@ -627,7 +627,7 @@ async fn every_board_is_listed_for_an_index_and_the_index_remembered() {
 
     assert_eq!(system.search_index_mark().await.expect("read"), None);
     let count = system
-        .list_every_board_for_search(&mark)
+        .list_every_container_for_search(&mark)
         .await
         .expect("listed");
     let rows = listed(&system).await;
@@ -636,7 +636,7 @@ async fn every_board_is_listed_for_an_index_and_the_index_remembered() {
     // Listed again, as for another index: the same rows, each moved on.
     let before = changes(&system).await;
     system
-        .list_every_board_for_search(&SearchIndexMark {
+        .list_every_container_for_search(&SearchIndexMark {
             uuid: "another".to_owned(),
             ..mark.clone()
         })
@@ -650,13 +650,13 @@ async fn every_board_is_listed_for_an_index_and_the_index_remembered() {
     assert_eq!(
         rows,
         all.iter()
-            .map(|id| (SearchTarget::Board, id.clone()))
+            .map(|id| (SearchTarget::Container, id.clone()))
             .collect::<Vec<_>>(),
         "every board that is no template, of every organization"
     );
     assert_eq!(
         ours,
-        [(SearchTarget::Board, board.id.clone())],
+        [(SearchTarget::Container, board.id.clone())],
         "ours alone"
     );
     assert_eq!(remembered, Some(mark));

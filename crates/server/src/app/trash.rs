@@ -15,7 +15,7 @@ impl App {
     /// Returns the store's error if the trash cannot be read.
     pub async fn deleted_cards(
         &self,
-        board_id: &str,
+        container_id: &str,
         page: i64,
         per_page: i64,
     ) -> Result<Vec<DeletedItem>, AppError> {
@@ -24,7 +24,7 @@ impl App {
             CardRange::Page(paging) => Some(paging),
             CardRange::Nothing => return Ok(Vec::new()),
         };
-        let deleted = self.store().get_deleted_cards(board_id, paging).await?;
+        let deleted = self.store().get_deleted_cards(container_id, paging).await?;
         Ok(deleted
             .into_iter()
             .map(|deleted| DeletedItem {
@@ -46,7 +46,7 @@ impl App {
     /// # Errors
     ///
     /// Returns the store's error if the trash cannot be read.
-    pub async fn deleted_boards(
+    pub async fn deleted_containers(
         &self,
         workspace_id: &str,
         user_id: &str,
@@ -61,7 +61,7 @@ impl App {
         };
         let deleted = self
             .store()
-            .get_deleted_boards(
+            .get_deleted_containers(
                 workspace_id,
                 (role != WorkspaceRole::Admin).then_some(user_id),
                 paging,
@@ -71,11 +71,11 @@ impl App {
         Ok(deleted
             .into_iter()
             .map(|deleted| DeletedItem {
-                id: deleted.board.id,
-                title: deleted.board.title,
-                deleted_at: deleted.board.delete_at,
+                id: deleted.container.id,
+                title: deleted.container.title,
+                deleted_at: deleted.container.delete_at,
                 deleted_by: deleted.deleted_by,
-                kind: Some(deleted.board.kind),
+                kind: Some(deleted.container.kind),
             })
             .collect())
     }

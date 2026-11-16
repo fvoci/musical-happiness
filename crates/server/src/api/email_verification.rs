@@ -24,7 +24,8 @@ struct EmailVerified {
     workspace_id: String,
     /// For a guest's link: the board it was let onto.
     #[serde(skip_serializing_if = "Option::is_none")]
-    board_id: Option<String>,
+    #[serde(rename = "boardId")]
+    container_id: Option<String>,
     /// Whether the registration started its organization, rather than joining one by
     /// the link of an invitation.
     organization_started: bool,
@@ -174,7 +175,7 @@ async fn complete(
         .await?;
     let answer = EmailVerified {
         workspace_id: signed_in.confirmed.workspace_id,
-        board_id: signed_in.confirmed.board_id,
+        container_id: signed_in.confirmed.container_id,
         organization_started: signed_in.confirmed.started_organization,
     };
     let response = with_session_cookie(&app, &signed_in.session_token, json_response(&answer));

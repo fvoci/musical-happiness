@@ -15,14 +15,14 @@
 use std::collections::BTreeSet;
 
 use fvoci_model::{
-    BoardKind, BoardKinds, BoardMember, BoardType, OrgRole, User, UserWorkspace, Workspace,
-    WorkspaceRole, new_id,
+    ContainerKind, ContainerKinds, ContainerMember, ContainerType, OrgRole, User, UserWorkspace,
+    Workspace, WorkspaceRole, new_id,
 };
 use subtle::ConstantTimeEq as _;
 
 use crate::Store;
-use crate::board_kinds;
-use crate::board_team_access;
+use crate::container_kinds;
+use crate::container_team_access;
 use crate::db::{Dialect, Id, Row, Scope, Sql};
 use crate::error::StoreError;
 use crate::file_info;
@@ -83,7 +83,7 @@ pub enum Reach {
     /// works in the workspace sees.
     Workspace,
     /// Who is on a board of the workspace with the user: what a guest sees.
-    SharedBoards,
+    SharedContainers,
 }
 
 /// What a user looks at other users for.
@@ -146,7 +146,7 @@ fn push_seen(sql: &mut Sql, scope: &Scope<'_>, sight: Sight<'_>) {
                  JOIN workspace_members AS them \
                  ON them.workspace_id = b.workspace_id AND them.user_id = other.user_id \
                  WHERE mine.user_id = ",
-                directory_members = board_team_access::directory_members(scope)
+                directory_members = container_team_access::directory_members(scope)
             ))
             .bind(Id(seer_id))
             .push_bind(" AND b.workspace_id = ", Id(workspace_id))
@@ -186,7 +186,7 @@ fn push_seen(sql: &mut Sql, scope: &Scope<'_>, sight: Sight<'_>) {
                      JOIN workspace_members AS them \
                      ON them.workspace_id = b.workspace_id AND them.user_id = other.user_id \
                      WHERE mine.user_id = ",
-                    directory_members = board_team_access::directory_members(scope)
+                    directory_members = container_team_access::directory_members(scope)
                 ))
                 .bind(Id(seer_id))
                 .push(IN_USE)
@@ -267,13 +267,13 @@ fn push_writer(sql: &mut Sql, scope: &Scope<'_>, seer_id: &str, within: Option<(
     .push(&scope.same_organization(&[("mine", "b")]))
     .push(")");
     sql.push(" OR ");
-    board_team_access::push_has_team_role(sql, scope, seer_id);
+    container_team_access::push_has_team_role(sql, scope, seer_id);
     if open_where_seer_works {
         // Read without a role: an open template and an open wiki, for who works in
         // its workspace. An open board that is neither is joined to be read.
-        sql.push_bind(" OR (b.type = ", BoardType::Open.as_str())
+        sql.push_bind(" OR (b.type = ", ContainerType::Open.as_str())
             .push_bind(" AND (b.is_template = ", true)
-            .push_bind(" OR b.kind = ", BoardKind::Wiki.as_str())
+            .push_bind(" OR b.kind = ", ContainerKind::Wiki.as_str())
             .push_bind(") AND me.role <> ", WorkspaceRole::Guest.as_str())
             .push(")");
     }
@@ -660,12 +660,12 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if the query fails.
-    pub async fn board_memberships_of_user(
+    pub async fn container_memberships_of_user(
         &self,
         user_id: &str,
         login_provider: Option<&str>,
-        kinds: BoardKinds,
-    ) -> Result<Vec<BoardMember>, StoreError> {
+        kinds: ContainerKinds,
+    ) -> Result<Vec<ContainerMember>, StoreError> {
         self.system()
             .with_conn(async |scope| {
                 memberships_everywhere::of_user(scope, user_id, login_provider, kinds).await
@@ -680,13 +680,13 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if either lookup fails.
-    pub async fn board_of_shared_block(
+    pub async fn container_of_shared_block(
         &self,
         workspace_id: &str,
         block_id: &str,
         read_token: &str,
     ) -> Result<Option<String>, StoreError> {
-        let board_id = self
+        let container_id = self
             .system()
             .with_conn(async |scope| {
                 let mut sql = scope.sql(
@@ -703,14 +703,14 @@ impl Store {
                     .transpose()
             })
             .await?;
-        let Some(board_id) = board_id else {
+        let Some(container_id) = container_id else {
             return Ok(None);
         };
         // The blocks a token follows are a board's: a wiki's token reads its pages only.
-        let shared = self.shared_container(&board_id, read_token).await?;
+        let shared = self.shared_container(&container_id, read_token).await?;
         Ok(shared
-            .filter(|shared| shared.kind == BoardKind::Board)
-            .map(|_| board_id))
+            .filter(|shared| shared.kind == ContainerKind::Board)
+            .map(|_| container_id))
     }
 
     /// The board or the wiki that is shared, for whoever holds its read token: its
@@ -727,7 +727,7 @@ impl Store {
     /// Returns [`StoreError::Database`] if the query fails.
     pub async fn shared_container(
         &self,
-        board_id: &str,
+        container_id: &str,
         read_token: &str,
     ) -> Result<Option<SharedContainer>, StoreError> {
         self.system()
@@ -738,7 +738,7 @@ impl Store {
                      JOIN workspaces AS t ON t.id = b.workspace_id \
                      JOIN organizations AS o ON o.id = t.org_id WHERE s.container_id = ",
                 );
-                sql.bind(Id(board_id))
+                sql.bind(Id(container_id))
                     .push_bind(" AND s.enabled = ", true)
                     .push_bind(" AND o.public_links = ", true)
                     .push(IN_USE)
@@ -753,7 +753,7 @@ impl Store {
                 if token.is_empty() || !held {
                     return Ok(None);
                 }
-                let kind = board_kinds::kind_from_text(&row.text(2)?)?;
+                let kind = container_kinds::kind_from_text(&row.text(2)?)?;
                 Ok(Some(SharedContainer {
                     org_id: row.id(0)?,
                     kind,
@@ -769,7 +769,7 @@ pub struct SharedContainer {
     /// The organization it is of, which it is read in.
     pub org_id: String,
     /// Which of the two it is.
-    pub kind: BoardKind,
+    pub kind: ContainerKind,
 }
 
 impl Store {

@@ -96,6 +96,9 @@ pub(crate) async fn trashed(scope: &mut Scope<'_>, blocks: &[Block]) -> Result<(
 /// its row is among the boards: the search server is to hold nothing of it. A board
 /// that comes back needs no note of its own: each of its blocks comes back through
 /// [`refresh`].
-pub(crate) async fn board_trashed(scope: &mut Scope<'_>, board_id: &str) -> Result<(), StoreError> {
-    search_outbox::note_board(scope, board_id).await
+pub(crate) async fn container_trashed(
+    scope: &mut Scope<'_>,
+    container_id: &str,
+) -> Result<(), StoreError> {
+    search_outbox::note_container(scope, container_id).await
 }

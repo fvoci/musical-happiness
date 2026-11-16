@@ -4,10 +4,10 @@ use crate::boards::{board_with_admin, new_board};
 use crate::common::{ROOT_WORKSPACE_ID, Setup, TestServer};
 use crate::org_admin::{let_in, make_workspace, org_of};
 use fvoci_model::{
-    AuditAction, BoardMember, BoardRole, BoardType, MinimumRole, Team, WorkspaceMember,
+    AuditAction, ContainerMember, ContainerRole, ContainerType, MinimumRole, Team, WorkspaceMember,
     WorkspaceRole,
 };
-use fvoci_store::{Acceptance, Acceptor, Inviter, InviterOfBoard, NewLink, Standing};
+use fvoci_store::{Acceptance, Acceptor, Inviter, InviterOfContainer, NewLink, Standing};
 use reqwest::StatusCode;
 use serde_json::json;
 
@@ -18,7 +18,7 @@ async fn a_revoked_team_role_invalidates_direct_grants_and_invitation_acceptance
     let owner = th.client2.me().await.id;
     let board = board_with_admin(
         &th,
-        new_board(ROOT_WORKSPACE_ID, BoardType::Private, "Racing access"),
+        new_board(ROOT_WORKSPACE_ID, ContainerType::Private, "Racing access"),
         &owner,
     )
     .await;
@@ -32,7 +32,7 @@ async fn a_revoked_team_role_invalidates_direct_grants_and_invitation_acceptance
         .await
         .unwrap();
     th.app
-        .set_board_team(
+        .set_container_team(
             ROOT_WORKSPACE_ID,
             &board.id,
             &team.id,
@@ -43,16 +43,16 @@ async fn a_revoked_team_role_invalidates_direct_grants_and_invitation_acceptance
         .unwrap();
     let access = th
         .app
-        .board_access(&manager, &board.id)
+        .container_access(&manager, &board.id)
         .await
         .unwrap()
         .unwrap();
     assert!(access.grant.reads());
-    let requested = BoardMember {
-        board_id: board.id.clone(),
+    let requested = ContainerMember {
+        container_id: board.id.clone(),
         user_id: manager.clone(),
         scheme_viewer: true,
-        ..BoardMember::default()
+        ..ContainerMember::default()
     };
     th.app
         .remove_team_member(ROOT_WORKSPACE_ID, &team.id, &manager, &manager)
@@ -68,7 +68,7 @@ async fn a_revoked_team_role_invalidates_direct_grants_and_invitation_acceptance
     assert!(
         th.app
             .store()
-            .get_member_for_board(&board.id, &manager)
+            .get_member_for_container(&board.id, &manager)
             .await
             .unwrap_err()
             .is_not_found()
@@ -105,7 +105,7 @@ async fn a_revoked_team_role_invalidates_direct_grants_and_invitation_acceptance
     );
     assert!(records.iter().any(|r| r.target_id == board.id
         && r.actor.person_id() == Some(manager.as_str())
-        && r.action == AuditAction::SelfAddedToBoard));
+        && r.action == AuditAction::SelfAddedToContainer));
     th.teardown().await;
 }
 
@@ -114,10 +114,10 @@ async fn stale_invitation(
     manager: &str,
     board_id: &str,
     team_id: &str,
-    requested: &BoardMember,
+    requested: &ContainerMember,
 ) {
     // An existing membership with no flags is equally insufficient after revocation.
-    let empty = BoardMember {
+    let empty = ContainerMember {
         scheme_viewer: false,
         ..requested.clone()
     };
@@ -132,7 +132,7 @@ async fn stale_invitation(
         .expect("restore team reading");
     let access = th
         .app
-        .board_access(manager, board_id)
+        .container_access(manager, board_id)
         .await
         .expect("read access facts")
         .expect("the board exists");
@@ -140,7 +140,7 @@ async fn stale_invitation(
         .store()
         .create_invitation(&NewLink {
             workspace_id: ROOT_WORKSPACE_ID,
-            guest_of: Some((board_id, BoardRole::Viewer)),
+            guest_of: Some((board_id, ContainerRole::Viewer)),
             token_hash: "stale-team-inviter",
             created_by: manager,
             now: 1,
@@ -177,7 +177,7 @@ async fn stale_invitation(
                     member: access.member.as_ref(),
                     team_role: access.team_role,
                 },
-                of_board: InviterOfBoard::Member,
+                of_container: InviterOfContainer::Member,
             },
         )
         .await
@@ -190,7 +190,7 @@ async fn stale_invitation(
     assert!(
         th.app
             .store()
-            .get_member_for_board(board_id, &acceptor)
+            .get_member_for_container(board_id, &acceptor)
             .await
             .expect_err("the invitation added nobody")
             .is_not_found(),
@@ -244,7 +244,7 @@ async fn a_joined_organization_admin_cannot_add_self_but_another_admin_can() {
     let restored = members.iter().find(|m| m.user_id == manager).unwrap();
     assert!(
         th.app
-            .board_grant(&manager, &board.id)
+            .container_grant(&manager, &board.id)
             .await
             .unwrap()
             .reads()
@@ -260,7 +260,7 @@ async fn independently_added(
     manager: &str,
     other: &str,
     colleague: &str,
-) -> (Team, fvoci_model::Board) {
+) -> (Team, fvoci_model::Container) {
     let store = th.app.store();
     let path = format!("/w/{workspace}/teams");
     let members: Vec<WorkspaceMember> = th
@@ -283,12 +283,12 @@ async fn independently_added(
         .ok_json();
     let board = board_with_admin(
         th,
-        new_board(workspace, BoardType::Private, "Independent grant"),
+        new_board(workspace, ContainerType::Private, "Independent grant"),
         colleague,
     )
     .await;
     th.app
-        .set_board_team(
+        .set_container_team(
             workspace,
             &board.id,
             &team.id,
@@ -347,7 +347,7 @@ async fn independently_added(
         records.iter().any(|r| r.target_id == board.id
             && r.actor.person_id() == Some(other)
             && r.subject_id == manager
-            && r.action == AuditAction::AddedToBoard),
+            && r.action == AuditAction::AddedToContainer),
         "the other administrator is recorded granting access"
     );
     (team, board)

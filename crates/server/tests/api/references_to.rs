@@ -3,7 +3,7 @@
 //! from where the asker does not read changes no letter of the answer, and a block the
 //! asker does not read is asked about as one that is not there.
 
-use fvoci_model::{Block, BlockType, Board, BoardType};
+use fvoci_model::{Block, BlockType, Container, ContainerType};
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
@@ -63,7 +63,7 @@ pub(crate) async fn comment_naming(
     targets: &[&str],
 ) -> String {
     let comment = Block {
-        board_id: board_id.to_owned(),
+        container_id: board_id.to_owned(),
         parent_id: card_id.to_owned(),
         block_type: BlockType::Comment,
         body: fvoci_model::Body::parse(body_naming("in a comment", targets))
@@ -381,10 +381,10 @@ async fn what_names_from_a_template_a_guest_does_not_read_moves_no_page() {
     let (owner, guest) = (&th.client, &th.client2);
     let shown = made(owner, TEST_WS, "P", "shown").await;
     let_read(owner, &shown.board, &guest_id).await;
-    let template: Board = owner
-        .create_board(&Board {
+    let template: Container = owner
+        .create_board(&Container {
             is_template: true,
-            ..crate::boards::new_board(TEST_WORKSPACE_ID, BoardType::Open, HIDDEN)
+            ..crate::boards::new_board(TEST_WORKSPACE_ID, ContainerType::Open, HIDDEN)
         })
         .await
         .created_json();
@@ -439,11 +439,11 @@ async fn what_is_of_another_organization_neither_names_nor_is_found() {
     let here = made(&th.client, TEST_WS, "O", "here").await;
     let before = naming(&th.client, TEST_WS, &here.card, "").await.text();
     let (theirs, their_workspace, their_board) = crate::workspaces::another_organization(&th).await;
-    let members = theirs.get_members_for_board(&their_board).await;
+    let members = theirs.get_members_for_container(&their_board).await;
     let owner = members.expect("their members")[0].user_id.clone();
     let mut card = Block {
         id: fvoci_model::new_id(),
-        board_id: their_board.clone(),
+        container_id: their_board.clone(),
         block_type: BlockType::Card,
         title: HIDDEN.to_owned(),
         body: fvoci_model::Body::parse(body_naming("theirs", &[&here.card]))
@@ -543,12 +543,12 @@ async fn what_a_reference_may_name_is_found_by_its_title() {
     )
     .await
     .check_created();
-    let template: Board = user
-        .create_board(&Board {
+    let template: Container = user
+        .create_board(&Container {
             is_template: true,
             ..crate::boards::new_board(
                 crate::common::TEST_WORKSPACE_ID,
-                fvoci_model::BoardType::Open,
+                fvoci_model::ContainerType::Open,
                 "Template",
             )
         })

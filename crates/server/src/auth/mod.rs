@@ -8,7 +8,7 @@ pub mod sealed;
 pub mod secret;
 pub mod token;
 
-use fvoci_model::{BoardKind, Session};
+use fvoci_model::{ContainerKind, Session};
 use fvoci_store::{SharedContainer, Store};
 
 use crate::config::Configuration;
@@ -27,7 +27,7 @@ pub struct Authenticator {
     /// board is, the store's directory finds out by the token.
     store: Store,
     session_idle_millis: i64,
-    public_shared_boards: bool,
+    public_shared_containers: bool,
     cookie: SessionCookie,
     origins: Origins,
 }
@@ -57,7 +57,7 @@ impl Authenticator {
         Ok(Self {
             store,
             session_idle_millis: idle_millis,
-            public_shared_boards: config.enable_public_shared_boards,
+            public_shared_containers: config.enable_public_shared_boards,
             cookie: SessionCookie::new(origins.https(), idle_millis / 1000),
             origins,
         })
@@ -150,13 +150,13 @@ impl Authenticator {
     /// Returns the store's error if the lookup fails.
     pub async fn is_valid_read_token(
         &self,
-        board_id: &str,
+        container_id: &str,
         read_token: &str,
     ) -> Result<bool, AppError> {
         Ok(self
-            .shared_by_read_token(board_id, read_token)
+            .shared_by_read_token(container_id, read_token)
             .await?
-            .is_some_and(|shared| shared.kind == BoardKind::Board))
+            .is_some_and(|shared| shared.kind == ContainerKind::Board))
     }
 
     /// The shared board or wiki that `read_token` grants read access to, with its
@@ -168,18 +168,21 @@ impl Authenticator {
     /// Returns the store's error if the lookup fails.
     pub async fn shared_by_read_token(
         &self,
-        board_id: &str,
+        container_id: &str,
         read_token: &str,
     ) -> Result<Option<SharedContainer>, AppError> {
         // With sharing turned off in the configuration no read token opens anything,
         // whatever is stored: an everyday "no", and nothing for the log.
-        if !self.public_shared_boards {
+        if !self.public_shared_containers {
             return Ok(None);
         }
         // Whose board it is, is not known here, and need not be: the store hands the
         // organization of a shared board to whoever holds its token, and to nobody
         // else.
-        Ok(self.store.shared_container(board_id, read_token).await?)
+        Ok(self
+            .store
+            .shared_container(container_id, read_token)
+            .await?)
     }
 }
 

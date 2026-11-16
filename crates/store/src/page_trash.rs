@@ -14,7 +14,7 @@ use crate::blocks::Paging;
 use crate::db::{Dialect, Id, Scope, now_millis};
 use crate::pages::{page_tree, write_place};
 use crate::trash::{block_from_json, block_not_in_trash, push_paging, take_blocks_out_of_trash};
-use crate::{Store, StoreError, boards};
+use crate::{Store, StoreError, containers};
 
 /// What bringing a page back changed: the pages that came back, a parent before what is
 /// below it, the page asked for first; and the pages numbered anew to leave it room.
@@ -101,7 +101,7 @@ impl Store {
         self.transaction(async |scope| {
             // The wiki first, then the trash read under its lock: a page restored
             // meanwhile is not in it any more.
-            boards::lock_board_of_kind(scope, wiki_id)
+            containers::lock_container_of_kind(scope, wiki_id)
                 .await?
                 .ok_or_else(block_not_in_trash)?;
             let deletion = deletion_of(scope, wiki_id, page_id).await?;

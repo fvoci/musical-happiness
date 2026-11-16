@@ -26,7 +26,7 @@ impl App {
         &self,
         asker: Asker<'_>,
         workspace_id: &str,
-        board_id: &str,
+        container_id: &str,
         card_id: &str,
         read_token: &str,
     ) -> Result<Option<PresenceAccess>, AppError> {
@@ -36,21 +36,24 @@ impl App {
             };
             (entered.app.in_workspace(workspace_id), Some(entered.role))
         } else {
-            let Some(app) = self.enter_shared_board(board_id, read_token).await? else {
+            let Some(app) = self
+                .enter_shared_container(container_id, read_token)
+                .await?
+            else {
                 return Ok(None);
             };
             (app, None)
         };
-        let Some(access) = app.board_access(asker.user_id, board_id).await? else {
+        let Some(access) = app.container_access(asker.user_id, container_id).await? else {
             return Ok(None);
         };
-        if access.board.delete_at != 0
+        if access.container.delete_at != 0
             || (role.is_some() && !access.grant.reads())
-            || (!workspace_id.is_empty() && workspace_id != access.board.workspace_id)
+            || (!workspace_id.is_empty() && workspace_id != access.container.workspace_id)
         {
             return Ok(None);
         }
-        let card_id = if card_id.is_empty() || !is_open_card(&app, board_id, card_id).await? {
+        let card_id = if card_id.is_empty() || !is_open_card(&app, container_id, card_id).await? {
             String::new()
         } else {
             card_id.to_owned()
@@ -58,17 +61,17 @@ impl App {
         Ok(Some(PresenceAccess {
             wall: Wall::of(&app),
             app,
-            workspace_id: access.board.workspace_id,
+            workspace_id: access.container.workspace_id,
             role,
             card_id,
         }))
     }
 }
 
-/// Whether `card_id` is a card of the board `board_id`, or a page of the wiki of that
+/// Whether `card_id` is a card of the board `container_id`, or a page of the wiki of that
 /// identifier, not deleted: a block whose body has a room, on the board the visit was
 /// let onto. Its body is not read.
-async fn is_open_card(app: &App, board_id: &str, card_id: &str) -> Result<bool, AppError> {
+async fn is_open_card(app: &App, container_id: &str, card_id: &str) -> Result<bool, AppError> {
     let on = app.store().board_of_card(card_id).await?;
-    Ok(on.as_deref() == Some(board_id))
+    Ok(on.as_deref() == Some(container_id))
 }

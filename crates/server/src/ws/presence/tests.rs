@@ -8,7 +8,7 @@ use tokio_util::sync::CancellationToken;
 fn visit(board: &str, card: &str, token: &str) -> Visit {
     Visit {
         workspace_id: "workspace".to_owned(),
-        board_id: board.to_owned(),
+        container_id: board.to_owned(),
         card_id: card.to_owned(),
         read_token: token.to_owned(),
         wall: Wall::for_tests(),
@@ -31,7 +31,7 @@ fn add(listeners: &mut Listeners, user: &str, visit: Visit, age: Duration) {
             workspaces: Vec::new(),
             workspace_roles: std::collections::HashMap::new(),
             blocks: Vec::new(),
-            shared_boards: Vec::new(),
+            shared_containers: Vec::new(),
             presence: State {
                 renewed: Some(Instant::now() - age),
                 ..State::default()
@@ -109,17 +109,17 @@ fn fifty_visits_hold_only_bounded_identifiers_in_the_connection_table() {
             let place = listener.presence.visit.as_ref().expect("a visit");
             std::mem::size_of::<State>()
                 + place.workspace_id.capacity()
-                + place.board_id.capacity()
+                + place.container_id.capacity()
                 + place.card_id.capacity()
                 + place.read_token.capacity()
         })
         .sum::<usize>()
         + listeners
             .visits
-            .by_board
+            .by_container
             .iter()
             .map(|((_, workspace, board), on)| {
-                std::mem::size_of::<(BoardKey, OnBoard)>()
+                std::mem::size_of::<(ContainerKey, OnContainer)>()
                     + workspace.capacity()
                     + board.capacity()
                     + on.visitors.len() * std::mem::size_of::<ListenerId>()
@@ -160,13 +160,13 @@ fn a_change_flags_the_rosters_of_the_people_it_concerns_and_nothing_else() {
     let here = Wall::for_tests();
     let cases = [
         (
-            Some(AccessScope::board("board").of_user("two")),
+            Some(AccessScope::container("board").of_user("two")),
             here,
             vec!["one", "two"],
             "a present person's change: the whole roster asks again",
         ),
         (
-            Some(AccessScope::board("board").of_user("absent")),
+            Some(AccessScope::container("board").of_user("absent")),
             here,
             vec![],
             "somebody not present changes no roster",
@@ -178,7 +178,7 @@ fn a_change_flags_the_rosters_of_the_people_it_concerns_and_nothing_else() {
             "everybody's change in the workspace reaches every board of it",
         ),
         (
-            Some(AccessScope::board("board")),
+            Some(AccessScope::container("board")),
             crate::collab::another_wall_for_tests(),
             vec![],
             "another organization's change reaches nobody here",
@@ -212,9 +212,9 @@ fn an_admission_read_before_a_change_that_reaches_it_is_asked_again() {
     let (sender, mut changes) = broadcast::channel(2);
     assert!(!changed_meanwhile(&mut changes, &here), "nothing changed");
     for (scope, wall) in [
-        (AccessScope::board("other-board"), Wall::for_tests()),
+        (AccessScope::container("other-board"), Wall::for_tests()),
         (
-            AccessScope::board("board"),
+            AccessScope::container("board"),
             crate::collab::another_wall_for_tests(),
         ),
     ] {
@@ -228,7 +228,7 @@ fn an_admission_read_before_a_change_that_reaches_it_is_asked_again() {
     );
     sender
         .send(AccessChange::for_tests(
-            AccessScope::board("board"),
+            AccessScope::container("board"),
             Wall::for_tests(),
         ))
         .expect("the receiver listens");
@@ -236,7 +236,7 @@ fn an_admission_read_before_a_change_that_reaches_it_is_asked_again() {
     for _ in 0..3 {
         sender
             .send(AccessChange::for_tests(
-                AccessScope::board("other-board"),
+                AccessScope::container("other-board"),
                 Wall::for_tests(),
             ))
             .expect("the receiver listens");
@@ -250,7 +250,7 @@ fn an_admission_read_before_a_change_that_reaches_it_is_asked_again() {
 #[test]
 fn the_boards_index_follows_every_visit_and_forgets_a_connection_that_went_away() {
     let mut listeners = two_boards();
-    let board = visit("board", "", "").board();
+    let board = visit("board", "", "").container();
     let before = listeners.visits.changed(&board);
     let first = *listeners.by_id.keys().min().expect("a connection");
     listeners.place(first, Some(visit("other-board", "", "")));
@@ -276,7 +276,7 @@ fn the_boards_index_follows_every_visit_and_forgets_a_connection_that_went_away(
         listeners.remove(id);
     }
     assert!(
-        listeners.visits.by_board.is_empty(),
+        listeners.visits.by_container.is_empty(),
         "no board keeps a connection that went away"
     );
 }
@@ -284,7 +284,7 @@ fn the_boards_index_follows_every_visit_and_forgets_a_connection_that_went_away(
 #[test]
 fn a_lapsed_visit_renewed_moves_its_board_so_the_rosters_built_without_it_are_built_again() {
     let mut listeners = two_boards();
-    let board = visit("board", "", "").board();
+    let board = visit("board", "", "").container();
     let before = listeners.visits.changed(&board);
     listeners.visits.touch(&board);
     assert_ne!(
@@ -292,7 +292,7 @@ fn a_lapsed_visit_renewed_moves_its_board_so_the_rosters_built_without_it_are_bu
         before,
         "a reader that saw the board before builds its roster again"
     );
-    let gone = visit("gone", "", "").board();
+    let gone = visit("gone", "", "").container();
     listeners.visits.touch(&gone);
     assert_eq!(
         listeners.visits.changed(&gone),

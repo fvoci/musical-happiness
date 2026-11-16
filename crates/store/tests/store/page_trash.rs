@@ -1,7 +1,7 @@
 //! The trash of a wiki's pages: what it lists, bringing a page back with the pages below
 //! it, at the top where the page it was below is gone, and held to the wiki's limits.
 
-use fvoci_model::{BlockError, BoardKind, PageLimits, PageMove, new_id};
+use fvoci_model::{BlockError, ContainerKind, PageLimits, PageMove, new_id};
 use fvoci_store::{Paging, SearchTarget, Store};
 
 use crate::common;
@@ -31,8 +31,8 @@ async fn a_page_deleted_with_those_below_is_listed_once_and_comes_back_with_them
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
     let workspace_id = common::workspace_of(&test, &[&user_id]).await;
-    let wiki = stored(&test, &workspace_id, &user_id, BoardKind::Wiki).await;
-    let other = stored(&test, &workspace_id, &user_id, BoardKind::Wiki).await;
+    let wiki = stored(&test, &workspace_id, &user_id, ContainerKind::Wiki).await;
+    let other = stored(&test, &workspace_id, &user_id, ContainerKind::Wiki).await;
     let a = page(&test, &wiki, "", None).await;
     let b = page(&test, &wiki, &a, None).await;
     let c = page(&test, &wiki, &b, None).await;
@@ -124,7 +124,7 @@ async fn a_page_whose_parent_is_gone_comes_back_last_at_the_top() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
     let workspace_id = common::workspace_of(&test, &[&user_id]).await;
-    let wiki = stored(&test, &workspace_id, &user_id, BoardKind::Wiki).await;
+    let wiki = stored(&test, &workspace_id, &user_id, ContainerKind::Wiki).await;
     let a = page(&test, &wiki, "", None).await;
     let b = page(&test, &wiki, &a, None).await;
     let c = page(&test, &wiki, &b, None).await;
@@ -158,7 +158,7 @@ async fn a_page_whose_place_was_taken_meanwhile_comes_back_beside_it() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
     let workspace_id = common::workspace_of(&test, &[&user_id]).await;
-    let wiki = stored(&test, &workspace_id, &user_id, BoardKind::Wiki).await;
+    let wiki = stored(&test, &workspace_id, &user_id, ContainerKind::Wiki).await;
     let a = page(&test, &wiki, "", None).await;
     let b = page(&test, &wiki, "", None).await;
     test.delete_block(&b, &user_id).await.expect("deleted");
@@ -188,7 +188,7 @@ async fn a_page_comes_back_only_within_the_limits_of_the_wiki_as_it_is_now() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
     let workspace_id = common::workspace_of(&test, &[&user_id]).await;
-    let wiki = stored(&test, &workspace_id, &user_id, BoardKind::Wiki).await;
+    let wiki = stored(&test, &workspace_id, &user_id, ContainerKind::Wiki).await;
     let a = page(&test, &wiki, "", None).await;
     let b = page(&test, &wiki, &a, None).await;
     let c = page(&test, &wiki, &b, None).await;
@@ -244,7 +244,7 @@ async fn pages_that_come_back_are_noted_for_the_search_server() {
     store.keep_search_outbox();
     let user_id = common::user(store, "user").await;
     let workspace_id = common::workspace_of(store, &[&user_id]).await;
-    let wiki = stored(store, &workspace_id, &user_id, BoardKind::Wiki).await;
+    let wiki = stored(store, &workspace_id, &user_id, ContainerKind::Wiki).await;
     let a = page(store, &wiki, "", None).await;
     let b = page(store, &wiki, &a, None).await;
     store.delete_block(&a, &user_id).await.expect("deleted");
@@ -278,14 +278,14 @@ async fn the_comments_of_deleted_pages_are_no_pages_below_them() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
     let workspace_id = common::workspace_of(&test, &[&user_id]).await;
-    let wiki = stored(&test, &workspace_id, &user_id, BoardKind::Wiki).await;
+    let wiki = stored(&test, &workspace_id, &user_id, ContainerKind::Wiki).await;
     let a = page(&test, &wiki, "", None).await;
     let b = page(&test, &wiki, &a, None).await;
     let mut comments = Vec::new();
     for on in [&a, &a, &b] {
         let mut comment = fvoci_model::Block {
             id: new_id(),
-            board_id: wiki.id.clone(),
+            container_id: wiki.id.clone(),
             parent_id: on.clone(),
             block_type: fvoci_model::BlockType::Comment,
             ..fvoci_model::Block::default()

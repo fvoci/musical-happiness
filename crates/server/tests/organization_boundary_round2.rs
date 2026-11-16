@@ -36,7 +36,7 @@ mod webhooks;
 #[path = "organization_boundary_round2/wiki_transfers.rs"]
 mod wiki_transfers;
 
-use fvoci_model::{Board, OrgRole, Workspace, WorkspaceRole, new_id};
+use fvoci_model::{Container, OrgRole, Workspace, WorkspaceRole, new_id};
 use fvoci_store::DbType;
 use fvoci_store::testing::db_type_of_the_tests;
 use reqwest::{Method, StatusCode};
@@ -77,7 +77,7 @@ enum AfterRemoval {
 
 struct FormerMember {
     ts: TestServer,
-    board: Board,
+    board: Container,
     card_id: String,
     file_id: String,
     upload_id: String,
@@ -94,7 +94,7 @@ async fn former_member(destination: AfterRemoval) -> FormerMember {
     };
     let ts = setup.start().await.init_basic().await;
     let user_id = ts.client2.me().await.id;
-    let board: Board = ts
+    let board: Container = ts
         .client2
         .post(
             &format!("{ROOT_WS}/boards"),
@@ -177,7 +177,7 @@ async fn former_member(destination: AfterRemoval) -> FormerMember {
     }
 }
 
-fn read_paths(board: &Board, card_id: &str, file_id: &str) -> Vec<(String, String)> {
+fn read_paths(board: &Container, card_id: &str, file_id: &str) -> Vec<(String, String)> {
     vec![
         (
             format!("{ROOT_WS}/boards/{}", board.id),
@@ -299,7 +299,7 @@ async fn id_routes_after_removal(destination: AfterRemoval) {
     let stored_title = ts
         .app
         .store()
-        .get_board(&board.id)
+        .get_container(&board.id)
         .await
         .expect("the board remains")
         .title;
@@ -327,7 +327,7 @@ async fn identifier_routes_reject_a_user_who_now_belongs_only_to_another_org() {
 async fn a_former_workspace_admin_cannot_restore_its_deleted_board() {
     let ts = Setup::native().start().await.init_basic().await;
     let user_id = ts.client2.me().await.id;
-    let board: Board = ts
+    let board: Container = ts
         .client2
         .post(
             &format!("{ROOT_WS}/boards"),
@@ -355,7 +355,7 @@ async fn a_former_workspace_admin_cannot_restore_its_deleted_board() {
             &json!({}),
         )
         .await;
-    let restored = ts.app.store().get_board(&board.id).await.is_ok();
+    let restored = ts.app.store().get_container(&board.id).await.is_ok();
     ts.teardown().await;
     assert_eq!(
         (response.status, restored),

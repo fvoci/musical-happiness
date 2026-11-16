@@ -7,7 +7,7 @@
 
 use std::time::Duration;
 
-use fvoci_model::BoardType;
+use fvoci_model::ContainerType;
 use reqwest::{Method, StatusCode};
 use serde_json::Value;
 
@@ -286,7 +286,10 @@ async fn the_original_paths_of_routes_that_have_another_path_are_not_found() {
     let th = Setup::native().start().await.init_basic().await;
     let me = th.client.me().await.id;
     let other = th.client2.me().await.id;
-    let board = th.create_board(ROOT_WORKSPACE_ID, BoardType::Open).await.id;
+    let board = th
+        .create_board(ROOT_WORKSPACE_ID, ContainerType::Open)
+        .await
+        .id;
     let workspace = ROOT_WORKSPACE_ID;
     let file = "7unknownunknownunknownunk12.png";
 

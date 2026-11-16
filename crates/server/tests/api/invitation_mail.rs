@@ -132,7 +132,7 @@ async fn invitation_mail_sends_guest_links_and_stops_when_guests_are_disabled() 
         .init_basic()
         .await;
     let board = th
-        .create_board(ROOT_WORKSPACE_ID, fvoci_model::BoardType::Open)
+        .create_board(ROOT_WORKSPACE_ID, fvoci_model::ContainerType::Open)
         .await;
     let path = format!("/w/{ROOT_WORKSPACE_ID}/invitations");
     let link: Invitation = th
@@ -360,7 +360,7 @@ async fn guest_invitation_mail_gives_each_recipient_a_one_use_link_of_their_own(
         .init_basic()
         .await;
     let board = th
-        .create_board(ROOT_WORKSPACE_ID, fvoci_model::BoardType::Open)
+        .create_board(ROOT_WORKSPACE_ID, fvoci_model::ContainerType::Open)
         .await;
     let path = format!("/w/{ROOT_WORKSPACE_ID}/invitations");
     let link: Invitation = th
@@ -410,8 +410,8 @@ async fn guest_invitation_mail_gives_each_recipient_a_one_use_link_of_their_own(
     assert_eq!(made.len(), 3, "{links:?}");
     for other in made {
         assert_eq!(other.role, fvoci_model::WorkspaceRole::Guest);
-        assert_eq!(other.board_id.as_deref(), Some(board.id.as_str()));
-        assert_eq!(other.board_role, link.board_role);
+        assert_eq!(other.container_id.as_deref(), Some(board.id.as_str()));
+        assert_eq!(other.container_role, link.container_role);
         assert_eq!(other.max_uses, Some(1));
         assert_eq!(
             other.expires_at, link.expires_at,
@@ -433,7 +433,7 @@ async fn a_guest_link_mailed_by_another_inviter_is_made_by_the_sender_and_gone_w
         .init_basic()
         .await;
     let user1 = th.client.me().await.id;
-    let board: fvoci_model::Board = th
+    let board: fvoci_model::Container = th
         .client2
         .post(
             &format!("/w/{ROOT_WORKSPACE_ID}/boards"),
@@ -469,7 +469,9 @@ async fn a_guest_link_mailed_by_another_inviter_is_made_by_the_sender_and_gone_w
     let links: Vec<Invitation> = th.client.get(&path).await.ok_json();
     let made: Vec<&Invitation> = links
         .iter()
-        .filter(|other| other.board_id.as_deref() == Some(board.id.as_str()) && other.id != link.id)
+        .filter(|other| {
+            other.container_id.as_deref() == Some(board.id.as_str()) && other.id != link.id
+        })
         .collect();
     assert_eq!(
         made.len(),

@@ -2,8 +2,8 @@
 //! goes among the pages of its parent, and the tree.
 
 use fvoci_model::{
-    Block, BlockError, BlockPatch, BlockType, Board, BoardKind, BoardKinds, BoardType, NewPage,
-    PageLimits, PageNode, new_id,
+    Block, BlockError, BlockPatch, BlockType, Container, ContainerKind, ContainerKinds,
+    ContainerType, NewPage, PageLimits, PageNode, new_id,
 };
 use fvoci_store::{DbType, Store, StoreError, Tenant};
 
@@ -15,14 +15,14 @@ pub(crate) async fn stored(
     store: &Store,
     workspace_id: &str,
     user_id: &str,
-    kind: BoardKind,
-) -> Board {
-    let mut board = Board {
+    kind: ContainerKind,
+) -> Container {
+    let mut board = Container {
         kind,
-        ..new_board(&new_id(), workspace_id, BoardType::Private)
+        ..new_board(&new_id(), workspace_id, ContainerType::Private)
     };
     store
-        .insert_board_with_admin(&mut board, user_id)
+        .insert_container_with_admin(&mut board, user_id)
         .await
         .expect("the board is stored");
     board
@@ -31,7 +31,7 @@ pub(crate) async fn stored(
 fn block(board_id: &str, parent_id: &str, block_type: BlockType) -> Block {
     Block {
         id: new_id(),
-        board_id: board_id.to_owned(),
+        container_id: board_id.to_owned(),
         parent_id: parent_id.to_owned(),
         block_type,
         ..Block::default()
@@ -48,7 +48,7 @@ pub(crate) fn refusal(result: Result<impl std::fmt::Debug, StoreError>) -> Block
 /// A page made below `parent_id` at the place `after` asks for; its identifier.
 pub(crate) async fn page(
     store: &Store,
-    wiki: &Board,
+    wiki: &Container,
     parent_id: &str,
     after: Option<&str>,
 ) -> String {
@@ -66,7 +66,7 @@ pub(crate) async fn page(
 }
 
 /// The pages of the wiki below `parent_id`, as the tree has them.
-pub(crate) async fn below(store: &Store, wiki: &Board, parent_id: &str) -> Vec<String> {
+pub(crate) async fn below(store: &Store, wiki: &Container, parent_id: &str) -> Vec<String> {
     let tree = store.get_page_tree(&wiki.id).await.expect("the tree");
     tree.into_iter()
         .filter(|page| page.parent_id == parent_id)
@@ -79,8 +79,8 @@ async fn a_page_is_a_block_of_a_wiki_and_a_wiki_has_no_other() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
     let workspace_id = common::workspace_of(&test, &[&user_id]).await;
-    let board = stored(&test, &workspace_id, &user_id, BoardKind::Board).await;
-    let wiki = stored(&test, &workspace_id, &user_id, BoardKind::Wiki).await;
+    let board = stored(&test, &workspace_id, &user_id, ContainerKind::Board).await;
+    let wiki = stored(&test, &workspace_id, &user_id, ContainerKind::Wiki).await;
     let mut cards = [block(&board.id, "", BlockType::Card)];
     common::insert_blocks(&test, &mut cards, &user_id).await;
     let [card] = cards;
@@ -150,8 +150,8 @@ async fn a_page_is_a_block_of_a_wiki_and_a_wiki_has_no_other() {
     );
 
     // Nothing of what was refused is there.
-    let blocks_of = async |board: &Board| {
-        let filter = fvoci_store::BlockFilter::board(&board.id);
+    let blocks_of = async |board: &Container| {
+        let filter = fvoci_store::BlockFilter::container(&board.id);
         let blocks = test.get_blocks(&filter).await.expect("the blocks");
         let mut found: Vec<(String, BlockType)> = blocks
             .into_iter()
@@ -167,9 +167,9 @@ async fn a_page_is_a_block_of_a_wiki_and_a_wiki_has_no_other() {
     assert_eq!(blocks_of(&wiki).await, [(on_wiki.clone(), BlockType::Page)]);
     // A handle of boards finds no page, and one of wikis no card.
     for (id, kinds, found) in [
-        (&on_wiki, BoardKinds::Wikis, true),
-        (&on_wiki, BoardKinds::Boards, false),
-        (&card.id, BoardKinds::Wikis, false),
+        (&on_wiki, ContainerKinds::Wikis, true),
+        (&on_wiki, ContainerKinds::Boards, false),
+        (&card.id, ContainerKinds::Wikis, false),
     ] {
         let read = test.get_block_within(id, Some(&workspace_id), kinds).await;
         assert_eq!(read.is_ok(), found, "{kinds:?}: {read:?}");
@@ -182,8 +182,8 @@ async fn the_parent_of_a_page_is_a_page_of_its_wiki() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
     let workspace_id = common::workspace_of(&test, &[&user_id]).await;
-    let wiki = stored(&test, &workspace_id, &user_id, BoardKind::Wiki).await;
-    let other = stored(&test, &workspace_id, &user_id, BoardKind::Wiki).await;
+    let wiki = stored(&test, &workspace_id, &user_id, ContainerKind::Wiki).await;
+    let other = stored(&test, &workspace_id, &user_id, ContainerKind::Wiki).await;
     let top = page(&test, &wiki, "", None).await;
     let elsewhere = page(&test, &other, "", None).await;
 
@@ -209,14 +209,14 @@ async fn the_parent_of_a_page_is_a_page_of_its_wiki() {
                 test.create_page(&wiki.id, &new, PageLimits::default(), &user_id)
                     .await
             ),
-            BlockError::ParentNotOnBoard,
+            BlockError::ParentNotOnContainer,
             "below {parent}"
         );
         let mut moved = test.get_block(&child).await.expect("the page");
         parent.clone_into(&mut moved.parent_id);
         assert_eq!(
             refusal(test.insert_block(&mut moved, &user_id).await),
-            BlockError::ParentNotOnBoard,
+            BlockError::ParentNotOnContainer,
             "moved below {parent}"
         );
     }
@@ -232,7 +232,7 @@ async fn the_parent_of_a_page_is_a_page_of_its_wiki() {
             test.create_page(&wiki.id, &new, PageLimits::default(), &user_id)
                 .await
         ),
-        BlockError::ParentNotOnBoard
+        BlockError::ParentNotOnContainer
     );
     new.title = "a\0b".to_owned();
     assert_eq!(
@@ -265,7 +265,7 @@ async fn a_new_page_goes_where_it_is_asked_among_the_pages_of_its_parent() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
     let workspace_id = common::workspace_of(&test, &[&user_id]).await;
-    let wiki = stored(&test, &workspace_id, &user_id, BoardKind::Wiki).await;
+    let wiki = stored(&test, &workspace_id, &user_id, ContainerKind::Wiki).await;
 
     // Last when no place is asked for, first after nothing, and right after a page.
     let first = page(&test, &wiki, "", None).await;
@@ -319,7 +319,7 @@ async fn pages_made_at_once_get_places_of_their_own() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
     let workspace_id = common::workspace_of(&test, &[&user_id]).await;
-    let wiki = stored(&test, &workspace_id, &user_id, BoardKind::Wiki).await;
+    let wiki = stored(&test, &workspace_id, &user_id, ContainerKind::Wiki).await;
     let first = page(&test, &wiki, "", None).await;
 
     // Half of them at the end, half right after the first page.
@@ -347,8 +347,8 @@ async fn the_tree_has_every_page_that_is_not_in_the_trash_and_no_body() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
     let workspace_id = common::workspace_of(&test, &[&user_id]).await;
-    let wiki = stored(&test, &workspace_id, &user_id, BoardKind::Wiki).await;
-    let board = stored(&test, &workspace_id, &user_id, BoardKind::Board).await;
+    let wiki = stored(&test, &workspace_id, &user_id, ContainerKind::Wiki).await;
+    let board = stored(&test, &workspace_id, &user_id, ContainerKind::Board).await;
     let new = NewPage {
         title: "Welcome".to_owned(),
         icon: "👋".to_owned(),
@@ -408,8 +408,8 @@ async fn the_body_of_a_page_has_a_room_in_its_wiki_as_that_of_a_card_in_its_boar
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
     let workspace_id = common::workspace_of(&test, &[&user_id]).await;
-    let wiki = stored(&test, &workspace_id, &user_id, BoardKind::Wiki).await;
-    let board = stored(&test, &workspace_id, &user_id, BoardKind::Board).await;
+    let wiki = stored(&test, &workspace_id, &user_id, ContainerKind::Wiki).await;
+    let board = stored(&test, &workspace_id, &user_id, ContainerKind::Board).await;
     let page_id = page(&test, &wiki, "", None).await;
     let mut on_board = [
         block(&board.id, "", BlockType::Card),
@@ -456,12 +456,12 @@ async fn the_pages_of_two_organizations_are_out_of_each_others_reach() {
     let user_id = common::user(ours, "anybody").await;
     let workspace_id = common::workspace(ours).await;
     let wiki_in = async |store: &Store, workspace_id: &str| {
-        let mut wiki = Board {
-            kind: BoardKind::Wiki,
-            ..new_board(&new_id(), workspace_id, BoardType::Open)
+        let mut wiki = Container {
+            kind: ContainerKind::Wiki,
+            ..new_board(&new_id(), workspace_id, ContainerType::Open)
         };
         store
-            .insert_board(&mut wiki, &user_id)
+            .insert_container(&mut wiki, &user_id)
             .await
             .expect("the wiki is stored");
         wiki
@@ -508,7 +508,7 @@ async fn the_pages_of_two_organizations_are_out_of_each_others_reach() {
         "{read:?}"
     );
     let wikis = ours
-        .get_boards_of_workspace(&their_workspace, BoardKinds::Wikis)
+        .get_containers_of_workspace(&their_workspace, ContainerKinds::Wikis)
         .await
         .expect("the wikis of the workspace");
     assert!(wikis.is_empty(), "{wikis:?}");
@@ -523,7 +523,7 @@ async fn the_pages_of_two_organizations_are_out_of_each_others_reach() {
             ours.create_page(&our_wiki.id, &below_theirs, PageLimits::default(), &user_id)
                 .await
         ),
-        BlockError::ParentNotOnBoard
+        BlockError::ParentNotOnContainer
     );
     let after_theirs = NewPage {
         after: Some(their_page.clone()),
@@ -554,9 +554,9 @@ async fn a_comment_of_a_wiki_is_on_a_page_and_goes_to_the_trash_with_it() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
     let workspace_id = common::workspace_of(&test, &[&user_id]).await;
-    let board = stored(&test, &workspace_id, &user_id, BoardKind::Board).await;
-    let wiki = stored(&test, &workspace_id, &user_id, BoardKind::Wiki).await;
-    let other_wiki = stored(&test, &workspace_id, &user_id, BoardKind::Wiki).await;
+    let board = stored(&test, &workspace_id, &user_id, ContainerKind::Board).await;
+    let wiki = stored(&test, &workspace_id, &user_id, ContainerKind::Wiki).await;
+    let other_wiki = stored(&test, &workspace_id, &user_id, ContainerKind::Wiki).await;
     let on_wiki = page(&test, &wiki, "", None).await;
     let below = page(&test, &wiki, &on_wiki, None).await;
     let elsewhere = page(&test, &other_wiki, "", None).await;
@@ -576,7 +576,7 @@ async fn a_comment_of_a_wiki_is_on_a_page_and_goes_to_the_trash_with_it() {
         let mut stray = block(board_id, parent, BlockType::Comment);
         assert_eq!(
             refusal(test.insert_block(&mut stray, &user_id).await),
-            BlockError::ParentNotOnBoard,
+            BlockError::ParentNotOnContainer,
             "on {board_id} below {parent}"
         );
     }
@@ -616,7 +616,7 @@ async fn a_comment_of_a_wiki_is_on_a_page_and_goes_to_the_trash_with_it() {
         .expect("the page comes back");
     let back = test.get_block(&comment.id).await.expect("and its comment");
     assert_eq!(
-        (back.parent_id.as_str(), back.board_id.as_str()),
+        (back.parent_id.as_str(), back.container_id.as_str()),
         (below.as_str(), wiki.id.as_str())
     );
     // On its own, onto its page.

@@ -3,15 +3,16 @@
 use std::collections::HashSet;
 
 use fvoci_model::{
-    BlockType, Board, BoardMember, BoardType, BoardsAndBlocks, BoardsAndBlocksError,
-    DeleteBoardsAndBlocks, FileInfo, PatchBoardsAndBlocks, renew_boards_and_blocks_ids,
+    BlockType, Container, ContainerMember, ContainerType, ContainersAndBlocks,
+    ContainersAndBlocksError, DeleteContainersAndBlocks, FileInfo, PatchContainersAndBlocks,
+    renew_containers_and_blocks_ids,
 };
 
 use crate::Store;
 use crate::blocks::{self, BlockFilter, DuplicateAs};
-use crate::boards;
 use crate::body_versions::BodyWrite;
 use crate::card_values;
+use crate::containers;
 use crate::db::{Dialect, Scope};
 use crate::error::StoreError;
 use crate::file_info;
@@ -42,8 +43,8 @@ impl Store {
     /// validation; nothing is removed or stored then.
     pub async fn replace_builtin_templates(
         &self,
-        templates: &mut BoardsAndBlocks,
-        needed: impl FnOnce(&[Board]) -> bool + Send,
+        templates: &mut ContainersAndBlocks,
+        needed: impl FnOnce(&[Container]) -> bool + Send,
     ) -> Result<Option<Vec<FileInfo>>, StoreError> {
         self.transaction(async |scope| {
             // On SQLite the transaction holds the database from its start.
@@ -55,46 +56,46 @@ impl Store {
             // Under READ COMMITTED, the default, the read below sees what the transaction
             // that held the lock before committed. A stricter isolation level would take
             // its snapshot before the lock is granted, and miss that.
-            let stored = boards::get_builtin_templates(scope).await?;
+            let stored = containers::get_builtin_templates(scope).await?;
             if !needed(&stored) {
                 return Ok(None);
             }
             let mut files = Vec::new();
-            for board in &stored {
-                files.extend(file_info::file_infos_of_board(scope, &board.id).await?);
+            for container in &stored {
+                files.extend(file_info::file_infos_of_container(scope, &container.id).await?);
             }
             // The records go with the templates; their objects are doomed now.
             let doomed: Vec<_> = files.iter().map(|file| (file.path.clone(), None)).collect();
             loose_objects::doom(scope, &doomed).await?;
-            boards::remove_builtin_templates(scope).await?;
+            containers::remove_builtin_templates(scope).await?;
             // Their images are pointed at the templates' files once those are stored.
-            create_boards_and_blocks(scope, templates, "", NewImages::Unchecked).await?;
+            create_containers_and_blocks(scope, templates, "", NewImages::Unchecked).await?;
             Ok(Some(files))
         })
         .await
     }
 
-    /// Inserts or updates every board and then every block, as [`Store::insert_board`]
-    /// and [`Store::insert_block`] do. `boards_and_blocks` is updated to what was stored.
+    /// Inserts or updates every board and then every block, as [`Store::insert_container`]
+    /// and [`Store::insert_block`] do. `containers_and_blocks` is updated to what was stored.
     /// The images the blocks show newly are asked as `new_images` says.
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::InvalidBlock`] for the first block that fails validation;
     /// nothing is written in that case.
-    pub async fn create_boards_and_blocks(
+    pub async fn create_containers_and_blocks(
         &self,
-        boards_and_blocks: &mut BoardsAndBlocks,
+        containers_and_blocks: &mut ContainersAndBlocks,
         user_id: &str,
         new_images: NewImages,
     ) -> Result<(), StoreError> {
         self.transaction(async |scope| {
-            create_boards_and_blocks(scope, boards_and_blocks, user_id, new_images).await
+            create_containers_and_blocks(scope, containers_and_blocks, user_id, new_images).await
         })
         .await
     }
 
-    /// Does what [`Store::create_boards_and_blocks`] does and makes the creator of each
+    /// Does what [`Store::create_containers_and_blocks`] does and makes the creator of each
     /// board an administrator and editor of it. Returns those memberships, in the order
     /// of the boards.
     ///
@@ -103,15 +104,15 @@ impl Store {
     /// Returns [`StoreError::InvalidBlock`] for the first block that fails validation,
     /// and [`StoreError::NotFound`] for the workspace if the creator of a board does not
     /// work in its workspace; nothing is written in either case.
-    pub async fn create_boards_and_blocks_with_admin(
+    pub async fn create_containers_and_blocks_with_admin(
         &self,
-        boards_and_blocks: &mut BoardsAndBlocks,
+        containers_and_blocks: &mut ContainersAndBlocks,
         user_id: &str,
-    ) -> Result<Vec<BoardMember>, StoreError> {
+    ) -> Result<Vec<ContainerMember>, StoreError> {
         self.transaction(async |scope| {
-            create_boards_and_blocks_with_admin(
+            create_containers_and_blocks_with_admin(
                 scope,
-                boards_and_blocks,
+                containers_and_blocks,
                 user_id,
                 NewImages::Recorded,
             )
@@ -128,14 +129,14 @@ impl Store {
     ///
     /// Returns [`StoreError::NotFound`] if a board or block does not exist,
     /// [`StoreError::InvalidBlock`] if a patched block fails validation, and
-    /// [`StoreError::InvalidBoardsAndBlocks`] if there are more identifiers than
+    /// [`StoreError::InvalidContainersAndBlocks`] if there are more identifiers than
     /// patches. Nothing is changed in any of these cases.
-    pub async fn patch_boards_and_blocks(
+    pub async fn patch_containers_and_blocks(
         &self,
-        patches: &PatchBoardsAndBlocks,
+        patches: &PatchContainersAndBlocks,
         user_id: &str,
-    ) -> Result<BoardsAndBlocks, StoreError> {
-        self.transaction(async |scope| patch_boards_and_blocks(scope, patches, user_id).await)
+    ) -> Result<ContainersAndBlocks, StoreError> {
+        self.transaction(async |scope| patch_containers_and_blocks(scope, patches, user_id).await)
             .await
     }
 
@@ -145,14 +146,14 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::NotFound`] if a board or block does not exist, and
-    /// [`StoreError::BlockNotInDeletedBoards`] if a block belongs to none of the listed
+    /// [`StoreError::BlockNotInDeletedContainers`] if a block belongs to none of the listed
     /// boards. Nothing is deleted in either case.
-    pub async fn delete_boards_and_blocks(
+    pub async fn delete_containers_and_blocks(
         &self,
-        request: &DeleteBoardsAndBlocks,
+        request: &DeleteContainersAndBlocks,
         user_id: &str,
     ) -> Result<(), StoreError> {
-        self.transaction(async |scope| delete_boards_and_blocks(scope, request, user_id).await)
+        self.transaction(async |scope| delete_containers_and_blocks(scope, request, user_id).await)
             .await
     }
 
@@ -169,93 +170,99 @@ impl Store {
     /// Returns [`StoreError::NotFound`] if there is no such board, or if `user_id` does
     /// not work in the copy's workspace, and the store's error if the copy cannot be
     /// written.
-    pub async fn duplicate_board(
+    pub async fn duplicate_container(
         &self,
-        board_id: &str,
+        container_id: &str,
         user_id: &str,
         to_workspace: Option<&str>,
         duplicate_as: DuplicateAs,
-    ) -> Result<(BoardsAndBlocks, Vec<BoardMember>), StoreError> {
+    ) -> Result<(ContainersAndBlocks, Vec<ContainerMember>), StoreError> {
         self.transaction(async |scope| {
-            duplicate_board(scope, board_id, user_id, to_workspace, duplicate_as).await
+            duplicate_container(scope, container_id, user_id, to_workspace, duplicate_as).await
         })
         .await
     }
 }
 
-pub(crate) async fn create_boards_and_blocks(
+pub(crate) async fn create_containers_and_blocks(
     scope: &mut Scope<'_>,
-    boards_and_blocks: &mut BoardsAndBlocks,
+    containers_and_blocks: &mut ContainersAndBlocks,
     user_id: &str,
     new_images: NewImages,
 ) -> Result<(), StoreError> {
-    for board in &mut boards_and_blocks.boards {
-        boards::insert_board(scope, board, user_id).await?;
+    for container in &mut containers_and_blocks.containers {
+        containers::insert_container(scope, container, user_id).await?;
     }
     // Parents first, wherever in the list they are: a copied board hands its blocks
     // over oldest first, and a block may be older than the block it is on.
-    blocks::insert_blocks(scope, &mut boards_and_blocks.blocks, user_id, new_images).await
+    blocks::insert_blocks(
+        scope,
+        &mut containers_and_blocks.blocks,
+        user_id,
+        new_images,
+    )
+    .await
 }
 
-pub(crate) async fn create_boards_and_blocks_with_admin(
+pub(crate) async fn create_containers_and_blocks_with_admin(
     scope: &mut Scope<'_>,
-    boards_and_blocks: &mut BoardsAndBlocks,
+    containers_and_blocks: &mut ContainersAndBlocks,
     user_id: &str,
     new_images: NewImages,
-) -> Result<Vec<BoardMember>, StoreError> {
-    create_boards_and_blocks(scope, boards_and_blocks, user_id, new_images).await?;
+) -> Result<Vec<ContainerMember>, StoreError> {
+    create_containers_and_blocks(scope, containers_and_blocks, user_id, new_images).await?;
 
-    let mut members = Vec::with_capacity(boards_and_blocks.boards.len());
-    for board in &boards_and_blocks.boards {
-        // As in `insert_board_with_admin`, the administrator is the board's creator:
+    let mut members = Vec::with_capacity(containers_and_blocks.containers.len());
+    for container in &containers_and_blocks.containers {
+        // As in `insert_container_with_admin`, the administrator is the board's creator:
         // `user_id` for a new board, the stored creator for one that existed.
-        members::hold_creator(scope, &board.workspace_id, &board.created_by).await?;
-        let member = BoardMember {
-            board_id: board.id.clone(),
-            user_id: board.created_by.clone(),
+        members::hold_creator(scope, &container.workspace_id, &container.created_by).await?;
+        let member = ContainerMember {
+            container_id: container.id.clone(),
+            user_id: container.created_by.clone(),
             scheme_admin: true,
             scheme_editor: true,
-            ..BoardMember::default()
+            ..ContainerMember::default()
         };
-        boards::save_member(scope, &member).await?;
+        containers::save_member(scope, &member).await?;
         members.push(member);
     }
     Ok(members)
 }
 
-pub(crate) async fn patch_boards_and_blocks(
+pub(crate) async fn patch_containers_and_blocks(
     scope: &mut Scope<'_>,
-    patches: &PatchBoardsAndBlocks,
+    patches: &PatchContainersAndBlocks,
     user_id: &str,
-) -> Result<BoardsAndBlocks, StoreError> {
+) -> Result<ContainersAndBlocks, StoreError> {
     // The original indexes the patches by the position of the identifier and crashes when
     // there are fewer patches than identifiers; that is an error here.
     // The boards that are patched and the boards of the blocks that are patched are
     // locked in one order, before any of them is written. A block that does not exist
     // is reported where it is patched, below.
-    let mut block_boards = Vec::with_capacity(patches.block_ids.len());
+    let mut block_containers = Vec::with_capacity(patches.block_ids.len());
     for block_id in &patches.block_ids {
         if let Some(block) = blocks::find_block(scope, block_id).await? {
-            block_boards.push(block.board_id);
+            block_containers.push(block.container_id);
         }
     }
-    let to_lock = patches.board_ids.iter().chain(&block_boards);
-    boards::lock_boards(scope, to_lock.map(String::as_str)).await?;
+    let to_lock = patches.container_ids.iter().chain(&block_containers);
+    containers::lock_containers(scope, to_lock.map(String::as_str)).await?;
 
-    let mut result = BoardsAndBlocks::default();
-    for (index, board_id) in patches.board_ids.iter().enumerate() {
+    let mut result = ContainersAndBlocks::default();
+    for (index, container_id) in patches.container_ids.iter().enumerate() {
         let patch = patches
-            .board_patches
+            .container_patches
             .get(index)
-            .ok_or(BoardsAndBlocksError::BoardIdsAndPatchesMismatch)?;
-        let board = boards::patch_board(scope, board_id, patch, user_id).await?;
-        result.boards.push(board);
+            .ok_or(ContainersAndBlocksError::ContainerIdsAndPatchesMismatch)?;
+        let container = containers::patch_container(scope, container_id, patch, user_id).await?;
+        result.containers.push(container);
     }
     for (index, block_id) in patches.block_ids.iter().enumerate() {
         let patch = patches
             .block_patches
             .get(index)
-            .ok_or(BoardsAndBlocksError::BlockIdsAndPatchesMismatch)?;
+            .ok_or(ContainersAndBlocksError::BlockIdsAndPatchesMismatch)?;
         blocks::patch_block(scope, block_id, patch, user_id, BodyWrite::Whole).await?;
         result
             .blocks
@@ -264,82 +271,82 @@ pub(crate) async fn patch_boards_and_blocks(
     Ok(result)
 }
 
-pub(crate) async fn delete_boards_and_blocks(
+pub(crate) async fn delete_containers_and_blocks(
     scope: &mut Scope<'_>,
-    request: &DeleteBoardsAndBlocks,
+    request: &DeleteContainersAndBlocks,
     user_id: &str,
 ) -> Result<(), StoreError> {
-    let board_ids: HashSet<&str> = request.boards.iter().map(String::as_str).collect();
+    let container_ids: HashSet<&str> = request.containers.iter().map(String::as_str).collect();
     // The organization's before the boards': with a joining that ends, whose roles on
     // them are given back in the trash too (`joinings::give_back_roles`).
     org_admin::lock_organization(scope).await?;
-    boards::lock_boards(scope, board_ids.iter().copied()).await?;
+    containers::lock_containers(scope, container_ids.iter().copied()).await?;
 
     // Every listed block must be a block of one of the listed boards. That is all
     // there is to do about the blocks: a board takes all its blocks into the trash, as
     // one deletion, and they come back with it.
     for block_id in &request.blocks {
         let block = blocks::get_block(scope, block_id).await?;
-        if !board_ids.contains(block.board_id.as_str()) {
-            return Err(StoreError::BlockNotInDeletedBoards {
+        if !container_ids.contains(block.container_id.as_str()) {
+            return Err(StoreError::BlockNotInDeletedContainers {
                 block_id: block_id.clone(),
             });
         }
     }
-    for board_id in &request.boards {
-        trash::delete_board(scope, board_id, user_id).await?;
+    for container_id in &request.containers {
+        trash::delete_container(scope, container_id, user_id).await?;
     }
     Ok(())
 }
 
-pub(crate) async fn duplicate_board(
+pub(crate) async fn duplicate_container(
     scope: &mut Scope<'_>,
-    board_id: &str,
+    container_id: &str,
     user_id: &str,
     to_workspace: Option<&str>,
     duplicate_as: DuplicateAs,
-) -> Result<(BoardsAndBlocks, Vec<BoardMember>), StoreError> {
-    let mut board = boards::get_board(scope, board_id).await?;
+) -> Result<(ContainersAndBlocks, Vec<ContainerMember>), StoreError> {
+    let mut container = containers::get_container(scope, container_id).await?;
 
     let as_template = duplicate_as == DuplicateAs::Template;
-    if as_template == board.is_template {
+    if as_template == container.is_template {
         // board -> board or template -> template
-        board.title.push_str(" copy");
+        container.title.push_str(" copy");
     } else if as_template {
         // template from board
-        "New board template".clone_into(&mut board.title);
+        "New board template".clone_into(&mut container.title);
     }
 
     // The copy is private to the user who made it.
-    board.board_type = BoardType::Private;
-    board.is_template = as_template;
-    user_id.clone_into(&mut board.created_by);
+    container.container_type = ContainerType::Private;
+    container.is_template = as_template;
+    user_id.clone_into(&mut container.created_by);
     if let Some(workspace_id) = to_workspace {
         // A workspace of another organization is none, before anything is written.
         if !workspace_membership::is_workspace_here(scope, workspace_id).await? {
             return Err(StoreError::not_found("workspace"));
         }
-        workspace_id.clone_into(&mut board.workspace_id);
+        workspace_id.clone_into(&mut container.workspace_id);
     }
 
-    let mut blocks: Vec<_> = blocks::get_blocks(scope, &BlockFilter::board(board_id))
+    let mut blocks: Vec<_> = blocks::get_blocks(scope, &BlockFilter::container(container_id))
         .await?
         .into_iter()
         .filter(|block| block.block_type != BlockType::Comment)
         .collect();
-    card_values::clear_copied_values(&mut blocks, &board.card_properties);
+    card_values::clear_copied_values(&mut blocks, &container.card_properties);
 
     // A board without blocks, or with comments only, is copied as a board without
     // blocks. The original refuses it, because it regenerates the identifiers with the
     // function for requests, which insists on at least one block
     // (`server/services/store/sqlstore/boards_and_blocks.go:177`).
-    let mut copies = renew_boards_and_blocks_ids(BoardsAndBlocks {
-        boards: vec![board],
+    let mut copies = renew_containers_and_blocks_ids(ContainersAndBlocks {
+        containers: vec![container],
         blocks,
     });
     // The copies show the original board's files until theirs are copied.
     let members =
-        create_boards_and_blocks_with_admin(scope, &mut copies, user_id, NewImages::Unchecked)
+        create_containers_and_blocks_with_admin(scope, &mut copies, user_id, NewImages::Unchecked)
             .await?;
     Ok((copies, members))
 }

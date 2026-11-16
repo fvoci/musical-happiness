@@ -5,12 +5,13 @@
 //! workspaces of the system organization out of an answer.
 
 use fvoci_model::{
-    Block, Board, BoardKinds, BoardType, GuestInvitationsChange, Workspace, WorkspaceRole,
+    Block, Container, ContainerKinds, ContainerType, GuestInvitationsChange, Workspace,
+    WorkspaceRole,
 };
 
 use crate::db::{Bound, Id, OptId, Param, Row, Scope, Sql, now_millis};
 use crate::error::StoreError;
-use crate::{Store, blocks, board_kinds, board_search, boards, link_locks, members};
+use crate::{Store, blocks, container_kinds, container_search, containers, link_locks, members};
 
 const WORKSPACE_COLUMNS: &str = "id, name, settings, modified_by, update_at, guest_invitations";
 
@@ -206,15 +207,15 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if the query fails.
-    pub async fn search_boards_for_user_in_workspace(
+    pub async fn search_containers_for_user_in_workspace(
         &self,
         workspace_id: &str,
         term: &str,
         user_id: &str,
-        kinds: BoardKinds,
-    ) -> Result<Vec<Board>, StoreError> {
+        kinds: ContainerKinds,
+    ) -> Result<Vec<Container>, StoreError> {
         self.with_conn(async |scope| {
-            search_boards_for_user_in_workspace(scope, workspace_id, term, user_id, kinds).await
+            search_containers_for_user_in_workspace(scope, workspace_id, term, user_id, kinds).await
         })
         .await
     }
@@ -225,13 +226,15 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if the query fails.
-    pub async fn get_boards_of_workspace(
+    pub async fn get_containers_of_workspace(
         &self,
         workspace_id: &str,
-        kinds: BoardKinds,
-    ) -> Result<Vec<Board>, StoreError> {
-        self.with_conn(async |scope| every_board(scope, workspace_id, Listed::Boards(kinds)).await)
-            .await
+        kinds: ContainerKinds,
+    ) -> Result<Vec<Container>, StoreError> {
+        self.with_conn(async |scope| {
+            every_container(scope, workspace_id, Listed::Containers(kinds)).await
+        })
+        .await
     }
 
     /// Returns every template of a workspace, whoever is a member of it, oldest first:
@@ -244,65 +247,65 @@ impl Store {
     pub async fn get_templates_of_workspace(
         &self,
         workspace_id: &str,
-    ) -> Result<Vec<Board>, StoreError> {
-        self.with_conn(async |scope| every_board(scope, workspace_id, Listed::Templates).await)
+    ) -> Result<Vec<Container>, StoreError> {
+        self.with_conn(async |scope| every_container(scope, workspace_id, Listed::Templates).await)
             .await
     }
 }
 
-/// Which boards of a workspace [`every_board`] reads.
+/// Which boards of a workspace [`every_container`] reads.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Listed {
     /// Those of the kinds that are no template.
-    Boards(BoardKinds),
+    Containers(ContainerKinds),
     /// The templates: boards all of them, since a wiki is none.
     Templates,
 }
 
 /// Every board of the workspace that is listed, oldest first.
-async fn every_board(
+async fn every_container(
     scope: &mut Scope<'_>,
     workspace_id: &str,
     listed: Listed,
-) -> Result<Vec<Board>, StoreError> {
+) -> Result<Vec<Container>, StoreError> {
     let mut sql = scope.sql(&format!(
         "SELECT {} FROM containers AS b WHERE b.is_template = ",
-        boards::board_select_list("b.")
+        containers::container_select_list("b.")
     ));
     sql.bind(listed == Listed::Templates)
         .push_bind(" AND b.workspace_id = ", Id(workspace_id));
-    if let Listed::Boards(kinds) = listed {
-        board_kinds::push_kinds(&mut sql, "b.kind", kinds);
+    if let Listed::Containers(kinds) = listed {
+        container_kinds::push_kinds(&mut sql, "b.kind", kinds);
     }
-    sql.push(boards::OLDEST_BOARD_FIRST);
-    boards::fetch_boards(scope, sql).await
+    sql.push(containers::OLDEST_CONTAINER_FIRST);
+    containers::fetch_containers(scope, sql).await
 }
 
-async fn search_boards_for_user_in_workspace(
+async fn search_containers_for_user_in_workspace(
     scope: &mut Scope<'_>,
     workspace_id: &str,
     term: &str,
     user_id: &str,
-    kinds: BoardKinds,
-) -> Result<Vec<Board>, StoreError> {
+    kinds: ContainerKinds,
+) -> Result<Vec<Container>, StoreError> {
     let mut sql = scope.sql(&format!(
         "SELECT DISTINCT {} FROM containers AS b LEFT JOIN container_members AS bm ON b.id = bm.container_id \
          WHERE b.is_template = ",
-        boards::board_select_list("b.")
+        containers::container_select_list("b.")
     ));
     sql.bind(false)
         .push_bind(" AND b.workspace_id = ", Id(workspace_id));
-    board_kinds::push_kinds(&mut sql, "b.kind", kinds);
-    sql.push_bind(" AND (b.type = ", BoardType::Open.as_str())
-        .push_bind(" OR (b.type = ", BoardType::Private.as_str())
+    container_kinds::push_kinds(&mut sql, "b.kind", kinds);
+    sql.push_bind(" AND (b.type = ", ContainerType::Open.as_str())
+        .push_bind(" OR (b.type = ", ContainerType::Private.as_str())
         .push_bind(" AND bm.user_id = ", Id(user_id))
         .push(members::BM_HAS_A_ROLE)
         .push(") OR ");
-    crate::board_team_access::push_has_team_role(&mut sql, scope, user_id);
+    crate::container_team_access::push_has_team_role(&mut sql, scope, user_id);
     sql.push(")");
-    sql.push(boards::OLDEST_BOARD_FIRST);
-    Ok(board_search::with_title_words(
-        boards::fetch_boards(scope, sql).await?,
+    sql.push(containers::OLDEST_CONTAINER_FIRST);
+    Ok(container_search::with_title_words(
+        containers::fetch_containers(scope, sql).await?,
         term,
     ))
 }
@@ -321,7 +324,7 @@ impl Store {
         &self,
         block_id: &str,
         workspace_id: Option<&str>,
-        kinds: BoardKinds,
+        kinds: ContainerKinds,
     ) -> Result<Block, StoreError> {
         self.with_conn(async |scope| {
             let mut sql = blocks::select_blocks(scope);
@@ -331,7 +334,7 @@ impl Store {
                 .push(
                     " AND EXISTS (SELECT 1 FROM containers AS b WHERE b.id = blocks.container_id",
                 );
-            board_kinds::push_kinds(&mut sql, "b.kind", kinds);
+            container_kinds::push_kinds(&mut sql, "b.kind", kinds);
             if let Some(workspace_id) = workspace_id {
                 sql.push_bind(" AND (b.workspace_id = ", Id(workspace_id))
                     .push_bind(" OR b.is_builtin = ", true)
@@ -352,11 +355,11 @@ pub(crate) async fn get_template_boards(
     scope: &mut Scope<'_>,
     workspace_id: &str,
     user_id: &str,
-) -> Result<Vec<Board>, StoreError> {
+) -> Result<Vec<Container>, StoreError> {
     let mut sql = scope.sql(&format!(
         "SELECT {} FROM containers AS b LEFT JOIN container_members AS bm \
          ON b.id = bm.container_id AND bm.user_id = ",
-        boards::board_select_list("b.")
+        containers::container_select_list("b.")
     ));
     // Open templates are included even without a membership.
     sql.bind(Id(user_id))
@@ -365,10 +368,10 @@ pub(crate) async fn get_template_boards(
         .push_bind(" AND b.workspace_id = ", Id(workspace_id))
         .push_bind(
             " AND ((bm.container_id IS NULL AND b.type = ",
-            BoardType::Open.as_str(),
+            ContainerType::Open.as_str(),
         )
         .push(") OR bm.container_id IS NOT NULL OR ");
-    crate::board_team_access::push_has_team_role(&mut sql, scope, user_id);
-    sql.push(")").push(boards::OLDEST_BOARD_FIRST);
-    boards::fetch_boards(scope, sql).await
+    crate::container_team_access::push_has_team_role(&mut sql, scope, user_id);
+    sql.push(")").push(containers::OLDEST_CONTAINER_FIRST);
+    containers::fetch_containers(scope, sql).await
 }

@@ -3,10 +3,10 @@
 
 use std::collections::HashMap;
 
-use fvoci_model::{BlockType, Board, Body, JsonMap};
+use fvoci_model::{BlockType, Body, Container, JsonMap};
 use serde_json::Value;
 
-use super::board_blocks;
+use super::container_blocks;
 use crate::app::App;
 
 impl App {
@@ -19,18 +19,22 @@ impl App {
     /// are logged, as in the original.
     pub(super) async fn fix_images_attachments(
         &self,
-        board_map: &HashMap<String, Board>,
+        container_map: &HashMap<String, Container>,
         file_map: &HashMap<(String, String), String>,
         copies: &HashMap<String, String>,
         user_id: &str,
     ) {
-        for board in board_map.values() {
-            let blocks = match self.store().get_blocks(&board_blocks(&board.id)).await {
+        for container in container_map.values() {
+            let blocks = match self
+                .store()
+                .get_blocks(&container_blocks(&container.id))
+                .await
+            {
                 Ok(blocks) => blocks,
                 Err(error) => {
                     tracing::error!(
                         %error,
-                        board_id = board.id,
+                        container_id = container.id,
                         "cannot retrieve imported blocks for board"
                     );
                     continue;
@@ -42,8 +46,11 @@ impl App {
             let mut block_patches = Vec::new();
             for block in blocks {
                 if let Some(body) = block.body.filter(|body| came_with_more(body, copies)) {
-                    let file_of =
-                        |old: &str| file_map.get(&(board.id.clone(), old.to_owned())).cloned();
+                    let file_of = |old: &str| {
+                        file_map
+                            .get(&(container.id.clone(), old.to_owned()))
+                            .cloned()
+                    };
                     bodies.push((block.id, pointed(body, file_of, copies)));
                     continue;
                 }
@@ -54,7 +61,7 @@ impl App {
                 for key in ["fileId", "attachmentId"] {
                     if let Some(old) = block.fields.get(key).and_then(Value::as_str) {
                         let new_name = file_map
-                            .get(&(board.id.clone(), old.to_owned()))
+                            .get(&(container.id.clone(), old.to_owned()))
                             .cloned()
                             .unwrap_or_default();
                         updated_fields.insert(key.to_owned(), Value::String(new_name));
@@ -73,12 +80,12 @@ impl App {
             if !bodies.is_empty()
                 && let Err(error) = self
                     .store()
-                    .replace_bodies_as_written(&board.id, bodies)
+                    .replace_bodies_as_written(&container.id, bodies)
                     .await
             {
                 tracing::error!(
                     %error,
-                    board_id = board.id,
+                    container_id = container.id,
                     "the imported bodies could not be pointed at their files"
                 );
             }
@@ -92,7 +99,7 @@ impl App {
             };
             if let Err(error) = self
                 .patch_blocks(
-                    &board.workspace_id,
+                    &container.workspace_id,
                     &batch,
                     user_id,
                     crate::app::ChangeNotification::Send,
@@ -101,7 +108,7 @@ impl App {
             {
                 tracing::error!(
                     %error,
-                    board_id = board.id,
+                    container_id = container.id,
                     "the imported blocks could not be pointed at their files"
                 );
             }

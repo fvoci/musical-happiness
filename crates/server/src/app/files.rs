@@ -10,7 +10,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use fvoci_model::{
-    Block, BlockError, BlockPatch, BlockPatchBatch, Board, Body, FileInfo, JsonMap, new_id,
+    Block, BlockError, BlockPatch, BlockPatchBatch, Body, Container, FileInfo, JsonMap, new_id,
 };
 use serde_json::Value;
 use tokio::io::AsyncRead;
@@ -43,15 +43,15 @@ pub(crate) struct FilePlace {
 }
 
 impl FilePlace {
-    /// A new place for a file of `board_id` that the client calls `filename`: a secret
+    /// A new place for a file of `container_id` that the client calls `filename`: a secret
     /// with the lower-cased extension of `filename` (`.jpeg` becomes `.jpg`), under the
     /// day's directory. Nothing of the client's name ends up in the path.
-    pub(crate) fn new(board_id: &str, filename: &str) -> Self {
+    pub(crate) fn new(container_id: &str, filename: &str) -> Self {
         let name = base_name(filename);
         let extension = stored_extension(name);
         let stored_name = new_stored_name(&extension);
         Self {
-            path: destination_path(board_id, &stored_name),
+            path: destination_path(container_id, &stored_name),
             stored_name,
             name: name.to_owned(),
             extension,
@@ -92,10 +92,10 @@ impl App {
     pub async fn save_file(
         &self,
         reader: &mut (dyn AsyncRead + Send + Unpin),
-        board_id: &str,
+        container_id: &str,
         filename: &str,
     ) -> Result<String, AppError> {
-        let place = FilePlace::new(board_id, filename);
+        let place = FilePlace::new(container_id, filename);
         self.mark_writing(&place.path).await?;
         let write = self.files().write(&place.path, reader);
         let size = match tokio::time::timeout(WRITE_TIMEOUT, write).await {
@@ -112,7 +112,7 @@ impl App {
                 )));
             }
         };
-        let info = file_info(board_id, place, size);
+        let info = file_info(container_id, place, size);
         self.record_written(&info).await?;
         Ok(info.stored_name)
     }
@@ -134,7 +134,7 @@ impl App {
         }
     }
 
-    /// Records the file of `size` bytes stored at `place` as a file of `board_id`, and
+    /// Records the file of `size` bytes stored at `place` as a file of `container_id`, and
     /// returns its stored name. For an object whose place an upload session holds,
     /// which is its mark: the place is not marked as being written.
     ///
@@ -143,11 +143,11 @@ impl App {
     /// Returns the store's error if the record cannot be written.
     pub(crate) async fn record_file(
         &self,
-        board_id: &str,
+        container_id: &str,
         place: FilePlace,
         size: u64,
     ) -> Result<String, AppError> {
-        let info = file_info(board_id, place, size);
+        let info = file_info(container_id, place, size);
         self.store().save_file_info(&info).await?;
         Ok(info.stored_name)
     }
@@ -160,13 +160,13 @@ impl App {
     /// Returns the store's error if the lookup fails.
     pub async fn file_info(
         &self,
-        board_id: &str,
+        container_id: &str,
         stored_name: &str,
     ) -> Result<Option<FileInfo>, AppError> {
         if stored_name.is_empty() {
             return Ok(None);
         }
-        match self.store().get_file_info(board_id, stored_name).await {
+        match self.store().get_file_info(container_id, stored_name).await {
             Ok(info) => Ok(Some(info)),
             Err(error) if error.is_not_found() => Ok(None),
             Err(error) => Err(error.into()),
@@ -184,10 +184,10 @@ impl App {
     /// have, and the store's error if a lookup fails.
     pub async fn check_body_files(
         &self,
-        board_id: &str,
+        container_id: &str,
         body: Option<&Body>,
     ) -> Result<(), AppError> {
-        if self.has_body_files(board_id, body).await? {
+        if self.has_body_files(container_id, body).await? {
             Ok(())
         } else {
             Err(BlockError::ImageWithoutFile.into())
@@ -201,14 +201,14 @@ impl App {
     /// Returns the store's error if a lookup fails.
     pub(crate) async fn has_body_files(
         &self,
-        board_id: &str,
+        container_id: &str,
         body: Option<&Body>,
     ) -> Result<bool, AppError> {
         let Some(body) = body else {
             return Ok(true);
         };
         for file_id in body.file_ids() {
-            if self.file_info(board_id, file_id).await?.is_none() {
+            if self.file_info(container_id, file_id).await?.is_none() {
                 return Ok(false);
             }
         }
@@ -223,10 +223,10 @@ impl App {
     /// Returns a server error if the storage or the record lookup fails.
     pub(crate) async fn open_stored_file(
         &self,
-        board_id: &str,
+        container_id: &str,
         stored_name: &str,
     ) -> Result<Option<crate::storage::FileStream>, AppError> {
-        let Some(info) = self.file_info(board_id, stored_name).await? else {
+        let Some(info) = self.file_info(container_id, stored_name).await? else {
             return Ok(None);
         };
         if !self.files().exists(&info.path).await? {
@@ -238,7 +238,7 @@ impl App {
     /// Copies the files that duplicated blocks show or attach, and points each block at
     /// its copies.
     ///
-    /// `board_id` is the board the blocks were copied from; `blocks` are the copies, as
+    /// `container_id` is the board the blocks were copied from; `blocks` are the copies, as
     /// they are stored already, and are changed along with what is stored. A block whose
     /// file could not be copied ends up naming no file. The bodies pointed at their copies
     /// are part of the copy, not a change of it: a copy begins without versions of its
@@ -251,22 +251,26 @@ impl App {
     /// are logged and do not fail the call.
     pub async fn copy_and_update_card_files(
         &self,
-        board_id: &str,
+        container_id: &str,
         user_id: &str,
         blocks: &mut [Block],
     ) -> Result<(), AppError> {
         // A failure to copy does not stop the duplication: it is logged, and the copied
         // blocks end up naming no file.
-        let new_file_names = match self.copy_card_files(board_id, blocks).await {
+        let new_file_names = match self.copy_card_files(container_id, blocks).await {
             Ok(names) => names,
             Err(error) => {
-                tracing::error!(board_id, %error, "Could not copy files while duplicating board");
+                tracing::error!(
+                    container_id,
+                    %error,
+                    "Could not copy files while duplicating board"
+                );
                 HashMap::new()
             }
         };
         let not_written = |error| {
             AppError::from(error).context(format_args!(
-                "could not point copies at their files, of blocks of board {board_id}"
+                "could not point copies at their files, of blocks of board {container_id}"
             ))
         };
 
@@ -286,7 +290,7 @@ impl App {
                     .take()
                     .and_then(|body| rename_body_files(body, &new_file_names));
                 bodies
-                    .entry(block.board_id.clone())
+                    .entry(block.container_id.clone())
                     .or_default()
                     .push((block.id.clone(), block.body.clone()));
                 continue;
@@ -311,9 +315,9 @@ impl App {
             });
         }
 
-        for (copies_board, renamed) in bodies {
+        for (copies_container, renamed) in bodies {
             self.store()
-                .replace_bodies_as_written(&copies_board, renamed)
+                .replace_bodies_as_written(&copies_container, renamed)
                 .await
                 .map_err(not_written)?;
         }
@@ -339,16 +343,20 @@ impl App {
     }
 
     /// Copies the files that attachment blocks refer to, for blocks that are
-    /// about to be stored as copies of blocks of `source_board_id`, and points each block
+    /// about to be stored as copies of blocks of `source_container_id`, and points each block
     /// at its copy. Nothing is written to the blocks' store: the caller stores them.
     ///
     /// A block whose file is not the source board's, or could not be copied, ends up
     /// naming no file. Failures are logged and do not fail the call.
-    pub async fn copy_card_files_into(&self, source_board_id: &str, blocks: &mut [Block]) {
-        let new_file_names = match self.copy_card_files(source_board_id, blocks).await {
+    pub async fn copy_card_files_into(&self, source_container_id: &str, blocks: &mut [Block]) {
+        let new_file_names = match self.copy_card_files(source_container_id, blocks).await {
             Ok(names) => names,
             Err(error) => {
-                tracing::error!(source_board_id, %error, "could not copy the files of new blocks");
+                tracing::error!(
+                    source_container_id,
+                    %error,
+                    "could not copy the files of new blocks"
+                );
                 HashMap::new()
             }
         };
@@ -373,13 +381,13 @@ impl App {
     /// board are copied.
     async fn copy_card_files(
         &self,
-        source_board_id: &str,
+        source_container_id: &str,
         blocks: &[Block],
     ) -> Result<HashMap<String, String>, AppError> {
-        let source_board = self.board(source_board_id).await?;
+        let source_container = self.container(source_container_id).await?;
 
         let mut new_file_names = HashMap::new();
-        let mut destination: Option<Board> = None;
+        let mut destination: Option<Container> = None;
         for (block, file_id) in blocks
             .iter()
             .flat_map(|block| block.shown_files().into_iter().map(move |id| (block, id)))
@@ -390,17 +398,17 @@ impl App {
             }
 
             // Most copies stay on the source board; a destination is looked up once.
-            let destination_board = if block.board_id == source_board.id {
-                &source_board
+            let destination_container = if block.container_id == source_container.id {
+                &source_container
             } else {
                 if destination
                     .as_ref()
-                    .is_none_or(|board: &Board| board.id != block.board_id)
+                    .is_none_or(|container: &Container| container.id != block.container_id)
                 {
                     // Of the workspace a copy goes to, which may be another than the
-                    // handle's (checked by the caller): read so, not by `App::board`.
-                    let board = self.store().get_board(&block.board_id).await;
-                    destination = Some(board.map_err(|error| {
+                    // handle's (checked by the caller): read so, not by `App::container`.
+                    let container = self.store().get_container(&block.container_id).await;
+                    destination = Some(container.map_err(|error| {
                         if error.is_not_found() {
                             AppError::not_found("board")
                         } else {
@@ -415,9 +423,9 @@ impl App {
 
             // A block can name any file. One that is not the source board's is not
             // copied; the copied block ends up naming no file.
-            let Some(source) = self.file_info(&source_board.id, &file_id).await? else {
+            let Some(source) = self.file_info(&source_container.id, &file_id).await? else {
                 tracing::warn!(
-                    source_board_id,
+                    source_container_id,
                     block_id = %block.id,
                     "not copying a file that the source board does not have"
                 );
@@ -427,9 +435,9 @@ impl App {
             let stored_name = new_stored_name(&source.extension);
             let copy = FileInfo {
                 id: new_id(),
-                board_id: destination_board.id.clone(),
+                container_id: destination_container.id.clone(),
                 stored_name: stored_name.clone(),
-                path: destination_path(&destination_board.id, &stored_name),
+                path: destination_path(&destination_container.id, &stored_name),
                 create_at: now_millis(),
                 ..source.clone()
             };
@@ -471,7 +479,7 @@ impl App {
 /// else in the storage is none of the server's making, whatever names it.
 pub(crate) fn is_server_place(path: &str) -> bool {
     let mut parts = path.split('/');
-    let (Some(root), Some(day), Some(board), Some(name), None) = (
+    let (Some(root), Some(day), Some(container), Some(name), None) = (
         parts.next(),
         parts.next(),
         parts.next(),
@@ -484,7 +492,7 @@ pub(crate) fn is_server_place(path: &str) -> bool {
     root == UPLOADS_ROOT
         && day.len() == 8
         && day.bytes().all(|byte| byte.is_ascii_digit())
-        && fvoci_model::is_id(board)
+        && fvoci_model::is_id(container)
         && !secret.is_empty()
         && secret
             .bytes()
@@ -492,11 +500,11 @@ pub(crate) fn is_server_place(path: &str) -> bool {
         && extension.bytes().all(|byte| byte.is_ascii_alphanumeric())
 }
 
-/// The record of a file of `board_id` of `size` bytes stored at `place`, made now.
-fn file_info(board_id: &str, place: FilePlace, size: u64) -> FileInfo {
+/// The record of a file of `container_id` of `size` bytes stored at `place`, made now.
+fn file_info(container_id: &str, place: FilePlace, size: u64) -> FileInfo {
     FileInfo {
         id: new_id(),
-        board_id: board_id.to_owned(),
+        container_id: container_id.to_owned(),
         stored_name: place.stored_name,
         path: place.path,
         size: size_to_i64(size),
@@ -550,8 +558,11 @@ fn new_stored_name(extension: &str) -> String {
 
 /// Where a board's file is stored: `boards/YYYYMMDD/<board id>/<stored name>`, with the
 /// date of the upload in UTC.
-fn destination_path(board_id: &str, stored_name: &str) -> String {
-    format!("{}/{board_id}/{stored_name}", base_file_path(now_millis()))
+fn destination_path(container_id: &str, stored_name: &str) -> String {
+    format!(
+        "{}/{container_id}/{stored_name}",
+        base_file_path(now_millis())
+    )
 }
 
 /// `boards/YYYYMMDD` for the UTC day of `now_millis`.

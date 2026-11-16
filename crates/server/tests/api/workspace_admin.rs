@@ -3,7 +3,7 @@
 //! its member: making themselves one is recorded.
 
 use fvoci_model::AuditAction;
-use fvoci_model::{Board, BoardMember, BoardType, WorkspaceRole};
+use fvoci_model::{Container, ContainerMember, ContainerType, WorkspaceRole};
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
 
@@ -37,12 +37,12 @@ pub(crate) async fn workspace_admin(th: &TestServer) -> String {
 }
 
 /// A private board of the first user with one card; returns the board and the card.
-async fn private_board_with_a_card(th: &TestServer) -> (Board, String) {
-    let board: Board = th
+async fn private_board_with_a_card(th: &TestServer) -> (Container, String) {
+    let board: Container = th
         .client
-        .create_board(&Board {
+        .create_board(&Container {
             description: "The plan".to_owned(),
-            ..new_board(TEST_WORKSPACE_ID, BoardType::Private, "Private")
+            ..new_board(TEST_WORKSPACE_ID, ContainerType::Private, "Private")
         })
         .await
         .created_json();
@@ -106,7 +106,7 @@ async fn a_workspace_admin_lists_and_manages_a_private_board_and_reads_none_of_i
     let (board, card_id) = private_board_with_a_card(&th).await;
     let third = th.add_user("third").await.me().await.id;
 
-    let listed: Vec<Board> = th.client2.get(&format!("{TEST_WS}/boards")).await.ok_json();
+    let listed: Vec<Container> = th.client2.get(&format!("{TEST_WS}/boards")).await.ok_json();
     let seen = th
         .client2
         .get(&format!("{TEST_WS}/boards/{}", board.id))
@@ -125,7 +125,7 @@ async fn a_workspace_admin_lists_and_manages_a_private_board_and_reads_none_of_i
     }
     let added = th
         .client2
-        .add_member(&BoardMember {
+        .add_member(&ContainerMember {
             scheme_viewer: true,
             ..member(&board.id, &third)
         })
@@ -196,7 +196,7 @@ async fn a_workspace_admin_lists_and_manages_a_private_board_and_reads_none_of_i
     assert_eq!(
         recorded,
         [(
-            AuditAction::AddedToBoard,
+            AuditAction::AddedToContainer,
             admin_id.as_str(),
             board.id.as_str(),
             third.as_str()
@@ -210,7 +210,7 @@ async fn a_workspace_admin_who_makes_themselves_a_member_reads_the_board_and_is_
     let th = Setup::native().start().await.init_basic().await;
     let admin = workspace_admin(&th).await;
     let (board, card_id) = private_board_with_a_card(&th).await;
-    let as_viewer = BoardMember {
+    let as_viewer = ContainerMember {
         scheme_viewer: true,
         ..member(&board.id, &admin)
     };
@@ -238,7 +238,7 @@ async fn a_workspace_admin_who_makes_themselves_a_member_reads_the_board_and_is_
             entry.workspace_id.as_str()
         ),
         (
-            AuditAction::SelfAddedToBoard,
+            AuditAction::SelfAddedToContainer,
             admin.as_str(),
             board.id.as_str(),
             TEST_WORKSPACE_ID
@@ -256,7 +256,7 @@ async fn a_member_who_is_no_admin_neither_lists_nor_manages_a_private_board() {
         .get(&format!("{TEST_WS}/boards/{UNKNOWN_ID}/members"))
         .await;
 
-    let listed: Vec<Board> = th.client2.get(&format!("{TEST_WS}/boards")).await.ok_json();
+    let listed: Vec<Container> = th.client2.get(&format!("{TEST_WS}/boards")).await.ok_json();
     let members = th
         .client2
         .get(&format!("{TEST_WS}/boards/{}/members", board.id))
@@ -339,7 +339,7 @@ async fn a_workspace_admin_who_gives_a_membership_without_a_role_a_role_is_recor
     assert_eq!(
         recorded,
         [(
-            AuditAction::SelfAddedToBoard,
+            AuditAction::SelfAddedToContainer,
             admin.as_str(),
             board.id.as_str()
         )]
@@ -350,15 +350,15 @@ async fn a_workspace_admin_who_gives_a_membership_without_a_role_a_role_is_recor
 async fn a_workspace_admin_who_joins_an_open_board_is_not_recorded() {
     let th = Setup::native().start().await.init_basic().await;
     let admin = workspace_admin(&th).await;
-    let board: Board = th
+    let board: Container = th
         .client
-        .create_board(&new_board(TEST_WORKSPACE_ID, BoardType::Open, "Open"))
+        .create_board(&new_board(TEST_WORKSPACE_ID, ContainerType::Open, "Open"))
         .await
         .created_json();
 
     let added = th
         .client2
-        .add_member(&BoardMember {
+        .add_member(&ContainerMember {
             scheme_viewer: true,
             ..member(&board.id, &admin)
         })
@@ -383,12 +383,12 @@ async fn a_workspace_admin_lists_a_template_they_only_manage_by_name_and_adding_
  {
     let th = Setup::native().start().await.init_basic().await;
     let admin = workspace_admin(&th).await;
-    let template: Board = th
+    let template: Container = th
         .client
-        .create_board(&Board {
+        .create_board(&Container {
             is_template: true,
             description: "How we plan".to_owned(),
-            ..new_board(TEST_WORKSPACE_ID, BoardType::Private, "Template")
+            ..new_board(TEST_WORKSPACE_ID, ContainerType::Private, "Template")
         })
         .await
         .created_json();
@@ -398,7 +398,7 @@ async fn a_workspace_admin_lists_a_template_they_only_manage_by_name_and_adding_
         .add_member(&member(&template.id, &admin))
         .await
         .check_ok();
-    let templates: Vec<Board> = th
+    let templates: Vec<Container> = th
         .client2
         .get(&format!("{TEST_WS}/templates"))
         .await

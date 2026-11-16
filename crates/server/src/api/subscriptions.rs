@@ -19,7 +19,7 @@ use super::require_permission_through;
 use super::{ApiResult, created, json_response, no_content};
 use crate::app::App;
 use crate::error::AppError;
-use crate::permissions::BoardPermission;
+use crate::permissions::ContainerPermission;
 
 /// The refusal of this area, whatever is refused.
 const ACCESS_DENIED: &str = "access denied";
@@ -132,8 +132,8 @@ async fn handle_create_subscription(ws: InWorkspace, body: Bytes) -> ApiResult {
     require_permission_through(
         &ws.app,
         &ws.session.user_id,
-        &block.board_id,
-        BoardPermission::ViewBoard,
+        &block.container_id,
+        ContainerPermission::View,
         ACCESS_DENIED,
         "block",
     )

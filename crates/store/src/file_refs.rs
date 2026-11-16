@@ -130,7 +130,7 @@ pub(crate) async fn refresh(
     for name in shown {
         let mut sql = scope.sql("INSERT INTO file_refs (block_id, container_id, name) VALUES (");
         sql.bind(Id(&block.id))
-            .push_bind(", ", Id(&block.board_id))
+            .push_bind(", ", Id(&block.container_id))
             .push_bind(", ", name.as_str())
             .push(")");
         scope.execute(sql).await?;
@@ -141,7 +141,7 @@ pub(crate) async fn refresh(
     }
     names.sort_unstable();
     names.dedup();
-    mark(scope, Some((&block.board_id, &names))).await
+    mark(scope, Some((&block.container_id, &names))).await
 }
 
 /// Holds the records of the files that the images of a block's body show and that it
@@ -167,7 +167,7 @@ async fn hold_new_images(
         return Ok(());
     }
     let mut sql = scope.sql("SELECT name FROM file_info WHERE container_id = ");
-    sql.bind(Id(&block.board_id))
+    sql.bind(Id(&block.container_id))
         .push(" AND name IN (")
         .bind_list(new.iter().copied())
         .push(")");
@@ -221,13 +221,13 @@ pub(crate) async fn show_images(
     }
     let mut sql = scope.sql("SELECT container_id FROM blocks WHERE id = ");
     sql.bind(Id(block_id));
-    let board_id = scope
+    let container_id = scope
         .fetch_optional(sql)
         .await?
         .ok_or_else(|| StoreError::not_found(format_args!("block ID={block_id}")))?
         .id(0)?;
     let mut sql = scope.sql("SELECT name FROM file_info WHERE container_id = ");
-    sql.bind(Id(&board_id))
+    sql.bind(Id(&container_id))
         .push(" AND name IN (")
         .bind_list(new.iter().map(String::as_str))
         .push(")");
@@ -249,12 +249,12 @@ pub(crate) async fn show_images(
     for name in &new {
         let mut sql = scope.sql("INSERT INTO file_refs (block_id, container_id, name) VALUES (");
         sql.bind(Id(block_id))
-            .push_bind(", ", Id(&board_id))
+            .push_bind(", ", Id(&container_id))
             .push_bind(", ", name.as_str())
             .push(")");
         scope.execute(sql).await?;
     }
-    mark(scope, Some((&board_id, &new))).await
+    mark(scope, Some((&container_id, &new))).await
 }
 
 /// Forgets what the blocks that are gone for good showed: neither on a board nor in the
@@ -319,8 +319,8 @@ fn mark_statement(scope: &Scope<'_>, changing: &str) -> Sql {
 }
 
 fn narrow_marks(sql: &mut Sql, only: Option<(&str, &[String])>) {
-    if let Some((board_id, names)) = only {
-        sql.push_bind(" AND container_id = ", Id(board_id))
+    if let Some((container_id, names)) = only {
+        sql.push_bind(" AND container_id = ", Id(container_id))
             .push(" AND name IN (")
             .bind_list(names.iter().map(String::as_str))
             .push(")");

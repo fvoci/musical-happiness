@@ -15,7 +15,7 @@ use crate::auth::limiter::AddressKey;
 /// The limits of the readers by a public link, from the configuration.
 #[derive(Debug, Clone, Copy)]
 pub(super) struct ReaderLimits {
-    per_board: usize,
+    per_container: usize,
     per_address: usize,
 }
 
@@ -23,7 +23,7 @@ impl ReaderLimits {
     pub(super) fn of(app: &App) -> Self {
         let config = app.config();
         Self {
-            per_board: as_count(config.public_link_connections_per_board),
+            per_container: as_count(config.public_link_connections_per_board),
             per_address: as_count(config.public_link_connections_per_address),
         }
     }
@@ -34,45 +34,45 @@ fn as_count(setting: u32) -> usize {
 }
 
 impl Listener {
-    /// Whether the connection reads `board_id` by its public link: a visit whose
+    /// Whether the connection reads `container_id` by its public link: a visit whose
     /// lease lapsed counts no more, as it is on no roster.
-    fn reads_by_link(&self, board_id: &str) -> bool {
-        self.shared_boards
+    fn reads_by_link(&self, container_id: &str) -> bool {
+        self.shared_containers
             .iter()
-            .any(|permit| permit.board == board_id)
-            || (self.presence.reads_shared_board(board_id) && self.presence.is_current())
+            .any(|permit| permit.container == container_id)
+            || (self.presence.reads_shared_container(container_id) && self.presence.is_current())
     }
 }
 
 impl Listeners {
-    /// Whether the connection `id` may read `board_id` by its public link: it does
+    /// Whether the connection `id` may read `container_id` by its public link: it does
     /// already, or the board has fewer such readers than `limits` allow, and so has the
     /// connection's address among them. A connection with no address (the
     /// administration socket) is held to the board's limit alone.
     pub(super) fn admits_reader(
         &self,
         id: ListenerId,
-        board_id: &str,
+        container_id: &str,
         limits: ReaderLimits,
     ) -> bool {
         let Some(listener) = self.by_id.get(&id) else {
             return false;
         };
-        if listener.reads_by_link(board_id) {
+        if listener.reads_by_link(container_id) {
             return true;
         }
-        let (mut on_board, mut from_address) = (0, 0);
+        let (mut on_container, mut from_address) = (0, 0);
         for other in self
             .by_id
             .values()
-            .filter(|other| other.reads_by_link(board_id))
+            .filter(|other| other.reads_by_link(container_id))
         {
-            on_board += 1;
+            on_container += 1;
             if same_address(listener.address, other.address) {
                 from_address += 1;
             }
         }
-        on_board < limits.per_board && from_address < limits.per_address
+        on_container < limits.per_container && from_address < limits.per_address
     }
 }
 
@@ -88,7 +88,7 @@ mod tests {
     use super::*;
 
     const LIMITS: ReaderLimits = ReaderLimits {
-        per_board: 3,
+        per_container: 3,
         per_address: 2,
     };
 
@@ -97,11 +97,11 @@ mod tests {
     }
 
     /// Makes `id` a reader of the board, as a taken subscription does.
-    fn read(listeners: &mut Listeners, id: ListenerId, board_id: &str) {
-        assert!(listeners.admits_reader(id, board_id, LIMITS));
+    fn read(listeners: &mut Listeners, id: ListenerId, container_id: &str) {
+        assert!(listeners.admits_reader(id, container_id, LIMITS));
         let listener = listeners.by_id.get_mut(&id).expect("the listener");
-        listener.shared_boards.push(crate::ws::ReadPermit {
-            board: board_id.to_owned(),
+        listener.shared_containers.push(crate::ws::ReadPermit {
+            container: container_id.to_owned(),
             token: String::new(),
             workspace: String::new(),
             blocks: Vec::new(),

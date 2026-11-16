@@ -1,13 +1,13 @@
 //! Checks that many handlers share: who may do what on a board or in a workspace.
 //!
-//! Every check of a board asks `App::board_access` once and decides by the grant it
+//! Every check of a board asks `App::container_access` once and decides by the grant it
 //! gives (`permissions::grant`).
 
 use fvoci_model::{Block, BlockPatch, BlockType, Workspace};
 
 use crate::app::App;
 use crate::error::{AppError, Reason};
-use crate::permissions::{self, BoardPermission, CommentAction, Grant};
+use crate::permissions::{self, CommentAction, ContainerPermission, Grant};
 
 /// Checks that the user is an administrator of the instance.
 ///
@@ -31,14 +31,14 @@ pub(crate) async fn require_admin(app: &App, user_id: &str) -> Result<(), AppErr
 /// What a user without the permission is told depends on what they may know. Who sees
 /// the board (`Grant::sees`) is refused (403, `denial`); for anybody else the board does
 /// not exist (404), whether it does or not.
-pub(crate) async fn require_board_permission(
+pub(crate) async fn require_container_permission(
     app: &App,
     user_id: &str,
-    board_id: &str,
-    permission: BoardPermission,
+    container_id: &str,
+    permission: ContainerPermission,
     denial: &str,
 ) -> Result<(), AppError> {
-    let grant = app.board_grant(user_id, board_id).await?;
+    let grant = app.container_grant(user_id, container_id).await?;
     require_granted(grant, permission, denial)
 }
 
@@ -47,7 +47,7 @@ pub(crate) async fn require_board_permission(
 /// for the content of a board the user only manages (`Grant::hides`).
 pub(crate) fn require_granted(
     grant: Grant,
-    permission: BoardPermission,
+    permission: ContainerPermission,
     denial: &str,
 ) -> Result<(), AppError> {
     if grant.allows(permission) {
@@ -124,7 +124,7 @@ pub(crate) async fn require_block_permission(
     denial: &str,
 ) -> Result<(), AppError> {
     let (permission, denial) = block_permission(user_id, block, action, denial);
-    let grant = app.board_grant(user_id, &block.board_id).await?;
+    let grant = app.container_grant(user_id, &block.container_id).await?;
     require_granted(grant, permission, denial)
 }
 
@@ -134,10 +134,10 @@ fn block_permission<'a>(
     block: &Block,
     action: BlockAction<'_>,
     denial: &'a str,
-) -> (BoardPermission, &'a str) {
+) -> (ContainerPermission, &'a str) {
     match block.block_type {
         BlockType::Comment => comment_permission(user_id, block, action, denial),
-        _ => (BoardPermission::ManageBoardCards, denial),
+        _ => (ContainerPermission::ManageCards, denial),
     }
 }
 
@@ -158,7 +158,7 @@ pub(crate) async fn require_block_patch_permission(
     // by the board: naming it so moves nothing.
     let moves = patch.parent_id.as_ref().is_some_and(|parent_id| {
         *parent_id != block.parent_id
-            && !(block.parent_id.is_empty() && *parent_id == block.board_id)
+            && !(block.parent_id.is_empty() && *parent_id == block.container_id)
     });
     let changes_type = patch.block_type.as_ref().is_some_and(|new_type| {
         (block.block_type == BlockType::Comment) != (*new_type == BlockType::Comment)
@@ -167,16 +167,16 @@ pub(crate) async fn require_block_patch_permission(
     if !(changes_type || moves_comment) {
         return Ok(());
     }
-    let grant = app.board_grant(user_id, &block.board_id).await?;
+    let grant = app.container_grant(user_id, &block.container_id).await?;
     if moves_comment {
-        require_granted(grant, BoardPermission::ManageBoardCards, denial)?;
+        require_granted(grant, ContainerPermission::ManageCards, denial)?;
     }
     let Some(new_type) = patch.block_type.as_ref() else {
         return Ok(());
     };
     let (permission, denial) = match (&block.block_type, new_type) {
         (BlockType::Comment, BlockType::Comment) => return Ok(()),
-        (BlockType::Comment, _) => (BoardPermission::ManageBoardCards, denial),
+        (BlockType::Comment, _) => (ContainerPermission::ManageCards, denial),
         (_, BlockType::Comment) => comment_permission(user_id, block, BlockAction::Change, denial),
         _ => return Ok(()),
     };
@@ -220,7 +220,7 @@ pub(crate) async fn require_deletion_permission(
     } else {
         &[]
     };
-    let grant = app.board_grant(user_id, &top.board_id).await?;
+    let grant = app.container_grant(user_id, &top.container_id).await?;
     for block in std::iter::once(top).chain(replies) {
         let (permission, denial) = block_permission(user_id, block, action, denial);
         require_granted(grant, permission, denial)?;
@@ -237,11 +237,11 @@ fn comment_permission<'a>(
     block: &Block,
     action: BlockAction<'_>,
     denial: &'a str,
-) -> (BoardPermission, &'a str) {
+) -> (ContainerPermission, &'a str) {
     let permission =
         permissions::comment_permission(user_id, &block.created_by, action.on_comment());
     match action {
-        _ if permission == BoardPermission::CommentBoardCards => (permission, denial),
+        _ if permission == ContainerPermission::CommentCards => (permission, denial),
         BlockAction::Undelete { deleted_by }
             if block.created_by == user_id && !deleted_by.is_empty() =>
         {
@@ -260,12 +260,12 @@ fn comment_permission<'a>(
 pub(crate) async fn require_permission_through(
     app: &App,
     user_id: &str,
-    board_id: &str,
-    permission: BoardPermission,
+    container_id: &str,
+    permission: ContainerPermission,
     denial: &str,
     what: &str,
 ) -> Result<(), AppError> {
-    let grant = app.board_grant(user_id, board_id).await?;
+    let grant = app.container_grant(user_id, container_id).await?;
     if grant.allows(permission) {
         Ok(())
     } else if grant.reads() {
@@ -277,12 +277,12 @@ pub(crate) async fn require_permission_through(
 
 /// Checks that the user sees the board at all (`Grant::sees`). For anybody else it does
 /// not exist (404).
-pub(crate) async fn require_board_visible(
+pub(crate) async fn require_container_visible(
     app: &App,
     user_id: &str,
-    board_id: &str,
+    container_id: &str,
 ) -> Result<(), AppError> {
-    if app.board_grant(user_id, board_id).await?.sees() {
+    if app.container_grant(user_id, container_id).await?.sees() {
         Ok(())
     } else {
         Err(AppError::not_found("board"))

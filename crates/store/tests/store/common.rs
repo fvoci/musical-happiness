@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use fvoci_model::{Block, Board, BoardType, User, Workspace, new_id};
+use fvoci_model::{Block, Container, ContainerType, User, Workspace, new_id};
 use fvoci_store::testing::TestDatabase;
 use fvoci_store::{DbType, Purged, Store};
 use sqlx::postgres::PgConnection;
@@ -266,19 +266,19 @@ pub(crate) async fn create_test_boards(
     workspace_id: &str,
     user_id: &str,
     count: usize,
-) -> Vec<Board> {
+) -> Vec<Container> {
     let mut boards = Vec::with_capacity(count);
     for index in 0..count {
-        let mut board = Board {
+        let mut board = Container {
             id: new_id(),
             workspace_id: workspace_id.to_owned(),
-            board_type: BoardType::Open,
+            container_type: ContainerType::Open,
             created_by: user_id.to_owned(),
             title: format!("board {index}"),
-            ..Board::default()
+            ..Container::default()
         };
         store
-            .insert_board(&mut board, user_id)
+            .insert_container(&mut board, user_id)
             .await
             .expect("the board is inserted");
         boards.push(board);

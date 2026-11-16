@@ -16,7 +16,7 @@ use crate::serde_util::{is_zero, null_as_default};
 pub struct Sharing {
     /// The identifier of the board.
     #[serde(skip)]
-    pub board_id: String,
+    pub container_id: String,
     /// Whether the board is shared.
     #[serde(deserialize_with = "null_as_default")]
     pub enabled: bool,
@@ -40,7 +40,7 @@ impl fmt::Debug for Sharing {
     /// Leaves out the read token.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Sharing")
-            .field("board_id", &self.board_id)
+            .field("container_id", &self.container_id)
             .field("enabled", &self.enabled)
             .field("modified_by", &self.modified_by)
             .field("update_at", &self.update_at)

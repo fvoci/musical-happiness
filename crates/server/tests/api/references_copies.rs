@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 
-use fvoci_model::{Block, BlockType, Board, BoardsAndBlocks};
+use fvoci_model::{Block, BlockType, Container, ContainersAndBlocks};
 use serde_json::json;
 
 use crate::common::{Client, Setup, TEST_WORKSPACE_ID, TEST_WS, TestServer};
@@ -26,7 +26,7 @@ struct Named {
 async fn named_board(th: &TestServer) -> Named {
     let user = &th.client;
     let elsewhere = made(user, TEST_WS, "P", "elsewhere").await;
-    let board: Board = user
+    let board: Container = user
         .post(
             &format!("{TEST_WS}/boards"),
             &json!({"workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": "Named"}),
@@ -152,12 +152,12 @@ async fn check_names_its_own(th: &TestServer, source: &Named, copy_id: &str, wha
 async fn a_copy_of_a_board_names_its_own_cards_in_its_bodies() {
     let th = Setup::native().start().await.init_basic().await;
     let source = named_board(&th).await;
-    let copy: BoardsAndBlocks = th
+    let copy: ContainersAndBlocks = th
         .client
         .post_empty(&format!("{TEST_WS}/boards/{}/duplicate", source.board))
         .await
         .created_json();
-    check_names_its_own(&th, &source, &copy.boards[0].id, "a copy").await;
+    check_names_its_own(&th, &source, &copy.containers[0].id, "a copy").await;
     th.teardown().await;
 }
 
@@ -165,7 +165,7 @@ async fn a_copy_of_a_board_names_its_own_cards_in_its_bodies() {
 async fn a_template_and_a_board_made_from_it_name_their_own_cards_in_their_bodies() {
     let th = Setup::native().start().await.init_basic().await;
     let source = named_board(&th).await;
-    let template: BoardsAndBlocks = th
+    let template: ContainersAndBlocks = th
         .client
         .post_empty(&format!(
             "{TEST_WS}/boards/{}/duplicate?asTemplate=true",
@@ -173,14 +173,14 @@ async fn a_template_and_a_board_made_from_it_name_their_own_cards_in_their_bodie
         ))
         .await
         .created_json();
-    let template = &template.boards[0];
-    let made: BoardsAndBlocks = th
+    let template = &template.containers[0];
+    let made: ContainersAndBlocks = th
         .client
         .post_empty(&format!("{TEST_WS}/boards/{}/duplicate", template.id))
         .await
         .created_json();
     check_names_its_own(&th, &source, &template.id, "a template").await;
-    check_names_its_own(&th, &source, &made.boards[0].id, "made from it").await;
+    check_names_its_own(&th, &source, &made.containers[0].id, "made from it").await;
     th.teardown().await;
 }
 
@@ -196,7 +196,7 @@ async fn an_imported_archive_names_the_imported_cards_in_its_bodies() {
     import(&th.client, TEST_WORKSPACE_ID, &archive.body)
         .await
         .check_ok();
-    let boards: Vec<Board> = th.client.get(&format!("{TEST_WS}/boards")).await.ok_json();
+    let boards: Vec<Container> = th.client.get(&format!("{TEST_WS}/boards")).await.ok_json();
     let imported = boards
         .iter()
         .find(|each| each.id != source.board && each.title == "Named")
@@ -230,7 +230,7 @@ async fn an_imported_archive_of_boards_names_the_copies_on_its_other_boards() {
     let th = Setup::native().start().await.init_basic().await;
     let user = &th.client;
     let board_of = async |title: &str| -> String {
-        let board: Board = user
+        let board: Container = user
             .post(
                 &format!("{TEST_WS}/boards"),
                 &json!({"workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": title}),
@@ -250,7 +250,7 @@ async fn an_imported_archive_of_boards_names_the_copies_on_its_other_boards() {
         .await
         .check_ok();
 
-    let boards: Vec<Board> = user.get(&format!("{TEST_WS}/boards")).await.ok_json();
+    let boards: Vec<Container> = user.get(&format!("{TEST_WS}/boards")).await.ok_json();
     let copy_of = async |title: &str, source: &str, card: &str| -> Block {
         let board = boards
             .iter()

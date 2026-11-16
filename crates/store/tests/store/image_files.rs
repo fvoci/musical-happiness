@@ -4,8 +4,8 @@
 use std::time::Duration;
 
 use fvoci_model::{
-    Block, BlockError, BlockPatch, BlockType, Board, BoardType, BoardsAndBlocks, BodyChange,
-    FileInfo, new_id,
+    Block, BlockError, BlockPatch, BlockType, BodyChange, Container, ContainerType,
+    ContainersAndBlocks, FileInfo, new_id,
 };
 use fvoci_store::{DbType, DuplicateAs, NewImages, StoreError};
 use serde_json::json;
@@ -16,7 +16,7 @@ use crate::common;
 fn record_of(board_id: &str, stored_name: &str) -> FileInfo {
     FileInfo {
         id: new_id(),
-        board_id: board_id.to_owned(),
+        container_id: board_id.to_owned(),
         stored_name: stored_name.to_owned(),
         create_at: 1,
         path: format!("boards/{board_id}/{stored_name}"),
@@ -44,7 +44,7 @@ fn body_showing(names: &[&str]) -> fvoci_model::Body {
 fn card_showing(board_id: &str, names: &[&str]) -> Block {
     Block {
         id: new_id(),
-        board_id: board_id.to_owned(),
+        container_id: board_id.to_owned(),
         block_type: BlockType::Card,
         body: Some(body_showing(names)),
         ..Block::default()
@@ -121,21 +121,21 @@ async fn a_write_that_shows_an_image_newly_needs_the_boards_file() {
         .await
         .expect("a copy shows what its original shows");
 
-    let new_board = Board {
+    let new_board = Container {
         id: new_id(),
         workspace_id: workspace_id.clone(),
-        board_type: BoardType::Open,
-        ..Board::default()
+        container_type: ContainerType::Open,
+        ..Container::default()
     };
     let new = |new_images| {
-        let board = Board {
+        let board = Container {
             id: new_id(),
             ..new_board.clone()
         };
         let card = card_showing(&board.id, &["7archived.png"]);
         (
-            BoardsAndBlocks {
-                boards: vec![board],
+            ContainersAndBlocks {
+                containers: vec![board],
                 blocks: vec![card],
             },
             new_images,
@@ -143,12 +143,12 @@ async fn a_write_that_shows_an_image_newly_needs_the_boards_file() {
     };
     let (mut checked, new_images) = new(NewImages::Recorded);
     let error = test
-        .create_boards_and_blocks(&mut checked, &user_id, new_images)
+        .create_containers_and_blocks(&mut checked, &user_id, new_images)
         .await
         .expect_err("a new board has no files");
     assert!(is_image_without_file(&error), "{error:?}");
     let (mut imported, new_images) = new(NewImages::Unchecked);
-    test.create_boards_and_blocks(&mut imported, &user_id, new_images)
+    test.create_containers_and_blocks(&mut imported, &user_id, new_images)
         .await
         .expect("an import points its images at its files afterwards");
 

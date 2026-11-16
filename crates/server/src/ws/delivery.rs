@@ -1,11 +1,11 @@
 //! Authorization at dispatch, backed by the store's committed visibility revision.
 
-use fvoci_model::{Block, BoardMember, WorkspaceRole};
+use fvoci_model::{Block, ContainerMember, WorkspaceRole};
 
 use super::ending::{Ended, Of};
 use super::{CHECKED_AT_MOST, Hub, ListenerId, Outgoing, ReadPermit, UpdateBlockMessage, text_of};
 use crate::metrics::Disconnect;
-use crate::permissions::{BoardScope, role_of, session_opens, told_without_a_role};
+use crate::permissions::{ContainerScope, role_of, session_opens, told_without_a_role};
 
 #[derive(Clone, Copy)]
 pub(super) enum Access<'a> {
@@ -30,8 +30,8 @@ pub(super) enum Readers<'a> {
     /// A board that is gone, as it was: its members and its scope, of the workspace the
     /// change is told in.
     Former {
-        members: &'a [BoardMember],
-        scope: BoardScope,
+        members: &'a [ContainerMember],
+        scope: ContainerScope,
     },
 }
 
@@ -39,8 +39,8 @@ pub(super) enum Readers<'a> {
 /// `None` for a board that is not there (whose members alone are told).
 #[derive(Default)]
 struct Known {
-    members: Vec<BoardMember>,
-    scope: Option<BoardScope>,
+    members: Vec<ContainerMember>,
+    scope: Option<ContainerScope>,
 }
 
 impl Known {
@@ -118,12 +118,14 @@ impl Hub {
             // Not cacheable for a while after an abandoned write: the checks below
             // then read the store anew.
             let revision = self.audience.version().await;
-            authorized = self.authorized(ids, Access::Public(&block.board_id)).await;
+            authorized = self
+                .authorized(ids, Access::Public(&block.container_id))
+                .await;
             if authorized.is_empty() {
                 return;
             }
             let (members, mut readers) = self
-                .split_by_sight(&authorized, workspace_id, &block.board_id)
+                .split_by_sight(&authorized, workspace_id, &block.container_id)
                 .await;
             let hidden = if readers.is_empty() {
                 None
@@ -140,7 +142,11 @@ impl Hub {
                         })
                     }
                     Err(error) => {
-                        tracing::error!(%error, board_id = %block.board_id, "websocket: cannot redact public block");
+                        tracing::error!(
+                            %error,
+                            container_id = %block.container_id,
+                            "websocket: cannot redact public block"
+                        );
                         self.close_unread(&readers);
                         readers.clear();
                         None
@@ -171,7 +177,7 @@ impl Hub {
         &self,
         ids: &[ListenerId],
         workspace_id: &str,
-        board_id: &str,
+        container_id: &str,
     ) -> (Vec<ListenerId>, Vec<ListenerId>) {
         let identities: Vec<(ListenerId, String, Option<String>)> = {
             let listeners = self.listeners();
@@ -194,20 +200,24 @@ impl Hub {
         if signed_in.is_empty() {
             return (members, readers);
         }
-        let board_members = match self.audience.members(board_id).await {
-            Ok(board_members) => board_members,
+        let container_members = match self.audience.members(container_id).await {
+            Ok(container_members) => container_members,
             Err(error) => {
-                tracing::error!(%error, board_id, "websocket: reading the members of a shared board failed");
+                tracing::error!(
+                    %error,
+                    container_id,
+                    "websocket: reading the members of a shared board failed"
+                );
                 let unread: Vec<ListenerId> = signed_in.iter().map(|(id, _, _)| *id).collect();
                 self.close_unread(&unread);
                 return (members, readers);
             }
         };
         for (id, user, login_provider) in signed_in {
-            let on_board = board_members
+            let on_container = container_members
                 .iter()
                 .any(|member| member.user_id == user && role_of(member).is_some());
-            if !on_board {
+            if !on_container {
                 readers.push(id);
                 continue;
             }
@@ -283,18 +293,18 @@ impl Hub {
                 members: members.to_vec(),
                 scope: Some(scope),
             }),
-            Readers::Now(board) => {
+            Readers::Now(container) => {
                 let members = self
                     .audience
-                    .members(board)
+                    .members(container)
                     .await
-                    .inspect_err(|error| unread(board, error))
+                    .inspect_err(|error| unread(container, error))
                     .ok()?;
                 let scope = self
                     .audience
-                    .board_scope(workspace, board)
+                    .container_scope(workspace, container)
                     .await
-                    .inspect_err(|error| unread(board, error))
+                    .inspect_err(|error| unread(container, error))
                     .ok()?;
                 Some(Known { members, scope })
             }
@@ -309,17 +319,17 @@ impl Hub {
             };
             match access {
                 Access::All => return true,
-                Access::Public(board) => listener
-                    .shared_boards
+                Access::Public(container) => listener
+                    .shared_containers
                     .iter()
-                    .find(|permit| permit.board == board)
+                    .find(|permit| permit.container == container)
                     .map(|permit| Following::Link(permit.clone())),
                 Access::Workspace(workspace) => {
-                    following_workspace(listener, workspace, BoardOnly::No)
+                    following_workspace(listener, workspace, ContainerOnly::No)
                 }
                 Access::Members {
                     workspace, also, ..
-                } => following_workspace(listener, workspace, BoardOnly::Readers { also }),
+                } => following_workspace(listener, workspace, ContainerOnly::Readers { also }),
             }
         };
         match following {
@@ -330,7 +340,7 @@ impl Hub {
                 user,
                 role,
                 login_provider,
-                board_only,
+                container_only,
             }) => {
                 if !self
                     .still_in_workspace(id, workspace, &user, role, login_provider.as_deref())
@@ -338,9 +348,9 @@ impl Hub {
                 {
                     return false;
                 }
-                match board_only {
-                    BoardOnly::No => true,
-                    BoardOnly::Readers { also } => {
+                match container_only {
+                    ContainerOnly::No => true,
+                    ContainerOnly::Readers { also } => {
                         also == Some(user.as_str()) || known.reads(&user, role)
                     }
                 }
@@ -353,17 +363,21 @@ impl Hub {
     async fn link_opens(&self, id: ListenerId, permit: &ReadPermit) -> bool {
         match self
             .audience
-            .shared_board(&permit.board, &permit.token)
+            .shared_container(&permit.container, &permit.token)
             .await
         {
             Ok(true) => true,
             Ok(false) => {
-                self.end_board(id, &permit.board);
+                self.end_container(id, &permit.container);
                 false
             }
             // The link may still open: not "ended", but not to miss the change.
             Err(error) => {
-                tracing::error!(%error, board_id = %permit.board, "websocket: reading a board's sharing failed");
+                tracing::error!(
+                    %error,
+                    container_id = %permit.container,
+                    "websocket: reading a board's sharing failed"
+                );
                 self.close_unread(&[id]);
                 false
             }
@@ -419,13 +433,13 @@ enum Following<'a> {
         user: String,
         role: WorkspaceRole,
         login_provider: Option<String>,
-        board_only: BoardOnly<'a>,
+        container_only: ContainerOnly<'a>,
     },
 }
 
 /// Whether a change of a workspace is told only to who reads its board.
 #[derive(Clone, Copy)]
-enum BoardOnly<'a> {
+enum ContainerOnly<'a> {
     No,
     /// Only to the board's readers ([`Readers`]), and to `also` (who made it).
     Readers {
@@ -433,16 +447,16 @@ enum BoardOnly<'a> {
     },
 }
 
-/// Logs that who reads `board` could not be read for a change of it.
-fn unread(board: &str, error: &impl std::fmt::Display) {
-    tracing::error!(%error, board_id = board, "websocket: cannot read dispatch membership");
+/// Logs that who reads `container` could not be read for a change of it.
+fn unread(container: &str, error: &impl std::fmt::Display) {
+    tracing::error!(%error, container_id = container, "websocket: cannot read dispatch membership");
 }
 
 /// What `listener` follows of `workspace`, if it does.
 fn following_workspace<'a>(
     listener: &super::Listener,
     workspace: &'a str,
-    board_only: BoardOnly<'a>,
+    container_only: ContainerOnly<'a>,
 ) -> Option<Following<'a>> {
     let role = listener.workspace_roles.get(workspace)?;
     Some(Following::Workspace {
@@ -450,6 +464,6 @@ fn following_workspace<'a>(
         user: listener.user_id.clone(),
         role: *role,
         login_provider: listener.login_provider().map(str::to_owned),
-        board_only,
+        container_only,
     })
 }

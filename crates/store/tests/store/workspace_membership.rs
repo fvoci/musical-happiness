@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use fvoci_model::{BoardMember, BoardRole, WorkspaceRole};
+use fvoci_model::{ContainerMember, ContainerRole, WorkspaceRole};
 use fvoci_store::{MembershipChange, Store};
 use tokio::sync::Barrier;
 use tokio::task::JoinSet;
@@ -109,11 +109,11 @@ async fn who_is_taken_out_leaves_their_boards_with_an_admin() {
     let other = common::user(&test, "other").await;
     let boards = common::create_test_boards(&test, &test.workspace_id, &leaving, 3).await;
     let (alone, with_another, with_a_guest_admin) = (&boards[0].id, &boards[1].id, &boards[2].id);
-    let add = async |board_id: &str, user_id: &str, role: BoardRole| {
-        let member = BoardMember {
-            board_id: board_id.to_owned(),
+    let add = async |board_id: &str, user_id: &str, role: ContainerRole| {
+        let member = ContainerMember {
+            container_id: board_id.to_owned(),
             user_id: user_id.to_owned(),
-            ..BoardMember::default()
+            ..ContainerMember::default()
         }
         .with_role(Some(role));
         test.add_member(&member)
@@ -121,13 +121,13 @@ async fn who_is_taken_out_leaves_their_boards_with_an_admin() {
             .expect("a member of the board");
     };
     for board_id in [alone, with_another, with_a_guest_admin] {
-        add(board_id, &leaving, BoardRole::Admin).await;
+        add(board_id, &leaving, ContainerRole::Admin).await;
     }
-    add(with_another, &other, BoardRole::Admin).await;
-    add(alone, &other, BoardRole::Editor).await;
+    add(with_another, &other, ContainerRole::Admin).await;
+    add(alone, &other, ContainerRole::Editor).await;
     // An admin flag on a guest of the workspace is no admin who can act as one.
     let guest = common::user(&test, "guest").await;
-    add(with_a_guest_admin, &guest, BoardRole::Admin).await;
+    add(with_a_guest_admin, &guest, ContainerRole::Admin).await;
     test.execute_unchecked(&format!(
         "UPDATE workspace_members SET role = 'guest' WHERE user_id = '{guest}'"
     ))
@@ -158,7 +158,7 @@ async fn who_is_taken_out_leaves_their_boards_with_an_admin() {
         }
     );
     let role = async |board_id: &str, user_id: &str| {
-        test.get_member_for_board(board_id, user_id)
+        test.get_member_for_container(board_id, user_id)
             .await
             .ok()
             .and_then(|member| member.role())
@@ -166,13 +166,13 @@ async fn who_is_taken_out_leaves_their_boards_with_an_admin() {
     for board_id in [alone, with_another, with_a_guest_admin] {
         assert_eq!(role(board_id, &leaving).await, None, "no role is left");
     }
-    assert_eq!(role(alone, &admin).await, Some(BoardRole::Admin));
+    assert_eq!(role(alone, &admin).await, Some(ContainerRole::Admin));
     assert_eq!(
         role(with_a_guest_admin, &admin).await,
-        Some(BoardRole::Admin)
+        Some(ContainerRole::Admin)
     );
     assert_eq!(role(with_another, &admin).await, None, "it had an admin");
-    assert_eq!(role(alone, &other).await, Some(BoardRole::Editor));
+    assert_eq!(role(alone, &other).await, Some(ContainerRole::Editor));
     assert_eq!(
         roles(&test).await,
         [
@@ -240,12 +240,12 @@ async fn a_board_comes_back_from_the_trash_with_an_admin() {
     let (of_the_leaver, of_the_guest, of_both_and_the_admin) =
         (&boards[0].id, &boards[1].id, &boards[2].id);
     let add = async |board_id: &str, user_id: &str| {
-        let member = BoardMember {
-            board_id: board_id.to_owned(),
+        let member = ContainerMember {
+            container_id: board_id.to_owned(),
             user_id: user_id.to_owned(),
-            ..BoardMember::default()
+            ..ContainerMember::default()
         }
-        .with_role(Some(BoardRole::Admin));
+        .with_role(Some(ContainerRole::Admin));
         test.add_member(&member)
             .await
             .expect("an admin of the board");
@@ -256,7 +256,7 @@ async fn a_board_comes_back_from_the_trash_with_an_admin() {
         add(of_both_and_the_admin, user_id).await;
     }
     for board_id in [of_the_leaver, of_the_guest, of_both_and_the_admin] {
-        test.delete_board(board_id, &admin)
+        test.delete_container(board_id, &admin)
             .await
             .expect("the board goes to the trash");
     }
@@ -272,13 +272,13 @@ async fn a_board_comes_back_from_the_trash_with_an_admin() {
     .await
     .expect("the member is made a guest");
     for board_id in [of_the_leaver, of_the_guest, of_both_and_the_admin] {
-        test.undelete_board(board_id, &admin)
+        test.undelete_container(board_id, &admin)
             .await
             .expect("the board comes back");
     }
 
     let role = async |board_id: &str, user_id: &str| {
-        test.get_member_for_board(board_id, user_id)
+        test.get_member_for_container(board_id, user_id)
             .await
             .ok()
             .and_then(|member| member.role())
@@ -286,23 +286,26 @@ async fn a_board_comes_back_from_the_trash_with_an_admin() {
     assert_eq!(role(of_the_leaver, &leaving).await, None);
     assert_eq!(
         role(of_the_leaver, &admin).await,
-        Some(BoardRole::Admin),
+        Some(ContainerRole::Admin),
         "its admin left: who brought it back"
     );
-    assert_eq!(role(of_the_guest, &lowered).await, Some(BoardRole::Editor));
+    assert_eq!(
+        role(of_the_guest, &lowered).await,
+        Some(ContainerRole::Editor)
+    );
     assert_eq!(
         role(of_the_guest, &admin).await,
-        Some(BoardRole::Admin),
+        Some(ContainerRole::Admin),
         "its admin is a guest now: who brought it back"
     );
     assert_eq!(role(of_both_and_the_admin, &leaving).await, None);
     assert_eq!(
         role(of_both_and_the_admin, &lowered).await,
-        Some(BoardRole::Editor)
+        Some(ContainerRole::Editor)
     );
     assert_eq!(
         role(of_both_and_the_admin, &admin).await,
-        Some(BoardRole::Admin)
+        Some(ContainerRole::Admin)
     );
 
     test.teardown().await;

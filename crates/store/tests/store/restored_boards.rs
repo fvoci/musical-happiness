@@ -1,6 +1,6 @@
 //! Where a board that comes back from the trash is filed.
 
-use fvoci_model::{BoardMember, BoardType, Category, new_id};
+use fvoci_model::{Category, ContainerMember, ContainerType, new_id};
 use fvoci_store::Store;
 
 use crate::boards::new_board;
@@ -34,10 +34,10 @@ async fn stored_category(
 
 /// Files the boards under the category, in this order.
 async fn filed_in_order(test: &Store, user_id: &str, category_id: &str, board_ids: &[String]) {
-    test.add_update_category_board(user_id, category_id, board_ids)
+    test.add_update_category_container(user_id, category_id, board_ids)
         .await
         .expect("the boards are filed");
-    test.reorder_category_boards(category_id, board_ids.to_vec())
+    test.reorder_category_containers(category_id, board_ids.to_vec())
         .await
         .expect("the boards are ordered");
 }
@@ -49,16 +49,16 @@ async fn category_order(
     workspace_id: &str,
     category_id: &str,
 ) -> Vec<String> {
-    test.get_user_category_boards(user_id, workspace_id)
+    test.get_user_category_containers(user_id, workspace_id)
         .await
         .expect("the categories")
         .into_iter()
         .find(|entry| entry.category.id == category_id)
         .map(|entry| {
             entry
-                .board_metadata
+                .container_metadata
                 .into_iter()
-                .map(|board| board.board_id)
+                .map(|board| board.container_id)
                 .collect()
         })
         .unwrap_or_default()
@@ -69,11 +69,11 @@ async fn stored_board_of(
     test: &Store,
     workspace_id: &str,
     user_id: &str,
-    board_type: BoardType,
+    board_type: ContainerType,
 ) -> String {
     let board_id = new_id();
     let mut board = new_board(&board_id, workspace_id, board_type);
-    test.insert_board(&mut board, user_id)
+    test.insert_container(&mut board, user_id)
         .await
         .expect("the board is inserted");
     board_id
@@ -85,6 +85,10 @@ async fn stored_board_of(
 /// was, if that category went meanwhile; nowhere for a user who has no default category
 /// yet. The places go with the board when the trash is emptied of it.
 #[tokio::test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "three users' places, set up, deleted and restored with one board"
+)]
 async fn a_restored_board_is_filed_where_it_was() {
     let test = common::setup().await;
     let workspace_id = common::workspace(&test).await;
@@ -94,9 +98,9 @@ async fn a_restored_board_is_filed_where_it_was() {
         common::user(&test, "unfiled").await,
     ];
     // Made last, so that a tie of sort orders would put it after its neighbours.
-    let before = stored_board_of(&test, &workspace_id, &kept, BoardType::Open).await;
-    let after = stored_board_of(&test, &workspace_id, &kept, BoardType::Open).await;
-    let board_id = stored_board_of(&test, &workspace_id, &kept, BoardType::Open).await;
+    let before = stored_board_of(&test, &workspace_id, &kept, ContainerType::Open).await;
+    let after = stored_board_of(&test, &workspace_id, &kept, ContainerType::Open).await;
+    let board_id = stored_board_of(&test, &workspace_id, &kept, ContainerType::Open).await;
     let custom = fvoci_model::CategoryType::Custom;
     let kept_category = stored_category(&test, &kept, &workspace_id, custom).await;
     let moved_category = stored_category(&test, &moved, &workspace_id, custom).await;
@@ -125,20 +129,23 @@ async fn a_restored_board_is_filed_where_it_was() {
     )
     .await;
     for (user_id, category_id) in [(&kept, &kept_category), (&moved, &moved_category)] {
-        test.set_board_visibility(
+        test.set_container_visibility(
             user_id,
             category_id,
             &board_id,
-            fvoci_store::BoardVisibility::Hidden,
+            fvoci_store::ContainerVisibility::Hidden,
         )
         .await
         .expect("the board is hidden");
     }
 
-    test.delete_board(&board_id, &kept)
+    test.delete_container(&board_id, &kept)
         .await
         .expect("the board is deleted");
-    let gone = test.get_board_places(&board_id).await.expect("the places");
+    let gone = test
+        .get_container_places(&board_id)
+        .await
+        .expect("the places");
     assert_eq!(gone, [], "not in any sidebar while in the trash");
     // Meanwhile the user orders what is left, and two categories go.
     filed_in_order(
@@ -153,7 +160,7 @@ async fn a_restored_board_is_filed_where_it_was() {
             .await
             .expect("the category is deleted");
     }
-    test.undelete_board(&board_id, &kept)
+    test.undelete_container(&board_id, &kept)
         .await
         .expect("the board is restored");
 
@@ -162,7 +169,10 @@ async fn a_restored_board_is_filed_where_it_was() {
         three,
         "between the boards it was between"
     );
-    let places = test.get_board_places(&board_id).await.expect("the places");
+    let places = test
+        .get_container_places(&board_id)
+        .await
+        .expect("the places");
     let place_of = |user_id: &str| places.iter().find(|place| place.user_id == user_id);
     assert!(
         place_of(&kept).is_some_and(|place| place.hidden),
@@ -178,12 +188,12 @@ async fn a_restored_board_is_filed_where_it_was() {
         "nowhere without a default category"
     );
 
-    test.delete_board(&board_id, &kept)
+    test.delete_container(&board_id, &kept)
         .await
         .expect("deleted again");
     test.purge_trash(i64::MAX).await.expect("purged");
     assert!(
-        test.get_deleted_board(&board_id).await.is_err(),
+        test.get_deleted_container(&board_id).await.is_err(),
         "the board and the places kept with it are gone"
     );
 
@@ -198,12 +208,12 @@ async fn a_restored_private_board_is_filed_for_its_members_only() {
     let workspace_id = common::workspace(&test).await;
     let admin = common::user(&test, "admin").await;
     let former = common::user(&test, "former").await;
-    let board_id = stored_board_of(&test, &workspace_id, &admin, BoardType::Private).await;
-    test.save_member(&BoardMember {
-        board_id: board_id.clone(),
+    let board_id = stored_board_of(&test, &workspace_id, &admin, ContainerType::Private).await;
+    test.save_member(&ContainerMember {
+        container_id: board_id.clone(),
         user_id: admin.clone(),
         scheme_admin: true,
-        ..BoardMember::default()
+        ..ContainerMember::default()
     })
     .await
     .expect("the admin is a member");
@@ -224,15 +234,15 @@ async fn a_restored_private_board_is_filed_for_its_members_only() {
         .await;
     }
 
-    test.delete_board(&board_id, &admin)
+    test.delete_container(&board_id, &admin)
         .await
         .expect("the board is deleted");
-    test.undelete_board(&board_id, &admin)
+    test.undelete_container(&board_id, &admin)
         .await
         .expect("the board is restored");
 
     let filed: Vec<String> = test
-        .get_board_places(&board_id)
+        .get_container_places(&board_id)
         .await
         .expect("the places")
         .into_iter()

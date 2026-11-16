@@ -4,7 +4,7 @@
 //! documents and for the search that checks each of the search server's answers
 //! against it: what is not read here is not found.
 
-use fvoci_model::{BlockType, BoardKind, SearchKind};
+use fvoci_model::{BlockType, ContainerKind, SearchKind};
 
 use crate::Store;
 use crate::db::{Dialect, Id, Row, Scope, Sql};
@@ -25,7 +25,7 @@ pub struct SearchDocument {
     /// The board it is on, or the wiki it is in.
     pub container_id: String,
     /// What its container is. No document says so: the search asks the database.
-    pub container_kind: BoardKind,
+    pub container_kind: ContainerKind,
     /// What it is.
     pub kind: SearchKind,
     /// Its title.
@@ -109,13 +109,13 @@ impl Store {
     /// Returns [`StoreError::Database`] if the query fails.
     pub async fn search_documents_of_container(
         &self,
-        board_id: &str,
+        container_id: &str,
         after: Option<&str>,
         limit: i64,
     ) -> Result<Vec<SearchDocument>, StoreError> {
         self.with_conn(async |scope| {
             let mut sql = select_documents(scope, DOCUMENT_COLUMNS);
-            sql.push_bind(" AND b.container_id = ", Id(board_id));
+            sql.push_bind(" AND b.container_id = ", Id(container_id));
             if let Some(after) = after {
                 sql.push_bind(" AND b.id > ", Id(after));
             }
@@ -142,7 +142,7 @@ fn document_from_row(row: &Row) -> Result<SearchDocument, StoreError> {
         org_id: row.id(1)?,
         workspace_id: row.id(2)?,
         container_id: row.id(3)?,
-        container_kind: crate::board_kinds::kind_from_text(&row.text(7)?)?,
+        container_kind: crate::container_kinds::kind_from_text(&row.text(7)?)?,
         kind,
         title: row.text(4)?,
         text: row.text(5)?,

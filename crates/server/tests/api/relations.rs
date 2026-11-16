@@ -3,7 +3,7 @@
 //! trash may be named, and a card of a board the writer cannot see is answered as one
 //! that is not there.
 
-use fvoci_model::{Block, Board, BoardType, Card, new_id};
+use fvoci_model::{Block, Card, Container, ContainerType, new_id};
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
@@ -21,12 +21,12 @@ const REASON: &str = "relation_card_not_found";
 /// A private board of the first user with a relation property and a text property, and
 /// cards on it.
 struct Related {
-    board: Board,
+    board: Container,
     cards: Vec<Card>,
 }
 
 async fn related_board(client: &Client, cards: usize) -> Related {
-    let board: Board = client
+    let board: Container = client
         .post(
             &format!("{TEST_WS}/boards"),
             &json!({
@@ -104,7 +104,7 @@ fn comparable(response: &ApiResponse) -> (StatusCode, Value) {
 
 /// A card of a board the first user cannot see: the second user's private board.
 async fn hidden_card(th: &TestServer) -> String {
-    let board: Board = th
+    let board: Container = th
         .client2
         .post(
             &format!("{TEST_WS}/boards"),
@@ -540,7 +540,9 @@ async fn a_change_of_the_property_kind_leaves_the_values_alone() {
 async fn the_board_of_a_relation_is_the_board_of_the_card() {
     let th = Setup::native().start().await.init_basic().await;
     let Related { cards, .. } = related_board(&th.client, 1).await;
-    let other = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
+    let other = th
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .await;
     th.client
         .patch(
             &format!("{TEST_WS}/boards/{}", other.id),

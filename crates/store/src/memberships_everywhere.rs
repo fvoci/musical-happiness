@@ -1,24 +1,24 @@
 //! A user's board memberships in every organization, as the session that asks opens
 //! them.
 
-use fvoci_model::{BoardKinds, BoardMember};
+use fvoci_model::{ContainerKinds, ContainerMember};
 
 use crate::db::{Id, Scope, Sql};
 use crate::directory::IN_USE;
 use crate::error::StoreError;
-use crate::{board_kinds, board_team_access, boards};
+use crate::{container_kinds, container_team_access, containers};
 
 /// The user's memberships of boards of `kinds` in live workspaces of every
 /// organization, direct and through a team (`inherited_role`), ordered by board
 /// identifier, read through `scope`, which reaches every organization
-/// (`Store::board_memberships_of_user`).
+/// (`Store::container_memberships_of_user`).
 pub(crate) async fn of_user(
     scope: &mut Scope<'_>,
     user_id: &str,
     login_provider: Option<&str>,
-    kinds: BoardKinds,
-) -> Result<Vec<BoardMember>, StoreError> {
-    let mut sql = boards::select_members(scope);
+    kinds: ContainerKinds,
+) -> Result<Vec<ContainerMember>, StoreError> {
+    let mut sql = containers::select_members(scope);
     sql.push(
         " JOIN containers AS b ON b.id = bm.container_id \
          JOIN workspaces AS t ON t.id = b.workspace_id \
@@ -29,24 +29,24 @@ pub(crate) async fn of_user(
     .bind(Id(user_id))
     .push(IN_USE)
     .push(&scope.same_organization(&[("bm", "b"), ("b", "t"), ("wm", "t")]));
-    board_kinds::push_kinds(&mut sql, "b.kind", kinds);
+    container_kinds::push_kinds(&mut sql, "b.kind", kinds);
     push_opened_by(&mut sql, login_provider);
     sql.push(" ORDER BY bm.container_id");
-    let mut members = boards::fetch_members(scope, sql).await?;
+    let mut members = containers::fetch_members(scope, sql).await?;
     extend_across_organizations(scope, user_id, login_provider, kinds, &mut members).await?;
     Ok(members)
 }
 
 /// Adds to `members` the boards `user_id` has a role on through a team, of every
-/// organization, as `Store::board_memberships_of_user` lists the direct ones: of a
+/// organization, as `Store::container_memberships_of_user` lists the direct ones: of a
 /// workspace and an organization in use, that the session made through
 /// `login_provider` opens. Sorted by board.
 async fn extend_across_organizations(
     scope: &mut Scope<'_>,
     user_id: &str,
     login_provider: Option<&str>,
-    kinds: BoardKinds,
-    members: &mut Vec<BoardMember>,
+    kinds: ContainerKinds,
+    members: &mut Vec<ContainerMember>,
 ) -> Result<(), StoreError> {
     let mut sql = scope.sql(&format!(
         "SELECT bt.container_id, tm.user_id, bt.role FROM container_teams AS bt \
@@ -60,10 +60,10 @@ async fn extend_across_organizations(
     sql.bind(Id(user_id))
         .push(IN_USE)
         .push(&scope.same_organization(&[("bt", "b"), ("b", "t")]));
-    board_kinds::push_kinds(&mut sql, "b.kind", kinds);
+    container_kinds::push_kinds(&mut sql, "b.kind", kinds);
     push_opened_by(&mut sql, login_provider);
-    board_team_access::extend(scope, sql, members).await?;
-    members.sort_by(|a, b| a.board_id.cmp(&b.board_id));
+    container_team_access::extend(scope, sql, members).await?;
+    members.sort_by(|a, b| a.container_id.cmp(&b.container_id));
     Ok(())
 }
 

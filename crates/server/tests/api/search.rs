@@ -3,7 +3,7 @@
 //! that are put into the store directly; the rest checks the routes' answers against the
 //! original server.
 
-use fvoci_model::{Board, BoardType, JsonMap, new_id};
+use fvoci_model::{Container, ContainerType, JsonMap, new_id};
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
@@ -23,11 +23,11 @@ enum Membership {
 /// The counterpart of the original's `App.CreateBoard`: puts a board into the store.
 async fn create_board(
     th: &TestServer,
-    board: Board,
+    board: Container,
     user_id: &str,
     membership: Membership,
-) -> Board {
-    let mut board = Board {
+) -> Container {
+    let mut board = Container {
         id: new_id(),
         ..board
     };
@@ -35,13 +35,13 @@ async fn create_board(
     match membership {
         Membership::Admin => {
             store
-                .insert_board_with_admin(&mut board, user_id)
+                .insert_container_with_admin(&mut board, user_id)
                 .await
                 .expect("the board is inserted with its administrator");
         }
         Membership::None => {
             store
-                .insert_board(&mut board, user_id)
+                .insert_container(&mut board, user_id)
                 .await
                 .expect("the board is inserted");
         }
@@ -49,12 +49,12 @@ async fn create_board(
     board
 }
 
-fn titled(title: &str, board_type: BoardType, workspace_id: &str) -> Board {
-    Board {
+fn titled(title: &str, board_type: ContainerType, workspace_id: &str) -> Container {
+    Container {
         title: title.to_owned(),
-        board_type,
+        container_type: board_type,
         workspace_id: workspace_id.to_owned(),
-        ..Board::default()
+        ..Container::default()
     }
 }
 
@@ -69,7 +69,7 @@ async fn search_workspace(client: &Client, workspace_id: &str, term: &str) -> Ap
 #[track_caller]
 fn found_ids(response: &ApiResponse) -> Vec<String> {
     let mut found: Vec<String> = response
-        .ok_json::<Vec<Board>>()
+        .ok_json::<Vec<Container>>()
         .into_iter()
         .map(|board| board.id)
         .collect();
@@ -77,7 +77,7 @@ fn found_ids(response: &ApiResponse) -> Vec<String> {
     found
 }
 
-fn sorted_ids(boards: &[&Board]) -> Vec<String> {
+fn sorted_ids(boards: &[&Container]) -> Vec<String> {
     let mut expected: Vec<String> = boards.iter().map(|board| board.id.clone()).collect();
     expected.sort_unstable();
     expected
@@ -117,48 +117,50 @@ async fn search_boards_all_the_matching_private_boards_that_the_user_is_a_member
     let th = Setup::native().start().await.init_basic().await;
     let user1 = th.client.me().await;
     let workspace_id = TEST_WORKSPACE_ID;
-    let board =
-        async |title: &str, board_type: BoardType, workspace_id: &str, membership: Membership| {
-            create_board(
-                &th,
-                titled(title, board_type, workspace_id),
-                &user1.id,
-                membership,
-            )
-            .await
-        };
+    let board = async |title: &str,
+                       board_type: ContainerType,
+                       workspace_id: &str,
+                       membership: Membership| {
+        create_board(
+            &th,
+            titled(title, board_type, workspace_id),
+            &user1.id,
+            membership,
+        )
+        .await
+    };
 
     let board1 = board(
         "public board where user1 is admin",
-        BoardType::Open,
+        ContainerType::Open,
         workspace_id,
         Membership::Admin,
     )
     .await;
     let board2 = board(
         "public board where user1 is not member",
-        BoardType::Open,
+        ContainerType::Open,
         workspace_id,
         Membership::None,
     )
     .await;
     let board3 = board(
         "private board where user1 is admin",
-        BoardType::Private,
+        ContainerType::Private,
         workspace_id,
         Membership::Admin,
     )
     .await;
     board(
         "private board where user1 is not member",
-        BoardType::Private,
+        ContainerType::Private,
         workspace_id,
         Membership::None,
     )
     .await;
     let board5 = board(
         "private board where user1 is admin, but in other workspace",
-        BoardType::Private,
+        ContainerType::Private,
         ROOT_WORKSPACE_ID,
         Membership::Admin,
     )
@@ -215,19 +217,19 @@ async fn search_boards_all_the_matching_private_boards_that_the_user_is_a_member
 
 /// A server with two users and two boards of the first: an open one titled "b one" and a
 /// private one titled "b two", both in workspace `0`.
-async fn two_boards() -> (TestServer, Board, Board) {
+async fn two_boards() -> (TestServer, Container, Container) {
     let th = Setup::native().start().await.init_basic().await;
     let user = th.client.me().await;
     let open = create_board(
         &th,
-        titled("b one", BoardType::Open, ROOT_WORKSPACE_ID),
+        titled("b one", ContainerType::Open, ROOT_WORKSPACE_ID),
         &user.id,
         Membership::Admin,
     )
     .await;
     let private = create_board(
         &th,
-        titled("b two", BoardType::Private, ROOT_WORKSPACE_ID),
+        titled("b two", ContainerType::Private, ROOT_WORKSPACE_ID),
         &user.id,
         Membership::Admin,
     )
@@ -272,7 +274,7 @@ async fn search_boards_of_a_workspace() {
         "the member finds both"
     );
     // The boards are answered in full.
-    let found: Vec<Board> = response.ok_json();
+    let found: Vec<Container> = response.ok_json();
     let found_open = found
         .iter()
         .find(|board| board.id == open.id)
@@ -315,9 +317,9 @@ async fn search_boards_by_field() {
     properties.insert("status".to_owned(), json!("green"));
     let with_property = create_board(
         &th,
-        Board {
+        Container {
             properties,
-            ..titled("with a property", BoardType::Open, ROOT_WORKSPACE_ID)
+            ..titled("with a property", ContainerType::Open, ROOT_WORKSPACE_ID)
         },
         &user.id,
         Membership::Admin,
@@ -371,9 +373,13 @@ async fn searches_answer_the_same_on_both_databases() {
     properties.insert("nested".to_owned(), json!({"inner": 1}));
     let board = create_board(
         &th,
-        Board {
+        Container {
             properties,
-            ..titled("Ärger 100% über_all", BoardType::Open, ROOT_WORKSPACE_ID)
+            ..titled(
+                "Ärger 100% über_all",
+                ContainerType::Open,
+                ROOT_WORKSPACE_ID,
+            )
         },
         &user.id,
         Membership::Admin,
@@ -418,16 +424,16 @@ async fn search_all_boards() {
     let user = th.client.me().await;
     let elsewhere = create_board(
         &th,
-        titled("b three", BoardType::Private, TEST_WORKSPACE_ID),
+        titled("b three", ContainerType::Private, TEST_WORKSPACE_ID),
         &user.id,
         Membership::Admin,
     )
     .await;
     let template = create_board(
         &th,
-        Board {
+        Container {
             is_template: true,
-            ..titled("b template", BoardType::Open, ROOT_WORKSPACE_ID)
+            ..titled("b template", ContainerType::Open, ROOT_WORKSPACE_ID)
         },
         &user.id,
         Membership::Admin,
@@ -486,7 +492,7 @@ async fn search_boards_for_user_in_workspace() {
     let other = th.client2.me().await;
     create_board(
         &th,
-        titled("b three", BoardType::Open, TEST_WORKSPACE_ID),
+        titled("b three", ContainerType::Open, TEST_WORKSPACE_ID),
         &user.id,
         Membership::Admin,
     )
@@ -494,7 +500,7 @@ async fn search_boards_for_user_in_workspace() {
     let search = async |workspace_id: &str, term: &str, user_id: &str| {
         let mut found: Vec<String> = th
             .app
-            .search_boards_for_user_in_workspace(workspace_id, term, user_id)
+            .search_containers_for_user_in_workspace(workspace_id, term, user_id)
             .await
             .expect("the search runs")
             .into_iter()

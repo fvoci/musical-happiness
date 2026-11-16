@@ -8,8 +8,8 @@ use std::collections::BTreeSet;
 use std::fmt::Write as _;
 
 use fvoci_model::{
-    Board, BoardError, BoardKind, BoardKinds, BoardMember, BoardPatch, BoardRole, BoardType,
-    JsonMap, MinimumRole,
+    Container, ContainerError, ContainerKind, ContainerKinds, ContainerMember, ContainerPatch,
+    ContainerRole, ContainerType, JsonMap, MinimumRole,
 };
 use md5::{Digest as _, Md5};
 use serde_json::Value;
@@ -17,21 +17,21 @@ use serde_json::Value;
 use crate::Store;
 use crate::db::{Dialect, Id, OptId, Param, Row, Scope, Sql, now_millis};
 use crate::error::StoreError;
-use crate::{board_kinds, members, subscriptions};
+use crate::{container_kinds, members, subscriptions};
 
 /// The order of a list of boards read through the alias `b`: by when they were made,
 /// and by identifier where that is the same.
-pub(crate) const OLDEST_BOARD_FIRST: &str = " ORDER BY b.create_at, b.id";
+pub(crate) const OLDEST_CONTAINER_FIRST: &str = " ORDER BY b.create_at, b.id";
 
 /// The name of every board column, in the order rows are written.
-const BOARD_COLUMNS: &str = "id, workspace_id, created_by, modified_by, type, minimum_role, title, \
-                             description, icon, show_description, is_template, is_builtin, \
-                             template_version, properties, card_properties, create_at, \
-                             update_at, kind";
+const CONTAINER_COLUMNS: &str = "id, workspace_id, created_by, modified_by, type, minimum_role, \
+                                 title, description, icon, show_description, is_template, \
+                                 is_builtin, template_version, properties, card_properties, \
+                                 create_at, update_at, kind";
 
 /// Whether a board query also returns the open boards the user is not a member of.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PublicBoards {
+pub enum PublicContainers {
     /// Open boards are returned whether or not the user is a member.
     Include,
     /// Only boards the user is a member of are returned.
@@ -45,16 +45,16 @@ pub enum PublicBoards {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Joined {
     /// The user was no member and is one now, with the board's minimum role.
-    New(BoardMember),
+    New(ContainerMember),
     /// The user was a member below the board's minimum role and has that role now.
-    Raised(BoardMember),
+    Raised(ContainerMember),
     /// The user was a member with the minimum role or a higher one; nothing changed.
-    Already(BoardMember),
+    Already(ContainerMember),
 }
 
 impl Joined {
     /// The membership as it is after joining.
-    pub fn into_member(self) -> BoardMember {
+    pub fn into_member(self) -> ContainerMember {
         match self {
             Self::New(member) | Self::Raised(member) | Self::Already(member) => member,
         }
@@ -62,15 +62,15 @@ impl Joined {
 }
 
 /// The highest role the scheme flags of a membership give; none if no flag is set.
-fn highest_role(member: &BoardMember) -> Option<BoardRole> {
+fn highest_role(member: &ContainerMember) -> Option<ContainerRole> {
     if member.scheme_admin {
-        Some(BoardRole::Admin)
+        Some(ContainerRole::Admin)
     } else if member.scheme_editor {
-        Some(BoardRole::Editor)
+        Some(ContainerRole::Editor)
     } else if member.scheme_commenter {
-        Some(BoardRole::Commenter)
+        Some(ContainerRole::Commenter)
     } else if member.scheme_viewer {
-        Some(BoardRole::Viewer)
+        Some(ContainerRole::Viewer)
     } else {
         None
     }
@@ -89,40 +89,44 @@ pub enum MemberChange {
 }
 
 impl Store {
-    /// Inserts `board`, or updates the board that already has its identifier.
+    /// Inserts `container`, or updates the board that already has its identifier.
     ///
-    /// `board` is updated to what was stored: `user_id` as modifier and the current time
+    /// `container` is updated to what was stored: `user_id` as modifier and the current time
     /// as modification time and, for a new board, `user_id` as creator and the current
     /// time as creation time. An update leaves the stored workspace, creator and creation time
-    /// alone, and `board` comes back with those.
+    /// alone, and `container` comes back with those.
     ///
     /// A template stored on behalf of no user (the empty `user_id`) is a built-in
-    /// template: `is_builtin` is set, whatever `board` says, and it gets a
+    /// template: `is_builtin` is set, whatever `container` says, and it gets a
     /// `trackingTemplateId` property derived from its title. No other board is built-in,
     /// and an update never changes whether a board is.
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::InvalidBoard`], and nothing written, for a board that may
-    /// not be stored ([`Board::check_storable`]) and for one that exists as of another
+    /// Returns [`StoreError::InvalidContainer`], and nothing written, for a board that may
+    /// not be stored ([`Container::check_storable`]) and for one that exists as of another
     /// kind; [`StoreError::Database`] if a statement fails.
-    pub async fn insert_board(&self, board: &mut Board, user_id: &str) -> Result<(), StoreError> {
-        self.transaction(async |scope| insert_board(scope, board, user_id).await)
+    pub async fn insert_container(
+        &self,
+        container: &mut Container,
+        user_id: &str,
+    ) -> Result<(), StoreError> {
+        self.transaction(async |scope| insert_container(scope, container, user_id).await)
             .await
     }
 
-    /// Inserts or updates `board` as [`Store::insert_board`] does and makes its creator
+    /// Inserts or updates `container` as [`Store::insert_container`] does and makes its creator
     /// an administrator and editor of it. Returns that membership.
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::NotFound`] if its creator does not work there, or a database error.
-    pub async fn insert_board_with_admin(
+    pub async fn insert_container_with_admin(
         &self,
-        board: &mut Board,
+        container: &mut Container,
         user_id: &str,
-    ) -> Result<BoardMember, StoreError> {
-        self.transaction(async |scope| insert_board_with_admin(scope, board, user_id).await)
+    ) -> Result<ContainerMember, StoreError> {
+        self.transaction(async |scope| insert_container_with_admin(scope, container, user_id).await)
             .await
     }
 
@@ -132,13 +136,13 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::NotFound`] if there is no such board.
-    pub async fn patch_board(
+    pub async fn patch_container(
         &self,
-        board_id: &str,
-        patch: &BoardPatch,
+        container_id: &str,
+        patch: &ContainerPatch,
         user_id: &str,
-    ) -> Result<Board, StoreError> {
-        self.transaction(async |scope| patch_board(scope, board_id, patch, user_id).await)
+    ) -> Result<Container, StoreError> {
+        self.transaction(async |scope| patch_container(scope, container_id, patch, user_id).await)
             .await
     }
 
@@ -149,20 +153,20 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::NotFound`] if there is no such board, and
-    /// [`StoreError::InvalidBoard`], and nothing written, if `order` does not name each
-    /// property once ([`Board::reorder_card_properties`]).
+    /// [`StoreError::InvalidContainer`], and nothing written, if `order` does not name each
+    /// property once ([`Container::reorder_card_properties`]).
     pub async fn reorder_card_properties(
         &self,
-        board_id: &str,
+        container_id: &str,
         order: &[String],
         user_id: &str,
-    ) -> Result<Board, StoreError> {
+    ) -> Result<Container, StoreError> {
         self.transaction(async |scope| {
-            hold_board(scope, board_id).await?;
-            let mut board = get_board(scope, board_id).await?;
-            board.reorder_card_properties(order)?;
-            insert_board(scope, &mut board, user_id).await?;
-            Ok(board)
+            hold_container(scope, container_id).await?;
+            let mut container = get_container(scope, container_id).await?;
+            container.reorder_card_properties(order)?;
+            insert_container(scope, &mut container, user_id).await?;
+            Ok(container)
         })
         .await
     }
@@ -173,31 +177,31 @@ impl Store {
     ///
     /// Returns [`StoreError::NotFound`] if there is no such board, and
     /// [`StoreError::Corrupt`] if its stored type or minimum role is not a known one.
-    pub async fn get_board(&self, board_id: &str) -> Result<Board, StoreError> {
-        self.with_conn(async |scope| get_board(scope, board_id).await)
+    pub async fn get_container(&self, container_id: &str) -> Result<Container, StoreError> {
+        self.with_conn(async |scope| get_container(scope, container_id).await)
             .await
     }
 
     /// Returns the boards of `kinds` of a workspace that a user is a member of and, with
-    /// [`PublicBoards::Include`], the open ones of the workspace (with
-    /// [`PublicBoards::OpenWikis`], its open wikis), oldest first. Templates are left
+    /// [`PublicContainers::Include`], the open ones of the workspace (with
+    /// [`PublicContainers::OpenWikis`], its open wikis), oldest first. Templates are left
     /// out.
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if the query fails.
-    pub async fn get_boards_for_user_and_workspace(
+    pub async fn get_containers_for_user_and_workspace(
         &self,
         user_id: &str,
         workspace_id: &str,
-        public_boards: PublicBoards,
-        kinds: BoardKinds,
-    ) -> Result<Vec<Board>, StoreError> {
+        public_containers: PublicContainers,
+        kinds: ContainerKinds,
+    ) -> Result<Vec<Container>, StoreError> {
         self.with_conn(async |scope| {
-            let mut sql = select_boards_of_user(scope, user_id, public_boards, kinds);
+            let mut sql = select_containers_of_user(scope, user_id, public_containers, kinds);
             sql.push_bind(" AND b.workspace_id = ", Id(workspace_id))
-                .push(OLDEST_BOARD_FIRST);
-            fetch_boards(scope, sql).await
+                .push(OLDEST_CONTAINER_FIRST);
+            fetch_containers(scope, sql).await
         })
         .await
     }
@@ -207,20 +211,22 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::NotAllFound`] unless exactly one board is found per identifier.
-    pub async fn get_boards_in_workspace_by_ids(
+    pub async fn get_containers_in_workspace_by_ids(
         &self,
-        board_ids: &[String],
+        container_ids: &[String],
         workspace_id: &str,
-    ) -> Result<Vec<Board>, StoreError> {
-        let ids = board_ids;
-        self.with_conn(async |scope| get_boards_in_workspace_by_ids(scope, ids, workspace_id).await)
-            .await
+    ) -> Result<Vec<Container>, StoreError> {
+        let ids = container_ids;
+        self.with_conn(async |scope| {
+            get_containers_in_workspace_by_ids(scope, ids, workspace_id).await
+        })
+        .await
     }
 
     /// Makes a user a member of a board with the scheme flags of `member`, or replaces
     /// the scheme flags of an existing membership, whatever that does to the board: for
     /// tests that need a membership the checked ways would not make. The server uses
-    /// [`Store::add_member`], [`Store::join_board`] and [`Store::change_member`].
+    /// [`Store::add_member`], [`Store::join_container`] and [`Store::change_member`].
     ///
     /// The `synthetic` member of `member` is not stored; `roles` has no column and reads
     /// as empty.
@@ -229,7 +235,7 @@ impl Store {
     ///
     /// Returns [`StoreError::Database`] if a statement fails.
     #[cfg(feature = "test-util")]
-    pub async fn save_member(&self, member: &BoardMember) -> Result<(), StoreError> {
+    pub async fn save_member(&self, member: &ContainerMember) -> Result<(), StoreError> {
         self.transaction(async |scope| save_member(scope, member).await)
             .await
     }
@@ -243,8 +249,8 @@ impl Store {
     ///
     /// Returns [`StoreError::Database`] if a statement fails.
     #[cfg(feature = "test-util")]
-    pub async fn delete_member(&self, board_id: &str, user_id: &str) -> Result<(), StoreError> {
-        self.transaction(async |scope| delete_member(scope, board_id, user_id).await)
+    pub async fn delete_member(&self, container_id: &str, user_id: &str) -> Result<(), StoreError> {
+        self.transaction(async |scope| delete_member(scope, container_id, user_id).await)
             .await
     }
 
@@ -259,21 +265,25 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::NotFound`] if there is no such board or no such user.
-    pub async fn join_board(&self, board_id: &str, user_id: &str) -> Result<Joined, StoreError> {
+    pub async fn join_container(
+        &self,
+        container_id: &str,
+        user_id: &str,
+    ) -> Result<Joined, StoreError> {
         self.transaction(async |scope| {
             // Nobody joins a board the handle reads and may not change (a built-in template).
-            hold_board(scope, board_id).await?;
-            let board = get_board(scope, board_id).await?;
-            let minimum = BoardRole::from(board.minimum_role);
-            let with_minimum = BoardMember {
-                board_id: board_id.to_owned(),
+            hold_container(scope, container_id).await?;
+            let container = get_container(scope, container_id).await?;
+            let minimum = ContainerRole::from(container.minimum_role);
+            let with_minimum = ContainerMember {
+                container_id: container_id.to_owned(),
                 user_id: user_id.to_owned(),
-                scheme_editor: minimum == BoardRole::Editor,
-                scheme_commenter: minimum == BoardRole::Commenter,
-                scheme_viewer: minimum == BoardRole::Viewer,
-                ..BoardMember::default()
+                scheme_editor: minimum == ContainerRole::Editor,
+                scheme_commenter: minimum == ContainerRole::Commenter,
+                scheme_viewer: minimum == ContainerRole::Viewer,
+                ..ContainerMember::default()
             };
-            match find_member(scope, board_id, user_id).await? {
+            match find_member(scope, container_id, user_id).await? {
                 None => {
                     save_member(scope, &with_minimum)
                         .await
@@ -301,20 +311,20 @@ impl Store {
     /// Returns [`StoreError::Database`] if a statement fails.
     pub async fn remove_member(
         &self,
-        board_id: &str,
+        container_id: &str,
         user_id: &str,
     ) -> Result<MemberChange, StoreError> {
         self.transaction(async |scope| {
-            if !lock_board(scope, board_id).await? {
+            if !lock_container(scope, container_id).await? {
                 return Ok(MemberChange::NotAMember);
             }
-            let Some(current) = find_member(scope, board_id, user_id).await? else {
+            let Some(current) = find_member(scope, container_id, user_id).await? else {
                 return Ok(MemberChange::NotAMember);
             };
-            if current.scheme_admin && members::is_only_admin(scope, board_id, user_id).await? {
+            if current.scheme_admin && members::is_only_admin(scope, container_id, user_id).await? {
                 return Ok(MemberChange::LastAdmin);
             }
-            delete_member(scope, board_id, user_id).await?;
+            delete_member(scope, container_id, user_id).await?;
             Ok(MemberChange::Done)
         })
         .await
@@ -325,12 +335,12 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::NotFound`] if the user is not a member of the board.
-    pub async fn get_member_for_board(
+    pub async fn get_member_for_container(
         &self,
-        board_id: &str,
+        container_id: &str,
         user_id: &str,
-    ) -> Result<BoardMember, StoreError> {
-        self.with_conn(async |scope| get_member_for_board(scope, board_id, user_id).await)
+    ) -> Result<ContainerMember, StoreError> {
+        self.with_conn(async |scope| get_member_for_container(scope, container_id, user_id).await)
             .await
     }
 
@@ -340,11 +350,11 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if the query fails.
-    pub async fn get_members_for_board(
+    pub async fn get_members_for_container(
         &self,
-        board_id: &str,
-    ) -> Result<Vec<BoardMember>, StoreError> {
-        self.with_conn(async |scope| get_members_for_board(scope, board_id).await)
+        container_id: &str,
+    ) -> Result<Vec<ContainerMember>, StoreError> {
+        self.with_conn(async |scope| get_members_for_container(scope, container_id).await)
             .await
     }
 
@@ -358,9 +368,9 @@ impl Store {
     pub async fn get_members_for_user(
         &self,
         user_id: &str,
-    ) -> Result<Vec<BoardMember>, StoreError> {
+    ) -> Result<Vec<ContainerMember>, StoreError> {
         self.with_conn(async |scope| {
-            crate::board_team_access::get_members_for_user(scope, user_id).await
+            crate::container_team_access::get_members_for_user(scope, user_id).await
         })
         .await
     }
@@ -375,7 +385,7 @@ impl Store {
         &self,
         workspace_id: &str,
         user_id: &str,
-    ) -> Result<Vec<Board>, StoreError> {
+    ) -> Result<Vec<Container>, StoreError> {
         self.with_conn(async |scope| {
             crate::workspaces::get_template_boards(scope, workspace_id, user_id).await
         })
@@ -388,7 +398,7 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if the query fails.
-    pub async fn get_builtin_templates(&self) -> Result<Vec<Board>, StoreError> {
+    pub async fn get_builtin_templates(&self) -> Result<Vec<Container>, StoreError> {
         self.with_conn(get_builtin_templates).await
     }
 
@@ -405,9 +415,9 @@ impl Store {
     }
 }
 
-/// The select list of a board, in the order [`board_from_row`] reads it. `alias` is
+/// The select list of a board, in the order [`container_from_row`] reads it. `alias` is
 /// empty or a table alias followed by a dot.
-pub(crate) fn board_select_list(alias: &str) -> String {
+pub(crate) fn container_select_list(alias: &str) -> String {
     format!(
         "{alias}id, {alias}workspace_id, {alias}created_by, {alias}modified_by, {alias}type, \
          {alias}minimum_role, {alias}title, {alias}description, {alias}icon, \
@@ -418,30 +428,33 @@ pub(crate) fn board_select_list(alias: &str) -> String {
 }
 
 /// Starts `SELECT <board columns> FROM boards`.
-fn select_boards(scope: &Scope<'_>) -> Sql {
-    scope.sql(&format!("SELECT {} FROM containers", board_select_list("")))
+fn select_containers(scope: &Scope<'_>) -> Sql {
+    scope.sql(&format!(
+        "SELECT {} FROM containers",
+        container_select_list("")
+    ))
 }
 
-pub(crate) async fn fetch_boards(
+pub(crate) async fn fetch_containers(
     scope: &mut Scope<'_>,
     sql: Sql,
-) -> Result<Vec<Board>, StoreError> {
+) -> Result<Vec<Container>, StoreError> {
     scope
         .fetch_all(sql)
         .await?
         .iter()
-        .map(board_from_row)
+        .map(container_from_row)
         .collect()
 }
 
-fn board_from_row(row: &Row) -> Result<Board, StoreError> {
-    Ok(Board {
+fn container_from_row(row: &Row) -> Result<Container, StoreError> {
+    Ok(Container {
         id: row.id(0)?,
         workspace_id: row.id(1)?,
         created_by: row.id(2)?,
         modified_by: row.id(3)?,
-        board_type: board_type_from_text(&row.text(4)?)?,
-        kind: board_kinds::kind_from_text(&row.text(17)?)?,
+        container_type: container_type_from_text(&row.text(4)?)?,
+        kind: container_kinds::kind_from_text(&row.text(17)?)?,
         minimum_role: minimum_role_from_text(&row.text(5)?)?,
         title: row.text(6)?,
         description: row.text(7)?,
@@ -459,10 +472,10 @@ fn board_from_row(row: &Row) -> Result<Board, StoreError> {
     })
 }
 
-fn board_type_from_text(text: &str) -> Result<BoardType, StoreError> {
-    [BoardType::Open, BoardType::Private]
+fn container_type_from_text(text: &str) -> Result<ContainerType, StoreError> {
+    [ContainerType::Open, ContainerType::Private]
         .into_iter()
-        .find(|board_type| board_type.as_str() == text)
+        .find(|container_type| container_type.as_str() == text)
         .ok_or_else(|| StoreError::Corrupt {
             column: "type",
             reason: format!("unknown board type {text:?}"),
@@ -494,19 +507,22 @@ fn card_properties_from_json(value: Value) -> Result<Vec<JsonMap>, StoreError> {
         .collect())
 }
 
-pub(crate) async fn find_board(
+pub(crate) async fn find_container(
     scope: &mut Scope<'_>,
-    board_id: &str,
-) -> Result<Option<Board>, StoreError> {
-    let mut sql = select_boards(scope);
-    sql.push_bind(" WHERE id = ", Id(board_id));
-    Ok(fetch_boards(scope, sql).await?.into_iter().next())
+    container_id: &str,
+) -> Result<Option<Container>, StoreError> {
+    let mut sql = select_containers(scope);
+    sql.push_bind(" WHERE id = ", Id(container_id));
+    Ok(fetch_containers(scope, sql).await?.into_iter().next())
 }
 
-pub(crate) async fn get_board(scope: &mut Scope<'_>, board_id: &str) -> Result<Board, StoreError> {
+pub(crate) async fn get_container(
+    scope: &mut Scope<'_>,
+    container_id: &str,
+) -> Result<Container, StoreError> {
     // Preserved quirk: the error names the table rather than the board that is missing
     // (`server/services/store/sqlstore/board.go:227`).
-    find_board(scope, board_id)
+    find_container(scope, container_id)
         .await?
         .ok_or_else(|| StoreError::not_found("boards"))
 }
@@ -516,129 +532,132 @@ pub(crate) async fn get_board(scope: &mut Scope<'_>, board_id: &str) -> Result<B
 /// and, if asked for, the open ones where the user works. A membership counts while the
 /// user is a member of the board's workspace, and if it has a role. More `AND` conditions
 /// on `b` may follow.
-pub(crate) fn select_boards_of_user(
+pub(crate) fn select_containers_of_user(
     scope: &Scope<'_>,
     user_id: &str,
-    public_boards: PublicBoards,
-    kinds: BoardKinds,
+    public_containers: PublicContainers,
+    kinds: ContainerKinds,
 ) -> Sql {
     let mut sql = scope.sql(&format!(
         "SELECT DISTINCT {} FROM containers AS b LEFT JOIN container_members AS bm ON b.id = bm.container_id \
          WHERE b.is_template = ",
-        board_select_list("b.")
+        container_select_list("b.")
     ));
     sql.bind(false);
-    board_kinds::push_kinds(&mut sql, "b.kind", kinds);
-    match public_boards {
-        PublicBoards::Include => members::push_open_boards_at_work(&mut sql, user_id, None),
-        PublicBoards::OpenWikis => {
-            members::push_open_boards_at_work(&mut sql, user_id, Some(BoardKind::Wiki))
+    container_kinds::push_kinds(&mut sql, "b.kind", kinds);
+    match public_containers {
+        PublicContainers::Include => members::push_open_containers_at_work(&mut sql, user_id, None),
+        PublicContainers::OpenWikis => {
+            members::push_open_containers_at_work(&mut sql, user_id, Some(ContainerKind::Wiki))
         }
-        PublicBoards::Exclude => sql.push(" AND ("),
+        PublicContainers::Exclude => sql.push(" AND ("),
     };
     sql.push("(");
     members::push_own_membership_in_workspace(&mut sql, user_id)
         .push(members::BM_HAS_A_ROLE)
         .push(") OR ");
-    crate::board_team_access::push_has_team_role(&mut sql, scope, user_id);
+    crate::container_team_access::push_has_team_role(&mut sql, scope, user_id);
     sql.push(")");
     sql
 }
 
-pub(crate) async fn get_boards_in_workspace_by_ids(
+pub(crate) async fn get_containers_in_workspace_by_ids(
     scope: &mut Scope<'_>,
-    board_ids: &[String],
+    container_ids: &[String],
     workspace_id: &str,
-) -> Result<Vec<Board>, StoreError> {
-    let mut sql = select_boards(scope);
+) -> Result<Vec<Container>, StoreError> {
+    let mut sql = select_containers(scope);
     sql.push_bind(" WHERE workspace_id = ", Id(workspace_id))
         .push(" AND id IN (")
-        .bind_list(board_ids.iter().map(|id| Id(id)))
+        .bind_list(container_ids.iter().map(|id| Id(id)))
         .push(") ORDER BY create_at, id");
-    let boards = fetch_boards(scope, sql).await?;
-    if boards.len() == board_ids.len() {
-        Ok(boards)
+    let containers = fetch_containers(scope, sql).await?;
+    if containers.len() == container_ids.len() {
+        Ok(containers)
     } else {
         tracing::warn!(
-            found = boards.len(),
-            asked = board_ids.len(),
+            found = containers.len(),
+            asked = container_ids.len(),
             "get_boards_in_workspace_by_ids: mismatched number of boards found"
         );
         Err(StoreError::NotAllFound {
             entity: "board",
-            ids: board_ids.to_vec(),
+            ids: container_ids.to_vec(),
         })
     }
 }
 
-pub(crate) async fn insert_board(
+pub(crate) async fn insert_container(
     scope: &mut Scope<'_>,
-    board: &mut Board,
+    container: &mut Container,
     user_id: &str,
 ) -> Result<(), StoreError> {
     // Every way a board is stored comes through here: created, patched, duplicated,
     // imported.
-    board.check_storable()?;
+    container.check_storable()?;
     // A board that exists is held while it is read and written.
-    lock_board(scope, &board.id).await?;
-    let existing = find_board(scope, &board.id).await?;
+    lock_container(scope, &container.id).await?;
+    let existing = find_container(scope, &container.id).await?;
     // A template stored on behalf of no user is the system's own: a built-in template.
-    // Nothing a caller puts into `board` changes that, and it never changes afterwards.
-    board.is_builtin = match &existing {
+    // Nothing a caller puts into `container` changes that, and it never changes afterwards.
+    container.is_builtin = match &existing {
         Some(existing) => existing.is_builtin,
-        None => user_id.is_empty() && board.is_template,
+        None => user_id.is_empty() && container.is_template,
     };
     // The built-in templates are told apart by a hash of their title.
-    if board.is_template && board.is_builtin {
-        board.properties.insert(
+    if container.is_template && container.is_builtin {
+        container.properties.insert(
             "trackingTemplateId".to_owned(),
-            Value::String(md5_hex(&board.title)),
+            Value::String(md5_hex(&container.title)),
         );
     }
     let now = now_millis();
-    user_id.clone_into(&mut board.modified_by);
-    board.update_at = now;
-    board.delete_at = 0;
+    user_id.clone_into(&mut container.modified_by);
+    container.update_at = now;
+    container.delete_at = 0;
 
     if let Some(existing) = existing {
         // A board is of the kind it was made as: nothing stores it as of another.
-        if existing.kind != board.kind {
-            return Err(BoardError::KindChanges {
+        if existing.kind != container.kind {
+            return Err(ContainerError::KindChanges {
                 stored: existing.kind,
-                asked: board.kind,
+                asked: container.kind,
             }
             .into());
         }
-        // A board stays in its workspace, and who made it and when does not change: `board`
+        // A board stays in its workspace, and who made it and when does not change: `container`
         // comes back with what is stored, whatever the caller put there.
-        board.workspace_id = existing.workspace_id;
-        board.created_by = existing.created_by;
-        board.create_at = existing.create_at;
+        container.workspace_id = existing.workspace_id;
+        container.created_by = existing.created_by;
+        container.create_at = existing.create_at;
         let mut sql = scope.sql("UPDATE containers SET ");
-        sql.push_bind("modified_by = ", OptId(&board.modified_by))
-            .push_bind(", type = ", board.board_type.as_str())
-            .push_bind(", minimum_role = ", board.minimum_role.as_str())
-            .push_bind(", title = ", &board.title)
-            .push_bind(", description = ", &board.description)
-            .push_bind(", icon = ", &board.icon)
-            .push_bind(", show_description = ", board.show_description)
-            .push_bind(", is_template = ", board.is_template)
-            .push_bind(", template_version = ", board.template_version)
-            .push_bind(", properties = ", Param::jsonb(&board.properties)?)
+        sql.push_bind("modified_by = ", OptId(&container.modified_by))
+            .push_bind(", type = ", container.container_type.as_str())
+            .push_bind(", minimum_role = ", container.minimum_role.as_str())
+            .push_bind(", title = ", &container.title)
+            .push_bind(", description = ", &container.description)
+            .push_bind(", icon = ", &container.icon)
+            .push_bind(", show_description = ", container.show_description)
+            .push_bind(", is_template = ", container.is_template)
+            .push_bind(", template_version = ", container.template_version)
+            .push_bind(", properties = ", Param::jsonb(&container.properties)?)
             .push_bind(
                 ", card_properties = ",
-                Param::jsonb(&board.card_properties)?,
+                Param::jsonb(&container.card_properties)?,
             )
-            .push_bind(", update_at = ", board.update_at)
-            .push_bind(" WHERE id = ", Id(&board.id));
+            .push_bind(", update_at = ", container.update_at)
+            .push_bind(" WHERE id = ", Id(&container.id));
         if scope.execute(sql).await? == 0 {
-            return Err(StoreError::not_found(format_args!("board ID={}", board.id)));
+            return Err(StoreError::not_found(format_args!(
+                "board ID={}",
+                container.id
+            )));
         }
         Ok(())
     } else {
-        user_id.clone_into(&mut board.created_by);
-        board.create_at = now;
-        insert_board_row(scope, board).await
+        user_id.clone_into(&mut container.created_by);
+        container.create_at = now;
+        insert_container_row(scope, container).await
     }
 }
 
@@ -653,73 +672,73 @@ fn md5_hex(text: &str) -> String {
     hex
 }
 
-/// Inserts a board row with every column as `board` has it. For a new board, and for
+/// Inserts a board row with every column as `container` has it. For a new board, and for
 /// one that comes back from the trash.
-pub(crate) async fn insert_board_row(
+pub(crate) async fn insert_container_row(
     scope: &mut Scope<'_>,
-    board: &Board,
+    container: &Container,
 ) -> Result<(), StoreError> {
     let mut sql = scope.sql(&format!(
-        "INSERT INTO containers ({BOARD_COLUMNS}) VALUES ("
+        "INSERT INTO containers ({CONTAINER_COLUMNS}) VALUES ("
     ));
-    sql.bind(Id(&board.id))
-        .push_bind(", ", Id(&board.workspace_id))
-        .push_bind(", ", OptId(&board.created_by))
-        .push_bind(", ", OptId(&board.modified_by))
-        .push_bind(", ", board.board_type.as_str())
-        .push_bind(", ", board.minimum_role.as_str())
-        .push_bind(", ", &board.title)
-        .push_bind(", ", &board.description)
-        .push_bind(", ", &board.icon)
-        .push_bind(", ", board.show_description)
-        .push_bind(", ", board.is_template)
-        .push_bind(", ", board.is_builtin)
-        .push_bind(", ", board.template_version)
-        .push_bind(", ", Param::jsonb(&board.properties)?)
-        .push_bind(", ", Param::jsonb(&board.card_properties)?)
-        .push_bind(", ", board.create_at)
-        .push_bind(", ", board.update_at)
-        .push_bind(", ", board.kind.as_str())
+    sql.bind(Id(&container.id))
+        .push_bind(", ", Id(&container.workspace_id))
+        .push_bind(", ", OptId(&container.created_by))
+        .push_bind(", ", OptId(&container.modified_by))
+        .push_bind(", ", container.container_type.as_str())
+        .push_bind(", ", container.minimum_role.as_str())
+        .push_bind(", ", &container.title)
+        .push_bind(", ", &container.description)
+        .push_bind(", ", &container.icon)
+        .push_bind(", ", container.show_description)
+        .push_bind(", ", container.is_template)
+        .push_bind(", ", container.is_builtin)
+        .push_bind(", ", container.template_version)
+        .push_bind(", ", Param::jsonb(&container.properties)?)
+        .push_bind(", ", Param::jsonb(&container.card_properties)?)
+        .push_bind(", ", container.create_at)
+        .push_bind(", ", container.update_at)
+        .push_bind(", ", container.kind.as_str())
         .push(")");
     scope.execute(sql).await?;
     Ok(())
 }
 
-pub(crate) async fn insert_board_with_admin(
+pub(crate) async fn insert_container_with_admin(
     scope: &mut Scope<'_>,
-    board: &mut Board,
+    container: &mut Container,
     user_id: &str,
-) -> Result<BoardMember, StoreError> {
-    insert_board(scope, board, user_id).await?;
+) -> Result<ContainerMember, StoreError> {
+    insert_container(scope, container, user_id).await?;
     // Its admin is its creator (`user_id`, or the stored one of a board that existed).
-    members::hold_creator(scope, &board.workspace_id, &board.created_by).await?;
-    let member = BoardMember {
-        board_id: board.id.clone(),
-        user_id: board.created_by.clone(),
+    members::hold_creator(scope, &container.workspace_id, &container.created_by).await?;
+    let member = ContainerMember {
+        container_id: container.id.clone(),
+        user_id: container.created_by.clone(),
         scheme_admin: true,
         scheme_editor: true,
-        ..BoardMember::default()
+        ..ContainerMember::default()
     };
     save_member(scope, &member).await?;
     Ok(member)
 }
 
-pub(crate) async fn patch_board(
+pub(crate) async fn patch_container(
     scope: &mut Scope<'_>,
-    board_id: &str,
-    patch: &BoardPatch,
+    container_id: &str,
+    patch: &ContainerPatch,
     user_id: &str,
-) -> Result<Board, StoreError> {
+) -> Result<Container, StoreError> {
     // Before the board is looked at: applying the patch would drop a definition without
     // an identifier silently.
-    patch.validate().map_err(BoardError::from)?;
+    patch.validate().map_err(ContainerError::from)?;
     // Held before the board is read: of two patches at once, the second is applied to
     // what the first left.
-    hold_board(scope, board_id).await?;
-    let mut board = get_board(scope, board_id).await?;
-    patch.apply(&mut board);
-    insert_board(scope, &mut board, user_id).await?;
-    Ok(board)
+    hold_container(scope, container_id).await?;
+    let mut container = get_container(scope, container_id).await?;
+    patch.apply(&mut container);
+    insert_container(scope, &mut container, user_id).await?;
+    Ok(container)
 }
 
 /// Starts the query for memberships.
@@ -733,14 +752,14 @@ pub(crate) fn select_members(scope: &Scope<'_>) -> Sql {
 pub(crate) async fn fetch_members(
     scope: &mut Scope<'_>,
     sql: Sql,
-) -> Result<Vec<BoardMember>, StoreError> {
+) -> Result<Vec<ContainerMember>, StoreError> {
     scope
         .fetch_all(sql)
         .await?
         .iter()
         .map(|row| {
-            Ok(BoardMember {
-                board_id: row.id(0)?,
+            Ok(ContainerMember {
+                container_id: row.id(0)?,
                 user_id: row.id(1)?,
                 roles: String::new(),
                 scheme_admin: row.bool(2)?,
@@ -756,46 +775,48 @@ pub(crate) async fn fetch_members(
 
 pub(crate) async fn find_member(
     scope: &mut Scope<'_>,
-    board_id: &str,
+    container_id: &str,
     user_id: &str,
-) -> Result<Option<BoardMember>, StoreError> {
+) -> Result<Option<ContainerMember>, StoreError> {
     let mut sql = select_members(scope);
-    sql.push_bind(" WHERE bm.container_id = ", Id(board_id))
+    sql.push_bind(" WHERE bm.container_id = ", Id(container_id))
         .push_bind(" AND bm.user_id = ", Id(user_id));
     Ok(fetch_members(scope, sql).await?.into_iter().next())
 }
 
-pub(crate) async fn get_member_for_board(
+pub(crate) async fn get_member_for_container(
     scope: &mut Scope<'_>,
-    board_id: &str,
+    container_id: &str,
     user_id: &str,
-) -> Result<BoardMember, StoreError> {
-    find_member(scope, board_id, user_id).await?.ok_or_else(|| {
-        StoreError::not_found(format_args!(
-            "board member BoardID={board_id} UserID={user_id}"
-        ))
-    })
+) -> Result<ContainerMember, StoreError> {
+    find_member(scope, container_id, user_id)
+        .await?
+        .ok_or_else(|| {
+            StoreError::not_found(format_args!(
+                "board member BoardID={container_id} UserID={user_id}"
+            ))
+        })
 }
 
-pub(crate) async fn get_members_for_board(
+pub(crate) async fn get_members_for_container(
     scope: &mut Scope<'_>,
-    board_id: &str,
-) -> Result<Vec<BoardMember>, StoreError> {
+    container_id: &str,
+) -> Result<Vec<ContainerMember>, StoreError> {
     let mut sql = select_members(scope);
-    sql.push_bind(" WHERE bm.container_id = ", Id(board_id))
+    sql.push_bind(" WHERE bm.container_id = ", Id(container_id))
         .push(" ORDER BY bm.user_id");
     fetch_members(scope, sql).await
 }
 
 pub(crate) async fn save_member(
     scope: &mut Scope<'_>,
-    member: &BoardMember,
+    member: &ContainerMember,
 ) -> Result<(), StoreError> {
     let mut sql = scope.sql(
         "INSERT INTO container_members (container_id, user_id, scheme_admin, scheme_editor, \
          scheme_commenter, scheme_viewer) VALUES (",
     );
-    sql.bind(Id(&member.board_id))
+    sql.bind(Id(&member.container_id))
         .push_bind(", ", Id(&member.user_id))
         .push_bind(", ", member.scheme_admin)
         .push_bind(", ", member.scheme_editor)
@@ -823,94 +844,104 @@ pub(crate) async fn save_member(
 /// On SQLite a transaction that writes holds the whole database from its start. On
 /// PostgreSQL the board's row is locked, in the mode that leaves alone rows of other
 /// tables that are stored for the board at the same time.
-pub(crate) async fn lock_board(scope: &mut Scope<'_>, board_id: &str) -> Result<bool, StoreError> {
-    Ok(lock_board_of_kind(scope, board_id).await?.is_some())
+pub(crate) async fn lock_container(
+    scope: &mut Scope<'_>,
+    container_id: &str,
+) -> Result<bool, StoreError> {
+    Ok(lock_container_of_kind(scope, container_id).await?.is_some())
 }
 
-/// Locks a board as [`lock_board`] does, and says of what kind it is, which stays as
+/// Locks a board as [`lock_container`] does, and says of what kind it is, which stays as
 /// it is whatever is written; `None` if there is no such board.
-pub(crate) async fn lock_board_of_kind(
+pub(crate) async fn lock_container_of_kind(
     scope: &mut Scope<'_>,
-    board_id: &str,
-) -> Result<Option<BoardKind>, StoreError> {
+    container_id: &str,
+) -> Result<Option<ContainerKind>, StoreError> {
     let mut sql = scope.sql("SELECT kind FROM containers WHERE id = ");
-    sql.bind(Id(board_id));
+    sql.bind(Id(container_id));
     if scope.dialect() == Dialect::Postgres {
         sql.push(" FOR NO KEY UPDATE");
     }
     match scope.fetch_optional(sql).await? {
-        Some(row) => Ok(Some(board_kinds::kind_from_text(&row.text(0)?)?)),
+        Some(row) => Ok(Some(container_kinds::kind_from_text(&row.text(0)?)?)),
         None => Ok(None),
     }
 }
 
-/// Locks a board as [`lock_board`] does; one that is not there is not found.
-pub(crate) async fn hold_board(scope: &mut Scope<'_>, board_id: &str) -> Result<(), StoreError> {
-    if lock_board(scope, board_id).await? {
+/// Locks a board as [`lock_container`] does; one that is not there is not found.
+pub(crate) async fn hold_container(
+    scope: &mut Scope<'_>,
+    container_id: &str,
+) -> Result<(), StoreError> {
+    if lock_container(scope, container_id).await? {
         return Ok(());
     }
-    Err(StoreError::not_found(format_args!("board ID={board_id}")))
+    Err(StoreError::not_found(format_args!(
+        "board ID={container_id}"
+    )))
 }
 
 /// Holds a board that is about to be deleted against everything that is stored for it:
 /// the lock the deletion of the row takes anyway, taken before the board is read.
 ///
-/// [`lock_board`] leaves alone whoever stores a row that refers to the board (a
+/// [`lock_container`] leaves alone whoever stores a row that refers to the board (a
 /// membership, a file record, a filing). A row stored between the reading of what goes
 /// to the trash and the deletion would go with the board and not be in the trash. This
 /// lock waits for such rows that are being stored and shuts out later ones, which then
 /// find no board.
-pub(crate) async fn lock_board_for_deletion(
+pub(crate) async fn lock_container_for_deletion(
     scope: &mut Scope<'_>,
-    board_id: &str,
+    container_id: &str,
 ) -> Result<bool, StoreError> {
     let mut sql = scope.sql("SELECT id FROM containers WHERE id = ");
-    sql.bind(Id(board_id));
+    sql.bind(Id(container_id));
     if scope.dialect() == Dialect::Postgres {
         sql.push(" FOR UPDATE");
     }
     Ok(scope.fetch_optional(sql).await?.is_some())
 }
 
-/// Takes the lock of [`lock_board`] on several boards, in the order of their
+/// Takes the lock of [`lock_container`] on several boards, in the order of their
 /// identifiers whatever order they are given in: two writes that span the same boards
 /// then queue up instead of each holding what the other waits for. For a write that
 /// touches more than one board, before it touches any.
-pub(crate) async fn lock_boards<'a>(
+pub(crate) async fn lock_containers<'a>(
     scope: &mut Scope<'_>,
-    board_ids: impl IntoIterator<Item = &'a str>,
+    container_ids: impl IntoIterator<Item = &'a str>,
 ) -> Result<(), StoreError> {
-    let ordered: BTreeSet<&str> = board_ids.into_iter().collect();
-    for board_id in ordered {
-        lock_board(scope, board_id).await?;
+    let ordered: BTreeSet<&str> = container_ids.into_iter().collect();
+    for container_id in ordered {
+        lock_container(scope, container_id).await?;
     }
     Ok(())
 }
 
 pub(crate) async fn delete_member(
     scope: &mut Scope<'_>,
-    board_id: &str,
+    container_id: &str,
     user_id: &str,
 ) -> Result<(), StoreError> {
     let mut sql = scope.sql("DELETE FROM container_members WHERE container_id = ");
-    sql.bind(Id(board_id))
+    sql.bind(Id(container_id))
         .push_bind(" AND user_id = ", Id(user_id));
     if scope.execute(sql).await? > 0
-        && crate::board_team_access::role_for(scope, board_id, user_id)
+        && crate::container_team_access::role_for(scope, container_id, user_id)
             .await?
             .is_none()
     {
         // Whoever may no longer see the board is no longer told what changes on it.
-        subscriptions::end_subscriptions_to_board(scope, board_id, user_id).await?;
+        subscriptions::end_subscriptions_to_container(scope, container_id, user_id).await?;
     }
     Ok(())
 }
 
-pub(crate) async fn get_builtin_templates(scope: &mut Scope<'_>) -> Result<Vec<Board>, StoreError> {
-    let mut sql = select_boards(scope);
+pub(crate) async fn get_builtin_templates(
+    scope: &mut Scope<'_>,
+) -> Result<Vec<Container>, StoreError> {
+    let mut sql = select_containers(scope);
     sql.push_bind(" WHERE is_builtin = ", true)
         .push(" ORDER BY create_at, id");
-    fetch_boards(scope, sql).await
+    fetch_containers(scope, sql).await
 }
 
 pub(crate) async fn remove_builtin_templates(scope: &mut Scope<'_>) -> Result<(), StoreError> {

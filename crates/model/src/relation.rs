@@ -162,7 +162,7 @@ pub fn tidy_copied_relations(values: &mut JsonMap, card_id: &str, definitions: &
 /// cards that get new identifiers along with them ([`crate::renew_block_ids`]).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RelationProperties {
-    by_board: HashMap<String, HashSet<String>>,
+    by_container: HashMap<String, HashSet<String>>,
 }
 
 impl RelationProperties {
@@ -174,26 +174,26 @@ impl RelationProperties {
 
     /// The relation properties among one board's definitions.
     #[must_use]
-    pub fn of_board(board_id: &str, definitions: &[JsonMap]) -> Self {
+    pub fn of_container(container_id: &str, definitions: &[JsonMap]) -> Self {
         let mut properties = Self::new();
-        properties.add_board(board_id, definitions);
+        properties.add_container(container_id, definitions);
         properties
     }
 
     /// Adds the relation properties among a board's definitions.
-    pub fn add_board(&mut self, board_id: &str, definitions: &[JsonMap]) {
+    pub fn add_container(&mut self, container_id: &str, definitions: &[JsonMap]) {
         let ids: HashSet<String> = relation_property_ids(definitions)
             .into_iter()
             .map(str::to_owned)
             .collect();
         if !ids.is_empty() {
-            self.by_board.insert(board_id.to_owned(), ids);
+            self.by_container.insert(container_id.to_owned(), ids);
         }
     }
 
     /// The relation properties of a board, if it has any.
-    pub(crate) fn of(&self, board_id: &str) -> Option<&HashSet<String>> {
-        self.by_board.get(board_id)
+    pub(crate) fn of(&self, container_id: &str) -> Option<&HashSet<String>> {
+        self.by_container.get(container_id)
     }
 }
 
@@ -289,11 +289,11 @@ mod tests {
             object(json!({"id": "untyped"})),
         ];
         assert_eq!(relation_property_ids(&definitions), HashSet::from(["rel"]));
-        let properties = RelationProperties::of_board("b", &definitions);
+        let properties = RelationProperties::of_container("b", &definitions);
         assert!(properties.of("b").is_some_and(|ids| ids.contains("rel")));
         assert!(properties.of("other").is_none());
         assert!(
-            RelationProperties::of_board("b", &definitions[1..])
+            RelationProperties::of_container("b", &definitions[1..])
                 .of("b")
                 .is_none(),
             "a board without relation properties is not listed"

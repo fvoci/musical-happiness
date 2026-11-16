@@ -116,7 +116,7 @@ async fn get_blocks_with_the_board_as_parent_returns_the_blocks_directly_on_the_
     let mut elsewhere = named_blocks(&other_board_id, &[("other card", "", "card")]);
     common::insert_blocks(store, &mut elsewhere, &user_id).await;
 
-    let on_the_board = BlockFilter::board(&board_id).with_parent(&board_id);
+    let on_the_board = BlockFilter::container(&board_id).with_parent(&board_id);
     let blocks = store
         .get_blocks(&on_the_board)
         .await
@@ -144,7 +144,7 @@ async fn get_blocks_with_the_board_as_parent_returns_the_blocks_directly_on_the_
 
     // A block as parent still means that block.
     let on_the_card = store
-        .get_blocks(&BlockFilter::board(&board_id).with_parent(id_of(&tree, "card")))
+        .get_blocks(&BlockFilter::container(&board_id).with_parent(id_of(&tree, "card")))
         .await
         .expect("the query runs");
     assert_eq!(
@@ -155,7 +155,7 @@ async fn get_blocks_with_the_board_as_parent_returns_the_blocks_directly_on_the_
 
     // Each board has its own, and one board is not the parent of another's blocks.
     let on_the_other = store
-        .get_blocks(&BlockFilter::board(&other_board_id).with_parent(&other_board_id))
+        .get_blocks(&BlockFilter::container(&other_board_id).with_parent(&other_board_id))
         .await
         .expect("the query runs");
     assert_eq!(
@@ -164,7 +164,7 @@ async fn get_blocks_with_the_board_as_parent_returns_the_blocks_directly_on_the_
         "the other board's"
     );
     let mixed = store
-        .get_blocks(&BlockFilter::board(&board_id).with_parent(&other_board_id))
+        .get_blocks(&BlockFilter::container(&board_id).with_parent(&other_board_id))
         .await
         .expect("the query runs");
     assert!(

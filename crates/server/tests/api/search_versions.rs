@@ -12,7 +12,7 @@
 
 use std::time::Duration;
 
-use fvoci_model::{Board, BoardType, new_id};
+use fvoci_model::{Container, ContainerType, new_id};
 use fvoci_server::config::search::SearchSettings;
 use serde_json::{Value, json};
 
@@ -132,9 +132,9 @@ struct Seen {
 /// The scenario, on a server `th` whose search server `reach` reaches. Returns the
 /// server, started again on the way.
 async fn late_writes_lose(th: TestServer, reach: &Reach) -> (TestServer, Seen) {
-    let board: Board = th
+    let board: Container = th
         .client
-        .create_board(&new_board(TEST_WORKSPACE_ID, BoardType::Private, "판"))
+        .create_board(&new_board(TEST_WORKSPACE_ID, ContainerType::Private, "판"))
         .await
         .created_json();
     let card = new_card(&th.client, &board.id, "처음 제목", "환불규정").await;

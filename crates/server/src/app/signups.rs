@@ -456,7 +456,7 @@ impl App {
                     let accepted = Accepted {
                         user_id: confirmed.user.id.clone(),
                         workspace_id: confirmed.workspace_id.clone(),
-                        board_id: confirmed.board_id.clone(),
+                        container_id: confirmed.container_id.clone(),
                         used: true,
                     };
                     app.collab()

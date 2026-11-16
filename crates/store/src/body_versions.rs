@@ -24,7 +24,7 @@ use crate::body_digest::body_digest;
 use crate::db::{Id, Param, Row, Scope, VersionsKept, now_millis, to_json_text};
 use crate::error::StoreError;
 use crate::file_refs::NewImages;
-use crate::{blocks, boards};
+use crate::{blocks, containers};
 
 /// How many versions of a card's body the store keeps unless told otherwise.
 pub const DEFAULT_BODY_VERSIONS_KEPT: u32 = 50;
@@ -204,7 +204,7 @@ pub(crate) async fn keep_held(
     };
     // Read again once its board is held: what puts down the files a card shows holds
     // the board, and so does what writes its body.
-    if !boards::lock_board(scope, &found.board_id).await? {
+    if !containers::lock_container(scope, &found.container_id).await? {
         return Ok(None);
     }
     let card = match blocks::find_block(scope, card_id).await? {

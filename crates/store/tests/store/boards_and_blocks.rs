@@ -12,11 +12,11 @@
 //! The tests after [`duplicate_board`] have no counterpart in the original.
 
 use fvoci_model::{
-    BLOCK_TITLE_MAX_CHARS, Block, BlockError, BlockPatch, BlockType, Board, BoardKinds,
-    BoardMember, BoardPatch, BoardType, BoardsAndBlocks, BoardsAndBlocksError,
-    DeleteBoardsAndBlocks, PatchBoardsAndBlocks, is_id, new_id,
+    BLOCK_TITLE_MAX_CHARS, Block, BlockError, BlockPatch, BlockType, Container, ContainerKinds,
+    ContainerMember, ContainerPatch, ContainerType, ContainersAndBlocks, ContainersAndBlocksError,
+    DeleteContainersAndBlocks, PatchContainersAndBlocks, is_id, new_id,
 };
-use fvoci_store::{BlockFilter, DuplicateAs, NewImages, PublicBoards, Store, StoreError};
+use fvoci_store::{BlockFilter, DuplicateAs, NewImages, PublicContainers, Store, StoreError};
 
 use crate::common;
 
@@ -32,25 +32,25 @@ fn sorted(ids: &[&str]) -> Vec<String> {
     ids
 }
 
-fn new_board(id: &str, workspace_id: &str, board_type: BoardType) -> Board {
-    Board {
+fn new_board(id: &str, workspace_id: &str, board_type: ContainerType) -> Container {
+    Container {
         id: id.to_owned(),
         workspace_id: workspace_id.to_owned(),
-        board_type,
-        ..Board::default()
+        container_type: board_type,
+        ..Container::default()
     }
 }
 
 fn new_card(id: &str, board_id: &str) -> Block {
     Block {
         id: id.to_owned(),
-        board_id: board_id.to_owned(),
+        container_id: board_id.to_owned(),
         block_type: BlockType::Card,
         ..Block::default()
     }
 }
 
-fn sorted_board_ids(boards: &[Board]) -> Vec<String> {
+fn sorted_board_ids(boards: &[Container]) -> Vec<String> {
     let mut ids: Vec<String> = boards.iter().map(|board| board.id.clone()).collect();
     ids.sort();
     ids
@@ -69,9 +69,9 @@ fn is_title_size_limit_exceeded(error: &StoreError) -> bool {
 /// Inserts a new open board of the workspace on behalf of the user and returns its
 /// identifier.
 async fn insert_new_board(store: &Store, workspace_id: &str, user_id: &str) -> String {
-    let mut board = new_board(&new_id(), workspace_id, BoardType::Open);
+    let mut board = new_board(&new_id(), workspace_id, ContainerType::Open);
     store
-        .insert_board(&mut board, user_id)
+        .insert_container(&mut board, user_id)
         .await
         .expect("the board is inserted");
     board.id
@@ -82,7 +82,7 @@ async fn insert_new_board(store: &Store, workspace_id: &str, user_id: &str) -> S
 async fn insert_new_block(store: &Store, board_id: &str, user_id: &str) -> String {
     let mut block = Block {
         id: new_id(),
-        board_id: board_id.to_owned(),
+        container_id: board_id.to_owned(),
         ..Block::default()
     };
     store
@@ -123,7 +123,7 @@ impl TwoBoards {
     /// "all the entities should still exist"
     async fn assert_all_exist(&self, store: &Store) {
         for board_id in &self.board_ids {
-            let result = store.get_board(board_id).await;
+            let result = store.get_container(board_id).await;
             assert!(result.is_ok(), "board {board_id}: {result:?}");
         }
         for block_id in &self.block_ids {
@@ -144,11 +144,11 @@ async fn create_boards_and_blocks() {
     let workspace_id = common::workspace_of(&test, &[&user_id]).await;
 
     let stored = test
-        .get_boards_for_user_and_workspace(
+        .get_containers_for_user_and_workspace(
             &user_id,
             &workspace_id,
-            PublicBoards::Include,
-            BoardKinds::Boards,
+            PublicContainers::Include,
+            ContainerKinds::Boards,
         )
         .await
         .expect("the query succeeds");
@@ -158,23 +158,23 @@ async fn create_boards_and_blocks() {
     {
         let [board1, board2, board3] = new_ids();
         let [block1, block2] = new_ids();
-        let mut new_bab = BoardsAndBlocks {
-            boards: vec![
-                new_board(&board1, &workspace_id, BoardType::Open),
-                new_board(&board2, &workspace_id, BoardType::Private),
-                new_board(&board3, &workspace_id, BoardType::Open),
+        let mut new_bab = ContainersAndBlocks {
+            containers: vec![
+                new_board(&board1, &workspace_id, ContainerType::Open),
+                new_board(&board2, &workspace_id, ContainerType::Private),
+                new_board(&board3, &workspace_id, ContainerType::Open),
             ],
             blocks: vec![new_card(&block1, &board1), new_card(&block2, &board2)],
         };
 
-        test.create_boards_and_blocks(&mut new_bab, &user_id, NewImages::Recorded)
+        test.create_containers_and_blocks(&mut new_bab, &user_id, NewImages::Recorded)
             .await
             .expect("the boards and blocks are created");
-        assert_eq!(new_bab.boards.len(), 3, "got {:?}", new_bab.boards);
+        assert_eq!(new_bab.containers.len(), 3, "got {:?}", new_bab.containers);
         assert_eq!(new_bab.blocks.len(), 2, "got {:?}", new_bab.blocks);
 
         assert_eq!(
-            sorted_board_ids(&new_bab.boards),
+            sorted_board_ids(&new_bab.containers),
             sorted(&[&board1, &board2, &board3]),
             "the boards keep their identifiers"
         );
@@ -189,25 +189,25 @@ async fn create_boards_and_blocks() {
     {
         let [board4, board5, board6] = new_ids();
         let [block3, block4] = new_ids();
-        let mut new_bab = BoardsAndBlocks {
-            boards: vec![
-                new_board(&board4, &workspace_id, BoardType::Open),
-                new_board(&board5, &workspace_id, BoardType::Private),
-                new_board(&board6, &workspace_id, BoardType::Open),
+        let mut new_bab = ContainersAndBlocks {
+            containers: vec![
+                new_board(&board4, &workspace_id, ContainerType::Open),
+                new_board(&board5, &workspace_id, ContainerType::Private),
+                new_board(&board6, &workspace_id, ContainerType::Open),
             ],
             blocks: vec![new_card(&block3, &board4), new_card(&block4, &board5)],
         };
 
         let members = test
-            .create_boards_and_blocks_with_admin(&mut new_bab, &user_id)
+            .create_containers_and_blocks_with_admin(&mut new_bab, &user_id)
             .await
             .expect("the boards, blocks and admins are created");
-        assert_eq!(new_bab.boards.len(), 3, "got {:?}", new_bab.boards);
+        assert_eq!(new_bab.containers.len(), 3, "got {:?}", new_bab.containers);
         assert_eq!(new_bab.blocks.len(), 2, "got {:?}", new_bab.blocks);
         assert_eq!(members.len(), 3, "got {members:?}");
 
         assert_eq!(
-            sorted_board_ids(&new_bab.boards),
+            sorted_board_ids(&new_bab.containers),
             sorted(&[&board4, &board5, &board6]),
             "the boards keep their identifiers"
         );
@@ -220,7 +220,7 @@ async fn create_boards_and_blocks() {
         let mut member_board_ids = Vec::new();
         for member in &members {
             assert_eq!(user_id, member.user_id, "the creator is the member");
-            member_board_ids.push(member.board_id.clone());
+            member_board_ids.push(member.container_id.clone());
         }
         member_board_ids.sort_unstable();
         assert_eq!(
@@ -237,24 +237,24 @@ async fn create_boards_and_blocks() {
     // "on failure, nothing should be saved"
     {
         // one of the blocks is invalid as it doesn't have BoardID
-        let mut new_bab = BoardsAndBlocks {
-            boards: vec![
-                new_board(&board7, &workspace_id, BoardType::Open),
-                new_board(&board8, &workspace_id, BoardType::Private),
-                new_board(&board9, &workspace_id, BoardType::Open),
+        let mut new_bab = ContainersAndBlocks {
+            containers: vec![
+                new_board(&board7, &workspace_id, ContainerType::Open),
+                new_board(&board8, &workspace_id, ContainerType::Private),
+                new_board(&board9, &workspace_id, ContainerType::Open),
             ],
             blocks: vec![new_card(&block5, &board7), new_card(&block6, "")],
         };
 
         let error = test
-            .create_boards_and_blocks(&mut new_bab, &user_id, NewImages::Recorded)
+            .create_containers_and_blocks(&mut new_bab, &user_id, NewImages::Recorded)
             .await
             .expect_err("a block without a board is rejected");
         assert!(
             matches!(
                 error,
                 StoreError::InvalidBlock {
-                    source: BlockError::EmptyBoardId,
+                    source: BlockError::EmptyContainerId,
                     ..
                 }
             ),
@@ -262,7 +262,7 @@ async fn create_boards_and_blocks() {
         );
 
         let error = test
-            .create_boards_and_blocks_with_admin(&mut new_bab, &user_id)
+            .create_containers_and_blocks_with_admin(&mut new_bab, &user_id)
             .await
             .expect_err("a block without a board is rejected");
         assert!(
@@ -274,7 +274,7 @@ async fn create_boards_and_blocks() {
         // boards and the first block. Here nothing is saved on either database.
         for board_id in [&board7, &board8, &board9] {
             let error = test
-                .get_board(board_id)
+                .get_container(board_id)
                 .await
                 .expect_err("the board was not saved");
             assert!(error.is_not_found(), "board {board_id}: {error:?}");
@@ -294,11 +294,11 @@ async fn create_boards_and_blocks() {
     // "should apply block size limits"
     {
         // one of the blocks is invalid as it has a title too large
-        let mut new_bab = BoardsAndBlocks {
-            boards: vec![
-                new_board(&board7, &workspace_id, BoardType::Open),
-                new_board(&board8, &workspace_id, BoardType::Private),
-                new_board(&board9, &workspace_id, BoardType::Open),
+        let mut new_bab = ContainersAndBlocks {
+            containers: vec![
+                new_board(&board7, &workspace_id, ContainerType::Open),
+                new_board(&board8, &workspace_id, ContainerType::Private),
+                new_board(&board9, &workspace_id, ContainerType::Open),
             ],
             blocks: vec![
                 new_card(&block5, &board7),
@@ -310,13 +310,13 @@ async fn create_boards_and_blocks() {
         };
 
         let error = test
-            .create_boards_and_blocks(&mut new_bab, &user_id, NewImages::Recorded)
+            .create_containers_and_blocks(&mut new_bab, &user_id, NewImages::Recorded)
             .await
             .expect_err("a block with an oversized title is rejected");
         assert!(is_title_size_limit_exceeded(&error), "got {error:?}");
 
         let error = test
-            .create_boards_and_blocks_with_admin(&mut new_bab, &user_id)
+            .create_containers_and_blocks_with_admin(&mut new_bab, &user_id)
             .await
             .expect_err("a block with an oversized title is rejected");
         assert!(is_title_size_limit_exceeded(&error), "got {error:?}");
@@ -345,17 +345,17 @@ async fn patch_boards_and_blocks() {
         let initial_title = "initial title";
         let new_title = "new title";
 
-        let mut board = Board {
+        let mut board = Container {
             title: initial_title.to_owned(),
-            ..new_board(&board1_id, &workspace_id, BoardType::Open)
+            ..new_board(&board1_id, &workspace_id, ContainerType::Open)
         };
-        test.insert_board(&mut board, &user_id)
+        test.insert_container(&mut board, &user_id)
             .await
             .expect("the board is inserted");
 
         let mut block = Block {
             id: block1_id.clone(),
-            board_id: board1_id.clone(),
+            container_id: board1_id.clone(),
             title: initial_title.to_owned(),
             ..Block::default()
         };
@@ -368,24 +368,27 @@ async fn patch_boards_and_blocks() {
             title: Some(new_title.to_owned()),
             ..BlockPatch::default()
         };
-        let pbab = PatchBoardsAndBlocks {
-            board_ids: vec![board1_id.clone()],
-            board_patches: vec![BoardPatch {
+        let pbab = PatchContainersAndBlocks {
+            container_ids: vec![board1_id.clone()],
+            container_patches: vec![ContainerPatch {
                 title: Some(new_title.to_owned()),
-                ..BoardPatch::default()
+                ..ContainerPatch::default()
             }],
             block_ids: vec![block1_id.clone(), block2_id.clone()],
             block_patches: vec![title_patch.clone(), title_patch],
         };
 
         let error = test
-            .patch_boards_and_blocks(&pbab, &user_id)
+            .patch_containers_and_blocks(&pbab, &user_id)
             .await
             .expect_err("the second block does not exist");
         assert!(error.is_not_found(), "got {error:?}");
 
         // check that things have not changed
-        let r_board = test.get_board(&board1_id).await.expect("the board exists");
+        let r_board = test
+            .get_container(&board1_id)
+            .await
+            .expect("the board exists");
         assert_eq!(initial_title, r_board.title, "the board patch is undone");
 
         let r_block = test.get_block(&block1_id).await.expect("the block exists");
@@ -393,61 +396,20 @@ async fn patch_boards_and_blocks() {
     }
 
     // "should apply block size limits"
-    {
-        let initial_title = "initial title";
-        let new_title = "A".repeat(BLOCK_TITLE_MAX_CHARS + 1);
-
-        let mut board = Board {
-            title: initial_title.to_owned(),
-            ..new_board(&board1_id, &workspace_id, BoardType::Open)
-        };
-        test.insert_board(&mut board, &user_id)
-            .await
-            .expect("the board is inserted");
-
-        let mut block = Block {
-            id: block1_id.clone(),
-            board_id: board1_id.clone(),
-            title: initial_title.to_owned(),
-            ..Block::default()
-        };
-        test.insert_block(&mut block, &user_id)
-            .await
-            .expect("the block is inserted");
-
-        // apply the patches
-        let pbab = PatchBoardsAndBlocks {
-            block_ids: vec![block1_id.clone()],
-            block_patches: vec![BlockPatch {
-                title: Some(new_title),
-                ..BlockPatch::default()
-            }],
-            ..PatchBoardsAndBlocks::default()
-        };
-
-        let error = test
-            .patch_boards_and_blocks(&pbab, &user_id)
-            .await
-            .expect_err("the title is too long");
-        assert!(is_title_size_limit_exceeded(&error), "got {error:?}");
-
-        // check that things have not changed
-        let r_block = test.get_block(&block1_id).await.expect("the block exists");
-        assert_eq!(initial_title, r_block.title, "the block keeps its title");
-    }
+    patch_over_the_block_size_limits(&test, &workspace_id, &user_id, &board1_id, &block1_id).await;
 
     // "patch boards and blocks"
     {
-        let mut new_bab = BoardsAndBlocks {
-            boards: vec![
-                Board {
+        let mut new_bab = ContainersAndBlocks {
+            containers: vec![
+                Container {
                     description: "initial description".to_owned(),
-                    ..new_board(&board1_id, &workspace_id, BoardType::Open)
+                    ..new_board(&board1_id, &workspace_id, ContainerType::Open)
                 },
-                new_board(&board2_id, &workspace_id, BoardType::Private),
-                Board {
+                new_board(&board2_id, &workspace_id, ContainerType::Private),
+                Container {
                     title: "initial title".to_owned(),
-                    ..new_board(&board3_id, &workspace_id, BoardType::Open)
+                    ..new_board(&board3_id, &workspace_id, ContainerType::Open)
                 },
             ],
             blocks: vec![
@@ -462,10 +424,10 @@ async fn patch_boards_and_blocks() {
             ],
         };
 
-        test.create_boards_and_blocks(&mut new_bab, &user_id, NewImages::Recorded)
+        test.create_containers_and_blocks(&mut new_bab, &user_id, NewImages::Recorded)
             .await
             .expect("the boards and blocks are created");
-        assert_eq!(new_bab.boards.len(), 3, "got {:?}", new_bab.boards);
+        assert_eq!(new_bab.containers.len(), 3, "got {:?}", new_bab.containers);
         assert_eq!(new_bab.blocks.len(), 2, "got {:?}", new_bab.blocks);
 
         // apply the patches
@@ -473,17 +435,17 @@ async fn patch_boards_and_blocks() {
         let new_description = "new description";
         let new_schema: i64 = 2;
 
-        let pbab = PatchBoardsAndBlocks {
-            board_ids: vec![board3_id.clone(), board1_id.clone()],
-            board_patches: vec![
-                BoardPatch {
+        let pbab = PatchContainersAndBlocks {
+            container_ids: vec![board3_id.clone(), board1_id.clone()],
+            container_patches: vec![
+                ContainerPatch {
                     title: Some(new_title.to_owned()),
                     description: Some(new_description.to_owned()),
-                    ..BoardPatch::default()
+                    ..ContainerPatch::default()
                 },
-                BoardPatch {
+                ContainerPatch {
                     description: Some(new_description.to_owned()),
-                    ..BoardPatch::default()
+                    ..ContainerPatch::default()
                 },
             ],
             block_ids: vec![block1_id.clone(), block2_id.clone()],
@@ -500,17 +462,23 @@ async fn patch_boards_and_blocks() {
         };
 
         let bab = test
-            .patch_boards_and_blocks(&pbab, &user_id)
+            .patch_containers_and_blocks(&pbab, &user_id)
             .await
             .expect("the patches are applied");
-        assert_eq!(bab.boards.len(), 2, "got {:?}", bab.boards);
+        assert_eq!(bab.containers.len(), 2, "got {:?}", bab.containers);
         assert_eq!(bab.blocks.len(), 2, "got {:?}", bab.blocks);
 
         // check that things have changed
-        let board1 = test.get_board(&board1_id).await.expect("the board exists");
+        let board1 = test
+            .get_container(&board1_id)
+            .await
+            .expect("the board exists");
         assert_eq!(new_description, board1.description, "board 1 is patched");
 
-        let board3 = test.get_board(&board3_id).await.expect("the board exists");
+        let board3 = test
+            .get_container(&board3_id)
+            .await
+            .expect("the board exists");
         assert_eq!(new_title, board3.title, "board 3 is patched");
         assert_eq!(new_description, board3.description, "board 3 is patched");
 
@@ -521,11 +489,62 @@ async fn patch_boards_and_blocks() {
         assert_eq!(new_schema, block2.schema, "block 2 is patched");
 
         // Added: what comes back is what was stored, in the order of the request.
-        assert_eq!(bab.boards, [board3, board1], "the patched boards");
+        assert_eq!(bab.containers, [board3, board1], "the patched boards");
         assert_eq!(bab.blocks, [block1, block2], "the patched blocks");
     }
 
     test.teardown().await;
+}
+
+/// The second subtest of [`patch_boards_and_blocks`]: a patch over the block size limits
+/// changes nothing.
+async fn patch_over_the_block_size_limits(
+    test: &common::TestStore,
+    workspace_id: &str,
+    user_id: &str,
+    board1_id: &str,
+    block1_id: &str,
+) {
+    let initial_title = "initial title";
+    let new_title = "A".repeat(BLOCK_TITLE_MAX_CHARS + 1);
+
+    let mut board = Container {
+        title: initial_title.to_owned(),
+        ..new_board(board1_id, workspace_id, ContainerType::Open)
+    };
+    test.insert_container(&mut board, user_id)
+        .await
+        .expect("the board is inserted");
+
+    let mut block = Block {
+        id: block1_id.to_owned(),
+        container_id: board1_id.to_owned(),
+        title: initial_title.to_owned(),
+        ..Block::default()
+    };
+    test.insert_block(&mut block, user_id)
+        .await
+        .expect("the block is inserted");
+
+    // apply the patches
+    let pbab = PatchContainersAndBlocks {
+        block_ids: vec![block1_id.to_owned()],
+        block_patches: vec![BlockPatch {
+            title: Some(new_title),
+            ..BlockPatch::default()
+        }],
+        ..PatchContainersAndBlocks::default()
+    };
+
+    let error = test
+        .patch_containers_and_blocks(&pbab, user_id)
+        .await
+        .expect_err("the title is too long");
+    assert!(is_title_size_limit_exceeded(&error), "got {error:?}");
+
+    // check that things have not changed
+    let r_block = test.get_block(block1_id).await.expect("the block exists");
+    assert_eq!(initial_title, r_block.title, "the block keeps its title");
 }
 
 #[tokio::test]
@@ -542,8 +561,8 @@ async fn delete_boards_and_blocks() {
         let entities =
             TwoBoards::insert(&test, &workspace_id, &user_id, Some(&different_board_id)).await;
 
-        let dbab = DeleteBoardsAndBlocks {
-            boards: entities.board_ids.to_vec(),
+        let dbab = DeleteContainersAndBlocks {
+            containers: entities.board_ids.to_vec(),
             blocks: entities.block_ids.to_vec(),
         };
 
@@ -552,7 +571,7 @@ async fn delete_boards_and_blocks() {
             entities.block_ids[3]
         );
         let error = test
-            .delete_boards_and_blocks(&dbab, &user_id)
+            .delete_containers_and_blocks(&dbab, &user_id)
             .await
             .expect_err("the fourth block belongs to another board");
         assert_eq!(error.to_string(), expected_error_msg, "got {error:?}");
@@ -567,13 +586,13 @@ async fn delete_boards_and_blocks() {
 
         let mut boards = entities.board_ids.to_vec();
         boards.push(new_id());
-        let dbab = DeleteBoardsAndBlocks {
-            boards,
+        let dbab = DeleteContainersAndBlocks {
+            containers: boards,
             blocks: entities.block_ids.to_vec(),
         };
 
         let error = test
-            .delete_boards_and_blocks(&dbab, &user_id)
+            .delete_containers_and_blocks(&dbab, &user_id)
             .await
             .expect_err("the third board does not exist");
         assert!(error.is_not_found(), "got {error:?}");
@@ -588,13 +607,13 @@ async fn delete_boards_and_blocks() {
 
         let mut blocks = entities.block_ids.to_vec();
         blocks.push(new_id());
-        let dbab = DeleteBoardsAndBlocks {
-            boards: entities.board_ids.to_vec(),
+        let dbab = DeleteContainersAndBlocks {
+            containers: entities.board_ids.to_vec(),
             blocks,
         };
 
         let error = test
-            .delete_boards_and_blocks(&dbab, &user_id)
+            .delete_containers_and_blocks(&dbab, &user_id)
             .await
             .expect_err("the fifth block does not exist");
         assert!(error.is_not_found(), "got {error:?}");
@@ -607,18 +626,18 @@ async fn delete_boards_and_blocks() {
     {
         let entities = TwoBoards::insert(&test, &workspace_id, &user_id, None).await;
 
-        let dbab = DeleteBoardsAndBlocks {
-            boards: entities.board_ids.to_vec(),
+        let dbab = DeleteContainersAndBlocks {
+            containers: entities.board_ids.to_vec(),
             blocks: entities.block_ids.to_vec(),
         };
 
-        test.delete_boards_and_blocks(&dbab, &user_id)
+        test.delete_containers_and_blocks(&dbab, &user_id)
             .await
             .expect("the boards and blocks are deleted");
 
         for board_id in &entities.board_ids {
             let error = test
-                .get_board(board_id)
+                .get_container(board_id)
                 .await
                 .expect_err("the board is gone");
             assert!(error.is_not_found(), "board {board_id}: {error:?}");
@@ -635,7 +654,7 @@ async fn delete_boards_and_blocks() {
         // its history.
         for board_id in &entities.board_ids {
             let deleted = test
-                .get_deleted_board(board_id)
+                .get_deleted_container(board_id)
                 .await
                 .expect("the board is in the trash");
             assert_eq!(deleted.deleted_by, user_id, "who deleted board {board_id}");
@@ -662,11 +681,11 @@ async fn duplicate_board() {
     // none; a board has no channel here.
     let [board1, board2, board3] = new_ids();
     let [block1, block1a, block2] = new_ids();
-    let mut new_bab = BoardsAndBlocks {
-        boards: vec![
-            new_board(&board1, &workspace_id, BoardType::Open),
-            new_board(&board2, &workspace_id, BoardType::Private),
-            new_board(&board3, &workspace_id, BoardType::Open),
+    let mut new_bab = ContainersAndBlocks {
+        containers: vec![
+            new_board(&board1, &workspace_id, ContainerType::Open),
+            new_board(&board2, &workspace_id, ContainerType::Private),
+            new_board(&board3, &workspace_id, ContainerType::Open),
         ],
         blocks: vec![
             new_card(&block1, &board1),
@@ -679,29 +698,33 @@ async fn duplicate_board() {
         ],
     };
 
-    test.create_boards_and_blocks(&mut new_bab, &user_id, NewImages::Recorded)
+    test.create_containers_and_blocks(&mut new_bab, &user_id, NewImages::Recorded)
         .await
         .expect("the boards and blocks are created");
-    assert_eq!(new_bab.boards.len(), 3, "got {:?}", new_bab.boards);
+    assert_eq!(new_bab.containers.len(), 3, "got {:?}", new_bab.containers);
     assert_eq!(new_bab.blocks.len(), 3, "got {:?}", new_bab.blocks);
 
     // "duplicate existing board as no template"
     {
         common::works_in(&test, &workspace_id, &user_id).await;
         let (bab, members) = test
-            .duplicate_board(&board1, &user_id, Some(&workspace_id), DuplicateAs::Copy)
+            .duplicate_container(&board1, &user_id, Some(&workspace_id), DuplicateAs::Copy)
             .await
             .expect("the board is duplicated");
         assert_eq!(members.len(), 1, "got {members:?}");
-        assert_eq!(bab.boards.len(), 1, "got {:?}", bab.boards);
+        assert_eq!(bab.containers.len(), 1, "got {:?}", bab.containers);
         assert_eq!(bab.blocks.len(), 1, "got {:?}", bab.blocks);
-        assert!(!bab.boards[0].is_template, "got {:?}", bab.boards[0]);
+        assert!(
+            !bab.containers[0].is_template,
+            "got {:?}",
+            bab.containers[0]
+        );
     }
 
     // "duplicate existing board as template"
     {
         let (bab, members) = test
-            .duplicate_board(
+            .duplicate_container(
                 &board1,
                 &user_id,
                 Some(&workspace_id),
@@ -710,15 +733,15 @@ async fn duplicate_board() {
             .await
             .expect("the board is duplicated");
         assert_eq!(members.len(), 1, "got {members:?}");
-        assert_eq!(bab.boards.len(), 1, "got {:?}", bab.boards);
+        assert_eq!(bab.containers.len(), 1, "got {:?}", bab.containers);
         assert_eq!(bab.blocks.len(), 1, "got {:?}", bab.blocks);
-        assert!(bab.boards[0].is_template, "got {:?}", bab.boards[0]);
+        assert!(bab.containers[0].is_template, "got {:?}", bab.containers[0]);
     }
 
     // "duplicate not existing board"
     {
         let error = test
-            .duplicate_board(&new_id(), &user_id, Some(&workspace_id), DuplicateAs::Copy)
+            .duplicate_container(&new_id(), &user_id, Some(&workspace_id), DuplicateAs::Copy)
             .await
             .expect_err("there is no such board");
         assert!(error.is_not_found(), "got {error:?}");
@@ -744,12 +767,12 @@ async fn duplicate_board_copies_under_new_ids_as_a_private_board_of_the_user() {
 
     let source_id = new_id();
     let [card_id, text_id, comment_id] = new_ids();
-    let mut source = BoardsAndBlocks {
-        boards: vec![Board {
+    let mut source = ContainersAndBlocks {
+        containers: vec![Container {
             title: "Roadmap".to_owned(),
             description: "Plans".to_owned(),
             icon: "🗺".to_owned(),
-            ..new_board(&source_id, &workspace_id, BoardType::Open)
+            ..new_board(&source_id, &workspace_id, ContainerType::Open)
         }],
         blocks: vec![
             Block {
@@ -770,23 +793,27 @@ async fn duplicate_board_copies_under_new_ids_as_a_private_board_of_the_user() {
             },
         ],
     };
-    test.create_boards_and_blocks(&mut source, &author, NewImages::Recorded)
+    test.create_containers_and_blocks(&mut source, &author, NewImages::Recorded)
         .await
         .expect("the board and its blocks are created");
 
     // board -> board, same workspace
     common::works_in(&test, &workspace_id, &copier).await;
     let (copy, members) = test
-        .duplicate_board(&source_id, &copier, None, DuplicateAs::Copy)
+        .duplicate_container(&source_id, &copier, None, DuplicateAs::Copy)
         .await
         .expect("the board is duplicated");
-    let board = &copy.boards[0];
+    let board = &copy.containers[0];
     assert_ne!(board.id, source_id, "the copy has an identifier of its own");
     assert!(is_id(&board.id), "got {}", board.id);
     assert_eq!(board.title, "Roadmap copy", "the title says it is a copy");
     assert_eq!(board.description, "Plans", "the description is copied");
     assert_eq!(board.icon, "🗺", "the icon is copied");
-    assert_eq!(board.board_type, BoardType::Private, "a copy is private");
+    assert_eq!(
+        board.container_type,
+        ContainerType::Private,
+        "a copy is private"
+    );
     assert_eq!(
         board.workspace_id, workspace_id,
         "the copy stays in the workspace"
@@ -800,12 +827,12 @@ async fn duplicate_board_copies_under_new_ids_as_a_private_board_of_the_user() {
     );
     assert_eq!(
         members,
-        [BoardMember {
-            board_id: board.id.clone(),
+        [ContainerMember {
+            container_id: board.id.clone(),
             user_id: copier.clone(),
             scheme_admin: true,
             scheme_editor: true,
-            ..BoardMember::default()
+            ..ContainerMember::default()
         }],
         "the copier administers the copy"
     );
@@ -824,20 +851,23 @@ async fn duplicate_board_copies_under_new_ids_as_a_private_board_of_the_user() {
         .expect("the text is copied");
     assert_ne!(card.id, card_id, "the card has an identifier of its own");
     assert!(is_id(&card.id), "got {}", card.id);
-    assert_eq!(card.board_id, board.id, "the card is on the copy");
+    assert_eq!(card.container_id, board.id, "the card is on the copy");
     assert_eq!(
         card.parent_id, "",
         "a block that named its board as its parent is copied without a parent"
     );
     assert_eq!(paragraph.parent_id, card.id, "the text follows its card");
-    assert_eq!(paragraph.board_id, board.id, "the text is on the copy");
+    assert_eq!(paragraph.container_id, board.id, "the text is on the copy");
     assert_eq!(card.created_by, copier, "the copier made the card");
 
     // What is returned is what is stored.
-    let stored_board = test.get_board(&board.id).await.expect("the copy exists");
+    let stored_board = test
+        .get_container(&board.id)
+        .await
+        .expect("the copy exists");
     assert_eq!(&stored_board, board, "the stored copy");
     let stored_blocks = test
-        .get_blocks(&BlockFilter::board(&board.id))
+        .get_blocks(&BlockFilter::container(&board.id))
         .await
         .expect("the blocks are read");
     assert_eq!(
@@ -846,13 +876,16 @@ async fn duplicate_board_copies_under_new_ids_as_a_private_board_of_the_user() {
         "the stored blocks of the copy"
     );
     // The source is untouched.
-    let source_board = test.get_board(&source_id).await.expect("the source exists");
-    assert_eq!(source_board, source.boards[0], "the source board");
+    let source_board = test
+        .get_container(&source_id)
+        .await
+        .expect("the source exists");
+    assert_eq!(source_board, source.containers[0], "the source board");
 
     // board -> template, other workspace
     common::works_in(&test, &other_workspace_id, &copier).await;
     let (template, _) = test
-        .duplicate_board(
+        .duplicate_container(
             &source_id,
             &copier,
             Some(&other_workspace_id),
@@ -860,7 +893,7 @@ async fn duplicate_board_copies_under_new_ids_as_a_private_board_of_the_user() {
         )
         .await
         .expect("the board is duplicated");
-    let template = &template.boards[0];
+    let template = &template.containers[0];
     assert_eq!(template.title, "New board template", "a new template");
     assert_eq!(
         template.workspace_id, other_workspace_id,
@@ -870,31 +903,31 @@ async fn duplicate_board_copies_under_new_ids_as_a_private_board_of_the_user() {
 
     // template -> template
     let (template_copy, _) = test
-        .duplicate_board(&template.id, &copier, None, DuplicateAs::Template)
+        .duplicate_container(&template.id, &copier, None, DuplicateAs::Template)
         .await
         .expect("the template is duplicated");
     assert_eq!(
-        template_copy.boards[0].title, "New board template copy",
+        template_copy.containers[0].title, "New board template copy",
         "a copy of a template"
     );
     assert_eq!(
-        template_copy.boards[0].workspace_id, other_workspace_id,
+        template_copy.containers[0].workspace_id, other_workspace_id,
         "in the workspace of the template"
     );
 
     // template -> board
     let (from_template, _) = test
-        .duplicate_board(&template.id, &copier, None, DuplicateAs::Copy)
+        .duplicate_container(&template.id, &copier, None, DuplicateAs::Copy)
         .await
         .expect("the template is duplicated");
     assert_eq!(
-        from_template.boards[0].title, "New board template",
+        from_template.containers[0].title, "New board template",
         "a board made from a template keeps the title"
     );
     assert!(
-        !from_template.boards[0].is_template,
+        !from_template.containers[0].is_template,
         "got {:?}",
-        from_template.boards[0]
+        from_template.containers[0]
     );
 
     test.teardown().await;
@@ -941,15 +974,15 @@ async fn duplicate_board_copies_a_board_without_blocks() {
     common::works_in(&test, &workspace_id, &user_id).await;
     for (board_id, what) in [(&empty_id, "empty"), (&only_comments_id, "comments only")] {
         let (copy, members) = test
-            .duplicate_board(board_id, &user_id, None, DuplicateAs::Copy)
+            .duplicate_container(board_id, &user_id, None, DuplicateAs::Copy)
             .await
             .expect("a board without blocks to copy is copied");
-        assert_eq!(copy.boards.len(), 1, "{what}: one board");
-        assert_ne!(&copy.boards[0].id, board_id, "{what}: a new identifier");
+        assert_eq!(copy.containers.len(), 1, "{what}: one board");
+        assert_ne!(&copy.containers[0].id, board_id, "{what}: a new identifier");
         assert!(copy.blocks.is_empty(), "{what}: no blocks");
         assert_eq!(members.len(), 1, "{what}: the copying user");
         let stored = test
-            .get_blocks(&BlockFilter::board(&copy.boards[0].id))
+            .get_blocks(&BlockFilter::container(&copy.containers[0].id))
             .await
             .expect("the copy's blocks are read");
         assert!(stored.is_empty(), "{what}: nothing was stored");
@@ -969,43 +1002,50 @@ async fn patch_boards_and_blocks_rejects_fewer_patches_than_ids() {
     let board_id = insert_new_board(&test, &workspace_id, &user_id).await;
     let block_id = insert_new_block(&test, &board_id, &user_id).await;
 
-    let boards_short = PatchBoardsAndBlocks {
-        board_ids: vec![board_id.clone()],
-        ..PatchBoardsAndBlocks::default()
+    let boards_short = PatchContainersAndBlocks {
+        container_ids: vec![board_id.clone()],
+        ..PatchContainersAndBlocks::default()
     };
     let error = test
-        .patch_boards_and_blocks(&boards_short, &user_id)
+        .patch_containers_and_blocks(&boards_short, &user_id)
         .await
         .expect_err("there is no patch for the board");
     assert!(
         matches!(
             error,
-            StoreError::InvalidBoardsAndBlocks(BoardsAndBlocksError::BoardIdsAndPatchesMismatch)
+            StoreError::InvalidContainersAndBlocks(
+                ContainersAndBlocksError::ContainerIdsAndPatchesMismatch
+            )
         ),
         "got {error:?}"
     );
 
-    let blocks_short = PatchBoardsAndBlocks {
-        board_ids: vec![board_id.clone()],
-        board_patches: vec![BoardPatch {
+    let blocks_short = PatchContainersAndBlocks {
+        container_ids: vec![board_id.clone()],
+        container_patches: vec![ContainerPatch {
             title: Some("patched".to_owned()),
-            ..BoardPatch::default()
+            ..ContainerPatch::default()
         }],
         block_ids: vec![block_id],
         block_patches: Vec::new(),
     };
     let error = test
-        .patch_boards_and_blocks(&blocks_short, &user_id)
+        .patch_containers_and_blocks(&blocks_short, &user_id)
         .await
         .expect_err("there is no patch for the block");
     assert!(
         matches!(
             error,
-            StoreError::InvalidBoardsAndBlocks(BoardsAndBlocksError::BlockIdsAndPatchesMismatch)
+            StoreError::InvalidContainersAndBlocks(
+                ContainersAndBlocksError::BlockIdsAndPatchesMismatch
+            )
         ),
         "got {error:?}"
     );
-    let board = test.get_board(&board_id).await.expect("the board exists");
+    let board = test
+        .get_container(&board_id)
+        .await
+        .expect("the board exists");
     assert_eq!(board.title, "", "the board patch was rolled back");
 
     test.teardown().await;
@@ -1026,7 +1066,7 @@ async fn delete_boards_and_blocks_accepts_a_block_listed_after_its_parent() {
         let card_id = insert_new_block(&test, &board_id, &user_id).await;
         let mut child = Block {
             id: new_id(),
-            board_id: board_id.clone(),
+            container_id: board_id.clone(),
             parent_id: card_id.clone(),
             ..Block::default()
         };
@@ -1038,16 +1078,16 @@ async fn delete_boards_and_blocks_accepts_a_block_listed_after_its_parent() {
         if child_first {
             blocks.reverse();
         }
-        let request = DeleteBoardsAndBlocks {
-            boards: vec![board_id.clone()],
+        let request = DeleteContainersAndBlocks {
+            containers: vec![board_id.clone()],
             blocks,
         };
-        test.delete_boards_and_blocks(&request, &user_id)
+        test.delete_containers_and_blocks(&request, &user_id)
             .await
             .unwrap_or_else(|error| panic!("{order}: the request is refused: {error:?}"));
 
         let error = test
-            .get_board(&board_id)
+            .get_container(&board_id)
             .await
             .expect_err("the board is gone");
         assert!(error.is_not_found(), "{order}: got {error:?}");
@@ -1079,7 +1119,7 @@ async fn delete_boards_and_blocks_takes_every_block_of_the_boards_to_the_trash()
     let unlisted_id = insert_new_block(&test, &board_id, &user_id).await;
     let mut child_of_unlisted = Block {
         id: new_id(),
-        board_id: board_id.clone(),
+        container_id: board_id.clone(),
         parent_id: unlisted_id.clone(),
         ..Block::default()
     };
@@ -1088,16 +1128,16 @@ async fn delete_boards_and_blocks_takes_every_block_of_the_boards_to_the_trash()
         .expect("the child is inserted");
     let all_block_ids = sorted(&[&listed_id, &unlisted_id, &child_of_unlisted.id]);
 
-    let request = DeleteBoardsAndBlocks {
-        boards: vec![board_id.clone()],
+    let request = DeleteContainersAndBlocks {
+        containers: vec![board_id.clone()],
         blocks: vec![listed_id.clone()],
     };
-    test.delete_boards_and_blocks(&request, &user_id)
+    test.delete_containers_and_blocks(&request, &user_id)
         .await
         .expect("the board and its blocks are deleted");
 
     let left = test
-        .get_blocks(&BlockFilter::board(&board_id))
+        .get_blocks(&BlockFilter::container(&board_id))
         .await
         .expect("the blocks are read");
     assert!(left.is_empty(), "blocks are left: {left:?}");
@@ -1107,11 +1147,11 @@ async fn delete_boards_and_blocks_takes_every_block_of_the_boards_to_the_trash()
             .unwrap_or_else(|error| panic!("block {block_id} is not in the trash: {error:?}"));
     }
 
-    test.undelete_board(&board_id, &user_id)
+    test.undelete_container(&board_id, &user_id)
         .await
         .expect("the board is restored");
     let back = test
-        .get_blocks(&BlockFilter::board(&board_id))
+        .get_blocks(&BlockFilter::container(&board_id))
         .await
         .expect("the blocks are read");
     assert_eq!(
@@ -1143,16 +1183,18 @@ async fn delete_boards_and_blocks_refuses_a_block_that_is_in_the_trash() {
         .await
         .expect("the block is deleted");
 
-    let request = DeleteBoardsAndBlocks {
-        boards: vec![board_id.clone()],
+    let request = DeleteContainersAndBlocks {
+        containers: vec![board_id.clone()],
         blocks: vec![kept_id.clone(), deleted_id],
     };
     let error = test
-        .delete_boards_and_blocks(&request, &user_id)
+        .delete_containers_and_blocks(&request, &user_id)
         .await
         .expect_err("the second block does not exist");
     assert!(error.is_not_found(), "got {error:?}");
-    test.get_board(&board_id).await.expect("the board stays");
+    test.get_container(&board_id)
+        .await
+        .expect("the board stays");
     test.get_block(&kept_id).await.expect("its block stays");
 
     test.teardown().await;
@@ -1168,8 +1210,8 @@ async fn create_boards_and_blocks_accepts_a_block_listed_before_its_parent() {
     let user_id = common::user(&test, "user").await;
 
     let [board_id, card_id, text_id, checkbox_id] = new_ids();
-    let mut new_bab = BoardsAndBlocks {
-        boards: vec![new_board(&board_id, &workspace_id, BoardType::Open)],
+    let mut new_bab = ContainersAndBlocks {
+        containers: vec![new_board(&board_id, &workspace_id, ContainerType::Open)],
         blocks: vec![
             Block {
                 parent_id: text_id.clone(),
@@ -1184,7 +1226,7 @@ async fn create_boards_and_blocks_accepts_a_block_listed_before_its_parent() {
             new_card(&card_id, &board_id),
         ],
     };
-    test.create_boards_and_blocks(&mut new_bab, &user_id, NewImages::Recorded)
+    test.create_containers_and_blocks(&mut new_bab, &user_id, NewImages::Recorded)
         .await
         .expect("children listed before their parents are accepted");
     assert_eq!(
@@ -1198,7 +1240,7 @@ async fn create_boards_and_blocks_accepts_a_block_listed_before_its_parent() {
     );
 
     let stored = test
-        .get_blocks(&BlockFilter::board(&board_id))
+        .get_blocks(&BlockFilter::container(&board_id))
         .await
         .expect("the blocks are read");
     let mut parents: Vec<(&str, &str)> = stored
@@ -1236,7 +1278,7 @@ async fn duplicate_board_copies_a_block_that_is_older_than_its_parent() {
         .await
         .expect("the text is moved onto the card");
     let source = test
-        .get_blocks(&BlockFilter::board(&board_id))
+        .get_blocks(&BlockFilter::container(&board_id))
         .await
         .expect("the blocks are read");
     assert_eq!(
@@ -1247,11 +1289,11 @@ async fn duplicate_board_copies_a_block_that_is_older_than_its_parent() {
 
     common::works_in(&test, &workspace_id, &user_id).await;
     let (copy, _) = test
-        .duplicate_board(&board_id, &user_id, None, DuplicateAs::Copy)
+        .duplicate_container(&board_id, &user_id, None, DuplicateAs::Copy)
         .await
         .expect("the board is duplicated");
     let stored = test
-        .get_blocks(&BlockFilter::board(&copy.boards[0].id))
+        .get_blocks(&BlockFilter::container(&copy.containers[0].id))
         .await
         .expect("the blocks of the copy are read");
     assert_eq!(stored.len(), 2, "both blocks are copied: {stored:?}");

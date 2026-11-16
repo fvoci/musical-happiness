@@ -88,7 +88,7 @@ impl App {
         let now = now_millis();
         let card = Card {
             id: new_id(),
-            board_id: board_id.to_owned(),
+            container_id: board_id.to_owned(),
             created_by: user_id.to_owned(),
             modified_by: user_id.to_owned(),
             create_at: now,
@@ -120,7 +120,7 @@ impl App {
         per_page: i64,
         previews: CardPreviews,
     ) -> Result<Vec<Card>, AppError> {
-        let mut filter = BlockFilter::board(board_id).with_type(BlockType::Card);
+        let mut filter = BlockFilter::container(board_id).with_type(BlockType::Card);
         match CardRange::new(page, per_page) {
             CardRange::All => {}
             CardRange::Page(paging) => filter.paging = Some(paging),
@@ -232,7 +232,7 @@ fn card_from_stored_block(block: &Block, now: i64) -> Result<Card, CardError> {
     if !malformed.is_empty() {
         tracing::warn!(
             block_id = %block.id,
-            board_id = %block.board_id,
+            board_id = %block.container_id,
             fields = ?malformed,
             "fields of a card are not of their kind; giving the card out without them"
         );
@@ -259,7 +259,7 @@ mod tests {
         let card_block = |properties: Value| {
             let mut block = Block {
                 id: "c-card".to_owned(),
-                board_id: "b-board".to_owned(),
+                container_id: "b-board".to_owned(),
                 block_type: fvoci_model::BlockType::Card,
                 title: "a card".to_owned(),
                 create_at: 1,
@@ -304,7 +304,7 @@ mod tests {
         ] {
             let mut block = Block {
                 id: "c-card".to_owned(),
-                board_id: "b-board".to_owned(),
+                container_id: "b-board".to_owned(),
                 block_type: fvoci_model::BlockType::Card,
                 title: "a card".to_owned(),
                 create_at: 1,

@@ -5,7 +5,7 @@
 use std::path::Path;
 
 use fvoci_model::{
-    Block, BlockType, BoardType, BodySummary, Category, CategoryType, FileInfo, new_id,
+    Block, BlockType, BodySummary, Category, CategoryType, ContainerType, FileInfo, new_id,
 };
 use fvoci_store::{BlockFilter, DbType, Store, StoreError};
 use tokio::task::JoinSet;
@@ -133,7 +133,7 @@ async fn in_memory_sqlite_databases_are_private_to_their_store() {
     let boards = common::create_test_boards(&first, &workspace_id, &user_id, 1).await;
     let mut block = Block {
         id: new_id(),
-        board_id: boards[0].id.clone(),
+        container_id: boards[0].id.clone(),
         created_by: user_id.clone(),
         ..Block::default()
     };
@@ -171,7 +171,7 @@ const WRITES_AT_ONCE: usize = 40;
 fn record_for_no_board(stored_name: String) -> FileInfo {
     FileInfo {
         id: new_id(),
-        board_id: new_id(),
+        container_id: new_id(),
         stored_name,
         ..FileInfo::default()
     }
@@ -239,7 +239,7 @@ async fn foreign_keys_are_enforced_on_the_connections_of_the_store() {
     // The same rows are stored once what they refer to exists.
     let boards = common::create_test_boards(store, &workspace_id, &user_id, 1).await;
     let record = FileInfo {
-        board_id: boards[0].id.clone(),
+        container_id: boards[0].id.clone(),
         ..record_for_no_board("7file.png".to_owned())
     };
     store
@@ -331,20 +331,26 @@ async fn the_schema_refuses_a_board_type_that_is_none() {
             is_check_violation(&error),
             "{board_type:?}: refused by the check: got {error:?}"
         );
-        let board = test.get_board(board_id).await.expect("the board is read");
+        let board = test
+            .get_container(board_id)
+            .await
+            .expect("the board is read");
         assert_eq!(
-            board.board_type,
-            BoardType::Open,
+            board.container_type,
+            ContainerType::Open,
             "{board_type:?}: the board is as it was"
         );
     }
-    for board_type in [BoardType::Private, BoardType::Open] {
+    for board_type in [ContainerType::Private, ContainerType::Open] {
         let changed = set_column(&test, "containers", "type", board_type.as_str(), board_id)
             .await
             .expect("a board type that is one is stored");
         assert_eq!(changed, 1, "{board_type:?}: the one row of the board");
-        let board = test.get_board(board_id).await.expect("the board is read");
-        assert_eq!(board.board_type, board_type, "as written");
+        let board = test
+            .get_container(board_id)
+            .await
+            .expect("the board is read");
+        assert_eq!(board.container_type, board_type, "as written");
     }
 
     // A row that is new is checked as one that is changed: the same row is stored with
@@ -559,7 +565,7 @@ async fn blocks_stored_before_the_body_migration_have_no_body() {
     let boards = common::create_test_boards(&test, &workspace_id, &user_id, 1).await;
     let mut card = Block {
         id: new_id(),
-        board_id: boards[0].id.clone(),
+        container_id: boards[0].id.clone(),
         block_type: BlockType::Card,
         title: "from before".to_owned(),
         ..Block::default()
@@ -586,7 +592,7 @@ async fn blocks_stored_before_the_body_migration_have_no_body() {
     assert_eq!(read.title, "from before");
     let listed = store
         .get_listed_blocks(
-            &BlockFilter::board(&boards[0].id),
+            &BlockFilter::container(&boards[0].id),
             fvoci_store::Previews::Without,
         )
         .await
@@ -612,7 +618,7 @@ async fn blocks_stored_before_the_body_migration_have_no_body() {
 fn blocks_showing(board_id: &str) -> [Block; 5] {
     let image = |name: &str| Block {
         id: new_id(),
-        board_id: board_id.to_owned(),
+        container_id: board_id.to_owned(),
         block_type: BlockType::Attachment,
         fields: serde_json::from_value(serde_json::json!({ "fileId": name }))
             .expect("the fields are a JSON object"),
@@ -620,7 +626,7 @@ fn blocks_showing(board_id: &str) -> [Block; 5] {
     };
     let card = |name: &str| Block {
         id: new_id(),
-        board_id: board_id.to_owned(),
+        container_id: board_id.to_owned(),
         block_type: BlockType::Card,
         body: fvoci_model::Body::parse(serde_json::json!({"type": "doc", "content": [
             {"type": "paragraph", "content": [{"type": "text", "text": "x"}]},
@@ -642,7 +648,7 @@ fn blocks_showing(board_id: &str) -> [Block; 5] {
         card("7trashbody.png"),
         Block {
             id: new_id(),
-            board_id: board_id.to_owned(),
+            container_id: board_id.to_owned(),
             block_type: BlockType::Attachment,
             fields: serde_json::from_value(
                 serde_json::json!({ "attachmentId": "7attachment.png" }),
@@ -694,7 +700,7 @@ async fn the_date_value_step_rewrites_what_was_stored_before() {
     let (board_id, trashed_board) = (&boards[0].id, &boards[1].id);
     let block = |board_id: &str, block_type| Block {
         id: new_id(),
-        board_id: board_id.to_owned(),
+        container_id: board_id.to_owned(),
         block_type,
         ..Block::default()
     };
@@ -718,7 +724,7 @@ async fn the_date_value_step_rewrites_what_was_stored_before() {
             .expect("a block goes to the trash");
     }
     store
-        .delete_board(trashed_board, &user_id)
+        .delete_container(trashed_board, &user_id)
         .await
         .expect("a board goes to the trash");
     store.close().await;
@@ -730,7 +736,7 @@ async fn the_date_value_step_rewrites_what_was_stored_before() {
 
     let store = test.reconnect().await;
     store
-        .undelete_board(trashed_board, &user_id)
+        .undelete_container(trashed_board, &user_id)
         .await
         .expect("the board comes back");
     for in_trash in [&blocks[2], &blocks[3]] {
@@ -802,7 +808,7 @@ async fn the_file_reference_migration_finds_what_the_blocks_show() {
     ] {
         let file = fvoci_model::FileInfo {
             id: new_id(),
-            board_id: board_id.clone(),
+            container_id: board_id.clone(),
             stored_name: name.to_owned(),
             create_at: 1,
             path: format!("{board_id}/{name}"),
@@ -894,7 +900,7 @@ async fn save_files(store: &Store, board_id: &str, names: &[&str]) {
     for name in names {
         let file = fvoci_model::FileInfo {
             id: new_id(),
-            board_id: board_id.to_owned(),
+            container_id: board_id.to_owned(),
             stored_name: (*name).to_owned(),
             create_at: 1,
             path: format!("{board_id}/{name}"),
@@ -917,7 +923,7 @@ async fn the_content_block_step_deletes_them_and_leaves_their_files_to_collect()
     save_files(&test, board_id, &["7image.png", "7kept.png"]).await;
     let block = |block_type: &str, fields: serde_json::Value| Block {
         id: new_id(),
-        board_id: board_id.clone(),
+        container_id: board_id.clone(),
         block_type: BlockType::from(block_type),
         fields: serde_json::from_value(fields).expect("the fields are a JSON object"),
         ..Block::default()

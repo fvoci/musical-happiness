@@ -2,7 +2,7 @@
 //! `server/app/clientConfig_test.go`, plus tests of the routing around the API: the
 //! request-forgery header, cache headers, the web app fallback and the base path.
 
-use fvoci_model::BoardType;
+use fvoci_model::ContainerType;
 use reqwest::header::CONTENT_TYPE;
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
@@ -260,7 +260,7 @@ async fn a_path_that_is_no_text_is_a_problem_like_any_other_error() {
 async fn an_answer_without_a_result_has_no_body_and_no_content_type() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th
-        .create_board(TEST_WORKSPACE_ID, BoardType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
         .await
         .id;
     let card: Value = th

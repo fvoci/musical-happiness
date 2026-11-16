@@ -1,7 +1,7 @@
 //! Team board roles. A team belongs to this workspace and never receives admin.
 
 use axum::{body::Bytes, extract::Path};
-use fvoci_model::{BoardTeam, BoardTeamRole};
+use fvoci_model::{ContainerTeam, ContainerTeamRole};
 use serde::Deserialize;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
@@ -10,8 +10,8 @@ use super::contract::{
     tag,
 };
 use super::workspace::InContainer;
-use super::{ApiResult, decode_object, json_response, no_content, require_board_permission};
-use crate::{app::App, permissions::BoardPermission};
+use super::{ApiResult, decode_object, json_response, no_content, require_container_permission};
+use crate::{app::App, permissions::ContainerPermission};
 
 pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new()
@@ -21,14 +21,16 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct BoardPlace {
-    board_id: String,
+struct ContainerPlace {
+    #[serde(rename = "boardId")]
+    container_id: String,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct TeamPlace {
-    board_id: String,
+    #[serde(rename = "boardId")]
+    container_id: String,
     team_id: String,
 }
 
@@ -39,20 +41,21 @@ struct TeamPlace {
 /// identifier.
 /// Direct memberships remain separate.
 #[utoipa::path(get, path = "/w/{workspaceId}/boards/{boardId}/teams", operation_id = "getBoardTeams", tag = tag::MEMBERS,
-    params(WorkerWorkspaceId, BoardId), responses((status = 200, description = "Assigned teams.", body = Vec<BoardTeam>)))]
-async fn list(InContainer(ws): InContainer, Path(place): Path<BoardPlace>) -> ApiResult {
+    params(WorkerWorkspaceId, BoardId),
+    responses((status = 200, description = "Assigned teams.", body = Vec<ContainerTeam>)))]
+async fn list(InContainer(ws): InContainer, Path(place): Path<ContainerPlace>) -> ApiResult {
     let ws = ws.require_no_guest()?;
-    require_board_permission(
+    require_container_permission(
         &ws.app,
         &ws.session.user_id,
-        &place.board_id,
-        BoardPermission::ListMembers,
+        &place.container_id,
+        ContainerPermission::ListMembers,
         "access denied to board members",
     )
     .await?;
     Ok(json_response(
         &ws.app
-            .board_teams(&ws.workspace_id, &place.board_id)
+            .container_teams(&ws.workspace_id, &place.container_id)
             .await?,
     ))
 }
@@ -63,7 +66,7 @@ async fn list(InContainer(ws): InContainer, Path(place): Path<BoardPlace>) -> Ap
 /// commenter, or editor; admin is rejected. The board and team must belong to this
 /// workspace and are checked before decoding the body. Managed access is audited.
 #[utoipa::path(put, path = "/w/{workspaceId}/boards/{boardId}/teams/{teamId}", operation_id = "setBoardTeam", tag = tag::MEMBERS,
-    params(WorkerWorkspaceId, BoardId, TeamId), request_body = BoardTeamRole,
+    params(WorkerWorkspaceId, BoardId, TeamId), request_body = ContainerTeamRole,
     responses((status = 204, description = "The team has this role.")))]
 async fn assign(
     InContainer(ws): InContainer,
@@ -71,20 +74,20 @@ async fn assign(
     body: Bytes,
 ) -> ApiResult {
     let ws = ws.require_no_guest()?;
-    require_board_permission(
+    require_container_permission(
         &ws.app,
         &ws.session.user_id,
-        &place.board_id,
-        BoardPermission::ManageBoardRoles,
+        &place.container_id,
+        ContainerPermission::ManageRoles,
         "access denied to modify board members",
     )
     .await?;
     ws.app.team(&ws.workspace_id, &place.team_id).await?;
-    let request: BoardTeamRole = decode_object(&body)?;
+    let request: ContainerTeamRole = decode_object(&body)?;
     ws.app
-        .set_board_team(
+        .set_container_team(
             &ws.workspace_id,
-            &place.board_id,
+            &place.container_id,
             &place.team_id,
             Some(request.role),
             &ws.session.user_id,
@@ -101,19 +104,19 @@ async fn assign(
     params(WorkerWorkspaceId, BoardId, TeamId), responses((status = 204, description = "The team has no role on this board.")))]
 async fn remove(InContainer(ws): InContainer, Path(place): Path<TeamPlace>) -> ApiResult {
     let ws = ws.require_no_guest()?;
-    require_board_permission(
+    require_container_permission(
         &ws.app,
         &ws.session.user_id,
-        &place.board_id,
-        BoardPermission::ManageBoardRoles,
+        &place.container_id,
+        ContainerPermission::ManageRoles,
         "access denied to modify board members",
     )
     .await?;
     ws.app.team(&ws.workspace_id, &place.team_id).await?;
     ws.app
-        .set_board_team(
+        .set_container_team(
             &ws.workspace_id,
-            &place.board_id,
+            &place.container_id,
             &place.team_id,
             None,
             &ws.session.user_id,

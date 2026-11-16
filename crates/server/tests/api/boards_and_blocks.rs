@@ -9,8 +9,9 @@
 //! they need not be identifiers.
 
 use fvoci_model::{
-    Block, BlockPatch, BlockType, Board, BoardKinds, BoardMember, BoardPatch, BoardType,
-    BoardsAndBlocks, DeleteBoardsAndBlocks, PatchBoardsAndBlocks, new_id,
+    Block, BlockPatch, BlockType, Container, ContainerKinds, ContainerMember, ContainerPatch,
+    ContainerType, ContainersAndBlocks, DeleteContainersAndBlocks, PatchContainersAndBlocks,
+    new_id,
 };
 use fvoci_store::BlockFilter;
 use reqwest::{Method, StatusCode};
@@ -29,8 +30,13 @@ const PATH: &str = "/w/00000000-0000-7000-8000-000000000001/boards-and-blocks";
 
 // -- helpers --------------------------------------------------------------------------
 
-fn request_board(id: &str, workspace_id: &str, board_type: BoardType, title: &str) -> Board {
-    Board {
+fn request_board(
+    id: &str,
+    workspace_id: &str,
+    board_type: ContainerType,
+    title: &str,
+) -> Container {
+    Container {
         id: id.to_owned(),
         ..new_board(workspace_id, board_type, title)
     }
@@ -39,7 +45,7 @@ fn request_board(id: &str, workspace_id: &str, board_type: BoardType, title: &st
 fn request_block(id: &str, board_id: &str, title: &str) -> Block {
     Block {
         id: id.to_owned(),
-        board_id: board_id.to_owned(),
+        container_id: board_id.to_owned(),
         title: title.to_owned(),
         block_type: BlockType::Card,
         create_at: 1,
@@ -55,7 +61,7 @@ async fn stored_block(th: &TestServer, board_id: &str, user_id: &str) -> Block {
         th,
         Block {
             id: new_id(),
-            board_id: board_id.to_owned(),
+            container_id: board_id.to_owned(),
             title: "initial title".to_owned(),
             ..Block::default()
         },
@@ -67,15 +73,15 @@ async fn stored_block(th: &TestServer, board_id: &str, user_id: &str) -> Block {
 async fn blocks_of(th: &TestServer, board_id: &str) -> Vec<Block> {
     th.app
         .store()
-        .get_blocks(&BlockFilter::board(board_id))
+        .get_blocks(&BlockFilter::container(board_id))
         .await
         .expect("the blocks are read")
 }
 
-fn title_patches(count: usize, title: &str) -> (Vec<BoardPatch>, Vec<BlockPatch>) {
-    let board_patch = BoardPatch {
+fn title_patches(count: usize, title: &str) -> (Vec<ContainerPatch>, Vec<BlockPatch>) {
+    let board_patch = ContainerPatch {
         title: Some(title.to_owned()),
-        ..BoardPatch::default()
+        ..ContainerPatch::default()
     };
     let block_patch = BlockPatch {
         title: Some(title.to_owned()),
@@ -96,8 +102,8 @@ fn expect_bad_request(response: &ApiResponse, message: &str) {
 /// `TestPatchBoardsAndBlocks` set up. The first is in the test workspace, the second in
 /// `second_workspace`, and has user1 as admin only if `second` says so.
 struct TwoBoards {
-    board1: Board,
-    board2: Board,
+    board1: Container,
+    board2: Container,
     block1: Block,
     block2: Block,
 }
@@ -112,11 +118,11 @@ async fn two_boards(th: &TestServer, second: SecondBoard, second_workspace: &str
     let user_id = th.client.me().await.id;
     let board1 = board_with_admin(
         th,
-        new_board(TEST_WORKSPACE_ID, BoardType::Open, "initial title"),
+        new_board(TEST_WORKSPACE_ID, ContainerType::Open, "initial title"),
         &user_id,
     )
     .await;
-    let board2 = new_board(second_workspace, BoardType::Open, "initial title");
+    let board2 = new_board(second_workspace, ContainerType::Open, "initial title");
     let board2 = match second {
         SecondBoard::WithAdmin => board_with_admin(th, board2, &user_id).await,
         SecondBoard::WithoutMembers => board_without_members(th, board2, &user_id).await,
@@ -133,7 +139,7 @@ async fn two_boards(th: &TestServer, second: SecondBoard, second_workspace: &str
 
 async fn assert_titles_unchanged(th: &TestServer, boards: &TwoBoards) {
     for board in [&boards.board1, &boards.board2] {
-        let stored = th.app.board(&board.id).await.expect("the board exists");
+        let stored = th.app.container(&board.id).await.expect("the board exists");
         assert_eq!(stored.title, "initial title", "board {}", board.id);
     }
     for block in [&boards.block1, &boards.block2] {
@@ -154,7 +160,7 @@ async fn assert_titles_unchanged(th: &TestServer, boards: &TwoBoards) {
 async fn create_boards_and_blocks_a_non_authenticated_user_should_be_rejected() {
     let th = Setup::native().start().await;
 
-    let response = th.client.post(PATH, &BoardsAndBlocks::default()).await;
+    let response = th.client.post(PATH, &ContainersAndBlocks::default()).await;
 
     response.check_unauthorized();
     th.teardown().await;
@@ -164,8 +170,8 @@ async fn create_boards_and_blocks_a_non_authenticated_user_should_be_rejected() 
 #[tokio::test]
 async fn create_boards_and_blocks_no_boards() {
     let th = Setup::native().start().await.init_basic().await;
-    let request = BoardsAndBlocks {
-        boards: vec![],
+    let request = ContainersAndBlocks {
+        containers: vec![],
         blocks: vec![Block {
             create_at: 0,
             update_at: 0,
@@ -183,11 +189,11 @@ async fn create_boards_and_blocks_no_boards() {
 #[tokio::test]
 async fn create_boards_and_blocks_no_blocks() {
     let th = Setup::native().start().await.init_basic().await;
-    let request = BoardsAndBlocks {
-        boards: vec![request_board(
+    let request = ContainersAndBlocks {
+        containers: vec![request_board(
             "board-id",
             TEST_WORKSPACE_ID,
-            BoardType::Private,
+            ContainerType::Private,
             "",
         )],
         blocks: vec![],
@@ -204,11 +210,11 @@ async fn create_boards_and_blocks_no_blocks() {
 #[tokio::test]
 async fn create_boards_and_blocks_blocks_from_nonexistent_boards() {
     let th = Setup::native().start().await.init_basic().await;
-    let request = BoardsAndBlocks {
-        boards: vec![request_board(
+    let request = ContainersAndBlocks {
+        containers: vec![request_board(
             "board-id",
             TEST_WORKSPACE_ID,
-            BoardType::Private,
+            ContainerType::Private,
             "",
         )],
         blocks: vec![request_block("block-id", "nonexistent-board-id", "")],
@@ -228,10 +234,10 @@ async fn create_boards_and_blocks_blocks_from_nonexistent_boards() {
 #[tokio::test]
 async fn create_boards_and_blocks_boards_with_no_ids() {
     let th = Setup::native().start().await.init_basic().await;
-    let request = BoardsAndBlocks {
-        boards: vec![
-            request_board("board-id", TEST_WORKSPACE_ID, BoardType::Private, ""),
-            request_board("", TEST_WORKSPACE_ID, BoardType::Private, ""),
+    let request = ContainersAndBlocks {
+        containers: vec![
+            request_board("board-id", TEST_WORKSPACE_ID, ContainerType::Private, ""),
+            request_board("", TEST_WORKSPACE_ID, ContainerType::Private, ""),
         ],
         blocks: vec![request_block("block-id", "board-id", "")],
     };
@@ -249,10 +255,10 @@ async fn create_boards_and_blocks_boards_with_no_ids() {
 #[tokio::test]
 async fn create_boards_and_blocks_boards_from_different_workspaces() {
     let th = Setup::native().start().await.init_basic().await;
-    let request = BoardsAndBlocks {
-        boards: vec![
-            request_board("board-id-1", TEST_WORKSPACE_ID, BoardType::Private, ""),
-            request_board("board-id-2", ROOT_WORKSPACE_ID, BoardType::Private, ""),
+    let request = ContainersAndBlocks {
+        containers: vec![
+            request_board("board-id-1", TEST_WORKSPACE_ID, ContainerType::Private, ""),
+            request_board("board-id-2", ROOT_WORKSPACE_ID, ContainerType::Private, ""),
         ],
         blocks: vec![request_block("block-id", "board-id-1", "")],
     };
@@ -270,18 +276,18 @@ async fn create_boards_and_blocks_boards_from_different_workspaces() {
 async fn create_boards_and_blocks_creating_boards_and_blocks() {
     let th = Setup::native().start().await.init_basic().await;
     let user1 = th.client.me().await;
-    let request = BoardsAndBlocks {
-        boards: vec![
+    let request = ContainersAndBlocks {
+        containers: vec![
             request_board(
                 "board-id-1",
                 TEST_WORKSPACE_ID,
-                BoardType::Open,
+                ContainerType::Open,
                 "public board",
             ),
             request_board(
                 "board-id-2",
                 TEST_WORKSPACE_ID,
-                BoardType::Private,
+                ContainerType::Private,
                 "private board",
             ),
         ],
@@ -291,9 +297,9 @@ async fn create_boards_and_blocks_creating_boards_and_blocks() {
         ],
     };
 
-    let created: BoardsAndBlocks = th.client.post(PATH, &request).await.created_json();
+    let created: ContainersAndBlocks = th.client.post(PATH, &request).await.created_json();
 
-    assert_eq!(created.boards.len(), 2, "two boards");
+    assert_eq!(created.containers.len(), 2, "two boards");
     assert_eq!(created.blocks.len(), 2, "two blocks");
 
     // Each board should have been created with a new ID, and its block should be there
@@ -302,14 +308,14 @@ async fn create_boards_and_blocks_creating_boards_and_blocks() {
         (
             "public",
             "public board",
-            BoardType::Open,
+            ContainerType::Open,
             "board-id-1",
             "block 1",
         ),
         (
             "private",
             "private board",
-            BoardType::Private,
+            ContainerType::Private,
             "board-id-2",
             "block 2",
         ),
@@ -317,21 +323,21 @@ async fn create_boards_and_blocks_creating_boards_and_blocks() {
         let found = th
             .app
             .store()
-            .search_boards_for_user_in_workspace(
+            .search_containers_for_user_in_workspace(
                 TEST_WORKSPACE_ID,
                 term,
                 &user1.id,
-                BoardKinds::Boards,
+                ContainerKinds::Boards,
             )
             .await
             .expect("the boards are searched");
         assert_eq!(found.len(), 1, "one board matches {term:?}: {found:?}");
         let board = &found[0];
         assert_eq!(board.title, title, "the title");
-        assert_eq!(board.board_type, board_type, "the type");
+        assert_eq!(board.container_type, board_type, "the type");
         assert_ne!(board.id, old_id, "a new identifier");
         assert!(
-            created.boards.contains(board),
+            created.containers.contains(board),
             "the answer has the board as stored"
         );
         let blocks = blocks_of(&th, &board.id).await;
@@ -343,7 +349,7 @@ async fn create_boards_and_blocks_creating_boards_and_blocks() {
         let members = members_of(&th, &board.id).await;
         assert_eq!(
             members,
-            vec![BoardMember {
+            vec![ContainerMember {
                 scheme_admin: true,
                 scheme_editor: true,
                 ..member(&board.id, &user1.id)
@@ -355,14 +361,14 @@ async fn create_boards_and_blocks_creating_boards_and_blocks() {
     // Both boards are filed under the creator's default category.
     let categories = th
         .app
-        .user_category_boards(&user1.id, TEST_WORKSPACE_ID)
+        .user_category_containers(&user1.id, TEST_WORKSPACE_ID)
         .await
         .expect("the categories are read");
     let default = categories
         .iter()
         .find(|entry| entry.category.name == "Boards")
         .expect("the default category exists");
-    assert_eq!(default.board_metadata.len(), 2, "both boards are filed");
+    assert_eq!(default.container_metadata.len(), 2, "both boards are filed");
 
     th.teardown().await;
 }
@@ -373,7 +379,7 @@ fn card_json(board_id: &str) -> Value {
 }
 
 /// The boards of the test workspace that a client's user sees.
-async fn workspace_boards(client: &Client) -> Vec<Board> {
+async fn workspace_boards(client: &Client) -> Vec<Container> {
     client.get(&format!("{TEST_WS}/boards")).await.ok_json()
 }
 
@@ -491,7 +497,7 @@ async fn create_boards_and_blocks_accepts_a_template() {
     let user1 = th.client.me().await;
 
     // A template is created like a board but filed under no category.
-    let created: BoardsAndBlocks = th
+    let created: ContainersAndBlocks = th
         .client
         .post(
             PATH,
@@ -502,17 +508,17 @@ async fn create_boards_and_blocks_accepts_a_template() {
         )
         .await
         .created_json();
-    assert!(created.boards[0].is_template, "a template");
+    assert!(created.containers[0].is_template, "a template");
     let categories = th
         .app
-        .user_category_boards(&user1.id, TEST_WORKSPACE_ID)
+        .user_category_containers(&user1.id, TEST_WORKSPACE_ID)
         .await
         .expect("the categories are read");
     assert!(
         !categories
             .iter()
-            .flat_map(|entry| &entry.board_metadata)
-            .any(|metadata| metadata.board_id == created.boards[0].id),
+            .flat_map(|entry| &entry.container_metadata)
+            .any(|metadata| metadata.container_id == created.containers[0].id),
         "the template is in no category"
     );
 
@@ -564,19 +570,19 @@ async fn create_boards_and_blocks_is_broadcast() {
     let user1 = th.client.me().await;
     let mut socket =
         WorkspaceSocket::subscribe(&th, &th.client, TEST_WORKSPACE_ID, &user1.id).await;
-    let request = BoardsAndBlocks {
-        boards: vec![request_board(
+    let request = ContainersAndBlocks {
+        containers: vec![request_board(
             "board-id-1",
             TEST_WORKSPACE_ID,
-            BoardType::Open,
+            ContainerType::Open,
             "public board",
         )],
         blocks: vec![request_block("block-id-1", "board-id-1", "block 1")],
     };
 
-    let created: BoardsAndBlocks = th.client.post(PATH, &request).await.created_json();
+    let created: ContainersAndBlocks = th.client.post(PATH, &request).await.created_json();
 
-    let board_id = &created.boards[0].id;
+    let board_id = &created.containers[0].id;
     // The board and block messages are sent before the creator is a member in the eyes
     // of the hub only if the membership were written later; it is written with the
     // board, so all three arrive.
@@ -603,7 +609,7 @@ async fn patch(client: &Client, request: &impl serde::Serialize) -> ApiResponse 
 async fn patch_boards_and_blocks_a_non_authenticated_user_should_be_rejected() {
     let th = Setup::native().start().await;
 
-    let response = patch(&th.client, &PatchBoardsAndBlocks::default()).await;
+    let response = patch(&th.client, &PatchContainersAndBlocks::default()).await;
 
     response.check_unauthorized();
     th.teardown().await;
@@ -615,9 +621,9 @@ async fn patch_boards_and_blocks_no_board_ids() {
     let th = Setup::native().start().await.init_basic().await;
     let boards = two_boards(&th, SecondBoard::WithAdmin, TEST_WORKSPACE_ID).await;
     let (board_patches, block_patches) = title_patches(2, "new title 1");
-    let request = PatchBoardsAndBlocks {
-        board_ids: vec![],
-        board_patches,
+    let request = PatchContainersAndBlocks {
+        container_ids: vec![],
+        container_patches: board_patches,
         block_ids: strings(&[&boards.block1.id, &boards.block2.id]),
         block_patches,
     };
@@ -637,9 +643,9 @@ async fn patch_boards_and_blocks_missmatch_board_ids_and_patches() {
     let boards = two_boards(&th, SecondBoard::WithAdmin, TEST_WORKSPACE_ID).await;
     let (mut board_patches, block_patches) = title_patches(2, "new title 1");
     board_patches.truncate(1);
-    let request = PatchBoardsAndBlocks {
-        board_ids: strings(&[&boards.board1.id, &boards.board2.id]),
-        board_patches,
+    let request = PatchContainersAndBlocks {
+        container_ids: strings(&[&boards.board1.id, &boards.board2.id]),
+        container_patches: board_patches,
         block_ids: strings(&[&boards.block1.id, &boards.block2.id]),
         block_patches,
     };
@@ -657,9 +663,9 @@ async fn patch_boards_and_blocks_no_block_ids() {
     let th = Setup::native().start().await.init_basic().await;
     let boards = two_boards(&th, SecondBoard::WithAdmin, TEST_WORKSPACE_ID).await;
     let (board_patches, block_patches) = title_patches(2, "new title 1");
-    let request = PatchBoardsAndBlocks {
-        board_ids: strings(&[&boards.board1.id, &boards.board2.id]),
-        board_patches,
+    let request = PatchContainersAndBlocks {
+        container_ids: strings(&[&boards.board1.id, &boards.board2.id]),
+        container_patches: board_patches,
         block_ids: vec![],
         block_patches,
     };
@@ -679,9 +685,9 @@ async fn patch_boards_and_blocks_missmatch_block_ids_and_patches() {
     let boards = two_boards(&th, SecondBoard::WithAdmin, TEST_WORKSPACE_ID).await;
     let (board_patches, mut block_patches) = title_patches(2, "new title 1");
     block_patches.truncate(1);
-    let request = PatchBoardsAndBlocks {
-        board_ids: strings(&[&boards.board1.id, &boards.board2.id]),
-        board_patches,
+    let request = PatchContainersAndBlocks {
+        container_ids: strings(&[&boards.board1.id, &boards.board2.id]),
+        container_patches: board_patches,
         block_ids: strings(&[&boards.block1.id, &boards.block2.id]),
         block_patches,
     };
@@ -701,9 +707,9 @@ async fn patch_boards_and_blocks_block_that_doesnt_belong_to_any_board() {
     let boards = two_boards(&th, SecondBoard::WithAdmin, TEST_WORKSPACE_ID).await;
     let (mut board_patches, block_patches) = title_patches(2, "new title 1");
     board_patches.truncate(1);
-    let request = PatchBoardsAndBlocks {
-        board_ids: strings(&[&boards.board1.id]),
-        board_patches,
+    let request = PatchContainersAndBlocks {
+        container_ids: strings(&[&boards.board1.id]),
+        container_patches: board_patches,
         block_ids: strings(&[&boards.block1.id, &boards.block2.id]),
         block_patches,
     };
@@ -725,9 +731,9 @@ async fn patch_boards_and_blocks_without_permissions_for_one_board_nothing_is_up
     let th = Setup::native().start().await.init_basic().await;
     let boards = two_boards(&th, SecondBoard::WithoutMembers, TEST_WORKSPACE_ID).await;
     let (board_patches, block_patches) = title_patches(2, "new title 2");
-    let request = PatchBoardsAndBlocks {
-        board_ids: strings(&[&boards.board1.id, &boards.board2.id]),
-        board_patches,
+    let request = PatchContainersAndBlocks {
+        container_ids: strings(&[&boards.board1.id, &boards.board2.id]),
+        container_patches: board_patches,
         block_ids: strings(&[&boards.block1.id, &boards.block2.id]),
         block_patches,
     };
@@ -750,9 +756,9 @@ async fn patch_boards_and_blocks_boards_belonging_to_different_workspaces_should
     let th = Setup::native().start().await.init_basic().await;
     let boards = two_boards(&th, SecondBoard::WithAdmin, ROOT_WORKSPACE_ID).await;
     let (board_patches, block_patches) = title_patches(2, "new title 3");
-    let request = PatchBoardsAndBlocks {
-        board_ids: strings(&[&boards.board1.id, &boards.board2.id]),
-        board_patches,
+    let request = PatchContainersAndBlocks {
+        container_ids: strings(&[&boards.board1.id, &boards.board2.id]),
+        container_patches: board_patches,
         block_ids: strings(&[&boards.block1.id, &boards.block2.id]),
         block_patches,
     };
@@ -814,9 +820,9 @@ async fn patch_boards_and_blocks_rejects_a_block_of_a_board_that_is_not_patched(
     let boards = two_boards(&th, SecondBoard::WithAdmin, TEST_WORKSPACE_ID).await;
     let (mut board_patches, block_patches) = title_patches(2, "new patched title");
     board_patches.truncate(1);
-    let request = PatchBoardsAndBlocks {
-        board_ids: strings(&[&boards.board1.id]),
-        board_patches,
+    let request = PatchContainersAndBlocks {
+        container_ids: strings(&[&boards.board1.id]),
+        container_patches: board_patches,
         block_ids: strings(&[&boards.block1.id, &boards.block2.id]),
         block_patches,
     };
@@ -837,22 +843,22 @@ async fn patch_boards_and_blocks_patches_should_be_applied_if_valid_and_related(
     let boards = two_boards(&th, SecondBoard::WithAdmin, TEST_WORKSPACE_ID).await;
     let new_title = "new other title";
     let (board_patches, block_patches) = title_patches(2, new_title);
-    let request = PatchBoardsAndBlocks {
-        board_ids: strings(&[&boards.board1.id, &boards.board2.id]),
-        board_patches,
+    let request = PatchContainersAndBlocks {
+        container_ids: strings(&[&boards.board1.id, &boards.board2.id]),
+        container_patches: board_patches,
         block_ids: strings(&[&boards.block1.id, &boards.block2.id]),
         block_patches,
     };
     let mut socket =
         WorkspaceSocket::subscribe(&th, &th.client, TEST_WORKSPACE_ID, &user1.id).await;
 
-    let patched: BoardsAndBlocks = patch(&th.client, &request).await.ok_json();
+    let patched: ContainersAndBlocks = patch(&th.client, &request).await.ok_json();
 
-    assert_eq!(patched.boards.len(), 2, "two boards");
+    assert_eq!(patched.containers.len(), 2, "two boards");
     assert_eq!(patched.blocks.len(), 2, "two blocks");
     assert_eq!(
         patched
-            .boards
+            .containers
             .iter()
             .map(|board| board.id.as_str())
             .collect::<Vec<_>>(),
@@ -862,9 +868,9 @@ async fn patch_boards_and_blocks_patches_should_be_applied_if_valid_and_related(
 
     // ensure that the entities have been updated
     for board in [&boards.board1, &boards.board2] {
-        let stored = th.app.board(&board.id).await.expect("the board exists");
+        let stored = th.app.container(&board.id).await.expect("the board exists");
         assert_eq!(stored.title, new_title, "board {}", board.id);
-        assert!(patched.boards.contains(&stored), "answered as stored");
+        assert!(patched.containers.contains(&stored), "answered as stored");
     }
     for block in [&boards.block1, &boards.block2] {
         let stored = th
@@ -925,7 +931,9 @@ async fn patch_boards_and_blocks_checks() {
     let first_id = &boards.board1.id;
 
     // A board that does not exist, and a private board of somebody else, answer alike.
-    let private = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
+    let private = th
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .await;
     for board_id in [UNKNOWN_ID, "nonexistent", private.id.as_str()] {
         let response = patch(
             &th.client2,
@@ -953,7 +961,7 @@ async fn patch_boards_and_blocks_checks() {
 
     // An editor patches board properties and blocks, but not the board type.
     th.client
-        .add_member(&BoardMember {
+        .add_member(&ContainerMember {
             scheme_editor: true,
             ..member(first_id, &user2.id)
         })
@@ -1012,7 +1020,7 @@ async fn patch_boards_and_blocks_checks() {
 
     // A commenter patches nothing.
     th.app
-        .update_board_member(&BoardMember {
+        .update_container_member(&ContainerMember {
             scheme_commenter: true,
             ..member(first_id, &user2.id)
         })
@@ -1039,7 +1047,7 @@ async fn delete(client: &Client, request: &impl serde::Serialize) -> ApiResponse
 async fn delete_boards_and_blocks_a_non_authenticated_user_should_be_rejected() {
     let th = Setup::native().start().await;
 
-    let response = delete(&th.client, &DeleteBoardsAndBlocks::default()).await;
+    let response = delete(&th.client, &DeleteContainersAndBlocks::default()).await;
 
     response.check_unauthorized();
     th.teardown().await;
@@ -1053,13 +1061,13 @@ async fn delete_boards_and_blocks_no_boards() {
     // a board and a block are required for the permission checks
     let board = board_with_admin(
         &th,
-        new_board(TEST_WORKSPACE_ID, BoardType::Open, ""),
+        new_board(TEST_WORKSPACE_ID, ContainerType::Open, ""),
         &user1.id,
     )
     .await;
     let block = stored_block(&th, &board.id, &user1.id).await;
-    let request = DeleteBoardsAndBlocks {
-        boards: vec![],
+    let request = DeleteContainersAndBlocks {
+        containers: vec![],
         blocks: vec![block.id],
     };
 
@@ -1084,19 +1092,19 @@ async fn delete_boards_and_blocks_boards_from_different_workspaces() {
     let user1 = th.client.me().await;
     let board = board_with_admin(
         &th,
-        new_board(TEST_WORKSPACE_ID, BoardType::Open, ""),
+        new_board(TEST_WORKSPACE_ID, ContainerType::Open, ""),
         &user1.id,
     )
     .await;
     let block = stored_block(&th, &board.id, &user1.id).await;
     let other_workspaces_board = board_with_admin(
         &th,
-        new_board(ROOT_WORKSPACE_ID, BoardType::Open, ""),
+        new_board(ROOT_WORKSPACE_ID, ContainerType::Open, ""),
         &user1.id,
     )
     .await;
-    let request = DeleteBoardsAndBlocks {
-        boards: strings(&[&board.id, &other_workspaces_board.id]),
+    let request = DeleteContainersAndBlocks {
+        containers: strings(&[&board.id, &other_workspaces_board.id]),
         blocks: vec![block.id],
     };
 
@@ -1104,7 +1112,10 @@ async fn delete_boards_and_blocks_boards_from_different_workspaces() {
 
     // A board of another workspace is not there under this one's path.
     response.check_error(StatusCode::NOT_FOUND, "board not found");
-    th.app.board(&board.id).await.expect("the board is there");
+    th.app
+        .container(&board.id)
+        .await
+        .expect("the board is there");
     assert_eq!(blocks_of(&th, &board.id).await.len(), 1, "with its block");
     th.teardown().await;
 }
@@ -1118,22 +1129,22 @@ async fn delete_boards_and_blocks_without_permissions_to_one_board_nothing_is_de
     // the user is an admin of the first board
     let board1 = board_with_admin(
         &th,
-        new_board(TEST_WORKSPACE_ID, BoardType::Open, ""),
+        new_board(TEST_WORKSPACE_ID, ContainerType::Open, ""),
         &user1.id,
     )
     .await;
     // but not of the second
     let board2 = board_without_members(
         &th,
-        new_board(TEST_WORKSPACE_ID, BoardType::Open, ""),
+        new_board(TEST_WORKSPACE_ID, ContainerType::Open, ""),
         &user1.id,
     )
     .await;
     // (The original names a block that does not exist; here the block is one of the
     // first board, so that the missing permission is all that is wrong.)
     let block = stored_block(&th, &board1.id, &user1.id).await;
-    let request = DeleteBoardsAndBlocks {
-        boards: strings(&[&board1.id, &board2.id]),
+    let request = DeleteContainersAndBlocks {
+        containers: strings(&[&board1.id, &board2.id]),
         blocks: vec![block.id],
     };
 
@@ -1145,8 +1156,14 @@ async fn delete_boards_and_blocks_without_permissions_to_one_board_nothing_is_de
         "access denied to delete board",
         "why"
     );
-    th.app.board(&board1.id).await.expect("board 1 is there");
-    th.app.board(&board2.id).await.expect("board 2 is there");
+    th.app
+        .container(&board1.id)
+        .await
+        .expect("board 1 is there");
+    th.app
+        .container(&board2.id)
+        .await
+        .expect("board 2 is there");
     assert_eq!(blocks_of(&th, &board1.id).await.len(), 1, "and the block");
     th.teardown().await;
 }
@@ -1161,18 +1178,18 @@ async fn delete_boards_and_blocks_all_boards_and_blocks_should_be_deleted() {
     // given.
     let board_ids = [new_id(), new_id()];
     let block_ids = [new_id(), new_id()];
-    let request = BoardsAndBlocks {
-        boards: vec![
+    let request = ContainersAndBlocks {
+        containers: vec![
             request_board(
                 &board_ids[0],
                 TEST_WORKSPACE_ID,
-                BoardType::Open,
+                ContainerType::Open,
                 "public board",
             ),
             request_board(
                 &board_ids[1],
                 TEST_WORKSPACE_ID,
-                BoardType::Private,
+                ContainerType::Private,
                 "private board",
             ),
         ],
@@ -1183,15 +1200,15 @@ async fn delete_boards_and_blocks_all_boards_and_blocks_should_be_deleted() {
     };
     let created = th
         .app
-        .create_boards_and_blocks_with_admin(request, &user1.id)
+        .create_containers_and_blocks_with_admin(request, &user1.id)
         .await
         .expect("the boards and blocks are created");
-    assert_eq!(created.boards.len(), 2, "two boards");
+    assert_eq!(created.containers.len(), 2, "two boards");
     assert_eq!(created.blocks.len(), 2, "two blocks");
 
     // ensure that the entities have been successfully created
     for board_id in &board_ids {
-        th.app.board(board_id).await.expect("the board exists");
+        th.app.container(board_id).await.expect("the board exists");
     }
     for block_id in &block_ids {
         th.app
@@ -1206,8 +1223,8 @@ async fn delete_boards_and_blocks_all_boards_and_blocks_should_be_deleted() {
     // call the API to delete boards and blocks
     let response = delete(
         &th.client,
-        &DeleteBoardsAndBlocks {
-            boards: board_ids.to_vec(),
+        &DeleteContainersAndBlocks {
+            containers: board_ids.to_vec(),
             blocks: block_ids.to_vec(),
         },
     )
@@ -1216,7 +1233,11 @@ async fn delete_boards_and_blocks_all_boards_and_blocks_should_be_deleted() {
 
     // ensure that the entities have been successfully deleted
     for board_id in &board_ids {
-        let error = th.app.board(board_id).await.expect_err("the board is gone");
+        let error = th
+            .app
+            .container(board_id)
+            .await
+            .expect_err("the board is gone");
         assert!(error.is_not_found(), "{error:?}");
     }
     for block_id in &block_ids {
@@ -1306,11 +1327,15 @@ async fn delete_boards_and_blocks_checks() {
     delete(&th.client, &json!({"boards": [first_id]}))
         .await
         .check_no_content();
-    let error = th.app.board(first_id).await.expect_err("the board is gone");
+    let error = th
+        .app
+        .container(first_id)
+        .await
+        .expect_err("the board is gone");
     assert!(error.is_not_found(), "{error:?}");
     assert_eq!(blocks_of(&th, first_id).await, vec![], "and its block");
     th.app
-        .board(&boards.board2.id)
+        .container(&boards.board2.id)
         .await
         .expect("the other board is untouched");
 

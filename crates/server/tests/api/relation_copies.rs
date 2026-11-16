@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 
-use fvoci_model::{Block, Board, BoardsAndBlocks, Card, new_id};
+use fvoci_model::{Block, Card, Container, ContainersAndBlocks, new_id};
 use serde_json::{Value, json};
 
 use crate::common::TEST_WS;
@@ -17,7 +17,7 @@ const RELATION: &str = "rel";
 /// A board whose cards name each other: `B` names `A` and `C`, `A` names a card that is
 /// in the trash (`gone`) and, as an older server stored it, one that never was.
 struct Named {
-    board: Board,
+    board: Container,
     /// The cards by title.
     cards: HashMap<String, String>,
     view: String,
@@ -25,7 +25,7 @@ struct Named {
 
 async fn named_board(th: &TestServer) -> Named {
     let client = &th.client;
-    let board: Board = client
+    let board: Container = client
         .post(
             &format!("{TEST_WS}/boards"),
             &json!({
@@ -134,12 +134,12 @@ async fn a_copy_of_a_board_names_its_own_cards() {
     let th = Setup::native().start().await.init_basic().await;
     let Named { board, .. } = named_board(&th).await;
 
-    let copy: BoardsAndBlocks = th
+    let copy: ContainersAndBlocks = th
         .client
         .post_empty(&format!("{TEST_WS}/boards/{}/duplicate", board.id))
         .await
         .created_json();
-    let copied = &copy.boards[0];
+    let copied = &copy.containers[0];
     let values = relations_by_title(&th.client, &copied.id).await;
     assert_eq!(values["B"], json!(["A", "C"]), "the copies of A and C");
     assert_eq!(
@@ -161,7 +161,7 @@ async fn a_template_and_a_board_made_from_it_name_their_own_cards() {
     let th = Setup::native().start().await.init_basic().await;
     let Named { board, cards, .. } = named_board(&th).await;
 
-    let template: BoardsAndBlocks = th
+    let template: ContainersAndBlocks = th
         .client
         .post_empty(&format!(
             "{TEST_WS}/boards/{}/duplicate?asTemplate=true",
@@ -169,13 +169,13 @@ async fn a_template_and_a_board_made_from_it_name_their_own_cards() {
         ))
         .await
         .created_json();
-    let template = &template.boards[0];
-    let made: BoardsAndBlocks = th
+    let template = &template.containers[0];
+    let made: ContainersAndBlocks = th
         .client
         .post_empty(&format!("{TEST_WS}/boards/{}/duplicate", template.id))
         .await
         .created_json();
-    let made = &made.boards[0];
+    let made = &made.containers[0];
     for board_id in [&template.id, &made.id] {
         let values = relations_by_title(&th.client, board_id).await;
         assert_eq!(values["B"], json!(["A", "C"]), "{board_id}");
@@ -213,7 +213,7 @@ async fn an_imported_archive_names_the_imported_cards() {
     import(&th.client, TEST_WORKSPACE_ID, &archive.body)
         .await
         .check_ok();
-    let boards: Vec<Board> = th.client.get(&format!("{TEST_WS}/boards")).await.ok_json();
+    let boards: Vec<Container> = th.client.get(&format!("{TEST_WS}/boards")).await.ok_json();
     let imported = boards
         .iter()
         .find(|each| each.id != board.id && each.title == board.title)
@@ -291,12 +291,12 @@ async fn a_relation_value_of_a_block_that_is_no_card_does_not_stop_a_copy() {
         )
         .await
         .check_created();
-    let copy: BoardsAndBlocks = th
+    let copy: ContainersAndBlocks = th
         .client
         .post_empty(&format!("{TEST_WS}/boards/{}/duplicate", board.id))
         .await
         .created_json();
-    let values = relations_by_title(&th.client, &copy.boards[0].id).await;
+    let values = relations_by_title(&th.client, &copy.containers[0].id).await;
     assert_eq!(values["B"], json!(["A", "C"]));
     th.teardown().await;
 }

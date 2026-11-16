@@ -2,7 +2,7 @@
 //! are numbered anew where they have no room, and the limits of the tree.
 
 use fvoci_model::{
-    BlockError, BoardKind, JsonMap, NewPage, PAGE_ORDER_FIELD, PageLimits, PageMove, PageNode,
+    BlockError, ContainerKind, JsonMap, NewPage, PAGE_ORDER_FIELD, PageLimits, PageMove, PageNode,
     new_id,
 };
 use fvoci_store::{PageWrite, Store, StoreError};
@@ -71,7 +71,7 @@ async fn a_page_moves_with_what_is_below_it_where_it_is_asked() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
     let workspace_id = common::workspace_of(&test, &[&user_id]).await;
-    let wiki = stored(&test, &workspace_id, &user_id, BoardKind::Wiki).await;
+    let wiki = stored(&test, &workspace_id, &user_id, ContainerKind::Wiki).await;
     let a = page(&test, &wiki, "", None).await;
     let b = page(&test, &wiki, &a, None).await;
     let c = page(&test, &wiki, &b, None).await;
@@ -153,8 +153,8 @@ async fn a_page_moves_neither_below_itself_nor_off_its_wiki_nor_too_deep() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
     let workspace_id = common::workspace_of(&test, &[&user_id]).await;
-    let wiki = stored(&test, &workspace_id, &user_id, BoardKind::Wiki).await;
-    let other = stored(&test, &workspace_id, &user_id, BoardKind::Wiki).await;
+    let wiki = stored(&test, &workspace_id, &user_id, ContainerKind::Wiki).await;
+    let other = stored(&test, &workspace_id, &user_id, ContainerKind::Wiki).await;
     let a = page(&test, &wiki, "", None).await;
     let b = page(&test, &wiki, &a, None).await;
     let c = page(&test, &wiki, &b, None).await;
@@ -177,7 +177,7 @@ async fn a_page_moves_neither_below_itself_nor_off_its_wiki_nor_too_deep() {
     let unknown = new_id();
     for parent in [&trashed, &elsewhere, &unknown] {
         let refusal = refused(&d, to(parent, None), roomy).await;
-        assert_eq!(refusal, BlockError::ParentNotOnBoard, "below {parent}");
+        assert_eq!(refusal, BlockError::ParentNotOnContainer, "below {parent}");
     }
     for after in [&d, &b, &trashed] {
         let refusal = refused(&d, to("", Some(after)), roomy).await;
@@ -227,7 +227,7 @@ async fn siblings_of_one_order_or_none_are_numbered_anew_when_a_page_goes_among_
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
     let workspace_id = common::workspace_of(&test, &[&user_id]).await;
-    let wiki = stored(&test, &workspace_id, &user_id, BoardKind::Wiki).await;
+    let wiki = stored(&test, &workspace_id, &user_id, ContainerKind::Wiki).await;
     let [p, q, r] = [
         page(&test, &wiki, "", None).await,
         page(&test, &wiki, "", None).await,
@@ -302,7 +302,7 @@ async fn moves_at_once_leave_no_page_below_itself() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
     let workspace_id = common::workspace_of(&test, &[&user_id]).await;
-    let wiki = stored(&test, &workspace_id, &user_id, BoardKind::Wiki).await;
+    let wiki = stored(&test, &workspace_id, &user_id, ContainerKind::Wiki).await;
     for _ in 0..4 {
         let a = page(&test, &wiki, "", None).await;
         let b = page(&test, &wiki, "", None).await;
@@ -331,8 +331,8 @@ async fn a_wiki_is_held_to_its_depth_and_its_count_of_pages_not_in_the_trash() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
     let workspace_id = common::workspace_of(&test, &[&user_id]).await;
-    let wiki = stored(&test, &workspace_id, &user_id, BoardKind::Wiki).await;
-    let other = stored(&test, &workspace_id, &user_id, BoardKind::Wiki).await;
+    let wiki = stored(&test, &workspace_id, &user_id, ContainerKind::Wiki).await;
+    let other = stored(&test, &workspace_id, &user_id, ContainerKind::Wiki).await;
     let small = limits(2, 3);
     let make = async |parent_id: &str| {
         let new = NewPage {

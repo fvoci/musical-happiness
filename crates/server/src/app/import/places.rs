@@ -8,14 +8,15 @@
 use std::collections::{HashMap, HashSet};
 
 use fvoci_model::{
-    Block, BlockError, BlockType, BoardKind, BoardsAndBlocks, PageLimits, PageNode, PageTree,
+    Block, BlockError, BlockType, ContainerKind, ContainersAndBlocks, PageLimits, PageNode,
+    PageTree,
 };
 use fvoci_store::StoreError;
 
 use crate::app::pages::refused_without_member;
 use crate::error::AppError;
 
-/// Checks the blocks of each board of `boards_and_blocks` against the kind of their
+/// Checks the blocks of each board of `containers_and_blocks` against the kind of their
 /// board and against each other, as they are read from an archive (each with its board
 /// and its parent by their identifiers in the archive). A block of a board whose parent
 /// the archive does not have is left to the caller, which drops what nothing leads to;
@@ -31,37 +32,45 @@ use crate::error::AppError;
 /// parent the archive does not have, two blocks of one identifier, pages that are each
 /// other's parents, and pages more or deeper than `limits` let a wiki have.
 pub(super) fn check(
-    boards_and_blocks: &BoardsAndBlocks,
+    containers_and_blocks: &ContainersAndBlocks,
     limits: PageLimits,
 ) -> Result<(), AppError> {
-    let BoardsAndBlocks { boards, blocks } = boards_and_blocks;
+    let ContainersAndBlocks { containers, blocks } = containers_and_blocks;
     // The first block of an identifier is the one named, as the copy names it.
     let mut placed: HashMap<&str, &Block> = HashMap::with_capacity(blocks.len());
-    let mut on_board: HashMap<&str, Vec<&Block>> = HashMap::with_capacity(boards.len());
+    let mut on_container: HashMap<&str, Vec<&Block>> = HashMap::with_capacity(containers.len());
     for block in blocks {
         placed.entry(&block.id).or_insert(block);
-        on_board.entry(&block.board_id).or_default().push(block);
+        on_container
+            .entry(&block.container_id)
+            .or_default()
+            .push(block);
     }
-    let board_ids: HashSet<&str> = boards.iter().map(|board| board.id.as_str()).collect();
-    for board in boards {
-        let mine = on_board.remove(board.id.as_str()).unwrap_or_default();
+    let container_ids: HashSet<&str> = containers
+        .iter()
+        .map(|container| container.id.as_str())
+        .collect();
+    for container in containers {
+        let mine = on_container
+            .remove(container.id.as_str())
+            .unwrap_or_default();
         let place = Place {
-            board_id: &board.id,
-            kind: board.kind,
+            container_id: &container.id,
+            kind: container.kind,
             placed: &placed,
-            boards: &board_ids,
+            containers: &container_ids,
         };
         for block in &mine {
             place.check(block)?;
         }
-        if board.kind == BoardKind::Wiki {
-            check_tree(&board.id, &mine, limits)?;
+        if container.kind == ContainerKind::Wiki {
+            check_tree(&container.id, &mine, limits)?;
         }
     }
     // What is on none of the boards is dropped later, unless something leads to it; of a
     // type no write makes, it is refused all the same.
-    for block in on_board.into_values().flatten() {
-        check_type(block, BoardKind::Board)?;
+    for block in on_container.into_values().flatten() {
+        check_type(block, ContainerKind::Board)?;
     }
     Ok(())
 }
@@ -78,12 +87,12 @@ fn refused(block: &Block, source: BlockError) -> AppError {
 /// The board the blocks are checked on, and the rest of the archive they are checked
 /// against.
 struct Place<'a> {
-    board_id: &'a str,
-    kind: BoardKind,
+    container_id: &'a str,
+    kind: ContainerKind,
     /// Every block of the archive by its identifier: the first of an identifier.
     placed: &'a HashMap<&'a str, &'a Block>,
     /// The boards of the archive.
-    boards: &'a HashSet<&'a str>,
+    containers: &'a HashSet<&'a str>,
 }
 
 impl Place<'_> {
@@ -92,16 +101,16 @@ impl Place<'_> {
         check_type(block, self.kind)?;
         // A block directly on its board may name the board as its parent.
         let parent_id = block.parent_id.as_str();
-        let parent_type = if parent_id.is_empty() || parent_id == self.board_id {
+        let parent_type = if parent_id.is_empty() || parent_id == self.container_id {
             None
         } else if let Some(parent) = self.placed.get(parent_id) {
-            if parent.board_id != self.board_id {
-                return Err(refused(block, BlockError::ParentNotOnBoard));
+            if parent.container_id != self.container_id {
+                return Err(refused(block, BlockError::ParentNotOnContainer));
             }
             Some(&parent.block_type)
-        } else if self.boards.contains(parent_id) || self.kind == BoardKind::Wiki {
+        } else if self.containers.contains(parent_id) || self.kind == ContainerKind::Wiki {
             // Another board of the archive, or what a wiki's tree does not have.
-            return Err(refused(block, BlockError::ParentNotOnBoard));
+            return Err(refused(block, BlockError::ParentNotOnContainer));
         } else {
             // What nothing leads to is dropped: no write is asked of it.
             return Ok(());
@@ -123,14 +132,16 @@ impl Place<'_> {
 
 /// Checks that a block is of a type a board of `kind` takes: of a board, what a write of
 /// blocks makes and no page; of a wiki, a page or a comment.
-fn check_type(block: &Block, kind: BoardKind) -> Result<(), AppError> {
+fn check_type(block: &Block, kind: ContainerKind) -> Result<(), AppError> {
     let refusal = match (kind, &block.block_type) {
-        (BoardKind::Board, BlockType::Page) => Some(BlockError::PageOffWiki),
-        (BoardKind::Board, block_type) if !block_type.is_current() => {
+        (ContainerKind::Board, BlockType::Page) => Some(BlockError::PageOffWiki),
+        (ContainerKind::Board, block_type) if !block_type.is_current() => {
             Some(BlockError::type_not_current(block_type))
         }
-        (BoardKind::Wiki, BlockType::Page | BlockType::Comment) | (BoardKind::Board, _) => None,
-        (BoardKind::Wiki, _) => Some(BlockError::NotPageOnWiki),
+        (ContainerKind::Wiki, BlockType::Page | BlockType::Comment) | (ContainerKind::Board, _) => {
+            None
+        }
+        (ContainerKind::Wiki, _) => Some(BlockError::NotPageOnWiki),
     };
     refusal.map_or(Ok(()), |source| Err(refused(block, source)))
 }
@@ -192,7 +203,7 @@ fn check_tree(wiki_id: &str, blocks: &[&Block], limits: PageLimits) -> Result<()
 
 #[cfg(test)]
 mod tests {
-    use fvoci_model::Board;
+    use fvoci_model::Container;
 
     use super::*;
     use crate::error::Reason;
@@ -200,31 +211,31 @@ mod tests {
     /// Blocks of one board: each its identifier, its parent and its type.
     type Blocks<'a> = &'a [(&'a str, &'a str, BlockType)];
 
-    fn of(board_id: &str, kind: BoardKind, blocks: Blocks<'_>) -> BoardsAndBlocks {
-        let board = Board {
-            id: board_id.to_owned(),
+    fn of(container_id: &str, kind: ContainerKind, blocks: Blocks<'_>) -> ContainersAndBlocks {
+        let container = Container {
+            id: container_id.to_owned(),
             kind,
-            ..Board::default()
+            ..Container::default()
         };
         let blocks = blocks
             .iter()
             .map(|(id, parent, block_type)| Block {
                 id: (*id).to_owned(),
-                board_id: board_id.to_owned(),
+                container_id: container_id.to_owned(),
                 parent_id: (*parent).to_owned(),
                 block_type: block_type.clone(),
                 ..Block::default()
             })
             .collect();
-        BoardsAndBlocks {
-            boards: vec![board],
+        ContainersAndBlocks {
+            containers: vec![container],
             blocks,
         }
     }
 
     const LIMITS: PageLimits = PageLimits { depth: 2, pages: 3 };
 
-    fn refusal(kind: BoardKind, blocks: Blocks<'_>) -> String {
+    fn refusal(kind: ContainerKind, blocks: Blocks<'_>) -> String {
         check(&of("w", kind, blocks), LIMITS)
             .err()
             .map(|error| error.to_string())
@@ -239,7 +250,7 @@ mod tests {
             ("c", "", BlockType::Page),
             ("x", "b", BlockType::Comment),
         ];
-        assert!(check(&of("w", BoardKind::Wiki, &blocks), LIMITS).is_ok());
+        assert!(check(&of("w", ContainerKind::Wiki, &blocks), LIMITS).is_ok());
     }
 
     #[test]
@@ -250,7 +261,7 @@ mod tests {
             (&[("a", "", BlockType::Card)], BlockError::NotPageOnWiki),
             (
                 &[("a", "", page()), ("b", "x", page())],
-                BlockError::ParentNotOnBoard,
+                BlockError::ParentNotOnContainer,
             ),
             (&[("a", "", comment())], BlockError::CommentNotOnCardOrPage),
             (
@@ -272,10 +283,10 @@ mod tests {
             ),
         ];
         for (blocks, said) in cases {
-            let refused = refusal(BoardKind::Wiki, blocks);
+            let refused = refusal(ContainerKind::Wiki, blocks);
             assert!(refused.contains(&said.to_string()), "{blocks:?}: {refused}");
         }
-        let twice = refusal(BoardKind::Wiki, &[("a", "", page()), ("a", "", page())]);
+        let twice = refusal(ContainerKind::Wiki, &[("a", "", page()), ("a", "", page())]);
         assert!(twice.contains("two blocks"), "{twice}");
     }
 
@@ -297,14 +308,14 @@ mod tests {
             ),
             (
                 &[("c", "other", BlockType::Card)],
-                BlockError::ParentNotOnBoard,
+                BlockError::ParentNotOnContainer,
             ),
         ];
         for (blocks, said) in cases {
-            let mut archive = of("w", BoardKind::Board, blocks);
-            archive.boards.push(Board {
+            let mut archive = of("w", ContainerKind::Board, blocks);
+            archive.containers.push(Container {
                 id: "other".to_owned(),
-                ..Board::default()
+                ..Container::default()
             });
             let refused = check(&archive, LIMITS).err().map(|error| error.to_string());
             let refused = refused.unwrap_or_default();
@@ -312,17 +323,17 @@ mod tests {
         }
         let card = BlockType::Card;
         let dropped_later = [("c", "gone", card.clone()), ("x", "c", BlockType::Comment)];
-        assert!(check(&of("w", BoardKind::Board, &dropped_later), LIMITS).is_ok());
+        assert!(check(&of("w", ContainerKind::Board, &dropped_later), LIMITS).is_ok());
         // A parent on another board of the same file.
-        let mut two = of("w", BoardKind::Board, &[("c", "", card.clone())]);
-        let other = of("o", BoardKind::Board, &[("d", "c", card)]);
-        two.boards.extend(other.boards);
+        let mut two = of("w", ContainerKind::Board, &[("c", "", card.clone())]);
+        let other = of("o", ContainerKind::Board, &[("d", "c", card)]);
+        two.containers.extend(other.containers);
         two.blocks.extend(other.blocks);
         let refused = check(&two, LIMITS).expect_err("a parent of another board");
         assert!(
             refused
                 .to_string()
-                .contains(&BlockError::ParentNotOnBoard.to_string())
+                .contains(&BlockError::ParentNotOnContainer.to_string())
         );
     }
 
@@ -330,7 +341,7 @@ mod tests {
     fn a_tree_past_the_limits_is_refused_with_them() {
         let page = || BlockType::Page;
         let deep = [("a", "", page()), ("b", "a", page()), ("c", "b", page())];
-        let error = check(&of("w", BoardKind::Wiki, &deep), LIMITS).expect_err("too deep");
+        let error = check(&of("w", ContainerKind::Wiki, &deep), LIMITS).expect_err("too deep");
         assert_eq!(error.reason(), Some(Reason::PageTooDeep));
         let wide = [
             ("a", "", page()),
@@ -338,7 +349,7 @@ mod tests {
             ("c", "", page()),
             ("d", "", page()),
         ];
-        let error = check(&of("w", BoardKind::Wiki, &wide), LIMITS).expect_err("too many");
+        let error = check(&of("w", ContainerKind::Wiki, &wide), LIMITS).expect_err("too many");
         assert_eq!(error.reason(), Some(Reason::TooManyPages));
     }
 
@@ -353,7 +364,7 @@ mod tests {
                 (id.as_str(), parent, BlockType::Page)
             })
             .collect();
-        let archive = of("w", BoardKind::Wiki, &blocks);
+        let archive = of("w", ContainerKind::Wiki, &blocks);
         let limits = PageLimits {
             depth: 10,
             pages: 5_000,

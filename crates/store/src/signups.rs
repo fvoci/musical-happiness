@@ -117,7 +117,7 @@ pub struct Confirmed {
     /// The workspace the account first sees.
     pub workspace_id: String,
     /// For a guest's link: the board it was let onto.
-    pub board_id: Option<String>,
+    pub container_id: Option<String>,
     /// Whether it started its organization, or joined one by a link.
     pub started_organization: bool,
 }
@@ -268,7 +268,7 @@ impl Store {
                     user,
                     org_id: org_id.clone(),
                     workspace_id,
-                    board_id: None,
+                    container_id: None,
                     started_organization: true,
                 }))
             })

@@ -31,11 +31,11 @@ use super::contract::params::{BoardId, FileId};
 use super::contract::tag;
 use super::workspace::InContainer;
 
-use super::{ApiResult, created, json_response, require_board_permission, require_granted};
+use super::{ApiResult, created, json_response, require_container_permission, require_granted};
 use crate::app::App;
 use crate::app::FILE;
 use crate::error::{AppError, Reason};
-use crate::permissions::BoardPermission;
+use crate::permissions::ContainerPermission;
 
 /// Content types that must not be served as themselves, because a browser would run
 /// them; they are served as plain text instead.
@@ -120,29 +120,29 @@ pub(super) fn upload_routes() -> OpenApiRouter<App> {
 )]
 async fn handle_serve_file(
     InContainer(ws): InContainer,
-    Path((_, board_id, file_id)): Path<(String, String, String)>,
+    Path((_, container_id, file_id)): Path<(String, String, String)>,
     headers: HeaderMap,
 ) -> ApiResult {
-    require_file_reader(&ws.app, &ws.session.user_id, &board_id).await?;
-    serve_board_file(&ws.app, &board_id, &file_id, &headers).await
+    require_file_reader(&ws.app, &ws.session.user_id, &container_id).await?;
+    serve_container_file(&ws.app, &container_id, &file_id, &headers).await
 }
 
 /// Checks that the user may read the files of the board.
-async fn require_file_reader(app: &App, user_id: &str, board_id: &str) -> Result<(), AppError> {
-    let grant = app.board_grant(user_id, board_id).await?;
-    require_granted(grant, BoardPermission::ViewBoard, "access denied to board")
+async fn require_file_reader(app: &App, user_id: &str, container_id: &str) -> Result<(), AppError> {
+    let grant = app.container_grant(user_id, container_id).await?;
+    require_granted(grant, ContainerPermission::View, "access denied to board")
 }
 
 /// Sends a file of the board, as `getFile` describes it.
-pub(super) async fn serve_board_file(
+pub(super) async fn serve_container_file(
     app: &App,
-    board_id: &str,
+    container_id: &str,
     file_id: &str,
     headers: &HeaderMap,
 ) -> ApiResult {
     // A file is its board's. Through another board it is as missing as a file that
     // does not exist: the answers must not tell the two apart.
-    let Some(info) = app.file_info(board_id, file_id).await? else {
+    let Some(info) = app.file_info(container_id, file_id).await? else {
         return Err(AppError::not_found(FILE));
     };
     if !app.files().exists(&info.path).await? {
@@ -166,22 +166,22 @@ pub(super) async fn serve_board_file(
 )]
 async fn handle_get_file_info(
     InContainer(ws): InContainer,
-    Path((_, board_id, file_id)): Path<(String, String, String)>,
+    Path((_, container_id, file_id)): Path<(String, String, String)>,
 ) -> ApiResult {
-    require_file_reader(&ws.app, &ws.session.user_id, &board_id).await?;
+    require_file_reader(&ws.app, &ws.session.user_id, &container_id).await?;
     Ok(json_response(
-        &board_file_info(&ws.app, &board_id, file_id.as_str()).await?,
+        &container_file_info(&ws.app, &container_id, file_id.as_str()).await?,
     ))
 }
 
 /// What is known about a file of the board; 404 for no record, and for the record of
 /// another board's file.
-pub(super) async fn board_file_info(
+pub(super) async fn container_file_info(
     app: &App,
-    board_id: &str,
+    container_id: &str,
     file_id: &str,
 ) -> Result<FileInfo, AppError> {
-    app.file_info(board_id, file_id)
+    app.file_info(container_id, file_id)
         .await?
         .ok_or_else(|| AppError::not_found(FILE))
 }
@@ -208,16 +208,16 @@ pub(super) async fn board_file_info(
 )]
 async fn handle_upload_file(
     InContainer(ws): InContainer,
-    Path((_, board_id)): Path<(String, String)>,
+    Path((_, container_id)): Path<(String, String)>,
     headers: HeaderMap,
     multipart: Result<Multipart, MultipartRejection>,
 ) -> ApiResult {
     let user_id = ws.session.user_id.as_str();
-    require_board_permission(
+    require_container_permission(
         &ws.app,
         user_id,
-        &board_id,
-        BoardPermission::ManageBoardCards,
+        &container_id,
+        ContainerPermission::ManageCards,
         "access denied to make board changes",
     )
     .await?;
@@ -255,7 +255,7 @@ async fn handle_upload_file(
         };
         // The stored name is what a reader asks for the file by; it stays out of the log.
         tracing::debug!(filename, "uploadFile");
-        break store_field(&ws.app, &board_id, &filename, field, limit).await;
+        break store_field(&ws.app, &container_id, &filename, field, limit).await;
     };
     match stored {
         Ok(file_id) => Ok(created(&UploadedFile { file_id })),
@@ -352,7 +352,7 @@ impl SingleUploadLimit {
 /// Stores the file a form's part carries, as `filename`, if it is within the limit.
 async fn store_field(
     app: &App,
-    board_id: &str,
+    container_id: &str,
     filename: &str,
     field: Field<'_>,
     limit: SingleUploadLimit,
@@ -373,7 +373,7 @@ async fn store_field(
     });
     let mut reader = StreamReader::new(Box::pin(bytes));
     // What fails is not kept: the storage writes a file whole or not at all.
-    let saved = app.save_file(&mut reader, board_id, filename).await;
+    let saved = app.save_file(&mut reader, container_id, filename).await;
     match (saved, Reading::load(&state)) {
         (Ok(file_id), _) => Ok(file_id),
         (Err(_), Reading::TooLarge) => Err(limit.refusal()),

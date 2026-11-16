@@ -17,11 +17,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use fvoci_model::{
-    Block, BlockType, Board, BoardKind, BoardKinds, BoardMember, BoardPatch, BoardType, Body,
-    Category, FileInfo, JsonMap, MinimumRole, SubscriberType, Subscription, new_id,
+    Block, BlockType, Body, Category, Container, ContainerKind, ContainerKinds, ContainerMember,
+    ContainerPatch, ContainerType, FileInfo, JsonMap, MinimumRole, SubscriberType, Subscription,
+    new_id,
 };
 use fvoci_store::{
-    BlockFilter, Joined, MemberChange, PublicBoards, Purged, SharingChange, Store, StoreError,
+    BlockFilter, Joined, MemberChange, PublicContainers, Purged, SharingChange, Store, StoreError,
 };
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -34,20 +35,20 @@ use crate::common;
 pub(crate) const NOT_AN_ID: &str = "nonexistent-id";
 
 /// A board with the three members nearly every test sets.
-pub(crate) fn new_board(id: &str, workspace_id: &str, board_type: BoardType) -> Board {
-    Board {
+pub(crate) fn new_board(id: &str, workspace_id: &str, board_type: ContainerType) -> Container {
+    Container {
         id: id.to_owned(),
         workspace_id: workspace_id.to_owned(),
-        board_type,
-        ..Board::default()
+        container_type: board_type,
+        ..Container::default()
     }
 }
 
 /// Stores an open board of a workspace, without members, and returns its identifier.
 async fn stored_board(store: &Store, workspace_id: &str, user_id: &str) -> String {
-    let mut board = new_board(&new_id(), workspace_id, BoardType::Open);
+    let mut board = new_board(&new_id(), workspace_id, ContainerType::Open);
     store
-        .insert_board(&mut board, user_id)
+        .insert_container(&mut board, user_id)
         .await
         .expect("the board is inserted");
     board.id
@@ -63,18 +64,18 @@ fn sorted<const N: usize>(ids: [&str; N]) -> Vec<String> {
     ids
 }
 
-pub(crate) fn sorted_board_ids<'a>(boards: impl IntoIterator<Item = &'a Board>) -> Vec<String> {
+pub(crate) fn sorted_board_ids<'a>(boards: impl IntoIterator<Item = &'a Container>) -> Vec<String> {
     let mut ids: Vec<String> = boards.into_iter().map(|board| board.id.clone()).collect();
     ids.sort();
     ids
 }
 
-fn sorted_by_id(mut boards: Vec<Board>) -> Vec<Board> {
+fn sorted_by_id(mut boards: Vec<Container>) -> Vec<Container> {
     boards.sort_by(|a, b| a.id.cmp(&b.id));
     boards
 }
 
-fn sorted_user_ids(members: &[BoardMember]) -> Vec<String> {
+fn sorted_user_ids(members: &[ContainerMember]) -> Vec<String> {
     let mut ids: Vec<String> = members
         .iter()
         .map(|member| member.user_id.clone())
@@ -91,17 +92,20 @@ async fn get_board() {
 
     // "existing board"
     {
-        let mut board = new_board(&new_id(), &workspace_id, BoardType::Open);
-        test.insert_board(&mut board, &user_id)
+        let mut board = new_board(&new_id(), &workspace_id, ContainerType::Open);
+        test.insert_container(&mut board, &user_id)
             .await
             .expect("the board is inserted");
 
-        let r_board = test.get_board(&board.id).await.expect("the board exists");
+        let r_board = test
+            .get_container(&board.id)
+            .await
+            .expect("the board exists");
         assert_eq!(board.id, r_board.id, "the identifier");
         assert_eq!(board.workspace_id, r_board.workspace_id, "the workspace");
         assert_eq!(user_id, r_board.created_by, "the creator");
         assert_eq!(user_id, r_board.modified_by, "the modifier");
-        assert_eq!(board.board_type, r_board.board_type, "the type");
+        assert_eq!(board.container_type, r_board.container_type, "the type");
         assert_ne!(r_board.create_at, 0, "the creation time is set");
         assert_ne!(r_board.update_at, 0, "the modification time is set");
     }
@@ -109,7 +113,7 @@ async fn get_board() {
     // "nonexisting board": an identifier no board has, and text that is no identifier.
     for board_id in [new_id(), NOT_AN_ID.to_owned()] {
         let error = test
-            .get_board(&board_id)
+            .get_container(&board_id)
             .await
             .expect_err("there is no such board");
         assert!(matches!(error, StoreError::NotFound(_)), "got {error:?}");
@@ -134,11 +138,11 @@ async fn get_boards_for_user_and_workspace() {
     // "should return empty list if no results are found"
     {
         let boards = test
-            .get_boards_for_user_and_workspace(
+            .get_containers_for_user_and_workspace(
                 &user_id,
                 &workspace_id_1,
-                PublicBoards::Include,
-                BoardKinds::Boards,
+                PublicContainers::Include,
+                ContainerKinds::Boards,
             )
             .await
             .expect("the query succeeds");
@@ -148,34 +152,34 @@ async fn get_boards_for_user_and_workspace() {
     // "should return only the boards of the team that the user is a member of"
     {
         // workspace 1 boards
-        let mut board1 = new_board(&new_id(), &workspace_id_1, BoardType::Open);
-        test.insert_board_with_admin(&mut board1, &user_id)
+        let mut board1 = new_board(&new_id(), &workspace_id_1, ContainerType::Open);
+        test.insert_container_with_admin(&mut board1, &user_id)
             .await
             .expect("board 1 is inserted");
 
-        let mut board2 = new_board(&new_id(), &workspace_id_1, BoardType::Private);
-        test.insert_board_with_admin(&mut board2, &user_id)
+        let mut board2 = new_board(&new_id(), &workspace_id_1, ContainerType::Private);
+        test.insert_container_with_admin(&mut board2, &user_id)
             .await
             .expect("board 2 is inserted");
 
-        let mut board3 = new_board(&new_id(), &workspace_id_1, BoardType::Open);
-        test.insert_board(&mut board3, &other_user_id)
+        let mut board3 = new_board(&new_id(), &workspace_id_1, ContainerType::Open);
+        test.insert_container(&mut board3, &other_user_id)
             .await
             .expect("board 3 is inserted");
 
-        let mut board4 = new_board(&new_id(), &workspace_id_1, BoardType::Private);
-        test.insert_board(&mut board4, &other_user_id)
+        let mut board4 = new_board(&new_id(), &workspace_id_1, ContainerType::Private);
+        test.insert_container(&mut board4, &other_user_id)
             .await
             .expect("board 4 is inserted");
 
         // workspace 2 boards
-        let mut board5 = new_board(&new_id(), &workspace_id_2, BoardType::Open);
-        test.insert_board_with_admin(&mut board5, &user_id)
+        let mut board5 = new_board(&new_id(), &workspace_id_2, ContainerType::Open);
+        test.insert_container_with_admin(&mut board5, &user_id)
             .await
             .expect("board 5 is inserted");
 
-        let mut board6 = new_board(&new_id(), &workspace_id_1, BoardType::Private);
-        test.insert_board(&mut board6, &other_user_id)
+        let mut board6 = new_board(&new_id(), &workspace_id_1, ContainerType::Private);
+        test.insert_container(&mut board6, &other_user_id)
             .await
             .expect("board 6 is inserted");
 
@@ -183,11 +187,11 @@ async fn get_boards_for_user_and_workspace() {
         // the one open board"
         {
             let found = test
-                .get_boards_for_user_and_workspace(
+                .get_containers_for_user_and_workspace(
                     &user_id,
                     &workspace_id_1,
-                    PublicBoards::Include,
-                    BoardKinds::Boards,
+                    PublicContainers::Include,
+                    ContainerKinds::Boards,
                 )
                 .await
                 .expect("the query succeeds");
@@ -201,11 +205,11 @@ async fn get_boards_for_user_and_workspace() {
         // "should only find the two boards that the user is a member of for team 1"
         {
             let found = test
-                .get_boards_for_user_and_workspace(
+                .get_containers_for_user_and_workspace(
                     &user_id,
                     &workspace_id_1,
-                    PublicBoards::Exclude,
-                    BoardKinds::Boards,
+                    PublicContainers::Exclude,
+                    ContainerKinds::Boards,
                 )
                 .await
                 .expect("the query succeeds");
@@ -219,11 +223,11 @@ async fn get_boards_for_user_and_workspace() {
         // "should only find the board that the user is a member of for team 2"
         {
             let found = test
-                .get_boards_for_user_and_workspace(
+                .get_containers_for_user_and_workspace(
                     &user_id,
                     &workspace_id_2,
-                    PublicBoards::Include,
-                    BoardKinds::Boards,
+                    PublicContainers::Include,
+                    ContainerKinds::Boards,
                 )
                 .await
                 .expect("the query succeeds");
@@ -254,8 +258,8 @@ async fn get_boards_in_workspace_by_ids() {
         let board_id_1 = new_id();
         let board_id_2 = new_id();
         for board_id in [&board_id_1, &board_id_2] {
-            let mut board = new_board(board_id, &workspace_id, BoardType::Open);
-            test.insert_board_with_admin(&mut board, &user_id)
+            let mut board = new_board(board_id, &workspace_id, ContainerType::Open);
+            test.insert_container_with_admin(&mut board, &user_id)
                 .await
                 .expect("the board is inserted");
         }
@@ -285,7 +289,7 @@ async fn get_boards_in_workspace_by_ids() {
         for case in cases {
             let board_ids = case.board_ids;
             let result = test
-                .get_boards_in_workspace_by_ids(&board_ids, &workspace_id)
+                .get_containers_in_workspace_by_ids(&board_ids, &workspace_id)
                 .await;
             if case.expected_error {
                 let error = result.expect_err(case.name);
@@ -304,11 +308,11 @@ async fn get_boards_in_workspace_by_ids() {
                     "Should be ErrNotFound compatible error"
                 );
                 let found = test
-                    .get_boards_for_user_and_workspace(
+                    .get_containers_for_user_and_workspace(
                         &user_id,
                         &workspace_id,
-                        PublicBoards::Include,
-                        BoardKinds::Boards,
+                        PublicContainers::Include,
+                        ContainerKinds::Boards,
                     )
                     .await
                     .expect("the query succeeds")
@@ -336,12 +340,16 @@ async fn insert_board() {
 
     // "valid public board"
     {
-        let mut board = new_board(&public_board_id, &workspace_id, BoardType::Open);
-        test.insert_board(&mut board, &user_id)
+        let mut board = new_board(&public_board_id, &workspace_id, ContainerType::Open);
+        test.insert_container(&mut board, &user_id)
             .await
             .expect("the board is inserted");
         assert_eq!(board.id, public_board_id, "the identifier is kept");
-        assert_eq!(board.board_type, BoardType::Open, "the type is kept");
+        assert_eq!(
+            board.container_type,
+            ContainerType::Open,
+            "the type is kept"
+        );
         assert_ne!(board.create_at, 0, "the creation time is set");
         assert_ne!(board.update_at, 0, "the modification time is set");
         assert_eq!(board.delete_at, 0, "the board is not deleted");
@@ -352,12 +360,16 @@ async fn insert_board() {
     // "valid private board"
     {
         let private_board_id = new_id();
-        let mut board = new_board(&private_board_id, &workspace_id, BoardType::Private);
-        test.insert_board(&mut board, &user_id)
+        let mut board = new_board(&private_board_id, &workspace_id, ContainerType::Private);
+        test.insert_container(&mut board, &user_id)
             .await
             .expect("the board is inserted");
         assert_eq!(board.id, private_board_id, "the identifier is kept");
-        assert_eq!(board.board_type, BoardType::Private, "the type is kept");
+        assert_eq!(
+            board.container_type,
+            ContainerType::Private,
+            "the type is kept"
+        );
         assert_ne!(board.create_at, 0, "the creation time is set");
         assert_ne!(board.update_at, 0, "the modification time is set");
         assert_eq!(board.delete_at, 0, "the board is not deleted");
@@ -373,13 +385,13 @@ async fn insert_board() {
 
     // "update board"
     {
-        let mut board = Board {
+        let mut board = Container {
             id: public_board_id,
             workspace_id: workspace_id.clone(),
             title: "New title".to_owned(),
-            ..Board::default()
+            ..Container::default()
         };
-        test.insert_board(&mut board, &user_id_2)
+        test.insert_container(&mut board, &user_id_2)
             .await
             .expect("the board is updated");
         assert_eq!("New title", board.title, "the title is the new one");
@@ -392,14 +404,14 @@ async fn insert_board() {
 
         // The original stores this board without a workspace. Here a board is some workspace's:
         // one without a workspace is refused, and nothing is stored.
-        let mut board = Board {
+        let mut board = Container {
             id: type_board_id.clone(),
             title: "Public board".to_owned(),
-            board_type: BoardType::Open,
-            ..Board::default()
+            container_type: ContainerType::Open,
+            ..Container::default()
         };
         let error = test
-            .insert_board(&mut board, &user_id)
+            .insert_container(&mut board, &user_id)
             .await
             .expect_err("a board needs a workspace");
         assert!(
@@ -407,29 +419,33 @@ async fn insert_board() {
             "got {error:?}"
         );
         let error = test
-            .get_board(&type_board_id)
+            .get_container(&type_board_id)
             .await
             .expect_err("nothing was stored");
         assert!(error.is_not_found(), "got {error:?}");
 
         board.workspace_id.clone_from(&workspace_id);
-        test.insert_board(&mut board, &user_id)
+        test.insert_container(&mut board, &user_id)
             .await
             .expect("the board is inserted");
-        assert_eq!(BoardType::Open, board.board_type, "the board is open");
+        assert_eq!(
+            ContainerType::Open,
+            board.container_type,
+            "the board is open"
+        );
 
-        let mut board_update = Board {
+        let mut board_update = Container {
             id: type_board_id,
             workspace_id,
-            board_type: BoardType::Private,
-            ..Board::default()
+            container_type: ContainerType::Private,
+            ..Container::default()
         };
-        test.insert_board(&mut board_update, &user_id)
+        test.insert_container(&mut board_update, &user_id)
             .await
             .expect("the board is updated");
         assert_eq!(
-            BoardType::Private,
-            board_update.board_type,
+            ContainerType::Private,
+            board_update.container_type,
             "the board is private now"
         );
     }
@@ -449,12 +465,12 @@ async fn patch_board() {
 
     // "should return error if the board doesn't exist"
     for board_id in [new_id(), NOT_AN_ID.to_owned()] {
-        let patch = BoardPatch {
+        let patch = ContainerPatch {
             title: Some("A new title".to_owned()),
-            ..BoardPatch::default()
+            ..ContainerPatch::default()
         };
         let error = test
-            .patch_board(&board_id, &patch, &user_id)
+            .patch_container(&board_id, &patch, &user_id)
             .await
             .expect_err("there is no such board");
         assert!(error.is_not_found(), "board {board_id}: got {error:?}");
@@ -465,25 +481,25 @@ async fn patch_board() {
         let board_id = new_id();
         let user_id_2 = common::user(&test, "user2").await;
 
-        let mut board = Board {
+        let mut board = Container {
             title: "A simple title".to_owned(),
             description: "A simple description".to_owned(),
-            ..new_board(&board_id, &workspace_id, BoardType::Open)
+            ..new_board(&board_id, &workspace_id, ContainerType::Open)
         };
-        test.insert_board(&mut board, &user_id)
+        test.insert_container(&mut board, &user_id)
             .await
             .expect("the board is inserted");
         assert_eq!(user_id, board.created_by, "the creator");
 
         let new_title = "A new title";
         let new_description = "A new description";
-        let patch = BoardPatch {
+        let patch = ContainerPatch {
             title: Some(new_title.to_owned()),
             description: Some(new_description.to_owned()),
-            ..BoardPatch::default()
+            ..ContainerPatch::default()
         };
         let patched_board = test
-            .patch_board(&board_id, &patch, &user_id_2)
+            .patch_container(&board_id, &patch, &user_id_2)
             .await
             .expect("the patch is applied");
         assert_eq!(new_title, patched_board.title, "the title is patched");
@@ -499,23 +515,23 @@ async fn patch_board() {
     {
         let board_id = new_id();
 
-        let mut board = Board {
+        let mut board = Container {
             properties: object(json!({ "one": "1", "two": "2" })),
-            ..new_board(&board_id, &workspace_id, BoardType::Open)
+            ..new_board(&board_id, &workspace_id, ContainerType::Open)
         };
-        test.insert_board(&mut board, &user_id)
+        test.insert_container(&mut board, &user_id)
             .await
             .expect("the board is inserted");
         assert_eq!(board.properties["one"], json!("1"), "property one");
         assert_eq!(board.properties["two"], json!("2"), "property two");
 
-        let patch = BoardPatch {
+        let patch = ContainerPatch {
             updated_properties: object(json!({ "three": "3" })),
             deleted_properties: vec!["one".to_owned()],
-            ..BoardPatch::default()
+            ..ContainerPatch::default()
         };
         let patched_board = test
-            .patch_board(&board_id, &patch, &user_id)
+            .patch_container(&board_id, &patch, &user_id)
             .await
             .expect("the patch is applied");
         assert!(
@@ -535,23 +551,27 @@ async fn patch_board() {
     {
         let board_id = new_id();
 
-        let mut board = new_board(&board_id, &workspace_id, BoardType::Open);
-        test.insert_board(&mut board, &user_id)
+        let mut board = new_board(&board_id, &workspace_id, ContainerType::Open);
+        test.insert_container(&mut board, &user_id)
             .await
             .expect("the board is inserted");
-        assert_eq!(board.board_type, BoardType::Open, "the board is open");
+        assert_eq!(
+            board.container_type,
+            ContainerType::Open,
+            "the board is open"
+        );
 
-        let patch = BoardPatch {
-            board_type: Some(BoardType::Private),
-            ..BoardPatch::default()
+        let patch = ContainerPatch {
+            container_type: Some(ContainerType::Private),
+            ..ContainerPatch::default()
         };
         let patched_board = test
-            .patch_board(&board_id, &patch, &user_id)
+            .patch_container(&board_id, &patch, &user_id)
             .await
             .expect("the patch is applied");
         assert_eq!(
-            BoardType::Private,
-            patched_board.board_type,
+            ContainerType::Private,
+            patched_board.container_type,
             "the board is private now"
         );
     }
@@ -564,32 +584,36 @@ async fn patch_board() {
         // identifier, which is no longer stored.
         let card_properties = vec![object(json!({ "id": "prop2", "name": "val2" }))];
 
-        let mut board = Board {
+        let mut board = Container {
             properties: properties.clone(),
             card_properties: card_properties.clone(),
-            ..new_board(&board_id, &workspace_id, BoardType::Open)
+            ..new_board(&board_id, &workspace_id, ContainerType::Open)
         };
-        test.insert_board(&mut board, &user_id)
+        test.insert_container(&mut board, &user_id)
             .await
             .expect("the board is inserted");
-        assert_eq!(board.board_type, BoardType::Open, "the board is open");
+        assert_eq!(
+            board.container_type,
+            ContainerType::Open,
+            "the board is open"
+        );
         assert_eq!(properties, board.properties, "the properties");
         assert_eq!(
             card_properties, board.card_properties,
             "the card properties"
         );
 
-        let patch = BoardPatch {
-            board_type: Some(BoardType::Private),
-            ..BoardPatch::default()
+        let patch = ContainerPatch {
+            container_type: Some(ContainerType::Private),
+            ..ContainerPatch::default()
         };
         let patched_board = test
-            .patch_board(&board_id, &patch, &user_id)
+            .patch_container(&board_id, &patch, &user_id)
             .await
             .expect("the patch is applied");
         assert_eq!(
-            BoardType::Private,
-            patched_board.board_type,
+            ContainerType::Private,
+            patched_board.container_type,
             "the board is private now"
         );
         assert_eq!(
@@ -603,46 +627,57 @@ async fn patch_board() {
     }
 
     // "a patch that removes a card property and updates another should work correctly"
-    {
-        let board_id = new_id();
-        let prop1 = object(json!({ "id": "prop1", "value": "val1" }));
-        let prop2 = object(json!({ "id": "prop2", "value": "val2" }));
-        let prop3 = object(json!({ "id": "prop3", "value": "val3" }));
-        let card_properties = vec![prop1, prop2, prop3.clone()];
-
-        let mut board = Board {
-            card_properties: card_properties.clone(),
-            ..new_board(&board_id, &workspace_id, BoardType::Open)
-        };
-        test.insert_board(&mut board, &user_id)
-            .await
-            .expect("the board is inserted");
-        assert_eq!(board.board_type, BoardType::Open, "the board is open");
-        assert_eq!(
-            card_properties, board.card_properties,
-            "the card properties"
-        );
-
-        let new_prop1 = object(json!({ "id": "prop1", "value": "newval1" }));
-        let patch = BoardPatch {
-            updated_card_properties: vec![new_prop1.clone()],
-            deleted_card_properties: vec!["prop2".to_owned()],
-            ..BoardPatch::default()
-        };
-        let patched_board = test
-            .patch_board(&board_id, &patch, &user_id)
-            .await
-            .expect("the patch is applied");
-        // The original compares without regard to order; so does this.
-        let by_property_id = |a: &JsonMap, b: &JsonMap| a["id"].as_str().cmp(&b["id"].as_str());
-        let mut expected = vec![new_prop1, prop3];
-        expected.sort_by(by_property_id);
-        let mut got = patched_board.card_properties;
-        got.sort_by(by_property_id);
-        assert_eq!(expected, got, "one definition updated, one removed");
-    }
+    patch_removes_one_card_property_and_updates_another(&test, &workspace_id, &user_id).await;
 
     test.teardown().await;
+}
+
+/// The last subtest of [`patch_board`]: a patch that removes one card property and updates another.
+async fn patch_removes_one_card_property_and_updates_another(
+    test: &common::TestStore,
+    workspace_id: &str,
+    user_id: &str,
+) {
+    let board_id = new_id();
+    let prop1 = object(json!({ "id": "prop1", "value": "val1" }));
+    let prop2 = object(json!({ "id": "prop2", "value": "val2" }));
+    let prop3 = object(json!({ "id": "prop3", "value": "val3" }));
+    let card_properties = vec![prop1, prop2, prop3.clone()];
+
+    let mut board = Container {
+        card_properties: card_properties.clone(),
+        ..new_board(&board_id, workspace_id, ContainerType::Open)
+    };
+    test.insert_container(&mut board, user_id)
+        .await
+        .expect("the board is inserted");
+    assert_eq!(
+        board.container_type,
+        ContainerType::Open,
+        "the board is open"
+    );
+    assert_eq!(
+        card_properties, board.card_properties,
+        "the card properties"
+    );
+
+    let new_prop1 = object(json!({ "id": "prop1", "value": "newval1" }));
+    let patch = ContainerPatch {
+        updated_card_properties: vec![new_prop1.clone()],
+        deleted_card_properties: vec!["prop2".to_owned()],
+        ..ContainerPatch::default()
+    };
+    let patched_board = test
+        .patch_container(&board_id, &patch, user_id)
+        .await
+        .expect("the patch is applied");
+    // The original compares without regard to order; so does this.
+    let by_property_id = |a: &JsonMap, b: &JsonMap| a["id"].as_str().cmp(&b["id"].as_str());
+    let mut expected = vec![new_prop1, prop3];
+    expected.sort_by(by_property_id);
+    let mut got = patched_board.card_properties;
+    got.sort_by(by_property_id);
+    assert_eq!(expected, got, "one definition updated, one removed");
 }
 
 #[tokio::test]
@@ -654,7 +689,7 @@ async fn delete_board() {
     // "should return an error if the board doesn't exist"
     for board_id in [new_id(), NOT_AN_ID.to_owned()] {
         let error = test
-            .delete_board(&board_id, &user_id)
+            .delete_container(&board_id, &user_id)
             .await
             .expect_err("there is no such board");
         assert!(error.is_not_found(), "board {board_id}: got {error:?}");
@@ -664,19 +699,21 @@ async fn delete_board() {
     {
         let board_id = new_id();
 
-        let mut board = new_board(&board_id, &workspace_id, BoardType::Open);
-        test.insert_board(&mut board, &user_id)
+        let mut board = new_board(&board_id, &workspace_id, ContainerType::Open);
+        test.insert_container(&mut board, &user_id)
             .await
             .expect("the board is inserted");
 
-        test.get_board(&board_id).await.expect("the board exists");
+        test.get_container(&board_id)
+            .await
+            .expect("the board exists");
 
-        test.delete_board(&board_id, &user_id)
+        test.delete_container(&board_id, &user_id)
             .await
             .expect("the board is deleted");
 
         let error = test
-            .get_board(&board_id)
+            .get_container(&board_id)
             .await
             .expect_err("the board is gone");
         assert!(
@@ -698,7 +735,7 @@ async fn undelete_board() {
     {
         let board_id = new_id();
 
-        let mut board = Board {
+        let mut board = Container {
             title: "Dunder Mifflin Scranton".to_owned(),
             minimum_role: MinimumRole::Commenter,
             description: "Bears, beets, Battlestar Gallectica".to_owned(),
@@ -708,25 +745,28 @@ async fn undelete_board() {
             properties: object(json!({ "prop_1": "value_1" })),
             // The original's test data has no `id`; see `patch_board`.
             card_properties: vec![object(json!({ "id": "prop_1", "name": "value_1" }))],
-            ..new_board(&board_id, &workspace_id, BoardType::Open)
+            ..new_board(&board_id, &workspace_id, ContainerType::Open)
         };
-        test.insert_board(&mut board, &user_id)
+        test.insert_container(&mut board, &user_id)
             .await
             .expect("the board is inserted");
 
-        test.delete_board(&board_id, &user_id)
+        test.delete_container(&board_id, &user_id)
             .await
             .expect("the board is deleted");
 
-        test.get_board(&board_id)
+        test.get_container(&board_id)
             .await
             .expect_err("the board is gone");
 
-        test.undelete_board(&board_id, &user_id)
+        test.undelete_container(&board_id, &user_id)
             .await
             .expect("the board is restored");
 
-        let board = test.get_board(&board_id).await.expect("the board is back");
+        let board = test
+            .get_container(&board_id)
+            .await
+            .expect("the board is back");
 
         // verifying the data after un-delete
         assert_eq!("Dunder Mifflin Scranton", board.title, "the title");
@@ -758,34 +798,36 @@ async fn undelete_board() {
     {
         let board_id = new_id();
 
-        let mut board = new_board(&board_id, &workspace_id, BoardType::Open);
-        test.insert_board(&mut board, &user_id)
+        let mut board = new_board(&board_id, &workspace_id, ContainerType::Open);
+        test.insert_container(&mut board, &user_id)
             .await
             .expect("the board is inserted");
 
-        test.delete_board(&board_id, &user_id)
+        test.delete_container(&board_id, &user_id)
             .await
             .expect("the board is deleted");
 
-        test.get_board(&board_id)
+        test.get_container(&board_id)
             .await
             .expect_err("the board is gone");
 
-        test.undelete_board(&board_id, &user_id)
+        test.undelete_container(&board_id, &user_id)
             .await
             .expect("the board is restored");
 
-        test.get_board(&board_id).await.expect("the board is back");
+        test.get_container(&board_id)
+            .await
+            .expect("the board is back");
 
         // The original restores a board that is not deleted once more, without effect.
         // Here only what is in the trash is restored.
         let error = test
-            .undelete_board(&board_id, &user_id)
+            .undelete_container(&board_id, &user_id)
             .await
             .expect_err("the board is not in the trash any more");
         assert!(error.is_not_found(), "got {error:?}");
 
-        test.get_board(&board_id)
+        test.get_container(&board_id)
             .await
             .expect("the board is still there");
     }
@@ -793,12 +835,12 @@ async fn undelete_board() {
     // "from not existing id": the original succeeds and restores nothing.
     for board_id in [new_id(), NOT_AN_ID.to_owned()] {
         let error = test
-            .undelete_board(&board_id, &user_id)
+            .undelete_container(&board_id, &user_id)
             .await
             .expect_err("no such board is in the trash");
         assert!(error.is_not_found(), "board {board_id}: got {error:?}");
 
-        test.get_board(&board_id)
+        test.get_container(&board_id)
             .await
             .expect_err("there is still no such board");
     }
@@ -816,21 +858,21 @@ async fn insert_board_with_admin() {
     {
         let board_id = new_id();
 
-        let mut board = new_board(&board_id, &workspace_id, BoardType::Open);
+        let mut board = new_board(&board_id, &workspace_id, ContainerType::Open);
         let new_member = test
-            .insert_board_with_admin(&mut board, &user_id)
+            .insert_container_with_admin(&mut board, &user_id)
             .await
             .expect("the board and its admin are inserted");
         assert_eq!(user_id, board.created_by, "the creator");
         assert_eq!(user_id, board.modified_by, "the modifier");
         assert_eq!(user_id, new_member.user_id, "the member is the creator");
-        assert_eq!(board_id, new_member.board_id, "the member's board");
+        assert_eq!(board_id, new_member.container_id, "the member's board");
         assert!(new_member.scheme_admin, "the creator administers the board");
         assert!(new_member.scheme_editor, "the creator may edit the board");
 
         // The membership that is returned is the one that is stored.
         let stored = test
-            .get_member_for_board(&board_id, &user_id)
+            .get_member_for_container(&board_id, &user_id)
             .await
             .expect("the membership exists");
         assert_eq!(stored, new_member, "the stored membership");
@@ -848,11 +890,11 @@ async fn save_member() {
 
     // "should correctly create a member"
     {
-        let member = BoardMember {
+        let member = ContainerMember {
             user_id: user_id.clone(),
-            board_id: board_id.clone(),
+            container_id: board_id.clone(),
             scheme_admin: true,
-            ..BoardMember::default()
+            ..ContainerMember::default()
         };
 
         test.save_member(&member)
@@ -861,34 +903,34 @@ async fn save_member() {
         // The original checks the member it gets back; the port returns nothing, so the
         // same members are checked on the stored membership.
         let stored = test
-            .get_member_for_board(&board_id, &user_id)
+            .get_member_for_container(&board_id, &user_id)
             .await
             .expect("the member exists");
         assert_eq!(user_id, stored.user_id, "the member");
-        assert_eq!(board_id, stored.board_id, "the member's board");
+        assert_eq!(board_id, stored.container_id, "the member's board");
 
         assert!(stored.scheme_admin, "the member administers the board");
     }
 
     // "should correctly update a member"
     {
-        let member = BoardMember {
+        let member = ContainerMember {
             user_id: user_id.clone(),
-            board_id: board_id.clone(),
+            container_id: board_id.clone(),
             scheme_editor: true,
             scheme_viewer: true,
-            ..BoardMember::default()
+            ..ContainerMember::default()
         };
 
         test.save_member(&member)
             .await
             .expect("the member is saved");
         let stored = test
-            .get_member_for_board(&board_id, &user_id)
+            .get_member_for_container(&board_id, &user_id)
             .await
             .expect("the member exists");
         assert_eq!(user_id, stored.user_id, "the member");
-        assert_eq!(board_id, stored.board_id, "the member's board");
+        assert_eq!(board_id, stored.container_id, "the member's board");
 
         assert!(!stored.scheme_admin, "no longer an administrator");
         assert!(stored.scheme_editor, "an editor now");
@@ -898,7 +940,7 @@ async fn save_member() {
         // no such history any more; that the membership was updated and not added to
         // shows in there still being one.
         let members = test
-            .get_members_for_board(&board_id)
+            .get_members_for_container(&board_id)
             .await
             .expect("the members are read");
         assert_eq!(members, [stored], "one membership, the updated one");
@@ -917,7 +959,7 @@ async fn get_member_for_board() {
     // "should return an error not found for nonexisting membership"
     {
         let error = test
-            .get_member_for_board(&board_id, &user_id)
+            .get_member_for_container(&board_id, &user_id)
             .await
             .expect_err("there is no such membership");
         assert!(matches!(error, StoreError::NotFound(_)), "got {error:?}");
@@ -934,22 +976,22 @@ async fn get_member_for_board() {
 
     // "should return the membership if exists"
     {
-        let member = BoardMember {
+        let member = ContainerMember {
             user_id: user_id.clone(),
-            board_id: board_id.clone(),
+            container_id: board_id.clone(),
             scheme_admin: true,
-            ..BoardMember::default()
+            ..ContainerMember::default()
         };
         test.save_member(&member)
             .await
             .expect("the member is saved");
 
         let stored = test
-            .get_member_for_board(&board_id, &user_id)
+            .get_member_for_container(&board_id, &user_id)
             .await
             .expect("the member exists");
         assert_eq!(user_id, stored.user_id, "the member");
-        assert_eq!(board_id, stored.board_id, "the member's board");
+        assert_eq!(board_id, stored.container_id, "the member's board");
         assert!(stored.scheme_admin, "the member administers the board");
     }
 
@@ -969,7 +1011,7 @@ async fn get_members_for_board() {
     // "should return empty list if there are no members on a board"
     {
         let members = test
-            .get_members_for_board(&board_id_1)
+            .get_members_for_container(&board_id_1)
             .await
             .expect("the query succeeds");
         assert!(members.is_empty(), "got {members:?}");
@@ -977,32 +1019,32 @@ async fn get_members_for_board() {
 
     // "should return the members of the board"
     {
-        let member1 = BoardMember {
-            board_id: board_id_1.clone(),
+        let member1 = ContainerMember {
+            container_id: board_id_1.clone(),
             user_id: user_id_1.clone(),
             scheme_admin: true,
-            ..BoardMember::default()
+            ..ContainerMember::default()
         };
         test.save_member(&member1).await.expect("member 1 is saved");
 
-        let member2 = BoardMember {
-            board_id: board_id_1.clone(),
+        let member2 = ContainerMember {
+            container_id: board_id_1.clone(),
             user_id: user_id_2.clone(),
             scheme_editor: true,
-            ..BoardMember::default()
+            ..ContainerMember::default()
         };
         test.save_member(&member2).await.expect("member 2 is saved");
 
-        let member3 = BoardMember {
-            board_id: board_id_2.clone(),
+        let member3 = ContainerMember {
+            container_id: board_id_2.clone(),
             user_id: user_id_3.clone(),
             scheme_admin: true,
-            ..BoardMember::default()
+            ..ContainerMember::default()
         };
         test.save_member(&member3).await.expect("member 3 is saved");
 
         let board1_members = test
-            .get_members_for_board(&board_id_1)
+            .get_members_for_container(&board_id_1)
             .await
             .expect("the query succeeds");
         assert_eq!(board1_members.len(), 2, "got {board1_members:?}");
@@ -1013,7 +1055,7 @@ async fn get_members_for_board() {
         );
 
         let board2_members = test
-            .get_members_for_board(&board_id_2)
+            .get_members_for_container(&board_id_2)
             .await
             .expect("the query succeeds");
         assert_eq!(board2_members.len(), 1, "got {board2_members:?}");
@@ -1060,11 +1102,11 @@ async fn delete_member() {
 
     // "should correctly delete a member"
     {
-        let member = BoardMember {
+        let member = ContainerMember {
             user_id: user_id.clone(),
-            board_id: board_id.clone(),
+            container_id: board_id.clone(),
             scheme_admin: true,
-            ..BoardMember::default()
+            ..ContainerMember::default()
         };
         test.save_member(&member)
             .await
@@ -1075,7 +1117,7 @@ async fn delete_member() {
             .expect("the member is deleted");
 
         let error = test
-            .get_member_for_board(&board_id, &user_id)
+            .get_member_for_container(&board_id, &user_id)
             .await
             .expect_err("the membership is gone");
         assert!(
@@ -1100,12 +1142,12 @@ async fn insert_board_stamps_templates_of_the_global_workspace_with_a_tracking_i
     let user_id = common::user(&test, "user").await;
     let workspace_id = common::workspace(&test).await;
 
-    let mut builtin = Board {
+    let mut builtin = Container {
         title: "hello".to_owned(),
         is_template: true,
-        ..new_board(&new_id(), &workspace_id, BoardType::Open)
+        ..new_board(&new_id(), &workspace_id, ContainerType::Open)
     };
-    test.insert_board(&mut builtin, "")
+    test.insert_container(&mut builtin, "")
         .await
         .expect("the template is inserted");
     assert!(
@@ -1120,19 +1162,19 @@ async fn insert_board_stamps_templates_of_the_global_workspace_with_a_tracking_i
         "the caller's board is stamped"
     );
     let stored = test
-        .get_board(&builtin.id)
+        .get_container(&builtin.id)
         .await
         .expect("the template exists");
     assert_eq!(stored, builtin, "what was stored is the caller's board");
 
     // What a caller says about `is_builtin` does not count.
-    let mut of_user = Board {
+    let mut of_user = Container {
         title: "hello".to_owned(),
         is_template: true,
         is_builtin: true,
-        ..new_board(&new_id(), &workspace_id, BoardType::Open)
+        ..new_board(&new_id(), &workspace_id, ContainerType::Open)
     };
-    test.insert_board(&mut of_user, &user_id)
+    test.insert_container(&mut of_user, &user_id)
         .await
         .expect("the template is inserted");
     assert!(!of_user.is_builtin, "a user's template is not built in");
@@ -1141,11 +1183,11 @@ async fn insert_board_stamps_templates_of_the_global_workspace_with_a_tracking_i
         "only built-in templates are stamped"
     );
 
-    let mut board = Board {
+    let mut board = Container {
         title: "hello".to_owned(),
-        ..new_board(&new_id(), &workspace_id, BoardType::Open)
+        ..new_board(&new_id(), &workspace_id, ContainerType::Open)
     };
-    test.insert_board(&mut board, "")
+    test.insert_container(&mut board, "")
         .await
         .expect("the board is inserted");
     assert!(
@@ -1154,12 +1196,12 @@ async fn insert_board_stamps_templates_of_the_global_workspace_with_a_tracking_i
     );
 
     // A built-in template stays one whoever writes it later, and is stamped again.
-    let mut renamed = Board {
+    let mut renamed = Container {
         title: "world".to_owned(),
         is_template: true,
-        ..new_board(&builtin.id, &workspace_id, BoardType::Open)
+        ..new_board(&builtin.id, &workspace_id, ContainerType::Open)
     };
-    test.insert_board(&mut renamed, &user_id)
+    test.insert_container(&mut renamed, &user_id)
         .await
         .expect("the template is updated");
     assert!(renamed.is_builtin, "the template is still built in");
@@ -1184,8 +1226,8 @@ async fn insert_board_update_keeps_workspace_creator_and_creation_time() {
     let another_workspace_id = common::workspace(&test).await;
     let board_id = new_id();
 
-    let mut board = new_board(&board_id, &workspace_id, BoardType::Open);
-    test.insert_board(&mut board, &creator_id)
+    let mut board = new_board(&board_id, &workspace_id, ContainerType::Open);
+    test.insert_container(&mut board, &creator_id)
         .await
         .expect("the board is inserted");
 
@@ -1197,13 +1239,13 @@ async fn insert_board_update_keeps_workspace_creator_and_creation_time() {
         (workspace_id.as_str(), creator_id.as_str(), board.create_at),
     ];
     for (claimed_workspace, claimed_creator, claimed_create_at) in claims {
-        let mut update = Board {
+        let mut update = Container {
             title: format!("Updated by a caller who claims {claimed_create_at}"),
             created_by: claimed_creator.to_owned(),
             create_at: claimed_create_at,
-            ..new_board(&board_id, claimed_workspace, BoardType::Private)
+            ..new_board(&board_id, claimed_workspace, ContainerType::Private)
         };
-        test.insert_board(&mut update, &editor_id)
+        test.insert_container(&mut update, &editor_id)
             .await
             .expect("the board is updated");
         assert_eq!(
@@ -1220,13 +1262,16 @@ async fn insert_board_update_keeps_workspace_creator_and_creation_time() {
         );
         assert_eq!(update.modified_by, editor_id, "the modifier");
 
-        let stored = test.get_board(&board_id).await.expect("the board exists");
+        let stored = test
+            .get_container(&board_id)
+            .await
+            .expect("the board exists");
         assert_eq!(stored.workspace_id, workspace_id, "the workspace stays");
         assert_eq!(stored.created_by, creator_id, "the creator stays");
         assert_eq!(stored.create_at, board.create_at, "the creation time stays");
         assert_eq!(
-            stored.board_type,
-            BoardType::Private,
+            stored.container_type,
+            ContainerType::Private,
             "the type is the new one"
         );
         assert_eq!(update, stored, "the caller's board is the stored board");
@@ -1249,47 +1294,47 @@ async fn delete_and_undelete_board_take_the_blocks_along() {
     let card_id = new_id();
     let text_id = new_id();
 
-    let mut board = new_board(&board_id, &workspace_id, BoardType::Open);
-    test.insert_board(&mut board, &user_id)
+    let mut board = new_board(&board_id, &workspace_id, ContainerType::Open);
+    test.insert_container(&mut board, &user_id)
         .await
         .expect("the board is inserted");
     let mut blocks = vec![
         Block {
             id: card_id.clone(),
-            board_id: board_id.clone(),
+            container_id: board_id.clone(),
             parent_id: board_id.clone(),
             ..Block::default()
         },
         Block {
             id: text_id.clone(),
-            board_id: board_id.clone(),
+            container_id: board_id.clone(),
             parent_id: card_id.clone(),
             ..Block::default()
         },
     ];
     common::insert_blocks(&test, &mut blocks, &user_id).await;
-    let member = BoardMember {
-        board_id: board_id.clone(),
+    let member = ContainerMember {
+        container_id: board_id.clone(),
         user_id: user_id.clone(),
         scheme_admin: true,
-        ..BoardMember::default()
+        ..ContainerMember::default()
     };
     test.save_member(&member)
         .await
         .expect("the member is saved");
 
-    test.delete_board(&board_id, &deleter_id)
+    test.delete_container(&board_id, &deleter_id)
         .await
         .expect("the board is deleted");
     let left = test
-        .get_blocks(&BlockFilter::board(&board_id))
+        .get_blocks(&BlockFilter::container(&board_id))
         .await
         .expect("the blocks are read");
     assert!(left.is_empty(), "got {left:?}");
     // The original keeps the memberships of a deleted board. Here they go to the trash
     // with it.
     let members = test
-        .get_members_for_board(&board_id)
+        .get_members_for_container(&board_id)
         .await
         .expect("the members are read");
     assert!(members.is_empty(), "got {members:?}");
@@ -1297,15 +1342,18 @@ async fn delete_and_undelete_board_take_the_blocks_along() {
     // its modifier. Here the board is in the trash as it was, and the trash says who
     // deleted it.
     let deleted = test
-        .get_deleted_board(&board_id)
+        .get_deleted_container(&board_id)
         .await
         .expect("the board is in the trash");
     assert_eq!(deleted.deleted_by, deleter_id, "who deleted the board");
-    assert_eq!(deleted.board.modified_by, user_id, "the board as it was");
+    assert_eq!(
+        deleted.container.modified_by, user_id,
+        "the board as it was"
+    );
     assert!(
-        deleted.board.delete_at >= board.update_at,
+        deleted.container.delete_at >= board.update_at,
         "deleted at {} after the last modification at {}",
-        deleted.board.delete_at,
+        deleted.container.delete_at,
         board.update_at
     );
     assert_eq!(
@@ -1314,10 +1362,13 @@ async fn delete_and_undelete_board_take_the_blocks_along() {
         "the membership is kept with the board"
     );
 
-    test.undelete_board(&board_id, &restorer_id)
+    test.undelete_container(&board_id, &restorer_id)
         .await
         .expect("the board is restored");
-    let restored = test.get_board(&board_id).await.expect("the board is back");
+    let restored = test
+        .get_container(&board_id)
+        .await
+        .expect("the board is back");
     assert_eq!(restored.modified_by, restorer_id, "who restored the board");
     assert_eq!(restored.created_by, user_id, "the creator stays");
     assert_eq!(
@@ -1326,7 +1377,7 @@ async fn delete_and_undelete_board_take_the_blocks_along() {
     );
     assert_eq!(restored.delete_at, 0, "the board is not deleted");
     let back = test
-        .get_blocks(&BlockFilter::board(&board_id))
+        .get_blocks(&BlockFilter::container(&board_id))
         .await
         .expect("the blocks are read");
     assert_eq!(
@@ -1348,37 +1399,37 @@ async fn save_member_stores_the_scheme_flags_and_no_roles() {
     let workspace_id = common::workspace_of(&test, &[&user_id, &member_id]).await;
     let board_id = new_id();
 
-    let mut board = Board {
+    let mut board = Container {
         minimum_role: MinimumRole::Editor,
-        ..new_board(&board_id, &workspace_id, BoardType::Open)
+        ..new_board(&board_id, &workspace_id, ContainerType::Open)
     };
-    test.insert_board(&mut board, &user_id)
+    test.insert_container(&mut board, &user_id)
         .await
         .expect("the board is inserted");
 
-    let member = BoardMember {
-        board_id: board_id.clone(),
+    let member = ContainerMember {
+        container_id: board_id.clone(),
         user_id: member_id.clone(),
         roles: "some-role".to_owned(),
         scheme_commenter: true,
-        ..BoardMember::default()
+        ..ContainerMember::default()
     };
     test.save_member(&member)
         .await
         .expect("the member is saved");
 
     let stored = test
-        .get_member_for_board(&board_id, &member_id)
+        .get_member_for_container(&board_id, &member_id)
         .await
         .expect("the member exists");
     assert_eq!(
         stored,
-        BoardMember {
-            board_id,
+        ContainerMember {
+            container_id: board_id,
             user_id: member_id.clone(),
             roles: String::new(),
             scheme_commenter: true,
-            ..BoardMember::default()
+            ..ContainerMember::default()
         },
         "the scheme flags and no roles"
     );
@@ -1401,43 +1452,43 @@ async fn get_template_boards_returns_open_templates_and_templates_the_user_is_me
     let workspace_id = common::workspace_of(&test, &[&user_id, &other_user_id]).await;
     let another_workspace_id = common::workspace(&test).await;
 
-    let mut open_template = Board {
+    let mut open_template = Container {
         is_template: true,
-        ..new_board(&new_id(), &workspace_id, BoardType::Open)
+        ..new_board(&new_id(), &workspace_id, ContainerType::Open)
     };
-    test.insert_board(&mut open_template, &other_user_id)
+    test.insert_container(&mut open_template, &other_user_id)
         .await
         .expect("the template is inserted");
-    let mut own_private_template = Board {
+    let mut own_private_template = Container {
         is_template: true,
-        ..new_board(&new_id(), &workspace_id, BoardType::Private)
+        ..new_board(&new_id(), &workspace_id, ContainerType::Private)
     };
-    test.insert_board_with_admin(&mut own_private_template, &user_id)
+    test.insert_container_with_admin(&mut own_private_template, &user_id)
         .await
         .expect("the template is inserted");
-    let mut foreign_private_template = Board {
+    let mut foreign_private_template = Container {
         is_template: true,
-        ..new_board(&new_id(), &workspace_id, BoardType::Private)
+        ..new_board(&new_id(), &workspace_id, ContainerType::Private)
     };
-    test.insert_board_with_admin(&mut foreign_private_template, &other_user_id)
+    test.insert_container_with_admin(&mut foreign_private_template, &other_user_id)
         .await
         .expect("the template is inserted");
-    let mut other_workspace_template = Board {
+    let mut other_workspace_template = Container {
         is_template: true,
-        ..new_board(&new_id(), &another_workspace_id, BoardType::Open)
+        ..new_board(&new_id(), &another_workspace_id, ContainerType::Open)
     };
-    test.insert_board(&mut other_workspace_template, &user_id)
+    test.insert_container(&mut other_workspace_template, &user_id)
         .await
         .expect("the template is inserted");
-    let mut builtin_template = Board {
+    let mut builtin_template = Container {
         is_template: true,
-        ..new_board(&new_id(), &workspace_id, BoardType::Open)
+        ..new_board(&new_id(), &workspace_id, ContainerType::Open)
     };
-    test.insert_board(&mut builtin_template, "")
+    test.insert_container(&mut builtin_template, "")
         .await
         .expect("the template is inserted");
-    let mut board = new_board(&new_id(), &workspace_id, BoardType::Open);
-    test.insert_board_with_admin(&mut board, &user_id)
+    let mut board = new_board(&new_id(), &workspace_id, ContainerType::Open);
+    test.insert_container_with_admin(&mut board, &user_id)
         .await
         .expect("the board is inserted");
 
@@ -1479,28 +1530,28 @@ async fn remove_default_templates_removes_system_templates_and_their_blocks_past
     let user_id = common::user(&test, "user").await;
     let workspace_id = common::workspace(&test).await;
 
-    let mut builtin_template = Board {
+    let mut builtin_template = Container {
         is_template: true,
-        ..new_board(&new_id(), &workspace_id, BoardType::Open)
+        ..new_board(&new_id(), &workspace_id, ContainerType::Open)
     };
-    test.insert_board(&mut builtin_template, "")
+    test.insert_container(&mut builtin_template, "")
         .await
         .expect("the template is inserted");
-    let mut user_template = Board {
+    let mut user_template = Container {
         is_template: true,
-        ..new_board(&new_id(), &workspace_id, BoardType::Open)
+        ..new_board(&new_id(), &workspace_id, ContainerType::Open)
     };
-    test.insert_board(&mut user_template, &user_id)
+    test.insert_container(&mut user_template, &user_id)
         .await
         .expect("the template is inserted");
-    let mut plain_board = new_board(&new_id(), &workspace_id, BoardType::Open);
-    test.insert_board(&mut plain_board, "")
+    let mut plain_board = new_board(&new_id(), &workspace_id, ContainerType::Open);
+    test.insert_container(&mut plain_board, "")
         .await
         .expect("the board is inserted");
 
-    let new_block_of = |board: &Board| Block {
+    let new_block_of = |board: &Container| Block {
         id: new_id(),
-        board_id: board.id.clone(),
+        container_id: board.id.clone(),
         parent_id: board.id.clone(),
         ..Block::default()
     };
@@ -1527,20 +1578,20 @@ async fn remove_default_templates_removes_system_templates_and_their_blocks_past
         .await
         .expect("the built-in templates are removed");
 
-    let blocks_of = async |board: &Board| {
-        test.get_blocks(&BlockFilter::board(&board.id))
+    let blocks_of = async |board: &Container| {
+        test.get_blocks(&BlockFilter::container(&board.id))
             .await
             .expect("the blocks are read")
             .len()
     };
     let error = test
-        .get_board(&builtin_template.id)
+        .get_container(&builtin_template.id)
         .await
         .expect_err("the built-in template is gone");
     assert!(error.is_not_found(), "got {error:?}");
     assert_eq!(blocks_of(&builtin_template).await, 0, "and so is its block");
 
-    test.get_board(&user_template.id)
+    test.get_container(&user_template.id)
         .await
         .expect("a template created by a user stays");
     assert_eq!(blocks_of(&user_template).await, 1, "and so does its block");
@@ -1548,7 +1599,7 @@ async fn remove_default_templates_removes_system_templates_and_their_blocks_past
     // The original keeps a board of its system user that is not a template and removes
     // its blocks all the same. Here such a board is not built in, and stays whole.
     let kept = test
-        .get_board(&plain_board.id)
+        .get_container(&plain_board.id)
         .await
         .expect("a board without a creator that is no template stays");
     assert!(!kept.is_builtin, "it is not built in: {kept:?}");
@@ -1561,7 +1612,7 @@ async fn remove_default_templates_removes_system_templates_and_their_blocks_past
 
     // Nothing is kept: neither the template nor its block is in the trash.
     let error = test
-        .get_deleted_board(&builtin_template.id)
+        .get_deleted_container(&builtin_template.id)
         .await
         .expect_err("the built-in template is not in the trash");
     assert!(error.is_not_found(), "got {error:?}");
@@ -1571,7 +1622,7 @@ async fn remove_default_templates_removes_system_templates_and_their_blocks_past
         .expect_err("the block of the built-in template is not in the trash");
     assert!(error.is_not_found(), "got {error:?}");
     let error = test
-        .undelete_board(&builtin_template.id, &user_id)
+        .undelete_container(&builtin_template.id, &user_id)
         .await
         .expect_err("there is nothing to restore");
     assert!(error.is_not_found(), "got {error:?}");
@@ -1591,12 +1642,12 @@ async fn boards_with_malformed_card_property_definitions_are_not_stored() {
         json!({ "id": "p1", "name": "Status", "options": [] }),
     )];
 
-    let mut malformed = Board {
+    let mut malformed = Container {
         card_properties: vec![object(json!({ "name": "no id" }))],
-        ..new_board(&board_id, &workspace_id, BoardType::Open)
+        ..new_board(&board_id, &workspace_id, ContainerType::Open)
     };
     let error = test
-        .insert_board(&mut malformed, &user_id)
+        .insert_container(&mut malformed, &user_id)
         .await
         .expect_err("a definition without an identifier");
     assert_eq!(
@@ -1605,25 +1656,28 @@ async fn boards_with_malformed_card_property_definitions_are_not_stored() {
         "what is wrong with the definition"
     );
     assert!(
-        test.get_board(&board_id).await.unwrap_err().is_not_found(),
+        test.get_container(&board_id)
+            .await
+            .unwrap_err()
+            .is_not_found(),
         "nothing was stored"
     );
 
-    let mut board = Board {
+    let mut board = Container {
         card_properties: well_formed.clone(),
-        ..new_board(&board_id, &workspace_id, BoardType::Open)
+        ..new_board(&board_id, &workspace_id, ContainerType::Open)
     };
-    test.insert_board(&mut board, &user_id)
+    test.insert_container(&mut board, &user_id)
         .await
         .expect("a well-formed board is inserted");
 
-    let patch = BoardPatch {
+    let patch = ContainerPatch {
         title: Some("renamed".to_owned()),
         updated_card_properties: vec![object(json!({ "id": "p2", "options": "none" }))],
-        ..BoardPatch::default()
+        ..ContainerPatch::default()
     };
     let error = test
-        .patch_board(&board_id, &patch, &user_id)
+        .patch_container(&board_id, &patch, &user_id)
         .await
         .expect_err("options that are no list");
     assert!(
@@ -1632,7 +1686,7 @@ async fn boards_with_malformed_card_property_definitions_are_not_stored() {
             .contains("options of card property \"p2\""),
         "got {error}"
     );
-    let stored = test.get_board(&board_id).await.unwrap();
+    let stored = test.get_container(&board_id).await.unwrap();
     assert_eq!(
         stored.card_properties, well_formed,
         "the definitions are unchanged"
@@ -1645,23 +1699,23 @@ async fn boards_with_malformed_card_property_definitions_are_not_stored() {
 // The trash. None of this is in the original, which marks what is deleted where it is.
 
 /// A membership that administers the board.
-fn admin_of(board_id: &str, user_id: &str) -> BoardMember {
-    BoardMember {
-        board_id: board_id.to_owned(),
+fn admin_of(board_id: &str, user_id: &str) -> ContainerMember {
+    ContainerMember {
+        container_id: board_id.to_owned(),
         user_id: user_id.to_owned(),
         scheme_admin: true,
         scheme_editor: true,
-        ..BoardMember::default()
+        ..ContainerMember::default()
     }
 }
 
 /// A membership that may edit the board and does not administer it.
-fn editor_of(board_id: &str, user_id: &str) -> BoardMember {
-    BoardMember {
-        board_id: board_id.to_owned(),
+fn editor_of(board_id: &str, user_id: &str) -> ContainerMember {
+    ContainerMember {
+        container_id: board_id.to_owned(),
         user_id: user_id.to_owned(),
         scheme_editor: true,
-        ..BoardMember::default()
+        ..ContainerMember::default()
     }
 }
 
@@ -1670,7 +1724,7 @@ fn editor_of(board_id: &str, user_id: &str) -> BoardMember {
 fn new_block(board_id: &str, parent_id: &str, block_type: BlockType) -> Block {
     Block {
         id: new_id(),
-        board_id: board_id.to_owned(),
+        container_id: board_id.to_owned(),
         parent_id: parent_id.to_owned(),
         title: format!("a {}", block_type.as_str()),
         block_type,
@@ -1683,7 +1737,7 @@ fn sorted_blocks(mut blocks: Vec<Block>) -> Vec<Block> {
     blocks
 }
 
-fn sorted_members(mut members: Vec<BoardMember>) -> Vec<BoardMember> {
+fn sorted_members(mut members: Vec<ContainerMember>) -> Vec<ContainerMember> {
     members.sort_by(|a, b| a.user_id.cmp(&b.user_id));
     members
 }
@@ -1691,16 +1745,16 @@ fn sorted_members(mut members: Vec<BoardMember>) -> Vec<BoardMember> {
 /// The blocks of a board that exist, sorted by identifier.
 async fn blocks_of(store: &Store, board_id: &str) -> Vec<Block> {
     let blocks = store
-        .get_blocks(&BlockFilter::board(board_id))
+        .get_blocks(&BlockFilter::container(board_id))
         .await
         .expect("the blocks are read");
     sorted_blocks(blocks)
 }
 
 /// The memberships of a board, sorted by user.
-async fn members_of(store: &Store, board_id: &str) -> Vec<BoardMember> {
+async fn members_of(store: &Store, board_id: &str) -> Vec<ContainerMember> {
     let members = store
-        .get_members_for_board(board_id)
+        .get_members_for_container(board_id)
         .await
         .expect("the members are read");
     sorted_members(members)
@@ -1743,14 +1797,14 @@ struct FullBoard {
     admin_id: String,
     /// May edit the board, has it in a sidebar category and subscribes to its card.
     editor_id: String,
-    board: Board,
+    board: Container,
     /// A view and a card on the board, a text on the card and a checkbox on the text,
     /// sorted by identifier.
     blocks: Vec<Block>,
     /// The identifier of the card.
     card_id: String,
     /// The memberships as they read while the board exists, sorted by user.
-    members: Vec<BoardMember>,
+    members: Vec<ContainerMember>,
     file: FileInfo,
 }
 
@@ -1760,7 +1814,7 @@ impl FullBoard {
         let editor_id = common::user(store, "editor").await;
         let workspace_id = common::workspace_of(store, &[&admin_id]).await;
 
-        let mut board = Board {
+        let mut board = Container {
             title: "Roadmap".to_owned(),
             description: "What comes when".to_owned(),
             icon: "🗺".to_owned(),
@@ -1768,10 +1822,10 @@ impl FullBoard {
             minimum_role: MinimumRole::Commenter,
             properties: object(json!({ "color": "blue" })),
             card_properties: vec![object(json!({ "id": "status", "name": "Status" }))],
-            ..new_board(&new_id(), &workspace_id, BoardType::Private)
+            ..new_board(&new_id(), &workspace_id, ContainerType::Private)
         };
         store
-            .insert_board_with_admin(&mut board, &admin_id)
+            .insert_container_with_admin(&mut board, &admin_id)
             .await
             .expect("the board and its administrator are stored");
         store
@@ -1793,7 +1847,7 @@ impl FullBoard {
 
         let file = FileInfo {
             id: new_id(),
-            board_id: board.id.clone(),
+            container_id: board.id.clone(),
             stored_name: "7f3a9c.png".to_owned(),
             name: "diagram.png".to_owned(),
             extension: ".png".to_owned(),
@@ -1825,7 +1879,11 @@ impl FullBoard {
             .await
             .expect("the category is stored");
         store
-            .add_update_category_board(&editor_id, &category.id, std::slice::from_ref(&board.id))
+            .add_update_category_container(
+                &editor_id,
+                &category.id,
+                std::slice::from_ref(&board.id),
+            )
             .await
             .expect("the board is filed under the category");
 
@@ -1846,14 +1904,14 @@ impl FullBoard {
     /// The boards the editor has filed in their one category.
     async fn filed_by_editor(&self, store: &Store) -> Vec<String> {
         let categories = store
-            .get_user_category_boards(&self.editor_id, &self.workspace_id)
+            .get_user_category_containers(&self.editor_id, &self.workspace_id)
             .await
             .expect("the categories are read");
         assert_eq!(categories.len(), 1, "the category stays: {categories:?}");
         categories[0]
-            .board_metadata
+            .container_metadata
             .iter()
-            .map(|metadata| metadata.board_id.clone())
+            .map(|metadata| metadata.container_id.clone())
             .collect()
     }
 
@@ -1883,12 +1941,12 @@ async fn delete_board_moves_the_board_and_what_is_its_own_to_the_trash() {
     let deleter_id = common::user(&test, "deleter").await;
     let board_id = full.board.id.as_str();
 
-    test.delete_board(board_id, &deleter_id)
+    test.delete_container(board_id, &deleter_id)
         .await
         .expect("the board is deleted");
 
     let error = test
-        .get_board(board_id)
+        .get_container(board_id)
         .await
         .expect_err("the board is gone");
     assert!(error.is_not_found(), "got {error:?}");
@@ -1911,18 +1969,18 @@ async fn delete_board_moves_the_board_and_what_is_its_own_to_the_trash() {
     assert!(error.is_not_found(), "got {error:?}");
 
     let deleted = test
-        .get_deleted_board(board_id)
+        .get_deleted_container(board_id)
         .await
         .expect("the board is in the trash");
-    let deleted_at = deleted.board.delete_at;
+    let deleted_at = deleted.container.delete_at;
     assert!(
         deleted_at >= full.board.update_at,
         "deleted at {deleted_at}, after the board was stored at {}",
         full.board.update_at
     );
     assert_eq!(
-        deleted.board,
-        Board {
+        deleted.container,
+        Container {
             delete_at: deleted_at,
             ..full.board.clone()
         },
@@ -1974,11 +2032,11 @@ async fn delete_board_ends_sharing_category_filing_and_subscriptions() {
         .await
         .expect("the board is shared");
     let categories = test
-        .get_user_category_boards(&full.editor_id, &full.workspace_id)
+        .get_user_category_containers(&full.editor_id, &full.workspace_id)
         .await
         .expect("the categories are read");
     assert_eq!(
-        categories[0].board_metadata.len(),
+        categories[0].container_metadata.len(),
         1,
         "the board is filed under the category: {categories:?}"
     );
@@ -1988,7 +2046,7 @@ async fn delete_board_ends_sharing_category_filing_and_subscriptions() {
         "the editor subscribes to the card"
     );
 
-    test.delete_board(&full.board.id, &full.admin_id)
+    test.delete_container(&full.board.id, &full.admin_id)
         .await
         .expect("the board is deleted");
 
@@ -2009,15 +2067,18 @@ async fn undelete_board_brings_back_the_board_its_blocks_files_and_members() {
     let restorer_id = common::user(&test, "restorer").await;
     let board_id = full.board.id.as_str();
 
-    test.delete_board(board_id, &full.admin_id)
+    test.delete_container(board_id, &full.admin_id)
         .await
         .expect("the board is deleted");
     let returned = test
-        .undelete_board(board_id, &restorer_id)
+        .undelete_container(board_id, &restorer_id)
         .await
         .expect("the board is restored");
 
-    let restored = test.get_board(board_id).await.expect("the board is back");
+    let restored = test
+        .get_container(board_id)
+        .await
+        .expect("the board is back");
     assert_eq!(returned, restored, "what is returned is what is stored");
     assert!(
         restored.update_at >= full.board.update_at,
@@ -2027,7 +2088,7 @@ async fn undelete_board_brings_back_the_board_its_blocks_files_and_members() {
     );
     assert_eq!(
         restored,
-        Board {
+        Container {
             modified_by: restorer_id.clone(),
             update_at: restored.update_at,
             ..full.board.clone()
@@ -2064,7 +2125,7 @@ async fn undelete_board_brings_back_the_board_its_blocks_files_and_members() {
 
     // Nothing of the board stays in the trash.
     let error = test
-        .get_deleted_board(board_id)
+        .get_deleted_container(board_id)
         .await
         .expect_err("the board is out of the trash");
     assert!(error.is_not_found(), "got {error:?}");
@@ -2086,10 +2147,10 @@ async fn undelete_board_brings_back_category_filing_but_not_sharing_or_subscript
     let test = common::setup().await;
     let full = FullBoard::store(&test).await;
 
-    test.delete_board(&full.board.id, &full.admin_id)
+    test.delete_container(&full.board.id, &full.admin_id)
         .await
         .expect("the board is deleted");
-    test.undelete_board(&full.board.id, &full.admin_id)
+    test.undelete_container(&full.board.id, &full.admin_id)
         .await
         .expect("the board is restored");
 
@@ -2120,11 +2181,11 @@ async fn undelete_board_leaves_out_the_membership_of_a_user_who_is_gone() {
         .await
         .expect("the member is stored");
 
-    test.delete_board(board_id, &full.admin_id)
+    test.delete_container(board_id, &full.admin_id)
         .await
         .expect("the board is deleted");
     let deleted = test
-        .get_deleted_board(board_id)
+        .get_deleted_container(board_id)
         .await
         .expect("the board is in the trash");
     assert_eq!(
@@ -2142,7 +2203,7 @@ async fn undelete_board_leaves_out_the_membership_of_a_user_who_is_gone() {
         .await
         .expect_err("the user is gone");
 
-    test.undelete_board(board_id, &full.admin_id)
+    test.undelete_container(board_id, &full.admin_id)
         .await
         .expect("the board is restored");
     assert_eq!(
@@ -2169,7 +2230,7 @@ async fn undelete_board_brings_back_the_membership_of_a_user_who_was_deactivated
     let members_before = members_of(&test, board_id).await;
     assert_eq!(members_before.len(), 3, "got {members_before:?}");
 
-    test.delete_board(board_id, &full.admin_id)
+    test.delete_container(board_id, &full.admin_id)
         .await
         .expect("the board is deleted");
     common::execute_raw(
@@ -2181,7 +2242,7 @@ async fn undelete_board_brings_back_the_membership_of_a_user_who_was_deactivated
         .await
         .expect_err("a deactivated user is not found");
 
-    test.undelete_board(board_id, &full.admin_id)
+    test.undelete_container(board_id, &full.admin_id)
         .await
         .expect("the board is restored");
     assert_eq!(
@@ -2202,8 +2263,8 @@ async fn undelete_board_restores_a_board_whose_creator_is_gone_as_made_by_nobody
     let editor_id = common::user(&test, "editor").await;
     let workspace_id = common::workspace_of(&test, &[&creator_id]).await;
 
-    let mut board = new_board(&new_id(), &workspace_id, BoardType::Open);
-    test.insert_board_with_admin(&mut board, &creator_id)
+    let mut board = new_board(&new_id(), &workspace_id, ContainerType::Open);
+    test.insert_container_with_admin(&mut board, &creator_id)
         .await
         .expect("the board and its administrator are stored");
     test.save_member(&editor_of(&board.id, &editor_id))
@@ -2218,7 +2279,7 @@ async fn undelete_board_restores_a_board_whose_creator_is_gone_as_made_by_nobody
         .await
         .expect("the editor's text is stored");
 
-    test.delete_board(&board.id, &editor_id)
+    test.delete_container(&board.id, &editor_id)
         .await
         .expect("the board is deleted");
     // Nothing that exists names the creator any more.
@@ -2229,15 +2290,18 @@ async fn undelete_board_restores_a_board_whose_creator_is_gone_as_made_by_nobody
     .await;
 
     let returned = test
-        .undelete_board(&board.id, &editor_id)
+        .undelete_container(&board.id, &editor_id)
         .await
         .expect("the board is restored though its creator is gone");
     assert_eq!(returned.created_by, "", "the board was made by nobody");
-    let restored = test.get_board(&board.id).await.expect("the board is back");
+    let restored = test
+        .get_container(&board.id)
+        .await
+        .expect("the board is back");
     assert_eq!(returned, restored, "what is returned is what is stored");
     assert_eq!(
         restored,
-        Board {
+        Container {
             created_by: String::new(),
             modified_by: editor_id.clone(),
             update_at: restored.update_at,
@@ -2362,7 +2426,7 @@ async fn a_block_deleted_before_its_board_stays_in_the_trash_when_the_board_is_r
     test.delete_block(&text_id, &user_id)
         .await
         .expect("the text is deleted");
-    test.delete_board(&board_id, &user_id)
+    test.delete_container(&board_id, &user_id)
         .await
         .expect("the board is deleted");
 
@@ -2373,7 +2437,7 @@ async fn a_block_deleted_before_its_board_stays_in_the_trash_when_the_board_is_r
         .expect_err("the board of the text does not exist");
     assert!(error.is_not_found(), "got {error:?}");
 
-    test.undelete_board(&board_id, &user_id)
+    test.undelete_container(&board_id, &user_id)
         .await
         .expect("the board is restored");
     assert_eq!(
@@ -2420,17 +2484,23 @@ async fn undelete_board_of_what_is_not_in_the_trash_is_not_found_and_writes_noth
     test.insert_block(&mut card, &user_id)
         .await
         .expect("the card is stored");
-    let board_before = test.get_board(&board_id).await.expect("the board exists");
+    let board_before = test
+        .get_container(&board_id)
+        .await
+        .expect("the board exists");
     let blocks_before = blocks_of(&test, &board_id).await;
 
     // A later modification time would show.
     tokio::time::sleep(Duration::from_millis(5)).await;
     let error = test
-        .undelete_board(&board_id, &other_user_id)
+        .undelete_container(&board_id, &other_user_id)
         .await
         .expect_err("a board that exists is not in the trash");
     assert!(error.is_not_found(), "got {error:?}");
-    let board_after = test.get_board(&board_id).await.expect("the board exists");
+    let board_after = test
+        .get_container(&board_id)
+        .await
+        .expect("the board exists");
     assert_eq!(board_after, board_before, "the board is as it was");
     assert_eq!(
         blocks_of(&test, &board_id).await,
@@ -2440,27 +2510,27 @@ async fn undelete_board_of_what_is_not_in_the_trash_is_not_found_and_writes_noth
 
     for unknown_id in [new_id(), NOT_AN_ID.to_owned()] {
         let error = test
-            .undelete_board(&unknown_id, &user_id)
+            .undelete_container(&unknown_id, &user_id)
             .await
             .expect_err("no such board is in the trash");
         assert!(error.is_not_found(), "board {unknown_id}: got {error:?}");
         let error = test
-            .get_board(&unknown_id)
+            .get_container(&unknown_id)
             .await
             .expect_err("no board was made");
         assert!(error.is_not_found(), "board {unknown_id}: got {error:?}");
         let error = test
-            .get_deleted_board(&unknown_id)
+            .get_deleted_container(&unknown_id)
             .await
             .expect_err("nothing was put in the trash");
         assert!(error.is_not_found(), "board {unknown_id}: got {error:?}");
     }
     let boards = test
-        .get_boards_for_user_and_workspace(
+        .get_containers_for_user_and_workspace(
             &user_id,
             &workspace_id,
-            PublicBoards::Include,
-            BoardKinds::Boards,
+            PublicContainers::Include,
+            ContainerKinds::Boards,
         )
         .await
         .expect("the boards are read");
@@ -2494,10 +2564,10 @@ async fn board_with_card_and_text(
 /// When a board in the trash was deleted, in milliseconds since the Unix epoch.
 async fn deleted_at(store: &Store, board_id: &str) -> i64 {
     store
-        .get_deleted_board(board_id)
+        .get_deleted_container(board_id)
         .await
         .expect("the board is in the trash")
-        .board
+        .container
         .delete_at
 }
 
@@ -2511,13 +2581,13 @@ async fn purge_trash_removes_an_old_deleted_board_with_its_blocks_and_keeps_newe
     let (newer_id, newer_card_id, newer_text_id) =
         board_with_card_and_text(&test, &workspace_id, &user_id).await;
 
-    test.delete_board(&old_id, &user_id)
+    test.delete_container(&old_id, &user_id)
         .await
         .expect("the old board is deleted");
     let cutoff = deleted_at(&test, &old_id).await + 1;
     // What follows is deleted at the cutoff or later.
     tokio::time::sleep(Duration::from_millis(5)).await;
-    test.delete_board(&newer_id, &user_id)
+    test.delete_container(&newer_id, &user_id)
         .await
         .expect("the newer board is deleted");
 
@@ -2529,7 +2599,7 @@ async fn purge_trash_removes_an_old_deleted_board_with_its_blocks_and_keeps_newe
     );
 
     let error = test
-        .get_deleted_board(&old_id)
+        .get_deleted_container(&old_id)
         .await
         .expect_err("the old board is gone for good");
     assert!(error.is_not_found(), "got {error:?}");
@@ -2541,12 +2611,12 @@ async fn purge_trash_removes_an_old_deleted_board_with_its_blocks_and_keeps_newe
         assert!(error.is_not_found(), "block {block_id}: got {error:?}");
     }
     let error = test
-        .undelete_board(&old_id, &user_id)
+        .undelete_container(&old_id, &user_id)
         .await
         .expect_err("there is nothing to restore");
     assert!(error.is_not_found(), "got {error:?}");
 
-    test.undelete_board(&newer_id, &user_id)
+    test.undelete_container(&newer_id, &user_id)
         .await
         .expect("what is newer than the cutoff is restored");
     assert_eq!(
@@ -2569,7 +2639,7 @@ async fn purge_trash_removes_a_block_deleted_on_its_own_with_its_purged_board() 
     test.delete_block(&text_id, &user_id)
         .await
         .expect("the text is deleted on its own");
-    test.delete_board(&board_id, &user_id)
+    test.delete_container(&board_id, &user_id)
         .await
         .expect("the board is deleted");
     let cutoff = deleted_at(&test, &board_id).await + 1;
@@ -2621,7 +2691,7 @@ async fn purge_trash_keeps_what_was_deleted_at_the_cutoff_or_later() {
         .expect("the text is in the trash")
         .block
         .delete_at;
-    test.delete_board(&board_id, &user_id)
+    test.delete_container(&board_id, &user_id)
         .await
         .expect("the board is deleted");
     let cutoff = lone_deleted_at.min(deleted_at(&test, &board_id).await);
@@ -2646,7 +2716,7 @@ async fn purge_trash_keeps_what_was_deleted_at_the_cutoff_or_later() {
         sorted([&kept_card_id, &lone_text_id]),
         "the board that stayed has both blocks again"
     );
-    test.undelete_board(&board_id, &user_id)
+    test.undelete_container(&board_id, &user_id)
         .await
         .expect("the board is restored");
     assert_eq!(
@@ -2666,11 +2736,11 @@ async fn purge_trash_removes_deleted_blocks_of_a_board_that_is_gone_for_good() {
     let user_id = common::user(&test, "user").await;
     let workspace_id = common::workspace(&test).await;
 
-    let mut template = Board {
+    let mut template = Container {
         is_template: true,
-        ..new_board(&new_id(), &workspace_id, BoardType::Open)
+        ..new_board(&new_id(), &workspace_id, ContainerType::Open)
     };
-    test.insert_board(&mut template, "")
+    test.insert_container(&mut template, "")
         .await
         .expect("the built-in template is stored");
     let mut orphan = new_block(&template.id, "", BlockType::Card);
@@ -2715,7 +2785,7 @@ async fn purge_trash_removes_deleted_blocks_of_a_board_that_is_gone_for_good() {
 fn file_of(board_id: &str, stored_name: &str) -> FileInfo {
     FileInfo {
         id: new_id(),
-        board_id: board_id.to_owned(),
+        container_id: board_id.to_owned(),
         stored_name: stored_name.to_owned(),
         name: format!("uploaded as {stored_name}"),
         extension: ".png".to_owned(),
@@ -2746,13 +2816,13 @@ async fn purge_trash_returns_the_file_records_of_the_boards_it_removed() {
             .expect("the file record is stored");
     }
 
-    test.delete_board(&old_id, &user_id)
+    test.delete_container(&old_id, &user_id)
         .await
         .expect("the old board is deleted");
     let cutoff = deleted_at(&test, &old_id).await + 1;
     // What follows is deleted at the cutoff or later.
     tokio::time::sleep(Duration::from_millis(5)).await;
-    test.delete_board(&newer_id, &user_id)
+    test.delete_container(&newer_id, &user_id)
         .await
         .expect("the newer board is deleted");
 
@@ -2767,12 +2837,12 @@ async fn purge_trash_returns_the_file_records_of_the_boards_it_removed() {
 
     // The files of the board that is still in the trash come back with it, and those
     // of the board that exists were never touched.
-    test.undelete_board(&newer_id, &user_id)
+    test.undelete_container(&newer_id, &user_id)
         .await
         .expect("what is newer than the cutoff is restored");
     for file in [&of_newer, &of_kept] {
         let stored = test
-            .get_file_info(&file.board_id, &file.stored_name)
+            .get_file_info(&file.container_id, &file.stored_name)
             .await
             .expect("the file record is there");
         assert_eq!(&stored, file, "as it was stored");
@@ -2801,7 +2871,7 @@ async fn add_member_stores_a_new_membership_and_returns_none() {
     let workspace_id = common::workspace(&test).await;
     let board_id = stored_board(&test, &workspace_id, &user_id).await;
 
-    let member = BoardMember {
+    let member = ContainerMember {
         scheme_commenter: true,
         scheme_viewer: true,
         ..editor_of(&board_id, &user_id)
@@ -2833,7 +2903,7 @@ async fn add_member_returns_the_existing_membership_and_changes_nothing() {
     let offers = [
         editor_of(&board_id, &user_id),
         admin_of(&board_id, &user_id),
-        BoardMember {
+        ContainerMember {
             scheme_editor: false,
             scheme_viewer: true,
             ..editor_of(&board_id, &user_id)
@@ -2915,7 +2985,7 @@ async fn add_member_to_a_board_or_of_a_user_that_does_not_exist_is_an_error() {
 }
 
 /// How many boards the tests of races go through.
-const RACE_ROUNDS: usize = 25;
+pub(crate) const RACE_ROUNDS: usize = 25;
 
 /// How many requests add the same user to the same board at once.
 const RACING_ADDERS: u8 = 8;
@@ -2933,14 +3003,14 @@ async fn concurrent_add_member_calls_end_in_one_membership_and_one_of_them_added
         let mut adders = JoinSet::new();
         for number in 1..=RACING_ADDERS {
             // No two requests offer the same flags.
-            let offer = BoardMember {
-                board_id: board_id.clone(),
+            let offer = ContainerMember {
+                container_id: board_id.clone(),
                 user_id: user_id.clone(),
                 scheme_admin: number & 1 != 0,
                 scheme_editor: number & 2 != 0,
                 scheme_commenter: number & 4 != 0,
                 scheme_viewer: number & 8 != 0,
-                ..BoardMember::default()
+                ..ContainerMember::default()
             };
             let store = test.store.clone();
             adders.spawn(async move {
@@ -2960,7 +3030,7 @@ async fn concurrent_add_member_calls_end_in_one_membership_and_one_of_them_added
             "round {round}: one membership: {members:?}"
         );
         let stored = &members[0];
-        let added: Vec<&BoardMember> = outcomes
+        let added: Vec<&ContainerMember> = outcomes
             .iter()
             .filter(|(_, existing)| existing.is_none())
             .map(|(offer, _)| offer)
@@ -3001,7 +3071,7 @@ async fn change_member_replaces_the_flags_of_a_membership_and_of_no_one_else() {
     }
 
     // Up to administrator and down again: there is another one.
-    let viewer = BoardMember {
+    let viewer = ContainerMember {
         scheme_editor: false,
         scheme_viewer: true,
         ..editor_of(&board_id, &member_id)
@@ -3013,7 +3083,7 @@ async fn change_member_replaces_the_flags_of_a_membership_and_of_no_one_else() {
             .expect("the membership is changed");
         assert_eq!(outcome, MemberChange::Done, "the change to {change:?}");
         let stored = test
-            .get_member_for_board(&board_id, &member_id)
+            .get_member_for_container(&board_id, &member_id)
             .await
             .expect("the membership exists");
         assert_eq!(stored, change, "the flags are the given ones");
@@ -3073,13 +3143,13 @@ async fn change_member_refuses_to_take_the_role_from_the_only_administrator() {
         .expect("the change is answered");
     assert_eq!(outcome, MemberChange::LastAdmin, "stepping down is refused");
     let stored = test
-        .get_member_for_board(&board_id, &admin_id)
+        .get_member_for_container(&board_id, &admin_id)
         .await
         .expect("the membership exists");
     assert_eq!(stored, admin_of(&board_id, &admin_id), "nothing changed");
 
     // A change that leaves the role alone is made.
-    let also_viewer = BoardMember {
+    let also_viewer = ContainerMember {
         scheme_viewer: true,
         ..admin_of(&board_id, &admin_id)
     };
@@ -3089,7 +3159,7 @@ async fn change_member_refuses_to_take_the_role_from_the_only_administrator() {
         .expect("the membership is changed");
     assert_eq!(outcome, MemberChange::Done, "the administrator stays one");
     let stored = test
-        .get_member_for_board(&board_id, &admin_id)
+        .get_member_for_container(&board_id, &admin_id)
         .await
         .expect("the membership exists");
     assert_eq!(stored, also_viewer, "the flags are the given ones");
@@ -3333,7 +3403,7 @@ async fn of_two_administrators_who_give_up_the_role_at_once_one_is_refused() {
 // -- joining with the minimum role ------------------------------------------------------
 
 /// The scheme flags of a membership: admin, editor, commenter, viewer.
-fn flags(member: &BoardMember) -> [bool; 4] {
+fn flags(member: &ContainerMember) -> [bool; 4] {
     [
         member.scheme_admin,
         member.scheme_editor,
@@ -3349,6 +3419,10 @@ const EDITOR: [bool; 4] = [false, true, false, false];
 /// Joining gives the board's minimum role to a user who is no member, raises a member
 /// who is below it, and leaves alone a member who has it or more. It says which.
 #[tokio::test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "every role a user may hold against every minimum role, on one board"
+)]
 async fn join_board_gives_the_minimum_role_raises_to_it_and_never_lowers() {
     let test = common::setup().await;
     let owner_id = common::user(&test, "owner").await;
@@ -3361,40 +3435,49 @@ async fn join_board_gives_the_minimum_role_raises_to_it_and_never_lowers() {
         (MinimumRole::Editor, EDITOR),
     ] {
         let board_id = new_id();
-        let mut board = Board {
+        let mut board = Container {
             minimum_role,
-            ..new_board(&board_id, &workspace_id, BoardType::Open)
+            ..new_board(&board_id, &workspace_id, ContainerType::Open)
         };
-        test.insert_board_with_admin(&mut board, &owner_id)
+        test.insert_container_with_admin(&mut board, &owner_id)
             .await
             .expect("the board is stored");
 
-        let joined = test.join_board(&board_id, &user_id).await.expect("joined");
+        let joined = test
+            .join_container(&board_id, &user_id)
+            .await
+            .expect("joined");
         assert!(
             matches!(joined, Joined::New(_)),
             "{minimum_role:?}: {joined:?}"
         );
         assert_eq!(flags(&joined.into_member()), expected, "{minimum_role:?}");
-        let again = test.join_board(&board_id, &user_id).await.expect("joined");
+        let again = test
+            .join_container(&board_id, &user_id)
+            .await
+            .expect("joined");
         assert!(
             matches!(again, Joined::Already(_)),
             "{minimum_role:?}: {again:?}"
         );
         let stored = test
-            .get_member_for_board(&board_id, &user_id)
+            .get_member_for_container(&board_id, &user_id)
             .await
             .expect("the membership is stored");
         assert_eq!(flags(&stored), expected, "{minimum_role:?}: as stored");
 
         // A member without any role is below every minimum role.
-        test.save_member(&BoardMember {
-            board_id: board_id.clone(),
+        test.save_member(&ContainerMember {
+            container_id: board_id.clone(),
             user_id: user_id.clone(),
-            ..BoardMember::default()
+            ..ContainerMember::default()
         })
         .await
         .expect("the roles are taken away");
-        let raised = test.join_board(&board_id, &user_id).await.expect("joined");
+        let raised = test
+            .join_container(&board_id, &user_id)
+            .await
+            .expect("joined");
         assert!(
             matches!(raised, Joined::Raised(_)),
             "{minimum_role:?}: {raised:?}"
@@ -3402,18 +3485,21 @@ async fn join_board_gives_the_minimum_role_raises_to_it_and_never_lowers() {
         assert_eq!(flags(&raised.into_member()), expected, "{minimum_role:?}");
 
         // The owner is the administrator and stays it.
-        let owner = test.join_board(&board_id, &owner_id).await.expect("joined");
+        let owner = test
+            .join_container(&board_id, &owner_id)
+            .await
+            .expect("joined");
         assert!(matches!(owner, Joined::Already(_)), "{owner:?}");
         assert!(owner.into_member().scheme_admin, "not lowered");
     }
 
     // A board whose minimum role is commenter: a viewer is raised, an editor is not.
     let board_id = new_id();
-    let mut board = Board {
+    let mut board = Container {
         minimum_role: MinimumRole::Commenter,
-        ..new_board(&board_id, &workspace_id, BoardType::Open)
+        ..new_board(&board_id, &workspace_id, ContainerType::Open)
     };
-    test.insert_board_with_admin(&mut board, &owner_id)
+    test.insert_container_with_admin(&mut board, &owner_id)
         .await
         .expect("the board is stored");
     for (before, outcome_is_raise, after) in [
@@ -3426,17 +3512,20 @@ async fn join_board_gives_the_minimum_role_raises_to_it_and_never_lowers() {
             [false, true, false, true],
         ),
     ] {
-        test.save_member(&BoardMember {
-            board_id: board_id.clone(),
+        test.save_member(&ContainerMember {
+            container_id: board_id.clone(),
             user_id: user_id.clone(),
             scheme_editor: before[1],
             scheme_commenter: before[2],
             scheme_viewer: before[3],
-            ..BoardMember::default()
+            ..ContainerMember::default()
         })
         .await
         .expect("the member is stored");
-        let joined = test.join_board(&board_id, &user_id).await.expect("joined");
+        let joined = test
+            .join_container(&board_id, &user_id)
+            .await
+            .expect("joined");
         assert_eq!(
             matches!(joined, Joined::Raised(_)),
             outcome_is_raise,
@@ -3447,12 +3536,12 @@ async fn join_board_gives_the_minimum_role_raises_to_it_and_never_lowers() {
 
     // What does not exist is not joined.
     let error = test
-        .join_board(&new_id(), &user_id)
+        .join_container(&new_id(), &user_id)
         .await
         .expect_err("no such board");
     assert!(error.is_not_found(), "{error:?}");
     let error = test
-        .join_board(&board_id, &new_id())
+        .join_container(&board_id, &new_id())
         .await
         .expect_err("no such user");
     assert!(
@@ -3487,7 +3576,10 @@ async fn the_schema_refuses_a_minimum_role_that_is_none() {
             &format!("UPDATE containers SET minimum_role = '{role}' WHERE id = '{board_id}'"),
         )
         .await;
-        let board = test.get_board(board_id).await.expect("the board is read");
+        let board = test
+            .get_container(board_id)
+            .await
+            .expect("the board is read");
         assert_eq!(board.minimum_role.as_str(), role, "as written");
     }
 
@@ -3509,7 +3601,7 @@ async fn joining_at_once_makes_one_membership() {
         for _ in 0..6 {
             let store = test.store.clone();
             let (board_id, user_id) = (board_id.clone(), user_id.clone());
-            racers.spawn(async move { store.join_board(&board_id, &user_id).await });
+            racers.spawn(async move { store.join_container(&board_id, &user_id).await });
         }
         let outcomes: Vec<Joined> = racers
             .join_all()
@@ -3530,7 +3622,7 @@ async fn joining_at_once_makes_one_membership() {
             "round {round}: {outcomes:?}"
         );
         let members = test
-            .get_members_for_board(&board_id)
+            .get_members_for_container(&board_id)
             .await
             .expect("the members are read");
         assert_eq!(
@@ -3554,7 +3646,7 @@ fn card_property(id: &str) -> JsonMap {
 }
 
 /// The identifiers of the card property definitions of a board, in their order.
-fn card_property_ids(board: &Board) -> Vec<&str> {
+fn card_property_ids(board: &Container) -> Vec<&str> {
     board
         .card_properties
         .iter()
@@ -3582,12 +3674,12 @@ async fn two_patches_of_a_board_at_once_both_take_effect() {
             let (store, start) = (test.store.clone(), Arc::clone(&start));
             let (board_id, user_id) = (board_id.clone(), user_id.clone());
             patchers.spawn(async move {
-                let patch = BoardPatch {
+                let patch = ContainerPatch {
                     updated_card_properties: vec![card_property(&property_id)],
-                    ..BoardPatch::default()
+                    ..ContainerPatch::default()
                 };
                 start.wait().await;
-                store.patch_board(&board_id, &patch, &user_id).await
+                store.patch_container(&board_id, &patch, &user_id).await
             });
         }
         for outcome in patchers.join_all().await {
@@ -3601,7 +3693,10 @@ async fn two_patches_of_a_board_at_once_both_take_effect() {
             );
         }
 
-        let board = test.get_board(&board_id).await.expect("the board is read");
+        let board = test
+            .get_container(&board_id)
+            .await
+            .expect("the board is read");
         let stored: BTreeSet<String> = card_property_ids(&board)
             .into_iter()
             .map(str::to_owned)
@@ -3636,7 +3731,7 @@ async fn add_member_racing_remove_member_answers_what_is_true() {
         .expect("the administrator is stored");
     let there_before = editor_of(&board_id, &user_id);
     // Not the flags of the membership that is there: which one is stored shows.
-    let offer = BoardMember {
+    let offer = ContainerMember {
         scheme_editor: false,
         scheme_viewer: true,
         ..editor_of(&board_id, &user_id)
@@ -3678,7 +3773,7 @@ async fn add_member_racing_remove_member_answers_what_is_true() {
             MemberChange::Done,
             "round {round}: there was a member to remove, before the addition or after it"
         );
-        let stored = test.get_member_for_board(&board_id, &user_id).await;
+        let stored = test.get_member_for_container(&board_id, &user_id).await;
         match added {
             None => {
                 new += 1;
@@ -3730,7 +3825,7 @@ async fn a_member_added_while_the_board_is_deleted_goes_with_the_board_or_is_not
             let (board_id, admin_id) = (board_id.clone(), admin_id.clone());
             async move {
                 start.wait().await;
-                store.delete_board(&board_id, &admin_id).await
+                store.delete_container(&board_id, &admin_id).await
             }
         });
         let adding = tokio::spawn({
@@ -3752,7 +3847,7 @@ async fn a_member_added_while_the_board_is_deleted_goes_with_the_board_or_is_not
             "round {round}: memberships of a deleted board are left: {left:?}"
         );
         let in_trash = test
-            .get_deleted_board(&board_id)
+            .get_deleted_container(&board_id)
             .await
             .expect("the board is in the trash")
             .members;
@@ -3777,7 +3872,7 @@ async fn a_member_added_while_the_board_is_deleted_goes_with_the_board_or_is_not
             "round {round}: the memberships in the trash, after adding answered {added:?}"
         );
 
-        test.undelete_board(&board_id, &admin_id)
+        test.undelete_container(&board_id, &admin_id)
             .await
             .unwrap_or_else(|error| panic!("round {round}: the board is restored: {error:?}"));
         assert_eq!(
@@ -3810,7 +3905,7 @@ async fn a_file_saved_while_the_board_is_deleted_goes_with_the_board_or_is_not_f
             let (board_id, user_id) = (board_id.clone(), user_id.clone());
             async move {
                 start.wait().await;
-                store.delete_board(&board_id, &user_id).await
+                store.delete_container(&board_id, &user_id).await
             }
         });
         let saving = tokio::spawn({
@@ -3839,7 +3934,7 @@ async fn a_file_saved_while_the_board_is_deleted_goes_with_the_board_or_is_not_f
             );
         }
 
-        test.undelete_board(&board_id, &user_id)
+        test.undelete_container(&board_id, &user_id)
             .await
             .unwrap_or_else(|error| panic!("round {round}: the board is restored: {error:?}"));
         let back = test.get_file_info(&board_id, &late.stored_name).await;
@@ -3899,14 +3994,14 @@ async fn a_board_comes_back_from_the_trash_with_every_member_it_had() {
     let restorer_id = common::user(&test, "restorer").await;
     let workspace_id = common::workspace(&test).await;
 
-    let mut board = Board {
+    let mut board = Container {
         id: new_id(),
         workspace_id: workspace_id.clone(),
         // Stamped by the store when the board is inserted.
         created_by: String::new(),
         modified_by: String::new(),
-        board_type: BoardType::Private,
-        kind: BoardKind::Board,
+        container_type: ContainerType::Private,
+        kind: ContainerKind::Board,
         minimum_role: MinimumRole::Commenter,
         title: "Roadmap".to_owned(),
         description: "What comes when".to_owned(),
@@ -3928,7 +4023,7 @@ async fn a_board_comes_back_from_the_trash_with_every_member_it_had() {
         update_at: 0,
         delete_at: 0,
     };
-    test.insert_board(&mut board, &author_id)
+    test.insert_container(&mut board, &author_id)
         .await
         .expect("the board is stored");
     common::execute_raw(
@@ -3940,15 +4035,15 @@ async fn a_board_comes_back_from_the_trash_with_every_member_it_had() {
     )
     .await;
     for member in [
-        BoardMember {
-            board_id: board.id.clone(),
+        ContainerMember {
+            container_id: board.id.clone(),
             user_id: author_id.clone(),
             roles: String::new(),
             scheme_admin: true,
             scheme_editor: true,
             scheme_commenter: true,
             scheme_viewer: true,
-            ..BoardMember::default()
+            ..ContainerMember::default()
         },
         editor_of(&board.id, &restorer_id),
     ] {
@@ -3975,7 +4070,7 @@ async fn a_board_comes_back_from_the_trash_with_every_member_it_had() {
         create_at: 0,
         update_at: 0,
         delete_at: 0,
-        board_id: board.id.clone(),
+        container_id: board.id.clone(),
         // Only a comment whose body was changed has one.
         edited_at: 0,
     };
@@ -3987,12 +4082,15 @@ async fn a_board_comes_back_from_the_trash_with_every_member_it_had() {
         .expect("the text on the card is stored");
 
     // As stored, nothing that can be set is at its default; a wiki has no card properties.
-    let board = test.get_board(&board.id).await.expect("the board is read");
+    let board = test
+        .get_container(&board.id)
+        .await
+        .expect("the board is read");
     let members = members_of(&test, &board.id).await;
     let blocks = blocks_of(&test, &board.id).await;
     let note = test.get_block(&note.id).await.expect("the text is read");
     assert_eq!(
-        members_at_their_default(&board, &Board::default()),
+        members_at_their_default(&board, &Container::default()),
         ["deleteAt", "kind"],
         "of the board: {board:?}"
     );
@@ -4006,26 +4104,29 @@ async fn a_board_comes_back_from_the_trash_with_every_member_it_had() {
         .find(|member| member.user_id == author_id)
         .expect("the author is a member");
     assert_eq!(
-        members_at_their_default(all_flags, &BoardMember::default()),
+        members_at_their_default(all_flags, &ContainerMember::default()),
         Vec::<String>::new(),
         "of the membership: {all_flags:?}"
     );
 
-    test.delete_board(&board.id, &author_id)
+    test.delete_container(&board.id, &author_id)
         .await
         .expect("the board is deleted");
     let returned = test
-        .undelete_board(&board.id, &restorer_id)
+        .undelete_container(&board.id, &restorer_id)
         .await
         .expect("the board is restored");
 
     // Restoring changes who modified the board and its blocks last, and when. Nothing
     // else.
-    let restored = test.get_board(&board.id).await.expect("the board is back");
+    let restored = test
+        .get_container(&board.id)
+        .await
+        .expect("the board is back");
     assert_eq!(returned, restored, "what is returned is what is stored");
     assert_eq!(
         restored,
-        Board {
+        Container {
             modified_by: restorer_id.clone(),
             update_at: restored.update_at,
             ..board.clone()
@@ -4055,113 +4156,5 @@ async fn a_board_comes_back_from_the_trash_with_every_member_it_had() {
         "the blocks as they were"
     );
 
-    test.teardown().await;
-}
-
-/// Replacing the built-in templates is decided, done and handed back in one go: it keeps
-/// the templates when `needed` says so, and otherwise removes them with their file
-/// records, which it returns so that the files can go too, and stores the new ones.
-#[tokio::test]
-async fn replacing_the_built_in_templates_hands_back_the_old_files() {
-    let test = common::setup().await;
-    let workspace_id = common::workspace(&test).await;
-    let template = |title: &str| Board {
-        is_template: true,
-        title: title.to_owned(),
-        ..new_board(&new_id(), &workspace_id, BoardType::Open)
-    };
-    let mut old = template("old");
-    test.insert_board(&mut old, "")
-        .await
-        .expect("the old template is stored");
-    let file = FileInfo {
-        id: new_id(),
-        board_id: old.id.clone(),
-        stored_name: "picture.png".to_owned(),
-        name: "picture.png".to_owned(),
-        size: 1,
-        path: format!("{}/picture.png", old.id),
-        create_at: 1,
-        ..FileInfo::default()
-    };
-    test.save_file_info(&file)
-        .await
-        .expect("the template's file is recorded");
-
-    let mut new = fvoci_model::BoardsAndBlocks {
-        boards: vec![template("new")],
-        blocks: Vec::new(),
-    };
-    let kept = test
-        .replace_builtin_templates(&mut new, <[Board]>::is_empty)
-        .await
-        .expect("the check runs");
-    assert_eq!(kept, None, "the stored templates are kept when not needed");
-
-    let files = test
-        .replace_builtin_templates(&mut new, |stored| {
-            stored.iter().any(|board| board.title == "old")
-        })
-        .await
-        .expect("the templates are replaced")
-        .expect("they were replaced");
-    assert_eq!(
-        files
-            .iter()
-            .map(|file| file.path.as_str())
-            .collect::<Vec<_>>(),
-        [file.path.as_str()],
-        "the old template's file is handed back"
-    );
-    let titles: Vec<String> = test
-        .get_builtin_templates()
-        .await
-        .expect("the built-in templates are read")
-        .into_iter()
-        .map(|board| board.title)
-        .collect();
-    assert_eq!(titles, ["new"], "the new templates are stored, built in");
-    let error = test
-        .get_file_info(&old.id, &file.stored_name)
-        .await
-        .expect_err("the record went with its board");
-    assert!(error.is_not_found(), "got {error:?}");
-
-    test.teardown().await;
-}
-
-/// Two replacements of the built-in templates that start at once, each finding none,
-/// store them once between them: the second decides after the first has committed. On
-/// PostgreSQL that is the advisory lock, on SQLite the write transaction.
-#[tokio::test]
-async fn replacements_of_the_built_in_templates_at_once_store_them_once() {
-    let test = common::setup().await;
-    let workspace_id = common::workspace(&test).await;
-    let templates = || fvoci_model::BoardsAndBlocks {
-        boards: vec![Board {
-            is_template: true,
-            ..new_board(&new_id(), &workspace_id, BoardType::Open)
-        }],
-        blocks: Vec::new(),
-    };
-    let (mut first, mut second) = (templates(), templates());
-    let (first, second) = tokio::join!(
-        test.replace_builtin_templates(&mut first, <[Board]>::is_empty),
-        test.replace_builtin_templates(&mut second, <[Board]>::is_empty),
-    );
-    let replaced = [first, second]
-        .into_iter()
-        .map(|result| result.expect("a replacement runs").is_some())
-        .filter(|&replaced| replaced)
-        .count();
-    assert_eq!(replaced, 1, "one of them stores the templates");
-    assert_eq!(
-        test.get_builtin_templates()
-            .await
-            .expect("the built-in templates are read")
-            .len(),
-        1,
-        "and they are there once"
-    );
     test.teardown().await;
 }

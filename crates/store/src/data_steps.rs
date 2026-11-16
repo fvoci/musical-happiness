@@ -134,17 +134,17 @@ async fn date_values(scope: &mut Scope<'_>) -> Result<u64, StoreError> {
     }
     let sql = scope.sql("SELECT id, container FROM deleted_containers");
     for row in scope.fetch_all(sql).await? {
-        let board = row.json(1, "container")?;
+        let container = row.json(1, "container")?;
         dates.insert(
             row.id(0)?,
-            date_property_ids(definitions(&board["cardProperties"])),
+            date_property_ids(definitions(&container["cardProperties"])),
         );
     }
 
     let mut changed = 0;
-    for (board_id, dates) in dates.iter().filter(|(_, dates)| !dates.is_empty()) {
+    for (container_id, dates) in dates.iter().filter(|(_, dates)| !dates.is_empty()) {
         let mut sql = scope.sql("SELECT id, fields FROM blocks WHERE type IN ('card', 'view')");
-        sql.push_bind(" AND container_id = ", Id(board_id));
+        sql.push_bind(" AND container_id = ", Id(container_id));
         for row in scope.fetch_all(sql).await? {
             let id = row.id(0)?;
             let mut fields = row.json(1, "fields")?;
@@ -157,7 +157,7 @@ async fn date_values(scope: &mut Scope<'_>) -> Result<u64, StoreError> {
             }
         }
         let mut sql = scope.sql("SELECT id, block FROM deleted_blocks WHERE container_id = ");
-        sql.bind(Id(board_id));
+        sql.bind(Id(container_id));
         for row in scope.fetch_all(sql).await? {
             let id = row.id(0)?;
             let mut block = row.json(1, "block")?;

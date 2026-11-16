@@ -3,7 +3,9 @@
 use std::time::Duration;
 
 use futures_util::{SinkExt as _, StreamExt as _};
-use fvoci_model::{Board, BoardMember, BoardType, BoardsAndBlocks, Category, new_id};
+use fvoci_model::{
+    Category, Container, ContainerMember, ContainerType, ContainersAndBlocks, new_id,
+};
 use serde_json::{Value, json};
 use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::Message;
@@ -123,9 +125,13 @@ async fn board_changes_are_broadcast_to_the_members() {
     let mut socket2 =
         WorkspaceSocket::subscribe(&th, &th.client2, TEST_WORKSPACE_ID, &user2.id).await;
 
-    let board: Board = th
+    let board: Container = th
         .client
-        .create_board(&new_board(TEST_WORKSPACE_ID, BoardType::Open, "Roadmap"))
+        .create_board(&new_board(
+            TEST_WORKSPACE_ID,
+            ContainerType::Open,
+            "Roadmap",
+        ))
         .await
         .created_json();
     let message = socket1.expect("UPDATE_BOARD", "/board/id", &board.id).await;
@@ -183,7 +189,7 @@ async fn member_changes_are_broadcast() {
     let user2 = th.client2.me().await;
     let board = board_with_admin(
         &th,
-        new_board(TEST_WORKSPACE_ID, BoardType::Private, "title"),
+        new_board(TEST_WORKSPACE_ID, ContainerType::Private, "title"),
         &user1.id,
     )
     .await;
@@ -211,7 +217,7 @@ async fn member_changes_are_broadcast() {
 
     update_member(
         &th.client,
-        &BoardMember {
+        &ContainerMember {
             scheme_viewer: true,
             ..member(&board.id, &user2.id)
         },
@@ -248,9 +254,9 @@ async fn patch_board_type_of_a_template_is_broadcast_to_the_workspace_users() {
     let user2 = th.client2.me().await;
     let template = board_with_admin(
         &th,
-        Board {
+        Container {
             is_template: true,
-            ..new_board(TEST_WORKSPACE_ID, BoardType::Open, "a template")
+            ..new_board(TEST_WORKSPACE_ID, ContainerType::Open, "a template")
         },
         &user1.id,
     )
@@ -317,7 +323,7 @@ async fn patch_board_type_of_a_template_is_broadcast_to_the_workspace_users() {
     // A board that is not a template: only the board change is broadcast.
     let board = board_with_admin(
         &th,
-        new_board(TEST_WORKSPACE_ID, BoardType::Open, "a board"),
+        new_board(TEST_WORKSPACE_ID, ContainerType::Open, "a board"),
         &user1.id,
     )
     .await;
@@ -350,7 +356,7 @@ async fn duplicate_board_is_broadcast() {
     let user1 = th.client.me().await;
     let board = board_with_admin(
         &th,
-        new_board(TEST_WORKSPACE_ID, BoardType::Open, "Source"),
+        new_board(TEST_WORKSPACE_ID, ContainerType::Open, "Source"),
         &user1.id,
     )
     .await;
@@ -358,11 +364,11 @@ async fn duplicate_board_is_broadcast() {
     let mut socket =
         WorkspaceSocket::subscribe(&th, &th.client, TEST_WORKSPACE_ID, &user1.id).await;
 
-    let copy: BoardsAndBlocks = duplicate_board(&th.client, &board.id, "")
+    let copy: ContainersAndBlocks = duplicate_board(&th.client, &board.id, "")
         .await
         .created_json();
 
-    let copy_id = &copy.boards[0].id;
+    let copy_id = &copy.containers[0].id;
     socket.expect("UPDATE_BOARD", "/board/id", copy_id).await;
     socket
         .expect("UPDATE_BLOCK", "/block/id", &copy.blocks[0].id)

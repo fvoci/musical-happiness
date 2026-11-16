@@ -45,7 +45,7 @@ pub struct Upload {
     /// What the upload is for.
     pub purpose: UploadPurpose,
     /// The board the file is for; empty for an import.
-    pub board_id: String,
+    pub container_id: String,
     /// The workspace an archive is imported into; empty for a file.
     pub workspace_id: String,
     /// The name of the file as the client gave it.

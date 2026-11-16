@@ -212,7 +212,7 @@ async fn a_batch_that_writes_a_body_whole_meets_the_open_document() {
             "blockPatches": [{"body": whole, "readAt": read_at}],
         })
     };
-    let path = format!("{TEST_WS}/boards/{}/blocks", read_before.board_id);
+    let path = format!("{TEST_WS}/boards/{}/blocks", read_before.container_id);
     th.client
         .patch(&path, &batch(read_before.update_at))
         .await
@@ -238,7 +238,7 @@ async fn a_batch_writes_the_body_of_the_card_its_patch_is_for() {
     let th = Setup::native().start().await.init_basic().await;
     let older = editing(&th, &paragraphs(&["older"])).await;
     let collab = older.app.collab();
-    let board_id = card(&th.client, &older.card_id).await.board_id;
+    let board_id = card(&th.client, &older.card_id).await.container_id;
     // Made after the first, on its board.
     let newer: fvoci_model::Card = th
         .client
@@ -261,7 +261,7 @@ async fn a_batch_writes_the_body_of_the_card_its_patch_is_for() {
         .await
         .expect("taken");
     let whole = paragraphs(&["written in a batch"]);
-    let path = format!("{TEST_WS}/boards/{}/blocks", read_before.board_id);
+    let path = format!("{TEST_WS}/boards/{}/blocks", read_before.container_id);
     th.client
         .patch(
             &path,
@@ -303,7 +303,7 @@ async fn a_patch_of_boards_and_blocks_meets_the_open_document() {
     let whole = paragraphs(&["written with the boards"]);
     let patch = |read_at: i64| {
         json!({
-            "boardIds": [read_before.board_id],
+            "boardIds": [read_before.container_id],
             "boardPatches": [{"title": "the board"}],
             "blockIds": [e.card_id],
             "blockPatches": [{"body": whole, "readAt": read_at}],

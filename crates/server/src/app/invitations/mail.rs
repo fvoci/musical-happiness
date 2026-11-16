@@ -315,8 +315,10 @@ impl App {
         sender: &str,
         recipient: &str,
     ) -> Result<Invitation, AppError> {
-        let (Some(board_id), Some(role)) = (invitation.board_id.as_deref(), invitation.board_role)
-        else {
+        let (Some(container_id), Some(role)) = (
+            invitation.container_id.as_deref(),
+            invitation.container_role,
+        ) else {
             return Err(AppError::internal(
                 "a guest link without its board and role",
             ));
@@ -324,7 +326,7 @@ impl App {
         self.store_link(
             &invitation.workspace_id,
             sender,
-            Inviting::Guest { board_id, role },
+            Inviting::Guest { container_id, role },
             Some(invitation.expires_at),
             Some(MailedTo {
                 parent_id: &invitation.id,

@@ -29,8 +29,8 @@ use std::time::Duration;
 
 use axum::extract::ws::Utf8Bytes;
 use fvoci_model::{
-    Block, Board, BoardCategoryWebsocketData, BoardMember, Category, ClientConfig, LoginOrigin,
-    Session,
+    Block, Category, ClientConfig, Container, ContainerCategoryWebsocketData, ContainerMember,
+    LoginOrigin, Session,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
@@ -40,7 +40,7 @@ use crate::app::{Audience, Former};
 use crate::auth::limiter::AddressKey;
 use crate::auth::{Authenticator, now_millis};
 use crate::metrics::{Disconnect, Metrics};
-use crate::permissions::{BoardScope, role_of};
+use crate::permissions::{ContainerScope, role_of};
 
 /// How many undelivered messages a connection may have queued before it is dropped. A
 /// client that reads this slowly has lost track of the board anyway and reloads on
@@ -80,7 +80,8 @@ impl std::fmt::Debug for Identity {
 struct Command {
     action: String,
     workspace_id: String,
-    board_id: String,
+    #[serde(rename = "boardId")]
+    container_id: String,
     card_id: String,
     read_token: String,
     #[serde(deserialize_with = "null_as_empty")]
@@ -103,10 +104,11 @@ struct UpdateBlockMessage<'a> {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct UpdateBoardMessage<'a> {
+struct UpdateContainerMessage<'a> {
     action: &'static str,
     workspace_id: &'a str,
-    board: &'a Board,
+    #[serde(rename = "board")]
+    container: &'a Container,
 }
 
 #[derive(Serialize)]
@@ -114,7 +116,7 @@ struct UpdateBoardMessage<'a> {
 struct UpdateMemberMessage<'a> {
     action: &'static str,
     workspace_id: &'a str,
-    member: &'a BoardMember,
+    member: &'a ContainerMember,
 }
 
 #[derive(Serialize)]
@@ -125,7 +127,8 @@ struct UpdateCategoryMessage<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     category: Option<&'a Category>,
     #[serde(skip_serializing_if = "<[_]>::is_empty")]
-    board_categories: &'a [BoardCategoryWebsocketData],
+    #[serde(rename = "boardCategories")]
+    container_categories: &'a [ContainerCategoryWebsocketData],
 }
 
 #[derive(Serialize)]
@@ -138,10 +141,11 @@ struct CategoryReorderMessage<'a> {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct CategoryBoardsReorderMessage<'a> {
+struct CategoryContainersReorderMessage<'a> {
     action: &'static str,
     category_id: &'a str,
-    board_order: &'a [String],
+    #[serde(rename = "boardOrder")]
+    container_order: &'a [String],
     workspace_id: &'a str,
 }
 
@@ -188,11 +192,11 @@ macro_rules! outgoing {
 
 outgoing!(
     UpdateBlockMessage,
-    UpdateBoardMessage,
+    UpdateContainerMessage,
     UpdateMemberMessage,
     UpdateCategoryMessage,
     CategoryReorderMessage,
-    CategoryBoardsReorderMessage,
+    CategoryContainersReorderMessage,
     UpdateClientConfigMessage,
     UnsubscribedWorkspaceMessage,
     UnsubscribedBlocksMessage,
@@ -229,7 +233,7 @@ struct Listener {
     blocks: Vec<String>,
     /// The shared boards whose read token this connection subscribed to blocks with.
     /// When such a board stops being shared under that token, they stop being followed.
-    shared_boards: Vec<ReadPermit>,
+    shared_containers: Vec<ReadPermit>,
     presence: presence::State,
 }
 
@@ -237,7 +241,7 @@ struct Listener {
 /// connection named, which it is told of when the token stops opening the board.
 #[derive(Clone)]
 struct ReadPermit {
-    board: String,
+    container: String,
     token: String,
     workspace: String,
     blocks: Vec<String>,
@@ -246,7 +250,7 @@ struct ReadPermit {
 impl std::fmt::Debug for ReadPermit {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ReadPermit")
-            .field("board", &self.board)
+            .field("container", &self.container)
             .field("workspace", &self.workspace)
             .field("blocks", &self.blocks)
             .finish_non_exhaustive()
@@ -262,7 +266,7 @@ struct Listeners {
     by_workspace: HashMap<String, Vec<ListenerId>>,
     by_block: HashMap<String, Vec<ListenerId>>,
     /// The board visits of the connections, by board.
-    visits: presence::Boards,
+    visits: presence::Containers,
 }
 
 impl Listener {
@@ -439,7 +443,7 @@ impl Hub {
             &message,
             Access::Members {
                 workspace: workspace_id,
-                readers: Readers::Now(&block.board_id),
+                readers: Readers::Now(&block.container_id),
                 also: None,
             },
         )
@@ -466,11 +470,16 @@ impl Hub {
 
     /// Tells the same listeners that a block was deleted. The message is a block change
     /// whose block has only its identifiers and the deletion time.
-    pub async fn broadcast_block_delete(&self, workspace_id: &str, block_id: &str, board_id: &str) {
+    pub async fn broadcast_block_delete(
+        &self,
+        workspace_id: &str,
+        block_id: &str,
+        container_id: &str,
+    ) {
         let now = now_millis();
         let block = Block {
             id: block_id.to_owned(),
-            board_id: board_id.to_owned(),
+            container_id: container_id.to_owned(),
             update_at: now,
             delete_at: now,
             ..Block::default()
@@ -482,17 +491,17 @@ impl Hub {
     /// deleted, with the message of [`Self::broadcast_block_delete`].
     ///
     /// The memberships went with the board, so the caller says who read it.
-    pub async fn broadcast_block_delete_with_board(
+    pub async fn broadcast_block_delete_with_container(
         &self,
         workspace_id: &str,
         block_id: &str,
-        board_id: &str,
+        container_id: &str,
         former: Former<'_>,
     ) {
         let now = now_millis();
         let block = Block {
             id: block_id.to_owned(),
-            board_id: board_id.to_owned(),
+            container_id: container_id.to_owned(),
             update_at: now,
             delete_at: now,
             ..Block::default()
@@ -506,11 +515,11 @@ impl Hub {
     }
 
     /// Tells the board's members in the workspace that the board changed.
-    pub async fn broadcast_board_change(&self, workspace_id: &str, board: &Board) {
-        let message = UpdateBoardMessage {
+    pub async fn broadcast_container_change(&self, workspace_id: &str, container: &Container) {
+        let message = UpdateContainerMessage {
             action: "UPDATE_BOARD",
             workspace_id,
-            board,
+            container,
         };
         let recipients = self.workspace_listeners(workspace_id);
         self.send(
@@ -518,7 +527,7 @@ impl Hub {
             &message,
             Access::Members {
                 workspace: workspace_id,
-                readers: Readers::Now(&board.id),
+                readers: Readers::Now(&container.id),
                 also: None,
             },
         )
@@ -531,36 +540,36 @@ impl Hub {
     /// The memberships went with the board, so the caller says who read it. It is told
     /// so as well to those who read an open wiki that was made private, as they read it
     /// no longer: the caller says who read it before.
-    pub async fn broadcast_board_delete(
+    pub async fn broadcast_container_delete(
         &self,
         workspace_id: &str,
-        board_id: &str,
+        container_id: &str,
         former: Former<'_>,
     ) {
-        let board = gone_board(workspace_id, board_id);
-        let message = UpdateBoardMessage {
+        let container = gone_container(workspace_id, container_id);
+        let message = UpdateContainerMessage {
             action: "UPDATE_BOARD",
             workspace_id,
-            board: &board,
+            container: &container,
         };
         self.send_to_former(workspace_id, &message, former).await;
     }
 
     /// Tells who read the board as it was, `scope`, without holding a role on it, that
-    /// it is gone for them, with the message of [`Self::broadcast_board_delete`]: an
+    /// it is gone for them, with the message of [`Self::broadcast_container_delete`]: an
     /// open wiki made private. Its `members` read it still, and are not told.
     pub async fn broadcast_closed_to_others(
         &self,
         workspace_id: &str,
-        board_id: &str,
-        members: &[BoardMember],
-        scope: BoardScope,
+        container_id: &str,
+        members: &[ContainerMember],
+        scope: ContainerScope,
     ) {
-        let board = gone_board(workspace_id, board_id);
-        let message = UpdateBoardMessage {
+        let container = gone_container(workspace_id, container_id);
+        let message = UpdateContainerMessage {
             action: "UPDATE_BOARD",
             workspace_id,
-            board: &board,
+            container: &container,
         };
         let in_workspace = self.workspace_listeners(workspace_id);
         let recipients: Vec<ListenerId> = {
@@ -621,8 +630,8 @@ impl Hub {
     pub async fn broadcast_member_change(
         &self,
         workspace_id: &str,
-        board_id: &str,
-        member: &BoardMember,
+        container_id: &str,
+        member: &ContainerMember,
     ) {
         let message = UpdateMemberMessage {
             action: "UPDATE_MEMBER",
@@ -635,7 +644,7 @@ impl Hub {
             &message,
             Access::Members {
                 workspace: workspace_id,
-                readers: Readers::Now(board_id),
+                readers: Readers::Now(container_id),
                 also: None,
             },
         )
@@ -644,11 +653,16 @@ impl Hub {
 
     /// Tells the board's members in the workspace, and the removed user, that a membership
     /// ended.
-    pub async fn broadcast_member_delete(&self, workspace_id: &str, board_id: &str, user_id: &str) {
-        let member = BoardMember {
+    pub async fn broadcast_member_delete(
+        &self,
+        workspace_id: &str,
+        container_id: &str,
+        user_id: &str,
+    ) {
+        let member = ContainerMember {
             user_id: user_id.to_owned(),
-            board_id: board_id.to_owned(),
-            ..BoardMember::default()
+            container_id: container_id.to_owned(),
+            ..ContainerMember::default()
         };
         let message = UpdateMemberMessage {
             action: "DELETE_MEMBER",
@@ -661,7 +675,7 @@ impl Hub {
             &message,
             Access::Members {
                 workspace: workspace_id,
-                readers: Readers::Now(board_id),
+                readers: Readers::Now(container_id),
                 also: Some(user_id),
             },
         )
@@ -684,24 +698,24 @@ impl Hub {
             action: "UPDATE_CATEGORY",
             workspace_id: &category.workspace_id,
             category: Some(category),
-            board_categories: &[],
+            container_categories: &[],
         };
         self.send_to_user(&category.workspace_id, &category.user_id, &message)
             .await;
     }
 
     /// Tells a user that boards moved between their categories or were hidden.
-    pub async fn broadcast_category_board_change(
+    pub async fn broadcast_category_container_change(
         &self,
         workspace_id: &str,
         user_id: &str,
-        board_categories: &[BoardCategoryWebsocketData],
+        container_categories: &[ContainerCategoryWebsocketData],
     ) {
         let message = UpdateCategoryMessage {
             action: "UPDATE_BOARD_CATEGORY",
             workspace_id,
             category: None,
-            board_categories,
+            container_categories,
         };
         self.send_to_user(workspace_id, user_id, &message).await;
     }
@@ -722,17 +736,17 @@ impl Hub {
     }
 
     /// Tells a user the new order of the boards in one of their categories.
-    pub async fn broadcast_category_boards_reorder(
+    pub async fn broadcast_category_containers_reorder(
         &self,
         workspace_id: &str,
         user_id: &str,
         category_id: &str,
-        board_order: &[String],
+        container_order: &[String],
     ) {
-        let message = CategoryBoardsReorderMessage {
+        let message = CategoryContainersReorderMessage {
             action: "REORDER_CATEGORY_BOARDS",
             category_id,
-            board_order,
+            container_order,
             workspace_id,
         };
         self.send_to_user(workspace_id, user_id, &message).await;
@@ -816,12 +830,12 @@ fn subscribe_to_blocks(listeners: &mut Listeners, id: ListenerId, block_ids: &[S
 fn unsubscribe_from_blocks(listeners: &mut Listeners, id: ListenerId, block_ids: &[String]) {
     if let Some(listener) = listeners.by_id.get_mut(&id) {
         listener.blocks.retain(|block| !block_ids.contains(block));
-        for permit in &mut listener.shared_boards {
+        for permit in &mut listener.shared_containers {
             permit.blocks.retain(|block| !block_ids.contains(block));
         }
         // A board none of whose blocks is followed is not followed.
         listener
-            .shared_boards
+            .shared_containers
             .retain(|permit| !permit.blocks.is_empty());
     }
     for block_id in block_ids {
@@ -831,14 +845,14 @@ fn unsubscribe_from_blocks(listeners: &mut Listeners, id: ListenerId, block_ids:
 
 /// A board as it is told once gone: only its identifiers and the time it went, as
 /// its deletion and the closing of an open wiki to who did not join it are told.
-fn gone_board(workspace_id: &str, board_id: &str) -> Board {
+fn gone_container(workspace_id: &str, container_id: &str) -> Container {
     let now = now_millis();
-    Board {
-        id: board_id.to_owned(),
+    Container {
+        id: container_id.to_owned(),
         workspace_id: workspace_id.to_owned(),
         update_at: now,
         delete_at: now,
-        ..Board::default()
+        ..Container::default()
     }
 }
 

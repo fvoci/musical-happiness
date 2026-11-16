@@ -2,7 +2,7 @@
 
 use axum::body::Bytes;
 use axum::extract::Path;
-use fvoci_model::{BoardMember, BoardRole, BoardType, WorkspaceRole};
+use fvoci_model::{ContainerMember, ContainerRole, ContainerType, WorkspaceRole};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
@@ -13,49 +13,56 @@ use super::contract::tag;
 use super::workspace::InContainer;
 
 use super::{ApiResult, json_response, no_content};
-use super::{decode_object, refusal, require_board_permission, require_granted};
+use super::{decode_object, refusal, require_container_permission, require_granted};
 use crate::app::App;
 use crate::error::{AppError, Reason};
-use crate::permissions::{self, BoardPermission, Grant};
+use crate::permissions::{self, ContainerPermission, Grant};
 
 /// The refusal to add, change or remove a member.
 const MODIFY_MEMBERS_DENIED: &str = "access denied to modify board members";
 
 pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new()
-        .routes(routes!(handle_get_members_for_board, handle_add_member))
+        .routes(routes!(handle_get_members_for_container, handle_add_member))
         .routes(routes!(handle_update_member, handle_delete_member))
-        .routes(routes!(handle_join_board))
-        .routes(routes!(handle_leave_board))
+        .routes(routes!(handle_join_container))
+        .routes(routes!(handle_leave_container))
 }
 
 /// The membership a request asks for: the user and board the handler decided on, and
 /// the role flags of the body. Whatever else the body says is ignored.
-fn requested_member(board_id: String, user_id: String, body: &BoardMember) -> BoardMember {
-    BoardMember {
-        board_id,
+fn requested_member(
+    container_id: String,
+    user_id: String,
+    body: &ContainerMember,
+) -> ContainerMember {
+    ContainerMember {
+        container_id,
         user_id,
         scheme_admin: body.scheme_admin,
         scheme_editor: body.scheme_editor,
         scheme_commenter: body.scheme_commenter,
         scheme_viewer: body.scheme_viewer,
-        ..BoardMember::default()
+        ..ContainerMember::default()
     }
 }
 
 /// A membership with exactly the one role.
-fn member_with_role(board_id: String, user_id: String, role: BoardRole) -> BoardMember {
-    let member = BoardMember {
-        board_id,
+fn member_with_role(container_id: String, user_id: String, role: ContainerRole) -> ContainerMember {
+    let member = ContainerMember {
+        container_id,
         user_id,
-        ..BoardMember::default()
+        ..ContainerMember::default()
     };
     permissions::with_role(member, Some(role))
 }
 
 /// Refuses a membership whose role the user's place in the workspace does not let
 /// them hold: a guest is no more than an editor (403, reason `guest_role_limit`).
-fn require_holdable(workspace_role: WorkspaceRole, member: &BoardMember) -> Result<(), AppError> {
+fn require_holdable(
+    workspace_role: WorkspaceRole,
+    member: &ContainerMember,
+) -> Result<(), AppError> {
     match permissions::role_of(member) {
         Some(role) if !permissions::may_hold(workspace_role, role) => Err(AppError::forbidden(
             "a guest of the workspace is given no role above editor",
@@ -77,22 +84,22 @@ fn require_holdable(workspace_role: WorkspaceRole, member: &BoardMember) -> Resu
     operation_id = "getMembers",
     tag = tag::MEMBERS,
     params(MemberWorkspaceId, BoardId),
-    responses((status = 200, description = "The members.", body = Vec<BoardMember>)),
+    responses((status = 200, description = "The members.", body = Vec<ContainerMember>)),
 )]
-async fn handle_get_members_for_board(
+async fn handle_get_members_for_container(
     InContainer(ws): InContainer,
-    Path((_, board_id)): Path<(String, String)>,
+    Path((_, container_id)): Path<(String, String)>,
 ) -> ApiResult {
-    require_board_permission(
+    require_container_permission(
         &ws.app,
         &ws.session.user_id,
-        &board_id,
-        BoardPermission::ListMembers,
+        &container_id,
+        ContainerPermission::ListMembers,
         "access denied to board members",
     )
     .await?;
 
-    let mut members = ws.app.effective_board_members(&board_id).await?;
+    let mut members = ws.app.effective_container_members(&container_id).await?;
     if ws.actor().workspace == Some(WorkspaceRole::Guest) {
         for member in &mut members {
             *member = member.clone().with_role(member.role());
@@ -121,30 +128,31 @@ async fn handle_get_members_for_board(
     tag = tag::MEMBERS,
     params(MemberWorkspaceId, BoardId),
     request_body = NewMember,
-    responses((status = 200, description = "The membership as it is now.", body = BoardMember)),
+    responses((status = 200, description = "The membership as it is now.", body = ContainerMember)),
 )]
 async fn handle_add_member(
     InContainer(ws): InContainer,
-    Path((_, board_id)): Path<(String, String)>,
+    Path((_, container_id)): Path<(String, String)>,
     body: Bytes,
 ) -> ApiResult {
     let user_id = &ws.session.user_id;
     let access = ws
         .app
-        .board_access(user_id, &board_id)
+        .container_access(user_id, &container_id)
         .await?
         .ok_or_else(|| AppError::not_found("board"))?;
-    let (board, grant) = (&access.board, access.grant);
-    let manages_roles = grant.allows(BoardPermission::ManageBoardRoles);
-    let edits_board = grant.allows(BoardPermission::ManageBoardProperties);
+    let (container, grant) = (&access.container, access.grant);
+    let manages_roles = grant.allows(ContainerPermission::ManageRoles);
+    let edits_container = grant.allows(ContainerPermission::ManageProperties);
     // A guest's editing adds nobody: who is in the workspace is not a guest's to learn.
-    let adds_to_open_board =
-        edits_board && board.board_type == BoardType::Open && access.actor.works_there();
-    if !(manages_roles || adds_to_open_board) {
+    let adds_to_open_container = edits_container
+        && container.container_type == ContainerType::Open
+        && access.actor.works_there();
+    if !(manages_roles || adds_to_open_container) {
         return Err(refusal(grant, MODIFY_MEMBERS_DENIED));
     }
 
-    let request: BoardMember = decode_object(&body)?;
+    let request: ContainerMember = decode_object(&body)?;
     if request.user_id.is_empty() {
         return Err(AppError::bad_request("empty userId").with_field("userId"));
     }
@@ -162,7 +170,7 @@ async fn handle_add_member(
     // tells nothing of who has an account elsewhere on the server.
     let Some(target_role) = ws
         .app
-        .actor(&request.user_id, &board.workspace_id)
+        .actor(&request.user_id, &container.workspace_id)
         .await?
         .workspace
     else {
@@ -181,14 +189,14 @@ async fn handle_add_member(
     // sends it: an editor of an open board could hand out any role below admin, or none.
     // Choosing roles belongs to those who manage them.
     let member = if manages_roles {
-        requested_member(board_id, request.user_id.clone(), &request)
+        requested_member(container_id, request.user_id.clone(), &request)
     } else {
         // The board's minimum role: what joining gives, and so what somebody gives who
         // has no say about roles.
         member_with_role(
-            board_id,
+            container_id,
             request.user_id.clone(),
-            BoardRole::from(board.minimum_role),
+            ContainerRole::from(container.minimum_role),
         )
     };
     require_holdable(target_role, &member)?;
@@ -218,23 +226,23 @@ async fn handle_add_member(
     operation_id = "joinBoard",
     tag = tag::MEMBERS,
     params(MemberWorkspaceId, BoardId),
-    responses((status = 200, description = "The membership as it is now.", body = BoardMember)),
+    responses((status = 200, description = "The membership as it is now.", body = ContainerMember)),
 )]
-async fn handle_join_board(
+async fn handle_join_container(
     InContainer(ws): InContainer,
-    Path((_, board_id)): Path<(String, String)>,
+    Path((_, container_id)): Path<(String, String)>,
 ) -> ApiResult {
     let user_id = &ws.session.user_id;
     let access = ws
         .app
-        .board_access(user_id, &board_id)
+        .container_access(user_id, &container_id)
         .await?
         .ok_or_else(|| AppError::not_found("board"))?;
-    let (board, grant) = (access.board, access.grant);
+    let (container, grant) = (access.container, access.grant);
 
     // The original lets a workspace administrator join any board as its admin with the
     // `allow_admin` parameter; here a workspace's administrator joins as anybody does.
-    if board.board_type != BoardType::Open {
+    if container.container_type != ContainerType::Open {
         // A private board exists only for its members, who have nothing to join.
         return Err(refusal(grant, "cannot join a non Open board"));
     }
@@ -247,17 +255,19 @@ async fn handle_join_board(
     // An open template is for everybody to copy, and for its members to change. Joining
     // made anyone an editor of it, of the built-in templates too: of the board every new
     // user's first board is copied from.
-    if board.is_template {
+    if container.is_template {
         return Err(AppError::forbidden("a template cannot be joined"));
     }
     // A guest of the workspace was invited to the open board and has no more to join:
     // to them, as to anybody who does not work in the workspace, there is nothing to
     // join, which joining would raise to the board's minimum role.
-    if !grant.allows(BoardPermission::JoinBoard) {
+    if !grant.allows(ContainerPermission::Join) {
         return Err(AppError::not_found("board"));
     }
 
-    Ok(json_response(&ws.app.join_board(&board_id, user_id).await?))
+    Ok(json_response(
+        &ws.app.join_container(&container_id, user_id).await?,
+    ))
 }
 
 /// Leave a board
@@ -272,23 +282,25 @@ async fn handle_join_board(
     params(MemberWorkspaceId, BoardId),
     responses((status = 204, description = "The user is no member any more.")),
 )]
-async fn handle_leave_board(
+async fn handle_leave_container(
     InContainer(ws): InContainer,
-    Path((_, board_id)): Path<(String, String)>,
+    Path((_, container_id)): Path<(String, String)>,
 ) -> ApiResult {
     let user_id = &ws.session.user_id;
-    require_board_permission(
+    require_container_permission(
         &ws.app,
         user_id,
-        &board_id,
-        BoardPermission::ViewBoard,
+        &container_id,
+        ContainerPermission::View,
         "access denied to board",
     )
     .await?;
     // The board may be deleted between the two lookups; then there is nothing to leave.
-    ws.app.board(&board_id).await?;
+    ws.app.container(&container_id).await?;
 
-    ws.app.delete_board_member(&board_id, user_id).await?;
+    ws.app
+        .delete_container_member(&container_id, user_id)
+        .await?;
     Ok(no_content())
 }
 
@@ -307,28 +319,31 @@ async fn handle_leave_board(
     tag = tag::MEMBERS,
     params(MemberWorkspaceId, BoardId, UserId),
     request_body = MemberRoles,
-    responses((status = 200, description = "The membership as it is now.", body = BoardMember)),
+    responses((status = 200, description = "The membership as it is now.", body = ContainerMember)),
 )]
 async fn handle_update_member(
     InContainer(ws): InContainer,
-    Path((_, board_id, member_user_id)): Path<(String, String, String)>,
+    Path((_, container_id, member_user_id)): Path<(String, String, String)>,
     body: Bytes,
 ) -> ApiResult {
-    let asker = ws.app.board_access(&ws.session.user_id, &board_id).await?;
+    let asker = ws
+        .app
+        .container_access(&ws.session.user_id, &container_id)
+        .await?;
     let grant = asker.as_ref().map_or(Grant::NONE, |access| access.grant);
     require_granted(
         grant,
-        BoardPermission::ManageBoardRoles,
+        ContainerPermission::ManageRoles,
         MODIFY_MEMBERS_DENIED,
     )?;
     // The board may be deleted between the two lookups; then it is gone for everybody.
     let target = ws
         .app
-        .board_access(&member_user_id, &board_id)
+        .container_access(&member_user_id, &container_id)
         .await?
         .ok_or_else(|| AppError::not_found("board"))?;
-    let request: BoardMember = decode_object(&body)?;
-    let member = requested_member(board_id, member_user_id, &request);
+    let request: ContainerMember = decode_object(&body)?;
+    let member = requested_member(container_id, member_user_id, &request);
     // Who is no member of the board is not found, and so is who has left its
     // workspace: the role left there opens nothing, and is not to be changed.
     let (Some(_), Some(workspace_role)) = (target.member, target.actor.workspace) else {
@@ -370,20 +385,20 @@ async fn handle_update_member(
 )]
 async fn handle_delete_member(
     InContainer(ws): InContainer,
-    Path((_, board_id, member_user_id)): Path<(String, String, String)>,
+    Path((_, container_id, member_user_id)): Path<(String, String, String)>,
 ) -> ApiResult {
-    require_board_permission(
+    require_container_permission(
         &ws.app,
         &ws.session.user_id,
-        &board_id,
-        BoardPermission::ManageBoardRoles,
+        &container_id,
+        ContainerPermission::ManageRoles,
         MODIFY_MEMBERS_DENIED,
     )
     .await?;
 
-    ws.app.board(&board_id).await?;
+    ws.app.container(&container_id).await?;
     ws.app
-        .delete_board_member(&board_id, &member_user_id)
+        .delete_container_member(&container_id, &member_user_id)
         .await?;
     Ok(no_content())
 }

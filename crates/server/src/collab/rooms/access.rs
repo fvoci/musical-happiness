@@ -36,7 +36,7 @@ pub(crate) struct AccessScope {
 
 #[derive(Debug, Clone)]
 enum Place {
-    Boards(Vec<String>),
+    Containers(Vec<String>),
     /// The cards themselves: who may be in their rooms changes as they are deleted.
     Cards(Vec<String>),
     Workspace(String),
@@ -45,14 +45,16 @@ enum Place {
 
 impl AccessScope {
     /// One board, including all its cards.
-    pub(crate) fn board(board_id: &str) -> Self {
-        Self::of(Place::Boards(vec![board_id.to_owned()]))
+    pub(crate) fn container(container_id: &str) -> Self {
+        Self::of(Place::Containers(vec![container_id.to_owned()]))
     }
 
     /// Boards changed at once (a batch, an import), including all their cards: one
     /// check for all of them.
-    pub(crate) fn boards<'id>(board_ids: impl IntoIterator<Item = &'id String>) -> Self {
-        Self::of(Place::Boards(board_ids.into_iter().cloned().collect()))
+    pub(crate) fn containers<'id>(container_ids: impl IntoIterator<Item = &'id String>) -> Self {
+        Self::of(Place::Containers(
+            container_ids.into_iter().cloned().collect(),
+        ))
     }
 
     /// The rooms of these cards, as they are deleted.
@@ -94,14 +96,14 @@ impl AccessScope {
 
     /// Whether the change reached the room of `room`'s card.
     pub(super) fn contains(&self, room: &Room) -> bool {
-        self.reaches(&room.card_id, &room.board_id, &room.workspace_id)
+        self.reaches(&room.card_id, &room.container_id, &room.workspace_id)
     }
 
-    /// Whether the change reached the card `card_id` of the board `board_id` of the
+    /// Whether the change reached the card `card_id` of the board `container_id` of the
     /// workspace `workspace_id`.
-    pub(super) fn reaches(&self, card_id: &str, board_id: &str, workspace_id: &str) -> bool {
+    pub(super) fn reaches(&self, card_id: &str, container_id: &str, workspace_id: &str) -> bool {
         match &self.place {
-            Place::Boards(ids) => ids.iter().any(|id| id == board_id),
+            Place::Containers(ids) => ids.iter().any(|id| id == container_id),
             Place::Cards(ids) => ids.iter().any(|id| id == card_id),
             Place::Workspace(id) => id == workspace_id,
             Place::Organization => true,
@@ -109,9 +111,9 @@ impl AccessScope {
     }
 
     /// The boards the change named, if it named boards.
-    pub(super) fn named_boards(&self) -> Option<&[String]> {
+    pub(super) fn named_containers(&self) -> Option<&[String]> {
         match &self.place {
-            Place::Boards(ids) => Some(ids),
+            Place::Containers(ids) => Some(ids),
             _ => None,
         }
     }
@@ -294,17 +296,17 @@ impl Collab {
         for (room, members) in &holds.rooms {
             for member in members {
                 asked
-                    .entry((room.board_id.clone(), member.who.clone()))
+                    .entry((room.container_id.clone(), member.who.clone()))
                     .or_insert_with(|| room.app.clone());
             }
         }
         let until = Instant::now() + rooms.recheck * IMMEDIATE_PASS_INTERVALS;
         let asking = answered(asked, rooms.recheck, until, |(key, app)| {
-            let (board_id, who) = key.clone();
+            let (container_id, who) = key.clone();
             (key, async move {
                 #[cfg(feature = "test-util")]
                 self.before_access_read().await;
-                admission::board_mode(&app, who.asker(), &who.workspace_id, &board_id).await
+                admission::container_mode(&app, who.asker(), &who.workspace_id, &container_id).await
             })
         });
         // Given up when the server stops: whom it holds is put out, as not answered of.
@@ -312,12 +314,15 @@ impl Collab {
             answers = asking => answers,
             () = rooms.stopping.cancelled() => HashMap::new(),
         };
-        let mut by_board: HashMap<String, HashMap<Who, Answer>> = HashMap::new();
-        for ((board_id, who), answer) in answers {
-            by_board.entry(board_id).or_default().insert(who, answer);
+        let mut by_container: HashMap<String, HashMap<Who, Answer>> = HashMap::new();
+        for ((container_id, who), answer) in answers {
+            by_container
+                .entry(container_id)
+                .or_default()
+                .insert(who, answer);
         }
         holds
-            .let_go(|room, who| by_board.get(&room.board_id)?.get(who))
+            .let_go(|room, who| by_container.get(&room.container_id)?.get(who))
             .await;
     }
 
@@ -532,7 +537,7 @@ mod tests {
     }
 
     fn change_of(user: &str) -> AccessScope {
-        AccessScope::board("board").of_user(user)
+        AccessScope::container("board").of_user(user)
     }
 
     #[test]
@@ -575,8 +580,8 @@ mod tests {
         let reaches = |scope: &AccessScope| scope.reaches(card.0, card.1, card.2);
         let cards = ["card".to_owned()];
         for (scope, reached) in [
-            (AccessScope::board("board"), true),
-            (AccessScope::board("another"), false),
+            (AccessScope::container("board"), true),
+            (AccessScope::container("another"), false),
             (AccessScope::cards(&cards), true),
             (AccessScope::cards(&["another".to_owned()]), false),
             (AccessScope::workspace("workspace"), true),
@@ -589,7 +594,7 @@ mod tests {
             assert!(of_user.concerns("user") && !of_user.concerns("another user"));
         }
         assert!(AccessScope::organization().concerns("anybody"));
-        let of_users = AccessScope::board("board").of_users(["one", "two"]);
+        let of_users = AccessScope::container("board").of_users(["one", "two"]);
         assert!(of_users.concerns("one") && of_users.concerns("two"));
         assert!(!of_users.concerns("three"));
     }

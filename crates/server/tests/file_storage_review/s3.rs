@@ -8,7 +8,7 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use bytes::Bytes;
-use fvoci_model::{BoardType, new_id};
+use fvoci_model::{ContainerType, new_id};
 use fvoci_server::app::{App, CLOSED_UPLOAD_GRACE_MILLIS, FileToUpload};
 use fvoci_server::auth::now_millis;
 use fvoci_server::config::{AmazonS3Config, Configuration};
@@ -69,7 +69,9 @@ async fn with_s3_a_completion_cannot_record_an_object_another_cleaner_removed() 
         .await
         .init_basic()
         .await;
-    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+    let board = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
     let user_id = ts.client.me().await.id;
     let bytes = Bytes::from_static(b"multipart bytes");
     let upload = ts

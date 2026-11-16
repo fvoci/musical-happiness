@@ -6,7 +6,8 @@
 //! database has none or an older version of them.
 
 use fvoci_model::{
-    Block, BlockType, Board, BoardType, BoardsAndBlocks, WorkspaceRole, renew_boards_and_blocks_ids,
+    Block, BlockType, Container, ContainerType, ContainersAndBlocks, WorkspaceRole,
+    renew_containers_and_blocks_ids,
 };
 use fvoci_store::{SYSTEM_ORG_ID, SYSTEM_WORKSPACE_ID, Tenant};
 use serde::Deserialize;
@@ -120,8 +121,8 @@ struct TemplateBoard {
 ///
 /// Returns a server error if a template file is not of the shape of [`TemplateFile`]:
 /// a mistake in the embedded files, which the tests catch.
-fn builtin_templates(workspace_id: &str) -> Result<BoardsAndBlocks, AppError> {
-    let mut boards_and_blocks = BoardsAndBlocks::default();
+fn builtin_templates(workspace_id: &str) -> Result<ContainersAndBlocks, AppError> {
+    let mut boards_and_blocks = ContainersAndBlocks::default();
     for (name, text) in TEMPLATE_FILES {
         let template: TemplateFile = serde_json::from_str(text).map_err(|error| {
             AppError::from(
@@ -141,7 +142,7 @@ fn builtin_templates(workspace_id: &str) -> Result<BoardsAndBlocks, AppError> {
             show_description,
             card_properties,
         } = template.board;
-        let mut board = Board {
+        let mut board = Container {
             id,
             workspace_id: workspace_id.to_owned(),
             title,
@@ -151,8 +152,8 @@ fn builtin_templates(workspace_id: &str) -> Result<BoardsAndBlocks, AppError> {
             card_properties,
             is_template: true,
             template_version: DEFAULT_TEMPLATE_VERSION,
-            board_type: BoardType::Open,
-            ..Board::default()
+            container_type: ContainerType::Open,
+            ..Container::default()
         };
         board.properties.insert(
             TEMPLATE_KEY_PROPERTY.to_owned(),
@@ -181,13 +182,13 @@ fn builtin_templates(workspace_id: &str) -> Result<BoardsAndBlocks, AppError> {
                     block_type.as_str()
                 )));
             }
-            block.board_id.clone_from(&board.id);
+            block.container_id.clone_from(&board.id);
             block.parent_id.clone_from(&board.id);
             boards_and_blocks.blocks.push(block);
         }
-        boards_and_blocks.boards.push(board);
+        boards_and_blocks.containers.push(board);
     }
-    Ok(renew_boards_and_blocks_ids(boards_and_blocks))
+    Ok(renew_containers_and_blocks_ids(boards_and_blocks))
 }
 
 impl App {
@@ -242,7 +243,7 @@ impl App {
         workspace_id: &str,
         user_id: &str,
         role: WorkspaceRole,
-    ) -> Result<Vec<Board>, AppError> {
+    ) -> Result<Vec<Container>, AppError> {
         let mut boards = if role == WorkspaceRole::Admin {
             self.store()
                 .get_templates_of_workspace(workspace_id)
@@ -262,7 +263,7 @@ impl App {
 ///
 /// The system's authorship is what cannot be forged. A board's creator is always the
 /// session's user, on every route that makes a board; nobody signs in as the system.
-pub(crate) fn is_onboarding_template(board: &Board) -> bool {
+pub(crate) fn is_onboarding_template(board: &Container) -> bool {
     board.is_template
         && board.is_builtin
         && board.properties.get(ONBOARDING_PROPERTY) == Some(&Value::Bool(true))
@@ -271,7 +272,7 @@ pub(crate) fn is_onboarding_template(board: &Board) -> bool {
 /// Why the templates must be imported, or `None` if they are current. The templates are
 /// needed when there are none, when a built-in one has an older version, or when none of
 /// them is marked for the onboarding tour (templates imported before the mark existed).
-fn initialization_reason(boards: &[Board]) -> Option<&'static str> {
+fn initialization_reason(boards: &[Container]) -> Option<&'static str> {
     if boards.is_empty() {
         return Some("no default templates found");
     }
@@ -291,20 +292,20 @@ mod tests {
     use super::*;
 
     /// A built-in template as the import stores it, without the onboarding mark.
-    fn unmarked() -> Board {
-        Board {
+    fn unmarked() -> Container {
+        Container {
             id: "b-built-in".to_owned(),
             workspace_id: "t-root".to_owned(),
             is_template: true,
             is_builtin: true,
             template_version: DEFAULT_TEMPLATE_VERSION,
-            board_type: BoardType::Open,
-            ..Board::default()
+            container_type: ContainerType::Open,
+            ..Container::default()
         }
     }
 
     /// The built-in template that carries the onboarding mark.
-    fn marked() -> Board {
+    fn marked() -> Container {
         let mut board = unmarked();
         board
             .properties
@@ -316,12 +317,12 @@ mod tests {
     fn every_template_file_is_read_with_one_marked_for_the_tour() {
         let templates = builtin_templates("t-root").expect("the embedded template files are read");
         assert_eq!(
-            templates.boards.len(),
+            templates.containers.len(),
             TEMPLATE_FILES.len(),
             "a board per file"
         );
         let marked = templates
-            .boards
+            .containers
             .iter()
             .filter(|board| board.properties.get(ONBOARDING_PROPERTY) == Some(&Value::Bool(true)))
             .count();
@@ -333,7 +334,7 @@ mod tests {
         assert!(is_onboarding_template(&marked()), "the built-in one");
         assert!(!is_onboarding_template(&unmarked()), "without the mark");
 
-        let by_a_user = Board {
+        let by_a_user = Container {
             created_by: "u-somebody".to_owned(),
             is_builtin: false,
             ..marked()
@@ -342,7 +343,7 @@ mod tests {
             !is_onboarding_template(&by_a_user),
             "a user's board with the mark and the title"
         );
-        let no_template = Board {
+        let no_template = Container {
             is_template: false,
             ..marked()
         };
@@ -365,7 +366,7 @@ mod tests {
             Some("no default templates found"),
             "none"
         );
-        let old = Board {
+        let old = Container {
             template_version: DEFAULT_TEMPLATE_VERSION - 1,
             ..marked()
         };

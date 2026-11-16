@@ -14,23 +14,23 @@ use std::net::IpAddr;
 
 use fvoci_model::User;
 use fvoci_model::{
-    AcceptedInvitation, BoardMember, BoardRole, GUEST_INVITATION_USES, GuestInvitationsChange,
-    INVITATION_LIFETIME_MILLIS, Invitation, InvitationPreview, NewAccount, Workspace,
-    WorkspaceRole,
+    AcceptedInvitation, ContainerMember, ContainerRole, GUEST_INVITATION_USES,
+    GuestInvitationsChange, INVITATION_LIFETIME_MILLIS, Invitation, InvitationPreview, NewAccount,
+    Workspace, WorkspaceRole,
 };
 use fvoci_store::{
-    Acceptance, Accepted, Acceptor, Inviter, InviterOfBoard, MailedTo, NewLink, Signup, Standing,
-    StoreError, Taken,
+    Acceptance, Accepted, Acceptor, Inviter, InviterOfContainer, MailedTo, NewLink, Signup,
+    Standing, StoreError, Taken,
 };
 
 use super::auth::account_error;
 use super::signups::SignupMarker;
-use super::{App, Asker, BoardAccess};
+use super::{App, Asker, ContainerAccess};
 use crate::auth::now_millis;
 use crate::auth::secret::{new_secret, token_digest};
 use crate::collab::AccessScope;
 use crate::error::AppError;
-use crate::permissions::{self, Actor, BoardScope, WorkspacePermission};
+use crate::permissions::{self, Actor, ContainerScope, WorkspacePermission};
 
 /// How often an acceptance is tried against a maker of the link who is changed
 /// meanwhile.
@@ -42,9 +42,9 @@ pub(super) const ATTEMPTS: usize = 3;
 pub(super) struct Maker {
     workspace_role: Option<WorkspaceRole>,
     /// Their membership of the board of a guest's link.
-    member: Option<BoardMember>,
-    team_role: Option<fvoci_model::BoardRole>,
-    of_board: InviterOfBoard,
+    member: Option<ContainerMember>,
+    team_role: Option<fvoci_model::ContainerRole>,
+    of_container: InviterOfContainer,
 }
 
 impl Maker {
@@ -57,7 +57,7 @@ impl Maker {
                 member: self.member.as_ref(),
                 team_role: self.team_role,
             },
-            of_board: self.of_board,
+            of_container: self.of_container,
         }
     }
 }
@@ -88,9 +88,9 @@ pub enum Inviting<'a> {
     /// A guest of one board of the workspace, in a role on it: the link is used once.
     Guest {
         /// The board.
-        board_id: &'a str,
+        container_id: &'a str,
         /// The guest's role on the board.
-        role: BoardRole,
+        role: ContainerRole,
     },
 }
 
@@ -132,8 +132,8 @@ impl App {
         let token = new_secret();
         let (guest_of, max_uses) = match inviting {
             Inviting::Members => (None, None),
-            Inviting::Guest { board_id, role } => {
-                (Some((board_id, role)), Some(GUEST_INVITATION_USES))
+            Inviting::Guest { container_id, role } => {
+                (Some((container_id, role)), Some(GUEST_INVITATION_USES))
             }
         };
         let link = NewLink {
@@ -161,7 +161,7 @@ impl App {
         tracing::info!(
             invitation_id = %invitation.id,
             workspace_id,
-            board_id = invitation.board_id.as_deref().unwrap_or_default(),
+            container_id = invitation.container_id.as_deref().unwrap_or_default(),
             user_id = created_by,
             role = invitation.role.as_str(),
             "a link was made"
@@ -264,12 +264,12 @@ impl App {
         &self,
         user_id: &str,
         workspace_id: &str,
-        board_id: &str,
-    ) -> Result<Option<(BoardAccess, bool)>, AppError> {
-        let Some(access) = self.board_access(user_id, board_id).await? else {
+        container_id: &str,
+    ) -> Result<Option<(ContainerAccess, bool)>, AppError> {
+        let Some(access) = self.container_access(user_id, container_id).await? else {
             return Ok(None);
         };
-        if access.board.workspace_id != workspace_id {
+        if access.container.workspace_id != workspace_id {
             return Ok(None);
         }
         let workspace = match self.store().get_workspace(workspace_id).await {
@@ -277,8 +277,11 @@ impl App {
             Err(error) if error.is_not_found() => return Ok(None),
             Err(error) => return Err(error.into()),
         };
-        let invites =
-            permissions::invites_guests(access.grant, BoardScope::of(&access.board), &workspace);
+        let invites = permissions::invites_guests(
+            access.grant,
+            ContainerScope::of(&access.container),
+            &workspace,
+        );
         Ok(Some((access, invites)))
     }
 
@@ -326,7 +329,7 @@ impl App {
         invitation: &Invitation,
     ) -> Result<Option<Maker>, AppError> {
         let (maker, workspace_id) = (&invitation.created_by, &invitation.workspace_id);
-        match (invitation.role, &invitation.board_id) {
+        match (invitation.role, &invitation.container_id) {
             (WorkspaceRole::Member, _) => {
                 let actor = self.actor(maker, workspace_id).await?;
                 let invites =
@@ -335,21 +338,21 @@ impl App {
                     workspace_role: actor.workspace,
                     member: None,
                     team_role: None,
-                    of_board: InviterOfBoard::Member,
+                    of_container: InviterOfContainer::Member,
                 }))
             }
-            (WorkspaceRole::Guest, Some(board_id)) => Ok(self
-                .guest_inviter(maker, workspace_id, board_id)
+            (WorkspaceRole::Guest, Some(container_id)) => Ok(self
+                .guest_inviter(maker, workspace_id, container_id)
                 .await?
                 .filter(|(_, invites)| *invites)
                 .map(|(access, _)| Maker {
                     workspace_role: access.actor.workspace,
                     // A manager who does not read the board puts nobody on it off the
                     // record, by a link as little as by adding them.
-                    of_board: if access.grant.manages_only() {
-                        InviterOfBoard::ManagerOnly
+                    of_container: if access.grant.manages_only() {
+                        InviterOfContainer::ManagerOnly
                     } else {
-                        InviterOfBoard::Member
+                        InviterOfContainer::Member
                     },
                     member: access.member,
                     team_role: access.team_role,
@@ -386,9 +389,9 @@ impl App {
         };
         let workspace = app.workspace(&invitation.workspace_id).await?;
         let inviter = app.user(&invitation.created_by).await?;
-        let board = match &invitation.board_id {
-            Some(board_id) => match app.store().get_board(board_id).await {
-                Ok(board) => Some(board),
+        let container = match &invitation.container_id {
+            Some(container_id) => match app.store().get_container(container_id).await {
+                Ok(container) => Some(container),
                 // Gone since the link was read: with it the link.
                 Err(error) if error.is_not_found() => {
                     return Err(AppError::invitation_unavailable());
@@ -404,8 +407,8 @@ impl App {
             } else {
                 inviter.display_name
             },
-            board_kind: board.as_ref().map(|board| board.kind),
-            board_title: board.map(|board| board.title),
+            container_kind: container.as_ref().map(|container| container.kind),
+            container_title: container.map(|container| container.title),
         })
     }
 
@@ -483,12 +486,16 @@ impl App {
         );
         // Which address the guest goes to: a board gone meanwhile has none, and the
         // board's address tells them so.
-        let board_kind = match &accepted.board_id {
-            Some(board_id) => match app.store().get_board(board_id).await {
-                Ok(board) => Some(board.kind),
+        let container_kind = match &accepted.container_id {
+            Some(container_id) => match app.store().get_container(container_id).await {
+                Ok(container) => Some(container.kind),
                 Err(error) if error.is_not_found() => None,
                 Err(error) => {
-                    tracing::warn!(%board_id, %error, "the kind of an accepted invitation's board was not read");
+                    tracing::warn!(
+                        %container_id,
+                        %error,
+                        "the kind of an accepted invitation's board was not read"
+                    );
                     None
                 }
             },
@@ -496,8 +503,8 @@ impl App {
         };
         Ok(Admission::LetIn(AcceptedInvitation {
             workspace_id: accepted.workspace_id,
-            board_id: accepted.board_id,
-            board_kind,
+            container_id: accepted.container_id,
+            container_kind,
         }))
     }
 
@@ -593,12 +600,12 @@ impl App {
 
     /// Shows who came in by a guest's link to whoever is on its board.
     pub(super) async fn announce_admission(&self, accepted: &Accepted) {
-        let (true, Some(board_id)) = (accepted.used, &accepted.board_id) else {
+        let (true, Some(container_id)) = (accepted.used, &accepted.container_id) else {
             return;
         };
         match self
             .store()
-            .get_member_for_board(board_id, &accepted.user_id)
+            .get_member_for_container(container_id, &accepted.user_id)
             .await
         {
             Ok(member) => {
@@ -606,7 +613,7 @@ impl App {
             }
             Err(error) => tracing::warn!(
                 %error,
-                board_id,
+                container_id,
                 "a guest who came in was not announced to the board"
             ),
         }

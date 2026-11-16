@@ -106,9 +106,9 @@ impl Outcome {
             | StoreError::NotAllFound { .. }
             | StoreError::InvalidBlock { .. }
             | StoreError::Block(_)
-            | StoreError::InvalidBoard(_)
-            | StoreError::InvalidBoardsAndBlocks(_)
-            | StoreError::BlockNotInDeletedBoards { .. }
+            | StoreError::InvalidContainer(_)
+            | StoreError::InvalidContainersAndBlocks(_)
+            | StoreError::BlockNotInDeletedContainers { .. }
             | StoreError::InvalidCategory(_)
             | StoreError::InvalidSubscription(_)
             | StoreError::InvalidId(_)

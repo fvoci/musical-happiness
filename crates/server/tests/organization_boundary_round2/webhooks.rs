@@ -59,7 +59,7 @@ async fn a_global_webhook_receives_each_scoped_background_change_with_its_own_bo
     for (app, board) in [(&a, &scene.a), (&b, &scene.b)] {
         let mut block = Block {
             id: new_id(),
-            board_id: board.id.clone(),
+            container_id: board.id.clone(),
             block_type: BlockType::Card,
             title: board.title.clone(),
             ..Block::default()
@@ -107,12 +107,12 @@ async fn a_second_orgs_read_token_can_subscribe_to_its_card_updates() {
         let board = ts
             .create_board(
                 super::common::ROOT_WORKSPACE_ID,
-                fvoci_model::BoardType::Private,
+                fvoci_model::ContainerType::Private,
             )
             .await;
         let mut card = Block {
             id: new_id(),
-            board_id: board.id.clone(),
+            container_id: board.id.clone(),
             block_type: BlockType::Card,
             ..Block::default()
         };

@@ -18,7 +18,7 @@
 use std::fmt::Write as _;
 use std::time::Duration;
 
-use fvoci_model::{Board, BoardKind, BoardType, SearchHit, SearchKind, new_id};
+use fvoci_model::{Container, ContainerKind, ContainerType, SearchHit, SearchKind, new_id};
 use fvoci_server::config::search::SearchSettings;
 use serde_json::Value;
 
@@ -313,9 +313,13 @@ async fn korean_questions_find_their_cards_on_a_real_search_server() {
         .init_basic()
         .await;
     fvoci_server::search::tend(&th.app).await;
-    let board: Board = th
+    let board: Container = th
         .client
-        .create_board(&new_board(TEST_WORKSPACE_ID, BoardType::Private, "한국어"))
+        .create_board(&new_board(
+            TEST_WORKSPACE_ID,
+            ContainerType::Private,
+            "한국어",
+        ))
         .await
         .created_json();
     let wiki = new_wiki(&th.client).await;
@@ -441,7 +445,7 @@ async fn korean_questions_find_their_cards_on_a_real_search_server() {
     assert_eq!(refund.title, "고객 응대 안내");
     assert_eq!(
         (refund.kind, refund.container_kind, &refund.container_id),
-        (SearchKind::Page, BoardKind::Wiki, &wiki)
+        (SearchKind::Page, ContainerKind::Wiki, &wiki)
     );
     assert!(
         refund

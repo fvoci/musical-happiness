@@ -194,10 +194,10 @@ impl FromStr for BlockType {
 pub enum BlockError {
     /// The block names no board.
     #[error("boardID is empty")]
-    EmptyBoardId,
+    EmptyContainerId,
     /// The block's parent is not a block of the block's board.
     #[error("the parent is not a block of the board")]
-    ParentNotOnBoard,
+    ParentNotOnContainer,
     /// The block's new parent is the block itself or a block below it.
     #[error("the parent is the block itself or below it")]
     ParentBelowBlock,
@@ -397,7 +397,8 @@ pub struct Block {
     pub delete_at: i64,
     /// The identifier of the board the block belongs to.
     #[serde(deserialize_with = "null_as_default")]
-    pub board_id: String,
+    #[serde(rename = "boardId")]
+    pub container_id: String,
     /// For a comment whose body was changed: when that last happened, in milliseconds
     /// since the Unix epoch. Absent for a comment never changed and for every other
     /// block. The server sets it, and ignores a client's. What the body said before is
@@ -427,8 +428,8 @@ impl Block {
     /// (a string and a boolean, or `null`). `properties` among a block's fields always means card
     /// property values, whatever the block's type.
     pub fn validate(&self) -> Result<(), BlockError> {
-        if self.board_id.is_empty() {
-            return Err(BlockError::EmptyBoardId);
+        if self.container_id.is_empty() {
+            return Err(BlockError::EmptyContainerId);
         }
         if self.title.chars().count() > BLOCK_TITLE_MAX_CHARS {
             return Err(BlockError::TitleSizeLimitExceeded);

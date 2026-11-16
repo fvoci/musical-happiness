@@ -3,7 +3,9 @@
 
 use std::collections::BTreeMap;
 
-use fvoci_model::{Board, BoardKind, BoardType, NewPage, Page, SearchHit, SearchKind, new_id};
+use fvoci_model::{
+    Container, ContainerKind, ContainerType, NewPage, Page, SearchHit, SearchKind, new_id,
+};
 use fvoci_server::search::tend;
 use fvoci_store::testing::db_type_of_the_tests;
 use fvoci_store::{DbType, Store};
@@ -61,16 +63,16 @@ pub(crate) async fn new_page(
 async fn stored_wiki(
     store: &Store,
     workspace_id: &str,
-    wiki_type: BoardType,
+    wiki_type: ContainerType,
     user_id: &str,
 ) -> (String, String) {
-    let mut wiki = Board {
+    let mut wiki = Container {
         id: new_id(),
-        kind: BoardKind::Wiki,
+        kind: ContainerKind::Wiki,
         ..new_board(workspace_id, wiki_type, "Wiki")
     };
     store
-        .insert_board_with_admin(&mut wiki, user_id)
+        .insert_container_with_admin(&mut wiki, user_id)
         .await
         .expect("the wiki is stored");
     let page = store
@@ -123,9 +125,13 @@ async fn a_page_is_sent_and_found_with_the_cards_while_it_is_there() {
     let wiki = new_wiki(&th.client).await;
     let page = new_page(&th.client, &wiki, "", "환불 안내", "환불규정을 따른다").await;
     let below = new_page(&th.client, &wiki, &page.id, "환불 예외", "환불").await;
-    let board: Board = th
+    let board: Container = th
         .client
-        .create_board(&new_board(TEST_WORKSPACE_ID, BoardType::Private, "Support"))
+        .create_board(&new_board(
+            TEST_WORKSPACE_ID,
+            ContainerType::Private,
+            "Support",
+        ))
         .await
         .created_json();
     let card = new_card(&th.client, &board.id, "환불 카드", "환불").await;
@@ -183,13 +189,13 @@ async fn a_page_is_sent_and_found_with_the_cards_while_it_is_there() {
     let found = pages.iter().find(|hit| hit.id == page.id).expect("found");
     assert_eq!(found.kind, SearchKind::Page);
     assert_eq!(found.container_id, wiki);
-    assert_eq!(found.container_kind, BoardKind::Wiki);
+    assert_eq!(found.container_kind, ContainerKind::Wiki);
     assert_eq!(found.title, "환불 안내");
     assert!(found.snippet.iter().any(|part| part.matched), "{found:?}");
     let of_card = cards.first().expect("the card");
     assert_eq!(
         (of_card.kind, of_card.container_kind),
-        (SearchKind::Card, BoardKind::Board)
+        (SearchKind::Card, ContainerKind::Board)
     );
     assert_eq!(
         after_the_page.into_keys().collect::<Vec<_>>(),
@@ -228,7 +234,7 @@ async fn page_of_another_organization(th: &TestServer) -> String {
     let (_, page) = stored_wiki(
         &theirs,
         &their_workspace,
-        BoardType::Private,
+        ContainerType::Private,
         &their_user.id,
     )
     .await;
@@ -239,13 +245,18 @@ async fn page_of_another_organization(th: &TestServer) -> String {
 /// private wiki of somebody else, of another workspace and another organization, of
 /// the trash (a page and what was below it) and of a wiki that is gone for good.
 #[tokio::test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "every kind of page the searcher does not read, in one stale index"
+)]
 async fn a_stale_index_shows_nobody_a_page_they_do_not_read() {
     let fake = FakeSearch::start().await;
     let th = started(&fake).await;
     let org_id = th.app.store().tenant().org_id().expect("an organization");
     let store = th.app.store();
     // A board of the first user in the root workspace: a search there asks the index.
-    th.create_board(ROOT_WORKSPACE_ID, BoardType::Private).await;
+    th.create_board(ROOT_WORKSPACE_ID, ContainerType::Private)
+        .await;
 
     // The first user's wiki: a page they read, and a page that went with one below.
     let mine = new_wiki(&th.client).await;
@@ -273,14 +284,15 @@ async fn a_stale_index_shows_nobody_a_page_they_do_not_read() {
     // the searchers are not in.
     let stranger = th.stranger_in(TEST_WORKSPACE_ID).await;
     let (private, private_page) =
-        stored_wiki(store, TEST_WORKSPACE_ID, BoardType::Private, &stranger).await;
+        stored_wiki(store, TEST_WORKSPACE_ID, ContainerType::Private, &stranger).await;
     // An open wiki the searchers have not joined: read by whoever works there.
-    let (open, open_page) = stored_wiki(store, TEST_WORKSPACE_ID, BoardType::Open, &stranger).await;
+    let (open, open_page) =
+        stored_wiki(store, TEST_WORKSPACE_ID, ContainerType::Open, &stranger).await;
     let hidden_owner = th.stranger_in(HIDDEN_WORKSPACE_ID).await;
     let (_, hidden_page) = stored_wiki(
         store,
         HIDDEN_WORKSPACE_ID,
-        BoardType::Private,
+        ContainerType::Private,
         &hidden_owner,
     )
     .await;
@@ -306,9 +318,13 @@ async fn a_stale_index_shows_nobody_a_page_they_do_not_read() {
         );
     }
     // The second user has a board of their own to search, with a card, and no wiki.
-    let their_board: Board = th
+    let their_board: Container = th
         .client2
-        .create_board(&new_board(TEST_WORKSPACE_ID, BoardType::Private, "Theirs"))
+        .create_board(&new_board(
+            TEST_WORKSPACE_ID,
+            ContainerType::Private,
+            "Theirs",
+        ))
         .await
         .created_json();
     let their_card = new_card(&th.client2, &their_board.id, "환불 카드", "환불").await;

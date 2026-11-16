@@ -109,11 +109,15 @@ pub(crate) async fn workspace_admin(th: &crate::common::TestServer) {
 }
 
 async fn template_reader(th: &crate::common::TestServer) -> (String, Peer) {
-    let board: fvoci_model::Board = th
+    let board: fvoci_model::Container = th
         .client
-        .create_board(&fvoci_model::Board {
+        .create_board(&fvoci_model::Container {
             is_template: true,
-            ..crate::boards::new_board(TEST_WORKSPACE_ID, fvoci_model::BoardType::Open, "Template")
+            ..crate::boards::new_board(
+                TEST_WORKSPACE_ID,
+                fvoci_model::ContainerType::Open,
+                "Template",
+            )
         })
         .await
         .created_json();
@@ -191,7 +195,7 @@ async fn a_batch_closing_a_template_puts_out_its_uninvited_readers() {
 async fn a_batch_closing_several_templates_puts_out_the_readers_of_each() {
     let th = seldom().start().await.init_basic().await;
     let roomless = th
-        .create_board(TEST_WORKSPACE_ID, fvoci_model::BoardType::Open)
+        .create_board(TEST_WORKSPACE_ID, fvoci_model::ContainerType::Open)
         .await
         .id;
     let (first, mut first_reader) = template_reader(&th).await;
@@ -374,12 +378,12 @@ async fn a_board_passed_to_the_workspace_admin_lets_them_write_at_once() {
             t.board_id
         )
     };
-    let role = |user: &str, admin: bool| fvoci_model::BoardMember {
-        board_id: t.board_id.clone(),
+    let role = |user: &str, admin: bool| fvoci_model::ContainerMember {
+        container_id: t.board_id.clone(),
         user_id: user.to_owned(),
         scheme_admin: admin,
         scheme_viewer: true,
-        ..fvoci_model::BoardMember::default()
+        ..fvoci_model::ContainerMember::default()
     };
     // The other user is the board's only admin; the first a viewer of it.
     give(&th, &t.board_id, &other, "viewer").await;

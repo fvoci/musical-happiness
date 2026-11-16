@@ -29,7 +29,7 @@ pub(crate) mod tag {
     pub(crate) const AUTH: &str = "auth";
     pub(crate) const USERS: &str = "users";
     pub(crate) const WORKSPACES: &str = "workspaces";
-    pub(crate) const BOARDS: &str = "boards";
+    pub(crate) const CONTAINERS: &str = "boards";
     pub(crate) const WIKIS: &str = "wikis";
     pub(crate) const MEMBERS: &str = "members";
     pub(crate) const SHARING: &str = "sharing";
@@ -61,7 +61,7 @@ const TAGS: [(&str, &str); 16] = [
         tag::WORKSPACES,
         "The workspaces a user is a member of, what is in a workspace, and its users.",
     ),
-    (tag::BOARDS, "Boards and templates."),
+    (tag::CONTAINERS, "Boards and templates."),
     (
         tag::WIKIS,
         "Wikis and their pages. A wiki is a board of the kind `wiki`: who is on it, its \
@@ -690,7 +690,7 @@ fn require_members(name: &str, schema: &mut Value, members: Members) -> Result<(
 }
 
 /// Takes the brackets off the names that the descriptions link to in the Rust
-/// documentation they are also: ``[`Board`]`` reads `` `Board` `` in the contract.
+/// documentation they are also: ``[`Container`]`` reads `` `Board` `` in the contract.
 fn plain_descriptions(value: &mut Value) {
     match value {
         Value::Object(members) => {

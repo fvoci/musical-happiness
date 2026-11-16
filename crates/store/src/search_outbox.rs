@@ -29,7 +29,7 @@ pub enum SearchTarget {
     Block,
     /// A board: every document of it is sent again, and those of blocks that are
     /// gone removed.
-    Board,
+    Container,
 }
 
 impl SearchTarget {
@@ -37,14 +37,14 @@ impl SearchTarget {
     fn as_str(self) -> &'static str {
         match self {
             Self::Block => "block",
-            Self::Board => "container",
+            Self::Container => "container",
         }
     }
 
     fn parse(text: &str) -> Result<Self, StoreError> {
         match text {
             "block" => Ok(Self::Block),
-            "container" => Ok(Self::Board),
+            "container" => Ok(Self::Container),
             other => Err(StoreError::Corrupt {
                 column: "scope",
                 reason: format!("unknown scope {other:?}"),
@@ -272,7 +272,7 @@ impl Store {
     ///
     /// Returns [`StoreError::Database`] if a statement fails; nothing is listed or
     /// remembered then.
-    pub async fn list_every_board_for_search(
+    pub async fn list_every_container_for_search(
         &self,
         mark: &SearchIndexMark,
     ) -> Result<u64, StoreError> {
@@ -358,7 +358,10 @@ pub(crate) async fn note_blocks(scope: &mut Scope<'_>, ids: &[&str]) -> Result<(
 /// Notes that everything of the board changed, in the transaction that changes it:
 /// while its row is among the boards, which says whose it is. Nothing is noted on a
 /// server without a search server.
-pub(crate) async fn note_board(scope: &mut Scope<'_>, board_id: &str) -> Result<(), StoreError> {
+pub(crate) async fn note_container(
+    scope: &mut Scope<'_>,
+    container_id: &str,
+) -> Result<(), StoreError> {
     if !scope.keeps_search_outbox() {
         return Ok(());
     }
@@ -371,7 +374,7 @@ pub(crate) async fn note_board(scope: &mut Scope<'_>, board_id: &str) -> Result<
         .push_bind(", ", now)
         .push(" FROM containers AS bo JOIN workspaces AS w ON w.id = bo.workspace_id")
         .push(&scope.same_organization(&[("w", "bo")]))
-        .push_bind(" WHERE bo.id = ", Id(board_id))
+        .push_bind(" WHERE bo.id = ", Id(container_id))
         .push(NOTED_AGAIN);
     scope.execute(sql).await?;
     Ok(())

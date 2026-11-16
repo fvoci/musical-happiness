@@ -11,7 +11,7 @@ use axum::extract::{Extension, Path, State};
 use axum::http::{Extensions, HeaderMap, StatusCode};
 use axum::response::IntoResponse as _;
 use fvoci_model::{
-    AcceptInvitation, AcceptedInvitation, BoardRole, GuestInvitationsChange, Invitation,
+    AcceptInvitation, AcceptedInvitation, ContainerRole, GuestInvitationsChange, Invitation,
     InvitationPreview, InvitationToken, NewInvitation, Workspace, WorkspaceRole,
 };
 use serde::Deserialize;
@@ -28,7 +28,7 @@ use super::{ApiResult, OptionalSession, created, decode_object, json_response, n
 use crate::app::{Accepting, Admission, App, Inviting};
 use crate::client_address::ClientAddress;
 use crate::error::AppError;
-use crate::permissions::{self, BoardPermission, WorkspacePermission};
+use crate::permissions::{self, ContainerPermission, WorkspacePermission};
 
 /// Where the account to make is in the request that accepts a link: a JSON Pointer.
 const ACCOUNT: &str = "/account";
@@ -86,8 +86,8 @@ async fn handle_create_invitation(InContainer(ws): InContainer, body: Bytes) -> 
     let inviting = match request.role {
         WorkspaceRole::Member => {
             for (given, field) in [
-                (request.board_id.is_some(), "boardId"),
-                (request.board_role.is_some(), "boardRole"),
+                (request.container_id.is_some(), "boardId"),
+                (request.container_role.is_some(), "boardRole"),
             ] {
                 if given {
                     return Err(
@@ -123,13 +123,13 @@ async fn guest_of<'r>(
     ws: &InWorkspace,
     request: &'r NewInvitation,
 ) -> Result<Inviting<'r>, AppError> {
-    let Some(board_id) = request.board_id.as_deref() else {
+    let Some(container_id) = request.container_id.as_deref() else {
         return Err(
             AppError::bad_request("an invitation for a guest names the board")
                 .with_field("boardId"),
         );
     };
-    let role = request.board_role.unwrap_or(BoardRole::Editor);
+    let role = request.container_role.unwrap_or(ContainerRole::Editor);
     if !permissions::may_hold(WorkspaceRole::Guest, role) {
         return Err(
             AppError::bad_request("a guest is an editor of a board at most")
@@ -139,17 +139,17 @@ async fn guest_of<'r>(
     // A board the user does not see, and one of another workspace, is not there.
     let (access, invites) = ws
         .app
-        .guest_inviter(&ws.session.user_id, &ws.workspace_id, board_id)
+        .guest_inviter(&ws.session.user_id, &ws.workspace_id, container_id)
         .await?
         .filter(|(access, _)| access.grant.sees())
         .ok_or_else(|| AppError::not_found("board"))?;
-    if access.board.is_template {
+    if access.container.is_template {
         return Err(
             AppError::bad_request("a guest is invited to a board, not to a template")
                 .with_field("boardId"),
         );
     }
-    if !access.grant.allows(BoardPermission::ManageBoardRoles) {
+    if !access.grant.allows(ContainerPermission::ManageRoles) {
         return Err(AppError::forbidden(
             "only who adds the members of the board invites guests to it",
         ));
@@ -159,7 +159,7 @@ async fn guest_of<'r>(
             "guests are not invited to the boards of this workspace",
         ));
     }
-    Ok(Inviting::Guest { board_id, role })
+    Ok(Inviting::Guest { container_id, role })
 }
 
 /// The invitations of a workspace

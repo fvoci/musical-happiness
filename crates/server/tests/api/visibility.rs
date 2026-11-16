@@ -9,7 +9,7 @@
 //! nothing, and with text that is no identifier at all. What cannot be an identifier is
 //! not there either, and it gets the same answer again.
 
-use fvoci_model::{Block, BlockType, BoardType, Category, new_id};
+use fvoci_model::{Block, BlockType, Category, ContainerType, new_id};
 use reqwest::multipart::{Form, Part};
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
@@ -46,10 +46,12 @@ impl Hidden {
         let th = Setup::local_mode().start().await.init_basic().await;
         let owner = th.client.me().await;
         let outsider = th.client2.me().await.id;
-        let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
+        let board = th
+            .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+            .await;
         let block = |block_type: BlockType, parent_id: &str| Block {
             id: new_id(),
-            board_id: board.id.clone(),
+            container_id: board.id.clone(),
             parent_id: parent_id.to_owned(),
             block_type,
             create_at: 1,
@@ -120,16 +122,16 @@ impl Hidden {
         // What the outsider has of their own, to ask about hidden things through.
         let own_board = th
             .client2
-            .create_board(&fvoci_model::Board {
+            .create_board(&fvoci_model::Container {
                 workspace_id: TEST_WORKSPACE_ID.to_owned(),
-                board_type: BoardType::Private,
-                ..fvoci_model::Board::default()
+                container_type: ContainerType::Private,
+                ..fvoci_model::Container::default()
             })
             .await
-            .created_json::<fvoci_model::Board>();
+            .created_json::<fvoci_model::Container>();
         let own_block = |block_type: BlockType, parent_id: &str| Block {
             id: new_id(),
-            board_id: own_board.id.clone(),
+            container_id: own_board.id.clone(),
             parent_id: parent_id.to_owned(),
             block_type,
             create_at: 1,

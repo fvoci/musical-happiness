@@ -3,7 +3,7 @@
 use crate::boards::{board_with_admin, new_board};
 use crate::common::{ROOT_WORKSPACE_ID, Setup, TestServer};
 use fvoci_model::{
-    AuditAction, Block, BlockType, BoardTeam, BoardType, Subscription, Team, new_id,
+    AuditAction, Block, BlockType, ContainerTeam, ContainerType, Subscription, Team, new_id,
 };
 use reqwest::StatusCode;
 use serde_json::json;
@@ -42,7 +42,7 @@ async fn board_restore_keeps_surviving_teams_and_uses_their_current_people() {
     let user = th.client2.me().await.id;
     let board = board_with_admin(
         &th,
-        new_board(ROOT_WORKSPACE_ID, BoardType::Private, "Restore teams"),
+        new_board(ROOT_WORKSPACE_ID, ContainerType::Private, "Restore teams"),
         &owner,
     )
     .await;
@@ -76,7 +76,7 @@ async fn board_restore_keeps_surviving_teams_and_uses_their_current_people() {
         .post(&format!("{path}/undelete"), &json!({}))
         .await
         .check_ok();
-    let assigned: Vec<BoardTeam> = th.client.get(&format!("{path}/teams")).await.ok_json();
+    let assigned: Vec<ContainerTeam> = th.client.get(&format!("{path}/teams")).await.ok_json();
     assert_eq!(assigned.len(), 1, "deleted teams stay deleted");
     assert_eq!(assigned[0].team.id, surviving.id);
     assert_eq!(assigned[0].role.as_str(), "editor");
@@ -86,7 +86,7 @@ async fn board_restore_keeps_surviving_teams_and_uses_their_current_people() {
         .check_status(StatusCode::NOT_FOUND);
     assert!(
         th.app
-            .board_grant(&newcomer, &board.id)
+            .container_grant(&newcomer, &board.id)
             .await
             .unwrap()
             .reads(),
@@ -101,14 +101,14 @@ async fn team_removal_preserves_template_subscriptions_until_workspace_membershi
         let th = Setup::native().start().await.init_basic().await;
         let owner = th.client.me().await.id;
         let user = th.client2.me().await.id;
-        let mut template = new_board(ROOT_WORKSPACE_ID, BoardType::Open, "Open template");
+        let mut template = new_board(ROOT_WORKSPACE_ID, ContainerType::Open, "Open template");
         template.is_template = true;
         let board = board_with_admin(&th, template, &owner).await;
         let path = format!("/w/{ROOT_WORKSPACE_ID}/boards/{}", board.id);
         let team = assigned_team(&th, &path, &user, "Template editors").await;
         let mut block = Block {
             id: new_id(),
-            board_id: board.id.clone(),
+            container_id: board.id.clone(),
             block_type: BlockType::Card,
             ..Block::default()
         };
@@ -187,7 +187,7 @@ async fn records_of(th: &TestServer, board_id: &str) -> Vec<(&'static str, Strin
             r.target_id == board_id
                 && matches!(
                     r.action,
-                    AuditAction::SelfAddedToBoard | AuditAction::AddedToBoard
+                    AuditAction::SelfAddedToContainer | AuditAction::AddedToContainer
                 )
         })
         .map(|r| {
@@ -206,7 +206,11 @@ async fn a_manager_who_restores_a_board_through_its_teams_puts_everyone_it_opens
     let colleague = th.stranger().await;
     let board = board_with_admin(
         &th,
-        new_board(ROOT_WORKSPACE_ID, BoardType::Private, "Restored managed"),
+        new_board(
+            ROOT_WORKSPACE_ID,
+            ContainerType::Private,
+            "Restored managed",
+        ),
         &owner,
     )
     .await;
@@ -244,12 +248,12 @@ async fn a_manager_who_restores_a_board_through_its_teams_puts_everyone_it_opens
     records.sort();
     let mut expected = vec![
         (
-            AuditAction::SelfAddedToBoard.as_str(),
+            AuditAction::SelfAddedToContainer.as_str(),
             manager.clone(),
             String::new(),
         ),
         (
-            AuditAction::AddedToBoard.as_str(),
+            AuditAction::AddedToContainer.as_str(),
             manager.clone(),
             colleague.clone(),
         ),
@@ -270,7 +274,7 @@ async fn an_admin_of_the_board_who_restores_it_records_nobody() {
         &th,
         new_board(
             ROOT_WORKSPACE_ID,
-            BoardType::Private,
+            ContainerType::Private,
             "Restored by its admin",
         ),
         &manager,
@@ -310,7 +314,7 @@ async fn giving_a_team_the_role_it_has_or_taking_one_it_lacks_changes_nobody() {
     let user = th.client2.me().await.id;
     let board = board_with_admin(
         &th,
-        new_board(ROOT_WORKSPACE_ID, BoardType::Private, "Unchanged"),
+        new_board(ROOT_WORKSPACE_ID, ContainerType::Private, "Unchanged"),
         &manager,
     )
     .await;
@@ -334,7 +338,7 @@ async fn giving_a_team_the_role_it_has_or_taking_one_it_lacks_changes_nobody() {
         let changes = th
             .app
             .store()
-            .set_board_team(ROOT_WORKSPACE_ID, &board.id, &team.id, role, &manager)
+            .set_container_team(ROOT_WORKSPACE_ID, &board.id, &team.id, role, &manager)
             .await
             .expect("the role is set");
         assert_eq!(changes.len(), changed, "{why}: {changes:?}");
@@ -350,7 +354,7 @@ async fn adding_a_person_already_in_the_team_changes_nobody() {
     let user = th.client2.me().await.id;
     let board = board_with_admin(
         &th,
-        new_board(ROOT_WORKSPACE_ID, BoardType::Private, "Once"),
+        new_board(ROOT_WORKSPACE_ID, ContainerType::Private, "Once"),
         &manager,
     )
     .await;
@@ -360,7 +364,7 @@ async fn adding_a_person_already_in_the_team_changes_nobody() {
         .await
         .expect("the team is made");
     th.app
-        .set_board_team(
+        .set_container_team(
             ROOT_WORKSPACE_ID,
             &board.id,
             &team.id,

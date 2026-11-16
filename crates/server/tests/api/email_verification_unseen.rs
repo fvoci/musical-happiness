@@ -5,7 +5,7 @@
 
 use std::time::Duration;
 
-use fvoci_model::{Board, BoardType, Invitation};
+use fvoci_model::{Container, ContainerType, Invitation};
 use fvoci_store::{Signup, SignupLookup};
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
@@ -226,7 +226,7 @@ struct Scene {
     smtp: FakeSmtp,
     ada: Client,
     workspace_id: String,
-    board: Board,
+    board: Container,
     for_members: Invitation,
     hidden: Vec<Signup>,
 }
@@ -256,11 +256,11 @@ impl Scene {
             .as_str()
             .expect("her workspace")
             .to_owned();
-        let board: Board = ada
-            .create_board(&Board {
+        let board: Container = ada
+            .create_board(&Container {
                 workspace_id: workspace_id.clone(),
-                board_type: BoardType::Open,
-                ..Board::default()
+                container_type: ContainerType::Open,
+                ..Container::default()
             })
             .await
             .created_json();

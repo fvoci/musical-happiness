@@ -1,10 +1,11 @@
 //! Pins the JSON form of the wire types, and the leniency of decoding.
 
 use fvoci_model::{
-    Block, BlockPatch, BlockPatchBatch, BlockType, Board, BoardKind, BoardMember, BoardPatch,
-    BoardType, Category, CategoryBoardMetadata, CategoryBoards, CategoryType, ClientConfig,
-    InvalidInput, LoginRequest, MinimumRole, PatchBoardsAndBlocks, Problem, Sharing, Subscriber,
-    SubscriberType, Subscription, User, UserPreferencesPatch, Workspace,
+    Block, BlockPatch, BlockPatchBatch, BlockType, Category, CategoryContainerMetadata,
+    CategoryContainers, CategoryType, ClientConfig, Container, ContainerKind, ContainerMember,
+    ContainerPatch, ContainerType, InvalidInput, LoginRequest, MinimumRole,
+    PatchContainersAndBlocks, Problem, Sharing, Subscriber, SubscriberType, Subscription, User,
+    UserPreferencesPatch, Workspace,
 };
 use serde_json::{Value, json};
 
@@ -27,7 +28,7 @@ fn block_json_members() {
         create_at: 10,
         update_at: 20,
         delete_at: 0,
-        board_id: "b1".to_owned(),
+        container_id: "b1".to_owned(),
         edited_at: 0,
     };
     let want = json!({
@@ -153,13 +154,13 @@ fn block_patch_apply_updates_then_deletes() {
 
 #[test]
 fn board_json_members() {
-    let board = Board {
+    let board = Container {
         id: "b1".to_owned(),
         workspace_id: "0".to_owned(),
         created_by: "u1".to_owned(),
         modified_by: "u1".to_owned(),
-        board_type: BoardType::Private,
-        kind: BoardKind::Board,
+        container_type: ContainerType::Private,
+        kind: ContainerKind::Board,
         minimum_role: MinimumRole::Commenter,
         title: "Roadmap".to_owned(),
         description: "d".to_owned(),
@@ -184,19 +185,19 @@ fn board_json_members() {
     });
     assert_eq!(to_json(&board), want);
     assert_eq!(
-        serde_json::from_value::<Board>(want).expect("decodes"),
+        serde_json::from_value::<Container>(want).expect("decodes"),
         board
     );
 }
 
 #[test]
 fn board_requires_a_valid_type_and_role() {
-    let minimal: Board = serde_json::from_value(json!({ "type": "O" })).expect("decodes");
-    assert_eq!(minimal, Board::default());
+    let minimal: Container = serde_json::from_value(json!({ "type": "O" })).expect("decodes");
+    assert_eq!(minimal, Container::default());
     // A board always has a minimum role. One that names none starts with editor.
     assert_eq!(minimal.minimum_role, MinimumRole::Editor);
     assert_eq!(to_json(&minimal)["minimumRole"], json!("editor"));
-    let null_role: Board =
+    let null_role: Container =
         serde_json::from_value(json!({ "type": "O", "minimumRole": null })).expect("decodes");
     assert_eq!(
         null_role.minimum_role,
@@ -204,7 +205,7 @@ fn board_requires_a_valid_type_and_role() {
         "null is absent"
     );
     for role in MinimumRole::ALL {
-        let board: Board =
+        let board: Container =
             serde_json::from_value(json!({ "type": "O", "minimumRole": role.as_str() }))
                 .expect("decodes");
         assert_eq!(board.minimum_role, role);
@@ -222,7 +223,7 @@ fn board_requires_a_valid_type_and_role() {
         json!({ "type": "O", "minimumRole": "Editor" }),
     ] {
         assert!(
-            serde_json::from_value::<Board>(body.clone()).is_err(),
+            serde_json::from_value::<Container>(body.clone()).is_err(),
             "{body} must not decode"
         );
     }
@@ -230,7 +231,7 @@ fn board_requires_a_valid_type_and_role() {
 
 #[test]
 fn board_patch_apply_merges_card_properties_in_order() {
-    let mut board = Board {
+    let mut board = Container {
         properties: serde_json::from_value(json!({ "keep": 1, "drop": 2 })).expect("object"),
         card_properties: serde_json::from_value(json!([
             { "id": "a", "name": "A" },
@@ -239,9 +240,9 @@ fn board_patch_apply_merges_card_properties_in_order() {
             { "id": "c", "name": "C" }
         ]))
         .expect("list of objects"),
-        ..Board::default()
+        ..Container::default()
     };
-    let patch: BoardPatch = serde_json::from_value(json!({
+    let patch: ContainerPatch = serde_json::from_value(json!({
         "type": "P", "minimumRole": "viewer", "title": "t", "description": "d", "icon": "i",
         "showDescription": true,
         "updatedProperties": { "new": 3 }, "deletedProperties": ["drop"],
@@ -252,7 +253,7 @@ fn board_patch_apply_merges_card_properties_in_order() {
 
     patch.apply(&mut board);
 
-    assert_eq!(board.board_type, BoardType::Private);
+    assert_eq!(board.container_type, ContainerType::Private);
     assert_eq!(board.minimum_role, MinimumRole::Viewer);
     assert_eq!(
         (board.title.as_str(), board.description.as_str()),
@@ -273,14 +274,14 @@ fn board_patch_apply_merges_card_properties_in_order() {
 #[test]
 fn board_patch_without_card_property_changes_keeps_them_untouched() {
     let card_properties = json!([{ "name": "no id" }, { "id": "a" }]);
-    let mut board = Board {
+    let mut board = Container {
         card_properties: serde_json::from_value(card_properties.clone()).expect("list"),
-        ..Board::default()
+        ..Container::default()
     };
 
-    BoardPatch {
+    ContainerPatch {
         title: Some("t".to_owned()),
-        ..BoardPatch::default()
+        ..ContainerPatch::default()
     }
     .apply(&mut board);
 
@@ -291,12 +292,12 @@ fn board_patch_without_card_property_changes_keeps_them_untouched() {
 /// place. (In the original's merge it comes out twice.)
 #[test]
 fn board_patch_deleting_and_updating_a_card_property_keeps_one() {
-    let mut board = Board {
+    let mut board = Container {
         card_properties: serde_json::from_value(json!([{ "id": "a", "v": 1 }, { "id": "b" }]))
             .expect("list"),
-        ..Board::default()
+        ..Container::default()
     };
-    let patch: BoardPatch = serde_json::from_value(json!({
+    let patch: ContainerPatch = serde_json::from_value(json!({
         "updatedCardProperties": [{ "id": "a", "v": 2 }],
         "deletedCardProperties": ["a"]
     }))
@@ -313,8 +314,8 @@ fn board_patch_deleting_and_updating_a_card_property_keeps_one() {
 
 #[test]
 fn board_member_json_members() {
-    let member = BoardMember {
-        board_id: "b".to_owned(),
+    let member = ContainerMember {
+        container_id: "b".to_owned(),
         user_id: "u".to_owned(),
         roles: "r".to_owned(),
         scheme_admin: true,
@@ -337,13 +338,13 @@ fn board_member_json_members() {
 
 #[test]
 fn patch_boards_and_blocks_json_members() {
-    let patch: PatchBoardsAndBlocks = serde_json::from_value(json!({
+    let patch: PatchContainersAndBlocks = serde_json::from_value(json!({
         "boardIds": ["b"], "boardPatches": [{ "title": "t" }],
         "blockIds": ["a"], "blockPatches": [{ "title": "u" }]
     }))
     .expect("decodes");
-    assert_eq!((patch.board_ids.len(), patch.block_ids.len()), (1, 1));
-    assert_eq!(patch.board_patches[0].title.as_deref(), Some("t"));
+    assert_eq!((patch.container_ids.len(), patch.block_ids.len()), (1, 1));
+    assert_eq!(patch.container_patches[0].title.as_deref(), Some("t"));
     assert_eq!(patch.block_patches[0].title.as_deref(), Some("u"));
 }
 
@@ -383,15 +384,15 @@ fn category_json_members() {
 
 #[test]
 fn category_boards_json_flattens_the_category() {
-    let category_boards = CategoryBoards {
+    let category_boards = CategoryContainers {
         category: Category {
             id: "7c".to_owned(),
             name: "Boards".to_owned(),
             sort_order: 30,
             ..Category::default()
         },
-        board_metadata: vec![CategoryBoardMetadata {
-            board_id: "b1".to_owned(),
+        container_metadata: vec![CategoryContainerMetadata {
+            container_id: "b1".to_owned(),
             hidden: true,
         }],
     };
@@ -521,7 +522,7 @@ fn workspace_and_sharing_json_members() {
     // What is answered about sharing: whether, the token while there is one, and when.
     // Whose board it is and who changed it are not part of the answer.
     let sharing = Sharing {
-        board_id: "b".to_owned(),
+        container_id: "b".to_owned(),
         enabled: true,
         token: "tok".to_owned(),
         modified_by: "u".to_owned(),
@@ -533,7 +534,7 @@ fn workspace_and_sharing_json_members() {
     );
     assert_eq!(
         to_json(&Sharing {
-            board_id: "b".to_owned(),
+            container_id: "b".to_owned(),
             ..Sharing::default()
         }),
         json!({ "enabled": false }),
@@ -738,7 +739,7 @@ fn null_members_decode_as_empty_values() {
         "every null member is the empty value"
     );
 
-    let board: Board = serde_json::from_value(json!({
+    let board: Container = serde_json::from_value(json!({
         "id": null, "workspaceId": null, "channelId": null, "createdBy": null, "modifiedBy": null,
         "type": "P", "minimumRole": null, "title": null, "description": null, "icon": null,
         "showDescription": null, "isTemplate": null, "templateVersion": null, "properties": null,
@@ -747,21 +748,21 @@ fn null_members_decode_as_empty_values() {
     .expect("a board with null members decodes");
     assert_eq!(
         board,
-        Board {
-            board_type: BoardType::Private,
-            ..Board::default()
+        Container {
+            container_type: ContainerType::Private,
+            ..Container::default()
         },
         "every null member is the empty value"
     );
 
-    let member: BoardMember = serde_json::from_value(json!({
+    let member: ContainerMember = serde_json::from_value(json!({
         "boardId": null, "userId": null, "roles": null, "minimumRole": null,
         "schemeAdmin": null, "schemeEditor": null, "schemeCommenter": null, "schemeViewer": null,
     }))
     .expect("a member with null members decodes");
     assert_eq!(
         member,
-        BoardMember::default(),
+        ContainerMember::default(),
         "every null member is the empty value"
     );
 

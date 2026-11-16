@@ -2,15 +2,16 @@
 //!
 //! What a user may do on a board follows from three facts: what the user is in the
 //! board's workspace and organization ([`Actor`]), the board's scope, and the user's
-//! role on the board ([`BoardFacts`]). [`grant`] turns them into a [`Grant`]. Nothing
-//! here reads the database: `App::actor` (what `Store::resolve_workspace` answers) and `App::board_access`
+//! role on the board ([`ContainerFacts`]). [`grant`] turns them into a [`Grant`]. Nothing
+//! here reads the database: `App::actor` (what `Store::resolve_workspace` answers) and `App::container_access`
 //! are where the facts are read, and every check of a route goes through them.
 //!
 //! The table of `permissions/table.rs` pins every rule of this file, one row per
 //! sentence of what the product promises.
 
 use fvoci_model::{
-    Board, BoardKind, BoardMember, BoardRole, BoardType, OrgRole, Workspace, WorkspaceRole,
+    Container, ContainerKind, ContainerMember, ContainerRole, ContainerType, OrgRole, Workspace,
+    WorkspaceRole,
 };
 use fvoci_store::{Looking, Reach};
 
@@ -128,18 +129,20 @@ pub const fn may_become(from: WorkspaceRole, to: WorkspaceRole) -> bool {
 /// workspace), while the workspace lets guests be invited to its boards. A template
 /// takes no guests.
 #[must_use]
-pub const fn invites_guests(grant: Grant, scope: BoardScope, workspace: &Workspace) -> bool {
+pub const fn invites_guests(grant: Grant, scope: ContainerScope, workspace: &Workspace) -> bool {
     match scope {
-        BoardScope::InvitedOnly | BoardScope::Open | BoardScope::OpenWiki => {
-            workspace.guest_invitations && grant.allows(BoardPermission::ManageBoardRoles)
+        ContainerScope::InvitedOnly | ContainerScope::Open | ContainerScope::OpenWiki => {
+            workspace.guest_invitations && grant.allows(ContainerPermission::ManageRoles)
         }
-        BoardScope::BuiltIn | BoardScope::InvitedOnlyTemplate | BoardScope::OpenTemplate => false,
+        ContainerScope::BuiltIn
+        | ContainerScope::InvitedOnlyTemplate
+        | ContainerScope::OpenTemplate => false,
     }
 }
 
 /// Who a board is there for, besides its members.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BoardScope {
+pub enum ContainerScope {
     /// An open board: whoever works in the workspace sees it and may join it.
     Open,
     /// An open wiki: whoever works in the workspace reads it without joining, and joins
@@ -149,25 +152,29 @@ pub enum BoardScope {
     InvitedOnly,
     /// An open template of the workspace: whoever works there reads it, to copy it.
     OpenTemplate,
-    /// A template for the invited only, as [`BoardScope::InvitedOnly`].
+    /// A template for the invited only, as [`ContainerScope::InvitedOnly`].
     InvitedOnlyTemplate,
     /// A template the server ships with: every user's to read and copy.
     BuiltIn,
 }
 
-impl BoardScope {
+impl ContainerScope {
     /// The scope of a board as it is stored.
     #[must_use]
-    pub fn of(board: &Board) -> Self {
-        match (board.is_builtin, board.is_template, board.board_type) {
+    pub fn of(container: &Container) -> Self {
+        match (
+            container.is_builtin,
+            container.is_template,
+            container.container_type,
+        ) {
             (true, _, _) => Self::BuiltIn,
-            (false, false, BoardType::Open) => match board.kind {
-                BoardKind::Board => Self::Open,
-                BoardKind::Wiki => Self::OpenWiki,
+            (false, false, ContainerType::Open) => match container.kind {
+                ContainerKind::Board => Self::Open,
+                ContainerKind::Wiki => Self::OpenWiki,
             },
-            (false, false, BoardType::Private) => Self::InvitedOnly,
-            (false, true, BoardType::Open) => Self::OpenTemplate,
-            (false, true, BoardType::Private) => Self::InvitedOnlyTemplate,
+            (false, false, ContainerType::Private) => Self::InvitedOnly,
+            (false, true, ContainerType::Open) => Self::OpenTemplate,
+            (false, true, ContainerType::Private) => Self::InvitedOnlyTemplate,
         }
     }
 
@@ -190,77 +197,77 @@ impl BoardScope {
 
 /// What is known of a board for one user: its scope and the user's role on it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct BoardFacts {
+pub struct ContainerFacts {
     /// Who the board is there for besides its members.
-    pub scope: BoardScope,
+    pub scope: ContainerScope,
     /// The user's role on the board, as stored; `None` for who is no member.
-    pub role: Option<BoardRole>,
+    pub role: Option<ContainerRole>,
     /// The highest team role; ignored for guests and capped at editor.
-    pub team_role: Option<BoardRole>,
+    pub team_role: Option<ContainerRole>,
 }
 
 /// Something a user can be allowed to do on a board.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BoardPermission {
+pub enum ContainerPermission {
     /// Know that the board is there: read the board itself, find it in a list. Who may
     /// not is told that the board does not exist; who may and is refused something
     /// else is told it is refused.
-    SeeBoard,
+    See,
     /// Become a member of an open board with its minimum role.
-    JoinBoard,
+    Join,
     /// Read what is on the board: its cards, blocks, files and comments, its archive.
     /// Copying a board takes this too.
-    ViewBoard,
+    View,
     /// List the board's members.
     ListMembers,
     /// Comment on cards.
-    CommentBoardCards,
+    CommentCards,
     /// Create, change and delete cards and their content.
-    ManageBoardCards,
+    ManageCards,
     /// Change the board's title, properties and views.
-    ManageBoardProperties,
+    ManageProperties,
     /// Change the board between open and private, and its minimum role.
-    ManageBoardType,
+    ManageType,
     /// Add and remove members and change their roles.
-    ManageBoardRoles,
+    ManageRoles,
     /// Delete the board, and bring it back from the trash.
-    DeleteBoard,
+    Delete,
     /// Turn public sharing on and off.
-    ShareBoard,
+    Share,
     /// Change and delete comments written by others.
     ManageOthersComments,
 }
 
-impl BoardPermission {
+impl ContainerPermission {
     /// Every permission, in the order of the declaration.
     pub const ALL: [Self; 12] = [
-        Self::SeeBoard,
-        Self::JoinBoard,
-        Self::ViewBoard,
+        Self::See,
+        Self::Join,
+        Self::View,
         Self::ListMembers,
-        Self::CommentBoardCards,
-        Self::ManageBoardCards,
-        Self::ManageBoardProperties,
-        Self::ManageBoardType,
-        Self::ManageBoardRoles,
-        Self::DeleteBoard,
-        Self::ShareBoard,
+        Self::CommentCards,
+        Self::ManageCards,
+        Self::ManageProperties,
+        Self::ManageType,
+        Self::ManageRoles,
+        Self::Delete,
+        Self::Share,
         Self::ManageOthersComments,
     ];
 
     /// The bit of the permission in a [`Grant`].
     const fn bit(self) -> u16 {
         let place = match self {
-            Self::SeeBoard => 0,
-            Self::JoinBoard => 1,
-            Self::ViewBoard => 2,
-            Self::CommentBoardCards => 3,
-            Self::ManageBoardCards => 4,
-            Self::ManageBoardProperties => 5,
-            Self::ManageBoardType => 6,
-            Self::ManageBoardRoles => 7,
-            Self::DeleteBoard => 8,
-            Self::ShareBoard => 9,
+            Self::See => 0,
+            Self::Join => 1,
+            Self::View => 2,
+            Self::CommentCards => 3,
+            Self::ManageCards => 4,
+            Self::ManageProperties => 5,
+            Self::ManageType => 6,
+            Self::ManageRoles => 7,
+            Self::Delete => 8,
+            Self::Share => 9,
             Self::ManageOthersComments => 10,
             Self::ListMembers => 11,
         };
@@ -274,11 +281,11 @@ impl BoardPermission {
     pub const fn is_content(self) -> bool {
         matches!(
             self,
-            Self::ViewBoard
-                | Self::CommentBoardCards
-                | Self::ManageBoardCards
+            Self::View
+                | Self::CommentCards
+                | Self::ManageCards
                 | Self::ManageOthersComments
-                | Self::ShareBoard
+                | Self::Share
         )
     }
 }
@@ -298,7 +305,7 @@ impl Grant {
     pub const NONE: Self = Self(0);
 
     /// The grant of exactly these permissions.
-    const fn of(permissions: &[BoardPermission]) -> Self {
+    const fn of(permissions: &[ContainerPermission]) -> Self {
         let mut bits = 0;
         let mut index = 0;
         while index < permissions.len() {
@@ -315,7 +322,7 @@ impl Grant {
 
     /// Whether the grant has the permission.
     #[must_use]
-    pub const fn allows(self, permission: BoardPermission) -> bool {
+    pub const fn allows(self, permission: ContainerPermission) -> bool {
         self.0 & permission.bit() != 0
     }
 
@@ -323,14 +330,14 @@ impl Grant {
     /// (403); otherwise the board does not exist for them (404).
     #[must_use]
     pub const fn sees(self) -> bool {
-        self.allows(BoardPermission::SeeBoard)
+        self.allows(ContainerPermission::See)
     }
 
     /// Whether a refusal of `permission` tells that the board is not there (404) rather
     /// than that it is refused (403): for who does not see the board, and for who only
     /// manages it and asks for its content.
     #[must_use]
-    pub const fn hides(self, permission: BoardPermission) -> bool {
+    pub const fn hides(self, permission: ContainerPermission) -> bool {
         !self.sees() || (self.manages_only() && permission.is_content())
     }
 
@@ -347,7 +354,7 @@ impl Grant {
     /// exist for them (404).
     #[must_use]
     pub const fn reads(self) -> bool {
-        self.allows(BoardPermission::ViewBoard)
+        self.allows(ContainerPermission::View)
     }
 }
 
@@ -377,7 +384,7 @@ impl DocMode {
 /// is not there. A read token of a shared board is no grant: its readers stay outside.
 #[must_use]
 pub const fn doc_mode(grant: Grant) -> Option<DocMode> {
-    if grant.allows(BoardPermission::ManageBoardCards) {
+    if grant.allows(ContainerPermission::ManageCards) {
         Some(DocMode::Write)
     } else if grant.reads() {
         Some(DocMode::Read)
@@ -403,23 +410,23 @@ pub enum CommentAction<'a> {
 
 /// The permission doing `action` to a comment of `author_id` takes of `user_id`: a
 /// comment is its author's to change and delete, and to bring back if they deleted it
-/// themselves ([`BoardPermission::CommentBoardCards`]); a comment of somebody else, and
+/// themselves ([`ContainerPermission::CommentCards`]); a comment of somebody else, and
 /// one of their own that somebody else deleted, is the board's admins'
-/// ([`BoardPermission::ManageOthersComments`]).
+/// ([`ContainerPermission::ManageOthersComments`]).
 #[must_use]
 pub fn comment_permission(
     user_id: &str,
     author_id: &str,
     action: CommentAction<'_>,
-) -> BoardPermission {
+) -> ContainerPermission {
     let undoes_their_own = match action {
         CommentAction::Change | CommentAction::Delete => true,
         CommentAction::Undelete { deleted_by } => deleted_by == user_id,
     };
     if author_id == user_id && undoes_their_own {
-        BoardPermission::CommentBoardCards
+        ContainerPermission::CommentCards
     } else {
-        BoardPermission::ManageOthersComments
+        ContainerPermission::ManageOthersComments
     }
 }
 
@@ -432,7 +439,7 @@ pub enum Person {
     /// A member of the workspace now.
     Member {
         /// The two hold roles on a board of the workspace.
-        shares_a_board: bool,
+        shares_a_container: bool,
         /// The person authored the board, a block, or a kept comment version that
         /// the seer reads.
         wrote_where_seer_reads: bool,
@@ -457,11 +464,11 @@ pub const fn sees_person(seer: WorkspaceRole, person: Person, looking: Looking) 
     match person {
         Person::Themselves => true,
         Person::Member {
-            shares_a_board,
+            shares_a_container,
             wrote_where_seer_reads,
         } => {
             !matches!(seer, WorkspaceRole::Guest)
-                || shares_a_board
+                || shares_a_container
                 || (by_name && wrote_where_seer_reads)
         }
         Person::Outside {
@@ -471,23 +478,23 @@ pub const fn sees_person(seer: WorkspaceRole, person: Person, looking: Looking) 
 }
 
 /// What a role on a board lets its holder do, each role all that the one below it may.
-const fn role_grant(role: BoardRole) -> Grant {
-    use BoardPermission::{
-        CommentBoardCards, DeleteBoard, ListMembers, ManageBoardCards, ManageBoardProperties,
-        ManageBoardRoles, ManageBoardType, ManageOthersComments, SeeBoard, ShareBoard, ViewBoard,
+const fn role_grant(role: ContainerRole) -> Grant {
+    use ContainerPermission::{
+        CommentCards, Delete, ListMembers, ManageCards, ManageOthersComments, ManageProperties,
+        ManageRoles, ManageType, See, Share, View,
     };
-    let viewer = Grant::of(&[SeeBoard, ViewBoard, ListMembers]);
-    let commenter = viewer.with(Grant::of(&[CommentBoardCards]));
-    let editor = commenter.with(Grant::of(&[ManageBoardCards, ManageBoardProperties]));
+    let viewer = Grant::of(&[See, View, ListMembers]);
+    let commenter = viewer.with(Grant::of(&[CommentCards]));
+    let editor = commenter.with(Grant::of(&[ManageCards, ManageProperties]));
     match role {
-        BoardRole::Viewer => viewer,
-        BoardRole::Commenter => commenter,
-        BoardRole::Editor => editor,
-        BoardRole::Admin => editor.with(Grant::of(&[
-            ManageBoardType,
-            ManageBoardRoles,
-            DeleteBoard,
-            ShareBoard,
+        ContainerRole::Viewer => viewer,
+        ContainerRole::Commenter => commenter,
+        ContainerRole::Editor => editor,
+        ContainerRole::Admin => editor.with(Grant::of(&[
+            ManageType,
+            ManageRoles,
+            Delete,
+            Share,
             ManageOthersComments,
         ])),
     }
@@ -496,18 +503,18 @@ const fn role_grant(role: BoardRole) -> Grant {
 /// The highest role a member of a workspace may have on its boards: a guest may edit,
 /// and no more.
 #[must_use]
-pub const fn highest_board_role(workspace_role: WorkspaceRole) -> BoardRole {
+pub const fn highest_container_role(workspace_role: WorkspaceRole) -> ContainerRole {
     match workspace_role {
-        WorkspaceRole::Admin | WorkspaceRole::Member => BoardRole::Admin,
-        WorkspaceRole::Guest => BoardRole::Editor,
+        WorkspaceRole::Admin | WorkspaceRole::Member => ContainerRole::Admin,
+        WorkspaceRole::Guest => ContainerRole::Editor,
     }
 }
 
 /// Whether a member of a workspace in `workspace_role` may be given `role` on one of
 /// its boards: a guest no role above editor.
 #[must_use]
-pub fn may_hold(workspace_role: WorkspaceRole, role: BoardRole) -> bool {
-    role <= highest_board_role(workspace_role)
+pub fn may_hold(workspace_role: WorkspaceRole, role: ContainerRole) -> bool {
+    role <= highest_container_role(workspace_role)
 }
 
 /// Whom a member of a workspace, in `workspace_role`, sees of its people in lists,
@@ -517,7 +524,7 @@ pub fn may_hold(workspace_role: WorkspaceRole, role: BoardRole) -> bool {
 pub const fn people_reach(workspace_role: WorkspaceRole) -> Reach {
     match workspace_role {
         WorkspaceRole::Admin | WorkspaceRole::Member => Reach::Workspace,
-        WorkspaceRole::Guest => Reach::SharedBoards,
+        WorkspaceRole::Guest => Reach::SharedContainers,
     }
 }
 
@@ -536,12 +543,10 @@ pub const fn people_reach(workspace_role: WorkspaceRole) -> Reach {
 ///   they read as its member, and are told it is not there otherwise
 ///   ([`Grant::hides`]).
 /// - What the user is in the organization adds nothing.
-pub fn grant(actor: Actor, facts: BoardFacts) -> Grant {
-    use BoardPermission::{
-        DeleteBoard, JoinBoard, ListMembers, ManageBoardRoles, SeeBoard, ViewBoard,
-    };
-    if facts.scope == BoardScope::BuiltIn {
-        return Grant::of(&[SeeBoard, ViewBoard, ListMembers]);
+pub fn grant(actor: Actor, facts: ContainerFacts) -> Grant {
+    use ContainerPermission::{Delete, Join, ListMembers, ManageRoles, See, View};
+    if facts.scope == ContainerScope::BuiltIn {
+        return Grant::of(&[See, View, ListMembers]);
     }
     let Some(workspace_role) = actor.workspace else {
         return Grant::NONE;
@@ -550,18 +555,18 @@ pub fn grant(actor: Actor, facts: BoardFacts) -> Grant {
         .works_there()
         .then_some(facts.team_role)
         .flatten()
-        .map(|role| role.min(BoardRole::Editor));
+        .map(|role| role.min(ContainerRole::Editor));
     let as_member = facts.role.max(team_role).map_or(Grant::NONE, |role| {
-        role_grant(role.min(highest_board_role(workspace_role)))
+        role_grant(role.min(highest_container_role(workspace_role)))
     });
     let as_worker = match (actor.works_there(), facts.scope) {
-        (true, BoardScope::Open) => Grant::of(&[SeeBoard, JoinBoard]),
-        (true, BoardScope::OpenWiki) => Grant::of(&[SeeBoard, JoinBoard, ViewBoard, ListMembers]),
-        (true, BoardScope::OpenTemplate) => Grant::of(&[SeeBoard, ViewBoard, ListMembers]),
+        (true, ContainerScope::Open) => Grant::of(&[See, Join]),
+        (true, ContainerScope::OpenWiki) => Grant::of(&[See, Join, View, ListMembers]),
+        (true, ContainerScope::OpenTemplate) => Grant::of(&[See, View, ListMembers]),
         _ => Grant::NONE,
     };
     let as_manager = if workspace_role == WorkspaceRole::Admin {
-        Grant::of(&[SeeBoard, ListMembers, ManageBoardRoles, DeleteBoard])
+        Grant::of(&[See, ListMembers, ManageRoles, Delete])
     } else {
         Grant::NONE
     };
@@ -578,17 +583,17 @@ pub fn grant(actor: Actor, facts: BoardFacts) -> Grant {
 /// it without joining it. An open template is read to be copied: what changes on it is
 /// told to its members, as on any board.
 #[must_use]
-pub fn told_without_a_role(scope: BoardScope, role: WorkspaceRole) -> bool {
+pub fn told_without_a_role(scope: ContainerScope, role: WorkspaceRole) -> bool {
     let actor = Actor {
         org: None,
         workspace: Some(role),
     };
-    let facts = BoardFacts {
+    let facts = ContainerFacts {
         scope,
         role: None,
         team_role: None,
     };
-    scope == BoardScope::OpenWiki && grant(actor, facts).reads()
+    scope == ContainerScope::OpenWiki && grant(actor, facts).reads()
 }
 
 /// Whether a user who is `role` in a workspace (`None`: no member) reads its audit log:
@@ -601,12 +606,12 @@ pub const fn reads_the_audit_log(role: Option<WorkspaceRole>) -> bool {
 
 /// The membership with exactly the flag of `role`, and none for `None`.
 #[must_use]
-pub fn with_role(member: BoardMember, role: Option<BoardRole>) -> BoardMember {
+pub fn with_role(member: ContainerMember, role: Option<ContainerRole>) -> ContainerMember {
     member.with_role(role)
 }
 
 /// The role a membership has: the highest of its flags, `None` if it has none.
 #[must_use]
-pub fn role_of(member: &BoardMember) -> Option<BoardRole> {
+pub fn role_of(member: &ContainerMember) -> Option<ContainerRole> {
     member.role()
 }

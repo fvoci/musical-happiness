@@ -1,6 +1,6 @@
 //! Independent review regressions for organization administration and its older entry points.
 
-use fvoci_model::{Board, BoardMember, BoardType, UserWorkspace, WorkspaceRole};
+use fvoci_model::{Container, ContainerMember, ContainerType, UserWorkspace, WorkspaceRole};
 use serde_json::{Value, json};
 
 use crate::common::{Setup, TestServer};
@@ -82,13 +82,13 @@ async fn organization_demotion_revokes_workspace_power_granted_by_the_instance_r
     let ts = Setup::native().start().await.init_basic().await;
     let (org, workspace) = workspace_with_members(&ts).await;
     let promoted = ts.client2.me().await.id;
-    let board: Board = ts
+    let board: Container = ts
         .client
-        .create_board(&Board {
+        .create_board(&Container {
             workspace_id: workspace.clone(),
-            board_type: BoardType::Private,
+            container_type: ContainerType::Private,
             title: "Private plans".to_owned(),
-            ..Board::default()
+            ..Container::default()
         })
         .await
         .created_json();
@@ -112,11 +112,11 @@ async fn organization_demotion_revokes_workspace_power_granted_by_the_instance_r
     );
     let joined = ts
         .client2
-        .add_member(&BoardMember {
-            board_id: board.id,
+        .add_member(&ContainerMember {
+            container_id: board.id,
             user_id: promoted,
             scheme_viewer: true,
-            ..BoardMember::default()
+            ..ContainerMember::default()
         })
         .await;
     ts.teardown().await;

@@ -1,6 +1,6 @@
 //! The list of the deleted cards of a board.
 
-use fvoci_model::{BlockType, BoardType};
+use fvoci_model::{BlockType, ContainerType};
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
@@ -89,7 +89,9 @@ async fn a_moment() {
 #[tokio::test]
 async fn the_deleted_cards_are_those_that_come_back_by_themselves() {
     let th = Setup::native().start().await.init_basic().await;
-    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+    let board = th
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
     let board_id = &board.id;
     let outer = insert_one(&th.client, &new_block(board_id, BlockType::Card, "outer")).await;
     let inner = insert_one(&th.client, &child_of(&outer, BlockType::Card, "inner")).await;

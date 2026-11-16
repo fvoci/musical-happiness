@@ -7,7 +7,7 @@
 //! SQLite, which holds one organization and whose writers take turns, the two run one
 //! after the other, in one organization.
 
-use fvoci_model::BoardRole;
+use fvoci_model::ContainerRole;
 use fvoci_model::new_id;
 use fvoci_store::{
     Acceptor, DbType, NewLink, SIGNUP_LIFETIME_MILLIS, Signup, SignupLookup, SignupStart, Store,
@@ -88,7 +88,7 @@ async fn a_registration_again_and_an_acceptance_again_take_turns() {
     theirs
         .create_invitation(&NewLink {
             workspace_id: &their_workspace,
-            guest_of: None::<(&str, BoardRole)>,
+            guest_of: None::<(&str, ContainerRole)>,
             token_hash: "second",
             created_by: &their_admin,
             now: NOW,
@@ -185,7 +185,7 @@ async fn an_acceptance_again_and_a_revocation_of_its_link_take_turns() {
     let admin = common::user(&test, "admin").await;
     let members = link(&test, &admin, "members", None, None).await;
     let boards = common::create_test_boards(&test, &test.workspace_id, &admin, 1).await;
-    test.delete_board(&boards[0].id, &admin)
+    test.delete_container(&boards[0].id, &admin)
         .await
         .expect("a board in the trash");
     let waiting = NOW + SIGNUP_LIFETIME_MILLIS;

@@ -4,8 +4,8 @@ use std::collections::BTreeSet;
 use std::io::{Cursor, Read as _};
 
 use fvoci_model::{
-    Block, BlockType, Board, BoardMember, BoardType, CategoryBoards, UserWorkspace, Workspace,
-    WorkspaceRole, new_id,
+    Block, BlockType, CategoryContainers, Container, ContainerMember, ContainerType, UserWorkspace,
+    Workspace, WorkspaceRole, new_id,
 };
 use fvoci_store::DbType;
 use reqwest::StatusCode;
@@ -624,8 +624,10 @@ async fn every_workspace_route_hides_the_workspace_from_nonmembers_guests_and_ot
 #[tokio::test]
 async fn a_category_path_rejects_a_normal_board_from_another_workspace() {
     let ts = Setup::native().start().await.init_basic().await;
-    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
-    let categories: Vec<CategoryBoards> = ts
+    let board = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
+    let categories: Vec<CategoryContainers> = ts
         .client
         .get(&format!("{ROOT_WS}/categories"))
         .await
@@ -645,15 +647,15 @@ async fn a_category_path_rejects_a_normal_board_from_another_workspace() {
             &json!({}),
         )
         .await;
-    let after: Vec<CategoryBoards> = ts
+    let after: Vec<CategoryContainers> = ts
         .client
         .get(&format!("{ROOT_WS}/categories"))
         .await
         .ok_json();
     let filed = after
         .iter()
-        .flat_map(|entry| &entry.board_metadata)
-        .any(|metadata| metadata.board_id == board.id);
+        .flat_map(|entry| &entry.container_metadata)
+        .any(|metadata| metadata.container_id == board.id);
     ts.teardown().await;
     assert_eq!(
         (answer(&hidden), filed),
@@ -680,8 +682,10 @@ async fn a_category_path_hides_no_board_of_another_workspace_but_takes_a_templat
         .await
         .expect("the built-in templates")
         .remove(0);
-    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
-    let categories: Vec<CategoryBoards> = ts
+    let board = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
+    let categories: Vec<CategoryContainers> = ts
         .client
         .get(&format!("{ROOT_WS}/categories"))
         .await
@@ -709,15 +713,15 @@ async fn a_category_path_hides_no_board_of_another_workspace_but_takes_a_templat
         .put(&format!("{category}/{}/hide", template.id), &json!({}))
         .await
         .status;
-    let after: Vec<CategoryBoards> = ts
+    let after: Vec<CategoryContainers> = ts
         .client
         .get(&format!("{ROOT_WS}/categories"))
         .await
         .ok_json();
     let template_hidden = after
         .iter()
-        .flat_map(|entry| &entry.board_metadata)
-        .find(|metadata| metadata.board_id == template.id)
+        .flat_map(|entry| &entry.container_metadata)
+        .find(|metadata| metadata.container_id == template.id)
         .map(|metadata| metadata.hidden);
     ts.teardown().await;
     assert_eq!(
@@ -743,31 +747,31 @@ async fn a_category_path_hides_no_board_of_another_workspace_but_takes_a_templat
 async fn a_category_path_rejects_a_board_the_user_is_on_in_a_workspace_they_are_not_in() {
     let ts = Setup::native().start().await.init_basic().await;
     let user_id = ts.client.me().await.id;
-    let mut board = Board {
+    let mut board = Container {
         id: new_id(),
         workspace_id: HIDDEN_WORKSPACE_ID.to_owned(),
-        board_type: BoardType::Private,
-        ..Board::default()
+        container_type: ContainerType::Private,
+        ..Container::default()
     };
     // Stored past the rule that only who works in a workspace is made the admin of a
     // board there: the state is what the route must not be led astray by.
     ts.app
         .store()
-        .insert_board(&mut board, &user_id)
+        .insert_container(&mut board, &user_id)
         .await
         .expect("a board of a workspace the user is not in");
     ts.app
         .store()
-        .save_member(&BoardMember {
-            board_id: board.id.clone(),
+        .save_member(&ContainerMember {
+            container_id: board.id.clone(),
             user_id: user_id.clone(),
             scheme_admin: true,
             scheme_editor: true,
-            ..BoardMember::default()
+            ..ContainerMember::default()
         })
         .await
         .expect("the user is on a board of a workspace they are not in");
-    let categories: Vec<CategoryBoards> = ts
+    let categories: Vec<CategoryContainers> = ts
         .client
         .get(&format!("{ROOT_WS}/categories"))
         .await
@@ -807,8 +811,12 @@ async fn a_category_path_rejects_a_board_the_user_is_on_in_a_workspace_they_are_
 async fn deleting_a_category_files_a_board_of_another_workspace_in_its_own() {
     let ts = Setup::native().start().await.init_basic().await;
     let user_id = ts.client.me().await.id;
-    let ours = ts.create_board(ROOT_WORKSPACE_ID, BoardType::Open).await;
-    let theirs = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+    let ours = ts
+        .create_board(ROOT_WORKSPACE_ID, ContainerType::Open)
+        .await;
+    let theirs = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
     let category = ts
         .app
         .create_category(fvoci_model::Category {
@@ -821,7 +829,7 @@ async fn deleting_a_category_files_a_board_of_another_workspace_in_its_own() {
         .expect("the category is made");
     ts.app
         .store()
-        .add_update_category_board(
+        .add_update_category_container(
             &user_id,
             &category.id,
             &[ours.id.clone(), theirs.id.clone()],
@@ -835,15 +843,15 @@ async fn deleting_a_category_files_a_board_of_another_workspace_in_its_own() {
         .status;
     let mut filed = Vec::new();
     for workspace_id in [ROOT_WORKSPACE_ID, TEST_WORKSPACE_ID] {
-        let sidebar: Vec<CategoryBoards> = ts
+        let sidebar: Vec<CategoryContainers> = ts
             .client
             .get(&format!("/w/{workspace_id}/categories"))
             .await
             .ok_json();
         let boards: Vec<String> = sidebar
             .iter()
-            .flat_map(|entry| &entry.board_metadata)
-            .map(|metadata| metadata.board_id.clone())
+            .flat_map(|entry| &entry.container_metadata)
+            .map(|metadata| metadata.container_id.clone())
             .collect();
         filed.push(boards);
     }
@@ -881,7 +889,7 @@ async fn a_link_into(ts: &crate::common::TestServer, workspace_id: &str, maker: 
 /// What the routes of [`compare_resource_routes`] are asked about: the things of one
 /// workspace that the paths name, and who is named in them.
 struct Items<'a> {
-    board: &'a Board,
+    board: &'a Container,
     card: &'a Block,
     /// A page of a wiki of the same workspace; its `board_id` is the wiki.
     page: &'a Block,
@@ -928,7 +936,7 @@ impl Items<'_> {
             .replace("{boardId}", &pick(&self.board.id, UNKNOWN_ID))
             .replace("{cardId}", &pick(&self.card.id, UNKNOWN_ID))
             .replace("{blockId}", &pick(&self.card.id, UNKNOWN_ID))
-            .replace("{wikiId}", &pick(&self.page.board_id, UNKNOWN_ID))
+            .replace("{wikiId}", &pick(&self.page.container_id, UNKNOWN_ID))
             .replace("{pageId}", &pick(&self.page.id, UNKNOWN_ID))
             .replace("{commentId}", &pick(&self.comment.id, UNKNOWN_ID))
             .replace("{fileId}", &pick(self.file, "missing-file"))
@@ -1116,17 +1124,17 @@ async fn follow(store: &fvoci_store::Store, card: &Block, user_id: &str) {
 
 /// A page of a new open wiki of the workspace, made by `owner`.
 async fn a_page_in(ts: &super::common::TestServer, workspace_id: &str, owner: &str) -> Block {
-    let mut wiki = Board {
+    let mut wiki = Container {
         id: new_id(),
         workspace_id: workspace_id.to_owned(),
-        board_type: BoardType::Open,
-        kind: fvoci_model::BoardKind::Wiki,
+        container_type: ContainerType::Open,
+        kind: fvoci_model::ContainerKind::Wiki,
         title: "Hidden wiki".to_owned(),
-        ..Board::default()
+        ..Container::default()
     };
     let store = ts.app.store();
     store
-        .insert_board_with_admin(&mut wiki, owner)
+        .insert_container_with_admin(&mut wiki, owner)
         .await
         .expect("a wiki of the workspace");
     let new = fvoci_model::NewPage {
@@ -1144,7 +1152,7 @@ async fn a_page_in(ts: &super::common::TestServer, workspace_id: &str, owner: &s
 async fn a_comment_on(ts: &super::common::TestServer, page: &Block) -> Block {
     let mut comment = Block {
         id: new_id(),
-        board_id: page.board_id.clone(),
+        container_id: page.container_id.clone(),
         parent_id: page.id.clone(),
         block_type: BlockType::Comment,
         ..Block::default()
@@ -1161,21 +1169,21 @@ async fn a_comment_on(ts: &super::common::TestServer, page: &Block) -> Block {
 async fn identifier_only_inventory_hides_resources_of_an_unjoined_workspace() {
     let ts = Setup::native().start().await.init_basic().await;
     let owner = user_of_only(&ts, HIDDEN_WORKSPACE_ID).await;
-    let mut board = Board {
+    let mut board = Container {
         id: new_id(),
         workspace_id: HIDDEN_WORKSPACE_ID.to_owned(),
-        board_type: BoardType::Open,
+        container_type: ContainerType::Open,
         title: "Hidden board".to_owned(),
-        ..Board::default()
+        ..Container::default()
     };
     ts.app
         .store()
-        .insert_board_with_admin(&mut board, &owner)
+        .insert_container_with_admin(&mut board, &owner)
         .await
         .expect("a hidden workspace's board");
     let mut card = Block {
         id: new_id(),
-        board_id: board.id.clone(),
+        container_id: board.id.clone(),
         block_type: BlockType::Card,
         title: "Hidden card".to_owned(),
         ..Block::default()
@@ -1244,7 +1252,7 @@ async fn identifier_only_inventory_hides_resources_of_an_unjoined_workspace() {
     );
 }
 
-async fn compare_query_targets(client: &Client, own: &Board, hidden: &Board) {
+async fn compare_query_targets(client: &Client, own: &Container, hidden: &Container) {
     for (path, absent) in [
         (
             format!(
@@ -1309,7 +1317,7 @@ async fn compare_query_targets(client: &Client, own: &Board, hidden: &Board) {
         .get(&format!("{ROOT_WS}/boards/search?q=Hidden%20query"))
         .await;
     if search.status != StatusCode::NOT_FOUND {
-        let found: Vec<Board> = search.ok_json();
+        let found: Vec<Container> = search.ok_json();
         assert!(
             found.is_empty(),
             "the search does not find hidden open boards"
@@ -1320,18 +1328,20 @@ async fn compare_query_targets(client: &Client, own: &Board, hidden: &Board) {
 #[tokio::test]
 async fn query_targets_and_bulk_id_bodies_hide_unjoined_workspaces() {
     let ts = Setup::native().start().await.init_basic().await;
-    let own = ts.create_board(ROOT_WORKSPACE_ID, BoardType::Private).await;
+    let own = ts
+        .create_board(ROOT_WORKSPACE_ID, ContainerType::Private)
+        .await;
     let owner = ts.stranger_in(HIDDEN_WORKSPACE_ID).await;
-    let mut hidden = Board {
+    let mut hidden = Container {
         id: new_id(),
         workspace_id: HIDDEN_WORKSPACE_ID.to_owned(),
-        board_type: BoardType::Open,
+        container_type: ContainerType::Open,
         title: "Hidden query board".to_owned(),
-        ..Board::default()
+        ..Container::default()
     };
     ts.app
         .store()
-        .insert_board_with_admin(&mut hidden, &owner)
+        .insert_container_with_admin(&mut hidden, &owner)
         .await
         .expect("the hidden board");
     let guest = ts.add_user("query-guest").await;
@@ -1388,15 +1398,15 @@ async fn an_invited_workspace_guest_reads_its_board_without_gaining_editor_right
         .add_workspace_member(HIDDEN_WORKSPACE_ID, &user, WorkspaceRole::Guest)
         .await
         .expect("workspace guest");
-    let mut board = Board {
+    let mut board = Container {
         id: new_id(),
         workspace_id: HIDDEN_WORKSPACE_ID.to_owned(),
-        board_type: BoardType::Open,
-        ..Board::default()
+        container_type: ContainerType::Open,
+        ..Container::default()
     };
     ts.app
         .store()
-        .insert_board_with_admin(&mut board, &ts.stranger_in(HIDDEN_WORKSPACE_ID).await)
+        .insert_container_with_admin(&mut board, &ts.stranger_in(HIDDEN_WORKSPACE_ID).await)
         .await
         .expect("a hidden board");
     ts.client2
@@ -1405,11 +1415,11 @@ async fn an_invited_workspace_guest_reads_its_board_without_gaining_editor_right
         .check_not_found();
     ts.app
         .store()
-        .save_member(&BoardMember {
-            board_id: board.id.clone(),
+        .save_member(&ContainerMember {
+            container_id: board.id.clone(),
             user_id: user,
             scheme_viewer: true,
-            ..BoardMember::default()
+            ..ContainerMember::default()
         })
         .await
         .expect("a viewer invitation");
@@ -1422,7 +1432,7 @@ async fn an_invited_workspace_guest_reads_its_board_without_gaining_editor_right
             .await
             .check_ok();
     }
-    let boards: Vec<Board> = ts
+    let boards: Vec<Container> = ts
         .client2
         .get(&format!("/w/{HIDDEN_WORKSPACE_ID}/boards"))
         .await
@@ -1508,21 +1518,21 @@ async fn what_is_of_one_workspace_is_not_there_under_another() {
     let ts = Setup::native().start().await.init_basic().await;
     let me = ts.client.me().await.id;
     let elsewhere = user_of_only(&ts, TEST_WORKSPACE_ID).await;
-    let mut board = Board {
+    let mut board = Container {
         id: new_id(),
         workspace_id: TEST_WORKSPACE_ID.to_owned(),
-        board_type: BoardType::Open,
+        container_type: ContainerType::Open,
         title: "Sibling board".to_owned(),
-        ..Board::default()
+        ..Container::default()
     };
     let store = ts.app.store();
     store
-        .insert_board_with_admin(&mut board, &me)
+        .insert_container_with_admin(&mut board, &me)
         .await
         .expect("a board of the test workspace that the asker administers");
     let mut card = Block {
         id: new_id(),
-        board_id: board.id.clone(),
+        container_id: board.id.clone(),
         block_type: BlockType::Card,
         title: "Sibling card".to_owned(),
         ..Block::default()
@@ -1558,7 +1568,7 @@ async fn what_is_of_one_workspace_is_not_there_under_another() {
     follow(store, &card, &me).await;
     let page = a_page_in(&ts, &board.workspace_id, &board.created_by).await;
     // Under its own workspace each of them is there.
-    let page_path = format!("wikis/{}/pages/{}", page.board_id, page.id);
+    let page_path = format!("wikis/{}/pages/{}", page.container_id, page.id);
     for path in [
         format!("/w/{TEST_WORKSPACE_ID}/boards/{}", board.id),
         format!("/w/{TEST_WORKSPACE_ID}/{page_path}"),
@@ -1595,7 +1605,9 @@ async fn what_is_of_one_workspace_is_not_there_under_another() {
     let violations = compare_resource_routes(&ts.client, ROOT_WORKSPACE_ID, &items).await;
     // Named in a body or a query (the boards of a combined request, the board files are
     // copied from), the board is as one that does not exist too.
-    let own = ts.create_board(ROOT_WORKSPACE_ID, BoardType::Open).await;
+    let own = ts
+        .create_board(ROOT_WORKSPACE_ID, ContainerType::Open)
+        .await;
     compare_query_targets(&ts.client, &own, &board).await;
     ts.teardown().await;
     assert!(

@@ -2,8 +2,8 @@
 
 use axum::body::Bytes;
 use axum::extract::Path;
-use fvoci_model::{Category, CategoryBoards, CategoryType, WorkspaceRole};
-use fvoci_store::BoardVisibility;
+use fvoci_model::{Category, CategoryContainers, CategoryType, WorkspaceRole};
+use fvoci_store::ContainerVisibility;
 use serde_json::Value;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
@@ -14,7 +14,7 @@ use super::contract::tag;
 
 use super::decode_object_members;
 use super::workspace::{InWorkspace, TextInContainer};
-use super::{ApiResult, decode_json, json_response, no_content, require_board_visible};
+use super::{ApiResult, decode_json, json_response, no_content, require_container_visible};
 use crate::app::App;
 use crate::auth::now_millis;
 use crate::error::AppError;
@@ -23,19 +23,19 @@ pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new()
         .routes(routes!(
             handle_create_category,
-            handle_get_user_category_boards
+            handle_get_user_category_containers
         ))
         .routes(routes!(handle_reorder_categories))
         .routes(routes!(handle_update_category, handle_delete_category))
-        .routes(routes!(handle_reorder_category_boards))
-        .routes(routes!(handle_update_category_board))
-        .routes(routes!(handle_hide_board))
-        .routes(routes!(handle_unhide_board))
+        .routes(routes!(handle_reorder_category_containers))
+        .routes(routes!(handle_update_category_container))
+        .routes(routes!(handle_hide_container))
+        .routes(routes!(handle_unhide_container))
 }
 
 /// The path parameters of the routes that address a board in a category: the workspace, the
 /// category and the board.
-type BoardPlace = (String, String, String);
+type ContainerPlace = (String, String, String);
 
 /// A category as a request body carries it.
 struct CategoryRequest {
@@ -235,21 +235,23 @@ async fn handle_delete_category(
     responses((
         status = 200,
         description = "The categories with their boards.",
-        body = Vec<CategoryBoards>,
+        body = Vec<CategoryContainers>,
     )),
 )]
-async fn handle_get_user_category_boards(TextInContainer(ws): TextInContainer) -> ApiResult {
+async fn handle_get_user_category_containers(TextInContainer(ws): TextInContainer) -> ApiResult {
     // A guest too: their sidebar has the boards they are on, filed as they have filed
     // them. The rest of the sidebar's routes are for who works there.
     let (user_id, workspace_id) = (&ws.session.user_id, &ws.workspace_id);
-    let category_boards = if ws.role == WorkspaceRole::Guest {
+    let category_containers = if ws.role == WorkspaceRole::Guest {
         ws.app
-            .category_boards_of_guest(user_id, workspace_id)
+            .category_containers_of_guest(user_id, workspace_id)
             .await?
     } else {
-        ws.app.user_category_boards(user_id, workspace_id).await?
+        ws.app
+            .user_category_containers(user_id, workspace_id)
+            .await?
     };
-    Ok(json_response(&category_boards))
+    Ok(json_response(&category_containers))
 }
 
 /// File a board under a category
@@ -265,9 +267,9 @@ async fn handle_get_user_category_boards(TextInContainer(ws): TextInContainer) -
     params(WorkspaceId, CategoryId, BoardId),
     responses((status = 204, description = "The board is under the category.")),
 )]
-async fn handle_update_category_board(
+async fn handle_update_category_container(
     TextInContainer(ws): TextInContainer,
-    Path((_, category_id, board_id)): Path<BoardPlace>,
+    Path((_, category_id, container_id)): Path<ContainerPlace>,
 ) -> ApiResult {
     let ws = ws.require_no_guest()?;
     let InWorkspace {
@@ -278,9 +280,14 @@ async fn handle_update_category_board(
     } = ws;
     app.user_category(&workspace_id, &session.user_id, &category_id)
         .await?;
-    require_board_visible(&app, &session.user_id, &board_id).await?;
-    app.add_update_user_category_board(&workspace_id, &session.user_id, &category_id, &[board_id])
-        .await?;
+    require_container_visible(&app, &session.user_id, &container_id).await?;
+    app.add_update_user_category_container(
+        &workspace_id,
+        &session.user_id,
+        &category_id,
+        &[container_id],
+    )
+    .await?;
     Ok(no_content())
 }
 
@@ -330,7 +337,7 @@ async fn handle_reorder_categories(TextInContainer(ws): TextInContainer, body: B
         body = Vec<String>,
     )),
 )]
-async fn handle_reorder_category_boards(
+async fn handle_reorder_category_containers(
     TextInContainer(ws): TextInContainer,
     Path((_, category_id)): Path<(String, String)>,
     body: Bytes,
@@ -346,7 +353,7 @@ async fn handle_reorder_category_boards(
         .await?;
     let new_order = decode_order(&body)?;
     let order = app
-        .reorder_category_boards(&session.user_id, &workspace_id, &category_id, new_order)
+        .reorder_category_containers(&session.user_id, &workspace_id, &category_id, new_order)
         .await?;
     Ok(json_response(&order))
 }
@@ -365,12 +372,12 @@ async fn handle_reorder_category_boards(
     params(WorkspaceId, CategoryId, BoardId),
     responses((status = 204, description = "The board is hidden.")),
 )]
-async fn handle_hide_board(
+async fn handle_hide_container(
     TextInContainer(ws): TextInContainer,
-    Path(place): Path<BoardPlace>,
+    Path(place): Path<ContainerPlace>,
 ) -> ApiResult {
     let ws = ws.require_no_guest()?;
-    set_board_visibility(&ws, &place, BoardVisibility::Hidden).await
+    set_container_visibility(&ws, &place, ContainerVisibility::Hidden).await
 }
 
 /// Show a hidden board again
@@ -386,24 +393,24 @@ async fn handle_hide_board(
     params(WorkspaceId, CategoryId, BoardId),
     responses((status = 204, description = "The board is shown.")),
 )]
-async fn handle_unhide_board(
+async fn handle_unhide_container(
     TextInContainer(ws): TextInContainer,
-    Path(place): Path<BoardPlace>,
+    Path(place): Path<ContainerPlace>,
 ) -> ApiResult {
     let ws = ws.require_no_guest()?;
-    set_board_visibility(&ws, &place, BoardVisibility::Visible).await
+    set_container_visibility(&ws, &place, ContainerVisibility::Visible).await
 }
 
-async fn set_board_visibility(
+async fn set_container_visibility(
     ws: &InWorkspace,
-    (_, category_id, board_id): &BoardPlace,
-    visibility: BoardVisibility,
+    (_, category_id, container_id): &ContainerPlace,
+    visibility: ContainerVisibility,
 ) -> ApiResult {
     let (app, user_id, workspace_id) = (&ws.app, ws.session.user_id.as_str(), &ws.workspace_id);
     app.user_category(workspace_id, user_id, category_id)
         .await?;
-    require_board_visible(app, user_id, board_id).await?;
-    app.set_board_visibility(workspace_id, user_id, category_id, board_id, visibility)
+    require_container_visible(app, user_id, container_id).await?;
+    app.set_container_visibility(workspace_id, user_id, category_id, container_id, visibility)
         .await?;
     Ok(no_content())
 }

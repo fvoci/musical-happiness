@@ -66,7 +66,7 @@ async fn a_new_image_survives_a_purge_that_saw_no_reference() {
     let board = &boards[0].id;
     let file = FileInfo {
         id: new_id(),
-        board_id: board.clone(),
+        container_id: board.clone(),
         stored_name: "7shown.png".to_owned(),
         path: format!("boards/{board}/7shown.png"),
         create_at: 1,
@@ -82,7 +82,7 @@ async fn a_new_image_survives_a_purge_that_saw_no_reference() {
     .expect("a nonempty body");
     let mut old = Block {
         id: new_id(),
-        board_id: board.clone(),
+        container_id: board.clone(),
         block_type: BlockType::Card,
         body: Some(body.clone()),
         ..Block::default()

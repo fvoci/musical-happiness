@@ -20,13 +20,13 @@ async fn failed_and_cancelled_transactions_do_not_leave_an_organization_on_the_p
     let test = common::setup().await;
     let user_id = common::user(&test, "member").await;
     let (other_org, _) = common::organization(&test, "other").await;
-    let mut board = fvoci_model::Board {
+    let mut board = fvoci_model::Container {
         id: new_id(),
         workspace_id: test.workspace_id.clone(),
-        board_type: fvoci_model::BoardType::Private,
-        ..fvoci_model::Board::default()
+        container_type: fvoci_model::ContainerType::Private,
+        ..fvoci_model::Container::default()
     };
-    test.insert_board(&mut board, &user_id)
+    test.insert_container(&mut board, &user_id)
         .await
         .expect("the organization's board exists");
     let moved = test
@@ -125,13 +125,13 @@ async fn an_org_cannot_attach_a_board_to_another_orgs_workspace() {
     let test = common::setup().await;
     let user_id = common::user(&test, "member").await;
     let (_, other_workspace) = common::organization(&test, "other").await;
-    let mut board = fvoci_model::Board {
+    let mut board = fvoci_model::Container {
         id: new_id(),
         workspace_id: other_workspace,
-        board_type: fvoci_model::BoardType::Private,
-        ..fvoci_model::Board::default()
+        container_type: fvoci_model::ContainerType::Private,
+        ..fvoci_model::Container::default()
     };
-    let inserted = test.insert_board(&mut board, &user_id).await;
+    let inserted = test.insert_container(&mut board, &user_id).await;
     test.teardown().await;
     assert!(
         inserted.is_err(),

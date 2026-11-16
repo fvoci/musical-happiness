@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
-use fvoci_model::{Board, BoardType};
+use fvoci_model::{Container, ContainerType};
 use fvoci_store::{Access, Call, DbType, Observer};
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
@@ -19,7 +19,7 @@ use common::{HIDDEN_WORKSPACE_ID, ROOT_WS, Setup, TEST_WS, UNKNOWN_ID};
 async fn shared_views_hide_people_after_their_property_is_deleted() {
     let ts = Setup::local_mode().start().await.init_basic().await;
     let person = ts.client.me().await.id;
-    let board: Board = ts
+    let board: Container = ts
         .client
         .post(
             &format!("{TEST_WS}/boards"),
@@ -147,7 +147,7 @@ impl Observer for ReadCalls {
 async fn hidden_resource_identifiers_do_not_add_database_reads() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = ts
-        .create_board(common::TEST_WORKSPACE_ID, BoardType::Private)
+        .create_board(common::TEST_WORKSPACE_ID, ContainerType::Private)
         .await;
     let card: Value = ts
         .client

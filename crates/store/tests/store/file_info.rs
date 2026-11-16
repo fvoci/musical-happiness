@@ -31,7 +31,7 @@ async fn file_store() {
     // "should save and retrieve fileinfo"
     let file_info = FileInfo {
         id: new_id(),
-        board_id: board_id.clone(),
+        container_id: board_id.clone(),
         stored_name: "7salesreport.sales".to_owned(),
         create_at: now_millis(),
         name: "Dunder Mifflin Sales Report 2022".to_owned(),
@@ -49,7 +49,7 @@ async fn file_store() {
         .await
         .unwrap();
     assert_eq!(retrieved_file_info.id, file_info.id);
-    assert_eq!(retrieved_file_info.board_id, *board_id);
+    assert_eq!(retrieved_file_info.container_id, *board_id);
     assert_eq!(retrieved_file_info.stored_name, "7salesreport.sales");
     assert_eq!(retrieved_file_info.name, "Dunder Mifflin Sales Report 2022");
     assert_eq!(retrieved_file_info.extension, ".sales");
@@ -78,7 +78,7 @@ async fn file_info_stores_every_member() {
 
     let file_info = FileInfo {
         id: new_id(),
-        board_id: board_id.clone(),
+        container_id: board_id.clone(),
         stored_name: "7abc.png".to_owned(),
         create_at: 1_700_000_000_000,
         path: "boards/20240101/7abc.png".to_owned(),
@@ -132,7 +132,7 @@ async fn file_info_stores_every_member() {
     );
     let no_board = FileInfo {
         id: new_id(),
-        board_id: "not-a-board".to_owned(),
+        container_id: "not-a-board".to_owned(),
         ..file_info.clone()
     };
     let error = store.save_file_info(&no_board).await.unwrap_err();
@@ -169,7 +169,7 @@ async fn a_file_is_found_through_its_own_board_only() {
 
     let file_of = |board_id: &str, uploaded_as: &str| FileInfo {
         id: new_id(),
-        board_id: board_id.to_owned(),
+        container_id: board_id.to_owned(),
         stored_name: stored_name.to_owned(),
         create_at: now_millis(),
         path: format!("boards/{board_id}/{stored_name}"),
@@ -214,7 +214,7 @@ async fn a_file_is_found_through_its_own_board_only() {
     // marks a file record deleted.
     let mut image = Block {
         id: new_id(),
-        board_id: other.clone(),
+        container_id: other.clone(),
         block_type: BlockType::Attachment,
         created_by: user_id.clone(),
         fields: serde_json::from_value(json!({ "fileId": stored_name }))
@@ -239,7 +239,7 @@ async fn a_file_is_found_through_its_own_board_only() {
 fn record_of(board_id: &str, stored_name: &str) -> FileInfo {
     FileInfo {
         id: new_id(),
-        board_id: board_id.to_owned(),
+        container_id: board_id.to_owned(),
         stored_name: stored_name.to_owned(),
         create_at: now_millis(),
         path: format!("boards/{board_id}/{stored_name}"),
@@ -284,7 +284,7 @@ async fn a_file_record_for_a_board_that_does_not_exist_is_refused() {
 
     // The same record for a board that exists is stored.
     let record = FileInfo {
-        board_id: boards[0].id.clone(),
+        container_id: boards[0].id.clone(),
         ..record
     };
     store
@@ -386,7 +386,7 @@ async fn a_file_record_goes_with_its_board_and_comes_back_with_it() {
         .expect("a file of the other board is stored");
 
     store
-        .delete_board(doomed, &user_id)
+        .delete_container(doomed, &user_id)
         .await
         .expect("the board is deleted");
     for record in &records {
@@ -407,7 +407,7 @@ async fn a_file_record_goes_with_its_board_and_comes_back_with_it() {
     assert_eq!(kept, of_other, "the file of the other board is untouched");
 
     store
-        .undelete_board(doomed, &user_id)
+        .undelete_container(doomed, &user_id)
         .await
         .expect("the board is restored");
     for record in &records {
@@ -451,7 +451,7 @@ fn card_showing(board_id: &str, names: &[&str]) -> Block {
     );
     Block {
         id: new_id(),
-        board_id: board_id.to_owned(),
+        container_id: board_id.to_owned(),
         block_type: BlockType::Card,
         body: fvoci_model::Body::parse(json!({"type": "doc", "content": content}))
             .expect("the body may be stored"),
@@ -480,7 +480,7 @@ async fn a_file_no_block_shows_is_collected_after_the_grace_period() {
     }
     let mut image = Block {
         id: new_id(),
-        board_id: board_id.clone(),
+        container_id: board_id.clone(),
         block_type: BlockType::Attachment,
         fields: serde_json::from_value(json!({ "fileId": "7image.png" }))
             .expect("the fields are a JSON object"),
@@ -572,12 +572,12 @@ async fn a_restored_block_or_board_shows_its_files_again() {
         .await
         .expect("the card is restored");
     store
-        .delete_board(board_id, &user_id)
+        .delete_container(board_id, &user_id)
         .await
         .expect("the board is deleted");
     let restored_at = now_millis();
     store
-        .undelete_board(board_id, &user_id)
+        .undelete_container(board_id, &user_id)
         .await
         .expect("the board is restored");
 
@@ -649,7 +649,7 @@ pub(crate) async fn posted_comment(store: &fvoci_store::Store, author: &str) -> 
     common::insert_blocks(store, std::slice::from_mut(&mut card), author).await;
     let mut comment = Block {
         id: new_id(),
-        board_id: board_id.clone(),
+        container_id: board_id.clone(),
         parent_id: card.id.clone(),
         block_type: BlockType::Comment,
         body: body_showing("v1", &["7first.png"]),

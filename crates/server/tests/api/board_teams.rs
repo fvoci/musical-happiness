@@ -3,7 +3,7 @@
 use crate::boards::{board_with_admin, new_board};
 use crate::common::{ROOT_WORKSPACE_ID, Setup, TestServer};
 use crate::references::{HIDDEN, check_as_nothing, made, named, resolved};
-use fvoci_model::{AuditAction, Board, BoardMember, BoardRole, BoardType, Team};
+use fvoci_model::{AuditAction, Container, ContainerMember, ContainerRole, ContainerType, Team};
 use reqwest::StatusCode;
 use serde_json::json;
 
@@ -33,7 +33,11 @@ async fn team_roles_open_edit_find_and_export_a_board_then_end_when_removed() {
     let user = th.client2.me().await.id;
     let board = board_with_admin(
         &th,
-        new_board(ROOT_WORKSPACE_ID, BoardType::Private, "Inherited design"),
+        new_board(
+            ROOT_WORKSPACE_ID,
+            ContainerType::Private,
+            "Inherited design",
+        ),
         &owner,
     )
     .await;
@@ -61,15 +65,15 @@ async fn team_roles_open_edit_find_and_export_a_board_then_end_when_removed() {
         .put(&assignment, &json!({"role":"viewer"}))
         .await
         .check_status(StatusCode::FORBIDDEN);
-    let members: Vec<BoardMember> = th.client2.get("/users/me/memberships").await.ok_json();
+    let members: Vec<ContainerMember> = th.client2.get("/users/me/memberships").await.ok_json();
     let membership = members
         .iter()
-        .find(|m| m.board_id == board.id)
+        .find(|m| m.container_id == board.id)
         .expect("inherited board in memberships");
     assert!(membership.synthetic);
-    assert_eq!(membership.role(), Some(BoardRole::Editor));
+    assert_eq!(membership.role(), Some(ContainerRole::Editor));
     for suffix in ["/boards", "/boards/search?q=Inherited"] {
-        let listed: Vec<Board> = th
+        let listed: Vec<Container> = th
             .client2
             .get(&format!("/w/{ROOT_WORKSPACE_ID}{suffix}"))
             .await
@@ -98,8 +102,8 @@ async fn team_roles_open_edit_find_and_export_a_board_then_end_when_removed() {
         .get(&format!("{path}/archive/export"))
         .await
         .check_status(StatusCode::NOT_FOUND);
-    let members: Vec<BoardMember> = th.client2.get("/users/me/memberships").await.ok_json();
-    assert!(!members.iter().any(|m| m.board_id == board.id));
+    let members: Vec<ContainerMember> = th.client2.get("/users/me/memberships").await.ok_json();
+    assert!(!members.iter().any(|m| m.container_id == board.id));
     th.teardown().await;
 }
 
@@ -110,7 +114,7 @@ async fn the_highest_direct_or_team_role_survives_until_its_source_ends() {
     let user = th.client2.me().await.id;
     let board = board_with_admin(
         &th,
-        new_board(ROOT_WORKSPACE_ID, BoardType::Private, "Roles"),
+        new_board(ROOT_WORKSPACE_ID, ContainerType::Private, "Roles"),
         &owner,
     )
     .await;
@@ -130,7 +134,13 @@ async fn the_highest_direct_or_team_role_survives_until_its_source_ends() {
         )
         .await
         .check_ok();
-    assert!(th.app.board_grant(&user, &board.id).await.unwrap().reads());
+    assert!(
+        th.app
+            .container_grant(&user, &board.id)
+            .await
+            .unwrap()
+            .reads()
+    );
     th.client2
         .patch(&path, &json!({"title":"Can edit"}))
         .await
@@ -143,10 +153,10 @@ async fn the_highest_direct_or_team_role_survives_until_its_source_ends() {
         .patch(&path, &json!({"title":"Cannot edit"}))
         .await
         .check_status(StatusCode::FORBIDDEN);
-    let members: Vec<BoardMember> = th.client2.get(&format!("{path}/members")).await.ok_json();
+    let members: Vec<ContainerMember> = th.client2.get(&format!("{path}/members")).await.ok_json();
     let member = members.iter().find(|m| m.user_id == user).unwrap();
     assert!(member.scheme_viewer, "direct role stays separate");
-    assert_eq!(member.role(), Some(BoardRole::Commenter));
+    assert_eq!(member.role(), Some(ContainerRole::Commenter));
     th.client
         .delete(&format!("{path}/teams/{}", first.id))
         .await
@@ -170,7 +180,7 @@ async fn a_manager_cannot_gain_reading_through_a_team_without_a_record() {
     let owner = th.client2.me().await.id;
     let board = board_with_admin(
         &th,
-        new_board(ROOT_WORKSPACE_ID, BoardType::Private, "Managed"),
+        new_board(ROOT_WORKSPACE_ID, ContainerType::Private, "Managed"),
         &owner,
     )
     .await;
@@ -192,7 +202,7 @@ async fn a_manager_cannot_gain_reading_through_a_team_without_a_record() {
         .unwrap();
     let added = records
         .iter()
-        .filter(|r| r.target_id == board.id && r.action == AuditAction::AddedToBoard)
+        .filter(|r| r.target_id == board.id && r.action == AuditAction::AddedToContainer)
         .collect::<Vec<_>>();
     assert_eq!(
         added.len(),
@@ -218,7 +228,7 @@ async fn a_manager_cannot_gain_reading_through_a_team_without_a_record() {
     assert_eq!(
         records
             .iter()
-            .filter(|r| r.target_id == board.id && r.action == AuditAction::SelfAddedToBoard)
+            .filter(|r| r.target_id == board.id && r.action == AuditAction::SelfAddedToContainer)
             .count(),
         1
     );
@@ -231,7 +241,7 @@ async fn a_manager_cannot_gain_reading_through_a_team_without_a_record() {
         .check_no_content();
     assert!(
         th.app
-            .board_grant(&manager, &board.id)
+            .container_grant(&manager, &board.id)
             .await
             .unwrap()
             .manages_only()
@@ -252,7 +262,7 @@ async fn a_manager_cannot_gain_reading_through_a_team_without_a_record() {
     assert_eq!(
         records
             .iter()
-            .filter(|r| r.target_id == board.id && r.action == AuditAction::SelfAddedToBoard)
+            .filter(|r| r.target_id == board.id && r.action == AuditAction::SelfAddedToContainer)
             .count(),
         2
     );
@@ -268,7 +278,7 @@ async fn losing_the_last_team_role_ends_subscriptions_and_live_board_messages() 
     let user = th.client2.me().await.id;
     let board = board_with_admin(
         &th,
-        new_board(ROOT_WORKSPACE_ID, BoardType::Private, "Signals"),
+        new_board(ROOT_WORKSPACE_ID, ContainerType::Private, "Signals"),
         &owner,
     )
     .await;
@@ -283,7 +293,7 @@ async fn losing_the_last_team_role_ends_subscriptions_and_live_board_messages() 
         .check_no_content();
     let mut block = Block {
         id: new_id(),
-        board_id: board.id.clone(),
+        container_id: board.id.clone(),
         block_type: BlockType::Card,
         ..Block::default()
     };
@@ -338,7 +348,7 @@ async fn workspace_demotion_or_departure_revokes_team_access_without_restoring_i
         let user = th.client2.me().await.id;
         let board = board_with_admin(
             &th,
-            new_board(ROOT_WORKSPACE_ID, BoardType::Private, "Revoked"),
+            new_board(ROOT_WORKSPACE_ID, ContainerType::Private, "Revoked"),
             &owner,
         )
         .await;
@@ -388,7 +398,7 @@ async fn a_private_template_is_listed_while_a_team_role_grants_it() {
     let th = Setup::native().start().await.init_basic().await;
     let manager = th.client.me().await.id;
     let owner = th.client2.me().await.id;
-    let mut template = new_board(ROOT_WORKSPACE_ID, BoardType::Private, "Team template");
+    let mut template = new_board(ROOT_WORKSPACE_ID, ContainerType::Private, "Team template");
     template.is_template = true;
     let board = board_with_admin(&th, template, &owner).await;
     // The ordinary workspace member administers the board and can assign a team.
@@ -417,13 +427,13 @@ async fn a_private_template_is_listed_while_a_team_role_grants_it() {
         .await
         .check_no_content();
     let path = format!("/w/{ROOT_WORKSPACE_ID}/templates");
-    let listed: Vec<Board> = th.client2.get(&path).await.ok_json();
+    let listed: Vec<Container> = th.client2.get(&path).await.ok_json();
     assert!(
         listed.iter().any(|b| b.id == board.id),
         "a team-only template is discoverable"
     );
     th.client.delete(&assignment).await.check_no_content();
-    let listed: Vec<Board> = th.client2.get(&path).await.ok_json();
+    let listed: Vec<Container> = th.client2.get(&path).await.ok_json();
     assert!(
         !listed.iter().any(|b| b.id == board.id),
         "revoked template is gone"
@@ -439,9 +449,9 @@ async fn a_template_turned_private_or_open_says_nothing_of_its_team_readers() {
     let user = th.client2.me().await.id;
     let template = board_with_admin(
         &th,
-        Board {
+        Container {
             is_template: true,
-            ..new_board(ROOT_WORKSPACE_ID, BoardType::Open, "Team template")
+            ..new_board(ROOT_WORKSPACE_ID, ContainerType::Open, "Team template")
         },
         &owner,
     )
@@ -517,7 +527,7 @@ async fn a_board_of_a_team_is_listed_only_to_a_session_its_organization_takes() 
     let user = th.client2.me().await.id;
     let board = board_with_admin(
         &th,
-        new_board(ROOT_WORKSPACE_ID, BoardType::Private, "Walled"),
+        new_board(ROOT_WORKSPACE_ID, ContainerType::Private, "Walled"),
         &owner,
     )
     .await;
@@ -533,8 +543,8 @@ async fn a_board_of_a_team_is_listed_only_to_a_session_its_organization_takes() 
         .await
         .check_no_content();
     let listed = async |client: &Client| -> bool {
-        let members: Vec<BoardMember> = client.get("/users/me/memberships").await.ok_json();
-        members.iter().any(|member| member.board_id == board.id)
+        let members: Vec<ContainerMember> = client.get("/users/me/memberships").await.ok_json();
+        members.iter().any(|member| member.container_id == board.id)
     };
     assert!(listed(&th.client2).await, "the team's board is listed");
 

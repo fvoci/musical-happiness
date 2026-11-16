@@ -2,7 +2,7 @@
 //! connects to PostgreSQL as: a server that takes in several organizations does not
 //! start as a role that the wall between them does not hold.
 
-use fvoci_model::BoardType;
+use fvoci_model::ContainerType;
 use fvoci_server::Server;
 use fvoci_server::config::Configuration;
 use fvoci_store::testing::{TestDatabase, db_type_of_the_tests};
@@ -150,7 +150,9 @@ async fn a_server_of_one_organization_starts_past_the_wall_and_works() {
         .await
         .init_basic()
         .await;
-    let private = ts.create_board(ROOT_WORKSPACE_ID, BoardType::Private).await;
+    let private = ts
+        .create_board(ROOT_WORKSPACE_ID, ContainerType::Private)
+        .await;
     ts.client
         .get(&format!("{ROOT_WS}/boards/{}", private.id))
         .await
@@ -219,7 +221,7 @@ async fn the_first_signup_makes_the_organization_and_a_second_start_finds_it() {
         "named as the organization is"
     );
     // And it is there to work in.
-    let board = ts.create_board(&workspace.id, BoardType::Private).await;
+    let board = ts.create_board(&workspace.id, ContainerType::Private).await;
     let organizations = |ts: &crate::common::TestServer| {
         let system = ts.app.store().system();
         async move {
@@ -245,7 +247,7 @@ async fn the_first_signup_makes_the_organization_and_a_second_start_finds_it() {
     let again: Vec<fvoci_model::UserWorkspace> =
         ts.client.get("/users/me/workspaces").await.ok_json();
     assert_eq!(again, workspaces, "the same workspace, as it was");
-    let boards: Vec<fvoci_model::Board> = ts
+    let boards: Vec<fvoci_model::Container> = ts
         .client
         .get(&format!("/w/{}/boards", workspace.id))
         .await
@@ -276,19 +278,19 @@ async fn the_housekeeping_reaches_every_organization() {
         .expect("a second organization is made");
     let theirs = ts.app.store().for_org(&org_id).expect("an identifier");
     let user_id = ts.client.me().await.id;
-    let mut board = fvoci_model::Board {
+    let mut board = fvoci_model::Container {
         id: fvoci_model::new_id(),
         workspace_id: workspace.id.clone(),
-        board_type: BoardType::Open,
-        ..fvoci_model::Board::default()
+        container_type: ContainerType::Open,
+        ..fvoci_model::Container::default()
     };
     theirs
-        .insert_board(&mut board, &user_id)
+        .insert_container(&mut board, &user_id)
         .await
         .expect("their board is stored");
     let mut card = fvoci_model::Block {
         id: fvoci_model::new_id(),
-        board_id: board.id.clone(),
+        container_id: board.id.clone(),
         block_type: fvoci_model::BlockType::Card,
         ..fvoci_model::Block::default()
     };

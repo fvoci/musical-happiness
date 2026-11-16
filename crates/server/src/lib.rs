@@ -546,7 +546,7 @@ async fn purge_trash(app: &App) -> JobOutcome {
         return JobOutcome::Failed;
     }
     let deleted_before = auth::now_millis().saturating_sub(app.config().trash_retention_millis());
-    let boards = match app.store().purge_trash(deleted_before).await {
+    let containers = match app.store().purge_trash(deleted_before).await {
         Ok(purged) => {
             if purged.records > 0 || !purged.files.is_empty() {
                 tracing::info!(
@@ -580,7 +580,7 @@ async fn purge_trash(app: &App) -> JobOutcome {
             JobOutcome::Failed
         }
     };
-    boards.and(workspaces)
+    containers.and(workspaces)
 }
 
 /// Removes the records of the files that no block, live or in the trash, has shown for

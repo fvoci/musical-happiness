@@ -13,12 +13,12 @@
 //! ([`Inviter`]).
 
 use fvoci_model::{
-    AuditAction, BoardMember, BoardRole, Invitation, OrgRole, User, WorkspaceRole, new_id,
+    AuditAction, ContainerMember, ContainerRole, Invitation, OrgRole, User, WorkspaceRole, new_id,
 };
 
 use crate::accounts::{self, Which};
 use crate::audit::{self, AuditEntry};
-use crate::boards::{find_member, save_member};
+use crate::containers::{find_member, save_member};
 use crate::db::{Dialect, Id, OptId, Param, Row, Scope, Sql};
 use crate::error::{StoreError, Taken};
 use crate::link_locks::{self, Turn};
@@ -41,7 +41,7 @@ pub struct NewLink<'a> {
     pub workspace_id: &'a str,
     /// For a guest: the board they are invited to, and their role on it. `None` for a
     /// link that makes a member of the workspace.
-    pub guest_of: Option<(&'a str, BoardRole)>,
+    pub guest_of: Option<(&'a str, ContainerRole)>,
     /// The digest of the link's token.
     pub token_hash: &'a str,
     /// The user who makes the link.
@@ -103,12 +103,12 @@ pub struct Inviter<'a> {
     /// its board.
     pub standing: Standing<'a>,
     /// What they are to the board of a guest's link.
-    pub of_board: InviterOfBoard,
+    pub of_container: InviterOfContainer,
 }
 
 /// What the maker of a guest's link is to its board.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum InviterOfBoard {
+pub enum InviterOfContainer {
     /// On it, or the link is for members and has no board.
     Member,
     /// An administrator of the workspace who manages the board and does not read it:
@@ -148,7 +148,7 @@ pub struct Accepted {
     /// The workspace.
     pub workspace_id: String,
     /// For a guest's link: the board.
-    pub board_id: Option<String>,
+    pub container_id: Option<String>,
     /// Whether the acceptance changed anything, and so counts as a use of the link:
     /// not if the account had already all the link gives.
     pub used: bool,
@@ -168,9 +168,9 @@ impl Store {
     pub async fn create_invitation(&self, link: &NewLink<'_>) -> Result<Invitation, StoreError> {
         self.transaction(async |scope| {
             link_locks::hold_for_new_link(scope, link).await?;
-            let (role, board_id, board_role) = match link.guest_of {
-                Some((board_id, board_role)) => {
-                    (WorkspaceRole::Guest, board_id, Some(board_role.as_str()))
+            let (role, container_id, container_role) = match link.guest_of {
+                Some((container_id, container_role)) => {
+                    (WorkspaceRole::Guest, container_id, Some(container_role.as_str()))
                 }
                 None => (WorkspaceRole::Member, "", None),
             };
@@ -183,8 +183,8 @@ impl Store {
                 .push_bind(", ", scope.org()?)
                 .push_bind(", ", Id(link.workspace_id))
                 .push_bind(", ", role.as_str())
-                .push_bind(", ", OptId(board_id))
-                .push_bind(", ", Param::OptText(board_role.map(str::to_owned)))
+                .push_bind(", ", OptId(container_id))
+                .push_bind(", ", Param::OptText(container_role.map(str::to_owned)))
                 .push_bind(", ", link.token_hash)
                 .push_bind(", ", Id(link.created_by))
                 .push_bind(", ", link.now)
@@ -403,14 +403,14 @@ impl Store {
                     user.id.clone()
                 }
             };
-            let used = let_in(scope, &link, &user_id, inviter.of_board).await?;
+            let used = let_in(scope, &link, &user_id, inviter.of_container).await?;
             if used {
                 take_use(scope, &link.id).await?;
             }
             Ok(Acceptance::Accepted(Accepted {
                 user_id,
                 workspace_id: link.workspace_id,
-                board_id: link.board_id,
+                container_id: link.container_id,
                 used,
             }))
         })
@@ -471,36 +471,36 @@ pub(crate) fn push_invites(sql: &mut Sql) {
 }
 
 /// Lets the user `user_id` in by `link`, as [`Store::accept_invitation`] says, its
-/// maker being `of_board` to a guest's board; says whether anything changed, which
+/// maker being `of_container` to a guest's board; says whether anything changed, which
 /// counts as a use of the link.
 pub(crate) async fn let_in(
     scope: &mut Scope<'_>,
     link: &Invitation,
     user_id: &str,
-    of_board: InviterOfBoard,
+    of_container: InviterOfContainer,
 ) -> Result<bool, StoreError> {
     // What the link gives is said by its role: a row whose board does not go
     // with its role is broken, and lets nobody in as anything.
-    match (link.role, &link.board_id, link.board_role) {
+    match (link.role, &link.container_id, link.container_role) {
         (WorkspaceRole::Member, None, None) => {
             let_in_as_member(scope, &link.workspace_id, user_id).await
         }
-        (WorkspaceRole::Guest, Some(board_id), Some(board_role)) => {
-            let guest = BoardMember {
-                board_id: board_id.clone(),
+        (WorkspaceRole::Guest, Some(container_id), Some(container_role)) => {
+            let guest = ContainerMember {
+                container_id: container_id.clone(),
                 user_id: user_id.to_owned(),
-                ..BoardMember::default()
+                ..ContainerMember::default()
             }
-            .with_role(Some(board_role));
+            .with_role(Some(container_role));
             let let_in = let_in_as_guest(scope, &link.workspace_id, guest).await?;
             // Whom a manager who does not read the board puts on it is on the
             // record, by a link as by adding them.
-            if let_in.onto_board && of_board == InviterOfBoard::ManagerOnly {
+            if let_in.onto_container && of_container == InviterOfContainer::ManagerOnly {
                 let entry = AuditEntry::new(
                     &link.workspace_id,
                     &link.created_by,
-                    AuditAction::AddedToBoard,
-                    board_id,
+                    AuditAction::AddedToContainer,
+                    container_id,
                 )
                 .with_subject(user_id);
                 audit::record_entry(scope, &entry).await?;
@@ -569,7 +569,7 @@ async fn let_in_as_member(
     if joined {
         // Who comes into the workspace anew starts anew: a role that was stored for
         // them on a board of it while they were being taken out is not theirs again.
-        forget_board_roles(scope, workspace_id, user_id).await?;
+        forget_container_roles(scope, workspace_id, user_id).await?;
     }
     let mut sql = scope.sql("UPDATE workspace_members SET role = ");
     sql.bind(WorkspaceRole::Member.as_str())
@@ -594,7 +594,7 @@ pub(crate) async fn inviter_still(
     if found.user_id != link.created_by {
         return Ok(false);
     }
-    trash::hold_deleted_boards(scope, &link.workspace_id).await?;
+    trash::hold_deleted_containers(scope, &link.workspace_id).await?;
     let mut sql = scope.sql("SELECT role FROM workspace_members WHERE workspace_id = ");
     sql.bind(Id(&link.workspace_id))
         .push_bind(" AND user_id = ", Id(&link.created_by));
@@ -611,11 +611,11 @@ pub(crate) async fn inviter_still(
             })?),
             None => None,
         };
-    let member = match &link.board_id {
-        Some(board_id) => find_member(scope, board_id, &link.created_by).await?,
+    let member = match &link.container_id {
+        Some(container_id) => find_member(scope, container_id, &link.created_by).await?,
         None => None,
     };
-    let flags = |member: &BoardMember| {
+    let flags = |member: &ContainerMember| {
         [
             member.scheme_admin,
             member.scheme_editor,
@@ -623,9 +623,9 @@ pub(crate) async fn inviter_still(
             member.scheme_viewer,
         ]
     };
-    let team_role = match &link.board_id {
-        Some(board_id) => {
-            crate::board_team_access::role_for(scope, board_id, &link.created_by).await?
+    let team_role = match &link.container_id {
+        Some(container_id) => {
+            crate::container_team_access::role_for(scope, container_id, &link.created_by).await?
         }
         None => None,
     };
@@ -639,7 +639,7 @@ struct GuestLetIn {
     /// Whether anything changed: the acceptance counts as a use of the link then.
     changed: bool,
     /// Whether the user was given a role on the board they did not have.
-    onto_board: bool,
+    onto_container: bool,
 }
 
 /// Makes the user of `invited` a member of its board, in its role or the higher one
@@ -648,7 +648,7 @@ struct GuestLetIn {
 async fn let_in_as_guest(
     scope: &mut Scope<'_>,
     workspace_id: &str,
-    invited: BoardMember,
+    invited: ContainerMember,
 ) -> Result<GuestLetIn, StoreError> {
     let user_id = &invited.user_id;
     // Who comes into the workspace as a guest is on the board of the link and on no
@@ -658,7 +658,7 @@ async fn let_in_as_guest(
     sql.bind(Id(workspace_id))
         .push_bind(" AND user_id = ", Id(user_id));
     if scope.fetch_optional(sql).await?.is_none() {
-        forget_board_roles(scope, workspace_id, user_id).await?;
+        forget_container_roles(scope, workspace_id, user_id).await?;
     }
     let joined = accounts::join_workspace(
         scope,
@@ -667,25 +667,25 @@ async fn let_in_as_guest(
         WorkspaceRole::Guest,
     )
     .await?;
-    let held = find_member(scope, &invited.board_id, user_id)
+    let held = find_member(scope, &invited.container_id, user_id)
         .await?
         .and_then(|member| member.role());
     if held >= invited.role() {
         return Ok(GuestLetIn {
             changed: joined,
-            onto_board: false,
+            onto_container: false,
         });
     }
     save_member(scope, &invited).await?;
     Ok(GuestLetIn {
         changed: true,
-        onto_board: true,
+        onto_container: true,
     })
 }
 
 /// Takes from a user who is no member of the workspace the roles left on its boards,
 /// and those its boards in the trash would come back with.
-async fn forget_board_roles(
+async fn forget_container_roles(
     scope: &mut Scope<'_>,
     workspace_id: &str,
     user_id: &str,
@@ -698,7 +698,8 @@ async fn forget_board_roles(
         )
         .push(")");
     scope.execute(sql).await?;
-    trash::change_member_of_deleted_boards(scope, workspace_id, user_id, TrashedRoles::Forget).await
+    trash::change_member_of_deleted_containers(scope, workspace_id, user_id, TrashedRoles::Forget)
+        .await
 }
 
 /// Starts the query for the live links of the scope's organization at `now`, as
@@ -773,18 +774,18 @@ pub(crate) fn invitation_from_row(row: &Row) -> Result<Invitation, StoreError> {
             reason: error.to_string(),
         }
     };
-    let board_id = row.id(3)?;
-    let board_role = row.text(4)?;
+    let container_id = row.id(3)?;
+    let container_role = row.text(4)?;
     let max_uses = row.int(8)?;
     Ok(Invitation {
         id: row.id(0)?,
         workspace_id: row.id(1)?,
         role: row.text(2)?.parse().map_err(corrupt("role"))?,
-        board_id: (!board_id.is_empty()).then_some(board_id),
-        board_role: if board_role.is_empty() {
+        container_id: (!container_id.is_empty()).then_some(container_id),
+        container_role: if container_role.is_empty() {
             None
         } else {
-            Some(board_role.parse().map_err(corrupt("container_role"))?)
+            Some(container_role.parse().map_err(corrupt("container_role"))?)
         },
         created_by: row.id(5)?,
         create_at: row.int(6)?,

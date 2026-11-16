@@ -3,24 +3,25 @@
 //! are covered at the end against the behavior the code has.
 
 use fvoci_model::{
-    Block, BlockPatch, BlockType, Board, BoardPatch, BoardType, BoardsAndBlocks,
-    BoardsAndBlocksError, DeleteBoardsAndBlocks, PatchBoardsAndBlocks,
-    generate_boards_and_blocks_ids, renew_boards_and_blocks_ids, renew_boards_and_blocks_ids_told,
+    Block, BlockPatch, BlockType, Container, ContainerPatch, ContainerType, ContainersAndBlocks,
+    ContainersAndBlocksError, DeleteContainersAndBlocks, PatchContainersAndBlocks,
+    generate_containers_and_blocks_ids, renew_containers_and_blocks_ids,
+    renew_containers_and_blocks_ids_told,
 };
 
-fn board(id: &str, board_type: BoardType, title: &str) -> Board {
-    Board {
+fn board(id: &str, board_type: ContainerType, title: &str) -> Container {
+    Container {
         id: id.to_owned(),
-        board_type,
+        container_type: board_type,
         title: title.to_owned(),
-        ..Board::default()
+        ..Container::default()
     }
 }
 
 fn block(id: &str, board_id: &str, block_type: BlockType) -> Block {
     Block {
         id: id.to_owned(),
-        board_id: board_id.to_owned(),
+        container_id: board_id.to_owned(),
         block_type,
         ..Block::default()
     }
@@ -40,36 +41,36 @@ fn title_patch(title: &str) -> BlockPatch {
 /// `TestIsValidBoardsAndBlocks` / "no boards"
 #[test]
 fn boards_and_blocks_validate_no_boards() {
-    let bab = BoardsAndBlocks {
-        boards: vec![],
+    let bab = ContainersAndBlocks {
+        containers: vec![],
         blocks: vec![
             block("block-id-1", "board-id-1", BlockType::Card),
             block("block-id-2", "board-id-2", BlockType::Card),
         ],
     };
-    assert_eq!(bab.validate(), Err(BoardsAndBlocksError::NoBoards));
+    assert_eq!(bab.validate(), Err(ContainersAndBlocksError::NoContainers));
 }
 
 /// `TestIsValidBoardsAndBlocks` / "no blocks"
 #[test]
 fn boards_and_blocks_validate_no_blocks() {
-    let bab = BoardsAndBlocks {
-        boards: vec![
-            board("board-id-1", BoardType::Open, ""),
-            board("board-id-2", BoardType::Private, ""),
+    let bab = ContainersAndBlocks {
+        containers: vec![
+            board("board-id-1", ContainerType::Open, ""),
+            board("board-id-2", ContainerType::Private, ""),
         ],
         blocks: vec![],
     };
-    assert_eq!(bab.validate(), Err(BoardsAndBlocksError::NoBlocks));
+    assert_eq!(bab.validate(), Err(ContainersAndBlocksError::NoBlocks));
 }
 
 /// `TestIsValidBoardsAndBlocks` / "block that doesn't belong to the boards"
 #[test]
 fn boards_and_blocks_validate_block_that_does_not_belong_to_the_boards() {
-    let bab = BoardsAndBlocks {
-        boards: vec![
-            board("board-id-1", BoardType::Open, ""),
-            board("board-id-2", BoardType::Private, ""),
+    let bab = ContainersAndBlocks {
+        containers: vec![
+            board("board-id-1", ContainerType::Open, ""),
+            board("board-id-2", ContainerType::Private, ""),
         ],
         blocks: vec![
             block("block-id-1", "board-id-1", BlockType::Card),
@@ -79,7 +80,7 @@ fn boards_and_blocks_validate_block_that_does_not_belong_to_the_boards() {
     };
     assert_eq!(
         bab.validate(),
-        Err(BoardsAndBlocksError::BlockWithoutBoard {
+        Err(ContainersAndBlocksError::BlockWithoutContainer {
             block_id: "block-id-3".to_owned()
         })
     );
@@ -88,10 +89,10 @@ fn boards_and_blocks_validate_block_that_does_not_belong_to_the_boards() {
 /// `TestIsValidBoardsAndBlocks` / "valid boards and blocks"
 #[test]
 fn boards_and_blocks_validate_valid() {
-    let bab = BoardsAndBlocks {
-        boards: vec![
-            board("board-id-1", BoardType::Open, ""),
-            board("board-id-2", BoardType::Private, ""),
+    let bab = ContainersAndBlocks {
+        containers: vec![
+            board("board-id-1", ContainerType::Open, ""),
+            board("board-id-2", ContainerType::Private, ""),
         ],
         blocks: vec![
             block("block-id-1", "board-id-1", BlockType::Card),
@@ -105,16 +106,16 @@ fn boards_and_blocks_validate_valid() {
 /// `TestGenerateBoardsAndBlocksIDs` / "invalid boards and blocks"
 #[test]
 fn generate_boards_and_blocks_ids_invalid_boards_and_blocks() {
-    let bab = BoardsAndBlocks {
-        boards: vec![],
+    let bab = ContainersAndBlocks {
+        containers: vec![],
         blocks: vec![
             block("block-id-1", "board-id-1", BlockType::Card),
             block("block-id-2", "board-id-2", BlockType::Card),
         ],
     };
     assert_eq!(
-        generate_boards_and_blocks_ids(bab),
-        Err(BoardsAndBlocksError::NoBoards)
+        generate_containers_and_blocks_ids(bab),
+        Err(ContainersAndBlocksError::NoContainers)
     );
 }
 
@@ -122,23 +123,29 @@ fn generate_boards_and_blocks_ids_invalid_boards_and_blocks() {
 /// and a block of a board that is not among them is left out.
 #[test]
 fn renew_boards_and_blocks_ids_takes_boards_without_blocks() {
-    let renewed = renew_boards_and_blocks_ids(BoardsAndBlocks {
-        boards: vec![board("board-id-1", BoardType::Open, "title")],
+    let renewed = renew_containers_and_blocks_ids(ContainersAndBlocks {
+        containers: vec![board("board-id-1", ContainerType::Open, "title")],
         blocks: vec![],
     });
-    assert_eq!(renewed.boards.len(), 1, "the board is kept");
-    assert_ne!(renewed.boards[0].id, "board-id-1", "under a new identifier");
+    assert_eq!(renewed.containers.len(), 1, "the board is kept");
+    assert_ne!(
+        renewed.containers[0].id, "board-id-1",
+        "under a new identifier"
+    );
     assert!(renewed.blocks.is_empty(), "without blocks");
 
-    let renewed = renew_boards_and_blocks_ids(BoardsAndBlocks {
-        boards: vec![board("board-id-1", BoardType::Open, "title")],
+    let renewed = renew_containers_and_blocks_ids(ContainersAndBlocks {
+        containers: vec![board("board-id-1", ContainerType::Open, "title")],
         blocks: vec![
             block("block-id-1", "board-id-1", BlockType::Card),
             block("block-id-2", "board-id-2", BlockType::Card),
         ],
     });
     assert_eq!(renewed.blocks.len(), 1, "the block of no board is left out");
-    assert_eq!(renewed.blocks[0].board_id, renewed.boards[0].id, "attached");
+    assert_eq!(
+        renewed.blocks[0].container_id, renewed.containers[0].id,
+        "attached"
+    );
 }
 
 /// A block that was asked for is told by its old identifier, whether or not anything
@@ -147,9 +154,9 @@ fn renew_boards_and_blocks_ids_takes_boards_without_blocks() {
 #[test]
 fn renew_boards_and_blocks_ids_told_tells_the_new_identifiers_asked_for() {
     let told = ["block-id-1", "block-id-3"];
-    let renewed = renew_boards_and_blocks_ids_told(
-        BoardsAndBlocks {
-            boards: vec![board("board-id-1", BoardType::Open, "title")],
+    let renewed = renew_containers_and_blocks_ids_told(
+        ContainersAndBlocks {
+            containers: vec![board("board-id-1", ContainerType::Open, "title")],
             blocks: vec![
                 block("block-id-1", "board-id-1", BlockType::Card),
                 block("block-id-2", "board-id-1", BlockType::Card),
@@ -157,7 +164,7 @@ fn renew_boards_and_blocks_ids_told_tells_the_new_identifiers_asked_for() {
         },
         |id| told.contains(&id),
     );
-    let blocks = &renewed.boards_and_blocks.blocks;
+    let blocks = &renewed.containers_and_blocks.blocks;
     assert_eq!(renewed.renamed.len(), 1, "{:?}", renewed.renamed);
     assert_eq!(renewed.renamed["block-id-1"], blocks[0].id);
     assert_ne!(blocks[0].id, "block-id-1", "under a new identifier");
@@ -167,11 +174,11 @@ fn renew_boards_and_blocks_ids_told_tells_the_new_identifiers_asked_for() {
 /// links the blocks to them, with new IDs too"
 #[test]
 fn generate_boards_and_blocks_ids_links_blocks_to_new_board_ids() {
-    let bab = BoardsAndBlocks {
-        boards: vec![
-            board("board-id-1", BoardType::Open, "board1"),
-            board("board-id-2", BoardType::Private, "board2"),
-            board("board-id-3", BoardType::Open, "board3"),
+    let bab = ContainersAndBlocks {
+        containers: vec![
+            board("board-id-1", ContainerType::Open, "board1"),
+            board("board-id-2", ContainerType::Private, "board2"),
+            board("board-id-3", ContainerType::Open, "board3"),
         ],
         blocks: vec![
             block("block-id-1", "board-id-1", BlockType::Card),
@@ -180,11 +187,11 @@ fn generate_boards_and_blocks_ids_links_blocks_to_new_board_ids() {
         ],
     };
 
-    let result = generate_boards_and_blocks_ids(bab).expect("the input is valid");
+    let result = generate_containers_and_blocks_ids(bab).expect("the input is valid");
 
-    let board_by_title = |title: &str| -> &Board {
+    let board_by_title = |title: &str| -> &Container {
         result
-            .boards
+            .containers
             .iter()
             .find(|board| board.title == title)
             .unwrap_or_else(|| panic!("no board titled {title}"))
@@ -212,25 +219,25 @@ fn generate_boards_and_blocks_ids_links_blocks_to_new_board_ids() {
     let block1 = block_by_type(BlockType::Card);
     assert!(!block1.id.is_empty(), "block1 has no id");
     assert_ne!(block1.id, "block-id-1");
-    assert_eq!(block1.board_id, board1.id);
+    assert_eq!(block1.container_id, board1.id);
 
     let block2 = block_by_type(BlockType::View);
     assert!(!block2.id.is_empty(), "block2 has no id");
     assert_ne!(block2.id, "block-id-2");
-    assert_eq!(block2.board_id, board2.id);
+    assert_eq!(block2.container_id, board2.id);
 
     let block3 = block_by_type(BlockType::Comment);
     assert!(!block3.id.is_empty(), "block3 has no id");
     assert_ne!(block3.id, "block-id-3");
-    assert_eq!(block3.board_id, board2.id);
+    assert_eq!(block3.container_id, board2.id);
 }
 
 /// `TestIsValidPatchBoardsAndBlocks` / "no board ids"
 #[test]
 fn patch_boards_and_blocks_validate_no_board_ids() {
-    let pbab = PatchBoardsAndBlocks {
-        board_ids: vec![],
-        board_patches: vec![],
+    let pbab = PatchContainersAndBlocks {
+        container_ids: vec![],
+        container_patches: vec![],
         block_ids: ids(&["block-id-1"]),
         block_patches: vec![
             title_patch("new title"),
@@ -240,40 +247,40 @@ fn patch_boards_and_blocks_validate_no_board_ids() {
             },
         ],
     };
-    assert_eq!(pbab.validate(), Err(BoardsAndBlocksError::NoBoards));
+    assert_eq!(pbab.validate(), Err(ContainersAndBlocksError::NoContainers));
 }
 
 /// `TestIsValidPatchBoardsAndBlocks` / "missmatch board IDs and patches"
 #[test]
 fn patch_boards_and_blocks_validate_mismatched_board_ids_and_patches() {
-    let pbab = PatchBoardsAndBlocks {
-        board_ids: ids(&["board-id-1", "board-id-2"]),
-        board_patches: vec![BoardPatch {
+    let pbab = PatchContainersAndBlocks {
+        container_ids: ids(&["board-id-1", "board-id-2"]),
+        container_patches: vec![ContainerPatch {
             title: Some("new title".to_owned()),
-            ..BoardPatch::default()
+            ..ContainerPatch::default()
         }],
         block_ids: ids(&["block-id-1"]),
         block_patches: vec![title_patch("new title")],
     };
     assert_eq!(
         pbab.validate(),
-        Err(BoardsAndBlocksError::BoardIdsAndPatchesMismatch)
+        Err(ContainersAndBlocksError::ContainerIdsAndPatchesMismatch)
     );
 }
 
 /// `TestIsValidPatchBoardsAndBlocks` / "missmatch block IDs and patches"
 #[test]
 fn patch_boards_and_blocks_validate_mismatched_block_ids_and_patches() {
-    let pbab = PatchBoardsAndBlocks {
-        board_ids: ids(&["board-id-1", "board-id-2"]),
-        board_patches: vec![
-            BoardPatch {
+    let pbab = PatchContainersAndBlocks {
+        container_ids: ids(&["board-id-1", "board-id-2"]),
+        container_patches: vec![
+            ContainerPatch {
                 title: Some("new title".to_owned()),
-                ..BoardPatch::default()
+                ..ContainerPatch::default()
             },
-            BoardPatch {
+            ContainerPatch {
                 description: Some("new description".to_owned()),
-                ..BoardPatch::default()
+                ..ContainerPatch::default()
             },
         ],
         block_ids: ids(&["block-id-1"]),
@@ -287,23 +294,23 @@ fn patch_boards_and_blocks_validate_mismatched_block_ids_and_patches() {
     };
     assert_eq!(
         pbab.validate(),
-        Err(BoardsAndBlocksError::BlockIdsAndPatchesMismatch)
+        Err(ContainersAndBlocksError::BlockIdsAndPatchesMismatch)
     );
 }
 
 /// `TestIsValidPatchBoardsAndBlocks` / "valid"
 #[test]
 fn patch_boards_and_blocks_validate_valid() {
-    let pbab = PatchBoardsAndBlocks {
-        board_ids: ids(&["board-id-1", "board-id-2"]),
-        board_patches: vec![
-            BoardPatch {
+    let pbab = PatchContainersAndBlocks {
+        container_ids: ids(&["board-id-1", "board-id-2"]),
+        container_patches: vec![
+            ContainerPatch {
                 title: Some("new title".to_owned()),
-                ..BoardPatch::default()
+                ..ContainerPatch::default()
             },
-            BoardPatch {
+            ContainerPatch {
                 description: Some("new description".to_owned()),
-                ..BoardPatch::default()
+                ..ContainerPatch::default()
             },
         ],
         block_ids: ids(&["block-id-1"]),
@@ -317,20 +324,23 @@ fn patch_boards_and_blocks_validate_valid() {
 /// pin what the code does instead.
 #[test]
 fn delete_boards_and_blocks_validate_requires_only_boards() {
-    let no_boards = DeleteBoardsAndBlocks {
-        boards: vec![],
+    let no_boards = DeleteContainersAndBlocks {
+        containers: vec![],
         blocks: ids(&["block-id-1"]),
     };
-    assert_eq!(no_boards.validate(), Err(BoardsAndBlocksError::NoBoards));
+    assert_eq!(
+        no_boards.validate(),
+        Err(ContainersAndBlocksError::NoContainers)
+    );
 
-    let no_blocks = DeleteBoardsAndBlocks {
-        boards: ids(&["board-id-1", "board-id-2"]),
+    let no_blocks = DeleteContainersAndBlocks {
+        containers: ids(&["board-id-1", "board-id-2"]),
         blocks: vec![],
     };
     assert_eq!(no_blocks.validate(), Ok(()));
 
-    let both = DeleteBoardsAndBlocks {
-        boards: ids(&["board-id-1", "board-id-2"]),
+    let both = DeleteContainersAndBlocks {
+        containers: ids(&["board-id-1", "board-id-2"]),
         blocks: ids(&["block-id-1"]),
     };
     assert_eq!(both.validate(), Ok(()));
@@ -340,17 +350,17 @@ fn delete_boards_and_blocks_validate_requires_only_boards() {
 /// lists their identifiers in order.
 #[test]
 fn delete_boards_and_blocks_from_boards_and_blocks() {
-    let bab = BoardsAndBlocks {
-        boards: vec![board("board-id-1", BoardType::Open, "")],
+    let bab = ContainersAndBlocks {
+        containers: vec![board("board-id-1", ContainerType::Open, "")],
         blocks: vec![
             block("block-id-1", "board-id-1", BlockType::Card),
             block("block-id-2", "board-id-1", BlockType::View),
         ],
     };
     assert_eq!(
-        DeleteBoardsAndBlocks::from(&bab),
-        DeleteBoardsAndBlocks {
-            boards: ids(&["board-id-1"]),
+        DeleteContainersAndBlocks::from(&bab),
+        DeleteContainersAndBlocks {
+            containers: ids(&["board-id-1"]),
             blocks: ids(&["block-id-1", "block-id-2"]),
         }
     );

@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use fvoci_model::{Board, Invitation, UserWorkspace, new_id};
+use fvoci_model::{Container, Invitation, UserWorkspace, new_id};
 use fvoci_server::Server;
 use fvoci_server::config::Configuration;
 use fvoci_store::testing::TestDatabase;
@@ -142,7 +142,7 @@ async fn use_the_links(api: &Api) -> (Vec<String>, Vec<String>) {
     let admin = api.signed_in("admin").await;
     let workspaces: Vec<UserWorkspace> = parsed(admin.get("/api/v1/users/me/workspaces").await);
     let workspace = &workspaces[0].id;
-    let board: Board = parsed(
+    let board: Container = parsed(
         admin
             .post(
                 &format!("/api/v1/w/{workspace}/boards"),

@@ -106,8 +106,8 @@ docs/s6-design.md
 
 # Workspace groups of people, introduced in 0026: these are teams, never workspaces.
 crates/model/src/team.rs
-crates/model/src/lib.rs | mod board_teams
-crates/model/src/lib.rs | pub use board_teams::{boardteam, boardteamrole}
+crates/model/src/lib.rs | mod container_teams
+crates/model/src/lib.rs | pub use container_teams::{containerteam, containerteamrole}
 crates/model/src/lib.rs | mod team;
 crates/model/src/lib.rs | pub use team::{team, teammember, teamname, team_name, team_name_key}
 crates/store/schema/*/0026_teams.sql
@@ -122,10 +122,10 @@ crates/store/src/error.rs | teamselfjoining
 crates/store/src/error.rs | the name of a team: another team
 crates/store/src/error.rs | teamname
 crates/store/src/error.rs | the name of the team
-crates/store/src/lib.rs | mod board_team
+crates/store/src/lib.rs | mod container_team
 crates/store/src/lib.rs | mod teams
-crates/store/src/workspace_membership.rs | board_team_membership::remove_workspace_teams
-crates/store/src/org_admin.rs | board_team_membership::remove_workspace_teams
+crates/store/src/workspace_membership.rs | container_team_membership::remove_workspace_teams
+crates/store/src/org_admin.rs | container_team_membership::remove_workspace_teams
 crates/server/src/app/teams.rs
 crates/server/src/app/mod.rs | teams
 crates/server/src/api/teams.rs
@@ -169,9 +169,9 @@ crates/store/tests/store/tenancy.rs | the team has a board role
 crates/store/schema/*/0041_containers.sql
 # The test of migration 41 fills a workspace's team and its role on a board (0026).
 crates/store/tests/store/container_rename.rs
-crates/store/src/board_teams.rs
-crates/store/src/board_team_access.rs
-crates/server/src/api/board_teams.rs
+crates/store/src/container_teams.rs
+crates/store/src/container_team_access.rs
+crates/server/src/api/container_teams.rs
 crates/server/src/permissions/team_table.rs
 crates/server/tests/api/board_teams.rs
 crates/server/tests/api/wiki_kinds.rs | team
@@ -179,12 +179,12 @@ crates/server/tests/api/role_table.rs | team
 crates/server/tests/api/role_table/*.txt | teams:
 crates/store/tests/store/board_kinds.rs | team
 apps/web/src/lib/features/shell/BoardTeams.svelte
-crates/model/src/board.rs | inherited from teams
-crates/store/src/boards.rs | board_team_access::
-crates/store/src/boards.rs | push_has_team_role
-crates/store/src/directory.rs | board_team_access
+crates/model/src/container.rs | inherited from teams
+crates/store/src/containers.rs | container_team_access::
+crates/store/src/containers.rs | push_has_team_role
+crates/store/src/directory.rs | container_team_access
 crates/store/src/directory.rs | push_has_team_role
-crates/store/src/workspaces.rs | board_team_access::push_has_team_role
+crates/store/src/workspaces.rs | container_team_access::push_has_team_role
 crates/server/src/permissions.rs | team_role
 crates/server/src/permissions.rs | mod team_table
 crates/server/src/permissions.rs | highest team role
@@ -204,16 +204,16 @@ apps/web/src/lib/features/shell/share-words.ts | team
 apps/web/src/lib/state/member-writes.ts | boardteams
 
 # Team membership is reusable across workspace modules; board effects live on the board side.
-crates/model/src/board_teams.rs
-crates/store/src/board_team_membership.rs
+crates/model/src/container_teams.rs
+crates/store/src/container_team_membership.rs
 crates/server/tests/api/team_standing.rs
 apps/web/tests/ui/shell/team-row.test.ts
 apps/web/tests/ui/shell/teams-panel.test.ts
 apps/web/tests/ui/shell/board-teams.test.ts
-crates/store/src/board_membership.rs | team_role
-crates/store/src/board_membership.rs | board_team_access::
+crates/store/src/container_membership.rs | team_role
+crates/store/src/container_membership.rs | container_team_access::
 crates/store/src/invitations.rs | team_role
-crates/store/src/invitations.rs | board_team_access::
+crates/store/src/invitations.rs | container_team_access::
 crates/store/src/link_locks.rs | team changes hold
 crates/store/src/observe.rs | TeamSelfJoining
 crates/server/src/error.rs | teamselfjoining
@@ -221,23 +221,23 @@ crates/server/src/error.rs | team_self_joining
 crates/server/src/error.rs | to a team
 crates/server/src/problems.rs | teamselfjoining
 crates/server/src/problems.rs | yourself to a team
-crates/server/src/app/boards.rs | team_role
-crates/server/src/app/boards.rs | a team's people keep
+crates/server/src/app/containers.rs | team_role
+crates/server/src/app/containers.rs | a team's people keep
 crates/server/src/app/invitations.rs | team_role
 crates/store/tests/store/invitations.rs | team
 crates/store/tests/store/org_admin.rs | team_role
 crates/server/tests/api/main.rs | team_standing
 
 # Saved assignments of workspace people groups, never the retired workspace name.
-crates/store/src/board_team_trash.rs
+crates/store/src/container_team_trash.rs
 crates/server/tests/api/team_lifecycle.rs
 crates/server/tests/api/main.rs | team_lifecycle
-crates/server/src/api/boards.rs | team ids and their roles
-crates/server/src/api/boards.rs | surviving teams regain
-crates/server/src/api/boards.rs | deleted teams are skipped
-crates/server/src/api/boards.rs | other members and teams
-crates/store/src/trash.rs | board_team_trash::
-crates/store/src/trash.rs | board_team_access::
+crates/server/src/api/containers.rs | team ids and their roles
+crates/server/src/api/containers.rs | surviving teams regain
+crates/server/src/api/containers.rs | deleted teams are skipped
+crates/server/src/api/containers.rs | other members and teams
+crates/store/src/trash.rs | container_team_trash::
+crates/store/src/trash.rs | container_team_access::
 
 # The review's tests of the workspace teams (people grouped in a workspace, not workspaces).
 crates/server/tests/api/team_review.rs
@@ -275,7 +275,7 @@ contracts/websocket.md | teammember
 contracts/websocket.md | deleteteam
 contracts/websocket.md | boardteam
 crates/server/src/app/access.rs | the team roles on a board
-crates/server/src/app/boards.rs | its surviving teams
+crates/server/src/app/containers.rs | its surviving teams
 crates/server/src/collab/rooms/access.rs | team): the others
 crates/server/tests/api/rooms_access.rs | leaving the team
 crates/server/tests/api/rooms_teams.rs

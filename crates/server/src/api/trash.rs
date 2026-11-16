@@ -11,14 +11,14 @@ use super::contract::params::MemberWorkspaceId;
 use super::contract::params::{BoardId, Page, PerPage, WorkspaceId};
 use super::contract::tag;
 use super::workspace::{InWorkspace, TextInContainer};
-use super::{ApiResult, json_response, require_board_permission};
+use super::{ApiResult, json_response, require_container_permission};
 use crate::app::App;
-use crate::permissions::BoardPermission;
+use crate::permissions::ContainerPermission;
 
 pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new()
         .routes(routes!(handle_get_deleted_cards))
-        .routes(routes!(handle_get_deleted_boards))
+        .routes(routes!(handle_get_deleted_containers))
 }
 
 /// The deleted cards of a board
@@ -39,21 +39,21 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 )]
 async fn handle_get_deleted_cards(
     ws: InWorkspace,
-    Path((_, board_id)): Path<(String, String)>,
+    Path((_, container_id)): Path<(String, String)>,
     RawQuery(query): RawQuery,
 ) -> ApiResult {
     let query = query.as_deref();
-    require_board_permission(
+    require_container_permission(
         &ws.app,
         &ws.session.user_id,
-        &board_id,
-        BoardPermission::ManageBoardCards,
+        &container_id,
+        ContainerPermission::ManageCards,
         "access denied to the trash of the board",
     )
     .await?;
     let (page, per_page) = page_params(query)?;
     Ok(json_response(
-        &ws.app.deleted_cards(&board_id, page, per_page).await?,
+        &ws.app.deleted_cards(&container_id, page, per_page).await?,
     ))
 }
 
@@ -72,11 +72,11 @@ async fn handle_get_deleted_cards(
     get,
     path = "/w/{workspaceId}/trash/boards",
     operation_id = "getDeletedBoards",
-    tag = tag::BOARDS,
+    tag = tag::CONTAINERS,
     params(WorkspaceId, Page, PerPage),
     responses((status = 200, description = "The deleted boards of the page.", body = Vec<DeletedItem>)),
 )]
-async fn handle_get_deleted_boards(
+async fn handle_get_deleted_containers(
     TextInContainer(ws): TextInContainer,
     RawQuery(query): RawQuery,
 ) -> ApiResult {
@@ -84,7 +84,7 @@ async fn handle_get_deleted_boards(
     let (page, per_page) = page_params(query.as_deref())?;
     Ok(json_response(
         &ws.app
-            .deleted_boards(
+            .deleted_containers(
                 &ws.workspace_id,
                 &ws.session.user_id,
                 ws.role,

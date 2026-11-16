@@ -11,7 +11,8 @@ use axum::extract::rejection::RawPathParamsRejection;
 use axum::extract::{FromRequestParts, Path, RawPathParams, RawQuery, State};
 use axum::http::request::Parts;
 use fvoci_model::{
-    AuditRecord, Board, BoardKinds, OrgRole, Session, User, UserWorkspace, Workspace, WorkspaceRole,
+    AuditRecord, Container, ContainerKinds, OrgRole, Session, User, UserWorkspace, Workspace,
+    WorkspaceRole,
 };
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
@@ -34,7 +35,7 @@ const WORKSPACE_ID: &str = "workspaceId";
 pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new()
         .routes(routes!(handle_get_my_workspaces))
-        .routes(routes!(handle_get_workspace_boards))
+        .routes(routes!(handle_get_workspace_containers))
         .routes(routes!(handle_get_workspace))
         .routes(routes!(
             handle_get_workspace_users,
@@ -56,7 +57,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 /// member. The application it hands the handler is behind the wall between
 /// organizations, reaching the rows of the workspace's organization and no other, and
 /// finds a board of the organization's other workspaces as one that is not there
-/// (`App::board_access`); a handler that lists asks for what is in this one by
+/// (`App::container_access`); a handler that lists asks for what is in this one by
 /// `workspace_id`.
 #[derive(Debug)]
 pub(crate) struct InWorkspace {
@@ -139,7 +140,7 @@ impl InWorkspace {
             app: entered
                 .app
                 .in_workspace(&workspace_id)
-                .reaching(BoardKinds::Boards),
+                .reaching(ContainerKinds::Boards),
             session,
             workspace_id,
             role: entered.role,
@@ -148,7 +149,7 @@ impl InWorkspace {
     }
 
     /// The same workspace, reaching boards of `kinds`.
-    fn reaching(mut self, kinds: BoardKinds) -> Self {
+    fn reaching(mut self, kinds: ContainerKinds) -> Self {
         self.app = self.app.reaching(kinds);
         self
     }
@@ -167,7 +168,7 @@ impl InWorkspace {
     /// # Errors
     ///
     /// Returns 403 in `denial` for a guest; the workspace is there for them.
-    pub(crate) fn require_board_maker(&self, denial: &str) -> Result<(), AppError> {
+    pub(crate) fn require_container_maker(&self, denial: &str) -> Result<(), AppError> {
         if self.role == WorkspaceRole::Guest {
             return Err(AppError::forbidden(denial));
         }
@@ -181,14 +182,18 @@ impl InWorkspace {
     /// # Errors
     ///
     /// Returns 400 for a board that names another workspace.
-    pub(crate) fn place_board(&self, board: &mut Board, field: &str) -> Result<(), AppError> {
-        if !board.workspace_id.is_empty() && board.workspace_id != self.workspace_id {
+    pub(crate) fn place_container(
+        &self,
+        container: &mut Container,
+        field: &str,
+    ) -> Result<(), AppError> {
+        if !container.workspace_id.is_empty() && container.workspace_id != self.workspace_id {
             return Err(
                 AppError::bad_request("the board is made in the workspace of the path")
                     .with_field(field),
             );
         }
-        board.workspace_id.clone_from(&self.workspace_id);
+        container.workspace_id.clone_from(&self.workspace_id);
         Ok(())
     }
 
@@ -233,7 +238,7 @@ impl FromRequestParts<App> for InWiki {
 
     async fn from_request_parts(parts: &mut Parts, app: &App) -> Result<Self, Self::Rejection> {
         let ws = InWorkspace::from_request_parts(parts, app).await?;
-        Ok(Self(ws.reaching(BoardKinds::Wikis)))
+        Ok(Self(ws.reaching(ContainerKinds::Wikis)))
     }
 }
 
@@ -248,7 +253,7 @@ impl FromRequestParts<App> for InContainer {
 
     async fn from_request_parts(parts: &mut Parts, app: &App) -> Result<Self, Self::Rejection> {
         let ws = InWorkspace::from_request_parts(parts, app).await?;
-        Ok(Self(ws.reaching(BoardKinds::Every)))
+        Ok(Self(ws.reaching(ContainerKinds::Every)))
     }
 }
 
@@ -261,7 +266,7 @@ impl FromRequestParts<App> for TextInContainer {
 
     async fn from_request_parts(parts: &mut Parts, app: &App) -> Result<Self, Self::Rejection> {
         let TextInWorkspace(ws) = TextInWorkspace::from_request_parts(parts, app).await?;
-        Ok(Self(ws.reaching(BoardKinds::Every)))
+        Ok(Self(ws.reaching(ContainerKinds::Every)))
     }
 }
 
@@ -310,14 +315,14 @@ async fn handle_get_my_workspaces(
     operation_id = "getWorkspaceBoards",
     tag = tag::WORKSPACES,
     params(MemberWorkspaceId),
-    responses((status = 200, description = "The boards.", body = Vec<Board>)),
+    responses((status = 200, description = "The boards.", body = Vec<Container>)),
 )]
-async fn handle_get_workspace_boards(ws: InWorkspace) -> ApiResult {
-    let boards = ws
+async fn handle_get_workspace_containers(ws: InWorkspace) -> ApiResult {
+    let containers = ws
         .app
-        .workspace_boards(&ws.session.user_id, &ws.workspace_id, ws.role)
+        .workspace_containers(&ws.session.user_id, &ws.workspace_id, ws.role)
         .await?;
-    Ok(json_response(&boards))
+    Ok(json_response(&containers))
 }
 
 /// A workspace

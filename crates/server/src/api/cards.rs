@@ -23,11 +23,11 @@ use super::workspace::InWorkspace;
 use super::blocks::BLOCK_FIELDS;
 use super::change_notification;
 use super::{ApiResult, TRUE, created, json_response, query_param};
-use super::{decode_with_document, require_board_permission, require_permission_through};
+use super::{decode_with_document, require_container_permission, require_permission_through};
 use crate::app::{App, CardPreviews};
 use crate::auth::now_millis;
 use crate::error::AppError;
-use crate::permissions::BoardPermission;
+use crate::permissions::ContainerPermission;
 
 /// The page of cards a request without `page` gets.
 pub(super) const DEFAULT_PAGE: i64 = 0;
@@ -85,7 +85,7 @@ async fn card_with_permission(
     app: &App,
     user_id: &str,
     card_id: &str,
-    permission: BoardPermission,
+    permission: ContainerPermission,
     denial: &str,
 ) -> Result<Block, AppError> {
     const WHAT: &str = "card";
@@ -94,7 +94,7 @@ async fn card_with_permission(
         Err(error) if error.is_not_found() => return Err(AppError::not_found(WHAT)),
         Err(error) => return Err(error),
     };
-    require_permission_through(app, user_id, &block.board_id, permission, denial, WHAT).await?;
+    require_permission_through(app, user_id, &block.container_id, permission, denial, WHAT).await?;
     if block.block_type != BlockType::Card {
         return Err(AppError::not_found(WHAT));
     }
@@ -131,22 +131,22 @@ async fn handle_create_card(
 ) -> ApiResult {
     let user_id = ws.session.user_id.as_str();
     let notification = change_notification(query.as_deref());
-    require_board_permission(
+    require_container_permission(
         &ws.app,
         user_id,
         &board_id,
-        BoardPermission::ManageBoardCards,
+        ContainerPermission::ManageCards,
         "access denied to create card",
     )
     .await?;
     let (mut card, document): (Card, _) = decode_with_document(&body)?;
     // Everything of the request's shape that is refused, before the store is asked.
     let mut refused: Refusals = card.check_request().err().unwrap_or_default();
-    if !card.board_id.is_empty() && card.board_id != board_id {
+    if !card.container_id.is_empty() && card.container_id != board_id {
         refused.refuse(
             "boardId",
             RefusalReason::Invalid,
-            CardError::BoardIdMismatch.to_string(),
+            CardError::ContainerIdMismatch.to_string(),
         );
     }
     refused.into_result()?;
@@ -154,7 +154,7 @@ async fn handle_create_card(
     ws.app
         .check_body_files(&board_id, card.body.as_ref())
         .await?;
-    card.board_id.clone_from(&board_id);
+    card.container_id.clone_from(&board_id);
     card.populate(now_millis());
     card.validate().map_err(AppError::bad_request)?;
 
@@ -188,11 +188,11 @@ async fn handle_get_cards(
     RawQuery(query): RawQuery,
 ) -> ApiResult {
     let user_id = &ws.session.user_id;
-    require_board_permission(
+    require_container_permission(
         &ws.app,
         user_id,
         &board_id,
-        BoardPermission::ViewBoard,
+        ContainerPermission::View,
         "access denied to fetch cards",
     )
     .await?;
@@ -244,7 +244,7 @@ async fn handle_patch_card(
         &ws.app,
         user_id,
         &card_id,
-        BoardPermission::ManageBoardCards,
+        ContainerPermission::ManageCards,
         "access denied to patch card",
     )
     .await?;
@@ -254,7 +254,7 @@ async fn handle_patch_card(
     // Everything of the request's shape that is refused, before the store is asked.
     patch.check_request()?;
     ws.app
-        .check_body_files(&card.board_id, patch.body.new_body())
+        .check_body_files(&card.container_id, patch.body.new_body())
         .await?;
 
     let patched = ws
@@ -262,7 +262,7 @@ async fn handle_patch_card(
         .patch_card(&patch, &card.id, user_id, notification)
         .await
         .map_err(|error| error.moved(BLOCK_FIELDS, "/updatedProperties"))?;
-    tracing::debug!(board_id = %patched.board_id, card_id = %patched.id, user_id, "PatchCard");
+    tracing::debug!(board_id = %patched.container_id, card_id = %patched.id, user_id, "PatchCard");
     Ok(json_response(&patched))
 }
 
@@ -284,12 +284,12 @@ async fn handle_get_card(ws: InWorkspace, Path((_, card_id)): Path<(String, Stri
         &ws.app,
         user_id,
         &card_id,
-        BoardPermission::ViewBoard,
+        ContainerPermission::View,
         "access denied to fetch card",
     )
     .await?;
     let card = ws.app.card_of_block(&block).await?;
-    tracing::debug!(board_id = %card.board_id, card_id = %card.id, user_id, "GetCard");
+    tracing::debug!(board_id = %card.container_id, card_id = %card.id, user_id, "GetCard");
     Ok(json_response(&card))
 }
 
@@ -324,7 +324,7 @@ async fn handle_get_card_body_versions(
         &ws.app,
         user_id,
         &card_id,
-        BoardPermission::ViewBoard,
+        ContainerPermission::View,
         "access denied to fetch card",
     )
     .await?;
@@ -354,7 +354,7 @@ async fn handle_get_card_body_version(
         &ws.app,
         user_id,
         &card_id,
-        BoardPermission::ViewBoard,
+        ContainerPermission::View,
         "access denied to fetch card",
     )
     .await?;
@@ -393,7 +393,7 @@ async fn handle_restore_card_body_version(
         &ws.app,
         user_id,
         &card_id,
-        BoardPermission::ManageBoardCards,
+        ContainerPermission::ManageCards,
         "access denied to restore a version of the card's body",
     )
     .await?;
@@ -402,7 +402,12 @@ async fn handle_restore_card_body_version(
         .restore_body_version(&card, version_number(&version)?, user_id)
         .await?;
     let restored = ws.app.card_of_block(&block).await?;
-    tracing::debug!(board_id = %restored.board_id, card_id = %restored.id, user_id, "RestoreCardBodyVersion");
+    tracing::debug!(
+        board_id = %restored.container_id,
+        card_id = %restored.id,
+        user_id,
+        "RestoreCardBodyVersion"
+    );
     Ok(json_response(&restored))
 }
 

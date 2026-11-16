@@ -4,7 +4,8 @@
 use std::time::Duration;
 
 use fvoci_model::{
-    Block, BlockType, BoardMember, SubscriberType, Subscription, SubscriptionError, User, new_id,
+    Block, BlockType, ContainerMember, SubscriberType, Subscription, SubscriptionError, User,
+    new_id,
 };
 use fvoci_store::{BlockFilter, MemberChange, Store, StoreError};
 
@@ -50,7 +51,7 @@ async fn create_test_blocks(store: &Store, user_id: &str, num: usize) -> Vec<Blo
 fn card_on(board_id: &str, user_id: &str) -> Block {
     Block {
         id: new_id(),
-        board_id: board_id.to_owned(),
+        container_id: board_id.to_owned(),
         block_type: BlockType::Card,
         created_by: user_id.to_owned(),
         ..Block::default()
@@ -832,11 +833,11 @@ async fn deleting_a_block_ends_the_subscriptions_to_it_for_good() {
     let mut below = vec![Block {
         parent_id: card.id.clone(),
         block_type: BlockType::Attachment,
-        ..card_on(&card.board_id, &author.id)
+        ..card_on(&card.container_id, &author.id)
     }];
     common::insert_blocks(store, &mut below, &author.id).await;
     let paragraph = &below[0];
-    let mut others = vec![card_on(&card.board_id, &author.id)];
+    let mut others = vec![card_on(&card.container_id, &author.id)];
     common::insert_blocks(store, &mut others, &author.id).await;
     let other_card = &others[0];
 
@@ -873,7 +874,7 @@ async fn deleting_a_block_ends_the_subscriptions_to_it_for_good() {
         .expect("the card is restored");
     assert_eq!(restored.id, card.id, "the restored card");
     let on_the_board = store
-        .get_blocks(&BlockFilter::board(&card.board_id))
+        .get_blocks(&BlockFilter::container(&card.container_id))
         .await
         .expect("the blocks of the board are listed");
     assert!(
@@ -927,7 +928,7 @@ async fn deleting_a_board_ends_the_subscriptions_to_its_blocks_for_good() {
     }
 
     store
-        .delete_board(&doomed.board_id, &author.id)
+        .delete_container(&doomed.container_id, &author.id)
         .await
         .expect("the board is deleted");
     for user in [author, reader] {
@@ -939,11 +940,11 @@ async fn deleting_a_board_ends_the_subscriptions_to_its_blocks_for_good() {
     }
 
     store
-        .undelete_board(&doomed.board_id, &author.id)
+        .undelete_container(&doomed.container_id, &author.id)
         .await
         .expect("the board is restored");
     let back = store
-        .get_blocks(&BlockFilter::board(&doomed.board_id))
+        .get_blocks(&BlockFilter::container(&doomed.container_id))
         .await
         .expect("the blocks of the restored board are listed");
     assert_eq!(
@@ -1037,7 +1038,7 @@ async fn delete_member_ends_the_subscriptions_of_that_user_to_the_blocks_of_that
     // Each test block is on a board of its own; put two more on the first one's board.
     let blocks = create_test_blocks(store, &leaver.id, 2).await;
     let (on_board, elsewhere) = (&blocks[0], &blocks[1]);
-    let board_id = on_board.board_id.clone();
+    let board_id = on_board.container_id.clone();
     let mut more = vec![
         card_on(&board_id, &leaver.id),
         card_on(&board_id, &leaver.id),
@@ -1045,11 +1046,11 @@ async fn delete_member_ends_the_subscriptions_of_that_user_to_the_blocks_of_that
     common::insert_blocks(store, &mut more, &leaver.id).await;
     let (ended_before, also_on_board) = (&more[0], &more[1]);
     for user in [leaver, other] {
-        let member = BoardMember {
-            board_id: board_id.clone(),
+        let member = ContainerMember {
+            container_id: board_id.clone(),
             user_id: user.id.clone(),
             scheme_editor: true,
-            ..BoardMember::default()
+            ..ContainerMember::default()
         };
         store
             .save_member(&member)
@@ -1080,7 +1081,7 @@ async fn delete_member_ends_the_subscriptions_of_that_user_to_the_blocks_of_that
 
     // Removing a user who is no member ends nothing.
     store
-        .delete_member(&elsewhere.board_id, &leaver.id)
+        .delete_member(&elsewhere.container_id, &leaver.id)
         .await
         .expect("removing a user who is no member succeeds");
     assert_eq!(
@@ -1132,14 +1133,14 @@ async fn remove_member_ends_subscriptions_only_when_it_removes() {
     // Each test block is on a board of its own.
     let blocks = create_test_blocks(store, &admin.id, 2).await;
     let (on_board, elsewhere) = (&blocks[0], &blocks[1]);
-    let board_id = &on_board.board_id;
+    let board_id = &on_board.container_id;
     for (user, scheme_admin) in [(admin, true), (editor, false)] {
-        let member = BoardMember {
-            board_id: board_id.clone(),
+        let member = ContainerMember {
+            container_id: board_id.clone(),
             user_id: user.id.clone(),
             scheme_admin,
             scheme_editor: true,
-            ..BoardMember::default()
+            ..ContainerMember::default()
         };
         store
             .save_member(&member)

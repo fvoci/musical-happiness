@@ -68,7 +68,7 @@ pub(crate) async fn refresh(
             sql.push(if index == 0 { "(" } else { ", (" })
                 .bind(Id(&block.id))
                 .push_bind(", ", Id(target))
-                .push_bind(", ", Id(&block.board_id))
+                .push_bind(", ", Id(&block.container_id))
                 .push(")");
         }
         scope.execute(sql).await?;

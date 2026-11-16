@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use fvoci_collab::BodyDoc;
 use fvoci_collab::testing::Editor;
-use fvoci_model::{BoardType, Body, Card, FileInfo, Session, new_id};
+use fvoci_model::{Body, Card, ContainerType, FileInfo, Session, new_id};
 use fvoci_server::app::App;
 use fvoci_server::collab::Collab;
 use fvoci_server::error::{AppError, Reason};
@@ -29,7 +29,9 @@ async fn joined(collab: &Collab, app: &App, card_id: &str, client: u64) -> (Edit
 }
 
 async fn editing(th: &TestServer, body: Value) -> (App, Card, String, String) {
-    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+    let board = th
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
     let card = th
         .client
         .post(
@@ -217,10 +219,10 @@ async fn a_logged_image_keeps_its_file_before_projection() {
     let (app, card, user1, _) = editing(&th, Value::Null).await;
     let file = FileInfo {
         id: new_id(),
-        board_id: card.board_id.clone(),
+        container_id: card.container_id.clone(),
         stored_name: "7review.png".to_owned(),
         create_at: 1,
-        path: format!("boards/{}/7review.png", card.board_id),
+        path: format!("boards/{}/7review.png", card.container_id),
         name: "review.png".to_owned(),
         extension: ".png".to_owned(),
         size: 7,

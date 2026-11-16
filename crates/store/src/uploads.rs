@@ -111,9 +111,9 @@ impl Store {
     pub async fn create_upload(&self, upload: &Upload) -> Result<(), StoreError> {
         check_new_path(&upload.path)?;
         self.with_conn(async |scope| {
-            // An upload goes to a board or a workspace, which `board_id` names.
+            // An upload goes to a board or a workspace, which `container_id` names.
             let target = match upload.purpose {
-                UploadPurpose::File => &upload.board_id,
+                UploadPurpose::File => &upload.container_id,
                 UploadPurpose::Import => &upload.workspace_id,
             };
             let mut sql = scope.sql(&format!("INSERT INTO uploads ({UPLOAD_COLUMNS}) VALUES ("));
@@ -317,7 +317,7 @@ fn upload_from_row(row: &Row) -> Result<Upload, StoreError> {
         reason: format!("{purpose:?} is no purpose of an upload"),
     })?;
     let target = row.id(2)?;
-    let (board_id, workspace_id) = match purpose {
+    let (container_id, workspace_id) = match purpose {
         UploadPurpose::File => (target, String::new()),
         UploadPurpose::Import => (String::new(), target),
     };
@@ -325,7 +325,7 @@ fn upload_from_row(row: &Row) -> Result<Upload, StoreError> {
         id: row.text(0)?,
         user_id: row.id(1)?,
         purpose,
-        board_id,
+        container_id,
         workspace_id,
         name: row.text(3)?,
         size: row.int(4)?,

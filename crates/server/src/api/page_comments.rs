@@ -26,7 +26,7 @@ use super::{
 };
 use crate::app::{App, ChangeNotification};
 use crate::error::AppError;
-use crate::permissions::BoardPermission;
+use crate::permissions::ContainerPermission;
 
 pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new()
@@ -107,7 +107,7 @@ fn text_of(change: BodyChange) -> Result<Body, AppError> {
 async fn comment_with_permission(
     ws: &InWorkspace,
     named: CommentPath<'_>,
-    permission: BoardPermission,
+    permission: ContainerPermission,
     denial: &str,
 ) -> Result<(Block, Option<Block>), AppError> {
     let page = page_with_permission(ws, named.wiki, named.page, permission, denial).await?;
@@ -123,7 +123,7 @@ async fn comment_with_permission(
 async fn existing_comment(
     ws: &InWorkspace,
     named: CommentPath<'_>,
-    permission: BoardPermission,
+    permission: ContainerPermission,
 ) -> Result<Block, AppError> {
     let (_, comment) = comment_with_permission(ws, named, permission, CHANGES_DENIED).await?;
     comment.ok_or_else(|| AppError::not_found("comment"))
@@ -132,7 +132,7 @@ async fn existing_comment(
 /// Whether the block is a comment on the page.
 fn is_comment_on(block: &Block, page: &Block) -> bool {
     block.block_type == BlockType::Comment
-        && block.board_id == page.board_id
+        && block.container_id == page.container_id
         && block.parent_id == page.id
 }
 
@@ -159,7 +159,7 @@ async fn handle_get_page_comments(
         &ws,
         &wiki_id,
         &page_id,
-        BoardPermission::ViewBoard,
+        ContainerPermission::View,
         READ_DENIED,
     )
     .await?;
@@ -196,7 +196,7 @@ async fn handle_create_page_comment(
         &ws,
         &wiki_id,
         &page_id,
-        BoardPermission::CommentBoardCards,
+        ContainerPermission::CommentCards,
         "access denied to comment on the page",
     )
     .await?;
@@ -206,7 +206,7 @@ async fn handle_create_page_comment(
     ws.app.check_body_files(&wiki_id, Some(&text)).await?;
     let mut comment = Block {
         id: new_id(),
-        board_id: wiki_id.clone(),
+        container_id: wiki_id.clone(),
         parent_id: page.id,
         block_type: BlockType::Comment,
         body: Some(text),
@@ -255,7 +255,7 @@ async fn handle_patch_page_comment(
         comment: &comment_id,
     };
     // Who cannot even comment changes nothing, whatever the comment.
-    let comment = existing_comment(&ws, named, BoardPermission::CommentBoardCards).await?;
+    let comment = existing_comment(&ws, named, ContainerPermission::CommentCards).await?;
     require_block_permission(
         &ws.app,
         user_id,
@@ -310,7 +310,7 @@ async fn handle_delete_page_comment(
         page: &page_id,
         comment: &comment_id,
     };
-    let comment = existing_comment(&ws, named, BoardPermission::CommentBoardCards).await?;
+    let comment = existing_comment(&ws, named, ContainerPermission::CommentCards).await?;
     require_delete_permission(&ws.app, user_id, &comment, CHANGES_DENIED).await?;
     ws.app
         .delete_block(&comment.id, user_id, ChangeNotification::Send)
@@ -348,7 +348,7 @@ async fn handle_undelete_page_comment(
         &ws,
         &wiki_id,
         &page_id,
-        BoardPermission::CommentBoardCards,
+        ContainerPermission::CommentCards,
         CHANGES_DENIED,
     )
     .await?;
@@ -403,7 +403,7 @@ async fn handle_get_page_comment_versions(
         comment: &comment_id,
     };
     let (page, live) =
-        comment_with_permission(&ws, named, BoardPermission::ViewBoard, READ_DENIED).await?;
+        comment_with_permission(&ws, named, ContainerPermission::View, READ_DENIED).await?;
     let comment = match live {
         Some(comment) => comment.id,
         // A comment that was deleted on its own is in the trash below a page that is not.

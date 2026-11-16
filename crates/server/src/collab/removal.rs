@@ -20,7 +20,7 @@ pub(crate) enum Deletion {
     /// A block and its descendants, at any depth.
     Block(String),
     /// Every card of these boards, and every page of these wikis.
-    Boards(Vec<String>),
+    Containers(Vec<String>),
 }
 
 /// Keeps a structural store mutation on one side of a document deletion.
@@ -250,7 +250,7 @@ impl Deletion {
                         .map(|block| block.id),
                 );
             }
-            Self::Boards(ids) => {
+            Self::Containers(ids) => {
                 // A board has cards and a wiki pages: each is asked for both, as its
                 // kind is not read here.
                 for id in ids {
@@ -258,7 +258,7 @@ impl Deletion {
                         let blocks = app
                             .store()
                             .get_listed_blocks(
-                                &BlockFilter::board(id).with_type(with_room),
+                                &BlockFilter::container(id).with_type(with_room),
                                 Previews::Without,
                             )
                             .await?;

@@ -1,7 +1,7 @@
 //! The trash: deleting boards and blocks, and bringing them back.
 //!
 //! The tables of boards and blocks hold what exists. Deleting moves a row out of them
-//! into `deleted_boards` or `deleted_blocks`, whole, as JSON; restoring moves it back.
+//! into `deleted_containers` or `deleted_blocks`, whole, as JSON; restoring moves it back.
 //! So no query of what exists has to leave out what is deleted, and the foreign keys of
 //! what exists hold without exceptions.
 //!
@@ -15,19 +15,21 @@
 
 use std::collections::{HashMap, HashSet};
 
-use fvoci_model::{Block, Board, BoardKinds, BoardMember, BoardType, Body, FileInfo, new_id};
+use fvoci_model::{
+    Block, Body, Container, ContainerKinds, ContainerMember, ContainerType, FileInfo, new_id,
+};
 use serde::de::DeserializeOwned;
 
 use crate::Store;
 use crate::block_derived;
 use crate::blocks::{self, Paging, parents_first};
-use crate::boards;
 use crate::body_docs;
 use crate::body_links;
 use crate::body_versions;
-use crate::category_boards::{self, BoardPlace};
+use crate::category_containers::{self, ContainerPlace};
 use crate::comment_places;
 use crate::comment_versions;
+use crate::containers;
 use crate::db::{Dialect, Id, OptId, Param, Row, Scope, Sql, now_millis};
 use crate::error::StoreError;
 use crate::file_info;
@@ -48,11 +50,11 @@ pub struct DeletedBlock {
 
 /// A board in the trash.
 #[derive(Debug, Clone, PartialEq)]
-pub struct DeletedBoard {
+pub struct DeletedContainer {
     /// The board as it was, with its `delete_at` set to when it was deleted.
-    pub board: Board,
+    pub container: Container,
     /// The memberships the board had.
-    pub members: Vec<BoardMember>,
+    pub members: Vec<ContainerMember>,
     /// The identifier of the user who deleted it; empty if nobody did.
     pub deleted_by: String,
 }
@@ -149,7 +151,7 @@ impl Store {
     /// Returns [`StoreError::Database`] if the query fails.
     pub async fn get_deleted_cards(
         &self,
-        board_id: &str,
+        container_id: &str,
         paging: Option<Paging>,
     ) -> Result<Vec<DeletedBlock>, StoreError> {
         self.with_conn(async |scope| {
@@ -160,7 +162,7 @@ impl Store {
             };
             let mut sql =
                 scope.sql("SELECT block, deleted_by FROM deleted_blocks WHERE container_id = ");
-            sql.bind(Id(board_id)).push(&format!(
+            sql.bind(Id(container_id)).push(&format!(
                 " AND {is_card} AND NOT EXISTS (SELECT 1 FROM deleted_blocks below \
                  WHERE below.deletion_id = deleted_blocks.deletion_id \
                  AND below.id = deleted_blocks.parent_id) ORDER BY deleted_at DESC, id"
@@ -204,11 +206,15 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::NotFound`] if there is no such board.
-    pub async fn delete_board(&self, board_id: &str, user_id: &str) -> Result<(), StoreError> {
+    pub async fn delete_container(
+        &self,
+        container_id: &str,
+        user_id: &str,
+    ) -> Result<(), StoreError> {
         self.transaction(async |scope| {
             // Before the board's: with a joining that ends (`joinings::give_back_roles`).
             org_admin::lock_organization(scope).await?;
-            delete_board(scope, board_id, user_id).await
+            delete_container(scope, container_id, user_id).await
         })
         .await
     }
@@ -218,17 +224,20 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::NotFound`] if no board of that identifier is in the trash.
-    pub async fn get_deleted_board(&self, board_id: &str) -> Result<DeletedBoard, StoreError> {
+    pub async fn get_deleted_container(
+        &self,
+        container_id: &str,
+    ) -> Result<DeletedContainer, StoreError> {
         self.with_conn(async |scope| {
             let mut sql = scope
                 .sql("SELECT container, members, deleted_by FROM deleted_containers WHERE id = ");
-            sql.bind(Id(board_id));
+            sql.bind(Id(container_id));
             let row = scope
                 .fetch_optional(sql)
                 .await?
-                .ok_or_else(board_not_in_trash)?;
-            Ok(DeletedBoard {
-                board: from_json(&row, 0, "container")?,
+                .ok_or_else(container_not_in_trash)?;
+            Ok(DeletedContainer {
+                container: from_json(&row, 0, "container")?,
                 members: from_json(&row, 1, "members")?,
                 deleted_by: row.id(2)?,
             })
@@ -245,13 +254,13 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if the query fails.
-    pub async fn get_deleted_boards(
+    pub async fn get_deleted_containers(
         &self,
         workspace_id: &str,
         admin_id: Option<&str>,
         paging: Option<Paging>,
-        kinds: BoardKinds,
-    ) -> Result<Vec<DeletedBoard>, StoreError> {
+        kinds: ContainerKinds,
+    ) -> Result<Vec<DeletedContainer>, StoreError> {
         self.with_conn(async |scope| {
             // A board that went to the trash before boards had a kind says none: a board.
             let kind = match scope.dialect() {
@@ -286,8 +295,8 @@ impl Store {
                 .await?
                 .iter()
                 .map(|row| {
-                    Ok(DeletedBoard {
-                        board: from_json(row, 0, "container")?,
+                    Ok(DeletedContainer {
+                        container: from_json(row, 0, "container")?,
                         members: from_json(row, 1, "members")?,
                         deleted_by: row.id(2)?,
                     })
@@ -307,11 +316,15 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::NotFound`] if no board of that identifier is in the trash.
-    pub async fn undelete_board(&self, board_id: &str, user_id: &str) -> Result<Board, StoreError> {
+    pub async fn undelete_container(
+        &self,
+        container_id: &str,
+        user_id: &str,
+    ) -> Result<Container, StoreError> {
         self.transaction(async |scope| {
             // Before the board's: with a joining that ends (`joinings::give_back_roles`).
             org_admin::lock_organization(scope).await?;
-            undelete_board(scope, board_id, user_id).await
+            undelete_container(scope, container_id, user_id).await
         })
         .await
     }
@@ -326,7 +339,7 @@ impl Store {
     /// Returns [`StoreError::Database`] if a statement fails; nothing is removed then.
     pub async fn purge_trash(&self, deleted_before: i64) -> Result<Purged, StoreError> {
         self.transaction(async |scope| {
-            let mut purged = remove_boards(scope, Trashed::Before(deleted_before)).await?;
+            let mut purged = remove_containers(scope, Trashed::Before(deleted_before)).await?;
             let mut sql = scope.sql("DELETE FROM deleted_blocks WHERE deleted_at < ");
             sql.bind(deleted_before);
             purged.records += scope.execute(sql).await?;
@@ -337,7 +350,7 @@ impl Store {
     }
 }
 
-/// Which boards of the trash [`remove_boards`] removes for good.
+/// Which boards of the trash [`remove_containers`] removes for good.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Trashed<'a> {
     /// Those deleted before the time, in milliseconds since the Unix epoch.
@@ -348,7 +361,7 @@ pub(crate) enum Trashed<'a> {
 
 /// Removes boards from the trash for good and dooms the objects of their files: the
 /// one way a board and its files go. Returns how many went, and their file records.
-pub(crate) async fn remove_boards(
+pub(crate) async fn remove_containers(
     scope: &mut Scope<'_>,
     which: Trashed<'_>,
 ) -> Result<Purged, StoreError> {
@@ -364,14 +377,14 @@ pub(crate) async fn remove_boards(
         " RETURNING files{}",
         org.map_or(String::new(), |column| format!(", {column}"))
     ));
-    let boards = scope.fetch_all(sql).await?;
-    let records = u64::try_from(boards.len()).unwrap_or(u64::MAX);
+    let containers = scope.fetch_all(sql).await?;
+    let records = u64::try_from(containers.len()).unwrap_or(u64::MAX);
     let mut files = Vec::new();
     let mut doomed = Vec::new();
-    for row in &boards {
-        let of_board: StoredFiles = from_json(row, 0, "files")?;
+    for row in &containers {
+        let of_container: StoredFiles = from_json(row, 0, "files")?;
         let org_id = org.map(|_| row.id(1)).transpose()?;
-        for file in Vec::<FileInfo>::from(of_board) {
+        for file in Vec::<FileInfo>::from(of_container) {
             // Nothing else says where the file is once the board is gone.
             doomed.push((file.path.clone(), org_id.clone()));
             files.push(file);
@@ -424,7 +437,7 @@ pub(crate) fn block_not_in_trash() -> StoreError {
     StoreError::not_found("deleted block")
 }
 
-fn board_not_in_trash() -> StoreError {
+fn container_not_in_trash() -> StoreError {
     StoreError::not_found("deleted board")
 }
 
@@ -469,7 +482,7 @@ pub(crate) enum TrashedRoles {
 /// Holds the boards of a workspace that are in the trash, in the order of their
 /// identifiers, against whoever restores one or changes who it comes back with. Who
 /// also holds a membership of the workspace takes these first, as a restore does.
-pub(crate) async fn hold_deleted_boards(
+pub(crate) async fn hold_deleted_containers(
     scope: &mut Scope<'_>,
     workspace_id: &str,
 ) -> Result<(), StoreError> {
@@ -483,32 +496,32 @@ pub(crate) async fn hold_deleted_boards(
 }
 
 /// Changes the memberships of a user that the boards of a workspace in the trash would
-/// come back with, as `roles` says. The boards are held ([`hold_deleted_boards`]) from
+/// come back with, as `roles` says. The boards are held ([`hold_deleted_containers`]) from
 /// before they are read: what is written back is the whole list of a board's members.
-pub(crate) async fn change_member_of_deleted_boards(
+pub(crate) async fn change_member_of_deleted_containers(
     scope: &mut Scope<'_>,
     workspace_id: &str,
     user_id: &str,
     roles: TrashedRoles,
 ) -> Result<(), StoreError> {
-    hold_deleted_boards(scope, workspace_id).await?;
+    hold_deleted_containers(scope, workspace_id).await?;
     let mut sql = scope.sql("SELECT id, members FROM deleted_containers WHERE workspace_id = ");
     sql.bind(Id(workspace_id));
     for row in scope.fetch_all(sql).await? {
-        let members: Vec<BoardMember> = from_json(&row, 1, "members")?;
-        let changes = |member: &BoardMember| {
+        let members: Vec<ContainerMember> = from_json(&row, 1, "members")?;
+        let changes = |member: &ContainerMember| {
             member.user_id == user_id && (roles == TrashedRoles::Forget || member.scheme_admin)
         };
         if !members.iter().any(changes) {
             continue;
         }
-        let kept: Vec<BoardMember> = members
+        let kept: Vec<ContainerMember> = members
             .into_iter()
             .filter_map(|member| match roles {
                 _ if !changes(&member) => Some(member),
                 TrashedRoles::Forget => None,
                 TrashedRoles::NoMoreThanEditor => {
-                    Some(member.with_role(Some(fvoci_model::BoardRole::Editor)))
+                    Some(member.with_role(Some(fvoci_model::ContainerRole::Editor)))
                 }
             })
             .collect();
@@ -555,7 +568,7 @@ pub(crate) async fn delete_block(
         tracing::debug!(block_id, "delete_block: block not found");
         return Ok(());
     };
-    boards::lock_board(scope, &block.board_id).await?;
+    containers::lock_container(scope, &block.container_id).await?;
     let mut sql = with_tree_of(scope, block_id);
     sql.push(&format!(
         "SELECT {} FROM blocks WHERE id IN (SELECT id FROM tree)",
@@ -596,7 +609,7 @@ async fn put_blocks_in_trash(
              (id, container_id, parent_id, deleted_at, deleted_by, deletion_id, block) VALUES (",
         );
         sql.bind(Id(&block.id))
-            .push_bind(", ", Id(&block.board_id))
+            .push_bind(", ", Id(&block.container_id))
             .push_bind(", ", OptId(&block.parent_id))
             .push_bind(", ", deleted_at)
             .push_bind(", ", OptId(deleted_by))
@@ -660,7 +673,7 @@ pub(crate) async fn undelete_block(
         .fetch_optional(sql)
         .await?
         .ok_or_else(block_not_in_trash)?;
-    if !boards::lock_board(scope, &row.id(0)?).await? {
+    if !containers::lock_container(scope, &row.id(0)?).await? {
         return Err(block_not_in_trash());
     }
     let mut sql = scope.sql("SELECT deletion_id FROM deleted_blocks WHERE id = ");
@@ -711,20 +724,21 @@ pub(crate) async fn undelete_block(
         .ok_or_else(block_not_in_trash)
 }
 
-pub(crate) async fn delete_board(
+pub(crate) async fn delete_container(
     scope: &mut Scope<'_>,
-    board_id: &str,
+    container_id: &str,
     user_id: &str,
 ) -> Result<(), StoreError> {
     // Held from before anything of the board is read: nothing is added to the board, or
     // stored for it, between what goes to the trash and what is deleted.
-    boards::lock_board_for_deletion(scope, board_id).await?;
-    let board = boards::get_board(scope, board_id).await?;
-    let members = boards::get_members_for_board(scope, board_id).await?;
-    let files = file_info::file_infos_of_board(scope, board_id).await?;
-    let board_blocks = blocks::get_blocks(scope, &blocks::BlockFilter::board(board_id)).await?;
+    containers::lock_container_for_deletion(scope, container_id).await?;
+    let container = containers::get_container(scope, container_id).await?;
+    let members = containers::get_members_for_container(scope, container_id).await?;
+    let files = file_info::file_infos_of_container(scope, container_id).await?;
+    let container_blocks =
+        blocks::get_blocks(scope, &blocks::BlockFilter::container(container_id)).await?;
     // Where users filed the board, to file it there again when it comes back.
-    let places: Vec<StoredPlace> = category_boards::places_of_board(scope, board_id)
+    let places: Vec<StoredPlace> = category_containers::places_of_container(scope, container_id)
         .await?
         .into_iter()
         .map(StoredPlace::from)
@@ -732,17 +746,17 @@ pub(crate) async fn delete_board(
 
     let now = now_millis();
     let deletion_id = new_id();
-    put_blocks_in_trash(scope, &board_blocks, &deletion_id, now, user_id).await?;
-    let in_trash = Board {
+    put_blocks_in_trash(scope, &container_blocks, &deletion_id, now, user_id).await?;
+    let in_trash = Container {
         delete_at: now,
-        ..board
+        ..container
     };
     let mut sql = scope.sql(
         "INSERT INTO deleted_containers \
          (id, workspace_id, deleted_at, deleted_by, deletion_id, container, members, files, places) \
          VALUES (",
     );
-    sql.bind(Id(board_id))
+    sql.bind(Id(container_id))
         .push_bind(", ", Id(&in_trash.workspace_id))
         .push_bind(", ", now)
         .push_bind(", ", OptId(user_id))
@@ -754,29 +768,29 @@ pub(crate) async fn delete_board(
         .push(")");
     scope.execute(sql).await?;
 
-    crate::board_team_trash::keep(scope, board_id).await?;
-    block_derived::board_trashed(scope, board_id).await?;
+    crate::container_team_trash::keep(scope, container_id).await?;
+    block_derived::container_trashed(scope, container_id).await?;
 
     // The blocks first: a board does not go while it has any. With the board go its
     // memberships, its sharing, its file records and where users filed it (kept above).
     let mut sql = scope.sql("DELETE FROM blocks WHERE container_id = ");
-    sql.bind(Id(board_id));
+    sql.bind(Id(container_id));
     scope.execute(sql).await?;
     let mut sql = scope.sql("DELETE FROM containers WHERE id = ");
-    sql.bind(Id(board_id));
+    sql.bind(Id(container_id));
     scope.execute(sql).await?;
     Ok(())
 }
 
-pub(crate) async fn undelete_board(
+pub(crate) async fn undelete_container(
     scope: &mut Scope<'_>,
-    board_id: &str,
+    container_id: &str,
     user_id: &str,
-) -> Result<Board, StoreError> {
+) -> Result<Container, StoreError> {
     let mut sql = scope.sql(
         "SELECT container, members, files, deletion_id, places FROM deleted_containers WHERE id = ",
     );
-    sql.bind(Id(board_id));
+    sql.bind(Id(container_id));
     // Of two requests that restore the board at once, the second waits here and then
     // finds the trash without it.
     if scope.dialect() == Dialect::Postgres {
@@ -785,56 +799,57 @@ pub(crate) async fn undelete_board(
     let row = scope
         .fetch_optional(sql)
         .await?
-        .ok_or_else(board_not_in_trash)?;
-    let mut board: Board = from_json(&row, 0, "container")?;
-    let members: Vec<BoardMember> = from_json(&row, 1, "members")?;
+        .ok_or_else(container_not_in_trash)?;
+    let mut container: Container = from_json(&row, 0, "container")?;
+    let members: Vec<ContainerMember> = from_json(&row, 1, "members")?;
     let files: StoredFiles = from_json(&row, 2, "files")?;
     let deletion_id = row.id(3)?;
     let places: Vec<StoredPlace> = from_json(&row, 4, "places")?;
 
     let now = now_millis();
-    board.delete_at = 0;
-    board.update_at = now;
-    user_id.clone_into(&mut board.modified_by);
+    container.delete_at = 0;
+    container.update_at = now;
+    user_id.clone_into(&mut container.modified_by);
     let mut known_users = KnownUsers::default();
     known_users
-        .forget_if_gone(scope, &mut board.created_by)
+        .forget_if_gone(scope, &mut container.created_by)
         .await?;
-    boards::insert_board_row(scope, &board).await?;
+    containers::insert_container_row(scope, &container).await?;
 
     for member in &members {
         // A membership of a user whose row is gone since does not come back.
         if known_users.has(scope, &member.user_id).await? {
-            boards::save_member(scope, member).await?;
+            containers::save_member(scope, member).await?;
         }
     }
     // A board does not come back without an admin who can act as one: where those it
     // had are gone from its workspace since, or are its guests now, who brings it back
     // is its admin.
     if !user_id.is_empty()
-        && members::has_no_admin(scope, board_id).await?
-        && members::works_in(scope, &board.workspace_id, user_id).await?
+        && members::has_no_admin(scope, container_id).await?
+        && members::works_in(scope, &container.workspace_id, user_id).await?
     {
-        let admin = BoardMember {
-            board_id: board_id.to_owned(),
+        let admin = ContainerMember {
+            container_id: container_id.to_owned(),
             user_id: user_id.to_owned(),
-            ..BoardMember::default()
+            ..ContainerMember::default()
         }
-        .with_role(Some(fvoci_model::BoardRole::Admin));
-        boards::save_member(scope, &admin).await?;
+        .with_role(Some(fvoci_model::ContainerRole::Admin));
+        containers::save_member(scope, &admin).await?;
     }
-    crate::board_team_trash::restore(scope, &board, user_id).await?;
+    crate::container_team_trash::restore(scope, &container, user_id).await?;
     // Each user who still exists finds the board where they had filed it; a private
     // board, only those who are its members again (a member removed earlier keeps the
     // place but cannot see the board).
-    for place in places.into_iter().map(BoardPlace::from) {
-        let sees = board.board_type == BoardType::Open
+    for place in places.into_iter().map(ContainerPlace::from) {
+        let sees = container.container_type == ContainerType::Open
             || members.iter().any(|member| member.user_id == place.user_id)
-            || crate::board_team_access::role_for(scope, board_id, &place.user_id)
+            || crate::container_team_access::role_for(scope, container_id, &place.user_id)
                 .await?
                 .is_some();
         if sees && known_users.has(scope, &place.user_id).await? {
-            category_boards::put_back(scope, board_id, &board.workspace_id, &place).await?;
+            category_containers::put_back(scope, container_id, &container.workspace_id, &place)
+                .await?;
         }
     }
     for file in Vec::<FileInfo>::from(files) {
@@ -844,18 +859,18 @@ pub(crate) async fn undelete_board(
     // The trash kept no marks: a file that no block of the board shows is counted from
     // now, as at a file's upload, and one that a block shows has none.
     let mut sql = scope.sql("UPDATE file_info SET unreferenced_at = NULL WHERE container_id = ");
-    sql.bind(Id(board_id));
+    sql.bind(Id(container_id));
     scope.execute(sql).await?;
     let mut sql = scope.sql("UPDATE file_info SET unreferenced_at = ");
     sql.bind(now)
         .push(" WHERE NOT EXISTS (SELECT 1 FROM file_refs r WHERE r.container_id = file_info.container_id AND r.name = file_info.name) AND container_id = ")
-        .bind(Id(board_id));
+        .bind(Id(container_id));
     scope.execute(sql).await?;
 
     let mut sql = scope.sql("DELETE FROM deleted_containers WHERE id = ");
-    sql.bind(Id(board_id));
+    sql.bind(Id(container_id));
     scope.execute(sql).await?;
-    Ok(board)
+    Ok(container)
 }
 
 /// Which users still have a row, asked once per user.
@@ -888,7 +903,7 @@ impl KnownUsers {
     }
 }
 
-/// A [`BoardPlace`] as the trash keeps it, in `deleted_boards.places`. Its own type, so
+/// A [`ContainerPlace`] as the trash keeps it, in `deleted_containers.places`. Its own type, so
 /// that what is stored does not change with the store's interface.
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -899,8 +914,8 @@ struct StoredPlace {
     hidden: bool,
 }
 
-impl From<BoardPlace> for StoredPlace {
-    fn from(place: BoardPlace) -> Self {
+impl From<ContainerPlace> for StoredPlace {
+    fn from(place: ContainerPlace) -> Self {
         Self {
             user_id: place.user_id,
             category_id: place.category_id,
@@ -910,7 +925,7 @@ impl From<BoardPlace> for StoredPlace {
     }
 }
 
-impl From<StoredPlace> for BoardPlace {
+impl From<StoredPlace> for ContainerPlace {
     fn from(place: StoredPlace) -> Self {
         Self {
             user_id: place.user_id,
@@ -929,7 +944,8 @@ struct StoredFiles(Vec<StoredFile>);
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 struct StoredFile {
     id: String,
-    board_id: String,
+    #[serde(rename = "board_id")]
+    container_id: String,
     stored_name: String,
     name: String,
     extension: String,
@@ -945,7 +961,7 @@ impl From<Vec<FileInfo>> for StoredFiles {
                 .into_iter()
                 .map(|file| StoredFile {
                     id: file.id,
-                    board_id: file.board_id,
+                    container_id: file.container_id,
                     stored_name: file.stored_name,
                     name: file.name,
                     extension: file.extension,
@@ -965,7 +981,7 @@ impl From<StoredFiles> for Vec<FileInfo> {
             .into_iter()
             .map(|file| FileInfo {
                 id: file.id,
-                board_id: file.board_id,
+                container_id: file.container_id,
                 stored_name: file.stored_name,
                 name: file.name,
                 extension: file.extension,

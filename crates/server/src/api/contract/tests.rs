@@ -282,8 +282,8 @@ fn required_of(schemas: &Value, schema: &Value) -> Vec<String> {
 #[test]
 fn what_is_always_there_is_what_the_server_writes() {
     use fvoci_model::{
-        Block, Board, BoardMember, BoardsAndBlocks, Card, Category, CategoryBoardMetadata,
-        CategoryBoards, ClientConfig, FileInfo, Sharing, User, Workspace,
+        Block, Card, Category, CategoryContainerMetadata, CategoryContainers, ClientConfig,
+        Container, ContainerMember, ContainersAndBlocks, FileInfo, Sharing, User, Workspace,
     };
 
     let text = document().expect("the document");
@@ -291,16 +291,16 @@ fn what_is_always_there_is_what_the_server_writes() {
     let schemas = &document["components"]["schemas"];
     let written = [
         ("Block", sent(&Block::default())),
-        ("Board", sent(&Board::default())),
-        ("BoardMember", sent(&BoardMember::default())),
-        ("BoardsAndBlocks", sent(&BoardsAndBlocks::default())),
+        ("Board", sent(&Container::default())),
+        ("BoardMember", sent(&ContainerMember::default())),
+        ("BoardsAndBlocks", sent(&ContainersAndBlocks::default())),
         ("Card", sent(&Card::default())),
         ("Category", sent(&Category::default())),
         (
             "CategoryBoardMetadata",
-            sent(&CategoryBoardMetadata::default()),
+            sent(&CategoryContainerMetadata::default()),
         ),
-        ("CategoryBoards", sent(&CategoryBoards::default())),
+        ("CategoryBoards", sent(&CategoryContainers::default())),
         ("ClientConfig", sent(&ClientConfig::default())),
         ("FileInfo", sent(&FileInfo::default())),
         ("Sharing", sent(&Sharing::default())),
@@ -368,8 +368,8 @@ fn a_closed_set_of_words_lists_the_words_as_they_are_written() {
         );
     }
     for (set, value) in [
-        ("BoardType", json!(fvoci_model::BoardType::Open)),
-        ("BoardType", json!(fvoci_model::BoardType::Private)),
+        ("BoardType", json!(fvoci_model::ContainerType::Open)),
+        ("BoardType", json!(fvoci_model::ContainerType::Private)),
         ("MinimumRole", json!(fvoci_model::MinimumRole::default())),
         ("CategoryType", json!(fvoci_model::CategoryType::default())),
         ("WorkspaceRole", json!(fvoci_model::WorkspaceRole::Admin)),

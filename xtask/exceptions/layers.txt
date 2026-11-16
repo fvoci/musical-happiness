@@ -11,14 +11,14 @@
 # http -> store: the HTTP layer names the store, or reaches it through `.store()`.
 # logic -> http: the logic names axum, HTTP types, or a module of the HTTP layer.
 
-crates/server/src/api/categories.rs  fvoci_store::BoardVisibility                         2
-crates/server/src/api/categories.rs  fvoci_store::BoardVisibility::Hidden                 1
-crates/server/src/api/categories.rs  fvoci_store::BoardVisibility::Visible                1
+crates/server/src/api/categories.rs  fvoci_store::ContainerVisibility                         2
+crates/server/src/api/categories.rs  fvoci_store::ContainerVisibility::Hidden                 1
+crates/server/src/api/categories.rs  fvoci_store::ContainerVisibility::Visible                1
 crates/server/src/api/mod.rs         fvoci_store::DuplicateAs                             2
 crates/server/src/api/mod.rs         fvoci_store::DuplicateAs::Copy                       1
 crates/server/src/api/mod.rs         fvoci_store::DuplicateAs::Template                   1
-crates/server/src/api/search.rs      fvoci_store::PublicBoards                            1
-crates/server/src/api/search.rs      fvoci_store::PublicBoards::Include                   1
+crates/server/src/api/search.rs      fvoci_store::PublicContainers                            1
+crates/server/src/api/search.rs      fvoci_store::PublicContainers::Include                   1
 crates/server/src/api/sharing.rs     fvoci_store::SharingChange                           2
 crates/server/src/api/sharing.rs     fvoci_store::SharingChange::Off                      1
 crates/server/src/api/sharing.rs     fvoci_store::SharingChange::On                       1

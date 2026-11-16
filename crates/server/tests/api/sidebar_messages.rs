@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use futures_util::{SinkExt as _, StreamExt as _};
-use fvoci_model::{Board, BoardType, Category, CategoryBoardMetadata};
+use fvoci_model::{Category, CategoryContainerMetadata, Container, ContainerType};
 use serde_json::{Value, json};
 use tokio_tungstenite::tungstenite::Message;
 
@@ -297,12 +297,12 @@ async fn a_restored_board_is_filed_where_it_was_and_the_users_are_told() {
         &category(ROOT_WORKSPACE_ID, &other.id, "Cat B"),
     )
     .await;
-    let board: Board = th
+    let board: Container = th
         .client
-        .create_board(&Board {
+        .create_board(&Container {
             workspace_id: ROOT_WORKSPACE_ID.to_owned(),
-            board_type: BoardType::Open,
-            ..Board::default()
+            container_type: ContainerType::Open,
+            ..Container::default()
         })
         .await
         .created_json();
@@ -366,9 +366,9 @@ async fn a_restored_board_is_filed_where_it_was_and_the_users_are_told() {
         .find(|entry| entry.category.id == created.id)
         .expect("the category");
     assert_eq!(
-        filed.board_metadata,
-        [CategoryBoardMetadata {
-            board_id: board.id.clone(),
+        filed.container_metadata,
+        [CategoryContainerMetadata {
+            container_id: board.id.clone(),
             hidden: true,
         }],
         "the sidebar has it where it was"

@@ -1,8 +1,8 @@
 //! Searching boards.
 
 use axum::extract::RawQuery;
-use fvoci_model::{Board, BoardSearchField};
-use fvoci_store::PublicBoards;
+use fvoci_model::{Container, ContainerSearchField};
+use fvoci_store::PublicContainers;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
@@ -15,7 +15,7 @@ use crate::app::App;
 use crate::error::AppError;
 
 pub(super) fn routes() -> OpenApiRouter<App> {
-    OpenApiRouter::new().routes(routes!(handle_search_boards))
+    OpenApiRouter::new().routes(routes!(handle_search_containers))
 }
 
 /// Search the boards of a workspace
@@ -31,39 +31,44 @@ pub(super) fn routes() -> OpenApiRouter<App> {
     get,
     path = "/w/{workspaceId}/boards/search",
     operation_id = "searchWorkspaceBoards",
-    tag = tag::BOARDS,
+    tag = tag::CONTAINERS,
     params(WorkspaceId, SearchTerm, SearchField),
-    responses((status = 200, description = "The boards that match.", body = Vec<Board>)),
+    responses((status = 200, description = "The boards that match.", body = Vec<Container>)),
 )]
-async fn handle_search_boards(ws: InWorkspace, RawQuery(query): RawQuery) -> ApiResult {
+async fn handle_search_containers(ws: InWorkspace, RawQuery(query): RawQuery) -> ApiResult {
     let ws = ws.require_no_guest()?;
     let term = query_param(query.as_deref(), "q");
     let field_text = query_param(query.as_deref(), "field");
     let search_field = if field_text.is_empty() {
-        BoardSearchField::Title
+        ContainerSearchField::Title
     } else {
         field_text
-            .parse::<BoardSearchField>()
+            .parse::<ContainerSearchField>()
             .map_err(AppError::bad_request)?
     };
     let workspace_id = &ws.workspace_id;
 
-    let mut boards = search_boards(&ws.app, &ws.session.user_id, &term, search_field).await?;
-    boards.retain(|board| board.workspace_id == *workspace_id);
-    tracing::debug!(workspace_id, boards_count = boards.len(), "SearchBoards");
-    Ok(json_response(&boards))
+    let mut containers =
+        search_containers(&ws.app, &ws.session.user_id, &term, search_field).await?;
+    containers.retain(|container| container.workspace_id == *workspace_id);
+    tracing::debug!(
+        workspace_id,
+        containers_count = containers.len(),
+        "SearchBoards"
+    );
+    Ok(json_response(&containers))
 }
 
 /// Searches the boards the user may find. An empty term finds nothing.
-async fn search_boards(
+async fn search_containers(
     app: &App,
     user_id: &str,
     term: &str,
-    search_field: BoardSearchField,
-) -> Result<Vec<Board>, AppError> {
+    search_field: ContainerSearchField,
+) -> Result<Vec<Container>, AppError> {
     if term.is_empty() {
         return Ok(Vec::new());
     }
-    app.search_boards_for_user(term, search_field, user_id, PublicBoards::Include)
+    app.search_containers_for_user(term, search_field, user_id, PublicContainers::Include)
         .await
 }
