@@ -37,8 +37,8 @@
  *  6. The placeholder's mark on the empty paragraph or heading the cursor is
  *     in: the attribute `data-placeholder` and the classes `is-empty` and
  *     `is-editor-empty`.
- *  7. `draggable` on an image (it can be dragged to another place) and on a
- *     rule while the selection is on it.
+ *  7. `draggable` on an image and on a file block (each can be dragged to
+ *     another place) and on a rule while the selection is on it.
  *  8. The `<span>` inside the `<label>` of a task: hidden text that repeats
  *     the checkbox's `aria-label`.
  * 11. A diagram around its source: the editor draws a code block in the
@@ -171,8 +171,9 @@ function leftOutNode(node: Element): LeftOut | undefined {
 /** Which entry of the list takes this attribute out of the comparison, if any. */
 function leftOutAttribute(node: Element, name: string, ofEditor: boolean): LeftOut | undefined {
   if (ofEditor && name === 'data-placeholder') return 'attribute data-placeholder';
-  if (ofEditor && name === 'draggable' && (node.tagName === 'IMG' || node.tagName === 'HR'))
-    return 'attribute draggable';
+  const draggable =
+    node.tagName === 'IMG' || node.tagName === 'HR' || node.hasAttribute('data-file-block');
+  if (ofEditor && name === 'draggable' && draggable) return 'attribute draggable';
   if (!ofEditor && name === 'aria-readonly' && isTaskCheckbox(node))
     return 'attribute aria-readonly';
   return undefined;
@@ -358,7 +359,7 @@ describe('the view draws what the editor draws', () => {
       types.map((type) => [type, (counts.get(type) ?? 0) > 0]);
     const nodeTypes = Object.keys(NODE_SPECS);
     const markTypes = Object.keys(MARK_SPECS);
-    expect(nodeTypes).toHaveLength(18);
+    expect(nodeTypes).toHaveLength(19);
     expect(markTypes).toHaveLength(5);
     expect(times(compared.nodes, nodeTypes)).toEqual(nodeTypes.map((type) => [type, true]));
     expect(times(compared.marks, markTypes)).toEqual(markTypes.map((type) => [type, true]));

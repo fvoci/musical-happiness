@@ -100,11 +100,20 @@ async fn duplicate(client: &Client, board_id: &str, query: &str) -> crate::commo
 }
 
 #[tokio::test]
+async fn a_wiki_is_copied_with_its_pages_bodies_and_images_and_names_its_own_copies() {
+    wiki_copied_with_its_files("image").await;
+}
+
+#[tokio::test]
+async fn a_wiki_is_copied_with_its_file_blocks_and_names_its_own_copies() {
+    wiki_copied_with_its_files("file").await;
+}
+
 #[expect(
     clippy::too_many_lines,
     reason = "the pages, their bodies and their images, checked on one copy"
 )]
-async fn a_wiki_is_copied_with_its_pages_bodies_and_images_and_names_its_own_copies() {
+async fn wiki_copied_with_its_files(kind: &str) {
     let ts = Setup::local_mode().start().await.init_basic().await;
     let client = &ts.client;
     let elsewhere = made(client, TEST_WS, "O", "elsewhere").await;
@@ -119,7 +128,7 @@ async fn a_wiki_is_copied_with_its_pages_bodies_and_images_and_names_its_own_cop
         .await
         .check_no_content();
     let file = uploaded_id(&upload(client, &wiki, "pic.png", b"a picture\n").await);
-    let image = json!({"type": "doc", "content": [{"type": "image", "attrs": {"fileId": file}}]});
+    let image = json!({"type": "doc", "content": [{"type": kind, "attrs": {"fileId": file}}]});
     write(client, &wiki, &b, &image).await;
     let naming = body_naming("see", &[&b, &elsewhere.card, &elsewhere.page, &a]);
     write(client, &wiki, &a, &naming).await;
@@ -148,24 +157,28 @@ async fn a_wiki_is_copied_with_its_pages_bodies_and_images_and_names_its_own_cop
 
     let copies: ContainersAndBlocks = duplicate(client, &wiki, "").await.created_json();
     let copy = &copies.containers[0];
-    assert_eq!(copy.kind, ContainerKind::Wiki);
-    assert_eq!(copy.title, "Handbook copy");
+    assert_eq!(copy.kind, ContainerKind::Wiki, "{kind}");
+    assert_eq!(copy.title, "Handbook copy", "{kind}");
     assert_eq!(
         (copy.description.as_str(), copy.icon.as_str()),
-        ("how we work", "📗")
+        ("how we work", "📗"),
+        "{kind}"
     );
     assert_eq!(
         copy.container_type,
         ContainerType::Private,
         "a copy is private"
     );
-    assert_ne!(copy.id, wiki);
+    assert_ne!(copy.id, wiki, "{kind}");
 
     // The same tree, in the same order, without the page in the trash.
     let source_tree = tree_of(client, TEST_WS, &wiki).await;
     let copy_tree = tree_of(client, TEST_WS, &copy.id).await;
-    assert_eq!(titled(&copy_tree), titled(&source_tree));
-    assert!(!titled(&copy_tree).iter().any(|(title, _)| title == "Old"));
+    assert_eq!(titled(&copy_tree), titled(&source_tree), "{kind}");
+    assert!(
+        !titled(&copy_tree).iter().any(|(title, _)| title == "Old"),
+        "{kind}"
+    );
     assert!(
         copy_tree.iter().all(|page| page.id != a && page.id != b),
         "every page is a copy"
@@ -184,7 +197,8 @@ async fn a_wiki_is_copied_with_its_pages_bodies_and_images_and_names_its_own_cop
             elsewhere.card.clone(),
             elsewhere.page.clone(),
             copy_a.clone()
-        ]
+        ],
+        "{kind}"
     );
     let naming_copy_b: Vec<String> = client
         .get(&format!("{TEST_WS}/references/to/{copy_b}"))
@@ -205,7 +219,7 @@ async fn a_wiki_is_copied_with_its_pages_bodies_and_images_and_names_its_own_cop
         .as_str()
         .expect("the copy shows an image")
         .to_owned();
-    assert_ne!(copied_file, file);
+    assert_ne!(copied_file, file, "{kind}");
     let read = client
         .get(&format!(
             "{TEST_WS}/containers/{}/files/{copied_file}",
@@ -213,7 +227,7 @@ async fn a_wiki_is_copied_with_its_pages_bodies_and_images_and_names_its_own_cop
         ))
         .await;
     read.check_ok();
-    assert_eq!(read.body, b"a picture\n");
+    assert_eq!(read.body, b"a picture\n", "{kind}");
 
     check_left_behind(&ts, &copy.id, &copy_a).await;
     ts.teardown().await;
@@ -344,12 +358,21 @@ async fn a_copy_is_held_to_the_limits_lowered_since_the_wiki_grew() {
 
 #[tokio::test]
 async fn a_wiki_is_copied_into_another_workspace_of_its_copier_with_its_files() {
+    wiki_copied_into_another_workspace("image").await;
+}
+
+#[tokio::test]
+async fn a_wiki_is_copied_into_another_workspace_with_the_files_of_its_file_blocks() {
+    wiki_copied_into_another_workspace("file").await;
+}
+
+async fn wiki_copied_into_another_workspace(kind: &str) {
     let ts = Setup::native().start().await.init_basic().await;
     let client = &ts.client;
     let wiki = wiki(client, "Handbook").await;
     let a = page(client, &wiki, "", "Welcome").await;
     let file = uploaded_id(&upload(client, &wiki, "pic.png", b"a picture\n").await);
-    let image = json!({"type": "doc", "content": [{"type": "image", "attrs": {"fileId": file}}]});
+    let image = json!({"type": "doc", "content": [{"type": kind, "attrs": {"fileId": file}}]});
     write(client, &wiki, &a, &image).await;
     let me = client.me().await.id;
     let other = crate::boards::another_workspace(&ts, &me).await;
@@ -357,7 +380,7 @@ async fn a_wiki_is_copied_into_another_workspace_of_its_copier_with_its_files() 
         .await
         .created_json();
     let copy = &copies.containers[0];
-    assert_eq!(copy.workspace_id, other);
+    assert_eq!(copy.workspace_id, other, "{kind}");
     let at = format!("/w/{other}");
     let copy_a = titled_id(&tree_of(client, &at, &copy.id).await, "Welcome");
     let body = body_of(client, &at, &copy.id, &copy_a).await;
@@ -365,12 +388,12 @@ async fn a_wiki_is_copied_into_another_workspace_of_its_copier_with_its_files() 
         .as_str()
         .expect("the copy shows the picture")
         .to_owned();
-    assert_ne!(copied_file, file);
+    assert_ne!(copied_file, file, "{kind}");
     let read = client
         .get(&format!("{at}/containers/{}/files/{copied_file}", copy.id))
         .await;
     read.check_ok();
-    assert_eq!(read.body, b"a picture\n");
+    assert_eq!(read.body, b"a picture\n", "{kind}");
     // Not into a workspace the copier is not in.
     let stranger = crate::boards::another_workspace(&ts, &ts.client2.me().await.id).await;
     duplicate(client, &wiki, &format!("?toWorkspace={stranger}"))

@@ -175,7 +175,7 @@ async fn handle_get_page_comments(
 ///
 /// For the wiki's members from the commenter's role up. The server chooses the
 /// identifier, the author and the times. Every image of the text shows a file of the
-/// wiki (400 otherwise). Who reads the wiki is told with `UPDATE_BLOCK`, as of a
+/// wiki (400 otherwise); a comment has no file block (400). Who reads the wiki is told with `UPDATE_BLOCK`, as of a
 /// comment on a card.
 #[utoipa::path(
     post,

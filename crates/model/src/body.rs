@@ -13,8 +13,9 @@ use thiserror::Error;
 
 use crate::allowlist;
 
-/// The version of the set of nodes and marks a stored body is written in.
-pub const BODY_VERSION: i64 = 3;
+/// The version of the set of nodes and marks a stored body is written in: 4 added the
+/// file block.
+pub const BODY_VERSION: i64 = 4;
 
 /// The largest body, as serialized JSON, in bytes.
 pub const BODY_MAX_BYTES: usize = 1024 * 1024;
@@ -141,14 +142,15 @@ impl Body {
         count
     }
 
-    /// The stored names of the files that the images of the body show, in the order
-    /// they come, each once.
+    /// The stored names of the files that the images and the file blocks of the body
+    /// name, in the order they come, each once. Whatever holds the files of a body (their
+    /// references, copies, archives) asks this: both kinds of node live by its rules.
     #[must_use]
     pub fn file_ids(&self) -> Vec<&str> {
         let mut ids: Vec<&str> = Vec::new();
         let mut seen = HashSet::new();
         visit(&self.document, &mut |node| {
-            if let Some(id) = image_file(node)
+            if let Some(id) = body_file(node)
                 && seen.insert(id)
             {
                 ids.push(id);
@@ -175,7 +177,8 @@ impl Body {
     }
 
     /// The stored name of the file the body's first image shows, in document order
-    /// (also inside lists and tables), if it has one. Stops at that image.
+    /// (also inside lists and tables), if it has one. Stops at that image. A file block
+    /// is no picture and is passed over.
     #[must_use]
     pub fn first_file_id(&self) -> Option<&str> {
         first_image(&self.document)
@@ -187,6 +190,16 @@ impl Body {
     /// without a user.
     pub fn clear_mentions(&mut self) {
         clear_mentions_in(&mut self.document);
+    }
+
+    /// Whether the body has a file block, which a comment's body may not have.
+    #[must_use]
+    pub fn has_file_blocks(&self) -> bool {
+        let mut found = false;
+        visit(&self.document, &mut |node| {
+            found |= node.get("type").and_then(Value::as_str) == Some(FILE_BLOCK);
+        });
+        found
     }
 
     /// Empties the `id` of every reference that names none of `shown`: the body as it
@@ -207,9 +220,9 @@ impl Body {
         rename_references_in(&mut self.document, &rename);
     }
 
-    /// The body with its images pointed at other files: `rename` gives the new name of
-    /// a file, or `None` for a file that has none, whose image becomes an empty
-    /// paragraph (a body has no image without its file, and the place of a block
+    /// The body with its images and file blocks pointed at other files: `rename` gives
+    /// the new name of a file, or `None` for a file that has none, whose node becomes an
+    /// empty paragraph (a body names no file it does not have, and the place of a block
     /// stays filled). `None` if nothing is left but an empty paragraph: that is no
     /// body. A copy of a body whose files were copied is made so.
     #[must_use]
@@ -219,9 +232,24 @@ impl Body {
     }
 }
 
+/// The kind of node that is a picture of a file.
+const IMAGE: &str = "image";
+
+/// The kind of node that is a file to download.
+const FILE_BLOCK: &str = "file";
+
+/// The stored name of the file an image node or a file block names.
+fn body_file(node: &Value) -> Option<&str> {
+    let kind = node.get("type").and_then(Value::as_str)?;
+    if kind != IMAGE && kind != FILE_BLOCK {
+        return None;
+    }
+    node.get("attrs")?.get("fileId")?.as_str()
+}
+
 /// The stored name of the file of an image node.
 fn image_file(node: &Value) -> Option<&str> {
-    if node.get("type").and_then(Value::as_str) != Some("image") {
+    if node.get("type").and_then(Value::as_str) != Some(IMAGE) {
         return None;
     }
     node.get("attrs")?.get("fileId")?.as_str()
@@ -266,10 +294,10 @@ fn rename_references_in(node: &mut Value, rename: &impl Fn(&str) -> Option<Strin
     }
 }
 
-/// Renames the file of every image below and at `node`, and turns an image whose file
-/// has no new name into an empty paragraph.
+/// Renames the file of every image and file block below and at `node`, and turns one
+/// whose file has no new name into an empty paragraph.
 fn rename_in(node: &mut Value, rename: &impl Fn(&str) -> Option<String>) {
-    if let Some(old_name) = image_file(node) {
+    if let Some(old_name) = body_file(node) {
         match rename(old_name) {
             Some(new_name) => {
                 if let Some(attrs) = node.get_mut("attrs").and_then(Value::as_object_mut) {
@@ -487,32 +515,58 @@ mod tests {
         assert_eq!(body.document(), &document(&[paragraph("x")]));
     }
 
-    /// An image whose file has a new name points at it; one whose file has none becomes
-    /// an empty paragraph, and the body stays valid.
+    /// An image or a file block whose file has a new name points at it; one whose file
+    /// has none becomes an empty paragraph, and the body stays valid.
     #[test]
-    fn an_image_without_its_file_becomes_an_empty_paragraph() {
+    fn an_image_or_a_file_block_without_its_file_becomes_an_empty_paragraph() {
+        for kind in ["image", "file"] {
+            let node = |file: &str| json!({"type": kind, "attrs": {"fileId": file}});
+            let body = Body::parse(document(&[
+                node("kept.png"),
+                json!({"type": "blockquote", "content": [node("lost.png")]}),
+                paragraph("x"),
+            ]))
+            .expect("a body")
+            .expect("not empty");
+            let body = body
+                .with_files_renamed(|old| (old == "kept.png").then(|| "copy.png".to_owned()))
+                .expect("still a body");
+            let expected = document(&[
+                node("copy.png"),
+                json!({"type": "blockquote", "content": [{"type": "paragraph"}]}),
+                paragraph("x"),
+            ]);
+            assert_eq!(body.document(), &expected, "{kind}");
+            assert!(
+                Body::parse(expected).is_ok_and(|body| body.is_some()),
+                "still a valid body: {kind}"
+            );
+            assert_eq!(body.file_ids(), ["copy.png"], "{kind}");
+        }
+    }
+
+    /// The files of a body are those of its images and of its file blocks, each once,
+    /// in document order; only a file block makes a body one a comment may not have.
+    #[test]
+    fn the_files_of_a_body_are_those_of_its_images_and_file_blocks() {
         let image = |file: &str| json!({"type": "image", "attrs": {"fileId": file}});
+        let file = |file: &str| json!({"type": "file", "attrs": {"fileId": file}});
         let body = Body::parse(document(&[
-            image("kept.png"),
-            json!({"type": "blockquote", "content": [image("lost.png")]}),
-            paragraph("x"),
+            file("report.pdf"),
+            json!({"type": "bulletList", "content": [{"type": "listItem", "content": [
+                paragraph("item"), image("chart.png"), file("report.pdf"),
+            ]}]}),
+            file("minutes.hwp"),
         ]))
         .expect("a body")
         .expect("not empty");
-        let body = body
-            .with_files_renamed(|old| (old == "kept.png").then(|| "copy.png".to_owned()))
-            .expect("still a body");
-        let expected = document(&[
-            image("copy.png"),
-            json!({"type": "blockquote", "content": [{"type": "paragraph"}]}),
-            paragraph("x"),
-        ]);
-        assert_eq!(body.document(), &expected);
-        assert!(
-            Body::parse(expected).is_ok_and(|body| body.is_some()),
-            "still a valid body"
-        );
-        assert_eq!(body.file_ids(), ["copy.png"]);
+        assert_eq!(body.file_ids(), ["report.pdf", "chart.png", "minutes.hwp"]);
+        assert!(body.has_file_blocks(), "file blocks");
+        assert_eq!(body.text(), "item", "a file block gives the text nothing");
+        let pictures = Body::parse(document(&[image("chart.png")]))
+            .expect("a body")
+            .expect("not empty");
+        assert!(!pictures.has_file_blocks(), "an image is no file block");
     }
 
     /// Every mention loses its user, also deep in a list; nothing else changes.
@@ -576,15 +630,18 @@ mod tests {
         assert_eq!(value["content"][0]["content"][1]["text"], json!("x"));
     }
 
-    /// A body that was an image without its file and nothing else is no body.
+    /// A body that was an image or a file block without its file and nothing else is no
+    /// body.
     #[test]
-    fn a_body_of_a_lost_image_alone_is_no_body() {
-        let body = Body::parse(document(&[
-            json!({"type": "image", "attrs": {"fileId": "lost.png"}}),
-        ]))
-        .expect("a body")
-        .expect("not empty");
-        assert_eq!(body.with_files_renamed(|_| None), None);
+    fn a_body_of_a_lost_file_alone_is_no_body() {
+        for kind in ["image", "file"] {
+            let body = Body::parse(document(&[
+                json!({"type": kind, "attrs": {"fileId": "lost.png"}}),
+            ]))
+            .expect("a body")
+            .expect("not empty");
+            assert_eq!(body.with_files_renamed(|_| None), None, "{kind}");
+        }
     }
 
     /// The references of a body are the blocks it names, each once, wherever they stand.
@@ -703,11 +760,13 @@ mod tests {
         assert_eq!(body.tasks(), TaskCount { total: 3, done: 2 });
     }
 
+    /// The first image, wherever it is; a file block before it is no picture.
     #[test]
     fn the_first_image_is_the_first_in_document_order() {
         let image = |file: &str| json!({"type": "image", "attrs": {"fileId": file}});
         let body = Body::from_stored(json!({"type": "doc", "content": [
             paragraph("before"),
+            {"type": "file", "attrs": {"fileId": "report.pdf"}},
             {"type": "bulletList", "content": [
                 {"type": "listItem", "content": [paragraph("item"), image("in-a-list.png")]},
             ]},

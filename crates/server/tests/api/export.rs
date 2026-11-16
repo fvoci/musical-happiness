@@ -530,6 +530,15 @@ async fn archives_of_the_former_formats_are_refused() {
 /// used to answer with 500, is exported as it is.
 #[tokio::test]
 async fn an_archive_carries_the_images_of_bodies() {
+    an_archive_carries_the_files_of_bodies("image").await;
+}
+
+#[tokio::test]
+async fn an_archive_carries_the_files_of_file_blocks() {
+    an_archive_carries_the_files_of_bodies("file").await;
+}
+
+async fn an_archive_carries_the_files_of_bodies(kind: &str) {
     let ts = Setup::native().start().await.init_basic().await;
     let board = ts
         .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
@@ -538,7 +547,7 @@ async fn an_archive_carries_the_images_of_bodies() {
         &crate::files::upload(&ts.client, &board.id, "picture.png", b"png").await,
     );
     let body = serde_json::json!({"type": "doc", "content": [
-        {"type": "image", "attrs": {"fileId": file_id}},
+        {"type": kind, "attrs": {"fileId": file_id}},
     ]});
     ts.client
         .post(

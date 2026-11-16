@@ -180,8 +180,9 @@ pub(super) async fn asked_blocks(
     }
 }
 
-/// Checks that the images of the blocks' bodies show files of the board, or of the board
-/// named by `sourceBoardId`, and copies the files the blocks show from that board.
+/// Checks that the images and file blocks of the blocks' bodies name files of the
+/// board, or of the board named by `sourceBoardId`, and copies the files the blocks
+/// show from that board.
 async fn check_and_copy_body_files(
     ws: &InWorkspace,
     board_id: &str,

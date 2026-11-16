@@ -11,9 +11,9 @@ impl From<BlockError> for AppError {
             BlockError::TitleSizeLimitExceeded
             | BlockError::FieldsSizeLimitExceeded
             | BlockError::InvalidCardProperties(_) => Self::bad_request(error),
-            BlockError::BodyNotAllowed | BlockError::ImageWithoutFile => {
-                Self::bad_request(error).with_field("body")
-            }
+            BlockError::BodyNotAllowed
+            | BlockError::BodyFileNotOfContainer
+            | BlockError::FileBlockInComment => Self::bad_request(error).with_field("body"),
             BlockError::NulInTitle => Self::bad_request(error).with_field("title"),
             BlockError::InvalidCardField { .. } | BlockError::InvalidPageField { .. } => {
                 Self::bad_request(error).with_field("fields")

@@ -1,4 +1,4 @@
-//! A write that makes a block show an image asks for the image's file in its own
+//! A write that makes a block show an image or a file block asks for its file in its own
 //! transaction, and the collector of unreferenced files skips a record a write holds.
 
 use std::time::Duration;
@@ -7,7 +7,7 @@ use fvoci_model::{
     Block, BlockError, BlockPatch, BlockType, BodyChange, Container, ContainerType,
     ContainersAndBlocks, FileInfo, new_id,
 };
-use fvoci_store::{DbType, DuplicateAs, NewImages, StoreError};
+use fvoci_store::{DbType, DuplicateAs, NewBodyFiles, StoreError};
 use serde_json::json;
 
 use crate::common;
@@ -26,14 +26,23 @@ fn record_of(board_id: &str, stored_name: &str) -> FileInfo {
     }
 }
 
-/// A body that shows the files.
+/// The kind of node that names a file of this stored name in a body: a file block for
+/// a PDF, an image for anything else.
+pub(crate) fn node_kind(name: &str) -> &'static str {
+    let pdf = std::path::Path::new(name)
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("pdf"));
+    if pdf { "file" } else { "image" }
+}
+
+/// A body that shows the files, each by the node of its kind ([`node_kind`]).
 fn body_showing(names: &[&str]) -> fvoci_model::Body {
     let mut content =
         vec![json!({"type": "paragraph", "content": [{"type": "text", "text": "x"}]})];
     content.extend(
         names
             .iter()
-            .map(|name| json!({"type": "image", "attrs": {"fileId": name}})),
+            .map(|name| json!({"type": node_kind(name), "attrs": {"fileId": name}})),
     );
     fvoci_model::Body::parse(json!({"type": "doc", "content": content}))
         .expect("the body may be stored")
@@ -55,15 +64,16 @@ fn is_image_without_file(error: &StoreError) -> bool {
     matches!(
         error,
         StoreError::InvalidBlock {
-            source: BlockError::ImageWithoutFile,
+            source: BlockError::BodyFileNotOfContainer,
             ..
         }
     )
 }
 
-/// What a client writes may show an image only of a file its board has: a new card, a
-/// patch, and a new board's blocks. An image the block showed already is not asked
-/// again, nor are the images of a copy, which a duplicate points at copies afterwards.
+/// What a client writes may show an image or a file block only of a file its board has:
+/// a new card, a patch, and a new board's blocks. A file the block showed already is
+/// not asked again, nor are the files of a copy, which a duplicate points at copies
+/// afterwards.
 #[tokio::test]
 async fn a_write_that_shows_an_image_newly_needs_the_boards_file() {
     let test = common::setup().await;
@@ -74,11 +84,13 @@ async fn a_write_that_shows_an_image_newly_needs_the_boards_file() {
     test.save_file_info(&record_of(board_id, "7kept.png"))
         .await
         .expect("a file of the board");
-    test.save_file_info(&record_of(other_board, "7other.png"))
-        .await
-        .expect("a file of another board");
+    for name in ["7other.png", "7other.pdf"] {
+        test.save_file_info(&record_of(other_board, name))
+            .await
+            .expect("a file of another board");
+    }
 
-    for name in ["7missing.png", "7other.png"] {
+    for name in ["7missing.png", "7other.png", "7missing.pdf", "7other.pdf"] {
         let mut card = card_showing(board_id, &["7kept.png", name]);
         let error = test
             .insert_block(&mut card, &user_id)
@@ -93,15 +105,17 @@ async fn a_write_that_shows_an_image_newly_needs_the_boards_file() {
 
     let mut card = card_showing(board_id, &["7kept.png"]);
     common::insert_blocks(&test, std::slice::from_mut(&mut card), &user_id).await;
-    let patch = BlockPatch {
-        body: BodyChange::Set(body_showing(&["7kept.png", "7missing.png"])),
-        ..BlockPatch::default()
-    };
-    let error = test
-        .patch_block(&card.id, &patch, &user_id)
-        .await
-        .expect_err("a patch that shows an image of no file");
-    assert!(is_image_without_file(&error), "{error:?}");
+    for missing in ["7missing.png", "7missing.pdf"] {
+        let patch = BlockPatch {
+            body: BodyChange::Set(body_showing(&["7kept.png", missing])),
+            ..BlockPatch::default()
+        };
+        let error = test
+            .patch_block(&card.id, &patch, &user_id)
+            .await
+            .expect_err("a patch that names no file");
+        assert!(is_image_without_file(&error), "{missing}: {error:?}");
+    }
 
     // The record of a file the card shows goes, as a wrong call of the store could
     // make it: the card is written all the same, and so is its copy.
@@ -127,28 +141,28 @@ async fn a_write_that_shows_an_image_newly_needs_the_boards_file() {
         container_type: ContainerType::Open,
         ..Container::default()
     };
-    let new = |new_images| {
+    let new = |new_files| {
         let board = Container {
             id: new_id(),
             ..new_board.clone()
         };
-        let card = card_showing(&board.id, &["7archived.png"]);
+        let card = card_showing(&board.id, &["7archived.png", "7archived.pdf"]);
         (
             ContainersAndBlocks {
                 containers: vec![board],
                 blocks: vec![card],
             },
-            new_images,
+            new_files,
         )
     };
-    let (mut checked, new_images) = new(NewImages::Recorded);
+    let (mut checked, new_files) = new(NewBodyFiles::Recorded);
     let error = test
-        .create_containers_and_blocks(&mut checked, &user_id, new_images)
+        .create_containers_and_blocks(&mut checked, &user_id, new_files)
         .await
         .expect_err("a new board has no files");
     assert!(is_image_without_file(&error), "{error:?}");
-    let (mut imported, new_images) = new(NewImages::Unchecked);
-    test.create_containers_and_blocks(&mut imported, &user_id, new_images)
+    let (mut imported, new_files) = new(NewBodyFiles::Unchecked);
+    test.create_containers_and_blocks(&mut imported, &user_id, new_files)
         .await
         .expect("an import points its images at its files afterwards");
 

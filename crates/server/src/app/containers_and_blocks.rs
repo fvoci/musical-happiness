@@ -6,7 +6,7 @@ use fvoci_model::{
     ContainerMember, ContainersAndBlocks, DeleteContainersAndBlocks, PatchContainersAndBlocks,
 };
 
-use fvoci_store::NewImages;
+use fvoci_store::NewBodyFiles;
 
 use super::containers::CreatorMembership;
 use super::{App, Former};
@@ -24,9 +24,9 @@ impl App {
     /// Stores the boards and blocks of an archive as they are, identifiers included,
     /// tells the boards' members and the webhooks, and files each board that is not a
     /// template under the default category of `user_id`. The boards start without
-    /// members. The images of the bodies name the archive's files, which the import
-    /// stores after them and points them at: the board's files are not asked of them
-    /// ([`fvoci_store::NewImages::Unchecked`]).
+    /// members. The images and file blocks of the bodies name the archive's files, which
+    /// the import stores after them and points them at: the board's files are not asked
+    /// of them ([`fvoci_store::NewBodyFiles::Unchecked`]).
     ///
     /// # Errors
     ///
@@ -48,7 +48,7 @@ impl App {
 
     /// Stores boards and their blocks as [`App::create_imported_containers_and_blocks`]
     /// does and makes `user_id` an admin and editor of each board. Each image of a body
-    /// shows a file of its board ([`fvoci_store::NewImages::Recorded`]).
+    /// shows a file of its board ([`fvoci_store::NewBodyFiles::Recorded`]).
     ///
     /// # Errors
     ///
@@ -86,7 +86,11 @@ impl App {
                 }
                 CreatorMembership::None => {
                     self.store()
-                        .create_containers_and_blocks(&mut created, user_id, NewImages::Unchecked)
+                        .create_containers_and_blocks(
+                            &mut created,
+                            user_id,
+                            NewBodyFiles::Unchecked,
+                        )
                         .await?;
                     Vec::new()
                 }

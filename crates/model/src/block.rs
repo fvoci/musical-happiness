@@ -237,10 +237,13 @@ pub enum BlockError {
     /// A block that is no card, comment or page has a body.
     #[error("only a card, a comment or a page has a body")]
     BodyNotAllowed,
-    /// An image of the body that the write makes the block show newly names no file
-    /// that the block's board has when the write is stored.
-    #[error("an image of the body shows no file of the board")]
-    ImageWithoutFile,
+    /// An image or a file block of the body that the write makes the block show newly
+    /// names no file that the block's board or wiki has when the write is stored.
+    #[error("an image or a file block of the body names no file of its board or wiki")]
+    BodyFileNotOfContainer,
+    /// A comment's body has a file block: files go in the body of a card or a page.
+    #[error("a comment's body has no file block")]
+    FileBlockInComment,
     /// The title holds U+0000, which PostgreSQL cannot store in text.
     #[error("the title holds the character U+0000")]
     NulInTitle,
@@ -465,6 +468,11 @@ impl Block {
         validate_block_properties(&self.fields)?;
         if self.body.is_some() && !self.block_type.has_body() {
             return Err(BlockError::BodyNotAllowed);
+        }
+        if self.block_type == BlockType::Comment
+            && self.body.as_ref().is_some_and(Body::has_file_blocks)
+        {
+            return Err(BlockError::FileBlockInComment);
         }
         Ok(())
     }

@@ -22,7 +22,7 @@ use crate::comment_versions::{self, EDITED_AT_COLUMN};
 use crate::containers;
 use crate::db::{Id, OptId, Param, Row, Scope, Sql, now_millis};
 use crate::error::StoreError;
-use crate::file_refs::NewImages;
+use crate::file_refs::NewBodyFiles;
 use crate::page_places;
 
 /// The name of every block column, in the order rows are read and written.
@@ -342,7 +342,7 @@ impl Store {
         user_id: &str,
     ) -> Result<(), StoreError> {
         self.transaction(async |scope| {
-            insert_blocks(scope, blocks, user_id, NewImages::Recorded).await
+            insert_blocks(scope, blocks, user_id, NewBodyFiles::Recorded).await
         })
         .await
     }
@@ -397,7 +397,8 @@ impl Store {
                     )));
                 }
                 let block = get_block(scope, &block_id).await?;
-                block_derived::refresh(scope, &block, Before::Unknown, NewImages::Recorded).await?;
+                block_derived::refresh(scope, &block, Before::Unknown, NewBodyFiles::Recorded)
+                    .await?;
             }
             Ok(())
         })
@@ -508,7 +509,7 @@ impl Store {
             generate_block_ids(&mut copies);
             card_values::keep_cards_of_board(scope, &mut copies, container_id, &definitions)
                 .await?;
-            insert_blocks(scope, &mut copies, user_id, NewImages::Unchecked).await?;
+            insert_blocks(scope, &mut copies, user_id, NewBodyFiles::Unchecked).await?;
             Ok(copies)
         })
         .await
@@ -666,7 +667,7 @@ pub(crate) async fn insert_block(
     user_id: &str,
 ) -> Result<(), StoreError> {
     let whole = BodyWrite::Whole;
-    let named = insert_block_at(scope, block, user_id, None, NewImages::Recorded, whole).await?;
+    let named = insert_block_at(scope, block, user_id, None, NewBodyFiles::Recorded, whole).await?;
     card_values::check_named_cards(scope, &named).await
 }
 
@@ -692,7 +693,7 @@ async fn type_of_parent(
 }
 
 /// Stores a block as created or changed at `at`, or now, once its board is held, if
-/// that is `None`. The images it shows newly are asked as `new_images` says, and the
+/// that is `None`. The images it shows newly are asked as `new_files` says, and the
 /// versions of a card's body are kept as `body_write` says. Returns the cards its
 /// relation values newly name, which the caller asks for once the write is stored
 /// ([`card_values::check_named_cards`]).
@@ -701,7 +702,7 @@ async fn insert_block_at(
     block: &mut Block,
     user_id: &str,
     at: Option<i64>,
-    new_images: NewImages,
+    new_files: NewBodyFiles,
     body_write: BodyWrite,
 ) -> Result<Vec<NamedCards>, StoreError> {
     let invalid = |block: &Block, source| StoreError::InvalidBlock {
@@ -778,22 +779,22 @@ async fn insert_block_at(
         if body_write == BodyWrite::Whole {
             body_versions::record_change(scope, &existing, block, user_id).await?;
         }
-        block_derived::refresh(scope, block, Before::Stored(&existing), new_images).await?;
+        block_derived::refresh(scope, block, Before::Stored(&existing), new_files).await?;
     } else {
         user_id.clone_into(&mut block.created_by);
         block.create_at = now;
         block.edited_at = 0;
-        insert_block_row(scope, block, new_images).await?;
+        insert_block_row(scope, block, new_files).await?;
     }
     Ok(named)
 }
 
 /// Inserts a block row with every column as `block` has it. For a new block, and for
-/// one that comes back from the trash; its images are asked as `new_images` says.
+/// one that comes back from the trash; its images are asked as `new_files` says.
 pub(crate) async fn insert_block_row(
     scope: &mut Scope<'_>,
     block: &Block,
-    new_images: NewImages,
+    new_files: NewBodyFiles,
 ) -> Result<(), StoreError> {
     let mut sql = scope.sql(&format!(
         "INSERT INTO blocks ({BLOCK_COLUMNS}, {BODY_SUMMARY_COLUMNS}) VALUES ("
@@ -812,7 +813,7 @@ pub(crate) async fn insert_block_row(
     push_body(&mut sql, block.body.as_ref(), BodyColumns::List)?;
     sql.push(")");
     scope.execute(sql).await?;
-    block_derived::refresh(scope, block, Before::Absent, new_images).await
+    block_derived::refresh(scope, block, Before::Absent, new_files).await
 }
 
 /// How [`push_body`] writes the body's columns.
@@ -848,7 +849,7 @@ pub(crate) async fn insert_blocks(
     scope: &mut Scope<'_>,
     blocks: &mut [Block],
     user_id: &str,
-    new_images: NewImages,
+    new_files: NewBodyFiles,
 ) -> Result<(), StoreError> {
     for block in blocks.iter() {
         block
@@ -880,7 +881,7 @@ pub(crate) async fn insert_blocks(
                 block,
                 user_id,
                 Some(now),
-                new_images,
+                new_files,
                 BodyWrite::Whole,
             )
             .await?,
@@ -971,7 +972,7 @@ pub(crate) async fn patch_block(
         &mut block,
         user_id,
         None,
-        NewImages::Recorded,
+        NewBodyFiles::Recorded,
         body_write,
     )
     .await?;

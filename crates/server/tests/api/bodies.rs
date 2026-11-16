@@ -380,9 +380,15 @@ fn card_block(board_id: &str, body: &Value) -> Value {
 
 /// A document with an image of the file of that stored name.
 fn with_image(file_id: &str) -> Value {
+    with_node("image", file_id)
+}
+
+/// A document with a node of `kind` (an image, a file block) naming the file of that
+/// stored name.
+fn with_node(kind: &str, file_id: &str) -> Value {
     json!({"type": "doc", "content": [
         paragraph("Picture"),
-        {"type": "image", "attrs": {"fileId": file_id}},
+        {"type": kind, "attrs": {"fileId": file_id}},
     ]})
 }
 
@@ -480,6 +486,15 @@ fn document_body() -> fvoci_model::Body {
 /// An image of a body shows a file of the card's board, on every route that takes one.
 #[tokio::test]
 async fn the_images_of_a_body_are_files_of_its_board() {
+    files_of_a_body_are_files_of_its_board("image").await;
+}
+
+#[tokio::test]
+async fn the_file_blocks_of_a_body_are_files_of_its_board() {
+    files_of_a_body_are_files_of_its_board("file").await;
+}
+
+async fn files_of_a_body_are_files_of_its_board(kind: &str) {
     let th = Setup::native().start().await.init_basic().await;
     let board = th
         .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
@@ -499,7 +514,7 @@ async fn the_images_of_a_body_are_files_of_its_board() {
         let response = new_card(
             &th.client,
             &board.id,
-            &json!({"title": "Card", "body": with_image(missing)}),
+            &json!({"title": "Card", "body": with_node(kind, missing)}),
         )
         .await;
         check_refused_member(&response, "body");
@@ -507,7 +522,7 @@ async fn the_images_of_a_body_are_files_of_its_board() {
             .client
             .post(
                 &format!("{TEST_WS}/boards/{}/blocks", board.id),
-                &[card_block(&board.id, &with_image(missing))],
+                &[card_block(&board.id, &with_node(kind, missing))],
             )
             .await;
         check_refused_member(&response, "0/body");
@@ -515,7 +530,7 @@ async fn the_images_of_a_body_are_files_of_its_board() {
     let created: Card = new_card(
         &th.client,
         &board.id,
-        &json!({"title": "Card", "body": with_image(&file_id)}),
+        &json!({"title": "Card", "body": with_node(kind, &file_id)}),
     )
     .await
     .created_json();
@@ -523,14 +538,14 @@ async fn the_images_of_a_body_are_files_of_its_board() {
         .client
         .patch(
             &format!("{TEST_WS}/cards/{}", created.id),
-            &json!({"body": with_image(&elsewhere), "readAt": created.update_at}),
+            &json!({"body": with_node(kind, &elsewhere), "readAt": created.update_at}),
         )
         .await;
     check_refused_member(&response, "body");
 
     // Each route of patches refuses it too.
     let block_path = format!("{TEST_WS}/boards/{}/blocks/{}", board.id, created.id);
-    let patch = json!({"body": with_image(&elsewhere), "readAt": created.update_at});
+    let patch = json!({"body": with_node(kind, &elsewhere), "readAt": created.update_at});
     check_refused_member(&th.client.patch(&block_path, &patch).await, "body");
     let batch = json!({"blockIds": [created.id], "blockPatches": [patch]});
     check_refused_member(
@@ -556,7 +571,7 @@ async fn the_images_of_a_body_are_files_of_its_board() {
             &format!("{TEST_WS}/boards-and-blocks"),
             &json!({
                 "containers": [{"id": board.id, "workspaceId": TEST_WORKSPACE_ID, "type": "P"}],
-                "blocks": [card_block(&board.id, &with_image(&file_id))],
+                "blocks": [card_block(&board.id, &with_node(kind, &file_id))],
             }),
         )
         .await;
@@ -638,11 +653,20 @@ async fn the_routes_of_blocks_refuse_what_a_body_may_not_be() {
 /// A copy of a card, made from its board or of it or of its board, shows a copy of each
 /// file of its body, and is answered as it is stored.
 #[tokio::test]
+async fn a_copy_of_a_body_shows_copies_of_its_files() {
+    copies_of_a_body_show_copies_of_its_files("image").await;
+}
+
+#[tokio::test]
+async fn a_copy_of_a_body_shows_copies_of_its_file_blocks() {
+    copies_of_a_body_show_copies_of_its_files("file").await;
+}
+
 #[expect(
     clippy::too_many_lines,
     reason = "the three ways a card is copied, each checked for its files"
 )]
-async fn a_copy_of_a_body_shows_copies_of_its_files() {
+async fn copies_of_a_body_show_copies_of_its_files(kind: &str) {
     let th = Setup::native().start().await.init_basic().await;
     let board = th
         .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
@@ -656,7 +680,7 @@ async fn a_copy_of_a_body_shows_copies_of_its_files() {
     let created: Card = new_card(
         &th.client,
         &board.id,
-        &json!({"title": "Card", "body": with_image(&file_id)}),
+        &json!({"title": "Card", "body": with_node(kind, &file_id)}),
     )
     .await
     .created_json();
@@ -669,7 +693,7 @@ async fn a_copy_of_a_body_shows_copies_of_its_files() {
                 "{TEST_WS}/boards/{}/blocks?sourceBoardId={}",
                 other.id, board.id
             ),
-            &[card_block(&other.id, &with_image(&file_id))],
+            &[card_block(&other.id, &with_node(kind, &file_id))],
         )
         .await;
     let made: Vec<Value> = response.created_json();
@@ -735,7 +759,7 @@ async fn a_copy_of_a_body_shows_copies_of_its_files() {
                 .await
                 .check_ok();
             let stored = card(&th.client, block["id"].as_str().expect("an id")).await;
-            assert_eq!(block["updateAt"], json!(stored.update_at));
+            assert_eq!(block["updateAt"], json!(stored.update_at), "{kind}");
         }
     }
     assert_eq!(
@@ -759,6 +783,15 @@ async fn a_copy_of_a_body_shows_copies_of_its_files() {
 /// The original keeps its versions.
 #[tokio::test]
 async fn a_copy_of_a_card_that_shows_an_image_begins_with_one_version() {
+    a_copy_of_a_card_with_a_file_begins_with_one_version("image").await;
+}
+
+#[tokio::test]
+async fn a_copy_of_a_card_with_a_file_block_begins_with_one_version() {
+    a_copy_of_a_card_with_a_file_begins_with_one_version("file").await;
+}
+
+async fn a_copy_of_a_card_with_a_file_begins_with_one_version(kind: &str) {
     let th = Setup::native().start().await.init_basic().await;
     let board = th
         .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
@@ -776,7 +809,7 @@ async fn a_copy_of_a_card_that_shows_an_image_begins_with_one_version() {
     th.client
         .patch(
             &format!("{TEST_WS}/cards/{}", created.id),
-            &json!({"body": with_image(&file_id), "readAt": created.update_at}),
+            &json!({"body": with_node(kind, &file_id), "readAt": created.update_at}),
         )
         .await
         .check_ok();
@@ -864,6 +897,15 @@ async fn a_copy_of_a_card_that_shows_an_image_begins_with_one_version() {
 /// (`docs/s6-design.md` 5.7).
 #[tokio::test]
 async fn copied_files_are_shown_and_an_unused_upload_is_collected() {
+    copied_files_are_shown_and_unused_ones_collected("image").await;
+}
+
+#[tokio::test]
+async fn copied_files_of_file_blocks_are_shown_and_an_unused_upload_is_collected() {
+    copied_files_are_shown_and_unused_ones_collected("file").await;
+}
+
+async fn copied_files_are_shown_and_unused_ones_collected(kind: &str) {
     let th = Setup::native().start().await.init_basic().await;
     let board = th
         .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
@@ -880,7 +922,7 @@ async fn copied_files_are_shown_and_an_unused_upload_is_collected() {
     let created: Card = new_card(
         &th.client,
         &board.id,
-        &json!({"title": "Card", "body": with_image(&file_id)}),
+        &json!({"title": "Card", "body": with_node(kind, &file_id)}),
     )
     .await
     .created_json();
@@ -899,7 +941,7 @@ async fn copied_files_are_shown_and_an_unused_upload_is_collected() {
                 "{TEST_WS}/boards/{}/blocks?sourceBoardId={}",
                 other.id, board.id
             ),
-            &[card_block(&other.id, &with_image(&file_id))],
+            &[card_block(&other.id, &with_node(kind, &file_id))],
         )
         .await
         .created_json();

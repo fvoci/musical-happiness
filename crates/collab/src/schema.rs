@@ -47,12 +47,13 @@ const fn plain(name: &'static str) -> Attribute {
 }
 
 /// Every kind of node the editor's schema has, with its attributes in the schema's order.
-pub(crate) const NODES: [(&str, &[Attribute]); 18] = [
+pub(crate) const NODES: [(&str, &[Attribute]); 19] = [
     ("blockMath", &[plain("latex")]),
     ("blockquote", &[]),
     ("bulletList", &[]),
     ("codeBlock", &[plain("language")]),
     ("doc", &[]),
+    ("file", &[plain("fileId")]),
     ("hardBreak", &[]),
     (
         "heading",

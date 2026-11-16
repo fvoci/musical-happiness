@@ -1,6 +1,6 @@
 {
   "description": "Bodies as Y documents, written by apps/web/tools/ydoc/vectors.ts from the editor's own binding (@tiptap/y-tiptap); the server's conversion (crates/collab) and the web app's tests read it. Do not edit by hand. field is the name of the XML fragment at the root of the Y document. An update is a whole Y document as a version 1 update in base64, and json is what an editor reads from it in the form that is stored (null for no body). documents: every accepted case of body-vectors.json with a body (not those with a build), by its name. bodies: more bodies, each with the body. In both, json is the body as it comes back: without an empty content or attrs, with the marks of a text in the order of the schema, neighbouring texts with the same marks as one, and an attribute the editor fills in (the start of an ordered list). readings: shared content no editor writes, which every editor that did not write it keeps as it is, and how it is read. refused: shared content the editors keep the same way though what they read (json) is no body: the editor's schema checks no value, the server's rules do. repairs: shared content that does not fit the schema; json is what is left when an editor has deleted what fails. session: start is the document a server opens, updates are what the binding of one editor sends after it, in order, as it makes one edit after another, and json is what an editor reads at the end. schema: the marks in the order the editor stores them, and the attributes of each mark and node with the value given to one that is left out (null: left out).",
-  "bodyVersion": 3,
+  "bodyVersion": 4,
   "field": "default",
   "schema": {
     "marks": [
@@ -37,6 +37,9 @@
         "language": null
       },
       "doc": {},
+      "file": {
+        "fileId": null
+      },
       "hardBreak": {},
       "heading": {
         "level": 1
@@ -1300,6 +1303,90 @@
       }
     },
     {
+      "name": "a file block",
+      "update": "AQUBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQdtaW51dGVzhwEAAwRmaWxlKAABCQZmaWxlSWQBdwg3YWJjLnBkZgA=",
+      "json": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "minutes"
+              }
+            ]
+          },
+          {
+            "type": "file",
+            "attrs": {
+              "fileId": "7abc.pdf"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "a file block in a list and a quote",
+      "update": "AQoBAAcBB2RlZmF1bHQDCmJ1bGxldExpc3QHAAEAAwhsaXN0SXRlbQcAAQEDCXBhcmFncmFwaAcAAQIGBAABAwNvbmWHAQIDBGZpbGUoAAEHBmZpbGVJZAF3CDdhYmMuaHdwhwEAAwpibG9ja3F1b3RlBwABCQMEZmlsZSgAAQoGZmlsZUlkAXcJN2RlZi54bHN4AA==",
+      "json": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "bulletList",
+            "content": [
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "one"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "file",
+                    "attrs": {
+                      "fileId": "7abc.hwp"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "blockquote",
+            "content": [
+              {
+                "type": "file",
+                "attrs": {
+                  "fileId": "7def.xlsx"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "a file block file of 100 code units",
+      "update": "AQIBAAcBB2RlZmF1bHQDBGZpbGUoAAEABmZpbGVJZAF3ZGZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmYA",
+      "json": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "file",
+            "attrs": {
+              "fileId": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "a reference",
       "update": "AQUBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQRzZWUghwEBAwlyZWZlcmVuY2UoAAEGAmlkAXckMDFhMWM2ZjYtNGQ1OC03NmYzLWFjYTAtZmZmMzM2ZjE1MzVkAA==",
       "json": {
@@ -2369,7 +2456,7 @@
     },
     {
       "name": "an attribute nobody knows is not read",
-      "update": "AQgBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFwKAABAAZjb2xvdXIBdwNyZWQoAAEABWxldmVsAX0ChwEAAwVpbWFnZSgAAQUGZmlsZUlkAXcFZi5wbmcoAAEFBXdpZHRoAX0KAA==",
+      "update": "AQwBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFwKAABAAZjb2xvdXIBdwNyZWQoAAEABWxldmVsAX0ChwEAAwVpbWFnZSgAAQUGZmlsZUlkAXcFZi5wbmcoAAEFBXdpZHRoAX0KhwEFAwRmaWxlKAABCAZmaWxlSWQBdwVmLnBkZigAAQgEbmFtZQF3C21pbnV0ZXMucGRmKAABCARzaXplAX0HAA==",
       "json": {
         "type": "doc",
         "content": [
@@ -2386,6 +2473,12 @@
             "type": "image",
             "attrs": {
               "fileId": "f.png"
+            }
+          },
+          {
+            "type": "file",
+            "attrs": {
+              "fileId": "f.pdf"
             }
           }
         ]
@@ -2744,6 +2837,42 @@
         "content": [
           {
             "type": "image",
+            "attrs": {
+              "fileId": ""
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "a file block without a file",
+      "update": "AQQBAAcBB2RlZmF1bHQDBGZpbGWHAQADCXBhcmFncmFwaAcAAQEGBAABAgFhAA==",
+      "json": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "file"
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "a"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "a file block whose file is empty",
+      "update": "AQIBAAcBB2RlZmF1bHQDBGZpbGUoAAEABmZpbGVJZAF3AAA=",
+      "json": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "file",
             "attrs": {
               "fileId": ""
             }
@@ -3458,7 +3587,7 @@
     },
     {
       "name": "leaves with something inside",
-      "update": "ASABAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhhwEBAwloYXJkQnJlYWsHAAEDBgQAAQQBeIcBAAMFaW1hZ2UHAAEGAwlwYXJhZ3JhcGgoAAEGBmZpbGVJZAF3BWYucG5nhwEGAw5ob3Jpem9udGFsUnVsZQcAAQkDCXBhcmFncmFwaIcBCQMJYmxvY2tNYXRoBwABCwYEAAEMAXgoAAELBWxhdGV4AXcBeIcBCwMJcGFyYWdyYXBoBwABDwMHbWVudGlvbgcAARAGBAABEQF4KAABEAZ1c2VySWQBdyQwMTkzMDAwMC0wMDAwLTcwMDAtODAwMC0wMDAwMDAwMGMwMDKHAQ8DCXBhcmFncmFwaAcAARQDCXJlZmVyZW5jZQcAARUGBAABFgF4KAABFQJpZAF3JDAxOTMwMDAwLTAwMDAtNzAwMC04MDAwLTAwMDAwMDAwYjAwMocBFAMJcGFyYWdyYXBoBwABGQMKaW5saW5lTWF0aAcAARoGBAABGwF4KAABGgVsYXRleAF3AXiHARoGBAABHgFiAA==",
+      "update": "ASMBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhhwEBAwloYXJkQnJlYWsHAAEDBgQAAQQBeIcBAAMFaW1hZ2UHAAEGAwlwYXJhZ3JhcGgoAAEGBmZpbGVJZAF3BWYucG5nhwEGAwRmaWxlBwABCQMJcGFyYWdyYXBoKAABCQZmaWxlSWQBdwVmLnBkZocBCQMOaG9yaXpvbnRhbFJ1bGUHAAEMAwlwYXJhZ3JhcGiHAQwDCWJsb2NrTWF0aAcAAQ4GBAABDwF4KAABDgVsYXRleAF3AXiHAQ4DCXBhcmFncmFwaAcAARIDB21lbnRpb24HAAETBgQAARQBeCgAARMGdXNlcklkAXckMDE5MzAwMDAtMDAwMC03MDAwLTgwMDAtMDAwMDAwMDBjMDAyhwESAwlwYXJhZ3JhcGgHAAEXAwlyZWZlcmVuY2UHAAEYBgQAARkBeCgAARgCaWQBdyQwMTkzMDAwMC0wMDAwLTcwMDAtODAwMC0wMDAwMDAwMGIwMDKHARcDCXBhcmFncmFwaAcAARwDCmlubGluZU1hdGgHAAEdBgQAAR4BeCgAAR0FbGF0ZXgBdwF4hwEdBgQAASEBYgA=",
       "json": {
         "type": "doc",
         "content": [

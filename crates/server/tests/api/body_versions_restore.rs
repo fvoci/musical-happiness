@@ -197,6 +197,15 @@ async fn a_version_restored_is_the_cards_body_and_the_same_body_again_is_nothing
 /// is restored with it, while the board has its file.
 #[tokio::test]
 async fn the_oldest_version_and_one_with_an_image_are_restored() {
+    oldest_and_one_with_a_file_restored("image").await;
+}
+
+#[tokio::test]
+async fn the_oldest_version_and_one_with_a_file_block_are_restored() {
+    oldest_and_one_with_a_file_restored("file").await;
+}
+
+async fn oldest_and_one_with_a_file_restored(kind: &str) {
     let th = Setup::native()
         .configure(|config| config.collab.collab_body_versions = 2)
         .start()
@@ -209,13 +218,17 @@ async fn the_oldest_version_and_one_with_an_image_are_restored() {
     let file_id = crate::files::uploaded_id(&uploaded);
     let pictured = json!({"type": "doc", "content": [
         {"type": "paragraph", "content": [{"type": "text", "text": "pictured"}]},
-        {"type": "image", "attrs": {"fileId": file_id}},
+        {"type": kind, "attrs": {"fileId": file_id}},
     ]});
     write_whole(&th.client, &t.card_id, &pictured).await;
     let kept = versions(&th.client, &t.card_id).await;
     assert_eq!(said(&kept).len(), 2, "{kept:?}");
 
-    assert_eq!(restore(&th.client, &t.card_id, 1).await, ["first"]);
+    assert_eq!(
+        restore(&th.client, &t.card_id, 1).await,
+        ["first"],
+        "{kind}"
+    );
     assert_eq!(
         said(&versions(&th.client, &t.card_id).await),
         [
@@ -240,7 +253,8 @@ async fn the_oldest_version_and_one_with_an_image_are_restored() {
         [
             (4, vec![user1.as_str()], true),
             (3, vec![user1.as_str()], false)
-        ]
+        ],
+        "{kind}"
     );
     th.teardown().await;
 }
@@ -250,6 +264,15 @@ async fn the_oldest_version_and_one_with_an_image_are_restored() {
 /// its body, and its versions are as they were.
 #[tokio::test]
 async fn a_version_that_cannot_be_stored_is_not_restored() {
+    version_that_cannot_be_stored("image").await;
+}
+
+#[tokio::test]
+async fn a_version_whose_file_block_has_no_file_is_not_restored() {
+    version_that_cannot_be_stored("file").await;
+}
+
+async fn version_that_cannot_be_stored(kind: &str) {
     let th = Setup::native().start().await.init_basic().await;
     let t = table(&th, &paragraphs(&["first"])).await;
     let second = paragraphs(&["second"]);
@@ -258,7 +281,7 @@ async fn a_version_that_cannot_be_stored_is_not_restored() {
     assert_eq!(said(&kept).len(), 2, "{kept:?}");
     let unknown = json!({"type": "doc", "content": [{"type": "marquee"}]});
     let pictured = json!({"type": "doc", "content": [
-        {"type": "image", "attrs": {"fileId": "7missing.png"}},
+        {"type": kind, "attrs": {"fileId": "7missing.png"}},
     ]});
     for (body, refusal) in [
         (
@@ -282,16 +305,17 @@ async fn a_version_that_cannot_be_stored_is_not_restored() {
             ))
             .await
             .expect("the version is written over");
-        assert_eq!(planted, 1);
+        assert_eq!(planted, 1, "{kind}");
         th.client
             .post_empty(&restore_path(&t.card_id, 1))
             .await
             .check_error(StatusCode::CONFLICT, refusal);
         assert_eq!(
             body_of(&card(&th.client, &t.card_id).await).as_ref(),
-            Some(&second)
+            Some(&second),
+            "{kind}"
         );
-        assert_eq!(versions(&th.client, &t.card_id).await.len(), 2);
+        assert_eq!(versions(&th.client, &t.card_id).await.len(), 2, "{kind}");
     }
     th.teardown().await;
 }

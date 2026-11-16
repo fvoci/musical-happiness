@@ -44,12 +44,12 @@ impl Collab {
                 return Err(refused);
             }
         };
-        let (repair, state_bytes, images) = match answer {
+        let (repair, state_bytes, files) = match answer {
             Answer::Taken {
                 repair,
                 state_bytes,
-                images,
-            } => (repair, state_bytes, images),
+                files,
+            } => (repair, state_bytes, files),
             other => return Err(unexpected(&other)),
         };
         if super::place::still_at_epoch(slot, epoch).is_err() {
@@ -77,7 +77,7 @@ impl Collab {
         self.paused_before_log().await;
         let logged = app
             .store()
-            .append_body_updates(card_id, &entries, &images, new_editors, body_before)
+            .append_body_updates(card_id, &entries, &files, new_editors, body_before)
             .await;
         let seqs = match logged {
             Ok(seqs) => seqs,

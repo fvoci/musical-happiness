@@ -1,6 +1,6 @@
 {
   "description": "Shared test vectors for the body of a card or a comment: documents and what the server and the web app's validator must do with them. expect is accept (stored as sent), empty (stored as no body) or reject; a rejection names its kind in reason: notDocument, tooLarge, tooDeep, tooManyNodes, invalidNode. An accepted case may give text, the plain text the server stores for searching : a line per paragraph, heading, code block and formula block, the lines of blocks without words left out; a hard break is a line break kept inside its block's line, a formula inside a line gives its source there, and a mention and a reference give nothing. Whole numbers count however they are written (1, 1.0, 1e0). Lengths are UTF-16 code units. The limits of depth (32), nodes (20,000) and size (1 MiB) are tested with documents each side builds from a case's build, which stands for body: {depth: n} is a document nesting n deep (doc, then n-2 blockquotes, then an empty paragraph); {nodes: n} is a document of n nodes (doc, then one paragraph of n-2 hardBreaks); {bytes: n} is a document of one paragraph of one text of the letter a, as long as makes its JSON without whitespace n bytes of UTF-8. The server's test is crates/model/tests/body_vectors.rs. Either side that finds the two disagree adds a case. The allowlist is docs/s6-design.md 5.7; bodyVersion is the version of it the cases are written for.",
-  "bodyVersion": 3,
+  "bodyVersion": 4,
   "cases": [
     {
       "name": "null",
@@ -3178,6 +3178,234 @@
             "type": "image",
             "attrs": {
               "fileId": "x.png"
+            },
+            "content": [
+              {
+                "type": "paragraph",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "x"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "expect": "reject",
+      "reason": "invalidNode"
+    },
+    {
+      "name": "a file block",
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "minutes"
+              }
+            ]
+          },
+          {
+            "type": "file",
+            "attrs": {
+              "fileId": "7abc.pdf"
+            }
+          }
+        ]
+      },
+      "expect": "accept",
+      "text": "minutes"
+    },
+    {
+      "name": "a file block in a list and a quote",
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "bulletList",
+            "content": [
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "one"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "file",
+                    "attrs": {
+                      "fileId": "7abc.hwp"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "blockquote",
+            "content": [
+              {
+                "type": "file",
+                "attrs": {
+                  "fileId": "7def.xlsx"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "expect": "accept"
+    },
+    {
+      "name": "a file block file of 100 code units",
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "file",
+            "attrs": {
+              "fileId": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+            }
+          }
+        ]
+      },
+      "expect": "accept"
+    },
+    {
+      "name": "a file block file of 101 code units",
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "file",
+            "attrs": {
+              "fileId": "fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+            }
+          }
+        ]
+      },
+      "expect": "reject",
+      "reason": "invalidNode"
+    },
+    {
+      "name": "a file block in a paragraph",
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "file",
+                "attrs": {
+                  "fileId": "x.pdf"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "expect": "reject",
+      "reason": "invalidNode"
+    },
+    {
+      "name": "a file block without a file",
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "file"
+          }
+        ]
+      },
+      "expect": "reject",
+      "reason": "invalidNode"
+    },
+    {
+      "name": "a file block with an empty file",
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "file",
+            "attrs": {
+              "fileId": ""
+            }
+          }
+        ]
+      },
+      "expect": "reject",
+      "reason": "invalidNode"
+    },
+    {
+      "name": "a file block with its name",
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "file",
+            "attrs": {
+              "fileId": "x.pdf",
+              "name": "minutes.pdf"
+            }
+          }
+        ]
+      },
+      "expect": "reject",
+      "reason": "invalidNode"
+    },
+    {
+      "name": "a file block with its size",
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "file",
+            "attrs": {
+              "fileId": "x.pdf",
+              "size": 7
+            }
+          }
+        ]
+      },
+      "expect": "reject",
+      "reason": "invalidNode"
+    },
+    {
+      "name": "a file block whose file is a number",
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "file",
+            "attrs": {
+              "fileId": 7
+            }
+          }
+        ]
+      },
+      "expect": "reject",
+      "reason": "invalidNode"
+    },
+    {
+      "name": "a file block with content",
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "file",
+            "attrs": {
+              "fileId": "x.pdf"
             },
             "content": [
               {

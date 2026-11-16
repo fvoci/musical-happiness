@@ -3,7 +3,7 @@
 //! An archive is a ZIP holding `version.json` and, per board, a directory with a
 //! `board.jsonl` and the board's files. Each line of `board.jsonl` is a board, a block
 //! or a member as the contract has them (`contracts/openapi.json`), bodies included; the
-//! files are those the blocks show, the images of bodies among them
+//! files are those the blocks show, those of the images and file blocks of bodies among them
 //! (`docs/s6-design.md` 3.10). The container is the original's
 //! (`server/app/export.go`); version 2 was its own.
 

@@ -53,6 +53,8 @@ export const image = (fileId: string, alt?: string): DocNode => ({
   type: 'image',
   attrs: alt === undefined ? { fileId } : { fileId, alt },
 });
+/** A file block: a file to download, named by its identifier. */
+export const fileBlock = (fileId: string): DocNode => ({ type: 'file', attrs: { fileId } });
 export const mention = (userId: string): DocNode => ({ type: 'mention', attrs: { userId } });
 /** A reference to a card or a page. */
 export const reference = (id: string): DocNode => ({ type: 'reference', attrs: { id } });
@@ -295,6 +297,15 @@ export const HAND_MADE: Record<string, DocNode> = {
   ),
 
   'an image first': doc(image('file-lead', 'first'), paragraph(text('after the image'))),
+
+  'file blocks': doc(
+    fileBlock('7minutes.pdf'),
+    paragraph(text('between')),
+    fileBlock('7minutes.pdf'),
+    bullets(item(paragraph(text('in a list')), fileBlock('7report.hwp'))),
+    quote(fileBlock('7sheet.xlsx')),
+    fileBlock(`${UNRESOLVED_FILE_PREFIX}file.pdf`),
+  ),
 
   formulas: doc(
     paragraph(

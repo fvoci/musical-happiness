@@ -173,14 +173,14 @@ impl App {
         }
     }
 
-    /// Checks that every image of a body shows a file of the board (`docs/s6-design.md`
-    /// 5.7). The write that stores the body asks again of the images it makes a block
-    /// show newly, and holds their records until it commits
-    /// ([`fvoci_store::NewImages`]): a file collected in between refuses it the same way.
+    /// Checks that every image and file block of a body names a file of the board
+    /// (`docs/s6-design.md` 5.7). The write that stores the body asks again of the
+    /// files it makes a block show newly, and holds their records until it commits
+    /// ([`fvoci_store::NewBodyFiles`]): a file collected in between refuses it the same way.
     ///
     /// # Errors
     ///
-    /// Returns a bad request that names `body` for an image of a file the board does not
+    /// Returns a bad request that names `body` for a node naming a file the board does not
     /// have, and the store's error if a lookup fails.
     pub async fn check_body_files(
         &self,
@@ -190,11 +190,11 @@ impl App {
         if self.has_body_files(container_id, body).await? {
             Ok(())
         } else {
-            Err(BlockError::ImageWithoutFile.into())
+            Err(BlockError::BodyFileNotOfContainer.into())
         }
     }
 
-    /// Whether a board has the file of every image a body shows.
+    /// Whether a board has the file of every image and file block of a body.
     ///
     /// # Errors
     ///
@@ -514,9 +514,9 @@ fn file_info(container_id: &str, place: FilePlace, size: u64) -> FileInfo {
     }
 }
 
-/// Points the images of a copied body at the copies of their files. An image whose file
-/// was not copied becomes an empty paragraph: it would show a file of another board.
-/// `None` if that leaves no body.
+/// Points the images and file blocks of a copied body at the copies of their files. One
+/// whose file was not copied becomes an empty paragraph: it would show a file of
+/// another board. `None` if that leaves no body.
 fn rename_body_files(body: Body, new_file_names: &HashMap<String, String>) -> Option<Body> {
     body.with_files_renamed(|old| new_file_names.get(old).cloned())
 }

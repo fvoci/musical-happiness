@@ -7,9 +7,9 @@
 //! ago than the grace period is removed by [`Store::collect_unreferenced_files`], and
 //! its object doomed.
 //!
-//! A write that makes a block show an image newly asks, in its transaction, that the
-//! board has the image's file, and holds its record until it commits
-//! ([`NewImages::Recorded`]): what a request checked before the write began is not
+//! A write that makes a block's body name a file newly (an image, a file block) asks, in
+//! its transaction, that the board has the file, and holds its record until it commits
+//! ([`NewBodyFiles::Recorded`]): what a request checked before the write began is not
 //! collected under it.
 
 use std::collections::BTreeSet;
@@ -42,7 +42,7 @@ impl Store {
     ) -> Result<Vec<FileInfo>, StoreError> {
         self.transaction(async |scope| {
             // One statement decides and deletes. On PostgreSQL a record that a write
-            // holds (`hold_new_images`) or changes is skipped, not waited for: left to
+            // holds (`hold_new_body_files`) or changes is skipped, not waited for: left to
             // the next run, and no two transactions wait for each other's records. A
             // record whose mark a write took away since the statement began is looked
             // at again as committed, and kept. A purge can have marked a record from
@@ -84,17 +84,17 @@ impl Store {
     }
 }
 
-/// What a write of blocks asks of the files that the images of their bodies come to
-/// show: those a block did not show before the write.
+/// What a write of blocks asks of the files that the images and file blocks of their
+/// bodies come to name: those a block did not show before the write.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NewImages {
+pub enum NewBodyFiles {
     /// Each is a file of the block's board, asked in the write's transaction, and its
     /// record is held until the write ends: the collector of unreferenced files
     /// ([`Store::collect_unreferenced_files`]) skips it, or took the record first and
-    /// the write is refused with [`BlockError::ImageWithoutFile`]. For what a client
+    /// the write is refused with [`BlockError::BodyFileNotOfContainer`]. For what a client
     /// writes.
     Recorded,
-    /// Not asked: for a write that copies blocks and points their images at copies of
+    /// Not asked: for a write that copies blocks and points their bodies at copies of
     /// their files afterwards, as a duplicate and an import do.
     Unchecked,
 }
@@ -102,13 +102,13 @@ pub enum NewImages {
 /// Puts down the files a block shows now, in place of those it showed, and marks the
 /// files of its board whose state that changes. A comment shows the files of its kept
 /// versions too, also while it is made a block of another type, and a card or a page
-/// those of the kept versions of its body. What the images of
-/// the body newly show is asked as `new_images` says. Only
+/// those of the kept versions of its body. What the images and file blocks of
+/// the body newly name is asked as `new_files` says. Only
 /// [`crate::block_derived::refresh`] makes it, with the rest of what follows from a block.
 pub(crate) async fn refresh(
     scope: &mut Scope<'_>,
     block: &Block,
-    new_images: NewImages,
+    new_files: NewBodyFiles,
     _: Refreshing,
 ) -> Result<(), StoreError> {
     let mut sql = scope.sql("DELETE FROM file_refs WHERE block_id = ");
@@ -119,8 +119,8 @@ pub(crate) async fn refresh(
         .iter()
         .map(|row| row.text(0))
         .collect::<Result<Vec<_>, _>>()?;
-    if new_images == NewImages::Recorded {
-        hold_new_images(scope, block, &names).await?;
+    if new_files == NewBodyFiles::Recorded {
+        hold_new_body_files(scope, block, &names).await?;
     }
     // What the block shows, and what the kept versions of a comment show, also of one
     // that is no comment for now, and those of a card's body.
@@ -144,13 +144,13 @@ pub(crate) async fn refresh(
     mark(scope, Some((&block.container_id, &names))).await
 }
 
-/// Holds the records of the files that the images of a block's body show and that it
-/// did not show before (`before`), until the transaction ends; refuses the block if
-/// its board has no record of one. On PostgreSQL the collector skips a record this
+/// Holds the records of the files that the images and file blocks of a block's body
+/// name and that it did not show before (`before`), until the transaction ends;
+/// refuses the block if its board has no record of one. On PostgreSQL the collector skips a record this
 /// lock holds ([`Store::collect_unreferenced_files`]), and a record it deleted first is
 /// not found here once its transaction ended; on SQLite the transaction is the only
 /// writer.
-async fn hold_new_images(
+async fn hold_new_body_files(
     scope: &mut Scope<'_>,
     block: &Block,
     before: &[String],
@@ -185,18 +185,18 @@ async fn hold_new_images(
     } else {
         Err(StoreError::InvalidBlock {
             id: block.id.clone(),
-            source: BlockError::ImageWithoutFile,
+            source: BlockError::BodyFileNotOfContainer,
         })
     }
 }
 
 /// Has a block show the files of `names` too, before a write of its body does: those
-/// it does not show yet are asked of its board and held as [`NewImages::Recorded`]
-/// holds them, then put down as shown and their marks taken away. For the images of a
+/// it does not show yet are asked of its board and held as [`NewBodyFiles::Recorded`]
+/// holds them, then put down as shown and their marks taken away. For the files of a
 /// body edited together, whose updates are logged a little before the body is written
 /// ([`crate::Store::append_body_updates`]); the write puts down what the body shows in
 /// place of these.
-pub(crate) async fn show_images(
+pub(crate) async fn show_body_files(
     scope: &mut Scope<'_>,
     block_id: &str,
     names: &[String],
@@ -243,7 +243,7 @@ pub(crate) async fn show_images(
     if !new.iter().all(|name| recorded.contains(name)) {
         return Err(StoreError::InvalidBlock {
             id: block_id.to_owned(),
-            source: BlockError::ImageWithoutFile,
+            source: BlockError::BodyFileNotOfContainer,
         });
     }
     for name in &new {

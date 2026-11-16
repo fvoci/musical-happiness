@@ -16,7 +16,7 @@ use crate::containers;
 use crate::db::{Dialect, Scope};
 use crate::error::StoreError;
 use crate::file_info;
-use crate::file_refs::NewImages;
+use crate::file_refs::NewBodyFiles;
 use crate::loose_objects;
 use crate::members;
 use crate::org_admin;
@@ -69,7 +69,7 @@ impl Store {
             loose_objects::doom(scope, &doomed).await?;
             containers::remove_builtin_templates(scope).await?;
             // Their images are pointed at the templates' files once those are stored.
-            create_containers_and_blocks(scope, templates, "", NewImages::Unchecked).await?;
+            create_containers_and_blocks(scope, templates, "", NewBodyFiles::Unchecked).await?;
             Ok(Some(files))
         })
         .await
@@ -77,7 +77,7 @@ impl Store {
 
     /// Inserts or updates every board and then every block, as [`Store::insert_container`]
     /// and [`Store::insert_block`] do. `containers_and_blocks` is updated to what was stored.
-    /// The images the blocks show newly are asked as `new_images` says.
+    /// The images the blocks show newly are asked as `new_files` says.
     ///
     /// # Errors
     ///
@@ -87,10 +87,10 @@ impl Store {
         &self,
         containers_and_blocks: &mut ContainersAndBlocks,
         user_id: &str,
-        new_images: NewImages,
+        new_files: NewBodyFiles,
     ) -> Result<(), StoreError> {
         self.transaction(async |scope| {
-            create_containers_and_blocks(scope, containers_and_blocks, user_id, new_images).await
+            create_containers_and_blocks(scope, containers_and_blocks, user_id, new_files).await
         })
         .await
     }
@@ -114,7 +114,7 @@ impl Store {
                 scope,
                 containers_and_blocks,
                 user_id,
-                NewImages::Recorded,
+                NewBodyFiles::Recorded,
             )
             .await
         })
@@ -188,29 +188,23 @@ pub(crate) async fn create_containers_and_blocks(
     scope: &mut Scope<'_>,
     containers_and_blocks: &mut ContainersAndBlocks,
     user_id: &str,
-    new_images: NewImages,
+    new_files: NewBodyFiles,
 ) -> Result<(), StoreError> {
     for container in &mut containers_and_blocks.containers {
         containers::insert_container(scope, container, user_id).await?;
     }
     // Parents first, wherever in the list they are: a copied board hands its blocks
     // over oldest first, and a block may be older than the block it is on.
-    blocks::insert_blocks(
-        scope,
-        &mut containers_and_blocks.blocks,
-        user_id,
-        new_images,
-    )
-    .await
+    blocks::insert_blocks(scope, &mut containers_and_blocks.blocks, user_id, new_files).await
 }
 
 pub(crate) async fn create_containers_and_blocks_with_admin(
     scope: &mut Scope<'_>,
     containers_and_blocks: &mut ContainersAndBlocks,
     user_id: &str,
-    new_images: NewImages,
+    new_files: NewBodyFiles,
 ) -> Result<Vec<ContainerMember>, StoreError> {
-    create_containers_and_blocks(scope, containers_and_blocks, user_id, new_images).await?;
+    create_containers_and_blocks(scope, containers_and_blocks, user_id, new_files).await?;
 
     let mut members = Vec::with_capacity(containers_and_blocks.containers.len());
     for container in &containers_and_blocks.containers {
@@ -345,8 +339,12 @@ pub(crate) async fn duplicate_container(
         blocks,
     });
     // The copies show the original board's files until theirs are copied.
-    let members =
-        create_containers_and_blocks_with_admin(scope, &mut copies, user_id, NewImages::Unchecked)
-            .await?;
+    let members = create_containers_and_blocks_with_admin(
+        scope,
+        &mut copies,
+        user_id,
+        NewBodyFiles::Unchecked,
+    )
+    .await?;
     Ok((copies, members))
 }
