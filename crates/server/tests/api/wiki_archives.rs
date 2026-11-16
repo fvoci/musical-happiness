@@ -291,6 +291,31 @@ async fn what_the_rules_of_a_wiki_refuse_stores_nothing_of_the_archive() {
         Some("too_many_pages"),
     )
     .await;
+    check_nothing_stored(client).await;
+    ts.teardown().await;
+}
+
+/// Checks that nothing of the refused archives is stored.
+async fn check_nothing_stored(client: &Client) {
+    let boards: Vec<fvoci_model::Board> = client.get(&format!("{TEST_WS}/boards")).await.ok_json();
+    assert!(
+        !boards
+            .iter()
+            .any(|board| board.title.starts_with("Archived")),
+        "no board is stored"
+    );
+    assert!(
+        wikis_at(client, TEST_WS).await.is_empty(),
+        "nothing is stored"
+    );
+}
+
+#[tokio::test]
+async fn what_the_rules_of_a_board_refuse_stores_nothing_and_what_keeps_them_is_made() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let client = &ts.client;
+    let board = [board_line("b", "board", "Archived board")];
+    let page = |id: &str, parent: &str| block_line(id, "w", parent, "page");
     // A page on a board, before a wiki that would do.
     let board_with_page = [
         board_line("b", "board", "Archived board"),
@@ -316,16 +341,7 @@ async fn what_the_rules_of_a_wiki_refuse_stores_nothing_of_the_archive() {
     let said = BlockError::CommentNotOnCardOrPage.to_string();
     assert!(answer.text().contains(&said), "{}", answer.text());
 
-    let boards: Vec<fvoci_model::Board> = client.get(&format!("{TEST_WS}/boards")).await.ok_json();
-    assert!(
-        !boards
-            .iter()
-            .any(|board| board.title.starts_with("Archived"))
-    );
-    assert!(
-        wikis_at(client, TEST_WS).await.is_empty(),
-        "nothing is stored"
-    );
+    check_nothing_stored(client).await;
 
     // Within the rules, the board and the wiki are made.
     let wiki = [
