@@ -23,7 +23,7 @@
     {
       "name": "@isaacs/nonrecursive-glob-match",
       "license": "BlueOak-1.0.0",
-      "reason": "Dependency of minimatch 11, which ESLint uses through @eslint/config-array. Not in the output."
+      "reason": "Dependency of minimatch 11, which ESLint and @eslint/config-array use. Not in the output."
     },
     {
       "name": "tslib",

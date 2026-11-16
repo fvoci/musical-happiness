@@ -520,7 +520,12 @@ fn id_token(shared: &Shared, person: &Person, forgery: Forgery, nonce: &str) -> 
             "alg": "RS256", "typ": "JWT", "kid": "key-1",
             "crit": ["urn:example:binding"], "urn:example:binding": true,
         }),
-        _ => json!({ "alg": "RS256", "typ": "JWT", "kid": "key-1" }),
+        Forgery::None
+        | Forgery::Audience
+        | Forgery::Issuer
+        | Forgery::Expired
+        | Forgery::Nonce
+        | Forgery::OtherKey => json!({ "alg": "RS256", "typ": "JWT", "kid": "key-1" }),
     };
     let signing_input = format!(
         "{}.{}",
