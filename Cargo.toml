@@ -29,7 +29,7 @@ aws-lc-rs = "1"
 argon2 = "0.6"
 axum = { version = "0.8", features = ["ws", "multipart", "macros"] }
 # The alphabet of the secrets: tokens and stored file names. License: MIT OR Apache-2.0.
-base64 = "0.22"
+base64 = "0.23"
 # Brotli, to read compressed answers in the tests (the server's compression has it
 # already). License: BSD-3-Clause AND MIT.
 brotli = "9"

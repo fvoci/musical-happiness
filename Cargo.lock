@@ -1045,7 +1045,7 @@ dependencies = [
 name = "fvoci-collab"
 version = "0.1.0"
 dependencies = [
- "base64 0.22.1",
+ "base64 0.23.1",
  "fvoci-collab",
  "fvoci-model",
  "serde_json",
@@ -1074,7 +1074,7 @@ dependencies = [
  "argon2",
  "aws-lc-rs",
  "axum",
- "base64 0.22.1",
+ "base64 0.23.1",
  "brotli",
  "bytes",
  "clap",
