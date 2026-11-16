@@ -71,6 +71,8 @@ pub(crate) enum Forgery {
     None,
     /// The audience is another client.
     Audience,
+    /// The audience is a number, neither a text nor a list of texts.
+    AudienceNotText,
     /// The issuer is another.
     Issuer,
     /// It expired an hour ago.
@@ -507,6 +509,7 @@ fn id_token(shared: &Shared, person: &Person, forgery: Forgery, nonce: &str) -> 
     match forgery {
         Forgery::None | Forgery::OtherKey | Forgery::AlgNone | Forgery::UnknownCritical => {}
         Forgery::Audience => claims["aud"] = json!("another-client"),
+        Forgery::AudienceNotText => claims["aud"] = json!(1234),
         Forgery::Issuer => claims["iss"] = json!("https://another.example.com"),
         Forgery::Expired => {
             claims["iat"] = json!(now - 7200);
@@ -522,6 +525,7 @@ fn id_token(shared: &Shared, person: &Person, forgery: Forgery, nonce: &str) -> 
         }),
         Forgery::None
         | Forgery::Audience
+        | Forgery::AudienceNotText
         | Forgery::Issuer
         | Forgery::Expired
         | Forgery::Nonce

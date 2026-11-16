@@ -446,6 +446,7 @@ async fn forgeries_are_refused() {
     let users_now = users(&ts).await;
     for forgery in [
         Forgery::Audience,
+        Forgery::AudienceNotText,
         Forgery::Issuer,
         Forgery::Expired,
         Forgery::Nonce,
