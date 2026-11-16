@@ -3,7 +3,8 @@
  * thrown away.
  *
  * The bytes are read by the app (the frame has no network), told apart by
- * their first bytes, and handed to a new frame, whose document draws them.
+ * what they are (and an archive held to what it says it unpacks to), and
+ * handed to a new frame, whose document draws them.
  * The frame answers through the messages of `protocol.ts`; a message counts
  * only when it comes from this session's frame and has one of their shapes.
  * The frame has a time to get ready in and another to draw the file in;
@@ -14,7 +15,7 @@ import { tick } from 'svelte';
 
 import { buildUrl, normalizeBasePath } from '$lib/logic/urls.ts';
 
-import { sniffFormat, VIEW_LIMIT_BYTES, type FormatId } from './formats.ts';
+import { examine, VIEW_LIMIT_BYTES, type FormatId } from './formats.ts';
 import {
   readFromFrame,
   ZOOM_MAX,
@@ -50,7 +51,8 @@ export const LIMITS: Limits = { bytes: VIEW_LIMIT_BYTES, ready: 15_000, draw: 30
 
 export type Status =
   | { name: 'reading' }
-  | { name: 'too-large' }
+  /** The file is over the limit, or an archive that unpacks past the limits. */
+  | { name: 'too-large'; what: 'file' | 'contents' }
   | { name: 'unknown' }
   | { name: 'opening'; format: FormatId }
   | { name: 'shown'; format: FormatId }
@@ -109,7 +111,7 @@ export class ViewerSession {
 
   async #read(): Promise<void> {
     if (this.file.size > this.#limits.bytes) {
-      this.status = { name: 'too-large' };
+      this.status = { name: 'too-large', what: 'file' };
       return;
     }
     const blob = await this.file.read(this.#abort.signal);
@@ -120,18 +122,22 @@ export class ViewerSession {
     }
     this.blob = blob;
     if (blob.size > this.#limits.bytes) {
-      this.status = { name: 'too-large' };
+      this.status = { name: 'too-large', what: 'file' };
       return;
     }
     const bytes = await blob.arrayBuffer();
     if (this.#gone()) return;
-    const format = sniffFormat(new Uint8Array(bytes));
-    if (!format) {
+    const examined = examine(new Uint8Array(bytes));
+    if (examined.kind === 'unknown') {
       this.status = { name: 'unknown' };
       return;
     }
+    if (examined.kind === 'too-large') {
+      this.status = { name: 'too-large', what: 'contents' };
+      return;
+    }
     this.#bytes = bytes;
-    this.status = { name: 'opening', format };
+    this.status = { name: 'opening', format: examined.format };
   }
 
   /** For `{@attach}` on the frame: listens to it while it is in the page. */

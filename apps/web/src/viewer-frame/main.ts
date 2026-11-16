@@ -10,6 +10,7 @@
  */
 import './frame.css';
 
+import { isPackaged } from '$lib/file-viewer/formats.ts';
 import {
   readToFrame,
   VIEWER_KEYS,
@@ -20,6 +21,7 @@ import {
 
 import { LockedFile, UnreadableFile, type Drawn, type Report } from './renderer.ts';
 import { RENDERERS } from './renderers.ts';
+import { repack } from './zip-guard.ts';
 
 /**
  * The font rules the documents fall back to: the Korean family, whose files
@@ -94,7 +96,11 @@ function start(): void {
         // The language of the app: what a screen reader reads the document's text in.
         document.documentElement.lang = message.lang;
         RENDERERS[message.format]()
-          .then((render) => render(message.bytes, place, report))
+          .then(async (render) => {
+            // An archive's renderer gets it anew, of only the parts counted here.
+            const bytes = isPackaged(message.format) ? await repack(message.bytes) : message.bytes;
+            return render(bytes, place, report);
+          })
           .then((result) => {
             drawn = result;
           })

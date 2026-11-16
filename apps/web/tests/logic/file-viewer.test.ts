@@ -1,7 +1,12 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
-import { sniffFormat } from '$lib/file-viewer/formats.ts';
+import {
+  examine,
+  MARKUP_LIMIT_BYTES,
+  UNPACKED_LIMIT_BYTES,
+  type FormatId,
+} from '$lib/file-viewer/formats.ts';
 import {
   PAGE_LIMIT,
   readFromFrame,
@@ -10,13 +15,22 @@ import {
   ZOOM_MAX,
   ZOOM_MIN,
 } from '$lib/file-viewer/protocol.ts';
-import { zipMemberNames } from '$lib/file-viewer/zip-names.ts';
+import { zipEntries } from '$lib/file-viewer/zip-directory.ts';
+import { UnreadableFile } from '../../src/viewer-frame/renderer.ts';
+import { MarkupSniffer, repack } from '../../src/viewer-frame/zip-guard.ts';
 
-import { koreanDocx, koreanPdf, png, zip } from '../support/viewer-files.ts';
+import { blankPaddedDocx, koreanDocx, koreanPdf, png, zip } from '../support/viewer-files.ts';
 
 const bytes = (buffer: Buffer): Uint8Array =>
   new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
 const text = (value: string): Uint8Array => new TextEncoder().encode(value);
+const zipMemberNames = (data: Uint8Array): string[] | undefined =>
+  zipEntries(data)?.map((entry) => entry.name);
+/** The kind the viewer draws the bytes as, or undefined when it does not draw them. */
+const sniffFormat = (data: Uint8Array): FormatId | undefined => {
+  const examined = examine(data);
+  return examined.kind === 'format' ? examined.format : undefined;
+};
 
 describe('a file is told apart by its first bytes, not by its name', () => {
   it('a PDF', () => {
@@ -42,6 +56,132 @@ describe('a file is told apart by its first bytes, not by its name', () => {
     expect(sniffFormat(text('%PD'))).toBeUndefined();
     expect(sniffFormat(text('plain text, named report.pdf'))).toBeUndefined();
     expect(sniffFormat(new Uint8Array())).toBeUndefined();
+  });
+});
+
+describe('an archive is held to what its directory says it unpacks to', () => {
+  const docx = (members: { name: string; said: number }[]): Uint8Array =>
+    bytes(
+      zip([
+        { name: 'word/document.xml', data: Buffer.from('<w/>') },
+        ...members.map(({ name, said }) => ({ name, data: Buffer.from('x'), said })),
+      ]),
+    );
+
+  it('all its parts together, up to 200 MB', () => {
+    // The main part says its own 4 bytes; the picture says the rest.
+    const at = docx([{ name: 'word/media/a.png', said: UNPACKED_LIMIT_BYTES - 4 }]);
+    const past = docx([{ name: 'word/media/a.png', said: UNPACKED_LIMIT_BYTES - 3 }]);
+    expect(examine(at)).toEqual({ kind: 'format', format: 'docx' });
+    expect(examine(past)).toEqual({ kind: 'too-large', format: 'docx' });
+  });
+
+  it('its XML parts (.xml, .rels) together, up to 30 MB', () => {
+    const at = docx([{ name: 'word/styles.xml', said: MARKUP_LIMIT_BYTES - 4 }]);
+    const past = docx([{ name: '_rels/.rels', said: MARKUP_LIMIT_BYTES - 3 }]);
+    expect(examine(at)).toEqual({ kind: 'format', format: 'docx' });
+    expect(examine(past)).toEqual({ kind: 'too-large', format: 'docx' });
+    // The same size in a picture is within the limits.
+    expect(examine(docx([{ name: 'word/media/a.png', said: MARKUP_LIMIT_BYTES }]))).toEqual({
+      kind: 'format',
+      format: 'docx',
+    });
+  });
+});
+
+describe('in the frame, an archive is counted and handed on anew', () => {
+  const buffer = (data: Buffer): ArrayBuffer => Uint8Array.from(data).buffer;
+  const parts = (data: ArrayBuffer): string[] | undefined =>
+    zipEntries(new Uint8Array(data))?.map((entry) => `${entry.name}:${entry.size}`);
+  const unreadable = (data: Buffer): Promise<void> =>
+    expect(repack(buffer(data))).rejects.toBeInstanceOf(UnreadableFile);
+
+  it('an honest archive keeps its parts, deflated or stored', async () => {
+    const honest = zip([
+      { name: 'word/document.xml', data: Buffer.from('<w/>') },
+      { name: 'word/media/a.png', data: png(8, 8, [1, 2, 3]), stored: true },
+    ]);
+    const again = await repack(buffer(honest));
+    expect(parts(again)).toEqual(parts(buffer(honest)));
+    expect(parts(await repack(buffer(koreanDocx())))).toEqual(parts(buffer(koreanDocx())));
+  });
+
+  it('a part that holds more than its directory says stops the file', async () => {
+    const said = 1000;
+    const data = Buffer.alloc(1_000_000);
+    await unreadable(zip([{ name: 'word/media/a.png', data, said }]));
+    await unreadable(zip([{ name: 'word/media/a.png', data, said, stored: true }]));
+    // So do bytes that are not deflated data.
+    const broken = koreanDocx();
+    broken.fill(0xff, 50, 70);
+    await unreadable(broken);
+  });
+
+  it('what another reader would find besides what was counted is not handed on', async () => {
+    const hidden = { name: 'word/document.xml', data: Buffer.alloc(1_000_000, 0x20) };
+    // The end says one entry; a reader that goes on finds a second of the same name.
+    const small = { name: 'word/document.xml', data: Buffer.from('<w/>') };
+    const counted = await repack(buffer(zip([small, hidden], 1)));
+    expect(parts(counted)).toEqual(['word/document.xml:4']);
+    expect(counted.byteLength).toBeLessThan(200);
+    // A local header that names another part: the new archive names it as the directory does.
+    const renamed = zip([{ ...hidden, name: 'word/media/a.png', localName: 'word/document.xml' }]);
+    const named = new Uint8Array(await repack(buffer(renamed)));
+    expect(new TextDecoder().decode(named.subarray(30, 46))).toBe('word/media/a.png');
+    // A name that is not UTF-8 keeps its bytes, rather than growing into U+FFFD.
+    const raw = zip([{ name: 'x', data: Buffer.from('a') }]);
+    raw.fill(0xff, raw.length - 23, raw.length - 22);
+    const kept = new Uint8Array(await repack(buffer(raw)));
+    expect(kept[30]).toBe(0xff);
+    expect(kept.byteLength).toBe(raw.byteLength);
+  });
+
+  it('parts that share packed bytes stop the file', async () => {
+    const archive = zip([
+      { name: 'a.xml', data: Buffer.from('<a/>') },
+      { name: 'b.xml', data: Buffer.from('<b/>') },
+    ]);
+    // The second entry of the directory points at the first part.
+    const directory = archive.readUInt32LE(archive.length - 6);
+    const second = directory + 46 + 'a.xml'.length;
+    archive.writeUInt32LE(0, second + 42);
+    await unreadable(archive);
+  });
+
+  it('what the directory says is held to the limits here too', async () => {
+    await unreadable(
+      zip([{ name: 'word/media/a.png', data: Buffer.from('x'), said: UNPACKED_LIMIT_BYTES + 1 }]),
+    );
+  });
+
+  it('its XML is told by what it holds, not by its name, and held to 30 MB', async () => {
+    // The main part, named .bin, after blanks: up to the limit with the other XML, and one byte past.
+    const base = zipEntries(bytes(blankPaddedDocx(0)))?.reduce((sum, entry) => sum + entry.size, 0);
+    const blanks = MARKUP_LIMIT_BYTES - (base ?? 0);
+    expect(parts(await repack(buffer(blankPaddedDocx(blanks))))).toHaveLength(3);
+    await unreadable(blankPaddedDocx(blanks + 1));
+  });
+
+  it('XML is a first byte "<" past a whole byte order mark and any blanks', () => {
+    const sniff = (...chunks: number[][]): boolean | undefined => {
+      const sniffer = new MarkupSniffer();
+      for (const chunk of chunks) sniffer.feed(Uint8Array.from(chunk));
+      return sniffer.verdict;
+    };
+    const blanks = Array.from({ length: 5000 }, () => 0x20);
+    expect(sniff([0x3c, 0x3f])).toBe(true);
+    expect(sniff([0xef, 0xbb], [0xbf, 0x0a, 0x3c])).toBe(true);
+    expect(sniff([0xff, 0xfe, 0x3c, 0x00])).toBe(true);
+    expect(sniff([0xfe, 0xff, 0x00, 0x3c])).toBe(true);
+    expect(sniff([0x00, 0x3c])).toBe(true);
+    expect(sniff(blanks, blanks, [0x3c])).toBe(true);
+    // A JPEG, a PNG, half a byte order mark, text: none.
+    expect(sniff([0xff, 0xd8, 0xff, 0xe0])).toBe(false);
+    expect(sniff([0x89, 0x50, 0x4e, 0x47])).toBe(false);
+    expect(sniff([0xef, 0x3c])).toBe(false);
+    expect(sniff([0x20, 0xbb, 0x3c])).toBe(false);
+    expect(sniff(blanks, [0x41, 0x3c])).toBe(false);
+    expect(sniff(blanks)).toBeUndefined();
   });
 });
 

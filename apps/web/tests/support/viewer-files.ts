@@ -101,44 +101,58 @@ export function png(
   ]);
 }
 
-/** A ZIP archive of the members, deflated. */
-export function zip(members: { name: string; data: Buffer }[]): Buffer {
+/** A member of an archive, and the lies an archive can tell about it. */
+export interface ZipMember {
+  name: string;
+  data: Buffer;
+  /** The size its headers give, when not its own. */
+  said?: number;
+  /** The name its local header gives, when not the directory's. */
+  localName?: string;
+  /** Kept as it is rather than deflated. */
+  stored?: boolean;
+}
+
+/** A ZIP archive of the members, deflated; `count` is the number of entries its end says it has. */
+export function zip(members: ZipMember[], count = members.length): Buffer {
   const locals: Buffer[] = [];
   const directory: Buffer[] = [];
   let offset = 0;
-  for (const { name, data } of members) {
-    const packed = deflateRawSync(data);
+  for (const { name, data, said = data.length, localName = name, stored = false } of members) {
+    const packed = stored ? data : deflateRawSync(data);
+    const method = stored ? 0 : 8;
     const fileName = Buffer.from(name, 'utf8');
+    const localFileName = Buffer.from(localName, 'utf8');
     const sum = crc32(data);
     const local = Buffer.alloc(30);
     local.writeUInt32LE(0x04034b50, 0);
     local.writeUInt16LE(20, 4);
     local.writeUInt16LE(0x0800, 6);
-    local.writeUInt16LE(8, 8);
+    local.writeUInt16LE(method, 8);
     local.writeUInt32LE(sum, 14);
     local.writeUInt32LE(packed.length, 18);
-    local.writeUInt32LE(data.length, 22);
-    local.writeUInt16LE(fileName.length, 26);
+    local.writeUInt32LE(said, 22);
+    local.writeUInt16LE(localFileName.length, 26);
     const entry = Buffer.alloc(46);
     entry.writeUInt32LE(0x02014b50, 0);
     entry.writeUInt16LE(20, 4);
     entry.writeUInt16LE(20, 6);
     entry.writeUInt16LE(0x0800, 8);
-    entry.writeUInt16LE(8, 10);
+    entry.writeUInt16LE(method, 10);
     entry.writeUInt32LE(sum, 16);
     entry.writeUInt32LE(packed.length, 20);
-    entry.writeUInt32LE(data.length, 24);
+    entry.writeUInt32LE(said, 24);
     entry.writeUInt16LE(fileName.length, 28);
     entry.writeUInt32LE(offset, 42);
-    locals.push(local, fileName, packed);
+    locals.push(local, localFileName, packed);
     directory.push(entry, fileName);
-    offset += local.length + fileName.length + packed.length;
+    offset += local.length + localFileName.length + packed.length;
   }
   const directoryBytes = Buffer.concat(directory);
   const end = Buffer.alloc(22);
   end.writeUInt32LE(0x06054b50, 0);
-  end.writeUInt16LE(members.length, 8);
-  end.writeUInt16LE(members.length, 10);
+  end.writeUInt16LE(count, 8);
+  end.writeUInt16LE(count, 10);
   end.writeUInt32LE(directoryBytes.length, 12);
   end.writeUInt32LE(offset, 16);
   return Buffer.concat([...locals, directoryBytes, end]);
@@ -193,5 +207,21 @@ export function koreanDocx(): Buffer {
     { name: 'word/_rels/document.xml.rels', data: xml(documentRels) },
     { name: 'word/header1.xml', data: xml(header) },
     { name: 'word/media/image1.png', data: png(200, 100, [46, 125, 210]) },
+  ]);
+}
+
+/**
+ * A Word document whose main part, named `word/doc.bin` rather than `.xml`,
+ * is XML after `blanks` spaces: an archive that says only the truth, but
+ * whose XML its names do not show. It has an empty `word/document.xml` too,
+ * which is how it is known for a Word document.
+ */
+export function blankPaddedDocx(blanks: number): Buffer {
+  const body = `<w:document xmlns:w="${W}"><w:body>${paragraph(DOCX_TEXT.title)}</w:body></w:document>`;
+  const rels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="${PACKAGE_RELS}"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/doc.bin"/></Relationships>`;
+  return zip([
+    { name: '_rels/.rels', data: Buffer.from(rels, 'utf8') },
+    { name: 'word/document.xml', data: Buffer.alloc(0) },
+    { name: 'word/doc.bin', data: Buffer.concat([Buffer.alloc(blanks, 0x20), Buffer.from(body)]) },
   ]);
 }

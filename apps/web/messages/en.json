@@ -305,6 +305,7 @@
   "viewer_opening": "Opening the file…",
   "viewer_unknown": "This file can't be previewed.",
   "viewer_too_large": "This file is too large to preview. Files up to {size} can be previewed.",
+  "viewer_unpacks_too_large": "This file's contents are too large to preview.",
   "viewer_unread": "The file could not be read.",
   "viewer_unreadable": "The file could not be shown: it may be damaged.",
   "viewer_locked": "This file is protected with a password and can't be previewed.",

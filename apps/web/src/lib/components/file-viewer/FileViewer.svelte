@@ -93,7 +93,9 @@
   /** What the viewer says instead of the document, if anything. */
   const notice = $derived.by((): string | undefined => {
     if (status.name === 'too-large')
-      return m.viewer_too_large({ size: humanFileSize(LIMITS.bytes) });
+      return status.what === 'file'
+        ? m.viewer_too_large({ size: humanFileSize(LIMITS.bytes) })
+        : m.viewer_unpacks_too_large();
     if (status.name === 'unknown') return m.viewer_unknown();
     if (status.name === 'failed') return FAILURE[status.reason]();
     return undefined;

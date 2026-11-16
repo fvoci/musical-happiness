@@ -1,6 +1,7 @@
 /**
  * The file viewer, opened from a card's attachments: a PDF turned through,
- * a Word document in Korean, a file it does not know and one too large, and
+ * a Word document in Korean, a file it does not know, one too large, one
+ * that says it unpacks to too much and one that hides how much, and
  * the frame the renderers run in kept off the network and the app's storage.
  *
  * With `FVOCI_SCREENS=1` the tests also take pictures of each state into
@@ -12,11 +13,19 @@ import path from 'node:path';
 
 import { expect, test, type FrameLocator, type Locator, type Page } from '@playwright/test';
 
-import { DOCX_LINK, DOCX_TEXT, koreanDocx, koreanPdf } from '../tests/support/viewer-files.ts';
+import {
+  blankPaddedDocx,
+  DOCX_LINK,
+  DOCX_TEXT,
+  koreanDocx,
+  koreanPdf,
+  zip,
+} from '../tests/support/viewer-files.ts';
 
 import { boardPath } from './address.ts';
 
 const SCREENS = process.env.FVOCI_SCREENS === '1';
+const DOCX_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 const SCREENS_DIR = path.resolve(import.meta.dirname, '../../../target/viewer-p1');
 
 interface Dev {
@@ -196,12 +205,7 @@ test('the frame reaches neither the network nor the app', async ({ page }) => {
 
 test('a Word document in Korean shows its header, its table and its picture', async ({ page }) => {
   await openCard(page);
-  const row = await attach(
-    page,
-    '회의록.docx',
-    koreanDocx(),
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  );
+  const row = await attach(page, '회의록.docx', koreanDocx(), DOCX_TYPE);
   await row.getByRole('link', { name: '회의록.docx' }).click();
   await expect(viewer(page)).toHaveAttribute('data-status', 'shown');
   // Two pages: the second where Word last broke the page.
@@ -274,4 +278,46 @@ test('a file over the limit is not read, and is offered as a download', async ({
   await expect(page.getByTestId('file-viewer-notice')).toContainText('too large to preview');
   await expect(page.getByTestId('file-viewer-frame')).toHaveCount(0);
   await picture(page, 'too-large');
+});
+
+test('a Word document that says it unpacks past the limits is not drawn', async ({ page }) => {
+  await openCard(page);
+  // A few bytes, whose archive says its picture unpacks to over 200 MB.
+  const archive = zip([
+    { name: 'word/document.xml', data: Buffer.from('<w/>') },
+    { name: 'word/media/image1.png', data: Buffer.from('x'), said: 200 * 1024 * 1024 },
+  ]);
+  const row = await attach(page, 'huge.docx', archive, DOCX_TYPE);
+  await row.getByRole('link', { name: 'huge.docx' }).click();
+  await expect(viewer(page)).toHaveAttribute('data-status', 'too-large');
+  const notice = page.getByTestId('file-viewer-notice');
+  await expect(notice).toContainText("This file's contents are too large to preview.");
+  await expect(page.getByTestId('file-viewer-frame')).toHaveCount(0);
+
+  const downloading = page.waitForEvent('download');
+  await notice.getByRole('button', { name: 'Download' }).click();
+  expect((await downloading).suggestedFilename()).toBe('huge.docx');
+});
+
+test('a Word document whose XML is past the limit under another name is stopped in the frame', async ({
+  page,
+}) => {
+  await openCard(page);
+  // The same document with few blanks is drawn: what stops the large one is its size.
+  const small = await attach(page, 'small.docx', blankPaddedDocx(1000), DOCX_TYPE);
+  await small.getByRole('link', { name: 'small.docx' }).click();
+  await expect(viewer(page)).toHaveAttribute('data-status', 'shown');
+  await expect(frameOf(page).getByText(DOCX_TEXT.title)).toBeVisible();
+  await page.getByTestId('file-viewer-close').click();
+  await expect(viewer(page)).toHaveCount(0);
+
+  // Its directory tells the truth, but its main part is word/doc.bin: 30 MB of blanks, then XML.
+  const archive = blankPaddedDocx(30 * 1024 * 1024);
+  const row = await attach(page, 'hidden.docx', archive, DOCX_TYPE);
+  await row.getByRole('link', { name: 'hidden.docx' }).click();
+  await expect(viewer(page)).toHaveAttribute('data-status', 'failed');
+  await expect(page.getByTestId('file-viewer-notice')).toContainText(
+    'The file could not be shown: it may be damaged.',
+  );
+  await expect(page.getByTestId('file-viewer-frame')).toHaveCount(0);
 });
