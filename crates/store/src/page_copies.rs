@@ -10,9 +10,7 @@
 
 use std::collections::HashMap;
 
-use fvoci_model::{
-    Block, BoardKind, BoardMember, BoardsAndBlocks, PageLimits, PageTree, generate_block_ids,
-};
+use fvoci_model::{Block, BoardKind, BoardMember, BoardsAndBlocks, PageLimits, generate_block_ids};
 
 use crate::blocks::{DuplicateAs, fetch_blocks, insert_blocks, select_blocks};
 use crate::boards_and_blocks::duplicate_board;
@@ -108,15 +106,9 @@ impl Store {
             if boards::lock_board_of_kind(scope, wiki_id).await? != Some(BoardKind::Wiki) {
                 return Err(StoreError::not_found(format_args!("wiki ID={wiki_id}")));
             }
-            let tree = page_tree(scope, wiki_id).await?;
-            let height = tree
-                .siblings("", "")
-                .iter()
-                .map(|top| tree.height(&top.id))
-                .max()
-                .unwrap_or(0);
-            PageTree::default()
-                .check_room("", height, tree.len(), limits)
+            page_tree(scope, wiki_id)
+                .await?
+                .check_whole(limits)
                 .map_err(|source| StoreError::InvalidBlock {
                     id: wiki_id.to_owned(),
                     source,

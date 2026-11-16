@@ -4,7 +4,7 @@
 //! (cards, views, their archive) answers for a wiki as for a board that is not there,
 //! an operation on a wiki's pages answers so for a board, and what is the same for
 //! both (the container, who is on it, its sharing, its files, its place in the sidebar
-//! and the trash) reaches either. [`REACHED`] says which is which, in one place, and
+//! and the trash, a copy of it whole) reaches either. [`REACHED`] says which is which, in one place, and
 //! the test asks every operation of the contract that names a board or something of
 //! one: an operation that is added without a row fails it.
 
@@ -66,9 +66,10 @@ const REACHED: &[(&str, Reaches)] = &[
     ("setBoardCategory", Reaches::Both),
     ("hideBoard", Reaches::Both),
     ("unhideBoard", Reaches::Both),
+    // A copy of it whole.
+    ("duplicateBoard", Reaches::Both),
     // What a board holds.
     ("exportBoardArchive", Reaches::Boards),
-    ("duplicateBoard", Reaches::Boards),
     ("reorderCardProperties", Reaches::Boards),
     ("createBlocks", Reaches::Boards),
     ("getBlocks", Reaches::Boards),

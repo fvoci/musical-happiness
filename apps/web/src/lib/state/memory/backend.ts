@@ -75,11 +75,12 @@ import { MemoryBodyVersions, writtenWhole } from './body-versions.ts';
 import { pause } from './pause.ts';
 import { MemoryPresence } from './presence.ts';
 import { MemoryWikis } from './wikis.ts';
+import { copiedBlocks, giveCopiesFiles } from './copies.ts';
 import { memberRole, memberFileUrl } from './board-access.ts';
 import { usersAmong, usersNamed } from './users.ts';
 import { changeDisplayName } from './account.ts';
 import { archiveLines, archiveOf } from './archive.ts';
-import { checkedBody, checkedWhole, flushBoards, flushCard, openMemoryRoom } from './bodies.ts';
+import { checkedBody, checkedWhole, flushCard, openMemoryRoom } from './bodies.ts';
 import { checkRelations, MemoryReferences, renameCopied } from './references.ts';
 import { MemoryContentSearch } from './content-search.ts';
 import { searchBoardsOf } from './search.ts';
@@ -451,14 +452,8 @@ export class MemoryBackend implements Backend {
           board.isTemplate && board.isBuiltin === true && board.properties.onboarding !== undefined,
       ) ?? fail(404, 'no welcome board');
     const { onboarding: _onboarding, ...properties } = welcome.properties;
-    return this.#insertBoard({ ...welcome, isTemplate: false, properties }, this.#copied(welcome))
-      .id;
-  }
-
-  /** The blocks a copy of a board takes: all but its comments. */
-  #copied(board: Board): StoredBlock[] {
-    flushBoards(this.world, [board]);
-    return this.world.blocksOf(board.id).filter((block) => block.type !== 'comment');
+    const blocks = copiedBlocks(this.world, welcome);
+    return this.#insertBoard({ ...welcome, isTemplate: false, properties }, blocks).id;
   }
 
   /** A copy of a board or a wiki with its blocks but the comments, every identifier new. */
@@ -471,7 +466,8 @@ export class MemoryBackend implements Backend {
         : asTemplate
           ? 'New board template'
           : source.title;
-    return this.#insertBoard({ ...source, isTemplate: asTemplate, title }, this.#copied(source));
+    const blocks = copiedBlocks(this.world, source);
+    return this.#insertBoard({ ...source, isTemplate: asTemplate, title }, blocks);
   }
 
   /**
@@ -511,6 +507,7 @@ export class MemoryBackend implements Backend {
         updateAt: now,
       });
     }
+    giveCopiesFiles(this.world, source.id, board.id);
     this.#tellBoard(board);
     return copy(board);
   }

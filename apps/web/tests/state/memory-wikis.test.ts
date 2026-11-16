@@ -78,6 +78,29 @@ describe('a wiki in memory', () => {
     expect((await refused).status).toBe(400);
   });
 
+  it('gives a copy files of its own for the pictures of its pages', async () => {
+    const made = await aWiki();
+    const top = await made.backend.wiki.createPage(made.wiki.id, { title: 'Welcome' });
+    const file = {
+      fileId: 'f1',
+      boardId: made.wiki.id,
+      name: 'a.png',
+      size: 1,
+      contentType: 'image/png',
+    };
+    made.world.files.set('f1', file);
+    const stored = made.world.blocks.get(top.id);
+    if (!stored) throw new Error('no page');
+    stored.body = { type: 'doc', content: [{ type: 'image', attrs: { fileId: 'f1' } }] };
+    const copy = await made.backend.duplicateBoard(made.wiki.id, false, made.workspaceId);
+    const [copied] = await made.backend.wiki.pages(copy.id);
+    const body = made.world.blocks.get(copied?.id ?? '')?.body;
+    const shown = body?.content?.[0]?.attrs?.fileId;
+    expect(shown).not.toBe('f1');
+    expect(made.world.files.get(String(shown))?.boardId).toBe(copy.id);
+    expect(made.world.files.get('f1')?.boardId).toBe(made.wiki.id);
+  });
+
   it('is not reached by the operations of cards, nor a board by those of pages', async () => {
     const made = await aWiki();
     expect((await rejection(made.backend.views(made.wiki.id))).status).toBe(404);

@@ -1,7 +1,7 @@
 //! Copying a board or a wiki whole.
 
 use fvoci_model::{BoardError, BoardKind, BoardMember, BoardsAndBlocks, DeleteBoardsAndBlocks};
-use fvoci_store::{DuplicateAs, StoreError};
+use fvoci_store::DuplicateAs;
 
 use super::App;
 use super::pages::refused_without_member;
@@ -30,6 +30,11 @@ impl App {
         duplicate_as: DuplicateAs,
     ) -> Result<(BoardsAndBlocks, Vec<BoardMember>), AppError> {
         let kind = self.board(board_id).await?.kind;
+        if kind == BoardKind::Wiki && duplicate_as == DuplicateAs::Template {
+            return Err(
+                AppError::bad_request(BoardError::WikiIsTemplate).with_parameter("asTemplate")
+            );
+        }
         self.write_board_bodies(board_id).await?;
         let to_workspace_named = Some(to_workspace).filter(|workspace| !workspace.is_empty());
         let (mut copies, members) = match kind {
@@ -37,9 +42,6 @@ impl App {
                 self.store()
                     .duplicate_board(board_id, user_id, to_workspace_named, duplicate_as)
                     .await?
-            }
-            BoardKind::Wiki if duplicate_as == DuplicateAs::Template => {
-                return Err(StoreError::InvalidBoard(BoardError::WikiIsTemplate).into());
             }
             BoardKind::Wiki => self
                 .store()

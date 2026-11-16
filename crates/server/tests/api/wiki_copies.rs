@@ -16,8 +16,8 @@ use crate::references::made;
 use crate::references_shared::references_in;
 use crate::references_to::body_naming;
 
-/// A wiki of the first client's: its identifier.
-async fn wiki(client: &Client, title: &str) -> String {
+/// A wiki of the client's in the workspace at `TEST_WS`: its identifier.
+pub(crate) async fn wiki(client: &Client, title: &str) -> String {
     let made = client
         .post(
             &format!("{TEST_WS}/wikis"),
@@ -29,7 +29,7 @@ async fn wiki(client: &Client, title: &str) -> String {
 }
 
 /// A page of the wiki below `parent_id`: its identifier.
-async fn page(client: &Client, wiki: &str, parent_id: &str, title: &str) -> String {
+pub(crate) async fn page(client: &Client, wiki: &str, parent_id: &str, title: &str) -> String {
     let made = client
         .post(
             &format!("{TEST_WS}/wikis/{wiki}/pages"),
@@ -41,7 +41,7 @@ async fn page(client: &Client, wiki: &str, parent_id: &str, title: &str) -> Stri
 }
 
 /// Writes the body to the page.
-async fn write(client: &Client, wiki: &str, page: &str, body: &Value) {
+pub(crate) async fn write(client: &Client, wiki: &str, page: &str, body: &Value) {
     let path = format!("{TEST_WS}/wikis/{wiki}/pages/{page}");
     let read_at = client.get(&path).await.value()["updateAt"].clone();
     client
@@ -50,25 +50,23 @@ async fn write(client: &Client, wiki: &str, page: &str, body: &Value) {
         .check_ok();
 }
 
-/// The body of the page.
-async fn body_of(client: &Client, wiki: &str, page: &str) -> Value {
-    let read = client
-        .get(&format!("{TEST_WS}/wikis/{wiki}/pages/{page}"))
-        .await;
+/// The body of the page of the wiki of the workspace at `at`.
+pub(crate) async fn body_of(client: &Client, at: &str, wiki: &str, page: &str) -> Value {
+    let read = client.get(&format!("{at}/wikis/{wiki}/pages/{page}")).await;
     read.check_ok();
     read.value()["body"].clone()
 }
 
-/// The pages of the wiki as its tree lists them.
-async fn tree_of(client: &Client, wiki: &str) -> Vec<PageNode> {
+/// The pages of the wiki of the workspace at `at` as its tree lists them.
+pub(crate) async fn tree_of(client: &Client, at: &str, wiki: &str) -> Vec<PageNode> {
     client
-        .get(&format!("{TEST_WS}/wikis/{wiki}/pages"))
+        .get(&format!("{at}/wikis/{wiki}/pages"))
         .await
         .ok_json()
 }
 
 /// The tree as titles: each page's title and its parent's, in the order listed.
-fn titled(tree: &[PageNode]) -> Vec<(String, String)> {
+pub(crate) fn titled(tree: &[PageNode]) -> Vec<(String, String)> {
     let titles: HashMap<&str, &str> = tree
         .iter()
         .map(|page| (page.id.as_str(), page.title.as_str()))
@@ -82,7 +80,7 @@ fn titled(tree: &[PageNode]) -> Vec<(String, String)> {
 }
 
 /// The page of the tree titled `title`: its identifier.
-fn titled_id(tree: &[PageNode], title: &str) -> String {
+pub(crate) fn titled_id(tree: &[PageNode], title: &str) -> String {
     tree.iter()
         .find(|page| page.title == title)
         .unwrap_or_else(|| panic!("a page titled {title}"))
@@ -155,8 +153,8 @@ async fn a_wiki_is_copied_with_its_pages_bodies_and_images_and_names_its_own_cop
     assert_ne!(copy.id, wiki);
 
     // The same tree, in the same order, without the page in the trash.
-    let source_tree = tree_of(client, &wiki).await;
-    let copy_tree = tree_of(client, &copy.id).await;
+    let source_tree = tree_of(client, TEST_WS, &wiki).await;
+    let copy_tree = tree_of(client, TEST_WS, &copy.id).await;
     assert_eq!(titled(&copy_tree), titled(&source_tree));
     assert!(!titled(&copy_tree).iter().any(|(title, _)| title == "Old"));
     assert!(
@@ -169,7 +167,7 @@ async fn a_wiki_is_copied_with_its_pages_bodies_and_images_and_names_its_own_cop
     );
 
     // What the body named among the wiki's pages, it names by the copies; the rest stays.
-    let named = references_in(&body_of(client, &copy.id, &copy_a).await);
+    let named = references_in(&body_of(client, TEST_WS, &copy.id, &copy_a).await);
     assert_eq!(
         named,
         [
@@ -193,7 +191,7 @@ async fn a_wiki_is_copied_with_its_pages_bodies_and_images_and_names_its_own_cop
     );
 
     // The image is a file of the copy's own, which is there.
-    let body = body_of(client, &copy.id, &copy_b).await;
+    let body = body_of(client, TEST_WS, &copy.id, &copy_b).await;
     let copied_file = body["content"][0]["attrs"]["fileId"]
         .as_str()
         .expect("the copy shows an image")
@@ -218,7 +216,7 @@ async fn check_left_behind(ts: &TestServer, copy: &str, copy_a: &str) {
         .ok_json();
     assert!(comments.is_empty(), "no comment is copied");
     let store = ts.app.store();
-    for page in tree_of(client, copy).await {
+    for page in tree_of(client, TEST_WS, copy).await {
         let versions = store.body_versions(&page.id).await.expect("the versions");
         assert!(versions.is_empty(), "the copy begins without versions");
     }
@@ -252,6 +250,7 @@ async fn a_wiki_is_no_template_and_who_does_not_read_it_finds_none() {
     page(client, &wiki, "", "Welcome").await;
     let refused = duplicate(client, &wiki, "?asTemplate=true").await;
     refused.check_bad_request();
+    assert_eq!(refused.refused_at(), "parameter asTemplate");
     let private = client
         .post(
             &format!("{TEST_WS}/wikis"),
@@ -328,5 +327,42 @@ async fn a_copy_is_held_to_the_limits_lowered_since_the_wiki_grew() {
     duplicate(client, &small, "").await.check_created();
     let wikis: Vec<Value> = client.get(&format!("{TEST_WS}/wikis")).await.ok_json();
     assert_eq!(wikis.len(), 4, "the two refused made nothing");
+    ts.teardown().await;
+}
+
+#[tokio::test]
+async fn a_wiki_is_copied_into_another_workspace_of_its_copier_with_its_files() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let client = &ts.client;
+    let wiki = wiki(client, "Handbook").await;
+    let a = page(client, &wiki, "", "Welcome").await;
+    let file = uploaded_id(&upload(client, &wiki, "pic.png", b"a picture\n").await);
+    let image = json!({"type": "doc", "content": [{"type": "image", "attrs": {"fileId": file}}]});
+    write(client, &wiki, &a, &image).await;
+    let me = client.me().await.id;
+    let other = crate::boards::another_workspace(&ts, &me).await;
+    let copies: BoardsAndBlocks = duplicate(client, &wiki, &format!("?toWorkspace={other}"))
+        .await
+        .created_json();
+    let copy = &copies.boards[0];
+    assert_eq!(copy.workspace_id, other);
+    let at = format!("/w/{other}");
+    let copy_a = titled_id(&tree_of(client, &at, &copy.id).await, "Welcome");
+    let body = body_of(client, &at, &copy.id, &copy_a).await;
+    let copied_file = body["content"][0]["attrs"]["fileId"]
+        .as_str()
+        .expect("the copy shows the picture")
+        .to_owned();
+    assert_ne!(copied_file, file);
+    let read = client
+        .get(&format!("{at}/boards/{}/files/{copied_file}", copy.id))
+        .await;
+    read.check_ok();
+    assert_eq!(read.body, b"a picture\n");
+    // Not into a workspace the copier is not in.
+    let stranger = crate::boards::another_workspace(&ts, &ts.client2.me().await.id).await;
+    duplicate(client, &wiki, &format!("?toWorkspace={stranger}"))
+        .await
+        .check_not_found();
     ts.teardown().await;
 }
