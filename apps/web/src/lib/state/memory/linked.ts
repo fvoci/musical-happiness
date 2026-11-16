@@ -57,10 +57,10 @@ export class MemoryReferences implements References {
     if (block?.type !== 'card' && block?.type !== 'page') return undefined;
     if (!reads(world, userId, block.containerId)) return undefined;
     const icon = typeof block.fields.icon === 'string' ? block.fields.icon : '';
-    const { id, title, containerId: boardId } = block;
+    const { id, title, containerId } = block;
     return block.type === 'page'
-      ? { id, kind: 'page', title, icon, containerId: boardId, containerKind: 'wiki' }
-      : { id, kind: 'card', title, icon, containerId: boardId, containerKind: 'board' };
+      ? { id, kind: 'page', title, icon, containerId, containerKind: 'wiki' }
+      : { id, kind: 'card', title, icon, containerId, containerKind: 'board' };
   }
 
   #check(workspaceId: string): void {
@@ -106,7 +106,7 @@ export class MemoryReferences implements References {
     const { world } = this.#asker;
     return [...world.blocks.values()]
       .filter((block) => block.fields.isTemplate !== true)
-      .filter((block) => world.boards.get(block.containerId)?.isTemplate !== true)
+      .filter((block) => world.containers.get(block.containerId)?.isTemplate !== true)
       .filter((block) => words.every((word) => block.title.toLowerCase().includes(word)))
       .sort((a, b) => b.updateAt - a.updateAt || a.id.localeCompare(b.id))
       .flatMap((block) => this.#shown(block) ?? [])

@@ -247,7 +247,7 @@
   }
 
   async function addBoardFromTemplate(template: Container): Promise<void> {
-    const made = await whileHere(workspace, () => workspace.duplicateBoard(template.id));
+    const made = await whileHere(workspace, () => workspace.duplicateContainer(template.id));
     if (made) openBoard(made);
   }
 

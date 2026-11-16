@@ -1,27 +1,27 @@
 /**
  * An archive of boards as the backend in memory writes it: a line of its
  * own version, then each board and its blocks, one per line. What the rooms
- * of their cards took is written into the cards first (`flushBoards`).
+ * of their cards took is written into the cards first (`flushContainers`).
  */
 import type { Container } from '../../logic/wire.ts';
 import type { DownloadedFile, DownloadOptions } from '../backend.ts';
 
-import { flushBoards } from './bodies.ts';
+import { flushContainers } from './bodies.ts';
 import { fail } from './refuse.ts';
 import { MEMORY_ARCHIVE } from './shapes.ts';
-import type { World } from './world.ts';
+import type { StoredBlock, World } from './world.ts';
 
 export function archiveOf(
   world: World,
-  boards: readonly Container[],
+  containers: readonly Container[],
   options: DownloadOptions | undefined,
 ): DownloadedFile {
-  flushBoards(world, boards);
+  flushContainers(world, containers);
   const lines = [JSON.stringify({ version: MEMORY_ARCHIVE })];
-  for (const board of boards) {
+  for (const board of containers) {
     lines.push(JSON.stringify({ type: 'board', data: board }));
     for (const block of world.blocksOf(board.id)) {
-      lines.push(JSON.stringify({ type: 'block', data: block }));
+      lines.push(JSON.stringify({ type: 'block', data: renamed(block, 'containerId', 'boardId') }));
     }
   }
   const bytes = new Blob([`${lines.join('\n')}\n`], { type: 'application/octet-stream' });
@@ -45,4 +45,19 @@ export async function archiveLines(
   }
   if (lines[0]?.version !== MEMORY_ARCHIVE) fail(400, 'not an archive of this app');
   return lines;
+}
+
+/**
+ * A block of an archive's line as the backend keeps it: the line names its
+ * board `boardId`, the archive's own name, as it always has.
+ */
+export function blockOfLine(data: unknown): StoredBlock {
+  return renamed(data as object, 'boardId', 'containerId') as unknown as StoredBlock;
+}
+
+/** `value` with its member `from` named `to`, in the same place among the others. */
+function renamed(value: object, from: string, to: string): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(value).map(([key, each]) => [key === from ? to : key, each]),
+  );
 }

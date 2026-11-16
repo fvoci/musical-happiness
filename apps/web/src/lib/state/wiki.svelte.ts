@@ -35,7 +35,7 @@ import {
   type WikiPageDetail,
   type Wikis,
 } from './backend.ts';
-import { boardOfWorkspace, roleOf } from './board-parts.ts';
+import { containerOfWorkspace, roleOf } from './board-parts.ts';
 import { isCommentBlock } from './changes.ts';
 import { MemberWrites } from './member-writes.ts';
 import { BoardPresence } from './board-presence.svelte.ts';
@@ -168,7 +168,7 @@ export class WikiStore {
       });
       const backend = this.workspace.backend;
       const [wiki, pages, members] = await Promise.all([
-        boardOfWorkspace(backend, this.wikiId, this.workspace.info?.id, 'wiki'),
+        containerOfWorkspace(backend, this.wikiId, this.workspace.info?.id, 'wiki'),
         this.#wikis.pages(this.wikiId),
         backend.members(this.wikiId),
       ]);
@@ -427,7 +427,7 @@ export class WikiStore {
       try {
         const changed = await this.workspace.backend.patchContainer(this.wikiId, to);
         this.#takeWiki(changed);
-        this.workspace.receiveBoard(changed);
+        this.workspace.receiveContainer(changed);
       } catch (error) {
         if (this.wiki) this.wiki = { ...this.wiki, ...from };
         throw error;
@@ -451,12 +451,12 @@ export class WikiStore {
     return this.wikiId;
   }
 
-  get board(): Container | undefined {
+  get container(): Container | undefined {
     return this.wiki;
   }
 
   /** The wiki as read for whoever manages it without reading it (`managed-board.ts`). */
-  set board(board: Container | undefined) {
+  set container(board: Container | undefined) {
     this.wiki = board;
   }
 

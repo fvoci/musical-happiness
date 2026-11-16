@@ -82,7 +82,7 @@ describe('a workspace closed to the session', () => {
     expect(made.workspace.entered).toBe('sso');
     expect(made.workspace.closed).toEqual(closed);
     expect(made.workspace.info).toBeUndefined();
-    expect(made.workspace.boards).toEqual([]);
+    expect(made.workspace.containers).toEqual([]);
     expect(boards).not.toHaveBeenCalled();
     expect(follow).not.toHaveBeenCalled();
     // Nothing is asked of a workspace that is not entered.
@@ -118,7 +118,7 @@ describe('a workspace closed to the session', () => {
     listed(made, false);
     await made.workspace.load();
     expect(made.workspace.entered).toBe('ready');
-    expect(made.workspace.boards.length).toBeGreaterThan(0);
+    expect(made.workspace.containers.length).toBeGreaterThan(0);
 
     // A refusal of something of another organization, still on its way when the
     // reader came here, closes nothing on the page, and is no failure to show.
@@ -134,7 +134,7 @@ describe('a workspace closed to the session', () => {
     expect(made.workspace.entered).toBe('sso');
     expect(made.workspace.closed?.orgId).toBe(ORG);
     expect(made.workspace.info).toBeUndefined();
-    expect(made.workspace.boards).toEqual([]);
+    expect(made.workspace.containers).toEqual([]);
     expect(made.workspace.problems).toEqual([]);
     expect(made.workspace.workspaces.map((one) => one.ssoRequired)).toEqual([true]);
 

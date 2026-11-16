@@ -215,8 +215,8 @@ describe('a changed comment', () => {
     );
     // Not there for who is no member; refused on a board open to the workspace.
     expect(await statusOf(other.commentVersions(boardId, posted.id))).toBe(404);
-    const board = world.boards.get(boardId);
-    if (board) world.boards.set(boardId, { ...board, type: 'O' });
+    const board = world.containers.get(boardId);
+    if (board) world.containers.set(boardId, { ...board, type: 'O' });
     expect(await statusOf(other.commentVersions(boardId, posted.id))).toBe(403);
 
     await backend.deleteBlock(boardId, posted.id);

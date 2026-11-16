@@ -68,7 +68,7 @@
   <div class="grid h-full place-items-center p-6">
     <p class="text-muted-foreground" role="status">{m.app_loading()}</p>
   </div>
-{:else if managed === 'no' || !board.board}
+{:else if managed === 'no' || !board.container}
   <NotFound {router} />
 {:else}
   <div
@@ -77,7 +77,7 @@
   >
     <div class="flex max-w-md flex-col items-center gap-3">
       <h2 class="text-lg font-medium">
-        {board.board.icon ? `${board.board.icon} ` : ''}{board.board.title ||
+        {board.container.icon ? `${board.container.icon} ` : ''}{board.container.title ||
           (wiki ? m.wiki_untitled() : m['Sidebar.untitled-board']())}
       </h2>
       <p class="text-muted-foreground">
@@ -100,7 +100,7 @@
   <ShareDialog
     bind:open={membersOpen}
     {workspace}
-    {board}
+    shareable={board}
     linkOf={(readToken: string) =>
       new URL(router.href({ boardId: board.containerId, readToken }), location.href).href}
     membersOnly

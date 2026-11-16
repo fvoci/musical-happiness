@@ -175,7 +175,7 @@
   }
 
   function containerOf(hit: SearchHit): string {
-    const container = workspace.boards.find((board) => board.id === hit.containerId);
+    const container = workspace.containers.find((board) => board.id === hit.containerId);
     if (!container) return '';
     if (container.title) return container.title;
     return container.kind === 'wiki' ? m.wiki_untitled() : m['Sidebar.untitled-board']();

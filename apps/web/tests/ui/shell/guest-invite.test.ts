@@ -45,7 +45,11 @@ function mount(read: People['invitations']) {
     regional: { timeZone: 'UTC', hourCycle: 'h23' },
   } as unknown as Workspace;
   render(GuestInvite, {
-    props: { workspace, access: { people, inviteLink: (token: string) => token }, boardId: 'b1' },
+    props: {
+      workspace,
+      access: { people, inviteLink: (token: string) => token },
+      containerId: 'b1',
+    },
   });
   return { invitations, revokeInvitation };
 }

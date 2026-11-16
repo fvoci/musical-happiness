@@ -126,9 +126,9 @@ export class ReferenceTitles {
     const linked = this.#known.get(key);
     // What is drawn follows its board, from out of the drawing that reads it.
     if (linked && !this.#watched.has(linked.containerId)) {
-      const { containerId: boardId } = linked;
+      const { containerId } = linked;
       queueMicrotask(() => {
-        this.#watch(boardId);
+        this.#watch(containerId);
       });
     }
     return linked;

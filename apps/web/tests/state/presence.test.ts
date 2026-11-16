@@ -13,7 +13,7 @@ describe('presence in memory', () => {
   it('two instances see visits and open cards, deduplicate tabs, and remove a departure', async () => {
     vi.useFakeTimers();
     const { backend, other, world } = setup();
-    const board = [...world.boards.values()][0];
+    const board = [...world.containers.values()][0];
     if (!board) throw new Error('a seeded board');
     const card = [...world.blocks.values()].find((block) => block.type === 'card');
     if (!card) throw new Error('a seeded card');
@@ -131,7 +131,7 @@ it('separate worlds exchange visits through BroadcastChannel and close the chann
   const channel = `presence-test-${crypto.randomUUID()}`;
   first.world.shareRooms = channel;
   second.world.shareRooms = channel;
-  const board = [...first.world.boards.values()][0];
+  const board = [...first.world.containers.values()][0];
   if (!board) throw new Error('a seeded board');
   await first.backend.addMember(board.id, second.other.userId, 'viewer');
   await second.backend.addMember(board.id, second.other.userId, 'viewer');

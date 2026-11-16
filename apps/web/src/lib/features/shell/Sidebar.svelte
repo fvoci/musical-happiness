@@ -31,7 +31,7 @@
   import type { Container } from '$lib/logic/wire.ts';
   import {
     administers,
-    boardTrash,
+    containerTrash,
     isGuest,
     peopleOf,
     shownWiki,
@@ -140,7 +140,7 @@
   let trash = $state.raw<Trash | undefined>(undefined);
 
   function openTrash(): void {
-    trash = boardTrash(workspace);
+    trash = containerTrash(workspace);
     trashOpen = true;
     void trash.read();
   }
@@ -156,14 +156,18 @@
 
   async function deleteBoard(board: Container): Promise<void> {
     const here = await whileHere(workspace, async () => {
-      await workspace.deleteBoard(board.id);
+      await workspace.deleteContainer(board.id);
       return true;
     });
     // The page showed the board that is gone: show the first one that is left.
-    if (!here || board.id !== boardId || workspace.boards.some((left) => left.id === board.id)) {
+    if (
+      !here ||
+      board.id !== boardId ||
+      workspace.containers.some((left) => left.id === board.id)
+    ) {
       return;
     }
-    const next = workspace.sidebar.flatMap((entry) => entry.boards)[0];
+    const next = workspace.sidebar.flatMap((entry) => entry.containers)[0];
     if (next) onOpenBoard(next);
   }
 
@@ -175,7 +179,7 @@
 
   /** Copies the board or wiki whole and opens the copy. */
   async function duplicateBoard(boardId: string): Promise<void> {
-    const made = await whileHere(workspace, () => workspace.duplicateBoard(boardId));
+    const made = await whileHere(workspace, () => workspace.duplicateContainer(boardId));
     if (made) onOpenBoard(made);
   }
 

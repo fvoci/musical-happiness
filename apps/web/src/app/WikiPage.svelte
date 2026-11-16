@@ -145,13 +145,13 @@
   /** Deletes the wiki; the page goes on to the first board or wiki of the sidebar. */
   async function deleteWiki(store: WikiStore): Promise<void> {
     const done = await whileHere(workspace, async () => {
-      await workspace.deleteBoard(store.wikiId);
+      await workspace.deleteContainer(store.wikiId);
       return true;
     });
-    if (!done || workspace.boards.some((left) => left.id === store.wikiId)) return;
+    if (!done || workspace.containers.some((left) => left.id === store.wikiId)) return;
     // The reader went elsewhere meanwhile: they stay there.
     if (router.route.wikiId !== store.wikiId) return;
-    const next = workspace.sidebar.flatMap((entry) => entry.boards)[0];
+    const next = workspace.sidebar.flatMap((entry) => entry.containers)[0];
     if (next) router.openBoard(next);
   }
 
@@ -325,7 +325,7 @@
     <ShareDialog
       bind:open={sharing}
       {workspace}
-      board={store}
+      shareable={store}
       membersOnly={!store.canManage}
       readOnly={!store.canManage}
       linkOf={(readToken: string) =>

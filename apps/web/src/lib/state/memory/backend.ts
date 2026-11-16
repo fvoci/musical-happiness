@@ -60,7 +60,7 @@ import {
   type User,
   type ViewDraft,
 } from '../backend.ts';
-import { applyBoardPatch, applyCardPatch, applyViewPatch } from '../patches.ts';
+import { applyContainerPatch, applyCardPatch, applyViewPatch } from '../patches.ts';
 
 import {
   noteChange,
@@ -79,7 +79,7 @@ import { copiedBlocks, giveCopiesFiles } from './copies.ts';
 import { memberRole, memberFileUrl } from './board-access.ts';
 import { usersAmong, usersNamed } from './users.ts';
 import { changeDisplayName } from './account.ts';
-import { archiveLines, archiveOf } from './archive.ts';
+import { archiveLines, archiveOf, blockOfLine } from './archive.ts';
 import { checkedBody, checkedWhole, flushCard, openMemoryRoom } from './bodies.ts';
 import { checkRelations, MemoryReferences, renameCopied } from './references.ts';
 import { MemoryContentSearch } from './content-search.ts';
@@ -87,7 +87,7 @@ import { searchBoardsOf } from './search.ts';
 import { fail } from './refuse.ts';
 import { nextScreenState } from './screen-state.ts';
 import {
-  deletedBoardsOf,
+  deletedContainersOf,
   deletedCardsOf,
   deletion,
   mayManageCards,
@@ -167,8 +167,8 @@ export class MemoryBackend implements Backend {
   }
 
   /** A board of the `kind`: the server answers a wiki to an operation of cards as one not there. */
-  #board(boardId: string, kind: ContainerKind | 'any' = 'any'): Container {
-    const board = this.world.boards.get(boardId);
+  #container(containerId: string, kind: ContainerKind | 'any' = 'any'): Container {
+    const board = this.world.containers.get(containerId);
     return board && (kind === 'any' || (board.kind ?? 'board') === kind)
       ? board
       : fail(404, 'no board');
@@ -212,7 +212,7 @@ export class MemoryBackend implements Backend {
     this.world.tellBoard(boardId, { kind: 'blocks', boardId, blocks: blocks.map(wireOf) });
   }
 
-  #tellBoard(board: Container): void {
+  #tellContainer(board: Container): void {
     this.world.tellBoard(board.id, { kind: 'board', board: copy(board) });
     this.world.tellUsers(this.#memberIds(board.id), { kind: 'board', board: copy(board) });
   }
@@ -315,7 +315,7 @@ export class MemoryBackend implements Backend {
 
   async boards(workspaceId: string): Promise<Container[]> {
     await this.#enterWorkspace('boards', workspaceId);
-    const mine = [...this.world.boards.values()].filter(
+    const mine = [...this.world.containers.values()].filter(
       (board) => board.kind !== 'wiki' && this.#memberIds(board.id).includes(this.userId),
     );
     return scramble(mine).map(copy);
@@ -323,7 +323,7 @@ export class MemoryBackend implements Backend {
 
   async container(id: string): Promise<Container> {
     await this.#enter('container');
-    return copy(this.#board(id));
+    return copy(this.#container(id));
   }
 
   async createBoard(
@@ -348,25 +348,25 @@ export class MemoryBackend implements Backend {
       updateAt: now,
     };
     if (draft.cardProperties) board.cardProperties = copy(draft.cardProperties);
-    this.world.boards.set(board.id, board);
+    this.world.containers.set(board.id, board);
     this.world.members.set(board.id, [memberOf(board.id, this.userId, 'admin')]);
     this.#fileAsNew(this.userId, board);
     const view = this.#newBlock(board.id, board.id, 'view');
     view.title = firstView.title;
     view.fields = copy(firstView.fields);
     this.world.blocks.set(view.id, view);
-    this.#tellBoard(board);
+    this.#tellContainer(board);
     this.#tellBlocks(board.id, [view]);
     return { board: copy(board), view: viewOf(view) };
   }
 
   async patchContainer(id: string, patch: ContainerPatch): Promise<Container> {
     await this.#enter('patchContainer');
-    const board = applyBoardPatch(this.#board(id), patch);
-    this.world.boards.set(id, board);
+    const board = applyContainerPatch(this.#container(id), patch);
+    this.world.containers.set(id, board);
     board.updateAt = this.world.now();
     board.modifiedBy = this.userId;
-    this.#tellBoard(board);
+    this.#tellContainer(board);
     return copy(board);
   }
 
@@ -376,23 +376,23 @@ export class MemoryBackend implements Backend {
     if (role !== 'admin' && role !== 'editor') {
       fail(403, 'access denied to modifying board properties');
     }
-    const board = inPropertyOrder(this.#board(boardId), propertyIds);
+    const board = inPropertyOrder(this.#container(boardId), propertyIds);
     board.updateAt = this.world.now();
     board.modifiedBy = this.userId;
-    this.world.boards.set(boardId, board);
-    this.#tellBoard(board);
+    this.world.containers.set(boardId, board);
+    this.#tellContainer(board);
     return [...propertyIds];
   }
 
   async deleteContainer(id: string): Promise<void> {
     await this.#enter('deleteContainer');
-    const board = this.#board(id);
+    const container = this.#container(id);
     const members = this.world.members.get(id) ?? [];
     const blocks = this.world.blocksOf(id);
     const places = placesOf(this.world, id);
-    this.world.deletedBoards.set(id, { board, members, blocks, places, ...deletion(this) });
+    this.world.deletedContainers.set(id, { container, members, blocks, places, ...deletion(this) });
     for (const block of blocks) this.world.blocks.delete(block.id);
-    this.world.boards.delete(id);
+    this.world.containers.delete(id);
     this.world.members.delete(id);
     for (const categories of this.world.categories.values()) {
       for (const category of categories) {
@@ -409,13 +409,13 @@ export class MemoryBackend implements Backend {
   async restoreContainer(id: string): Promise<Container> {
     await this.#enter('restoreContainer');
     const board = takeBoardBack(this.world, this.userId, id);
-    this.#tellBoard(board);
+    this.#tellContainer(board);
     return copy(board);
   }
 
   async deletedContainers(workspaceId: string, paging?: Paging): Promise<DeletedItem[]> {
     await this.#enterWorkspace('deletedContainers', workspaceId);
-    return deletedBoardsOf(this.world, this.userId, workspaceId, paging);
+    return deletedContainersOf(this.world, this.userId, workspaceId, paging);
   }
 
   /** As the server matches (`searchBoardsOf`): among the boards this backend lists. */
@@ -427,7 +427,7 @@ export class MemoryBackend implements Backend {
   /** As the server: the workspace's templates, then the built-in ones, each the oldest first. */
   async templates(workspaceId: string): Promise<Container[]> {
     await this.#enterWorkspace('templates', workspaceId);
-    const all = [...this.world.boards.values()]
+    const all = [...this.world.containers.values()]
       .filter((board) => board.isTemplate)
       .sort((first, second) => first.createAt - second.createAt);
     return [
@@ -439,26 +439,26 @@ export class MemoryBackend implements Backend {
   /** Into the workspace `to`, as the server's `toWorkspace`. */
   async duplicateContainer(id: string, asTemplate: boolean, to: string): Promise<Container> {
     await this.#enterWorkspace('duplicateContainer', to);
-    const source = this.#board(id);
+    const source = this.#container(id);
     if (source.kind === 'wiki' && asTemplate) fail(400, 'a wiki is no template');
-    return this.#copyBoard(source, asTemplate);
+    return this.#copyContainer(source, asTemplate);
   }
 
   /** As the server: a copy of the built-in welcome template, without its mark. */
   async onboard(workspaceId: string): Promise<string> {
     await this.#enterWorkspace('onboard', workspaceId);
     const welcome =
-      [...this.world.boards.values()].find(
+      [...this.world.containers.values()].find(
         (board) =>
           board.isTemplate && board.isBuiltin === true && board.properties.onboarding !== undefined,
       ) ?? fail(404, 'no welcome board');
     const { onboarding: _onboarding, ...properties } = welcome.properties;
     const blocks = copiedBlocks(this.world, welcome);
-    return this.#insertBoard({ ...welcome, isTemplate: false, properties }, blocks).id;
+    return this.#insertContainer({ ...welcome, isTemplate: false, properties }, blocks).id;
   }
 
   /** A copy of a board or a wiki with its blocks but the comments, every identifier new. */
-  #copyBoard(source: Container, asTemplate: boolean): Container {
+  #copyContainer(source: Container, asTemplate: boolean): Container {
     // The server's titles: a copy of the same kind is "… copy", a template
     // made from a board "New board template", a board from a template keeps it.
     const title =
@@ -468,7 +468,7 @@ export class MemoryBackend implements Backend {
           ? 'New board template'
           : source.title;
     const blocks = copiedBlocks(this.world, source);
-    return this.#insertBoard({ ...source, isTemplate: asTemplate, title }, blocks);
+    return this.#insertContainer({ ...source, isTemplate: asTemplate, title }, blocks);
   }
 
   /**
@@ -476,7 +476,7 @@ export class MemoryBackend implements Backend {
    * admin. As on the server, only the references it renames follow: a
    * block's board and parent, and what `renameCopied` renames.
    */
-  #insertBoard(source: Container, blocks: readonly StoredBlock[]): Container {
+  #insertContainer(source: Container, blocks: readonly StoredBlock[]): Container {
     const now = this.world.now();
     const ids = new Map<string, string>([[source.id, this.world.newId()]]);
     for (const block of blocks) ids.set(block.id, this.world.newId());
@@ -493,7 +493,7 @@ export class MemoryBackend implements Backend {
       createAt: now,
       updateAt: now,
     };
-    this.world.boards.set(board.id, board);
+    this.world.containers.set(board.id, board);
     this.world.members.set(board.id, [memberOf(board.id, this.userId, 'admin')]);
     this.#fileAsNew(this.userId, board);
     for (const block of blocks) {
@@ -509,7 +509,7 @@ export class MemoryBackend implements Backend {
       });
     }
     giveCopiesFiles(this.world, source.id, board.id);
-    this.#tellBoard(board);
+    this.#tellContainer(board);
     return copy(board);
   }
 
@@ -521,7 +521,7 @@ export class MemoryBackend implements Backend {
    */
   async exportContainer(id: string, options?: DownloadOptions): Promise<DownloadedFile> {
     await this.#enter('exportContainer', options?.signal);
-    const board = this.#board(id);
+    const board = this.#container(id);
     // For its members, as on the server (an open board is readable, its parts are not).
     if (!this.#memberIds(id).includes(this.userId)) fail(403, 'not a member of the board');
     return archiveOf(this.world, [board], options);
@@ -531,7 +531,7 @@ export class MemoryBackend implements Backend {
     await this.#enter('exportWorkspace', options?.signal);
     if (workspaceId !== this.world.workspace.id) fail(404, 'no such workspace');
     // As the server: the reader's boards and wikis, and the workspace's open ones.
-    const boards = [...this.world.boards.values()].filter(
+    const boards = [...this.world.containers.values()].filter(
       (board) =>
         !board.isTemplate &&
         (board.type === 'O' || this.#memberIds(board.id).includes(this.userId)),
@@ -549,9 +549,9 @@ export class MemoryBackend implements Backend {
       .map((line) => line.data as Container);
     const blocks = lines
       .filter((line) => line.type === 'block')
-      .map((line) => line.data as StoredBlock);
+      .map((line) => blockOfLine(line.data));
     for (const board of boards) {
-      this.#insertBoard(
+      this.#insertContainer(
         board,
         blocks.filter((block) => block.containerId === board.id),
       );
@@ -562,7 +562,7 @@ export class MemoryBackend implements Backend {
 
   async joinContainer(id: string): Promise<ContainerMember> {
     await this.#enter('joinContainer');
-    const board = this.#board(id);
+    const board = this.#container(id);
     if (board.isTemplate) fail(403, 'a template cannot be joined');
     if (board.type !== 'O') fail(404, 'no such open board');
     const members = this.world.members.get(id) ?? [];
@@ -576,13 +576,13 @@ export class MemoryBackend implements Backend {
 
   async members(id: string): Promise<ContainerMember[]> {
     await this.#enter('members');
-    this.#board(id);
+    this.#container(id);
     return scramble(this.world.members.get(id) ?? []).map(copy);
   }
 
   async addMember(id: string, userId: string, role: ContainerRole): Promise<ContainerMember> {
     await this.#enter('addMember');
-    this.#board(id);
+    this.#container(id);
     if (!this.world.users.has(userId)) fail(400, 'no such user', { field: 'userId' });
     const members = this.world.members.get(id) ?? [];
     const existing = members.find((member) => member.userId === userId);
@@ -590,14 +590,14 @@ export class MemoryBackend implements Backend {
     if (existing) return copy(existing);
     const member = memberOf(id, userId, role);
     this.#setMembers(id, [...members, member]);
-    this.#fileAsNew(userId, this.#board(id));
-    this.world.tellUsers([userId], { kind: 'board', board: copy(this.#board(id)) });
+    this.#fileAsNew(userId, this.#container(id));
+    this.world.tellUsers([userId], { kind: 'board', board: copy(this.#container(id)) });
     return copy(member);
   }
 
   async setMemberRole(id: string, userId: string, role: ContainerRole): Promise<ContainerMember> {
     await this.#enter('setMemberRole');
-    this.#board(id);
+    this.#container(id);
     const members = this.world.members.get(id) ?? [];
     if (!members.some((member) => member.userId === userId)) fail(404, 'no such member');
     const member = memberOf(id, userId, role);
@@ -609,7 +609,7 @@ export class MemoryBackend implements Backend {
 
   async removeMember(id: string, userId: string): Promise<void> {
     await this.#enter('removeMember');
-    this.#board(id);
+    this.#container(id);
     const members = this.world.members.get(id) ?? [];
     const next = members.filter((member) => member.userId !== userId);
     if (next.length === members.length) return;
@@ -625,21 +625,20 @@ export class MemoryBackend implements Backend {
     }
   }
 
-  #setMembers(containerId: string, members: ContainerMember[]): void {
-    this.world.members.set(containerId, members);
-    const change = { kind: 'members', boardId: containerId, members: copy(members) } as const;
-    this.world.tellBoard(containerId, change);
+  #setMembers(id: string, members: ContainerMember[]): void {
+    this.world.members.set(id, members);
+    this.world.tellBoard(id, { kind: 'members', boardId: id, members: copy(members) });
   }
 
   async sharing(id: string): Promise<Sharing> {
     await this.#enter('sharing');
-    this.#board(id);
+    this.#container(id);
     return copy(this.world.sharing.get(id) ?? { enabled: false, token: '' });
   }
 
   async setSharing(id: string, change: SharingChange): Promise<Sharing> {
     await this.#enter('setSharing');
-    this.#board(id);
+    this.#container(id);
     const before = this.world.sharing.get(id);
     const token =
       !before?.token || change.regenerate ? this.world.newId().replaceAll('-', '') : before.token;
@@ -777,7 +776,7 @@ export class MemoryBackend implements Backend {
     index: number,
   ): Promise<void> {
     await this.#enterWorkspace('moveContainerToCategory', workspaceId);
-    this.#board(id);
+    this.#container(id);
     const target = this.#category(categoryId);
     for (const category of this.#categories()) {
       category.containerIds = category.containerIds.filter((other) => other !== id);
@@ -814,7 +813,7 @@ export class MemoryBackend implements Backend {
 
   async createView(boardId: string, draft: ViewDraft): Promise<BoardView> {
     await this.#enter('createView');
-    this.#board(boardId, 'board');
+    this.#container(boardId, 'board');
     const block = this.#newBlock(boardId, boardId, 'view');
     block.title = draft.title;
     block.fields = copy(draft.fields);
@@ -858,7 +857,7 @@ export class MemoryBackend implements Backend {
 
   async createCard(boardId: string, draft: CardDraft): Promise<CardSummary> {
     await this.#enter('createCard');
-    const board = this.#board(boardId, 'board');
+    const board = this.#container(boardId, 'board');
     const block = this.#newBlock(boardId, boardId, 'card');
     block.title = draft.title ?? '';
     block.fields = {
@@ -877,7 +876,7 @@ export class MemoryBackend implements Backend {
     await this.#enter('patchCard');
     const before = this.#block(boardId, cardId, 'card') as StoredCard;
     const card = applyCardPatch(before, patch);
-    checkRelations(this.world, this.#board(boardId), card, before, 'updatedProperties');
+    checkRelations(this.world, this.#container(boardId), card, before, 'updatedProperties');
     this.world.blocks.set(cardId, card);
     this.#touch(card);
     this.#tellBlocks(boardId, [card]);
@@ -1018,7 +1017,7 @@ export class MemoryBackend implements Backend {
     if (parent !== boardId && parent !== undefined && !this.world.blocks.has(parent)) {
       fail(404, 'the parent of the block is gone');
     }
-    this.#board(boardId);
+    this.#container(boardId);
     this.world.deletedBlocks.delete(blockId);
     for (const block of deleted.blocks) {
       // As the server: whoever restores is the last to change each block, now.
@@ -1036,9 +1035,9 @@ export class MemoryBackend implements Backend {
 
   // -------------------------------------------------------------- files
 
-  async upload(boardId: string, file: File, options: UploadOptions = {}): Promise<UploadedFile> {
+  async upload(id: string, file: File, options: UploadOptions = {}): Promise<UploadedFile> {
     await this.#enter('upload', options.signal);
-    this.#board(boardId);
+    this.#container(id);
     if (file.size > LIMITS.fileBytes) {
       fail(413, 'the file is too large', { limit: LIMITS.fileBytes });
     }
@@ -1053,7 +1052,7 @@ export class MemoryBackend implements Backend {
     }
     const stored = {
       fileId: this.world.newId(),
-      containerId: boardId,
+      containerId: id,
       name: file.name,
       size: file.size,
       contentType: file.type || 'application/octet-stream',
@@ -1064,16 +1063,16 @@ export class MemoryBackend implements Backend {
     return answer;
   }
 
-  async fileBytes(boardId: string, fileId: string): Promise<Blob> {
+  async fileBytes(id: string, fileId: string): Promise<Blob> {
     await this.#enter('fileBytes');
-    memberRole(this.world, this.userId, boardId, 'any');
+    memberRole(this.world, this.userId, id, 'any');
     const file = this.world.files.get(fileId);
-    if (file?.containerId !== boardId || !file.blob) fail(404, 'no such file');
+    if (file?.containerId !== id || !file.blob) fail(404, 'no such file');
     return file.blob;
   }
 
-  fileUrl(boardId: string, fileId: string): string | undefined {
-    return memberFileUrl(this.world, this.userId, boardId, fileId);
+  fileUrl(id: string, fileId: string): string | undefined {
+    return memberFileUrl(this.world, this.userId, id, fileId);
   }
 
   watchBoard(boardId: string, listener: ChangeListener): () => void {

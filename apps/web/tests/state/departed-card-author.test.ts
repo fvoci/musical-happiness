@@ -10,7 +10,7 @@ import { openFirstBoard, setup } from './support.ts';
 it('learns a departed card author whose name the server gives by identifier', async () => {
   const made = setup();
   const { world, backend, other, workspace } = made;
-  const stored = [...world.boards.values()][0];
+  const stored = [...world.containers.values()][0];
   if (!stored) throw new Error('no board');
   for (const block of world.blocksOf(stored.id)) {
     if (block.type !== 'card') continue;

@@ -89,15 +89,18 @@ export const wasAdmin = (members: readonly ContainerMember[], userId: string): b
   members.some((member) => member.userId === userId && member.schemeAdmin);
 
 /** The boards of the workspace in the trash that the user was an admin of. The last deleted first. */
-export function deletedBoardsOf(
+export function deletedContainersOf(
   world: World,
   userId: string,
   workspaceId: string,
   paging: Paging | undefined,
 ): DeletedItem[] {
-  const items = [...world.deletedBoards.values()]
-    .filter(({ board, members }) => board.workspaceId === workspaceId && wasAdmin(members, userId))
-    .map(({ board, deletedAt, deletedBy }) => ({
+  const items = [...world.deletedContainers.values()]
+    .filter(
+      ({ container, members }) =>
+        container.workspaceId === workspaceId && wasAdmin(members, userId),
+    )
+    .map(({ container: board, deletedAt, deletedBy }) => ({
       id: board.id,
       title: board.title,
       deletedAt,
@@ -176,7 +179,7 @@ export function mayManageCards(
   boardId: string,
   refusal: string,
 ): void {
-  const board = world.boards.get(boardId);
+  const board = world.containers.get(boardId);
   // A wiki has no cards: the server answers for one as for a board that is not there.
   if (!board || board.kind === 'wiki') fail(404, 'no such board');
   const member = world.members.get(boardId)?.find((each) => each.userId === userId);
@@ -191,16 +194,16 @@ export function mayManageCards(
  * and is told. Answers the board.
  */
 export function takeBoardBack(world: World, userId: string, boardId: string): Container {
-  const deleted = world.deletedBoards.get(boardId);
+  const deleted = world.deletedContainers.get(boardId);
   if (!deleted?.members.some((member) => member.userId === userId)) fail(404, 'no such board');
   if (!wasAdmin(deleted.members, userId)) fail(403, 'access denied to undelete board');
-  world.deletedBoards.delete(boardId);
-  world.boards.set(boardId, deleted.board);
+  world.deletedContainers.delete(boardId);
+  world.containers.set(boardId, deleted.container);
   world.members.set(boardId, deleted.members);
   for (const block of deleted.blocks) world.blocks.set(block.id, block);
-  for (const person of putBack(world, deleted.board, deleted.places)) {
+  for (const person of putBack(world, deleted.container, deleted.places)) {
     const categories = structuredClone(world.categories.get(person) ?? []);
     world.tellUsers([person], { kind: 'categories', categories });
   }
-  return deleted.board;
+  return deleted.container;
 }

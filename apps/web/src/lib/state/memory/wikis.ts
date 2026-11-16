@@ -157,7 +157,7 @@ export class MemoryWikis extends MemoryPageComments implements Wikis {
     await this.#enter('wikis');
     if (workspaceId !== this.#world.workspace.id) fail(404, 'no such workspace');
     const userId = this.#host.userId;
-    const theirs = [...this.#world.boards.values()].filter(
+    const theirs = [...this.#world.containers.values()].filter(
       (board) =>
         isWiki(board) &&
         board.workspaceId === workspaceId &&
@@ -189,7 +189,7 @@ export class MemoryWikis extends MemoryPageComments implements Wikis {
       createAt: now,
       updateAt: now,
     };
-    world.boards.set(wiki.id, wiki);
+    world.containers.set(wiki.id, wiki);
     world.members.set(wiki.id, [memberOf(wiki.id, userId, 'admin')]);
     // Filed under the maker's default category, as a board is.
     const fallback = world.categories.get(userId)?.find((category) => category.type === 'system');

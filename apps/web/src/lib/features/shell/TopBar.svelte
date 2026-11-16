@@ -69,7 +69,7 @@
   let trash = $state.raw<Trash | undefined>(undefined);
 
   /** The board as the list of boards has it: known before the board itself is read. */
-  const listed = $derived(workspace.boards.find((candidate) => candidate.id === boardId));
+  const listed = $derived(workspace.containers.find((candidate) => candidate.id === boardId));
   /** The open board, once it is read: who is on it and what the reader may do. */
   const store = $derived(
     workspace.board?.boardId === boardId && workspace.board?.status === 'ready'
@@ -285,7 +285,7 @@
   <ShareDialog
     bind:open={sharing}
     {workspace}
-    board={store}
+    shareable={store}
     membersOnly={!canShare}
     readOnly={!canShare}
     at={sharingMembers ? 'members' : undefined}

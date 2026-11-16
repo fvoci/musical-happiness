@@ -80,14 +80,14 @@ export async function templatesOf(workspace: {
 export async function readWorkspace(
   backend: Backend,
   workspaceId: string,
-): Promise<{ users: User[]; boards: Container[]; categories: Category[] } | undefined> {
+): Promise<{ users: User[]; containers: Container[]; categories: Category[] } | undefined> {
   try {
-    const [users, boards, categories] = await Promise.all([
+    const [users, containers, categories] = await Promise.all([
       backend.users(workspaceId),
       modulesOf(backend, workspaceId),
       backend.categories(workspaceId),
     ]);
-    return { users, boards, categories };
+    return { users, containers, categories };
   } catch (error) {
     if (isBackendError(error) && (error.status === 403 || error.status === 404)) return undefined;
     throw error;
@@ -104,7 +104,7 @@ export type Entered =
       info: WorkspaceInfo;
       closed: undefined;
       users: User[];
-      boards: Container[];
+      containers: Container[];
       categories: Category[];
     }
   | { status: 'missing'; info: undefined; closed: undefined }

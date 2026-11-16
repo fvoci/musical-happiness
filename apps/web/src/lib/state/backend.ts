@@ -373,7 +373,7 @@ export interface Backend
   reorderCategories(workspaceId: string, categoryIds: string[]): Promise<void>;
   /**
    * Files a board under a category, at `index` in the category's own list
-   * (`Category.boardIds`, without the board).
+   * (`Category.containerIds`, without the board).
    */
   moveContainerToCategory(
     workspaceId: string,
@@ -434,11 +434,11 @@ export interface Backend
    * session); the parts and the retrying of one are the implementation's
    * business.
    */
-  upload(boardId: string, file: File, options?: UploadOptions): Promise<UploadedFile>;
+  upload(containerId: string, file: File, options?: UploadOptions): Promise<UploadedFile>;
   /** The bytes of a file. */
-  fileBytes(boardId: string, fileId: string): Promise<Blob>;
+  fileBytes(containerId: string, fileId: string): Promise<Blob>;
   /** Where the bytes of a file can be fetched by an `<img>` or a link. */
-  fileUrl(boardId: string, fileId: string): string | undefined;
+  fileUrl(containerId: string, fileId: string): string | undefined;
 
   // Archives of boards.
   /** An archive of the board with its blocks, files and members. For its members. */

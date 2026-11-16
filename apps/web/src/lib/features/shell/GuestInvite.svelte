@@ -26,11 +26,11 @@
   interface Props {
     workspace: Workspace;
     access: PeopleAccess;
-    boardId: string;
+    containerId: string;
     kind?: ContainerKind | undefined;
   }
 
-  let { workspace, access, boardId, kind }: Props = $props();
+  let { workspace, access, containerId, kind }: Props = $props();
   const words = $derived(shareWords(kind));
 
   const workspaceName = $derived(workspace.info?.title || m.shell_workspace_unnamed());
@@ -49,7 +49,7 @@
   let problem = $state<string | undefined>(undefined);
   let links = $state.raw<Invitation[]>([]);
   const boardLinks = $derived(
-    links.filter((link) => link.role === 'guest' && link.containerId === boardId),
+    links.filter((link) => link.role === 'guest' && link.containerId === containerId),
   );
   const context = $derived({
     locale: workspace.locale,
@@ -101,7 +101,7 @@
     problem = undefined;
     made = undefined;
     try {
-      const link = await access.people.inviteGuest(workspaceId, boardId, role);
+      const link = await access.people.inviteGuest(workspaceId, containerId, role);
       made =
         link.token === undefined
           ? undefined

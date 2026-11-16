@@ -54,8 +54,8 @@ interface DeletedBlocks {
   deletedBy: string;
 }
 
-interface DeletedBoard {
-  board: Container;
+interface DeletedContainer {
+  container: Container;
   members: ContainerMember[];
   blocks: StoredBlock[];
   deletedAt: number;
@@ -77,7 +77,7 @@ export class World {
   workspace: WorkspaceInfo = { id: '', title: '' };
   readonly workspaceMembers = new Set<string>();
   readonly users = new Map<string, User>();
-  readonly boards = new Map<string, Container>();
+  readonly containers = new Map<string, Container>();
   readonly members = new Map<string, ContainerMember[]>();
   /** Public links of boards, by board. */
   readonly sharing = new Map<string, Sharing>();
@@ -88,7 +88,7 @@ export class World {
   readonly screenState = new Map<string, Record<string, string>>();
   /** Deleted blocks, by the identifier of the block the deletion was asked for. */
   readonly deletedBlocks = new Map<string, DeletedBlocks>();
-  readonly deletedBoards = new Map<string, DeletedBoard>();
+  readonly deletedContainers = new Map<string, DeletedContainer>();
   /** The texts written down of changed comments, by comment, the one it has now last. */
   readonly commentVersions = new Map<string, CommentVersion[]>();
   /** The versions kept of the bodies of cards, by card (`body-versions.ts`). */
@@ -166,7 +166,7 @@ export class World {
    * who does not read it is told nothing.
    */
   tellBoard(boardId: string, change: Change): void {
-    if (this.boards.get(boardId)?.kind !== 'wiki') {
+    if (this.containers.get(boardId)?.kind !== 'wiki') {
       this.#tell((watcher) => watcher.boardId === boardId, change);
       return;
     }

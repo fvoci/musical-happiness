@@ -74,7 +74,7 @@ export function workspacesOf(workspaces: Schemas['UserWorkspace'][]): WorkspaceI
   }));
 }
 
-export function boardOf(board: Schemas['Container']): Container {
+export function containerOf(board: Schemas['Container']): Container {
   return {
     id: board.id,
     workspaceId: board.workspaceId,
@@ -339,7 +339,7 @@ export function newBoardAndViewOf(
  * contract does not have (none, or admin) is refused here as the server
  * would refuse it.
  */
-export function boardPatchOf(patch: ContainerPatch): Schemas['ContainerPatch'] {
+export function containerPatchOf(patch: ContainerPatch): Schemas['ContainerPatch'] {
   const { minimumRole, updatedCardProperties, ...rest } = patch;
   if (minimumRole === '' || minimumRole === 'admin') {
     throw new BackendError(400, {

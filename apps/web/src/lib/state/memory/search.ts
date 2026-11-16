@@ -23,7 +23,7 @@ export function searchBoardsOf(
   if (words.length === 0) return [];
   const isMember = (boardId: string): boolean =>
     (world.members.get(boardId) ?? []).some((member) => member.userId === userId);
-  return [...world.boards.values()]
+  return [...world.containers.values()]
     .filter(
       (board) =>
         !board.isTemplate &&

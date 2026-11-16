@@ -277,8 +277,8 @@ describe('the seed made of the built-in templates', () => {
     const cards = (await Promise.all(boards.map((board) => backend.cards(board.id)))).flat();
     expect(cards).toHaveLength(77);
     expect(cards.filter((card) => card.hasBody)).toHaveLength(58);
-    expect(new Set([...world.blocks.keys(), ...world.boards.keys()]).size).toBe(
-      world.blocks.size + world.boards.size,
+    expect(new Set([...world.blocks.keys(), ...world.containers.keys()]).size).toBe(
+      world.blocks.size + world.containers.size,
     );
     const categories = await backend.categories(workspace?.id ?? '');
     expect(categories.flatMap((category) => category.containerIds).sort()).toEqual(
@@ -290,7 +290,7 @@ describe('the seed made of the built-in templates', () => {
     const templates = await loadTemplates();
     const dump = (): string => {
       const { world } = setup(templates);
-      return JSON.stringify([[...world.boards], [...world.blocks], [...world.categories]]);
+      return JSON.stringify([[...world.containers], [...world.blocks], [...world.categories]]);
     };
     expect(dump()).toBe(dump());
   });

@@ -21,7 +21,7 @@ function offered(place: BodiesPlace, linked: LinkedBlock): string {
   const name = `${linked.icon === '' ? '' : `${linked.icon} `}${linked.title || m.editor_reference_untitled()}`;
   if (linked.kind === 'page') return `${name} · ${m.editor_reference_page()}`;
   if ('boardId' in place && linked.containerId === place.boardId) return name;
-  const where = place.workspace.boards.find((each) => each.id === linked.containerId);
+  const where = place.workspace.containers.find((each) => each.id === linked.containerId);
   return where ? `${name} · ${where.title || m['Sidebar.untitled-board']()}` : name;
 }
 

@@ -196,7 +196,9 @@ describe('an open wiki', () => {
     await settle();
     await made.store.changeWiki({ title: 'Guide' });
     expect(made.store.wiki?.title).toBe('Guide');
-    expect(made.workspace.boards.find((board) => board.id === made.wikiId)?.title).toBe('Guide');
+    expect(made.workspace.containers.find((board) => board.id === made.wikiId)?.title).toBe(
+      'Guide',
+    );
     await made.workspace.undoLast();
     expect(made.store.wiki?.title).toBe('Handbook');
   });

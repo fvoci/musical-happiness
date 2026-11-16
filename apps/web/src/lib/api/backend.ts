@@ -48,7 +48,7 @@ import {
 
 import {
   attachmentOf,
-  boardOf,
+  containerOf,
   cardDetailOf,
   cardOf,
   categoryOf,
@@ -57,7 +57,7 @@ import {
   memberOf,
   newBoardAndViewOf,
   newCardOf,
-  boardPatchOf,
+  containerPatchOf,
   previewsOf,
   settingsChangeOf,
   rolesOf,
@@ -100,7 +100,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     const socket = new URL(`${basePath}/ws`, location.href);
     socket.protocol = socket.protocol === 'https:' ? 'wss:' : 'ws:';
     this.#live = new LiveChanges(socket.href, {
-      members: (boardId) => this.members(boardId),
+      members: (containerId) => this.members(containerId),
     });
     this.presence = this.#live.presence;
   }
@@ -194,7 +194,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     const [board] = made.containers;
     const view = made.blocks.find((block) => block.type === 'view');
     if (!board || !view) throw new BackendError(500, { detail: 'the server made no board' });
-    return { board: boardOf(board), view: viewOf(view) };
+    return { board: containerOf(board), view: viewOf(view) };
   }
 
   /** Puts the card properties in an order (`reorderCardProperties`); the answer is the order. */
@@ -211,8 +211,8 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
    * (none, or admin) is refused here as the server would refuse it.
    */
   async patchContainer(id: string, patch: ContainerPatch): Promise<Container> {
-    const request = boardPatchOf(patch);
-    return boardOf(
+    const request = containerPatchOf(patch);
+    return containerOf(
       await this.inWorkspace<Schemas['Container']>(
         '/containers/{containerId}',
         { containerId: id },
@@ -228,14 +228,14 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
       { workspaceId },
       { query: { q: query } },
     );
-    return boards.map(boardOf);
+    return boards.map(containerOf);
   }
 
   async templates(workspaceId: string): Promise<Container[]> {
     const boards = await this.#http.request<Schemas['Container'][]>(underWorkspace('/templates'), {
       workspaceId,
     });
-    return boards.map(boardOf);
+    return boards.map(containerOf);
   }
 
   /** `duplicateContainer` into the workspace `to` (`toWorkspace`). The copy is the first board of the answer. */
@@ -247,7 +247,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     );
     const [board] = made.containers;
     if (!board) throw new BackendError(500, { detail: 'the server made no copy' });
-    return boardOf(board);
+    return containerOf(board);
   }
 
   async onboard(workspaceId: string): Promise<string> {
@@ -266,7 +266,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
 
   /** Out of the server's trash, filed where each person had it (the category messages tell). */
   async restoreContainer(id: string): Promise<Container> {
-    return boardOf(
+    return containerOf(
       await this.inWorkspace<Schemas['Container']>(
         '/containers/{containerId}/undelete',
         { containerId: id },
@@ -823,7 +823,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
    * (`getClientConfig`'s `maxFileSize`) is refused before anything is sent,
    * with the limit, as the server would refuse it (413).
    */
-  async upload(boardId: string, file: File, options?: UploadOptions): Promise<UploadedFile> {
+  async upload(containerId: string, file: File, options?: UploadOptions): Promise<UploadedFile> {
     const limit = (await this.#config.read()).maxFileSize;
     if (file.size > limit) {
       throw new BackendError(413, { detail: 'the file is too large', limit });
@@ -831,7 +831,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     // A few at a time: the server keeps only so many open uploads of a reader (429).
     await this.#uploadTurn(options?.signal);
     try {
-      return await uploadInParts(this.#http, this.workspaceOf({ boardId }), file, options);
+      return await uploadInParts(this.#http, this.workspaceOf({ containerId }), file, options);
     } finally {
       this.#uploading -= 1;
       this.#uploadWaiting.shift()?.();

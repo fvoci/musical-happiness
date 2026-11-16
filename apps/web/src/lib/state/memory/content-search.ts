@@ -118,7 +118,7 @@ export class MemoryContentSearch implements ContentSearch {
       new RegExp(escaped(word), 'iu').test(text);
 
     const hits: { hit: SearchHit; inTitle: number; updateAt: number }[] = [];
-    for (const board of world.boards.values()) {
+    for (const board of world.containers.values()) {
       if (board.workspaceId !== workspaceId || board.isTemplate) continue;
       if (!reads(world, this.#userId, board.id)) continue;
       for (const block of world.blocksOf(board.id)) {

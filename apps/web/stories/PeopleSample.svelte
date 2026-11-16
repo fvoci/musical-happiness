@@ -31,7 +31,7 @@
   {#if example.workspace.status === 'ready'}
     {#key people}
       {#if guest}
-        <GuestInvite workspace={example.workspace} {access} boardId="example-board" />
+        <GuestInvite workspace={example.workspace} {access} containerId="example-board" />
       {:else}
         <PeoplePanel workspace={example.workspace} {people} inviteLink={exampleInviteLink} />
       {/if}

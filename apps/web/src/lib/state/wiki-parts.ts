@@ -30,7 +30,7 @@ export async function createWiki(
   if (!wikis || !shown) return undefined;
   try {
     const made = await wikis.createWiki(shown.id, draft);
-    workspace.receiveBoard(made);
+    workspace.receiveContainer(made);
     return made;
   } catch (error) {
     workspace.report('save', error);

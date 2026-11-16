@@ -36,7 +36,7 @@ import {
   type User,
 } from './backend.ts';
 import { BoardStore } from './board.svelte.ts';
-import { hiddenBoardsOf, sidebarOf, withoutBoard, type SidebarCategory } from './order.ts';
+import { hiddenContainersOf, sidebarOf, withoutContainer, type SidebarCategory } from './order.ts';
 import { SidebarWrites } from './sidebar-writes.ts';
 import { Transfers } from './transfers.svelte.ts';
 import { UserNames, type Learning } from './user-names.ts';
@@ -89,7 +89,7 @@ export class Workspace {
   users = $state.raw<User[]>([]);
   /** The workspace's list as the backend gives it without a search: on the server, its oldest ten (D2). */
   workspaceUsers = $state.raw<User[]>([]);
-  boards = $state.raw<Container[]>([]);
+  containers = $state.raw<Container[]>([]);
   categories = $state.raw<Category[]>([]);
   settings = $state.raw<AccountSettings>(DEFAULT_SETTINGS);
   problems = $state.raw<Problem[]>([]);
@@ -105,12 +105,12 @@ export class Workspace {
 
   /** The sidebar: categories and their boards, in the order to show them. */
   readonly sidebar = $derived<SidebarCategory[]>(
-    sidebarOf(this.categories, this.boards, this.locale),
+    sidebarOf(this.categories, this.containers, this.locale),
   );
 
   /** The boards the reader hid from the sidebar, by title. */
-  readonly hiddenBoards = $derived<Container[]>(
-    hiddenBoardsOf(this.categories, this.boards, this.sidebar, this.locale),
+  readonly hiddenContainers = $derived<Container[]>(
+    hiddenContainersOf(this.categories, this.containers, this.sidebar, this.locale),
   );
 
   /** Time zone, first day of the week and way of writing hours, settled for this device. */
@@ -225,7 +225,7 @@ export class Workspace {
     if (turn !== this.#entering) return;
     [this.entered, this.info, this.closed] = [read.status, read.info, read.closed];
     if (read.status === 'ready') {
-      ({ users: this.users, boards: this.boards, categories: this.categories } = read);
+      ({ users: this.users, containers: this.containers, categories: this.categories } = read);
       this.workspaceUsers = read.users;
     }
   }
@@ -240,7 +240,7 @@ export class Workspace {
     this.entered = 'none';
     this.users = [];
     this.workspaceUsers = [];
-    this.boards = [];
+    this.containers = [];
     this.categories = [];
   }
 
@@ -273,18 +273,18 @@ export class Workspace {
         // A board of another workspace than the one shown is not of its sidebar.
         if (change.board.workspaceId !== this.info?.id) break;
         // Two tellings of one board may arrive out of order: the older one is let go.
-        const known = this.boards.find((board) => board.id === change.board.id);
+        const known = this.containers.find((board) => board.id === change.board.id);
         if (known && known.updateAt > change.board.updateAt) break;
         // A template is no board of the sidebar, as the server's list of boards says.
-        const others = this.boards.filter((board) => board.id !== change.board.id);
-        this.boards = change.board.isTemplate ? others : [...others, change.board];
+        const others = this.containers.filter((board) => board.id !== change.board.id);
+        this.containers = change.board.isTemplate ? others : [...others, change.board];
         break;
       }
       case 'boardDeleted':
-        this.boards = this.boards.filter((board) => board.id !== change.boardId);
+        this.containers = this.containers.filter((board) => board.id !== change.boardId);
         // A deleted board leaves every category (no message says so). Brought
         // back, it is filed again where it was, and the sidebar is told.
-        this.categories = withoutBoard(this.categories, change.boardId);
+        this.categories = withoutContainer(this.categories, change.boardId);
         break;
       case 'categories':
         // Of this workspace, after pending writes: an earlier echo must not undo a move.
@@ -313,7 +313,7 @@ export class Workspace {
     if (this.status !== 'ready' || !workspace) return;
     this.#refreshing += 1;
     const reading = this.#refreshing;
-    const before = this.boards.map((board) => board.id);
+    const before = this.containers.map((board) => board.id);
     const begun = this.#sidebarWrites.begun;
     try {
       const [boards, categories] = await Promise.all([
@@ -322,7 +322,7 @@ export class Workspace {
       ]);
       // Superseded, or another workspace was entered meanwhile.
       if (reading !== this.#refreshing || this.info !== workspace) return;
-      this.boards = reread(this.boards, boards, before);
+      this.containers = reread(this.containers, boards, before);
       // Not over a sidebar write under way, or one begun since this reading was.
       const verdict = this.#sidebarWrites.reading(begun);
       if (verdict === 'show') this.categories = categories;
@@ -486,15 +486,15 @@ export class Workspace {
   }
 
   /** A board or a wiki as the backend just answered it: in the sidebar at once (`createWiki`). */
-  receiveBoard(board: Container): void {
+  receiveContainer(board: Container): void {
     this.#apply({ kind: 'board', board });
   }
 
   /** Copies a board, a wiki or a template into a board (`duplicateContainer`), in the sidebar at once. */
-  async duplicateBoard(boardId: string): Promise<Container | undefined> {
+  async duplicateContainer(containerId: string): Promise<Container | undefined> {
     if (!this.info) return undefined;
     try {
-      const board = await this.backend.duplicateContainer(boardId, false, this.info.id);
+      const board = await this.backend.duplicateContainer(containerId, false, this.info.id);
       this.#apply({ kind: 'board', board });
       return board;
     } catch (error) {
@@ -544,10 +544,10 @@ export class Workspace {
   });
 
   /** An archive of the board or wiki, for the shell to save. */
-  exportBoard(boardId: string): Promise<DownloadedFile | undefined> {
-    const board = this.boards.find((one) => one.id === boardId);
-    return this.transfers.run('export', `board ${boardId}`, board?.title ?? '', (options) =>
-      this.backend.exportContainer(boardId, options),
+  exportContainer(containerId: string): Promise<DownloadedFile | undefined> {
+    const board = this.containers.find((one) => one.id === containerId);
+    return this.transfers.run('export', `board ${containerId}`, board?.title ?? '', (options) =>
+      this.backend.exportContainer(containerId, options),
     );
   }
 
@@ -580,14 +580,14 @@ export class Workspace {
   }
 
   /** Deletes a board. It can be brought back with undo. */
-  async deleteBoard(boardId: string): Promise<void> {
+  async deleteContainer(containerId: string): Promise<void> {
     try {
       await this.undo.perform(
         async () => {
-          await this.backend.deleteContainer(boardId);
-          this.#apply({ kind: 'boardDeleted', boardId });
+          await this.backend.deleteContainer(containerId);
+          this.#apply({ kind: 'boardDeleted', boardId: containerId });
         },
-        () => this.restoreBoard(boardId),
+        () => this.restoreContainer(containerId),
         'deleteBoard',
       );
     } catch (error) {
@@ -596,8 +596,8 @@ export class Workspace {
   }
 
   /** Brings a deleted board back, the sidebar read first so it shows where it was filed. */
-  async restoreBoard(boardId: string): Promise<void> {
-    const board = await this.backend.restoreContainer(boardId);
+  async restoreContainer(containerId: string): Promise<void> {
+    const board = await this.backend.restoreContainer(containerId);
     await this.#refresh();
     this.#apply({ kind: 'board', board });
   }
@@ -714,33 +714,32 @@ export class Workspace {
   }
 
   /** Files a board under a category, at `index` among the boards shown there. */
-  async moveBoard(boardId: string, categoryId: string, index: number): Promise<void> {
+  async moveContainer(containerId: string, categoryId: string, index: number): Promise<void> {
     const workspace = this.info;
     if (!workspace) return;
     await this.#categoryWrite(
       this.categories.map((category) => {
-        const containerIds = category.containerIds.filter((id) => id !== boardId);
+        const containerIds = category.containerIds.filter((id) => id !== containerId);
         if (category.id === categoryId) {
-          containerIds.splice(Math.max(0, Math.min(index, containerIds.length)), 0, boardId);
+          containerIds.splice(Math.max(0, Math.min(index, containerIds.length)), 0, containerId);
         }
         return { ...category, containerIds };
       }),
-      () => this.backend.moveContainerToCategory(workspace.id, boardId, categoryId, index),
+      () => this.backend.moveContainerToCategory(workspace.id, containerId, categoryId, index),
     );
   }
 
-  /**
-   * Takes a board out of the sidebar, or puts it back: it stays in its
-   * category, hidden. Hiding can be undone.
-   */
-  async hideBoard(boardId: string): Promise<void> {
-    const entry = this.sidebar.find((shown) => shown.boards.some((board) => board.id === boardId));
+  /** Hides a board or a wiki in its category, out of the sidebar. Hiding can be undone. */
+  async hideContainer(containerId: string): Promise<void> {
+    const entry = this.sidebar.find((shown) =>
+      shown.containers.some((board) => board.id === containerId),
+    );
     if (!entry) return;
     const categoryId = entry.category.id;
     try {
       await this.undo.perform(
-        () => this.#setBoardHidden(categoryId, boardId, true),
-        () => this.#setBoardHidden(categoryId, boardId, false),
+        () => this.#setContainerHidden(categoryId, containerId, true),
+        () => this.#setContainerHidden(categoryId, containerId, false),
         'hideBoard',
       );
     } catch (error) {
@@ -749,11 +748,11 @@ export class Workspace {
   }
 
   /** Shows a hidden board in the sidebar again, in the category that hides it. */
-  async unhideBoard(boardId: string): Promise<void> {
-    const category = this.categories.find((one) => one.hiddenContainerIds.includes(boardId));
+  async unhideContainer(containerId: string): Promise<void> {
+    const category = this.categories.find((one) => one.hiddenContainerIds.includes(containerId));
     if (!category) return;
     try {
-      await this.#setBoardHidden(category.id, boardId, false);
+      await this.#setContainerHidden(category.id, containerId, false);
     } catch (error) {
       this.report('save', error);
     }
@@ -763,34 +762,34 @@ export class Workspace {
    * Shows the change at once; when the backend refuses it, takes it back as
    * any sidebar write (`#sidebarRefused`) and rejects.
    */
-  async #setBoardHidden(categoryId: string, boardId: string, hidden: boolean): Promise<void> {
+  async #setContainerHidden(
+    categoryId: string,
+    containerId: string,
+    hidden: boolean,
+  ): Promise<void> {
     const workspace = this.info;
     if (!workspace) return;
     const before = this.categories;
     const category = before.find((one) => one.id === categoryId);
     // A board no category files (one brought back from the trash) is shown in
     // the default category but cannot be hidden there until it is filed there.
-    const loose = hidden && category !== undefined && !category.containerIds.includes(boardId);
+    const loose = hidden && category !== undefined && !category.containerIds.includes(containerId);
     this.categories = before.map((one) => {
       if (one.id !== categoryId) return one;
-      const others = one.hiddenContainerIds.filter((id) => id !== boardId);
+      const others = one.hiddenContainerIds.filter((id) => id !== containerId);
       return {
         ...one,
-        containerIds: loose ? [...one.containerIds, boardId] : one.containerIds,
-        hiddenContainerIds: hidden ? [...others, boardId] : others,
+        containerIds: loose ? [...one.containerIds, containerId] : one.containerIds,
+        hiddenContainerIds: hidden ? [...others, containerId] : others,
       };
     });
     this.#sidebarWrites.begin();
     try {
       if (loose) {
-        await this.backend.moveContainerToCategory(
-          workspace.id,
-          boardId,
-          categoryId,
-          category.containerIds.length,
-        );
+        const filed = category.containerIds.length;
+        await this.backend.moveContainerToCategory(workspace.id, containerId, categoryId, filed);
       }
-      await this.backend.setContainerHidden(workspace.id, categoryId, boardId, hidden);
+      await this.backend.setContainerHidden(workspace.id, categoryId, containerId, hidden);
     } catch (error) {
       this.#sidebarRefused(before, workspace);
       throw error;

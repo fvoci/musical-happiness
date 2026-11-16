@@ -5,12 +5,12 @@
  */
 import type { DocNode } from '../../editor/schema.ts';
 
-import { flushBoards } from './bodies.ts';
+import { flushContainers } from './bodies.ts';
 import type { StoredBlock, World } from './world.ts';
 
 /** The blocks a copy of the board or wiki takes: all but its comments. */
 export function copiedBlocks(world: World, board: { id: string }): StoredBlock[] {
-  flushBoards(world, [board]);
+  flushContainers(world, [board]);
   return world.blocksOf(board.id).filter((block) => block.type !== 'comment');
 }
 

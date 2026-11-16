@@ -28,7 +28,7 @@ export function usersAmong(world: World): User[] {
 export function usersNamed(world: World, readerId: string, userIds: readonly string[]): User[] {
   if (!world.workspaceMembers.has(readerId)) fail(404, 'no such workspace');
   const visible = new Set(world.workspaceMembers);
-  for (const board of world.boards.values()) {
+  for (const board of world.containers.values()) {
     if (board.workspaceId !== world.workspace.id) continue;
     const role = roleOn(world.members.get(board.id) ?? [], readerId);
     if (!role && !(board.isTemplate && board.type === 'O') && !isOpenWiki(board)) continue;

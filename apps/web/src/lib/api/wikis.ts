@@ -27,7 +27,14 @@ import type {
 } from '../state/wiki-types.ts';
 
 import { ServerPageVersions } from './body-versions.ts';
-import { bodyOf, boardOf, commentOf, commentVersionOf, wireBody, type Schemas } from './convert.ts';
+import {
+  bodyOf,
+  containerOf,
+  commentOf,
+  commentVersionOf,
+  wireBody,
+  type Schemas,
+} from './convert.ts';
 import type { RequestOptions } from './http.ts';
 import type { WorkspacePath } from './requests.ts';
 
@@ -133,7 +140,7 @@ export class ServerWikis implements Wikis {
   async wikis(workspaceId: string): Promise<Container[]> {
     const wikis = await this.#request<Schemas['Container'][]>('/wikis', {}, {}, workspaceId);
     this.#learn(wikis);
-    return wikis.map(boardOf);
+    return wikis.map(containerOf);
   }
 
   async createWiki(workspaceId: string, draft: WikiDraft): Promise<Container> {
@@ -144,7 +151,7 @@ export class ServerWikis implements Wikis {
       workspaceId,
     );
     this.#learn([wiki]);
-    return boardOf(wiki);
+    return containerOf(wiki);
   }
 
   async pages(wikiId: string): Promise<WikiPage[]> {

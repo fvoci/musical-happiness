@@ -27,7 +27,7 @@ import type { People } from '../state/people-types.ts';
 import type { References } from '../state/references.ts';
 
 import { ServerBodyVersions } from './body-versions.ts';
-import { boardOf, workspacesOf, userOf, type Schemas } from './convert.ts';
+import { containerOf, workspacesOf, userOf, type Schemas } from './convert.ts';
 import type { ApiPath, Http, RequestOptions } from './http.ts';
 import { ServerPeople } from './people.ts';
 import { ServerReferences } from './references.ts';
@@ -183,13 +183,13 @@ export class ServerRequests implements TrashReads {
       workspaceId,
     });
     this.learnPlaces(boards);
-    return boards.map(boardOf);
+    return boards.map(containerOf);
   }
 
-  async container(boardId: string): Promise<Container> {
-    const board = boardOf(
+  async container(containerId: string): Promise<Container> {
+    const board = containerOf(
       await this.inWorkspace<Schemas['Container']>('/containers/{containerId}', {
-        containerId: boardId,
+        containerId,
       }),
     );
     this.learnPlaces([board]);

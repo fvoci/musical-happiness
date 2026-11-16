@@ -19,8 +19,8 @@ import { isBackendError, type CardPatch, type CardSummary } from './backend.ts';
 import type { BoardStore } from './board.svelte.ts';
 import { InverseValues, sameValue } from './inverse-values.ts';
 import { Inverses } from './inverses.ts';
-import { applyBoardPatch } from './patches.ts';
-import { PendingWrites } from './write.ts';
+import { applyContainerPatch, applyCardPatch, applyViewPatch } from './patches.ts';
+import { PendingWrites, put, take } from './write.ts';
 
 /** The values of a board's or a card's patch: properties by key, definitions by identifier. */
 const propertyValues = new InverseValues('updatedProperties', 'deletedProperties');
@@ -50,7 +50,7 @@ export class BoardWrites {
     if (!host.board) return;
     // Inverses can be corrected while requests wait. A request already sent has fixed values.
     const written = structuredClone(patch);
-    host.board = applyBoardPatch(host.board, written);
+    host.board = applyContainerPatch(host.board, written);
     this.#pending.begin(host.boardId);
     let answer: Container | undefined;
     let restore: ContainerPatch = {};
@@ -84,7 +84,7 @@ export class BoardWrites {
     for (const [key, value] of propertyValues.read(restore as Record<string, unknown>)) {
       if (sameValue(current.get(key), failed.get(key))) propertyValues.put(own, key, value);
     }
-    return applyBoardPatch(shown, own);
+    return applyContainerPatch(shown, own);
   }
 }
 
@@ -254,4 +254,30 @@ export function patchViewOrStored(
       own,
     },
   );
+}
+
+/** The writes of the cards of `store`: shown at once, answered into its list and its open card. */
+export function cardWritesOf(store: BoardStore): BlockWrites<CardSummary, CardPatch> {
+  return new BlockWrites('updatedProperties', 'deletedProperties', {
+    shown: (cardId: string) => store.card(cardId),
+    apply: applyCardPatch<CardSummary>,
+    show: (card: CardSummary) => (store.cards = put(store.cards, card)),
+    answered: (card: CardSummary) => {
+      store.cards = take(store.cards, card);
+      store.openCard?.cardChanged(card);
+    },
+    send: (cardId: string, patch: CardPatch, own: (key: string) => boolean) =>
+      patchCardOrStored(store, cardId, patch, own),
+  });
+}
+
+/** The writes of the views of `store`: shown at once, answered into its list. */
+export function viewWritesOf(store: BoardStore): BlockWrites<BoardView, BlockPatch> {
+  return new BlockWrites<BoardView, BlockPatch>('updatedFields', 'deletedFields', {
+    shown: (viewId) => store.view(viewId),
+    apply: applyViewPatch,
+    show: (view) => (store.views = put(store.views, view)),
+    answered: (view) => (store.views = take(store.views, view)),
+    send: (viewId, patch, own) => patchViewOrStored(store, viewId, patch, own),
+  });
 }

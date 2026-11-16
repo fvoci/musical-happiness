@@ -23,13 +23,13 @@ import { BackendError } from './problems.ts';
  * a wiki's). A board of another workspace or kind is not found there (404),
  * as one that is not there at all: the address does not say where else it is.
  */
-export async function boardOfWorkspace(
+export async function containerOfWorkspace(
   backend: Backend,
-  boardId: string,
+  containerId: string,
   workspaceId: string | undefined,
   kind: ContainerKind = 'board',
 ): Promise<Container> {
-  const board = await backend.container(boardId);
+  const board = await backend.container(containerId);
   if (board.workspaceId !== workspaceId) {
     throw new BackendError(404, { detail: 'the board is of another workspace' });
   }

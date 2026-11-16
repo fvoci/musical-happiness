@@ -21,7 +21,7 @@ interface Dev {
       latency: number;
       patchContainer: (...args: unknown[]) => Promise<unknown>;
       failNext: (method: string, error: Error) => void;
-      world: { boards: Map<string, { title: string }> };
+      world: { containers: Map<string, { title: string }> };
     };
     workspace: { board: { boardId: string } };
   };
@@ -37,7 +37,7 @@ interface Pressed {
 function stored(page: Page): Promise<string> {
   return page.evaluate(() => {
     const { fvociDev } = window as unknown as Dev;
-    return fvociDev.backend.world.boards.get(fvociDev.workspace.board.boardId)?.title ?? '';
+    return fvociDev.backend.world.containers.get(fvociDev.workspace.board.boardId)?.title ?? '';
   });
 }
 
@@ -55,7 +55,7 @@ async function recordPresses(page: Page): Promise<() => Promise<Pressed[]>> {
     (window as unknown as { presses: Pressed[] }).presses = presses;
     window.addEventListener('keydown', (event) => {
       if (event.key.toLowerCase() !== 'z' || !(event.ctrlKey || event.metaKey)) return;
-      const board = fvociDev.backend.world.boards.get(fvociDev.workspace.board.boardId);
+      const board = fvociDev.backend.world.containers.get(fvociDev.workspace.board.boardId);
       const press = { stored: board?.title ?? '', busy: false };
       presses.push(press);
       queueMicrotask(() => {

@@ -201,7 +201,7 @@ describe('the sidebar over a workspace', () => {
   }> {
     const { workspace } = setup(await loadTemplates());
     await workspace.load();
-    const first = workspace.sidebar.flatMap((entry) => entry.boards)[0];
+    const first = workspace.sidebar.flatMap((entry) => entry.containers)[0];
     const handlers = {
       onOpenBoard: vi.fn(),
       onOpenSettings: vi.fn(),
@@ -226,7 +226,9 @@ describe('the sidebar over a workspace', () => {
 
   it('lists the categories in the reader’s order, each with its boards in the reader’s order', async () => {
     const { workspace } = await mount();
-    const expected = workspace.sidebar.flatMap((entry) => entry.boards.map((board) => board.title));
+    const expected = workspace.sidebar.flatMap((entry) =>
+      entry.containers.map((board) => board.title),
+    );
     expect(expected).toHaveLength(13);
     expect(titles()).toEqual(expected);
     expect(
@@ -238,7 +240,7 @@ describe('the sidebar over a workspace', () => {
 
   it('marks the board on the page, and a link is its address', async () => {
     const { workspace } = await mount();
-    const first = workspace.sidebar[0]?.boards[0];
+    const first = workspace.sidebar[0]?.containers[0];
     const link = screen.getByRole('link', { name: first?.title });
     expect(link).toHaveAttribute('aria-current', 'page');
     expect(link).toHaveAttribute(
@@ -252,7 +254,7 @@ describe('the sidebar over a workspace', () => {
 
   it('a plain click opens the board in place; a click with a modifier is left to the browser', async () => {
     const { workspace, onOpenBoard } = await mount();
-    const board = workspace.sidebar[0]?.boards[2];
+    const board = workspace.sidebar[0]?.containers[2];
     const link = screen.getByRole('link', { name: board?.title });
 
     const plain = new MouseEvent('click', { bubbles: true, cancelable: true });

@@ -26,9 +26,9 @@ export function filterSidebar(
   return sidebar
     .map((entry) => ({
       category: entry.category,
-      boards: entry.boards.filter((board) => titleHas(board.title, query)),
+      containers: entry.containers.filter((board) => titleHas(board.title, query)),
     }))
-    .filter((entry) => entry.boards.length > 0);
+    .filter((entry) => entry.containers.length > 0);
 }
 
 /**
@@ -54,7 +54,7 @@ export function categoryOrderAfterStep(
 export function dragOrder(sidebar: readonly SidebarCategory[]): ListOrder[] {
   return sidebar
     .filter((entry) => !entry.category.collapsed)
-    .map((entry) => ({ id: entry.category.id, items: entry.boards.map((board) => board.id) }));
+    .map((entry) => ({ id: entry.category.id, items: entry.containers.map((board) => board.id) }));
 }
 
 /** The categories a board can only be dropped onto, not placed in: the folded ones. */
@@ -105,7 +105,7 @@ export function boardMoveOf(
   if (to.kind === 'list') return moveToEnd(to.listId, boardId, sidebar);
   const entry = sidebar.find((candidate) => candidate.category.id === to.listId);
   if (!entry) return undefined;
-  const shown = entry.boards.map((board) => board.id);
+  const shown = entry.containers.map((board) => board.id);
   return {
     boardId,
     categoryId: to.listId,

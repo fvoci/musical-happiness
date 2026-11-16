@@ -16,8 +16,8 @@ import {
   createBoard,
   createFilterClause,
   createPatchesFromBlocks,
-  createPatchesFromBoards,
-  createPatchesFromBoardsAndBlocks,
+  createPatchesFromContainers,
+  createPatchesFromContainersAndBlocks,
   type PropertyTemplate,
 } from '$lib/logic/wire.ts';
 
@@ -112,7 +112,7 @@ describe('board tests', () => {
   describe('correctly generate patches from two boards', () => {
     it('should generate two empty patches for the same board', () => {
       const board = createTestBoard();
-      const result = createPatchesFromBoards(board, board);
+      const result = createPatchesFromContainers(board, board);
       expect(result).toEqual([
         {
           deletedCardProperties: [],
@@ -140,7 +140,7 @@ describe('board tests', () => {
         prop2: 'val2',
       };
 
-      const result = createPatchesFromBoards(board, oldBoard);
+      const result = createPatchesFromContainers(board, oldBoard);
       expect(result).toEqual([
         {
           deletedCardProperties: [],
@@ -175,7 +175,7 @@ describe('board tests', () => {
         ],
       });
 
-      const result = createPatchesFromBoards(board, oldBoard);
+      const result = createPatchesFromContainers(board, oldBoard);
       expect(result).toEqual([
         {
           deletedCardProperties: [],
@@ -224,7 +224,7 @@ describe('board tests', () => {
       board.cardProperties = [cardProperty];
       oldBoard.cardProperties = [{ ...cardProperty, name: 'a-different-name' }];
 
-      const result = createPatchesFromBoards(board, oldBoard);
+      const result = createPatchesFromContainers(board, oldBoard);
       expect(result).toEqual([
         {
           deletedCardProperties: [],
@@ -297,7 +297,7 @@ describe('board tests', () => {
         },
       ];
 
-      const result = createPatchesFromBoards(board, oldBoard);
+      const result = createPatchesFromContainers(board, oldBoard);
       expect(result).toEqual([
         {
           deletedCardProperties: [],
@@ -348,7 +348,7 @@ describe('board tests', () => {
     card.id = 'test-card-id';
 
     it('should generate two empty patches for the same board and block', () => {
-      const result = createPatchesFromBoardsAndBlocks(board, board, [card.id], [card], [card]);
+      const result = createPatchesFromContainersAndBlocks(board, board, [card.id], [card], [card]);
       expect(result).toEqual([
         {
           blockIDs: ['test-card-id'],
@@ -358,8 +358,8 @@ describe('board tests', () => {
               updatedFields: {},
             },
           ],
-          boardIDs: ['test-board-id'],
-          boardPatches: [
+          containerIDs: ['test-board-id'],
+          containerPatches: [
             {
               deletedCardProperties: [],
               deletedProperties: [],
@@ -376,8 +376,8 @@ describe('board tests', () => {
               updatedFields: {},
             },
           ],
-          boardIDs: ['test-board-id'],
-          boardPatches: [
+          containerIDs: ['test-board-id'],
+          containerPatches: [
             {
               deletedCardProperties: [],
               deletedProperties: [],
@@ -395,7 +395,7 @@ describe('board tests', () => {
       const newBlock = createBlock(oldBlock);
       newBlock.fields.newField = 'new field';
 
-      const result = createPatchesFromBoardsAndBlocks(
+      const result = createPatchesFromContainersAndBlocks(
         board,
         board,
         [newBlock.id],
@@ -413,8 +413,8 @@ describe('board tests', () => {
               },
             },
           ],
-          boardIDs: ['test-board-id'],
-          boardPatches: [
+          containerIDs: ['test-board-id'],
+          containerPatches: [
             {
               deletedCardProperties: [],
               deletedProperties: [],
@@ -431,8 +431,8 @@ describe('board tests', () => {
               updatedFields: {},
             },
           ],
-          boardIDs: ['test-board-id'],
-          boardPatches: [
+          containerIDs: ['test-board-id'],
+          containerPatches: [
             {
               deletedCardProperties: [],
               deletedProperties: [],

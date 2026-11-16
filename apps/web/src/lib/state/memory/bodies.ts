@@ -75,8 +75,8 @@ export function flushCard<Card extends { id: string }>(world: World, card: Card)
 }
 
 /** The same for every card and page of boards and wikis: before a copy of them, or an archive. */
-export function flushBoards(world: World, boards: readonly { id: string }[]): void {
-  for (const board of boards) {
+export function flushContainers(world: World, containers: readonly { id: string }[]): void {
+  for (const board of containers) {
     for (const block of world.blocksOf(board.id)) {
       if (block.type === 'card' || block.type === 'page') flushCard(world, block);
     }

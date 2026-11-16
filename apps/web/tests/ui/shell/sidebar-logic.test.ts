@@ -37,7 +37,7 @@ function entry(
       updateAt: 0,
       ...overrides,
     },
-    boards,
+    containers: boards,
   };
 }
 
@@ -61,7 +61,7 @@ describe('the search of the sidebar', () => {
   it('keeps the boards whose title has the text, whatever the case', () => {
     const found = filterSidebar(SIDEBAR, 'PLAN');
     expect(found.map((one) => one.category.id)).toEqual(['workspace']);
-    expect(found[0]?.boards).toEqual([plan]);
+    expect(found[0]?.containers).toEqual([plan]);
   });
 
   it('leaves out a category without a match, and finds a board of a folded one', () => {
@@ -70,7 +70,7 @@ describe('the search of the sidebar', () => {
   });
 
   it('matches full-width letters and ignores the spaces around the query', () => {
-    expect(filterSidebar(SIDEBAR, '  ｍｅｅｔｉｎｇ ')[0]?.boards).toEqual([notes]);
+    expect(filterSidebar(SIDEBAR, '  ｍｅｅｔｉｎｇ ')[0]?.containers).toEqual([notes]);
   });
 
   it('a board without a title is found by nothing', () => {
@@ -79,7 +79,7 @@ describe('the search of the sidebar', () => {
 
   it('does not change the sidebar it was given', () => {
     filterSidebar(SIDEBAR, 'plan');
-    expect(SIDEBAR[0]?.boards).toEqual([plan, notes]);
+    expect(SIDEBAR[0]?.containers).toEqual([plan, notes]);
   });
 });
 

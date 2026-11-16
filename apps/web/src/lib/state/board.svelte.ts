@@ -15,7 +15,6 @@ import {
   createBoardView,
   viewGrouping,
   viewQuery,
-  type BlockPatch,
   type Container,
   type ContainerMember,
   type BoardView,
@@ -31,44 +30,49 @@ import {
   isViewBlock,
   type ContainerRole,
   type CardDraft,
-  type CardPatch,
   type CardSummary,
   type Change,
   type ViewDraft,
 } from './backend.ts';
 import { copyOfCard } from './card-copy.ts';
-import { BlockWrites, BoardWrites, patchCardOrStored, patchViewOrStored } from './board-writes.ts';
+import { BoardWrites, cardWritesOf, viewWritesOf } from './board-writes.ts';
 import { dropCardsOn } from './card-drop.ts';
 import { CardStore } from './card.svelte.ts';
 import { lastCommentsOf } from './last-comments.ts';
 import { propertyMovesOf } from './property-moves.ts';
 import { authorIds, memberId } from './user-names.ts';
 import { readBoard } from './board-load.ts';
-import { boardOfWorkspace, roleOf, type CardDrop } from './board-parts.ts';
+import { containerOfWorkspace, roleOf, type CardDrop } from './board-parts.ts';
 import { MemberWrites } from './member-writes.ts';
 import { orderMembers, orderViews } from './order.ts';
 import {
-  applyCardPatch,
-  applyViewPatch,
-  boardPatches,
+  containerPatches,
   cardPatches,
   isEmptyBlockPatch,
-  isEmptyBoardPatch,
+  isEmptyContainerPatch,
   isEmptyCardPatch,
   viewPatches,
 } from './patches.ts';
 import type { LoadStatus, Workspace } from './workspace.svelte.ts';
 import { restoreCard } from './trash.svelte.ts';
-import { put, reread, take } from './write.ts';
+import { reread, take } from './write.ts';
 
 export type { CardDrop } from './board-parts.ts';
 
 export class BoardStore {
   readonly workspace: Workspace;
   readonly boardId: string;
-  /** The board as the dialogs of a board's or a wiki's people name it (`MembersOf`). */
+  /** The board as the dialogs of a board's or a wiki's people name it (`Shareable`). */
   get containerId(): string {
     return this.boardId;
+  }
+
+  get container(): Container | undefined {
+    return this.board;
+  }
+
+  set container(board: Container | undefined) {
+    this.board = board;
   }
 
   status = $state<LoadStatus>('idle');
@@ -149,24 +153,8 @@ export class BoardStore {
   /** Keeps the cards' `lastCommentAt` current between readings. */
   readonly #lastComments = lastCommentsOf(this);
   readonly #boardWrites = new BoardWrites(this);
-  readonly #cardWrites = new BlockWrites('updatedProperties', 'deletedProperties', {
-    shown: (cardId: string) => this.card(cardId),
-    apply: applyCardPatch<CardSummary>,
-    show: (card: CardSummary) => (this.cards = put(this.cards, card)),
-    answered: (card: CardSummary) => {
-      this.cards = take(this.cards, card);
-      this.openCard?.cardChanged(card);
-    },
-    send: (cardId: string, patch: CardPatch, own: (key: string) => boolean) =>
-      patchCardOrStored(this, cardId, patch, own),
-  });
-  readonly #viewWrites = new BlockWrites<BoardView, BlockPatch>('updatedFields', 'deletedFields', {
-    shown: (viewId) => this.view(viewId),
-    apply: applyViewPatch,
-    show: (view) => (this.views = put(this.views, view)),
-    answered: (view) => (this.views = take(this.views, view)),
-    send: (viewId, patch, own) => patchViewOrStored(this, viewId, patch, own),
-  });
+  readonly #cardWrites = cardWritesOf(this);
+  readonly #viewWrites = viewWritesOf(this);
   /** Readings again (`#refresh`) begun: the latest is the one that counts. */
   #refreshing = 0;
   /** Adding, changing and taking off members (`member-writes.ts`). */
@@ -214,7 +202,11 @@ export class BoardStore {
    */
   async #explainRefusal(): Promise<boolean> {
     try {
-      const board = await boardOfWorkspace(this.#backend, this.boardId, this.workspace.info?.id);
+      const board = await containerOfWorkspace(
+        this.#backend,
+        this.boardId,
+        this.workspace.info?.id,
+      );
       if (board.type !== 'O' || board.isTemplate) return false;
       this.board = board;
       return true;
@@ -660,8 +652,8 @@ export class BoardStore {
     groupId?: string,
   ): Promise<void> {
     if (!this.board) return;
-    const [forward, backward] = boardPatches(change(this.board), this.board);
-    if (isEmptyBoardPatch(forward)) return;
+    const [forward, backward] = containerPatches(change(this.board), this.board);
+    if (isEmptyContainerPatch(forward)) return;
     await this.#perform(
       () => this.#boardWrites.write(forward, backward),
       () => this.#boardWrites.write(backward, forward),

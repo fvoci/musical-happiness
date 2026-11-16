@@ -21,7 +21,7 @@ it('puts a refused role back in its select, with the reason', async () => {
   } as Partial<Teams> as Teams;
   const workspace = { info: { id: 'w1' } } as unknown as Workspace;
   const board = { boardId: 'b1', containerId: 'b1', members: [] } as unknown as BoardStore;
-  render(BoardTeams, { workspace, board, teams });
+  render(BoardTeams, { workspace, shareable: board, teams });
   const select = await screen.findByRole<HTMLSelectElement>('combobox', { name: /Design/ });
   expect(select.value).toBe('viewer');
   await fireEvent.change(select, { target: { value: 'editor' } });
@@ -43,7 +43,7 @@ it('takes a team off the board by the × named after it', async () => {
   } as Partial<Teams> as Teams;
   const workspace = { info: { id: 'w1' } } as unknown as Workspace;
   const board = { boardId: 'b1', containerId: 'b1', members: [] } as unknown as BoardStore;
-  render(BoardTeams, { workspace, board, teams });
+  render(BoardTeams, { workspace, shareable: board, teams });
   const remove = await screen.findByRole('button', { name: 'Remove Design from board' });
   expect(remove).not.toHaveTextContent('Design');
   await fireEvent.click(remove);
@@ -59,7 +59,7 @@ it('shows the teams and their roles, unchanged, to a reader who changes nothing'
   } as Partial<Teams> as Teams;
   const workspace = { info: { id: 'w1' } } as unknown as Workspace;
   const board = { boardId: 'b1', containerId: 'b1', members: [] } as unknown as BoardStore;
-  render(BoardTeams, { workspace, board, teams, readOnly: true });
+  render(BoardTeams, { workspace, shareable: board, teams, readOnly: true });
   expect(await screen.findByText('Design')).toBeInTheDocument();
   expect(screen.getByText('Viewer')).toBeInTheDocument();
   expect(screen.queryByRole('combobox')).toBeNull();
@@ -74,7 +74,7 @@ it('leaves out an empty list of teams for a reader who changes nothing', async (
   } as Partial<Teams> as Teams;
   const workspace = { info: { id: 'w1' } } as unknown as Workspace;
   const board = { boardId: 'b1', containerId: 'b1', members: [] } as unknown as BoardStore;
-  render(BoardTeams, { workspace, board, teams, readOnly: true });
+  render(BoardTeams, { workspace, shareable: board, teams, readOnly: true });
   await waitFor(() => {
     expect(onBoard).toHaveBeenCalled();
   });

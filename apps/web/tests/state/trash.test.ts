@@ -6,7 +6,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createBoardView } from '$lib/logic/wire.ts';
-import { BackendError, boardTrash, cardTrash, type Change } from '$lib/state/index.ts';
+import { BackendError, containerTrash, cardTrash, type Change } from '$lib/state/index.ts';
 
 import { openFirstBoard, serverBackend, settle, setup } from './support.ts';
 
@@ -91,7 +91,7 @@ describe('the boards in the trash, in memory', () => {
     const stranger = backend.as(
       [...world.users.keys()].find(
         (userId) =>
-          !(world.deletedBoards.get(boardId)?.members ?? []).some(
+          !(world.deletedContainers.get(boardId)?.members ?? []).some(
             (member) => member.userId === userId,
           ),
       ) ?? '',
@@ -182,7 +182,7 @@ describe('the list of a trash', () => {
       asked.push(paging);
       return Promise.resolve(items.slice(0, paging?.perPage ?? 100));
     });
-    const trash = boardTrash(workspace);
+    const trash = containerTrash(workspace);
     await trash.read();
     expect(trash.items).toHaveLength(50);
     expect(trash.hasMore).toBe(true);
@@ -198,7 +198,7 @@ describe('the list of a trash', () => {
   it('says a list that could not be read failed, once: in the list, not also on the page', async () => {
     const { workspace } = await openFirstBoard();
     vi.spyOn(workspace.backend, 'deletedContainers').mockRejectedValue(new BackendError(500));
-    const trash = boardTrash(workspace);
+    const trash = containerTrash(workspace);
     await trash.read();
     expect(trash.status).toBe('failed');
     expect(trash.items).toEqual([]);
@@ -217,8 +217,8 @@ describe('the list of a trash', () => {
             answer = resolve;
           }),
       );
-    vi.spyOn(workspace, 'restoreBoard').mockResolvedValue();
-    const trash = boardTrash(workspace);
+    vi.spyOn(workspace, 'restoreContainer').mockResolvedValue();
+    const trash = containerTrash(workspace);
     await trash.read();
     const reading = trash.read();
     expect(await trash.restore('b1')).toBe(true);
@@ -265,7 +265,7 @@ describe('a trash read again after a failure', () => {
       if (asked.length === 2) return Promise.reject(new BackendError(500));
       return Promise.resolve(items.slice(0, paging?.perPage ?? 100));
     });
-    const trash = boardTrash(workspace);
+    const trash = containerTrash(workspace);
     await trash.read();
     await trash.more();
     expect(trash.status).toBe('failed');

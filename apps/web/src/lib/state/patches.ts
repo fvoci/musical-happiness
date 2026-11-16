@@ -9,7 +9,7 @@
 import {
   createBoardView,
   createPatchesFromBlocks,
-  createPatchesFromBoards,
+  createPatchesFromContainers,
   type BlockPatch,
   type Container,
   type ContainerPatch,
@@ -108,11 +108,14 @@ export function applyViewPatch(view: BoardView, patch: BlockPatch): BoardView {
 }
 
 /** The patch that turns the board `prev` into `next`, and the one that turns it back. */
-export function boardPatches(next: Container, prev: Container): [ContainerPatch, ContainerPatch] {
-  return createPatchesFromBoards(next, prev);
+export function containerPatches(
+  next: Container,
+  prev: Container,
+): [ContainerPatch, ContainerPatch] {
+  return createPatchesFromContainers(next, prev);
 }
 
-export function isEmptyBoardPatch(patch: ContainerPatch): boolean {
+export function isEmptyContainerPatch(patch: ContainerPatch): boolean {
   return Object.values(patch).every((value: unknown) => {
     if (Array.isArray(value)) return value.length === 0;
     if (typeof value === 'object' && value !== null) return Object.keys(value).length === 0;
@@ -120,7 +123,7 @@ export function isEmptyBoardPatch(patch: ContainerPatch): boolean {
   });
 }
 
-export function applyBoardPatch(board: Container, patch: ContainerPatch): Container {
+export function applyContainerPatch(board: Container, patch: ContainerPatch): Container {
   let cardProperties = board.cardProperties.map((template) => ({
     ...template,
     options: template.options.map((option) => ({ ...option })),

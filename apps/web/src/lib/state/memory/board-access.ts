@@ -20,7 +20,7 @@ export function memberRole(
   boardId: string,
   kind: ContainerKind | 'any' = 'board',
 ): Exclude<Role, ''> {
-  const board = world.boards.get(boardId);
+  const board = world.containers.get(boardId);
   if (!board || (kind !== 'any' && (board.kind ?? 'board') !== kind)) fail(404, 'no such board');
   const role = roleOn(world.members.get(boardId) ?? [], userId);
   if (role !== '') return role;
@@ -34,7 +34,7 @@ export function memberRole(
  * workspace of an open wiki.
  */
 export function reads(world: World, userId: string, boardId: string): boolean {
-  const board = world.boards.get(boardId);
+  const board = world.containers.get(boardId);
   if (!board) return false;
   if (roleOn(world.members.get(boardId) ?? [], userId) !== '') return true;
   return isOpenWiki(board) && world.workspaceMembers.has(userId);

@@ -218,7 +218,7 @@ export function seedWorld(templates: readonly SeedTemplate[]): SeededWorld {
       createAt: at,
       updateAt: at,
     };
-    world.boards.set(boardId, board);
+    world.containers.set(boardId, board);
     world.members.set(
       boardId,
       people.map((user, index) =>

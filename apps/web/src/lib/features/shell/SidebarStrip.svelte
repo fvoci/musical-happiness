@@ -50,7 +50,7 @@
     onOpenSettings,
   }: Props = $props();
 
-  const boards = $derived(workspace.sidebar.flatMap((entry) => entry.boards));
+  const boards = $derived(workspace.sidebar.flatMap((entry) => entry.containers));
   const titleOf = shownTitle;
   const myName = $derived(
     (workspace.me && workspace.userName(workspace.me.id)) ?? m['centerPanel.unknown-user'](),

@@ -84,14 +84,14 @@ test('a board of another workspace is not found at this workspace’s address', 
       const dev = (
         window as unknown as {
           fvociDev: {
-            backend: { world: { boards: Map<string, { workspaceId: string }> } };
-            workspace: { boards: { id: string; title: string }[] };
+            backend: { world: { containers: Map<string, { workspaceId: string }> } };
+            workspace: { containers: { id: string; title: string }[] };
           };
         }
       ).fvociDev;
       // Another board, moved to another workspace the reader can still read it in.
-      const board = dev.workspace.boards.find((one) => one.id !== id);
-      const stored = board && dev.backend.world.boards.get(board.id);
+      const board = dev.workspace.containers.find((one) => one.id !== id);
+      const stored = board && dev.backend.world.containers.get(board.id);
       if (!board || !stored) throw new Error('the seed has one board');
       stored.workspaceId = other;
       return board.id;

@@ -23,7 +23,7 @@ export interface MembersOf {
  * its members.
  */
 export interface Shareable extends MembersOf {
-  readonly board: Container | undefined;
+  readonly container: Container | undefined;
   readonly orderedMembers: ContainerMember[];
   setOpen(open: boolean): Promise<void>;
   setMinimumRole(role: ContainerRole): Promise<void>;

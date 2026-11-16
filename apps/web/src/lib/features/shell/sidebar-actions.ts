@@ -129,7 +129,7 @@ export function boardActions(menus: SidebarMenus, board: Container, home: Catego
       icon: FolderInputIcon,
       run: () => {
         const move = moveToEnd(entry.category.id, board.id, workspace.sidebar);
-        if (move) void workspace.moveBoard(move.boardId, move.categoryId, move.index);
+        if (move) void workspace.moveContainer(move.boardId, move.categoryId, move.index);
       },
     }));
   const saving = [exportAction(workspace, board, moves.length > 0)];
@@ -161,7 +161,7 @@ export function boardActions(menus: SidebarMenus, board: Container, home: Catego
       id: 'hide',
       label: wiki ? m.shell_hide_wiki() : m['HideBoard.MenuOption'](),
       icon: EyeOffIcon,
-      run: () => void workspace.hideBoard(board.id),
+      run: () => void workspace.hideContainer(board.id),
     },
     {
       id: 'delete',

@@ -31,7 +31,14 @@
  */
 import { isBackendError, type Change, type ChangeListener } from '../state/backend.ts';
 
-import { attachmentOf, boardOf, cardOfBlock, commentOf, viewOf, type Schemas } from './convert.ts';
+import {
+  attachmentOf,
+  containerOf,
+  cardOfBlock,
+  commentOf,
+  viewOf,
+  type Schemas,
+} from './convert.ts';
 import { Heartbeat, Patience, PING, PONG } from './live-heartbeat.ts';
 import { LivePresence } from './live-presence.ts';
 import { LiveRooms } from './live-rooms.ts';
@@ -346,7 +353,7 @@ export class LiveChanges {
       // A deleted board carries only its identifier and times.
       const change: Change =
         board.deleteAt === 0
-          ? { kind: 'board', board: boardOf(board) }
+          ? { kind: 'board', board: containerOf(board) }
           : { kind: 'boardDeleted', boardId: board.id };
       this.#tellBoard(board.id, change, true);
     } else if ('block' in message) {

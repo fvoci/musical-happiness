@@ -55,7 +55,7 @@ export class MemoryPresence implements Presence {
   }
 
   #valid(place: PresenceVisit, userId: string): boolean {
-    const board = this.#world.boards.get(place.boardId);
+    const board = this.#world.containers.get(place.boardId);
     if (board?.workspaceId !== place.workspaceId) return false;
     if (!reads(this.#world, userId, board.id)) return false;
     if (!place.cardId) return true;

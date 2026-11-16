@@ -116,15 +116,15 @@ export class Trash {
   }
 }
 
-/** The boards of the reader's workspace in the trash that they were an admin of. */
-export function boardTrash(workspace: Workspace): Trash {
+/** The boards and wikis of the reader's workspace in the trash that they were an admin of. */
+export function containerTrash(workspace: Workspace): Trash {
   return new Trash(
     workspace,
     async (paging) => {
       const info = workspace.info;
       return info ? workspace.backend.deletedContainers(info.id, paging) : [];
     },
-    (boardId) => workspace.restoreBoard(boardId),
+    (containerId) => workspace.restoreContainer(containerId),
   );
 }
 

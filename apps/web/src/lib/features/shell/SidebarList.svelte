@@ -97,12 +97,14 @@
       ? [
           ...found.flatMap((board) => {
             if (board.workspaceId !== workspace.info?.id) return [board];
-            const known = workspace.boards.find((one) => one.id === board.id);
-            const listed = shown.some((entry) => entry.boards.some((one) => one.id === board.id));
+            const known = workspace.containers.find((one) => one.id === board.id);
+            const listed = shown.some((entry) =>
+              entry.containers.some((one) => one.id === board.id),
+            );
             return known && !listed ? [known] : [];
           }),
           // The backend searches boards only: a hidden wiki is found here.
-          ...workspace.hiddenBoards.filter(
+          ...workspace.hiddenContainers.filter(
             (board) => board.kind === 'wiki' && titleHas(board.title, query),
           ),
         ]
@@ -113,7 +115,7 @@
 
   const titleOf = shownTitle;
   const boardOf = (id: string): Container | undefined =>
-    workspace.boards.find((board) => board.id === id);
+    workspace.containers.find((board) => board.id === id);
   const categoryName = (id: string): string => {
     const category = workspace.categories.find((one) => one.id === id);
     return category ? categoryLabel(category) : id;
@@ -140,7 +142,7 @@
     zones: () => (filtering || guest ? [] : dragZones(workspace.sidebar)),
     onDrop: ({ itemId, to }) => {
       const move = boardMoveOf(to, itemId, workspace.sidebar);
-      if (move) void workspace.moveBoard(move.boardId, move.categoryId, move.index);
+      if (move) void workspace.moveContainer(move.boardId, move.categoryId, move.index);
     },
     messages: boardDragMessages(),
     itemLabel: (id) => {
@@ -166,7 +168,7 @@
     const gapAt = drag?.gap?.listId === entry.category.id ? drag.gap.index : -1;
     const rows: Row[] = [];
     let staying = 0;
-    for (const board of entry.boards) {
+    for (const board of entry.containers) {
       if (!drag?.itemIds.includes(board.id)) {
         if (staying === gapAt) rows.push({ kind: 'gap' });
         staying += 1;
@@ -333,7 +335,7 @@
               <IconButton
                 label={m.shell_board_unhide({ name: titleOf(board) })}
                 class="text-muted-foreground"
-                onclick={() => void workspace.unhideBoard(board.id)}
+                onclick={() => void workspace.unhideContainer(board.id)}
               >
                 <EyeIcon />
               </IconButton>
@@ -348,7 +350,7 @@
     <p class="px-2 py-3 text-muted-foreground" role="status">{m.shell_no_boards_found()}</p>
   {/if}
 
-  {#if !filtering && workspace.hiddenBoards.length > 0}
+  {#if !filtering && workspace.hiddenContainers.length > 0}
     <div class="pt-2" data-testid="hidden-boards">
       <button
         type="button"
@@ -363,12 +365,12 @@
           aria-hidden="true"
         />
         <span class="min-w-0 flex-1 truncate">
-          {m.shell_hidden_boards({ count: workspace.hiddenBoards.length })}
+          {m.shell_hidden_boards({ count: workspace.hiddenContainers.length })}
         </span>
       </button>
       {#if hiddenOpen}
         <ul>
-          {#each workspace.hiddenBoards as board (board.id)}
+          {#each workspace.hiddenContainers as board (board.id)}
             <li class="flex items-center gap-1">
               <a
                 href={boardHref(board)}
@@ -402,7 +404,7 @@
               <IconButton
                 label={m.shell_board_unhide({ name: titleOf(board) })}
                 class="text-muted-foreground"
-                onclick={() => void workspace.unhideBoard(board.id)}
+                onclick={() => void workspace.unhideContainer(board.id)}
               >
                 <EyeIcon />
               </IconButton>

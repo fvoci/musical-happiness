@@ -550,14 +550,14 @@ export interface ContainerPatch {
   deletedCardProperties?: string[];
 }
 
-export interface BoardsAndBlocks {
-  boards: Container[];
+export interface ContainersAndBlocks {
+  containers: Container[];
   blocks: Block[];
 }
 
-export interface BoardsAndBlocksPatch {
-  boardIDs: string[];
-  boardPatches: ContainerPatch[];
+export interface ContainersAndBlocksPatch {
+  containerIDs: string[];
+  containerPatches: ContainerPatch[];
   blockIDs: string[];
   blockPatches: BlockPatch[];
 }
@@ -813,7 +813,7 @@ export function createCardPropertiesPatches(
 const BOARD_MEMBERS_WITH_OWN_PATCH = ['properties', 'cardProperties'];
 
 /** The patch that turns `oldBoard` into `newBoard`, and the one that undoes it. */
-export function createPatchesFromBoards(
+export function createPatchesFromContainers(
   newBoard: Container,
   oldBoard: Container,
 ): [ContainerPatch, ContainerPatch] {
@@ -842,13 +842,13 @@ export function createPatchesFromBoards(
  * undoes it. `updatedBlocks[i]` and `oldBlocks[i]` are the two states of the
  * block `updatedBlockIds[i]`.
  */
-export function createPatchesFromBoardsAndBlocks(
+export function createPatchesFromContainersAndBlocks(
   updatedBoard: Container,
   oldBoard: Container,
   updatedBlockIds: string[],
   updatedBlocks: readonly Block[],
   oldBlocks: readonly Block[],
-): [BoardsAndBlocksPatch, BoardsAndBlocksPatch] {
+): [ContainersAndBlocksPatch, ContainersAndBlocksPatch] {
   const blockPatches: BlockPatch[] = [];
   const blockUndoPatches: BlockPatch[] = [];
   updatedBlocks.forEach((newBlock, index) => {
@@ -858,19 +858,19 @@ export function createPatchesFromBoardsAndBlocks(
     blockPatches.push(patch);
     blockUndoPatches.push(undoPatch);
   });
-  const [boardPatch, boardUndoPatch] = createPatchesFromBoards(updatedBoard, oldBoard);
+  const [boardPatch, boardUndoPatch] = createPatchesFromContainers(updatedBoard, oldBoard);
   return [
     {
       blockIDs: updatedBlockIds,
       blockPatches,
-      boardIDs: [updatedBoard.id],
-      boardPatches: [boardPatch],
+      containerIDs: [updatedBoard.id],
+      containerPatches: [boardPatch],
     },
     {
       blockIDs: updatedBlockIds,
       blockPatches: blockUndoPatches,
-      boardIDs: [updatedBoard.id],
-      boardPatches: [boardUndoPatch],
+      containerIDs: [updatedBoard.id],
+      containerPatches: [boardUndoPatch],
     },
   ];
 }

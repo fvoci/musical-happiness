@@ -8,14 +8,14 @@
 import type { Container, ContainerKind } from '../logic/wire.ts';
 
 import { isBackendError } from './backend.ts';
-import { boardOfWorkspace } from './board-parts.ts';
+import { containerOfWorkspace } from './board-parts.ts';
 import type { Shareable } from './member-writes.ts';
 import { memberId } from './user-names.ts';
 import type { LoadStatus } from './workspace.svelte.ts';
 
 /** The store of a board or a wiki that failed to open as missing. */
 export interface Managed extends Shareable {
-  board: Container | undefined;
+  container: Container | undefined;
   readonly status: LoadStatus;
   /** Reads it again, as its member now. */
   load(): Promise<void>;
@@ -34,11 +34,11 @@ export async function readManagedOnly(
   const backend = store.workspace.backend;
   try {
     const [board, members] = await Promise.all([
-      boardOfWorkspace(backend, store.containerId, store.workspace.info?.id, kind),
+      containerOfWorkspace(backend, store.containerId, store.workspace.info?.id, kind),
       backend.members(store.containerId),
     ]);
     if (board.type !== 'P' || board.isTemplate) return false;
-    store.board = board;
+    store.container = board;
     store.members = members;
     void store.workspace.learnUsers(members.map(memberId), { members: true });
     return true;

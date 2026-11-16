@@ -60,7 +60,7 @@ export function orderMembers(
 
 export interface SidebarCategory {
   category: Category;
-  boards: Container[];
+  containers: Container[];
 }
 
 /**
@@ -71,7 +71,7 @@ export interface SidebarCategory {
  */
 export function sidebarOf(
   categories: readonly Category[],
-  boards: readonly Container[],
+  containers: readonly Container[],
   locale: string,
 ): SidebarCategory[] {
   const compare = textOrder(locale);
@@ -79,7 +79,7 @@ export function sidebarOf(
     (first, second) =>
       first.sortOrder - second.sortOrder || compare(first.name, second.name) || byId(first, second),
   );
-  const known = new Map(boards.map((board) => [board.id, board]));
+  const known = new Map(containers.map((board) => [board.id, board]));
   const filed = new Set<string>();
   const result = ordered.map((category) => {
     const own: Container[] = [];
@@ -89,38 +89,38 @@ export function sidebarOf(
       filed.add(boardId);
       own.push(board);
     }
-    return { category, boards: own };
+    return { category, containers: own };
   });
   const hidden = new Set(categories.flatMap((category) => category.hiddenContainerIds));
   const loose = byTitle(
-    boards.filter((board) => !filed.has(board.id) && !hidden.has(board.id)),
+    containers.filter((board) => !filed.has(board.id) && !hidden.has(board.id)),
     locale,
   );
   const fallback = result.find((entry) => entry.category.type === 'system') ?? result.at(-1);
-  fallback?.boards.push(...loose);
+  fallback?.containers.push(...loose);
   return result;
 }
 
 /** The boards a category hides that the sidebar does not show elsewhere, by title. */
-export function hiddenBoardsOf(
+export function hiddenContainersOf(
   categories: readonly Category[],
-  boards: readonly Container[],
+  containers: readonly Container[],
   sidebar: readonly SidebarCategory[],
   locale: string,
 ): Container[] {
   const hidden = new Set(categories.flatMap((category) => category.hiddenContainerIds));
-  const shown = new Set(sidebar.flatMap((entry) => entry.boards.map((board) => board.id)));
+  const shown = new Set(sidebar.flatMap((entry) => entry.containers.map((board) => board.id)));
   return byTitle(
-    boards.filter((board) => hidden.has(board.id) && !shown.has(board.id)),
+    containers.filter((board) => hidden.has(board.id) && !shown.has(board.id)),
     locale,
   );
 }
 
 /** The categories without a board that is gone: it is filed and hidden nowhere. */
-export function withoutBoard(categories: readonly Category[], boardId: string): Category[] {
+export function withoutContainer(categories: readonly Category[], containerId: string): Category[] {
   return categories.map((category) => ({
     ...category,
-    containerIds: category.containerIds.filter((id) => id !== boardId),
-    hiddenContainerIds: category.hiddenContainerIds.filter((id) => id !== boardId),
+    containerIds: category.containerIds.filter((id) => id !== containerId),
+    hiddenContainerIds: category.hiddenContainerIds.filter((id) => id !== containerId),
   }));
 }

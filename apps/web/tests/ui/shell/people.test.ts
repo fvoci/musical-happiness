@@ -54,7 +54,7 @@ function mount(overrides: Partial<ReturnType<typeof requests>> = {}) {
   // What the panel reads of the workspace store, and no more.
   const workspace = {
     info: { id: 'w1', title: 'Acme', role: 'admin' },
-    boards: [],
+    containers: [],
     me: { id: 'u1' },
     locale: 'en',
     regional: { timeZone: 'UTC', hourCycle: 'h23' },

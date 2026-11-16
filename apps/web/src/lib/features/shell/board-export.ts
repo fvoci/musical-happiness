@@ -9,7 +9,7 @@ import type { Workspace } from '$lib/state/index.ts';
 
 /** Saves an archive of the board or wiki, once it has all arrived. */
 async function exportBoard(workspace: Workspace, boardId: string): Promise<void> {
-  const archive = await workspace.exportBoard(boardId);
+  const archive = await workspace.exportContainer(boardId);
   if (archive) saveBlob(archive.bytes, archive.name);
 }
 

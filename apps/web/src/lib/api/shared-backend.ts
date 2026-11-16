@@ -31,7 +31,7 @@ import type { Container } from '../logic/wire.ts';
 
 import {
   attachmentOf,
-  boardOf,
+  containerOf,
   bodyOf,
   cardOf,
   cardOfBlock,
@@ -205,7 +205,7 @@ export class SharedBackend implements Backend {
 
   async container(containerId: string): Promise<Container> {
     this.#only(containerId);
-    const board = boardOf(await this.#read<Schemas['Container']>(''));
+    const board = containerOf(await this.#read<Schemas['Container']>(''));
     return { ...board, workspaceId: SHARED_PLACE };
   }
 
@@ -257,20 +257,20 @@ export class SharedBackend implements Backend {
     return this.#read<Schemas['Block'][]>('/blocks', {}, { parentId, type });
   }
 
-  fileBytes(boardId: string, fileId: string): Promise<Blob> {
-    this.#only(boardId);
+  fileBytes(containerId: string, fileId: string): Promise<Blob> {
+    this.#only(containerId);
     return this.#http.bytes(
       '/api/v1/shared/{containerId}/files/{fileId}',
-      { containerId: boardId, fileId },
+      { containerId, fileId },
       { readToken: this.#readToken },
     );
   }
 
-  fileUrl(boardId: string, fileId: string): string | undefined {
-    if (boardId !== this.#containerId) return undefined;
+  fileUrl(containerId: string, fileId: string): string | undefined {
+    if (containerId !== this.#containerId) return undefined;
     return this.#http.url(
       '/api/v1/shared/{containerId}/files/{fileId}',
-      { containerId: boardId, fileId },
+      { containerId, fileId },
       { readToken: this.#readToken },
     );
   }

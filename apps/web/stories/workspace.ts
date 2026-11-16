@@ -78,7 +78,7 @@ export function exampleWorkspace({
     updateAt: STORY_NOW,
     deleteAt: 0,
   };
-  world.boards.set(board.id, board);
+  world.containers.set(board.id, board);
   world.members.set(board.id, [
     ...(managed ? [] : [memberOf(board.id, 'example-reader', readOnly ? 'viewer' : 'admin')]),
     memberOf(board.id, 'example-member', 'admin'),
