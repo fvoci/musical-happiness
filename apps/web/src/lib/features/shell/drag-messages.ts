@@ -6,7 +6,7 @@ import { m } from '$lib/i18n/paraglide/messages.js';
  * A board is dragged alone (the sidebar has no selection), a list is an open
  * category, and a zone is a folded one.
  */
-export function boardDragMessages(): SortableMessages {
+export function containerDragMessages(): SortableMessages {
   return {
     pickedUp: ({ item, position, count, list }) =>
       m.shell_drag_picked_up({ item, position, count, list }),

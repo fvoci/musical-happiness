@@ -42,12 +42,12 @@
     /** Made when the dialog opens: a new reading each time. */
     reading: VersionsReading | undefined;
     /** The board, or the wiki: who may go back to a version. */
-    board: Pick<BoardStore, 'workspace' | 'canEdit'>;
+    container: Pick<BoardStore, 'workspace' | 'canEdit'>;
     /** Whose body it is, for the words it says: a card's, or a wiki's page's. */
     of?: 'card' | 'page';
   }
 
-  let { open = $bindable(), reading, board, of = 'card' }: Props = $props();
+  let { open = $bindable(), reading, container, of = 'card' }: Props = $props();
 
   /** What is said of the card, or of the page. */
   const words = $derived(
@@ -66,14 +66,14 @@
         },
   );
 
-  const references = $derived(bodyReferences(board));
+  const references = $derived(bodyReferences(container));
 
   /** How many faces a version shows of those who wrote it. */
   const FACES = 3;
 
   let asking = $state(false);
 
-  const workspace = $derived(board.workspace);
+  const workspace = $derived(container.workspace);
   const context = $derived({
     locale: workspace.locale,
     timeZone: workspace.regional.timeZone,
@@ -277,7 +277,7 @@
                 </BodyView>
               {/if}
             </div>
-            {#if board.canEdit && reading.contentStatus === 'ready'}
+            {#if container.canEdit && reading.contentStatus === 'ready'}
               <div class="flex flex-wrap items-center justify-end gap-x-3 gap-y-2 border-t p-3">
                 {#if reading.refusal}
                   <p class="min-w-0 flex-1 text-sm" role="alert" data-refusal={reading.refusal}>

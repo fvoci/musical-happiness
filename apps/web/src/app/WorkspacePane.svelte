@@ -51,13 +51,13 @@
     if (!shown || placeId) return;
     const listed = workspace.sidebar.flatMap((entry) => entry.containers);
     const last = workspace.me && lastPlace(workspace.me.id, shown.id);
-    const chosen = listed.find((board) => board.id === last) ?? listed[0];
+    const chosen = listed.find((container) => container.id === last) ?? listed[0];
     if (chosen) router.go(placeRoute(chosen), { replace: true });
   });
 
   // The board or the wiki shown is the one to come back to in this workspace.
   $effect(() => {
-    const listed = workspace.containers.find((board) => board.id === placeId);
+    const listed = workspace.containers.find((container) => container.id === placeId);
     if (shown && listed && workspace.me) rememberPlace(workspace.me.id, shown.id, listed.id);
   });
 </script>

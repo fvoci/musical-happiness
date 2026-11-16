@@ -123,7 +123,7 @@
   onVersions={showVersions}
   onDelete={() => void remove()}
 />
-<BodyVersions bind:open={versionsOpen} reading={versions} {board} />
+<BodyVersions bind:open={versionsOpen} reading={versions} container={board} />
 
 {#if deleting}
   <div class="flex-1"></div>
@@ -161,7 +161,7 @@
       <CardTitle {board} card={summary} autofocus={blank} />
       <CardProperties {board} {view} card={summary} {onOpenCard} />
       {#if ready}
-        <CardBody {board} {card} {references} />
+        <CardBody container={board} {card} {references} />
         <CardBacklinks workspace={board.workspace} blockId={card.cardId} />
         <CardAttachments {board} {card} />
         <CardComments {board} {card} {readVersions} />

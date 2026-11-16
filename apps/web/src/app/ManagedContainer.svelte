@@ -12,7 +12,7 @@
   import ShareDialog from '$lib/features/shell/ShareDialog.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type { ContainerKind } from '$lib/logic/wire.ts';
-  import { joinManaged, readManagedOnly, type Managed } from '$lib/state/managed-board.ts';
+  import { joinManaged, readManagedOnly, type Managed } from '$lib/state/managed-container.ts';
   import type { Workspace } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
@@ -21,7 +21,7 @@
 
   interface Props {
     workspace: Workspace;
-    board: Managed;
+    store: Managed;
     /** Which of the two it is: a board's address names a board, a wiki's a wiki. */
     kind?: ContainerKind;
     /** Whether it is still the one shown: joined after it went, it is not read. */
@@ -31,7 +31,7 @@
     onJoined: () => void;
   }
 
-  let { workspace, board, kind = 'board', shown, router, onJoined }: Props = $props();
+  let { workspace, store, kind = 'board', shown, router, onJoined }: Props = $props();
 
   const wiki = $derived(kind === 'wiki');
 
@@ -41,16 +41,16 @@
 
   // Asked once for the board shown: is it there to be managed?
   $effect(() => {
-    const store = board;
+    const read = store;
     managed = 'asking';
     // What the reading looks at besides the store is not what this waits for.
     const asked = kind;
-    void untrack(() => readManagedOnly(store, asked)).then(
+    void untrack(() => readManagedOnly(read, asked)).then(
       (yes) => {
-        if (store === board) managed = yes ? 'yes' : 'no';
+        if (read === store) managed = yes ? 'yes' : 'no';
       },
       () => {
-        if (store === board) managed = 'no';
+        if (read === store) managed = 'no';
       },
     );
   });
@@ -58,7 +58,7 @@
   async function join(): Promise<void> {
     if (joining) return;
     joining = true;
-    const joined = await joinManaged(board, shown);
+    const joined = await joinManaged(store, shown);
     joining = false;
     if (joined) onJoined();
   }
@@ -68,7 +68,7 @@
   <div class="grid h-full place-items-center p-6">
     <p class="text-muted-foreground" role="status">{m.app_loading()}</p>
   </div>
-{:else if managed === 'no' || !board.container}
+{:else if managed === 'no' || !store.container}
   <NotFound {router} />
 {:else}
   <div
@@ -77,7 +77,7 @@
   >
     <div class="flex max-w-md flex-col items-center gap-3">
       <h2 class="text-lg font-medium">
-        {board.container.icon ? `${board.container.icon} ` : ''}{board.container.title ||
+        {store.container.icon ? `${store.container.icon} ` : ''}{store.container.title ||
           (wiki ? m.wiki_untitled() : m['Sidebar.untitled-board']())}
       </h2>
       <p class="text-muted-foreground">
@@ -100,9 +100,9 @@
   <ShareDialog
     bind:open={membersOpen}
     {workspace}
-    shareable={board}
+    shareable={store}
     linkOf={(readToken: string) =>
-      new URL(router.href({ boardId: board.containerId, readToken }), location.href).href}
+      new URL(router.href({ boardId: store.containerId, readToken }), location.href).href}
     membersOnly
   />
 {/if}

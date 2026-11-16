@@ -18,7 +18,7 @@ it('says that an inline formula draft was lost when the room receives a new epoc
     readAt: before.updateAt,
   });
   const card = await board.showCard(summary.id);
-  const { container, unmount } = render(CardBody, { board, card });
+  const { container, unmount } = render(CardBody, { container: board, card });
   try {
     await vi.waitFor(() => {
       expect(

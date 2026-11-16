@@ -44,17 +44,17 @@
   /** The screen could not start (its code did not load): nothing is read. */
   let unstarted = $state(false);
 
-  /** The board read, once it is: its title heads the page. */
-  const board = $derived(kind === 'wiki' ? wiki : workspace?.board?.board);
+  /** The board or wiki read, once it is: its title heads the page. */
+  const container = $derived(kind === 'wiki' ? wiki : workspace?.board?.board);
 
   onMount(() => {
-    const { boardId, readToken } = router.route;
-    if (!boardId || !readToken) return;
+    const { boardId: containerId, readToken } = router.route;
+    if (!containerId || !readToken) return;
     let made: Workspace | undefined;
     let left = false;
     /** Asked as a function: `left` changes while a reading waits, which TypeScript does not see. */
     const isLeft = (): boolean => left;
-    void startShared(boardId, readToken).then(
+    void startShared(containerId, readToken).then(
       async (started) => {
         // Gone before the backend came: nothing is read.
         if (left) return;
@@ -62,14 +62,14 @@
         place = started.place;
         made = new Workspace({ backend: read, locale: currentLocale });
         // The bodies name their images by file: the link's board or wiki has them.
-        setFileUrlResolver((fileId) => read.fileUrl(boardId, fileId));
+        setFileUrlResolver((fileId) => read.fileUrl(containerId, fileId));
         workspace = made;
         backend = read;
         await made.load(place);
         readKind = async () => {
           kind = undefined;
           try {
-            const opened = await read.container(boardId);
+            const opened = await read.container(containerId);
             if (isLeft()) return;
             kind = opened.kind ?? 'board';
             if (opened.kind === 'wiki') wiki = { title: opened.title, icon: opened.icon ?? '' };
@@ -98,9 +98,9 @@
 >
   <header class="flex h-12 shrink-0 items-center gap-3 border-b px-4">
     <p class="shrink-0 font-semibold tracking-tight" translate="no">{m.app_name()}</p>
-    {#if board}
+    {#if container}
       <h1 class="min-w-0 truncate text-muted-foreground" data-testid="shared-title">
-        {board.icon ? `${board.icon} ` : ''}{board.title ||
+        {container.icon ? `${container.icon} ` : ''}{container.title ||
           (kind === 'wiki' ? m.wiki_untitled() : m['Sidebar.untitled-board']())}
       </h1>
     {/if}
