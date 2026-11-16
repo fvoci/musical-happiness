@@ -393,9 +393,9 @@ struct StoredBoards {
 /// other kind are cleared, blocks that nothing leads to are dropped, and everything gets
 /// a new identifier; those of the blocks among `told` are given back by the old ones.
 ///
-/// What the store still checks against what is stored is the parent of a block: a
-/// parent that is a board of the same `board.jsonl` other than the block's own. An
-/// archive of this server has one board per `board.jsonl`.
+/// The parent of each block is checked against the archive as the store would check
+/// it against what is stored ([`places::check`]): what the store refuses of an archive
+/// is refused before any of it is stored.
 ///
 /// # Errors
 ///
@@ -408,24 +408,26 @@ async fn parse_board_jsonl(
     options: &ImportOptions,
     told: &HashSet<String>,
 ) -> Result<ParsedBoard, AppError> {
-    // Parsing tens of megabytes of JSON would hold up a worker of the runtime.
+    // Parsing tens of megabytes of JSON, and checking what it holds, would hold up a
+    // worker of the runtime.
     let (workspace_id, modified_by) = (options.workspace_id.clone(), options.modified_by.clone());
+    let limits = options.page_limits;
     let (mut boards_and_blocks, members) = tokio::task::spawn_blocking(move || {
-        parse_archive_lines(&jsonl, &workspace_id, &modified_by)
+        let parsed = parse_archive_lines(&jsonl, &workspace_id, &modified_by)?;
+        // As the store would refuse them, before the first board is stored: an archive
+        // exported before a card's content became its body may hold content blocks,
+        // which no write makes again (`docs/contract-pending.md` 1); a wiki and its pages
+        // are held to the rules and limits of their tree.
+        for board in &parsed.0.boards {
+            board
+                .check_storable()
+                .map_err(|error| AppError::from(StoreError::InvalidBoard(error)))?;
+        }
+        places::check(&parsed.0, limits)?;
+        Ok::<_, AppError>(parsed)
     })
     .await
     .map_err(|error| AppError::internal(format_args!("archive task failed: {error}")))??;
-
-    // As the store would refuse them, before the first board is stored: an archive
-    // exported before a card's content became its body may hold content blocks, which no
-    // write makes again (`docs/contract-pending.md` 1); a wiki and its pages are held to
-    // the rules and limits of their tree.
-    for board in &boards_and_blocks.boards {
-        board
-            .check_storable()
-            .map_err(|error| AppError::from(StoreError::InvalidBoard(error)))?;
-    }
-    places::check(&boards_and_blocks, options.page_limits)?;
     clear_values_of_another_kind(&mut boards_and_blocks);
     let orphans = drop_orphans(&mut boards_and_blocks);
     if orphans > 0 {

@@ -6,7 +6,7 @@
 
 use std::io::{Cursor, Write as _};
 
-use fvoci_model::{BoardKind, BoardMember, PageNode};
+use fvoci_model::{BlockError, BoardKind, BoardMember, PageNode};
 use serde_json::{Value, json};
 
 use crate::boards::another_workspace;
@@ -234,7 +234,7 @@ async fn what_the_rules_of_a_wiki_refuse_stores_nothing_of_the_archive() {
         .await;
     let client = &ts.client;
     let board = [board_line("b", "board", "Archived board")];
-    let refused = |blocks: Vec<Value>, reason: Option<&'static str>| {
+    let refused = |blocks: Vec<Value>, said: BlockError, reason: Option<&'static str>| {
         let mut wiki = vec![board_line("w", "wiki", "Archived wiki")];
         wiki.extend(blocks);
         let bytes = archive_of(&[&board, &wiki]);
@@ -242,31 +242,52 @@ async fn what_the_rules_of_a_wiki_refuse_stores_nothing_of_the_archive() {
             let answer = import(client, TEST_WORKSPACE_ID, &bytes).await;
             answer.check_bad_request();
             assert_eq!(answer.refused_place(), None, "{}", answer.text());
+            assert!(
+                answer.text().contains(&said.to_string()),
+                "{said}: {}",
+                answer.text()
+            );
             if let Some(reason) = reason {
                 assert_eq!(answer.value()["reason"], json!(reason), "{}", answer.text());
             }
         }
     };
     let page = |id: &str, parent: &str| block_line(id, "w", parent, "page");
-    refused(vec![block_line("c", "w", "", "card")], None).await;
-    refused(vec![page("a", "gone")], None).await;
-    refused(vec![page("a", "b"), page("b", "a")], None).await;
+    let comment = |id: &str, parent: &str| block_line(id, "w", parent, "comment");
     refused(
-        vec![
-            page("a", ""),
-            block_line("x", "w", "a", "comment"),
-            page("p", "x"),
-        ],
+        vec![block_line("c", "w", "", "card")],
+        BlockError::NotPageOnWiki,
+        None,
+    )
+    .await;
+    refused(vec![page("a", "gone")], BlockError::ParentNotOnBoard, None).await;
+    refused(
+        vec![page("a", "b"), page("b", "a")],
+        BlockError::ParentBelowBlock,
+        None,
+    )
+    .await;
+    refused(
+        vec![page("a", ""), comment("x", "a"), page("p", "x")],
+        BlockError::PageNotBelowPage,
+        None,
+    )
+    .await;
+    refused(
+        vec![page("a", ""), comment("x", "a"), comment("y", "x")],
+        BlockError::CommentNotOnCardOrPage,
         None,
     )
     .await;
     refused(
         vec![page("a", ""), page("b", "a"), page("c", "b")],
+        BlockError::PageTooDeep { limit: 2 },
         Some("page_too_deep"),
     )
     .await;
     refused(
         vec![page("a", ""), page("b", ""), page("c", ""), page("d", "")],
+        BlockError::TooManyPages { limit: 3 },
         Some("too_many_pages"),
     )
     .await;
@@ -283,6 +304,17 @@ async fn what_the_rules_of_a_wiki_refuse_stores_nothing_of_the_archive() {
     )
     .await;
     answer.check_bad_request();
+    let said = BlockError::PageOffWiki.to_string();
+    assert!(answer.text().contains(&said), "{}", answer.text());
+    // A comment on nothing of a board, after a board that would do: refused first too.
+    let stray = [
+        board_line("s", "board", "Archived stray"),
+        block_line("x", "s", "", "comment"),
+    ];
+    let answer = import(client, TEST_WORKSPACE_ID, &archive_of(&[&board, &stray])).await;
+    answer.check_bad_request();
+    let said = BlockError::CommentNotOnCardOrPage.to_string();
+    assert!(answer.text().contains(&said), "{}", answer.text());
 
     let boards: Vec<fvoci_model::Board> = client.get(&format!("{TEST_WS}/boards")).await.ok_json();
     assert!(
