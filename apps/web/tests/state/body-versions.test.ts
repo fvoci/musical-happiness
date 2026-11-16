@@ -314,7 +314,7 @@ describe('the versions of a body, in memory', () => {
     expect(lines(stored.blocks.get(cardId)?.body)).toEqual(['second', 'typed']);
   });
 
-  it('does not restore a version that shows an image whose file is gone', async () => {
+  it('does not restore a version that shows a file that is gone (of an image or a file block)', async () => {
     const { world: stored, BOARD, backend, cardId } = world();
     stored.files.set('f1', {
       fileId: 'f1',

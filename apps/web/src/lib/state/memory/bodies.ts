@@ -51,6 +51,9 @@ export function checkedBody(
   return empty ? null : copy(body);
 }
 
+/** Why a comment's body is refused: it has a file block, which only a card's or a page's may. */
+export const FILE_BLOCK_IN_COMMENT = "a comment's body has no file block";
+
 /** A comment's body as it is stored, or the server's refusal: a comment has no file block. */
 export function checkedComment(
   world: World,
@@ -59,7 +62,7 @@ export function checkedComment(
 ): DocNode | null {
   const checked = checkedBody(world, containerId, body);
   if (checked && hasFileBlock(checked)) {
-    fail(400, "a comment's body has no file block", { field: 'body' });
+    fail(400, FILE_BLOCK_IN_COMMENT, { field: 'body' });
   }
   return checked;
 }

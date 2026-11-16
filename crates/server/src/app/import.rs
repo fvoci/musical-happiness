@@ -25,7 +25,7 @@ use tokio::fs;
 use super::App;
 use super::container_copies::counted_as;
 use super::export::ARCHIVE_VERSION;
-use super::files::stored_extension;
+use super::files::{base_name, stored_extension};
 use super::uploads::MAX_UPLOAD_NAME_CHARS;
 use crate::auth::now_millis;
 use crate::error::{AppError, ErrorKind};
@@ -187,19 +187,9 @@ impl App {
                 tracing::warn!(dir, filename, "skipping orphan image in archive");
                 continue;
             };
-            let saved = match unpack_entry(&zip, index, largest_file, &unpacked_file).await {
-                Ok(()) => match fs::File::open(&unpacked_file).await {
-                    Ok(mut file) => {
-                        let name = name_in(&file_names, &dir, &filename);
-                        self.save_file(&mut file, &container.id, name).await
-                    }
-                    Err(error) => Err(AppError::internal(format_args!(
-                        "cannot open an unpacked archive entry: {error}"
-                    ))),
-                },
-                Err(error) => Err(error),
-            };
-            remove_unpacked(&unpacked_file).await;
+            let name = name_in(&file_names, &dir, &filename);
+            let entry = (&zip, index, largest_file, unpacked_file.as_path());
+            let saved = self.save_archive_entry(entry, &container.id, name).await;
             let new_name = saved.map_err(|error| {
                 error.context(format_args!(
                     "cannot import file {filename} for board {dir}"
@@ -214,6 +204,29 @@ impl App {
         Ok(Imported {
             members_left_out: left_out.len(),
         })
+    }
+
+    /// Unpacks the entry of the archive at its index (`entry`: the archive, the index,
+    /// the limit of its size and where it is unpacked to) and stores it as a file of
+    /// `container_id` called `name`. Gives the new file's stored name; the unpacked copy
+    /// is removed either way.
+    async fn save_archive_entry(
+        &self,
+        (zip, index, limit, unpacked): (&Archive, usize, u64, &Path),
+        container_id: &str,
+        name: &str,
+    ) -> Result<String, AppError> {
+        let saved = match unpack_entry(zip, index, limit, unpacked).await {
+            Ok(()) => match fs::File::open(unpacked).await {
+                Ok(mut file) => self.save_file(&mut file, container_id, name).await,
+                Err(error) => Err(AppError::internal(format_args!(
+                    "cannot open an unpacked archive entry: {error}"
+                ))),
+            },
+            Err(error) => Err(error),
+        };
+        remove_unpacked(unpacked).await;
+        saved
     }
 
     /// Stores the boards of the archive, each its `board.jsonl` at an index under a
@@ -547,10 +560,11 @@ fn drop_orphans(containers_and_blocks: &mut ContainersAndBlocks) -> usize {
 }
 
 /// The names a board line gives the files of its directory (`fileNames`, by the names
-/// of their entries), as an upload's name may be: not blank, without U+0000, at most
-/// [`MAX_UPLOAD_NAME_CHARS`] characters, and with the extension of the entry's name. Any
-/// other is left out, and that file keeps the name of its entry, as before the names
-/// were written.
+/// of their entries), as an upload's name may be: not blank (the part after the last
+/// `/`, which is what a record keeps), without U+0000, at most
+/// [`MAX_UPLOAD_NAME_CHARS`] characters, and with the extension of the entry's name.
+/// Any other is left out, and that file keeps the name of its entry, as before the
+/// names were written.
 fn file_names_of(board: &Value) -> FileNames {
     let Some(names) = board.get("fileNames").and_then(Value::as_object) else {
         return FileNames::new();
@@ -559,7 +573,7 @@ fn file_names_of(board: &Value) -> FileNames {
         .iter()
         .filter_map(|(entry, name)| {
             let name = name.as_str()?;
-            let fits = !name.trim().is_empty()
+            let fits = !base_name(name).trim().is_empty()
                 && !name.contains('\0')
                 && name.chars().count() <= MAX_UPLOAD_NAME_CHARS
                 && stored_extension(name) == stored_extension(entry);

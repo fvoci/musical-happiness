@@ -74,9 +74,11 @@ pub(super) async fn require_import_access(
 /// `block` or `boardMember` per line, in the shapes of this contract, bodies included,
 /// but that a block and a member name their board or wiki `boardId`, not `containerId`)
 /// and the files the blocks show, those of the images and file blocks of bodies among
-/// them. A wiki is written as a board is, its `kind` `wiki`: its pages as they stand
-/// and the comments on them are its blocks (not the pages in its trash, nor the
-/// versions of bodies).
+/// them. A board's line also carries `fileNames`: the name each of its files was
+/// uploaded with, by stored name, which an import gives the files it stores (an archive
+/// without it is read as before). A wiki is written as a board is, its `kind` `wiki`:
+/// its pages as they stand and the comments on them are its blocks (not the pages in
+/// its trash, nor the versions of bodies).
 ///
 /// A user runs one export at a time, and the server as many as its setting
 /// `max_concurrent_exports` (2 unless set). Over either it is 429 with the reason

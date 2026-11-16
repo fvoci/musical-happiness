@@ -304,6 +304,43 @@ describe('a file block', () => {
     expect(link?.getAttribute('draggable')).toBe('false');
   });
 
+  it('saves a file pressed before its record came under the name the record gives', async () => {
+    for (const [answer, name] of [
+      [() => Promise.resolve({ name: '회의록 2026-11.pdf', size: 4 }), '회의록 2026-11.pdf'],
+      // The record cannot be read: under the name drawn, its identifier.
+      [() => Promise.reject(new Error('offline')), '7minutes.pdf'],
+    ] as const) {
+      let tell: () => void = () => undefined;
+      const told = new Promise<void>((resolve) => {
+        tell = resolve;
+      });
+      const details = vi.fn(() => told.then(answer));
+      const bytes = (): Promise<Blob> => Promise.resolve(new Blob(['%PDF']));
+      setFileSource({ url: (fileId) => `/files/wiki-1/${fileId}`, details, bytes });
+      const saved = vi.spyOn(HTMLAnchorElement.prototype, 'click');
+      vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:minutes');
+      vi.spyOn(URL, 'revokeObjectURL').mockReturnValue(undefined);
+      const savedAs = (): string[] =>
+        saved.mock.contexts
+          .map((link) => link as HTMLAnchorElement)
+          .filter((link) => link.href === 'blob:minutes')
+          .map((link) => link.download);
+      const { container, unmount } = render(BodyView, { doc: doc(fileBlock('7minutes.pdf')) });
+      const block = container.querySelector<HTMLElement>('[data-file-block]');
+      expect(block?.dataset.state).toBe('pending');
+      block?.querySelector<HTMLAnchorElement>('a.doc-file-download')?.click();
+      await aTurn();
+      // The bytes are there; the name is waited for.
+      expect(savedAs()).toEqual([]);
+      tell();
+      await vi.waitFor(() => {
+        expect(savedAs()).toEqual([name]);
+      });
+      unmount();
+      vi.restoreAllMocks();
+    }
+  });
+
   it('stays on the page when its file cannot be read, and says the file is gone if it is', async () => {
     const details = vi
       .fn((_fileId: string) => Promise.resolve<FileDetails | null>(KNOWN['7sheet.xlsx'] ?? null))

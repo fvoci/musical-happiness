@@ -526,8 +526,9 @@ async fn archives_of_the_former_formats_are_refused() {
 }
 
 /// An archive carries the files that the images of bodies show, and an import points
-/// the bodies at the board's new files. An image block without a file, which an export
-/// used to answer with 500, is exported as it is.
+/// the bodies at the board's new files, under the names they were uploaded with. An
+/// image block without a file, which an export used to answer with 500, is exported as
+/// it is.
 #[tokio::test]
 async fn an_archive_carries_the_images_of_bodies() {
     an_archive_carries_the_files_of_bodies("image").await;
@@ -536,6 +537,19 @@ async fn an_archive_carries_the_images_of_bodies() {
 #[tokio::test]
 async fn an_archive_carries_the_files_of_file_blocks() {
     an_archive_carries_the_files_of_bodies("file").await;
+}
+
+/// The first line of the board's `board.jsonl` in an archive: the board's own.
+fn board_line(mut archive: zip::ZipArchive<Cursor<Vec<u8>>>, board_id: &str) -> serde_json::Value {
+    let mut lines = String::new();
+    std::io::Read::read_to_string(
+        &mut archive
+            .by_name(&format!("{board_id}/board.jsonl"))
+            .expect("the board's lines"),
+        &mut lines,
+    )
+    .expect("text");
+    serde_json::from_str(lines.lines().next().expect("a first line")).expect("JSON")
 }
 
 async fn an_archive_carries_the_files_of_bodies(kind: &str) {
@@ -582,21 +596,10 @@ async fn an_archive_carries_the_files_of_bodies(kind: &str) {
         archive.file_names().collect::<Vec<_>>()
     );
     // The board's line names the file as it was uploaded; the original reads past it.
-    let mut archive = archive;
-    let mut lines = String::new();
-    std::io::Read::read_to_string(
-        &mut archive
-            .by_name(&format!("{}/board.jsonl", board.id))
-            .expect("the board's lines"),
-        &mut lines,
-    )
-    .expect("text");
-    let board_line: serde_json::Value =
-        serde_json::from_str(lines.lines().next().expect("a first line")).expect("JSON");
     assert_eq!(
-        board_line["data"]["fileNames"],
+        board_line(archive, &board.id)["data"]["fileNames"],
         serde_json::json!({ file_id.as_str(): "picture.png" }),
-        "{board_line}"
+        "the board's line names its file"
     );
 
     import(&ts.client, TEST_WORKSPACE_ID, &exported.body)

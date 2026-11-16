@@ -6,7 +6,7 @@
 import type { Container } from '../../logic/wire.ts';
 import type { DownloadedFile, DownloadOptions } from '../backend.ts';
 
-import { flushContainers } from './bodies.ts';
+import { FILE_BLOCK_IN_COMMENT, flushContainers } from './bodies.ts';
 import { fail } from './refuse.ts';
 import { hasFileBlock, MEMORY_ARCHIVE } from './shapes.ts';
 import type { StoredBlock, World } from './world.ts';
@@ -58,7 +58,7 @@ export function blockOfLine(data: unknown): StoredBlock {
   ) as StoredBlock;
   // As the server refuses the archive whole: a comment has no file block.
   if (block.type === 'comment' && block.body && hasFileBlock(block.body)) {
-    fail(400, "a comment's body has no file block", { field: 'body' });
+    fail(400, FILE_BLOCK_IN_COMMENT, { field: 'body' });
   }
   return block;
 }
